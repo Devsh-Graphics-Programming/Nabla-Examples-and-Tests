@@ -236,7 +236,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
-    // pathtracer.sampleSequence = ext::SampleSequenceProxy<uint3>::create(renderPushConstants.pSampleSequence);
     pathtracer.pSampleBuffer = renderPushConstants.pSampleSequence;
 
 #ifdef RWMC_ENABLED

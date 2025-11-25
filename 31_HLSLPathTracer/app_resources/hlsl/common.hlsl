@@ -117,26 +117,6 @@ enum IntersectMode : uint32_t
     IM_PROCEDURAL
 };
 
-template<typename T>
-struct SampleSequenceProxy
-{
-    using type_t = T;
-
-    static SampleSequenceProxy<T> create(const uint64_t pBuf)
-    {
-        SampleSequenceProxy<T> retval;
-        retval.accessor = LegacyBdaAccessor<type_t>::create(pBuf);
-        return retval;
-    }
-
-    void get(const uint64_t ix, NBL_REF_ARG(type_t) value)
-    {
-        accessor.get(ix, value);
-    }
-
-    LegacyBdaAccessor<type_t> accessor;
-};
-
 template<typename T, ProceduralShapeType type>
 struct Shape;
 

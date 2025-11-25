@@ -24,19 +24,6 @@ namespace ext
 namespace PathTracer
 {
 
-// template<typename Scalar>
-// struct PathTracerCreationParams
-// {
-//     // rng gen
-//     uint32_t2 rngState;
-
-//     // ray gen
-//     vector<Scalar, 2> pixOffsetParam;
-//     vector<Scalar, 3> camPos;
-//     vector<Scalar, 4> NDC;
-//     matrix<Scalar, 4, 4> invMVP;
-// };
-
 template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
 struct DefaultAccumulator
 {
@@ -93,14 +80,12 @@ struct Unidirectional
 
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
-        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2); glsl::gl_LocalInvocationIndex()
-	    // uint32_t3 seqVal = sampleSequence[address + i].xyz;
+        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
         QuantizedSequence tmpSeq = vk::RawBufferLoad<QuantizedSequence>(pSampleBuffer + (address + i) * sizeof(QuantizedSequence));
         uint32_t3 seqVal;
-        seqVal.x = tmpSeq.x;
-        seqVal.y = tmpSeq.y;
-        seqVal.z = tmpSeq.z;
-        // sampleSequence.get(address + i, seqVal);
+        seqVal.x = tmpSeq.getX();
+        seqVal.y = tmpSeq.getY();
+        seqVal.z = tmpSeq.getZ();
 	    seqVal ^= randGen();
         return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
     }
@@ -317,7 +302,6 @@ struct Unidirectional
     material_system_type materialSystem;
     nee_type nee;
 
-    // SampleSequenceProxy<uint3> sampleSequence;
     uint64_t pSampleBuffer;
 };
 

@@ -851,9 +851,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
 					    {
 						    auto& seq = out[i * quantizedDimensions + dim];
-						    seq.x = sampler.sample(dim + 0, i);
-						    seq.y = sampler.sample(dim + 1, i);
-						    seq.z = sampler.sample(dim + 2, i);
+						    seq.setX(sampler.sample(dim + 0, i));
+						    seq.setY(sampler.sample(dim + 1, i));
+						    seq.setZ(sampler.sample(dim + 2, i));
 					    }
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
