@@ -1,12 +1,6 @@
 #ifndef _NBL_HLSL_EXT_RANDGEN_INCLUDED_
 #define _NBL_HLSL_EXT_RANDGEN_INCLUDED_
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
 namespace RandGen
 {
 
@@ -30,9 +24,6 @@ struct Uniform3D
     rng_type rng;
 };
 
-}
-}
-}
 }
 
 #endif

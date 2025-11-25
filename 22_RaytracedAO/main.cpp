@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "../common/QToQuitEventReceiver.h"
 
@@ -16,6 +17,7 @@
 
 #include "CSceneNodeAnimatorCameraModifiedMaya.h"
 #include "Renderer.h"
+#include "SimpleJson.h"
 
 using namespace nbl;
 using namespace core;
@@ -55,6 +57,12 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 					case BeautyKey:
 						renderingBeauty = !renderingBeauty;
 						break;
+					case ReloadKey:
+						reloadKeyPressed = true;
+						break;
+					case OverloadCameraKey:
+						overloadCameraKeyPressed = true;
+						break;
 					case QuitKey:
 						running = false;
 						return true;
@@ -82,6 +90,10 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 
 		inline bool isRenderingBeauty() const { return renderingBeauty; }
 
+		inline bool isReloadKeyPressed() const { return reloadKeyPressed; }
+
+		inline bool isOverloadCameraKeyPressed() const { return overloadCameraKeyPressed; }
+
 		inline void resetKeys()
 		{
 			skipKeyPressed = false;
@@ -90,6 +102,8 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 			previousKeyPressed = false;
 			screenshotKeyPressed = false;
 			logProgressKeyPressed = false;
+			reloadKeyPressed = false;
+			overloadCameraKeyPressed = false;
 		}
 
 	private:
@@ -101,6 +115,8 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		static constexpr nbl::EKEY_CODE ScreenshotKey = nbl::KEY_KEY_P;
 		static constexpr nbl::EKEY_CODE LogProgressKey = nbl::KEY_KEY_L;
 		static constexpr nbl::EKEY_CODE BeautyKey = nbl::KEY_KEY_B;
+		static constexpr nbl::EKEY_CODE ReloadKey = nbl::KEY_F5;
+		static constexpr nbl::EKEY_CODE OverloadCameraKey = nbl::KEY_KEY_C;
 
 		bool running;
 		bool renderingBeauty;
@@ -111,6 +127,141 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool previousKeyPressed;
 		bool screenshotKeyPressed;
 		bool logProgressKeyPressed;
+		bool reloadKeyPressed;
+		bool overloadCameraKeyPressed;
+};
+
+struct PersistentState
+{
+	bool isBeauty;
+	bool isInteractiveMode;
+	bool isInteractiveViewMatrixLH;
+	bool isDenoiseDeferred;
+	uint32_t startSensorID;
+	std::string zipPath;
+	std::string xmlPath;
+	ProcessSensorsBehaviour processSensorsBehaviour;
+	// It is important to initialize it to all 0s because we use the condition of determinant 0 as an invalid condition for the view matrix.
+	core::matrix3x4SIMD interactiveCameraViewMatrix = core::matrix3x4SIMD(core::vectorSIMDf(), core::vectorSIMDf(), core::vectorSIMDf());
+
+	bool readFromDisk()
+	{
+		bool readSuccess = false;
+		std::ifstream readFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
+		if (readFile.is_open())
+		{
+			auto readSize = readFile.tellg();
+			if (readSize != std::istream::pos_type(-1))
+			{
+				std::unique_ptr<uint8_t[]> readBuffer = std::make_unique<uint8_t[]>(readSize);
+				readFile.seekg(0, std::ios::beg);
+				readFile.read(reinterpret_cast<char*>(readBuffer.get()), readSize);
+				if (readFile.rdstate() == std::ios_base::goodbit)
+				{
+					uint64_t offset = 0;
+
+					memcpy(&isBeauty, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&isInteractiveViewMatrixLH, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
+					offset += sizeof(uint32_t);
+
+					memcpy(&processSensorsBehaviour, readBuffer.get() + offset, sizeof(ProcessSensorsBehaviour));
+					offset += sizeof(ProcessSensorsBehaviour);
+
+					memcpy(&interactiveCameraViewMatrix, readBuffer.get() + offset, sizeof(core::matrix3x4SIMD));
+					offset += sizeof(core::matrix3x4SIMD);
+
+					const char* path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					zipPath = std::string(path);
+					offset += zipPath.length() + 1;
+
+					path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					xmlPath = std::string(path);
+					offset += xmlPath.length() + 1;
+
+					readSuccess = (offset == static_cast<uint64_t>(readSize));
+				}
+			}
+
+			readFile.close();
+		}
+
+		return readSuccess;
+	}
+
+	bool writeToDisk() const
+	{
+		bool writeSuccess = false;
+		std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
+		if (outFile.is_open())
+		{
+			const size_t writeSize = getSerializedMemorySize();
+
+			std::unique_ptr<uint8_t[]> writeBuffer = std::make_unique<uint8_t[]>(writeSize);
+
+			uint64_t offset = 0;
+
+			memcpy(writeBuffer.get() + offset, &isBeauty, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &isInteractiveViewMatrixLH, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
+			offset += sizeof(uint32_t);
+
+			memcpy(writeBuffer.get() + offset, &processSensorsBehaviour, sizeof(ProcessSensorsBehaviour));
+			offset += sizeof(ProcessSensorsBehaviour);
+
+			memcpy(writeBuffer.get() + offset, &interactiveCameraViewMatrix, sizeof(core::matrix3x4SIMD));
+			offset += sizeof(core::matrix3x4SIMD);
+
+			memcpy(writeBuffer.get() + offset, zipPath.c_str(), zipPath.length() + 1);
+			offset += zipPath.length() + 1;
+
+			memcpy(writeBuffer.get() + offset, xmlPath.c_str(), xmlPath.length() + 1);
+			offset += xmlPath.length() + 1;
+
+			assert(offset == static_cast<uint32_t>(writeSize));
+
+			outFile.write(reinterpret_cast<char*>(writeBuffer.get()), writeSize);
+			if (outFile.rdstate() == std::ios_base::goodbit)
+				writeSuccess = true;
+
+			outFile.close();
+		}
+
+		if (!writeSuccess)
+			printf("[ERROR]: Failed to write the persistent state cache.\n");
+
+		return writeSuccess;
+	}
+
+private:
+	inline size_t getSerializedMemorySize() const
+	{
+		const size_t result =
+			sizeof(bool)					+ // isBeauty
+			sizeof(bool)					+ // isInteractiveMode
+			sizeof(bool)                    + // isInteractiveViewMatrixLH
+			sizeof(uint32_t)				+ // startSensorID
+			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
+			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
+			(zipPath.length() + 1)			+
+			(xmlPath.length() + 1)			;
+
+		return result;
+	}
 };
 
 int main(int argc, char** argv)
@@ -121,24 +272,46 @@ int main(int argc, char** argv)
 		for (auto i = 1ul; i < argc; ++i)
 			arguments.emplace_back(argv[i]);
 	}
+	std::cout << std::endl;
+	std::cout << "-- Build URL:" << std::endl;
+	std::cout << NBL_BUILD_URL << std::endl;
+	std::cout << std::endl;
+	std::cout << "-- Build log:" << std::endl;
+	std::cout << NBL_GIT_LOG << std::endl;
+	std::cout  << std::endl;
 
-#ifdef TEST_ARGS
-	arguments = std::vector<std::string> { 
-		"-SCENE",
-		"../../media/mitsuba/staircase2.zip",
-		"scene.xml",
-		"-TERMINATE",
-		"-SCREENSHOT_OUTPUT_FOLDER",
-		"\"C:\\Nabla-Screen-Shots\""
-	};
-#endif
-	
-	CommandLineHandler cmdHandler = CommandLineHandler(arguments);
-	
-	auto sceneDir = cmdHandler.getSceneDirectory();
-	std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
-	std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
-	bool shouldTerminateAfterRenders = cmdHandler.getTerminate(); // skip interaction with window and take screenshots only
+	bool applicationIsReloaded = false;
+	PersistentState applicationState;
+	{
+		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
+
+		applicationState.processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+		applicationState.startSensorID = cmdHandler.getSensorID();
+		applicationState.isInteractiveMode = (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
+		applicationState.isDenoiseDeferred = cmdHandler.getDeferredDenoiseFlag();
+
+		auto sceneDir = cmdHandler.getSceneDirectory();
+		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
+			applicationIsReloaded = true;
+
+		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
+		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
+		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		{
+			applicationState.zipPath = filePath;
+			applicationState.xmlPath = extraPath;
+		}
+		else
+		{
+			applicationState.xmlPath = filePath;
+		}
+		// After this, there could be 4 cases:
+		// 1. zipPath filled, xmlPath filled -> load xml from zip
+		// 2. zipPath empty, xmlPath filled -> directly load xml
+		// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
+		// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
+	}
+
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
@@ -156,52 +329,57 @@ int main(int argc, char** argv)
 	auto device = createDeviceEx(params);
 	if (!device)
 		return 1; // could not create selected driver.
-	
-	// will leak it because there's no cross platform input!
-	std::thread cin_thread;
 
 	//
-	asset::SAssetBundle meshes;
+	asset::SAssetBundle meshes = {};
 	core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> globalMeta;
 	{
 		io::IFileSystem* fs = device->getFileSystem();
 		asset::IAssetManager* am = device->getAssetManager();
-		
+
 		auto serializedLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CSerializedLoader>(am);
-		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am,fs);
+		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am, fs);
 		serializedLoader->initialize();
 		mitsubaLoader->initialize();
 		am->addAssetLoader(std::move(serializedLoader));
 		am->addAssetLoader(std::move(mitsubaLoader));
 
-		if(filePath.empty())
+		if (applicationState.zipPath.empty() && applicationState.xmlPath.empty() && !applicationIsReloaded)
 		{
-			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. \nIf you cancel or choosen file fails to load, simple scene will be loaded.", pfd::choice::ok);
-			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
+			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
+			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
 			if (!file.result().empty())
-				filePath = file.result()[0];
+			{
+				if (core::hasFileExtension(io::path(file.result()[0].c_str()), "zip", "ZIP"))
+					applicationState.zipPath = file.result()[0];
+				else
+					applicationState.xmlPath = file.result()[0];
+			}
 		}
 
-		if(filePath.empty())
-			filePath = "../../media/mitsuba/staircase2.zip";
-		
-		mainFileName = std::filesystem::path(filePath).filename().string();
-		mainFileName = mainFileName.substr(0u, mainFileName.find_first_of('.')); 
-		
-		std::cout << "\nSelected File = " << filePath << "\n" << std::endl;
-
-		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		auto loadScene = [&device, &am, &fs](const std::string& _zipPath, std::string& _xmlPath, std::string& _mainFileName) -> asset::SAssetBundle
 		{
-			io::IFileArchive* arch = nullptr;
-			device->getFileSystem()->addFileArchive(filePath.c_str(),io::EFAT_ZIP,"",&arch);
-			if (arch)
+			asset::SAssetBundle result = {};
+			if (_zipPath.empty() && _xmlPath.empty())
+				return result;
+
+			_mainFileName = "";
+			if (!_zipPath.empty())
 			{
+				_mainFileName = std::filesystem::path(_zipPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+
+				io::IFileArchive* arch = nullptr;
+				device->getFileSystem()->addFileArchive(_zipPath.c_str(), io::EFAT_ZIP, "", &arch);
+				if (!arch)
+					return result;
+
 				auto flist = arch->getFileList();
 				if (!flist)
-					return 3;
-				auto files = flist->getFiles();
+					return {};
 
-				for (auto it=files.begin(); it!=files.end(); )
+				auto files = flist->getFiles();
+				for (auto it = files.begin(); it != files.end(); )
 				{
 					if (core::hasFileExtension(it->FullName, "xml", "XML"))
 						it++;
@@ -209,85 +387,137 @@ int main(int argc, char** argv)
 						it = files.erase(it);
 				}
 				if (files.size() == 0u)
-					return 4;
+				{
+					printf("[ERROR]: No XML files found in the ZIP archive!\n");
+					return result;
+				}
 
-				if(extraPath.empty())
+				if (_xmlPath.empty())
 				{
 					uint32_t chosen = 0xffffffffu;
 
-					// Don't ask for choosing file when there is only 1 available
-					if(files.size() > 1)
+					// Only ask for choosing a file when there are multiple of them.
+					if (files.size() > 1)
 					{
-						std::cout << "Choose File (0-" << files.size() - 1ull << "):" << std::endl;
+						printf("Choose File (0-%llu):\n", files.size() - 1ull);
 						for (auto i = 0u; i < files.size(); i++)
-							std::cout << i << ": " << files[i].FullName.c_str() << std::endl;
+							printf("%u: %s\n", i, files[i].FullName.c_str());
 
 						// std::cin with timeout
 						{
 							std::atomic<bool> started = false;
-							cin_thread = std::thread([&chosen,&started]()
+							std::thread cin_thread([&chosen, &started]()
 							{
 								started = true;
 								std::cin >> chosen;
 							});
-							const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(10u);
-							while (!started || chosen==0xffffffffu && std::chrono::steady_clock::now()<end) {}
+							cin_thread.detach();
+							const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
+							while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
 						}
 					}
-					else if(files.size() >= 0)
+					else
 					{
-						std::cout << "The only available XML in zip Selected." << std::endl;
+						printf("[INFO]: The only available XML in the ZIP is selected.\n");
 					}
-					
+
 					if (chosen >= files.size())
 						chosen = 0u;
 
-					filePath = files[chosen].FullName.c_str();
-					std::cout << "Selected XML File: "<< files[chosen].Name.c_str() << std::endl;
-					mainFileName += std::string("_") + std::filesystem::path(files[chosen].Name.c_str()).replace_extension().string();
+					_xmlPath = std::string(files[chosen].FullName.c_str());
 				}
 				else
 				{
+					// Verify that the passed XML path is in the ZIP archive.
 					bool found = false;
-					for (auto it=files.begin(); it!=files.end(); it++)
+					for (auto it = files.begin(); it != files.end(); it++)
 					{
-						if(extraPath == std::string(it->Name.c_str()))
+						// In `PersistentState` we save the full XML name `_xmlPath` could also be that.
+						if ((_xmlPath == std::string(it->Name.c_str())) || (_xmlPath == std::string(it->FullName.c_str())))
 						{
+							_xmlPath = std::string(it->FullName.c_str());
 							found = true;
-							filePath = it->FullName.c_str();
-							mainFileName += std::string("_") + std::filesystem::path(it->Name.c_str()).replace_extension().string();
 							break;
 						}
 					}
 
-					if(!found) {
-						std::cout << "Cannot find requested file (" << extraPath.c_str() << ") in zip (" << filePath << ")" << std::endl;
-						return 4;
+					if (!found)
+					{
+						printf("[ERROR]: Cannot find requested XML file (%s) in the ZIP (%s)\n", _xmlPath.c_str(), _zipPath.c_str());
+						return result;
 					}
 				}
-			}
-		}
-		
-		asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
 
-		//! read cache results -- speeds up mesh generation
-		qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		//! load the mitsuba scene
-		meshes = am->getAsset(filePath, {});
-		//! cache results -- speeds up mesh generation on second run
-		qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		
-		auto contents = meshes.getContents();
-		if (!contents.size()) {
-			std::cout << "[ERROR] Failed loading asset in " << filePath << ".";
-			return 2;
+				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).filename().replace_extension().string();
+			}
+			else if (!_xmlPath.empty())
+			{
+				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+			}
+
+			printf("[INFO]: Loading XML file: %s\n", _xmlPath.c_str());
+
+			asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
+
+			//! read cache results -- speeds up mesh generation
+			qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			//! load the mitsuba scene
+			result = am->getAsset(_xmlPath, {});
+			//! cache results -- speeds up mesh generation on second run
+			qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			
+			return result;
+		};
+
+		meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
+		if (meshes.getContents().empty() || applicationIsReloaded)
+		{
+			if (meshes.getContents().empty() && !applicationState.xmlPath.empty())
+				printf("[ERROR]: Failed to load asset at: %s\n", applicationState.xmlPath.c_str());
+
+			// Restore state to get new values for zipPath and xmlPath and try loading again
+			printf("[INFO]: Trying to restore the application to its previous state.\n");
+
+			bool restoreSuccess = false;
+			if (applicationState.readFromDisk())
+			{
+				meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
+				if (!meshes.getContents().empty())
+					restoreSuccess = true;
+			}
+
+			if (!restoreSuccess)
+			{
+				pfd::message("ERROR", "Cannot restore application to its previous state.", pfd::choice::ok);
+				return 2;
+			}
 		}
 
 		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
-		if (!globalMeta) {
+		if (!globalMeta)
+		{
 			std::cout << "[ERROR] Couldn't get global Meta";
 			return 3;
 		}
+
+		std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
+
+		if (globalMeta->m_global.m_sensors.empty())
+		{
+			std::cout << "[ERROR] No Sensors found." << std::endl;
+			assert(false);
+			return 5; // return code?
+		}
+
+		if (applicationState.startSensorID >= globalMeta->m_global.m_sensors.size())
+		{
+			applicationState.startSensorID = 0;
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
+		}
+
+		// empty out the cache from individual images and meshes taht are not used by the scene
+		am->clearAllAssetCache();
 	}
 	
 	constexpr float DefaultRotateSpeed = 300.0f;
@@ -299,6 +529,10 @@ int main(int argc, char** argv)
 	{
 		int32_t width = 0u;
 		int32_t height = 0u;
+		int32_t cropWidth = 0u;
+		int32_t cropHeight = 0u;
+		int32_t cropOffsetX = 0u;
+		int32_t cropOffsetY = 0u;
 		bool rightHandedCamera = true;
 		uint32_t samplesNeeded = 0u;
 		float moveSpeed = core::nan<float>();
@@ -310,8 +544,14 @@ int main(int argc, char** argv)
 		ext::MitsubaLoader::CElementSensor::Type type;
 		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
 		Renderer::DenoiserArgs denoiserInfo = {};
-		int32_t highQualityEdges = 0u;
+		int32_t cascadeCount = 1;
+		float cascadeLuminanceBase = core::nan<float>();
+		float cascadeLuminanceStart = core::nan<float>();
+		float kappa = 0.f;
+		float Emin = 0.05f;
 		bool envmap = false;
+		float envmapRegFactor = 0.0f;
+		core::vector<core::vectorSIMDf> clipPlanes;
 
 		scene::CSceneNodeAnimatorCameraModifiedMaya* getInteractiveCameraAnimator()
 		{
@@ -349,18 +589,19 @@ int main(int argc, char** argv)
 	{
 		std::string ret = "";
 		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format) {
-		case FileFormat::PNG:
-			ret = ".png";
-			break;
-		case FileFormat::OPENEXR:
-			ret = ".exr";
-			break;
-		case FileFormat::JPEG:
-			ret = ".jpg";
-			break;
-		default: // TODO?
-			break;
+		switch (format)
+		{
+			case FileFormat::PNG:
+				ret = ".png";
+				break;
+			case FileFormat::OPENEXR:
+				ret = ".exr";
+				break;
+			case FileFormat::JPEG:
+				ret = ".jpg";
+				break;
+			default: // TODO?
+				break;
 		}
 		return ret;
 	};
@@ -375,30 +616,22 @@ int main(int argc, char** argv)
 
 		// TODO: get the supported extensions from loaders(?)
 		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format) {
-		case FileFormat::PNG:
-			return extension == "png";
-		case FileFormat::OPENEXR:
-			return extension == "exr";
-		case FileFormat::JPEG:
-			return extension == "jpg" || extension == "jpeg" || extension == "jpe" || extension == "jif" || extension == "jfif" || extension == "jfi";
-		default:
-			return false;
+		switch (format)
+		{
+			case FileFormat::PNG:
+				return extension == "png";
+			case FileFormat::OPENEXR:
+				return extension == "exr";
+			case FileFormat::JPEG:
+				return extension == "jpg" || extension == "jpeg" || extension == "jpe" || extension == "jif" || extension == "jfif" || extension == "jfi";
+			default:
+				return false;
 		}
 	};
-
-	std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
-
-	if(globalMeta->m_global.m_sensors.empty())
-	{
-		std::cout << "[ERROR] No Sensors found." << std::endl;
-		assert(false);
-		return 5; // return code?
-	}
 	
 	const bool shouldHaveSensorIdxInFileName = globalMeta->m_global.m_sensors.size() > 1;
-	std::vector<SensorData> sensors = std::vector<SensorData>();
-	std::vector<CubemapRender> cubemapRenders = std::vector<CubemapRender>();
+	std::vector<SensorData> sensors;
+	std::vector<CubemapRender> cubemapRenders;
 
 	auto extractAndAddToSensorData = [&](const ext::MitsubaLoader::CElementSensor& sensor, uint32_t idx) -> bool
 	{
@@ -410,12 +643,13 @@ int main(int argc, char** argv)
 		mainSensorData.denoiserInfo.bloomIntensity = film.denoiserBloomIntensity;
 		mainSensorData.denoiserInfo.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
 		mainSensorData.fileFormat = film.fileFormat;
-		mainSensorData.highQualityEdges = film.highQualityEdges;
+		mainSensorData.cascadeCount = film.cascadeCount;
+		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
+		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
+		mainSensorData.kappa = mainSensorData.cascadeCount<2 ? 0.f:film.rfilter.kappa;
+		mainSensorData.Emin = film.rfilter.Emin;
+		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
-		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
-		{
-			std::cout << "[ERROR] film.outputFilePath's extension is not compatible with film.fileFormat" << std::endl;
-		}
 		// handle missing output path
 		if (mainSensorData.outputFilePath.empty())
 		{
@@ -425,6 +659,8 @@ int main(int argc, char** argv)
 			else
 				mainSensorData.outputFilePath = std::filesystem::path("Render_" + mainFileName + extensionStr);
 		}
+		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
+			std::cout << "[ERROR] film.outputFilePath's extension is not compatible with film.fileFormat" << std::endl;
 
 		mainSensorData.samplesNeeded = sensor.sampler.sampleCount;
 		std::cout << "\t SamplesPerPixelNeeded = " << mainSensorData.samplesNeeded << std::endl;
@@ -463,6 +699,17 @@ int main(int argc, char** argv)
 				return false;
 		}
 		mainSensorData.type = sensor.type;
+		
+		for (auto i=0; i<sensor.MaxClipPlanes; i++)
+		{
+			const auto& plane = cameraBase->clipPlanes[i];
+			if ((plane!=core::vectorSIMDf()).any())
+			{
+				mainSensorData.clipPlanes.push_back(plane);
+				printf("Found Clip Plane %f,%f,%f,%f\n",plane[0],plane[1],plane[2],plane[3]);
+			}
+		}
+
 		mainSensorData.rotateSpeed = cameraBase->rotateSpeed;
 		mainSensorData.stepZoomSpeed = cameraBase->zoomSpeed;
 		mainSensorData.moveSpeed = cameraBase->moveSpeed;
@@ -494,6 +741,31 @@ int main(int argc, char** argv)
 		// need to extract individual components from matrix to camera
 		{
 			auto relativeTransform = sensor.transform.matrix.extractSub3x4();
+			if (applicationState.isInteractiveMode && (idx == applicationState.startSensorID) && (core::abs(applicationState.interactiveCameraViewMatrix.getPseudoDeterminant().x) > 1e-6f))
+			{
+				if (!applicationState.interactiveCameraViewMatrix.getInverse(relativeTransform))
+					printf("[ERROR]: Previously saved interactive camera's view matrix is not invertible.\n");
+
+				if (applicationState.isInteractiveViewMatrixLH)
+				{
+					// invert signs in the first col only
+					relativeTransform.rows[0].x *= -1.f;
+					relativeTransform.rows[1].x *= -1.f;
+					relativeTransform.rows[2].x *= -1.f;
+				}
+				else
+				{
+					// invert signs both in the first and third cols
+					relativeTransform.rows[0].x *= -1.f;
+					relativeTransform.rows[1].x *= -1.f;
+					relativeTransform.rows[2].x *= -1.f;
+
+					relativeTransform.rows[0].z *= -1.f;
+					relativeTransform.rows[1].z *= -1.f;
+					relativeTransform.rows[2].z *= -1.f;
+				}
+			}
+			
 			if (relativeTransform.getPseudoDeterminant().x < 0.f)
 				mainSensorData.rightHandedCamera = false;
 			else
@@ -505,16 +777,18 @@ int main(int argc, char** argv)
 			
 			std::cout << "\t Camera Position = <" << mainCamPos.x << "," << mainCamPos.y << "," << mainCamPos.z << ">" << std::endl;
 
-			auto tpose = core::transpose(sensor.transform.matrix);
+			auto tpose = core::transpose(core::matrix4SIMD(relativeTransform));
 			mainCamUp = tpose.rows[1];
 			mainCamView = tpose.rows[2];
+
+			std::cout << "\t Camera Reconstructed UpVector = <" << mainCamUp.x << "," << mainCamUp.y << "," << mainCamUp.z << ">" << std::endl;
+			std::cout << "\t Camera Reconstructed Forward = <" << mainCamView.x << "," << mainCamView.y << "," << mainCamView.z << ">" << std::endl;
 		}
 		
 		float realFoVDegrees;
 		auto width = film.cropWidth;
 		auto height = film.cropHeight;
-		mainSensorData.width = width;
-		mainSensorData.height = height;
+
 		float aspectRatio = float(width) / float(height);
 		auto convertFromXFoV = [=](float fov) -> float
 		{
@@ -522,9 +796,6 @@ int main(int argc, char** argv)
 			return core::degrees(atan(aspectX/aspectRatio)*2.f);
 		};
 
-		// TODO: apply the crop offset
-		assert(film.cropOffsetX==0 && film.cropOffsetY==0);
-		
 		float nearClip = cameraBase->nearClip;
 		float farClip = cameraBase->farClip;
 		if(farClip > nearClip * 10'000.0f)
@@ -532,28 +803,29 @@ int main(int argc, char** argv)
 
 		if (mainSensorData.type == ext::MitsubaLoader::CElementSensor::Type::SPHERICAL)
 		{
+			mainSensorData.width = film.width;
+			mainSensorData.height = film.height;
+			mainSensorData.cropWidth = film.cropWidth;
+			mainSensorData.cropHeight = film.cropHeight;
+			mainSensorData.cropOffsetX = film.cropOffsetX;
+			mainSensorData.cropOffsetY = film.cropOffsetY;
+
 			nbl::core::vectorSIMDf camViews[6] =
 			{
-				nbl::core::vectorSIMDf(+1, 0, 0, 0), // +X
 				nbl::core::vectorSIMDf(-1, 0, 0, 0), // -X
-				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
+				nbl::core::vectorSIMDf(+1, 0, 0, 0), // +X
 				nbl::core::vectorSIMDf(0, -1, 0, 0), // -Y
-				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
+				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
+				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 			};
-
-			if(!mainSensorData.rightHandedCamera)
-			{
-				camViews[0] *= -1;
-				camViews[1] *= -1;
-			}
 			
 			const nbl::core::vectorSIMDf upVectors[6] =
 			{
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
-				nbl::core::vectorSIMDf(0, 0, +1, 0), // -Z
-				nbl::core::vectorSIMDf(0, 0, -1, 0), // +Z
+				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
+				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 			};
@@ -567,25 +839,22 @@ int main(int argc, char** argv)
 				SensorData cubemapFaceSensorData = mainSensorData;
 				cubemapFaceSensorData.envmap = true;
 
-				if(mainSensorData.width != mainSensorData.height)
+				if (mainSensorData.cropWidth != mainSensorData.cropHeight)
 				{
-					std::cout << "[ERROR] Cannot generate cubemap faces where film.width and film.height are not equal. (Aspect Ration must be 1)" << std::endl;
+					std::cout << "[ERROR] Cannot generate cubemap faces where film.cropWidth and film.cropHeight are not equal. (Aspect Ratio must be 1)" << std::endl;
 					assert(false);
 				}
-				const auto baseResolution = core::max(mainSensorData.width,mainSensorData.height);
-				cubemapFaceSensorData.width = baseResolution + mainSensorData.highQualityEdges * 2;
-				cubemapFaceSensorData.height = baseResolution + mainSensorData.highQualityEdges * 2;
 
 				// FIXME: suffix added after extension
 				cubemapFaceSensorData.outputFilePath.replace_extension();
 				constexpr const char* suffixes[6] =
 				{
-					"_x+.exr",
 					"_x-.exr",
-					"_y+.exr",
+					"_x+.exr",
 					"_y-.exr",
-					"_z+.exr",
+					"_y+.exr",
 					"_z-.exr",
+					"_z+.exr",
 				};
 				cubemapFaceSensorData.outputFilePath += suffixes[i];
 
@@ -599,14 +868,15 @@ int main(int argc, char** argv)
 				staticCamera->setTarget((mainCamPos + camView).getAsVector3df());
 				staticCamera->setUpVector(upVector);
 
-				// auto fov = core::radians(90.0f);
-				auto fov = atanf(float(cubemapFaceSensorData.width) / float(mainSensorData.width)) * 2.0f;
-				auto aspectRatio = 1.0f;
+				const float w = float(cubemapFaceSensorData.width)/float(cubemapFaceSensorData.cropWidth);
+				const float h = float(cubemapFaceSensorData.height)/float(cubemapFaceSensorData.cropHeight);
 				
+				const auto fov = atanf(h)*2.f;
+				const auto aspectRatio = h/w;
 				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(fov, 1.0f, nearClip, farClip));
+					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(fov, aspectRatio, nearClip, farClip));
 				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(fov, 1.0f, nearClip, farClip));
+					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(fov, aspectRatio, nearClip, farClip));
 				
 				cubemapFaceSensorData.interactiveCamera = smgr->addCameraSceneNodeModifiedMaya(nullptr, -1.0f * mainSensorData.rotateSpeed, 50.0f, mainSensorData.moveSpeed, -1, 2.0f, defaultZoomSpeedMultiplier, false, true);
 				cubemapFaceSensorData.resetInteractiveCamera();
@@ -615,6 +885,14 @@ int main(int argc, char** argv)
 		}
 		else
 		{
+			mainSensorData.width = film.cropWidth;
+			mainSensorData.height = film.cropHeight;
+			
+			if(film.cropOffsetX != 0 || film.cropOffsetY != 0)
+			{
+				std::cout << "[WARN] CropOffsets are non-zero. cropping is not supported for non cubemap renders." << std::endl;
+			}
+
 			mainSensorData.staticCamera = smgr->addCameraSceneNode(nullptr); 
 			auto& staticCamera = mainSensorData.staticCamera;
 
@@ -626,8 +904,19 @@ int main(int argc, char** argv)
 				staticCamera->setTarget(target.getAsVector3df());
 			}
 
-			if (core::dot(core::normalize(core::cross(staticCamera->getUpVector(),mainCamView)),core::cross(mainCamUp,mainCamView)).x<0.99f)
-				staticCamera->setUpVector(mainCamUp);
+			{
+				auto declaredUp = cameraBase->up;
+				auto reconstructedRight = core::cross(declaredUp,mainCamView);
+				auto actualRight = core::cross(mainCamUp,mainCamView);
+				// special formulation avoiding multiple sqrt and inversesqrt to preserve precision
+				const float dp = core::dot(reconstructedRight,actualRight).x/core::sqrt((core::dot(reconstructedRight,reconstructedRight)*core::dot(actualRight,actualRight)).x);
+				const float pb = core::dot(declaredUp,mainCamView).x/core::sqrt((core::dot(declaredUp,declaredUp)*core::dot(mainCamView,mainCamView)).x);
+				std::cout << "\t Camera Reconstructed UpVector match score = "<< dp << std::endl;
+				if (dp>0.97f && dp<1.03f && abs(pb)<0.9996f)
+					staticCamera->setUpVector(declaredUp);
+				else
+					staticCamera->setUpVector(mainCamUp);
+			}
 
 			//
 			if (ortho)
@@ -674,11 +963,13 @@ int main(int argc, char** argv)
 						assert(false);
 						break;
 				}
-
+				core::matrix4SIMD projMat;
+				projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
 				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
 				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+				staticCamera->setProjectionMatrix(projMat);
 			}
 			else
 			{
@@ -692,6 +983,7 @@ int main(int argc, char** argv)
 		return true;
 	};
 
+	// Always add all the sensors because the interactive mode wants all the sensors.
 	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
 		std::cout << "Sensors[" << s << "] = " << std::endl;
@@ -701,9 +993,11 @@ int main(int argc, char** argv)
 
 	auto driver = device->getVideoDriver();
 
-	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr);
+	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr,applicationState.isDenoiseDeferred);
 	renderer->initSceneResources(meshes,"LowDiscrepancySequenceCache.bin");
-	meshes = {}; // free memory
+	// free memory
+	meshes = {};
+	device->getAssetManager()->clearAllGPUObjects();
 	
 	RaytracerExampleEventReceiver receiver;
 	device->setEventReceiver(&receiver);
@@ -743,128 +1037,205 @@ int main(int argc, char** argv)
 		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
 	}
 
+	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
+	if (!applicationState.isInteractiveMode)
+	{
+		assert(applicationState.startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
+
+		uint32_t onePastLastSensorID = applicationState.startSensorID;
+		if ((applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
+			onePastLastSensorID = sensors.size();
+		else if (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE)
+			onePastLastSensorID = applicationState.startSensorID + 1;
+		nonInteractiveSensors = { sensors.data() + applicationState.startSensorID, sensors.data() + onePastLastSensorID };
+	}
+	assert(nonInteractiveSensors.size() <= sensors.size());
+
+	auto reloadApplication = [argv]()
+	{
+		printf("[INFO]: Reloading..\n");
+
+		// Set up the special reload condition.
+		const char* cmdLineParams = "-SCENE=";
+		HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
+		if ((uint64_t)result <= 32)
+			printf("[ERROR]: Failed to reload.\n");
+		else
+			exit(0);
+	};
 
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
-	for(uint32_t s = 0u; s < sensors.size(); ++s)
+	int32_t prevCascadeCount = 0;
+	float prevRegFactor = 0.0f;
+	if (!nonInteractiveSensors.empty())
 	{
-		if(!receiver.keepOpen())
-			break;
-
-		const auto& sensorData = sensors[s];
-		
-		printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
-
-		bool needsReinit = (prevWidth != sensorData.width) || (prevHeight != sensorData.height); // >= or !=
-		prevWidth = sensorData.width;
-		prevHeight = sensorData.height;
-		
-		renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
-		if(needsReinit) 
+		for (const auto& sensor : nonInteractiveSensors)
 		{
-			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height);
-		}
-		
-		smgr->setActiveCamera(sensorData.staticCamera);
-
-		const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
-		const uint32_t maxNeededIterations = (sensorData.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
-		
-		uint32_t itr = 0u;
-		bool takenEnoughSamples = false;
-		bool renderFailed = false;
-		while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
-		{
-			if(itr >= maxNeededIterations)
-				std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensorData.samplesNeeded << ") by now; something is wrong." << std::endl;
-
-			// Handle Inputs
-			{
-				if(receiver.isLogProgressKeyPressed())
-				{
-					int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-					printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
-				}
-				receiver.resetKeys();
-			}
-
-
-			driver->beginScene(false, false);
-
-			if(!renderer->render(device->getTimer(),!sensorData.envmap))
-			{
-				renderFailed = true;
-				driver->endScene();
+			if(!receiver.keepOpen())
 				break;
+
+			const uint32_t s = &sensor - sensors.data();
+
+			// Save application's current persistent state to disk.
+			{
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = false;
+				applicationState.startSensorID = s;
+
+				if (!applicationState.writeToDisk())
+					printf("[ERROR]: Cannot write application state to disk\n");
+			}
+		
+			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", applicationState.xmlPath.c_str(), s);
+
+			bool needsReinit = prevWidth!=sensor.width || prevHeight!=sensor.height || prevCascadeCount!=sensor.cascadeCount || prevRegFactor!=sensor.envmapRegFactor;
+			prevWidth = sensor.width;
+			prevHeight = sensor.height;
+			prevCascadeCount = sensor.cascadeCount;
+			prevRegFactor = sensor.envmapRegFactor;
+		
+			renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
+			if(needsReinit) 
+			{
+				renderer->deinitScreenSizedResources();
+				renderer->initScreenSizedResources(sensor.width,sensor.height,sensor.envmapRegFactor,sensor.cascadeCount,sensor.cascadeLuminanceBase,sensor.cascadeLuminanceStart,sensor.Emin,sensor.clipPlanes);
+			}
+		
+			smgr->setActiveCamera(sensor.staticCamera);
+
+			const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
+			const uint32_t maxNeededIterations = (sensor.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
+		
+			uint32_t itr = 0u;
+			bool takenEnoughSamples = false;
+			bool renderFailed = false;
+			auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
+			while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
+			{
+				if(itr >= maxNeededIterations)
+					std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensor.samplesNeeded << ") by now; something is wrong." << std::endl;
+
+				// Handle Inputs
+				{
+					if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
+					{
+						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded);
+						lastTimeLoggedProgress = std::chrono::steady_clock::now();
+					}
+					if (receiver.isReloadKeyPressed())
+					{
+						printf("[INFO]: Reloading..\n");
+						reloadApplication();
+					}
+					receiver.resetKeys();
+				}
+
+				driver->beginScene(false, false);
+
+				if(!renderer->render(device->getTimer(),sensor.kappa,sensor.Emin,!sensor.envmap))
+				{
+					renderFailed = true;
+					driver->endScene();
+					break;
+				}
+
+				auto oldVP = driver->getViewPort();
+				driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
+				driver->setViewPort(oldVP);
+
+				driver->endScene();
+			
+				if(renderer->getTotalSamplesPerPixelComputed() >= sensor.samplesNeeded)
+					takenEnoughSamples = true;
+			
+				itr++;
 			}
 
-			auto oldVP = driver->getViewPort();
-			driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
-			driver->setViewPort(oldVP);
-
-			driver->endScene();
-			
-			if(renderer->getTotalSamplesPerPixelComputed() >= sensorData.samplesNeeded)
-				takenEnoughSamples = true;
-			
-			itr++;
-		}
-
-		auto screenshotFilePath = sensorData.outputFilePath;
+			auto screenshotFilePath = sensor.outputFilePath;
 		
-		if(renderFailed)
-		{
-			std::cout << "[ERROR] Render Failed." << std::endl;
-		}
-		else
-		{
-			bool shouldDenoise = sensorData.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
-			renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensorData.denoiserInfo);
-			int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-			printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded, screenshotFilePath.filename().string().c_str());
-		}
+			if(renderFailed)
+			{
+				std::cout << "[ERROR] Render Failed." << std::endl;
+			}
+			else
+			{
 
-		receiver.resetKeys();
-	}
+				const bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
+				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensor.denoiserInfo);
+				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded, screenshotFilePath.filename().string().c_str());
+				auto filename_wo_ext = screenshotFilePath;
+				filename_wo_ext.replace_extension();
+				auto stream = std::make_shared<simplejson::Stream>();
+				stream->begin_json_object();
+				stream->emit_json_key_value("output_tonemap", filename_wo_ext.string() +".exr");
+				stream->emit_json_key_value("output_albedo", filename_wo_ext.string() + "_albedo.exr");
+				stream->emit_json_key_value("output_normal", filename_wo_ext.string() + "_normal.exr");
+				if(shouldDenoise)
+					stream->emit_json_key_value("output_denoised", filename_wo_ext.string() + "_denoised.exr");
+				stream->end_json_object();
+				std::cout << "\n[JSON] " << stream->str() << "\n[ENDJSON]" << std::endl;
+				
+			}
 
-	// Denoise Cubemaps that weren't denoised seperately
-	for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
-	{
-		uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
-		assert(beginIdx + 6 <= sensors.size());
-		auto borderPixels = sensors[beginIdx].highQualityEdges;
-
-		std::filesystem::path filePaths[6] = {};
-
-		for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
-		{
-			const auto & sensor = sensors[f];
-			filePaths[f] = sensor.outputFilePath;
+			receiver.resetKeys();
 		}
 
-		std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
-		renderer->denoiseCubemapFaces(filePaths, mergedFileName, borderPixels, sensors[beginIdx].denoiserInfo);
+		// Denoise Cubemaps that weren't denoised seperately
+		for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
+		{
+			uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
+			assert(beginIdx + 6 <= sensors.size());
+
+			std::filesystem::path filePaths[6] = {};
+
+			for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
+			{
+				const auto & sensor = sensors[f];
+				filePaths[f] = sensor.outputFilePath;
+			}
+
+			std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
+			renderer->denoiseCubemapFaces(
+				filePaths,
+				mergedFileName,
+				sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
+				sensors[beginIdx].denoiserInfo);
+		}
 	}
 
 	// Interactive
-	if(!shouldTerminateAfterRenders && receiver.keepOpen())
+	if((applicationState.processSensorsBehaviour != ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE) && receiver.keepOpen())
 	{
-		int activeSensor = -1; // that outputs to current window when not in TERMIANTE mode.
+		int activeSensor = -1;
 
 		auto setActiveSensor = [&](int index) 
 		{
 			if(index >= 0 && index < sensors.size())
 			{
-				bool needsReinit = (activeSensor == -1) || (sensors[activeSensor].width != sensors[index].width) || (sensors[activeSensor].height != sensors[index].height); // should be >= or != ?
+				bool needsReinit;
+				if (activeSensor != -1)
+				{
+					const auto& activeSensorData = sensors[activeSensor];
+					const auto& nextSensorData = sensors[index];
+					needsReinit = activeSensorData.width!=nextSensorData.width ||
+						activeSensorData.height!=nextSensorData.height ||
+						activeSensorData.cascadeCount!=nextSensorData.cascadeCount ||
+						activeSensorData.envmapRegFactor!=nextSensorData.envmapRegFactor;
+				}
+				else
+					needsReinit = true;
 				activeSensor = index;
 
 				renderer->resetSampleAndFrameCounters();
 				if(needsReinit)
 				{
 					renderer->deinitScreenSizedResources();
-					renderer->initScreenSizedResources(sensors[activeSensor].width,sensors[activeSensor].height);
+					const auto& sensorData = sensors[activeSensor];
+					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin,sensorData.clipPlanes);
 				}
 
 				smgr->setActiveCamera(sensors[activeSensor].interactiveCamera);
@@ -872,8 +1243,9 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(0);
+		setActiveSensor(applicationState.startSensorID);
 
+		bool writeLastRunState = false;
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
@@ -886,13 +1258,42 @@ int main(int argc, char** argv)
 					sensors[activeSensor].resetInteractiveCamera();
 					std::cout << "Interactive Camera Position and Target has been Reset." << std::endl;
 				}
-				if(receiver.isNextPressed())
+				else if(receiver.isOverloadCameraKeyPressed())
+				{
+					pfd::open_file file("Choose XML file to overload camera with (only first sensor overrides)", "../../media/mitsuba", { "XML files (.xml)", "*.xml" });
+					if (!file.result().empty())
+					{
+						const auto filePath = file.result()[0];
+						using namespace nbl::asset;
+						smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> mitsubaMetadata;
+						{
+							static const IAssetLoader::SAssetLoadParams mitsubaLoaderParams = { 0, nullptr, IAssetLoader::ECF_DONT_CACHE_REFERENCES, nullptr, IAssetLoader::ELPF_LOAD_METADATA_ONLY };
+							auto meshes_bundle = device->getAssetManager()->getAsset(filePath.data(),mitsubaLoaderParams);
+							if (!meshes_bundle.getContents().empty())
+								mitsubaMetadata = smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(static_cast<const ext::MitsubaLoader::CMitsubaMetadata*>(meshes_bundle.getMetadata()));
+						}
+						if (!mitsubaMetadata || mitsubaMetadata->m_global.m_sensors.empty())
+							os::Printer::log("ERROR (" + std::to_string(__LINE__) + " line): The xml file is invalid/cannot be loaded! File path: " + filePath, ELL_ERROR);
+						else
+						{
+							const uint32_t originalSensorCount = sensors.size();
+							uint32_t idx = originalSensorCount;
+							for (const auto& sensor : mitsubaMetadata->m_global.m_sensors)
+								extractAndAddToSensorData(sensor,idx++);
+							setActiveSensor(originalSensorCount);
+						}
+						writeLastRunState = true;
+					}
+				}
+				else if(receiver.isNextPressed())
 				{
 					setActiveSensor(activeSensor + 1);
+					writeLastRunState = true;
 				}
-				if(receiver.isPreviousPressed())
+				else if(receiver.isPreviousPressed())
 				{
 					setActiveSensor(activeSensor - 1);
+					writeLastRunState = true;
 				}
 				if(receiver.isScreenshotKeyPressed())
 				{
@@ -928,17 +1329,51 @@ int main(int argc, char** argv)
 				}
 				if(receiver.isLogProgressKeyPressed())
 				{
-					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed. \n", renderer->getTotalSamplesPerPixelComputed());
+					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed.\n", renderer->getTotalSamplesPerPixelComputed());
 				}
-				receiver.resetKeys();
 			}
 
 			driver->beginScene(false, false);
-			if(!renderer->render(device->getTimer(),true,receiver.isRenderingBeauty()))
+			if(!renderer->render(
+					device->getTimer(),
+					activeSensor!=-1 ? sensors[activeSensor].kappa:0.f,
+					activeSensor!=-1 ? sensors[activeSensor].Emin:0.f,
+					true,receiver.isRenderingBeauty()
+			))
 			{
 				renderFailed = true;
 				driver->endScene();
 				break;
+			}
+
+			if (writeLastRunState)
+			{
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = true;
+				applicationState.startSensorID = activeSensor;
+				applicationState.isInteractiveViewMatrixLH = !sensors[activeSensor].rightHandedCamera;
+				applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+				applicationState.writeToDisk();
+
+				writeLastRunState = false;
+			}
+
+			// Post-frame input handling
+			{
+				if (receiver.isReloadKeyPressed())
+				{
+					applicationState.isBeauty = receiver.isRenderingBeauty();
+					applicationState.isInteractiveMode = true;
+					applicationState.startSensorID = activeSensor;
+					applicationState.isInteractiveViewMatrixLH = !sensors[activeSensor].rightHandedCamera;
+					applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+					applicationState.writeToDisk();
+
+					reloadApplication();
+				}
+				receiver.resetKeys();
 			}
 
 			auto oldVP = driver->getViewPort();
@@ -955,7 +1390,8 @@ int main(int argc, char** argv)
 				auto samples = renderer->getTotalSamplesComputed();
 				auto rays = renderer->getTotalRaysCast();
 				const double microsecondsElapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-start).count();
-				str << L"Raytraced Shadows Demo - Nabla Engine   MegaSamples: " << samples/1000000ull
+				str << L"Nabla Path Tracer: " << applicationState.zipPath.c_str() << "\\" << applicationState.xmlPath.c_str()
+					<< "   MegaSamples: " << samples/1000000ull
 					<< "   MSample/s: " << double(samples)/microsecondsElapsed
 					<< "   MRay/s: " << double(rays)/microsecondsElapsed;
 
@@ -984,3 +1420,5 @@ int main(int argc, char** argv)
 	std::exit(0);
 	return 0;
 }
+
+extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }

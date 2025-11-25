@@ -5,12 +5,6 @@
 
 #include "common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
 namespace RayGen
 {
 
@@ -48,7 +42,9 @@ struct Basic
         vector2_type remappedRand = randVec.xy;
         remappedRand.x *= 1.0 - truncation;
         remappedRand.x += truncation;
-        tmp.xy += pixOffsetParam * nbl::hlsl::boxMullerTransform<scalar_type>(remappedRand, 1.5);
+        nbl::hlsl::sampling::BoxMullerTransform<scalar_type> boxMuller;
+        boxMuller.stddev = 1.5;
+        tmp.xy += pixOffsetParam * boxMuller(remappedRand);
         // for depth of field we could do another stochastic point-pick
         tmp = nbl::hlsl::mul(invMVP, tmp);
         ray.direction = nbl::hlsl::normalize(tmp.xyz / tmp.w - camPos);
@@ -74,9 +70,6 @@ struct Basic
     matrix4x4_type invMVP;
 };
 
-}
-}
-}
 }
 
 #endif

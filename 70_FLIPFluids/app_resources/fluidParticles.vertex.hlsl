@@ -14,6 +14,7 @@ struct SPushConstants
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
 using namespace nbl::hlsl;
 
+[shader("vertex")]
 PSInput main(uint vertexID : SV_VertexID)
 {
     PSInput output;

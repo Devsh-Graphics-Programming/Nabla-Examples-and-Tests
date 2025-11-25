@@ -4,111 +4,57 @@
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
+#include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 #include <nbl/builtin/hlsl/concepts.hlsl>
-
-#include "rand_gen.hlsl"
-#include "ray_gen.hlsl"
-#include "intersector.hlsl"
-#include "material_system.hlsl"
-#include "next_event_estimator.hlsl"
-#include "scene.hlsl"
 
 namespace nbl
 {
 namespace hlsl
 {
-namespace ext
-{
-namespace PathTracer
+namespace path_tracing
 {
 
-template<typename BxDFCreation, typename Scalar>
-struct PathTracerCreationParams
-{
-    // rng gen
-    uint32_t2 rngState;
-
-    // ray gen
-    vector<Scalar, 2> pixOffsetParam;
-    vector<Scalar, 3> camPos;
-    vector<Scalar, 4> NDC;
-    matrix<Scalar, 4, 4> invMVP;
-
-    // mat
-    BxDFCreation diffuseParams;
-    BxDFCreation conductorParams;
-    BxDFCreation dielectricParams;
-};
-
-template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
-struct DefaultAccumulator
-{
-    struct DefaultAccumulatorInitializationSettings {};
-
-    using output_storage_type = OutputTypeVec;
-    using initialization_data = DefaultAccumulatorInitializationSettings;
-    output_storage_type accumulation;
-
-    void initialize(in initialization_data initializationData)
-    {
-        accumulation = (output_storage_type)0.0f;
-    }
-
-    void addSample(uint32_t sampleIndex, float32_t3 sample)
-    {
-        using ScalarType = typename vector_traits<OutputTypeVec>::scalar_type;
-        ScalarType rcpSampleSize = 1.0 / (sampleIndex + 1);
-        accumulation += (sample - accumulation) * rcpSampleSize;
-    }
-};
-
-template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator>
+template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator, class Scene>
 struct Unidirectional
 {
-    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator>;
+    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator, Scene>;
     using randgen_type = RandGen;
     using raygen_type = RayGen;
     using intersector_type = Intersector;
     using material_system_type = MaterialSystem;
     using nee_type = NextEventEstimator;
+    using scene_type = Scene;
 
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
+    using monochrome_type = vector<scalar_type, 1>;
     using measure_type = typename MaterialSystem::measure_type;
-    using output_storage_type = typename Accumulator::output_storage_type;
+    using output_storage_type = typename Accumulator::output_storage_type; // ?
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
     using light_type = Light<measure_type>;
-    using bxdfnode_type = BxDFNode<measure_type>;
-    using anisotropic_type = typename MaterialSystem::anisotropic_type;
-    using isotropic_type = typename anisotropic_type::isotropic_type;
+    using bxdfnode_type = typename MaterialSystem::bxdfnode_type;
+    using anisotropic_interaction_type = typename MaterialSystem::anisotropic_interaction_type;
+    using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
     using anisocache_type = typename MaterialSystem::anisocache_type;
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
-    using params_type = typename MaterialSystem::params_t;
-    using create_params_type = typename MaterialSystem::create_params_t;
-    using scene_type = Scene<light_type, bxdfnode_type>;
 
     using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
     using dielectric_op_type = typename MaterialSystem::dielectric_op_type;
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params)
-    {
-        this_t retval;
-        retval.randGen = randgen_type::create(params.rngState);
-        retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-        retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
-        return retval;
-    }
-
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-	    uint32_t3 seqVal = sampleSequence[address + i].xyz;
+        QuantizedSequence tmpSeq = vk::RawBufferLoad<QuantizedSequence>(pSampleBuffer + (address + i) * sizeof(QuantizedSequence));
+        uint32_t3 seqVal;
+        seqVal.x = tmpSeq.getX();
+        seqVal.y = tmpSeq.getY();
+        seqVal.z = tmpSeq.getZ();
 	    seqVal ^= randGen();
         return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
     }
@@ -118,36 +64,19 @@ struct Unidirectional
         return hlsl::dot<vector3_type>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
     }
 
-    // TODO: probably will only work with procedural shapes, do the other ones
+    // TODO: probably will only work with isotropic surfaces, need to do aniso
     bool closestHitProgram(uint32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         const ObjectID objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
-        uint32_t bsdfLightIDs;
-        anisotropic_type interaction;
-        isotropic_type iso_interaction;
-        uint32_t mode = objectID.mode;
-        switch (mode)
-        {
-            // TODO
-            case IM_RAY_QUERY:
-            case IM_RAY_TRACING:
-                break;
-            case IM_PROCEDURAL:
-            {
-                bsdfLightIDs = scene.getBsdfLightIDs(objectID);
-                vector3_type N = scene.getNormal(objectID, intersection);
-                N = nbl::hlsl::normalize(N);
-                ray_dir_info_type V;
-                V.direction = -ray.direction;
-                isotropic_type iso_interaction = isotropic_type::create(V, N);
-                interaction = anisotropic_type::create(iso_interaction);
-            }
-            break;
-            default:
-                break;
-        }
+        uint32_t bsdfLightIDs = scene.getBsdfLightIDs(objectID);
+        vector3_type N = scene.getNormal(objectID, intersection);
+        N = nbl::hlsl::normalize(N);
+        ray_dir_info_type V;
+        V.setDirection(-ray.direction);
+        isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+        anisotropic_interaction_type interaction = anisotropic_interaction_type::create(iso_interaction);
 
         vector3_type throughput = ray.payload.throughput;
 
@@ -163,13 +92,11 @@ struct Unidirectional
         if (bsdfID == bxdfnode_type::INVALID_ID)
             return false;
 
-        bxdfnode_type bxdf = scene.bxdfs[bsdfID];
+        bxdfnode_type bxdf = materialSystem.bxdfs[bsdfID];
 
         // TODO: ifdef kill diffuse specular paths
 
-        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
-                            (bxdf.materialType == ext::MaterialSystem::MaterialType::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
-                            bxdf_traits<dielectric_op_type>::type == BT_BSDF;
+        const bool isBSDF = material_system_type::isBSDF(bxdf.materialType);
 
         vector3_type eps0 = rand3d(depth, _sample, 0u);
         vector3_type eps1 = rand3d(depth, _sample, 1u);
@@ -178,15 +105,16 @@ struct Unidirectional
         const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
         const vector3_type throughputCIE_Y = hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;    // TODO: this only works if spectral_type is dim 3
-        const measure_type eta = bxdf.params.ior0 / bxdf.params.ior1;   // assume it's real, not imaginary?
+        const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
         const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
         // sample lights
         const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
         scalar_type rcpChoiceProb;
-        if (!math::partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
+        sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
+        if (!partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
         {
-            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * scene.lightCount;
+            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * nee.lightCount;
             quotient_pdf_type neeContrib_pdf;
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(
@@ -196,26 +124,23 @@ struct Unidirectional
             );
 
             // We don't allow non watertight transmitters in this renderer
-            bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
+            bool validPath = nee_sample.getNdotL() > numeric_limits<scalar_type>::min && nee_sample.isValid();
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
-            anisocache_type _cache;
-            validPath = validPath && anisocache_type::template compute<ray_dir_info_type, ray_dir_info_type>(_cache, interaction, nee_sample, monochromeEta);
+            bxdf::fresnel::OrientedEtas<monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<monochrome_type>::create(interaction.getNdotV(), hlsl::promote<monochrome_type>(monochromeEta));
+            anisocache_type _cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, nee_sample, orientedEta);
+            validPath = validPath && _cache.getAbsNdotH() >= 0.0;
             bxdf.params.eta = monochromeEta;
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
             {
-                if (nbl::hlsl::any(isnan(nee_sample.L.direction)))
+                if (nbl::hlsl::any(hlsl::isnan(nee_sample.getL().getDirection())))
                     ray.payload.accumulation += vector3_type(1000.f, 0.f, 0.f);
-                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.L.direction))
+                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.getL().getDirection()))
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
                 else if (validPath)
                 {
-                    bxdf::BxDFClampMode _clamp;
-                    _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
                     // example only uses isotropic bxdfs
-                    params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
-
-                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, nee_sample, interaction.isotropic, _cache.iso_cache);
                     neeContrib_pdf.quotient *= bxdf.albedo * throughput * bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
@@ -225,8 +150,8 @@ struct Unidirectional
                     // neeContrib_pdf.quotient *= otherGenOverChoice;
 
                     ray_type nee_ray;
-                    nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
-                    nee_ray.direction = nee_sample.L.direction;
+                    nee_ray.origin = intersection + nee_sample.getL().getDirection() * t * Tolerance<scalar_type>::getStart(depth);
+                    nee_ray.direction = nee_sample.getL().getDirection();
                     nee_ray.intersectionT = t;
                     if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector_type::traceRay(nee_ray, scene).id == -1)
                         ray.payload.accumulation += neeContrib_pdf.quotient;
@@ -243,16 +168,15 @@ struct Unidirectional
             anisocache_type _cache;
             sample_type bsdf_sample = materialSystem.generate(bxdf.materialType, bxdf.params, interaction, eps1, _cache);
 
-            bxdf::BxDFClampMode _clamp;
-            _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
-            // example only uses isotropic bxdfs
-            params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
+            if (!bsdf_sample.isValid())
+                return false;
 
+            // example only uses isotropic bxdfs
             // the value of the bsdf divided by the probability of the sample being generated
-            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
+            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, bsdf_sample, interaction.isotropic, _cache.iso_cache);
             throughput *= bxdf.albedo * bsdf_quotient_pdf.quotient;
             bxdfPdf = bsdf_quotient_pdf.pdf;
-            bxdfSample = bsdf_sample.L.direction;
+            bxdfSample = bsdf_sample.getL().getDirection();
         }
 
         // additional threshold
@@ -268,7 +192,7 @@ struct Unidirectional
             ray.direction = bxdfSample;
             if ((PTPolygonMethod)nee_type::PolygonMethod == PPM_APPROX_PROJECTED_SOLID_ANGLE)
             {
-                ray.normalAtOrigin = interaction.isotropic.N;
+                ray.normalAtOrigin = interaction.getN();
                 ray.wasBSDFAtOrigin = isBSDF;
             }
             return true;
@@ -291,39 +215,33 @@ struct Unidirectional
     }
 
     // Li
-    output_storage_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(typename Accumulator::initialization_data) accumulatorInitData)
+    void sampleMeasure(uint32_t sampleIndex, uint32_t maxDepth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(Accumulator) accumulator)
     {
-        Accumulator accumulator;
-        accumulator.initialize(accumulatorInitData);
         //scalar_type meanLumaSq = 0.0;
-        for (uint32_t i = 0; i < numSamples; i++)
+        vector3_type uvw = rand3d(0u, sampleIndex, 0u);
+        ray_type ray = rayGen.generate(uvw);
+
+        // bounces
+        bool hit = true;
+        bool rayAlive = true;
+        for (int d = 1; (d <= maxDepth) && hit && rayAlive; d += 2)
         {
-            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
-            ray_type ray = rayGen.generate(uvw);
+            ray.intersectionT = numeric_limits<scalar_type>::max;
+            ray.objectID = intersector_type::traceRay(ray, scene);
 
-            // bounces
-            bool hit = true;
-            bool rayAlive = true;
-            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
-            {
-                ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector_type::traceRay(ray, scene);
-
-                hit = ray.objectID.id != -1;
-                if (hit)
-                    rayAlive = closestHitProgram(1, i, ray, scene);
-            }
-            if (!hit)
-                missProgram(ray);
-
-            accumulator.addSample(i, ray.payload.accumulation);
-
-            // TODO: visualize high variance
-
-            // TODO: russian roulette early exit?
+            hit = ray.objectID.id != -1;
+            if (hit)
+                rayAlive = closestHitProgram(1, sampleIndex, ray, scene);
         }
+        if (!hit)
+            missProgram(ray);
 
-        return accumulator.accumulation;
+        const uint32_t sampleCount = sampleIndex + 1;
+        accumulator.addSample(sampleCount, ray.payload.accumulation);
+
+        // TODO: visualize high variance
+
+        // TODO: russian roulette early exit?
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;
@@ -333,9 +251,10 @@ struct Unidirectional
     raygen_type rayGen;
     material_system_type materialSystem;
     nee_type nee;
+
+    uint64_t pSampleBuffer;
 };
 
-}
 }
 }
 }

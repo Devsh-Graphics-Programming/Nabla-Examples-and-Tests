@@ -1,22 +1,26 @@
 // Copyright (C) 2018-2024 - DevSH GrapMonoAssetManagerAndBuiltinResourceApplicationhics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
+
+#include "nbl/examples/examples.hpp"
 
 #include <future>
 
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
 
+
 using json = nlohmann::json;
 
 using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 class ThreadPool
 {
@@ -76,11 +80,11 @@ public:
    std::atomic<bool> m_shouldStop = false;
 };
 
-class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class JpegLoaderApp final : public BuiltinResourcesApplication
 {
    using clock_t = std::chrono::steady_clock;
    using clock_resolution_t = std::chrono::milliseconds;
-   using base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+   using base_t = BuiltinResourcesApplication;
    public:
    using base_t::base_t;
 

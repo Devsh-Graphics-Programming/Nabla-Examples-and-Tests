@@ -1,29 +1,19 @@
 #ifndef _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
 #define _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
 
-#include "common.hlsl"
-#include "scene.hlsl"
+#include "example_common.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
-namespace Intersector
-{
+using namespace nbl;
+using namespace hlsl;
 
-template<class Ray, typename Light, typename BxdfNode>
-struct Comprehensive
+template<class Ray, class Scene>
+struct Intersector
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
-
-    using light_type = Light;
-    using bxdfnode_type = BxdfNode;
-    using scene_type = Scene<light_type, bxdfnode_type>;
+    using scene_type = Scene;
 
     static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
@@ -31,9 +21,9 @@ struct Comprehensive
         objectID.id = -1;
 
         // prodedural shapes
-        for (int i = 0; i < scene.sphereCount; i++)
+        NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
         {
-            float t = scene.spheres[i].intersect(ray.origin, ray.direction);
+            float t = scene.getSphere(i).intersect(ray.origin, ray.direction);
 
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
 
@@ -45,9 +35,9 @@ struct Comprehensive
                 objectID.shapeType = PST_SPHERE;
             }
         }
-        for (int i = 0; i < scene.triangleCount; i++)
+        NBL_UNROLL for (int i = 0; i < scene_type::TriangleCount; i++)
         {
-            float t = scene.triangles[i].intersect(ray.origin, ray.direction);
+            float t = scene.getTriangle(i).intersect(ray.origin, ray.direction);
 
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
 
@@ -59,9 +49,9 @@ struct Comprehensive
                 objectID.shapeType = PST_TRIANGLE;
             }
         }
-        for (int i = 0; i < scene.rectangleCount; i++)
+        NBL_UNROLL for (int i = 0; i < scene_type::RectangleCount; i++)
         {
-            float t = scene.rectangles[i].intersect(ray.origin, ray.direction);
+            float t = scene.getRectangle(i).intersect(ray.origin, ray.direction);
 
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
 
@@ -79,10 +69,5 @@ struct Comprehensive
         return objectID;
     }
 };
-
-}
-}
-}
-}
 
 #endif

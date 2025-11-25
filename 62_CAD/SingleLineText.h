@@ -12,7 +12,7 @@ class SingleLineText
 {
 public:
 	// constructs and fills the `glyphBoxes`
-	SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::string& text);
+	SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::wstring& text);
 	
 	struct BoundingBox
 	{

@@ -2,11 +2,11 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/this_example/common.hpp"
+#include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
-#include "nbl/asset/interchange/IImageAssetHandlerBase.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
+#include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
@@ -21,13 +21,14 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace nbl::examples;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
-class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class HLSLComputePathtracer final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = SimpleWindowedApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	enum E_LIGHT_GEOMETRY : uint8_t
@@ -81,13 +82,6 @@ public:
 	}
 
 	inline bool isComputeOnly() const override { return false; }
-
-	//inline video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
-	//{
-	//	auto retval = device_base_t::getAPIFeaturesToEnable();
-	//	retval.synchronizationValidation = true;
-	//	return retval;
-	//}
 
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
@@ -178,26 +172,6 @@ public:
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 		}
 
-		// image upload utils
-		{
-			m_scratchSemaphore = m_device->createSemaphore(0);
-			if (!m_scratchSemaphore)
-				return logFail("Could not create Scratch Semaphore");
-			m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
-			// we don't want to overcomplicate the example with multi-queue
-			m_intendedSubmit.queue = getGraphicsQueue();
-			// wait for nothing before upload
-			m_intendedSubmit.waitSemaphores = {};
-			m_intendedSubmit.waitSemaphores = {};
-			// fill later
-			m_intendedSubmit.scratchCommandBuffers = {};
-			m_intendedSubmit.scratchSemaphore = {
-				.semaphore = m_scratchSemaphore.get(),
-				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
-		}
-
 		// Create command pool and buffers
 		{
 			auto gQueue = getGraphicsQueue();
@@ -259,9 +233,8 @@ public:
 				return gpuDS;
 				};
 
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> descriptorSet0Bindings = {};
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> descriptorSet1Bindings = {};
-			std::array<ICPUDescriptorSetLayout::SBinding, 3> descriptorSet3Bindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet3Bindings = {};
 			std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 			descriptorSet0Bindings[0] = {
@@ -273,8 +246,8 @@ public:
 				.immutableSamplers = nullptr
 			};
 
-			descriptorSet1Bindings[0] = {
-				.binding = 0u,
+			descriptorSet0Bindings[1] = {
+				.binding = 1u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -291,14 +264,6 @@ public:
 				.immutableSamplers = nullptr
 			};
 			descriptorSet3Bindings[1] = {
-				.binding = 1u,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
-				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count = 1u,
-				.immutableSamplers = nullptr
-			};
-			descriptorSet3Bindings[2] = {
 				.binding = 2u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -317,20 +282,16 @@ public:
 			};
 
 			auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
-			auto cpuDescriptorSetLayout1 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet1Bindings);
 			auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
 
 			auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
-			auto gpuDescriptorSetLayout1 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout1);
 			auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
 			auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(presentDescriptorSetBindings);
 
 			auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
-			auto cpuDescriptorSet1 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout1));
 			auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
 
 			m_descriptorSet0 = convertDSCPU2GPU(cpuDescriptorSet0);
-			m_descriptorSet1 = convertDSCPU2GPU(cpuDescriptorSet1);
 			m_descriptorSet2 = convertDSCPU2GPU(cpuDescriptorSet2);
 
 			smart_refctd_ptr<IDescriptorPool> presentDSPool;
@@ -342,7 +303,7 @@ public:
 			m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 			// Create Shaders
-			auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IGPUShader>
+			auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -354,14 +315,14 @@ public:
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
 					auto compiler = make_smart_refctd_ptr<asset::CGLSLCompiler>(smart_refctd_ptr(m_system));
 					CGLSLCompiler::SOptions options = {};
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
-					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
 					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
@@ -380,7 +341,7 @@ public:
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 
 					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
 					if (!shader)
 					{
 						m_logger->log("GLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -390,7 +351,7 @@ public:
 					return shader;
 				};
 
-			auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IGPUShader>
+			auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -402,14 +363,14 @@ public:
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
 					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 					CHLSLCompiler::SOptions options = {};
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
-					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
 					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
@@ -434,7 +395,7 @@ public:
 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
 					if (!shader)
 					{
 						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -444,15 +405,16 @@ public:
 					return shader;
 				};
 
-			auto getComputePipelineCreationParams = [](IGPUShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+			const auto deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
+			auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
 				{
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = pipelineLayout;
 					params.shader.shader = shader;
 					params.shader.entryPoint = "main";
 					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					params.cached.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 
 					return params;
 				};
@@ -484,20 +446,14 @@ public:
 					auto rwmcPtPipelineLayout = m_device->createPipelineLayout(
 						{ &rwmcPcRange, 1 },
 						core::smart_refctd_ptr(gpuDescriptorSetLayout0),
-						core::smart_refctd_ptr(gpuDescriptorSetLayout1),
+						nullptr,
 						core::smart_refctd_ptr(gpuDescriptorSetLayout2),
 						nullptr
 					);
 					if (!rwmcPtPipelineLayout)
 						return logFail("Failed to create RWMC Pathtracing pipeline layout");
 
-					{
-						auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
-						auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
 
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
-							return logFail("Failed to create GLSL compute pipeline!\n");
-					}
 					{
 						auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
 						auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -506,14 +462,6 @@ public:
 							return logFail("Failed to create HLSL compute pipeline!\n");
 					}
 
-					// persistent wg pipelines
-					{
-						auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
-						auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
-							return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
-					}
 					{
 						auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
 						auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -550,8 +498,7 @@ public:
 
 				auto pipelineLayout = m_device->createPipelineLayout(
 					{ &pcRange, 1 },
-					core::smart_refctd_ptr(gpuDescriptorSetLayout0),
-					core::smart_refctd_ptr(gpuDescriptorSetLayout1)
+					core::smart_refctd_ptr(gpuDescriptorSetLayout0)
 				);
 
 				if (!pipelineLayout) {
@@ -565,14 +512,6 @@ public:
 					if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePipeline))
 						return logFail("Failed to create HLSL resolve compute pipeline!\n");
 				}
-				{
-					auto shader = loadAndCompileHLSLShader(ResolveShaderPath, "", true);
-					auto params = getComputePipelineCreationParams(shader.get(), pipelineLayout.get());
-
-					if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePersistentWGPipeline))
-						return logFail("Failed to create HLSL resolve compute pipeline!\n");
-				}
-
 			}
 
 			// Create graphics pipeline
@@ -587,9 +526,9 @@ public:
 				if (!fragmentShader)
 					return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-				const IGPUShader::SSpecInfo fragSpec = {
-					.entryPoint = "main",
-					.shader = fragmentShader.get()
+				const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+					.shader = fragmentShader.get(),
+					.entryPoint = "main"
 				};
 
 				auto presentLayout = m_device->createPipelineLayout(
@@ -747,6 +686,9 @@ public:
 				region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
 
 				scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+
+				// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+				scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 			}
 
 			std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get() };
@@ -773,7 +715,7 @@ public:
 				}
 				else
 				{
-					imgInfo.arrayLayers = CascadeSize;
+					imgInfo.arrayLayers = CascadeCount;
 					imgInfo.usage = asset::IImage::EUF_STORAGE_BIT;
 				}
 
@@ -784,7 +726,7 @@ public:
 
 				return image;
 				};
-			auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img, const bool useCascadeCreationParameters = false) -> smart_refctd_ptr<IGPUImageView>
+			auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img, const uint32_t imageArraySize = 1u, const IGPUImageView::E_TYPE imageViewType = IGPUImageView::ET_2D) -> smart_refctd_ptr<IGPUImageView>
 				{
 					auto format = img->getCreationParameters().format;
 					IGPUImageView::SCreationParams imgViewInfo;
@@ -795,17 +737,9 @@ public:
 					imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 					imgViewInfo.subresourceRange.baseMipLevel = 0u;
 					imgViewInfo.subresourceRange.levelCount = 1u;
+					imgViewInfo.viewType = imageViewType;
 
-					if (!useCascadeCreationParameters)
-					{
-						imgViewInfo.subresourceRange.layerCount = 1u;
-						imgViewInfo.viewType = IGPUImageView::ET_2D;
-					}
-					else
-					{
-						imgViewInfo.subresourceRange.layerCount = CascadeSize;
-						imgViewInfo.viewType = IGPUImageView::ET_2D_ARRAY;
-					}
+					imgViewInfo.subresourceRange.layerCount = imageArraySize;
 
 					return m_device->createImageView(std::move(imgViewInfo));
 				};
@@ -823,12 +757,12 @@ public:
 
 			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
 			outImg->setObjectDebugName("Output Image");
-			m_outImgView = createHDRIImageView(outImg);
+			m_outImgView = createHDRIImageView(outImg, 1, IGPUImageView::ET_2D_ARRAY);
 			m_outImgView->setObjectDebugName("Output Image View");
 
 			auto cascade = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y, true);
 			cascade->setObjectDebugName("Cascade");
-			m_cascadeView = createHDRIImageView(cascade, true);
+			m_cascadeView = createHDRIImageView(cascade, CascadeCount, IGPUImageView::ET_2D_ARRAY);
 			m_cascadeView->setObjectDebugName("Cascade View");
 
 			// TODO: change cascade layout to general
@@ -884,8 +818,9 @@ public:
 						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
 				};
 
-			constexpr size_t bufferSize = MaxBufferDimensions * MaxBufferSamples;
-			std::array<uint32_t, bufferSize> data = {};
+			constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
+			constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
+			std::array<QuantizedSequence, bufferSize> data = {};
 			smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
 			auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD / OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
@@ -894,43 +829,32 @@ public:
 				core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 				ICPUBuffer::SCreationParams params = {};
-				params.size = MaxBufferDimensions * MaxBufferSamples * sizeof(uint32_t);
+				params.size = quantizedDimensions * MaxBufferSamples * sizeof(QuantizedSequence);
 				sampleSeq = ICPUBuffer::create(std::move(params));
 
-				auto out = reinterpret_cast<uint32_t*>(sampleSeq->getPointer());
-				for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+				auto out = reinterpret_cast<QuantizedSequence*>(sampleSeq->getPointer());
+				for (auto dim = 0u; dim < quantizedDimensions; dim++)
 					for (uint32_t i = 0; i < MaxBufferSamples; i++)
 					{
-						out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
+						auto& seq = out[i * quantizedDimensions + dim];
+						seq.setX(sampler.sample(dim + 0, i));
+						seq.setY(sampler.sample(dim + 1, i));
+						seq.setZ(sampler.sample(dim + 2, i));
 					}
 				if (cacheBufferResult.first)
 					writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
 			}
 
 			IGPUBuffer::SCreationParams params = {};
-			params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			params.size = sampleSeq->getSize();
+			params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = bufferSize;
 
 			// we don't want to overcomplicate the example with multi-queue
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-			m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			m_api->startCapture();
-			auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
-				m_intendedSubmit,
+			m_utils->createFilledDeviceLocalBufferOnDedMem(
+				SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
 				std::move(params),
 				sampleSeq->getPointer()
-			);
-			m_api->endCapture();
-			bufferFuture.wait();
-			auto buffer = bufferFuture.get();
-
-			m_sequenceBufferView = m_device->createBufferView({ 0u, buffer->get()->getSize(), *buffer }, asset::E_FORMAT::EF_R32G32B32_UINT);
-			m_sequenceBufferView->setObjectDebugName("Sequence Buffer");
+			).move_into(m_sequenceBuffer);
 		}
 
 		// Update Descriptors
@@ -962,7 +886,7 @@ public:
 			};
 			auto sampler1 = m_device->createSampler(samplerParams1);
 
-			std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
+			std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
 			writeDSInfos[0].desc = m_outImgView;
 			writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			writeDSInfos[1].desc = m_cascadeView;
@@ -971,15 +895,14 @@ public:
 			// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 			writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
 			writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			writeDSInfos[3].desc = m_sequenceBufferView;
-			writeDSInfos[4].desc = m_scrambleView;
+			writeDSInfos[3].desc = m_scrambleView;
 			// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
-			writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
-			writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			writeDSInfos[5].desc = m_outImgView;
-			writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
+			writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			writeDSInfos[4].desc = m_outImgView;
+			writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-			std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
+			std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
 			writeDescriptorSets[0] = {
 				.dstSet = m_descriptorSet0.get(),
 				.binding = 0,
@@ -988,8 +911,8 @@ public:
 				.info = &writeDSInfos[0]
 			};
 			writeDescriptorSets[1] = {
-				.dstSet = m_descriptorSet1.get(),
-				.binding = 0,
+				.dstSet = m_descriptorSet0.get(),
+				.binding = 1,
 				.arrayElement = 0u,
 				.count = 1u,
 				.info = &writeDSInfos[1]
@@ -1001,26 +924,26 @@ public:
 				.count = 1u,
 				.info = &writeDSInfos[2]
 			};
+			//writeDescriptorSets[3] = {
+			//	.dstSet = m_descriptorSet2.get(),
+			//	.binding = 1,
+			//	.arrayElement = 0u,
+			//	.count = 1u,
+			//	.info = &writeDSInfos[3]
+			//};
 			writeDescriptorSets[3] = {
 				.dstSet = m_descriptorSet2.get(),
-				.binding = 1,
+				.binding = 2,
 				.arrayElement = 0u,
 				.count = 1u,
 				.info = &writeDSInfos[3]
 			};
 			writeDescriptorSets[4] = {
-				.dstSet = m_descriptorSet2.get(),
-				.binding = 2,
-				.arrayElement = 0u,
-				.count = 1u,
-				.info = &writeDSInfos[4]
-			};
-			writeDescriptorSets[5] = {
 				.dstSet = m_presentDescriptorSet.get(),
 				.binding = 0,
 				.arrayElement = 0u,
 				.count = 1u,
-				.info = &writeDSInfos[5]
+				.info = &writeDSInfos[4]
 			};
 
 			m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -1082,15 +1005,19 @@ public:
 			[this]() -> void {
 				ImGuiIO& io = ImGui::GetIO();
 
-				m_camera.setProjectionMatrix([&]()
-					{
-						static matrix4SIMD projection;
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(m_fov), io.DisplaySize.x / io.DisplaySize.y, m_zNear, m_zFar);
-						return projection;
-					}());
 
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::BeginFrame();
+
+				m_camera.setProjectionMatrix([&]()
+					{
+						static matrix4SIMD projection;
+
+						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+
+						return projection;
+					}());
+
 
 				ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 				ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -1104,48 +1031,57 @@ public:
 
 				ImGui::Text("Camera");
 
-				ImGui::SliderFloat("Move speed", &m_moveSpeed, 0.1f, 10.f);
-				ImGui::SliderFloat("Rotate speed", &m_rotateSpeed, 0.1f, 10.f);
-				ImGui::SliderFloat("Fov", &m_fov, 20.f, 150.f);
-				ImGui::SliderFloat("zNear", &m_zNear, 0.1f, 100.f);
-				ImGui::SliderFloat("zFar", &m_zFar, 110.f, 10000.f);
-				ImGui::Combo("Shader", &m_ptPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-				ImGui::Combo("Render Mode", &m_renderMode, shaderTypes, E_RENDER_MODE::ERM_COUNT);
-				ImGui::SliderInt("SPP", &m_spp, 1, MaxBufferSamples);
-				ImGui::SliderInt("Depth", &m_depth, 1, MaxBufferDimensions / 3);
-				ImGui::Checkbox("Persistent WorkGroups", &m_usePersistentWorkGroups);
-
+				ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
+				ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
+				ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
+				ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
+				ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+				ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+				ImGui::Combo("Render Mode", &renderMode, shaderTypes, E_RENDER_MODE::ERM_COUNT);
+				ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
+				ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+				ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
 
 				ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
 				ImGui::Text("\nRWMC settings:");
-				ImGui::Checkbox("Enable RWMC", &m_useRwmc);
-				ImGui::SliderFloat("start", &m_rwmcCascadeStart, 1.0f, 32.0f);
-				ImGui::SliderFloat("base", &m_rwmcCascadeBase, 1.0f, 32.0f);
-				ImGui::SliderFloat("minReliableLuma", &m_rwmcMinReliableLuma, 0.1f, 32.0f);
-				ImGui::SliderFloat("kappa", &m_rwmcKappa, 0.1f, 1024.0f);
+				ImGui::Checkbox("Enable RWMC", &useRWMC);
+				ImGui::SliderFloat("start", &rwmcStart, 1.0f, 32.0f);
+				ImGui::SliderFloat("base", &rwmcBase, 1.0f, 32.0f);
+				ImGui::SliderFloat("minReliableLuma", &rwmcMinReliableLuma, 0.1f, 1024.0f);
+				ImGui::SliderFloat("kappa", &rwmcKappa, 0.1f, 1024.0f);
 
 				ImGui::End();
-
-				{
-					static struct
-					{
-						core::matrix4SIMD view, projection;
-					} imguizmoM16InOut;
-
-					ImGuizmo::SetID(0u);
-
-					imguizmoM16InOut.view = core::transpose(matrix4SIMD(m_camera.getViewMatrix()));
-					imguizmoM16InOut.view[2] = -imguizmoM16InOut.view[2];
-					imguizmoM16InOut.projection = core::transpose(m_camera.getProjectionMatrix());
-					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
-
-					m_transformParams.editTransformDecomposition = true;
-
-					EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), m_lightModelMatrix.pointer(), m_transformParams);
-				}
 			}
 		);
+
+		m_ui.manager->registerListener([this]()
+			{
+				static struct
+				{
+					core::matrix4SIMD view, projection;
+				} imguizmoM16InOut;
+
+				ImGuizmo::SetID(0u);
+
+				imguizmoM16InOut.view = core::transpose(matrix4SIMD(m_camera.getViewMatrix()));
+				//imguizmoM16InOut.view[2] = -imguizmoM16InOut.view[2]; // Not needed for right-handedness 
+				imguizmoM16InOut.projection = core::transpose(m_camera.getProjectionMatrix());
+				imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+				m_transformParams.editTransformDecomposition = true;
+
+				if (ImGui::IsKeyPressed(ImGuiKey_End))
+				{
+					m_lightModelMatrix = {
+					 0.3f, 0.0f, 0.0f, 0.0f,
+					 0.0f, 0.3f, 0.0f, 0.0f,
+					 0.0f, 0.0f, 0.3f, 0.0f,
+					-1.0f, 1.5f, 0.0f, 1.0f
+					};
+				}
+				EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), m_lightModelMatrix.pointer(), m_transformParams);
+			});
 
 		// Set Camera
 		{
@@ -1167,11 +1103,10 @@ public:
 
 		// set initial rwmc settings
 
-		m_rwmcCascadeStart = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-		m_rwmcCascadeBase = 8.0f;
-		m_rwmcMinReliableLuma = 1.0f;
-		m_rwmcKappa = 5.0f;
-
+		rwmcStart = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+		rwmcBase = 8.0f;
+		rwmcMinReliableLuma = 1.0f;
+		rwmcKappa = 5.0f;
 		return true;
 	}
 
@@ -1203,10 +1138,17 @@ public:
 		// We block for semaphores for 2 reasons here:
 			// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
 			// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
-		if (m_realFrameIx >= framesInFlight) {
-			const ISemaphore::SWaitInfo cbDonePending[] = { { m_semaphore.get(), m_realFrameIx + 1 - framesInFlight } };
+		if (m_realFrameIx >= framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = m_realFrameIx + 1 - framesInFlight
+				}
+			};
 			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
-				return; // skip this frame instead of blocking
+				return;
 		}
 		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
@@ -1221,10 +1163,175 @@ public:
 		if (!keepRunning())
 			return;
 
-		if (m_useRwmc)
-			beginCommandBufferAndDispatchPathracerPipelineUseRWMC(cmdbuf);
-		else
-			beginCommandBufferAndDispatchPathracerPipeline(cmdbuf);
+		if (renderMode != E_RENDER_MODE::ERM_HLSL)
+		{
+			m_logger->log("Only HLSL render mode is supported.", ILogger::ELL_ERROR);
+			std::exit(-1);
+		}
+
+		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+
+		// safe to proceed
+		// upload buffer data
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
+
+		updatePathtracerPushConstants();
+
+		// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+						}
+					},
+					.image = m_outImgView->getCreationParameters().image.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u
+					},
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::GENERAL
+				}
+			};
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+		}
+
+		// transit m_cascadeView layout to GENERAL, block until previous shader is done with reading from the cascade
+		if (useRWMC)
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::NONE
+							}
+						},
+						.image = m_cascadeView->getCreationParameters().image.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = CascadeCount
+						},
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::GENERAL
+					}
+			};
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
+		}
+
+		{
+			// TODO: shouldn't it be computed only at initialization stage and on window resize?
+			const uint32_t dispatchSize = usePersistentWorkGroups ?
+				m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize) :
+				1 + (WindowDimensions.x * WindowDimensions.y - 1) / RenderWorkgroupSize;
+
+			IGPUComputePipeline* pipeline = pickPTPipeline();
+
+			cmdbuf->bindComputePipeline(pipeline);
+			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+
+			const uint32_t pushConstantsSize = useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
+			const void* pushConstantsPtr = useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
+			cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
+
+			cmdbuf->dispatch(dispatchSize, 1u, 1u);
+		}
+
+		// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
+		// TODO: create this and every other barrier once outside of the loop?
+		if (useRWMC)
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+								.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+							}
+						},
+						.image = m_cascadeView->getCreationParameters().image.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = CascadeCount
+						}
+					}
+			};
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
+		}
+
+		// resolve
+		if (useRWMC)
+		{
+			if (renderMode != E_RENDER_MODE::ERM_HLSL)
+			{
+				m_logger->log("RWMC is only supported with HLSL.", ILogger::ELL_ERROR);
+				std::exit(-1);
+			}
+
+			// TODO: shouldn't it be computed only at initialization stage and on window resize?
+			// Round up division
+			const uint32_t2 dispatchSize = uint32_t2(
+				(m_window->getWidth() + ResolveWorkgroupSizeX - 1) / ResolveWorkgroupSizeX,
+				(m_window->getHeight() + ResolveWorkgroupSizeY - 1) / ResolveWorkgroupSizeY
+			);
+
+			IGPUComputePipeline* pipeline = m_resolvePipeline.get();
+
+			resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
+
+			cmdbuf->bindComputePipeline(pipeline);
+			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+			cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
+
+			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
+		}
+
+		// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+						}
+					},
+					.image = m_outImgView->getCreationParameters().image.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u
+					},
+					.oldLayout = IImage::LAYOUT::GENERAL,
+					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
+				}
+			};
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+		}
 
 		// TODO: tone mapping and stuff
 
@@ -1255,7 +1362,7 @@ public:
 			const IGPUCommandBuffer::SRenderpassBeginInfo info =
 			{
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-				.colorClearValues = &m_clearColor,
+				.colorClearValues = &clearColor,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
 			};
@@ -1338,13 +1445,13 @@ public:
 
 	inline void update()
 	{
-		m_camera.setMoveSpeed(m_moveSpeed);
-		m_camera.setRotateSpeed(m_rotateSpeed);
+		m_camera.setMoveSpeed(moveSpeed);
+		m_camera.setRotateSpeed(rotateSpeed);
 
 		static std::chrono::microseconds previousEventTimestamp{};
 
-		m_inputSystem->getDefaultMouse(&m_mouse);
-		m_inputSystem->getDefaultKeyboard(&m_keyboard);
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
 
 		auto updatePresentationTimestamp = [&]()
 			{
@@ -1368,7 +1475,7 @@ public:
 		m_camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			const auto& io = ImGui::GetIO();
-			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
 					if (!io.WantCaptureMouse)
 						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
@@ -1382,16 +1489,14 @@ public:
 						capturedEvents.mouse.emplace_back(e);
 
 						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							m_gcIndex = std::clamp<uint16_t>(int16_t(m_gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(ELG_COUNT - (uint8_t)1u));
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(ELG_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 
-			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
 					if (!io.WantCaptureKeyboard)
-					{
 						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
-					}
 
 					for (const auto& e : events) // here capture
 					{
@@ -1422,259 +1527,56 @@ public:
 	}
 
 private:
-	void beginCommandBufferAndDispatchPathracerPipeline(IGPUCommandBuffer* cmdbuf)
+	void updatePathtracerPushConstants()
 	{
-		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 		// disregard surface/swapchain transformation for now
 		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-		viewProjectionMatrix.getInverseTransform(m_pc.invMVP);
-		m_pc.sampleCount = m_spp;
-		m_pc.depth = m_depth;
-		m_pc.generalPurposeLightMatrix = transpose(m_lightModelMatrix).extractSub3x4();
-
-		// safe to proceed
-		// upload buffer data
-		cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
-		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-		// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
+		// TODO: rewrite the `Camera` class so it uses hlsl::float32_t4x4 instead of core::matrix4SIMD
+		core::matrix4SIMD invMVP;
+		viewProjectionMatrix.getInverseTransform(invMVP);
+		matrix3x4SIMD transposedLightMatrix = transpose(m_lightModelMatrix).extractSub3x4();
+		if (useRWMC)
 		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS,
-							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-						}
-					},
-					.image = m_outImgView->getCreationParameters().image.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u
-					},
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
-					.newLayout = IImage::LAYOUT::GENERAL
-				}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+			memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
+			memcpy(&rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix, transposedLightMatrix.pointer(), sizeof(rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix));
+			rwmcPushConstants.renderPushConstants.depth = depth;
+			rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+			rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+			rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
+			rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
 		}
-
-		// cube envmap handle
+		else
 		{
-			IGPUComputePipeline* pipeline;
-			if (m_usePersistentWorkGroups)
-				pipeline = m_renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPersistentWGPipelines[m_ptPipeline].get() : m_PTGLSLPersistentWGPipelines[m_ptPipeline].get();
-			else
-				pipeline = m_renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[m_ptPipeline].get() : m_PTGLSLPipelines[m_ptPipeline].get();
-			cmdbuf->bindComputePipeline(pipeline);
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
-			cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(RenderPushConstants), &m_pc);
-
-			// TODO: shouldn't it be computed only at initialization stage and on window resize?
-			const uint32_t dispatchSize = m_usePersistentWorkGroups ?
-				m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize) :
-				1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize;
-
-			cmdbuf->dispatch(dispatchSize, 1u, 1u);
+			memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
+			memcpy(&pc.generalPurposeLightMatrix, transposedLightMatrix.pointer(), sizeof(pc.generalPurposeLightMatrix));
+			pc.sampleCount = spp;
+			pc.depth = depth;
+			pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 		}
-
-		// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
-		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-						}
-					},
-					.image = m_outImgView->getCreationParameters().image.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u
-					},
-					.oldLayout = IImage::LAYOUT::GENERAL,
-					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
-				}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
-		}
-
-
 	}
 
-	void beginCommandBufferAndDispatchPathracerPipelineUseRWMC(IGPUCommandBuffer* cmdbuf)
+	IGPUComputePipeline* pickPTPipeline()
 	{
-		if (m_renderMode != E_RENDER_MODE::ERM_HLSL)
+		IGPUComputePipeline* pipeline;
+		if (useRWMC)
 		{
-			m_logger->log("Only HLSL render mode is supported.", ILogger::ELL_ERROR);
-			std::exit(-1);
+			if (renderMode != E_RENDER_MODE::ERM_HLSL)
+			{
+				m_logger->log("RWMC is only supported with HLSL.", ILogger::ELL_ERROR);
+				std::exit(-1);
+			}
+
+			pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[PTPipeline].get() : m_PTHLSLPipelinesRWMC[PTPipeline].get();
+		}
+		else
+		{
+			if (usePersistentWorkGroups)
+				pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPersistentWGPipelines[PTPipeline].get() : m_PTGLSLPersistentWGPipelines[PTPipeline].get();
+			else
+				pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
 		}
 
-		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-		// disregard surface/swapchain transformation for now
-		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-		viewProjectionMatrix.getInverseTransform(m_rwmcPushConstants.invMVP);
-
-		m_rwmcPushConstants.start = m_rwmcCascadeStart;
-		m_rwmcPushConstants.depth = m_depth;
-		m_rwmcPushConstants.sampleCount = m_resolvePushConstants.sampleCount = m_spp;
-		m_rwmcPushConstants.base = m_resolvePushConstants.base = m_rwmcCascadeBase;
-		m_resolvePushConstants.minReliableLuma = m_rwmcMinReliableLuma;
-		m_rwmcPushConstants.kappa = m_resolvePushConstants.kappa = m_rwmcKappa;
-		m_rwmcPushConstants.generalPurposeLightMatrix = transpose(m_lightModelMatrix).extractSub3x4();
-
-		// safe to proceed
-		// upload buffer data
-		cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
-		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-		// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
-		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS,
-							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-						}
-					},
-					.image = m_outImgView->getCreationParameters().image.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u
-					},
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
-					.newLayout = IImage::LAYOUT::GENERAL
-				}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
-		}
-
-		// transit m_cascadeView layout to GENERAL, block until previous shader is done with reading from cascade
-		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-								.srcAccessMask = ACCESS_FLAGS::NONE,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::NONE
-							}
-						},
-						.image = m_cascadeView->getCreationParameters().image.get(),
-						.subresourceRange = {
-							.aspectMask = IImage::EAF_COLOR_BIT,
-							.baseMipLevel = 0u,
-							.levelCount = 1u,
-							.baseArrayLayer = 0u,
-							.layerCount = CascadeSize
-						},
-						.oldLayout = IImage::LAYOUT::UNDEFINED,
-						.newLayout = IImage::LAYOUT::GENERAL
-					}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
-		}
-
-		// TODO: shouldn't it be computed only at initialization stage and on window resize?
-		const uint32_t dispatchSize = m_usePersistentWorkGroups ?
-			m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize) :
-			1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize;
-
-		{
-			IGPUComputePipeline* pipeline = m_usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[m_ptPipeline].get() : m_PTHLSLPipelinesRWMC[m_ptPipeline].get();
-
-			cmdbuf->bindComputePipeline(pipeline);
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
-			cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(RenderRWMCPushConstants), &m_rwmcPushConstants);
-
-			cmdbuf->dispatch(dispatchSize, 1u, 1u);
-		}
-
-		// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
-		// TODO: create this and every other barrier once outside of the loop?
-		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-								.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-							}
-						},
-						.image = m_cascadeView->getCreationParameters().image.get(),
-						.subresourceRange = {
-							.aspectMask = IImage::EAF_COLOR_BIT,
-							.baseMipLevel = 0u,
-							.levelCount = 1u,
-							.baseArrayLayer = 0u,
-							.layerCount = CascadeSize
-						}
-					}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
-		}
-
-		// reweighting
-		{
-			IGPUComputePipeline* pipeline = m_usePersistentWorkGroups ? m_resolvePersistentWGPipeline.get() : m_resolvePipeline.get();
-
-			cmdbuf->bindComputePipeline(pipeline);
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
-			cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &m_resolvePushConstants);
-
-			cmdbuf->dispatch(dispatchSize, 1u, 1u);
-		}
-
-		// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
-		{
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-						}
-					},
-					.image = m_outImgView->getCreationParameters().image.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u
-					},
-					.oldLayout = IImage::LAYOUT::GENERAL,
-					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
-				}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
-		}
+		return pipeline;
 	}
 
 private:
@@ -1690,23 +1592,22 @@ private:
 	std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelinesRWMC;
 	std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelinesRWMC;
 	smart_refctd_ptr<IGPUComputePipeline> m_resolvePipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_resolvePersistentWGPipeline;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 	uint64_t m_realFrameIx = 0;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-	smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_descriptorSet1, m_descriptorSet2, m_presentDescriptorSet;
+	smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_descriptorSet2, m_presentDescriptorSet;
 
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
 	// system resources
 	core::smart_refctd_ptr<InputSystem> m_inputSystem;
-	InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
-	InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
+	InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	// pathtracer resources
 	smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
-	smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
+	smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 	smart_refctd_ptr<IGPUImageView> m_outImgView;
 	smart_refctd_ptr<IGPUImageView> m_cascadeView;
 
@@ -1733,13 +1634,25 @@ private:
 
 	video::CDumbPresentationOracle m_oracle;
 
-	uint16_t m_gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+	uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-	float m_fov = 60.f, m_zNear = 0.1f, m_zFar = 10000.f, m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
-	int m_ptPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-	int m_renderMode = E_RENDER_MODE::ERM_HLSL;
-	int m_spp = 32;
-	int m_depth = 3;
+	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
+	float viewWidth = 10.f;
+	float camYAngle = 165.f / 180.f * 3.14159f;
+	float camXAngle = 32.f / 180.f * 3.14159f;
+	int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+	int renderMode = E_RENDER_MODE::ERM_HLSL;
+	int spp = 32;
+	int depth = 3;
+	float rwmcMinReliableLuma;
+	float rwmcKappa;
+	float rwmcStart;
+	float rwmcBase;
+	bool usePersistentWorkGroups = false;
+	bool useRWMC = false;
+	RenderRWMCPushConstants rwmcPushConstants;
+	RenderPushConstants pc;
+	ResolvePushConstants resolvePushConstants;
 
 	// column major, changed by ImGuizmo
 	matrix4SIMD m_lightModelMatrix = {
@@ -1748,21 +1661,10 @@ private:
 		 0.0f, 0.0f, 0.3f, 0.0f,
 		-1.0f, 1.5f, 0.0f, 1.0f
 	};
-
-	float m_rwmcCascadeStart;
-	float m_rwmcCascadeBase;
-	float m_rwmcMinReliableLuma;
-	float m_rwmcKappa;
-	bool m_usePersistentWorkGroups = false;
-	bool m_useRwmc = false;
-	RenderRWMCPushConstants m_rwmcPushConstants;
-	RenderPushConstants m_pc;
-	ResolvePushConstants m_resolvePushConstants;
-
 	TransformRequestParams m_transformParams;
 
 	bool m_firstFrame = true;
-	IGPUCommandBuffer::SClearColorValue m_clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
+	IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 
 NBL_MAIN_FUNC(HLSLComputePathtracer)

@@ -2,123 +2,210 @@
 #define _NBL_HLSL_EXT_PATHTRACING_SCENE_INCLUDED_
 
 #include "common.hlsl"
+#include "example_common.hlsl"
 
-namespace nbl
+using namespace nbl;
+using namespace hlsl;
+
+template<typename T>
+struct SceneBase
 {
-namespace hlsl
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = SceneBase<T>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 8u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 7u;
+
+
+
+    // TODO: can static const array of structs and init?
+    // static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT] = {
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, -100.5, -1.0), 100.0, 0u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(2.0, 0.0, -1.0), 0.5, 1u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, 0.0, -1.0), 0.5, 2u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(-2.0, 0.0, -1.0), 0.5, 3u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(2.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(-2.0, 0.0, 1.0), 0.5, 5u, Light<vector3_type>::INVALID_ID),
+    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.5, 1.0, 0.5), 0.5, 6u, Light<vector3_type>::INVALID_ID)
+    // };
+    Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
+};
+
+
+template<typename T, ProceduralShapeType LightShape>
+struct Scene;
+
+template<typename T>
+struct Scene<T, PST_SPHERE> : SceneBase<T>
 {
-namespace ext
-{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, PST_SPHERE>;
+    using base_t = SceneBase<T>;
 
-template<typename Light, typename BxdfNode>
-struct Scene
-{
-    using light_type = Light;
-    using bxdfnode_type = BxdfNode;
-    using this_t = Scene<Light, BxdfNode>;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
+    Shape<scalar_type, PST_SPHERE> light_spheres[1];
+    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
 
-#if SPHERE_COUNT < 1
-#define SCENE_SPHERE_COUNT 1
-#else
-#define SCENE_SPHERE_COUNT SPHERE_COUNT
-#endif
-
-#if TRIANGLE_COUNT < 1
-#define SCENE_TRIANGLE_COUNT 1
-#else
-#define SCENE_TRIANGLE_COUNT TRIANGLE_COUNT
-#endif
-
-#if RECTANGLE_COUNT < 1
-#define SCENE_RECTANGLE_COUNT 1
-#else
-#define SCENE_RECTANGLE_COUNT RECTANGLE_COUNT
-#endif
-
-    Shape<PST_SPHERE> spheres[SCENE_SPHERE_COUNT];
-    Shape<PST_TRIANGLE> triangles[SCENE_TRIANGLE_COUNT];
-    Shape<PST_RECTANGLE> rectangles[SCENE_RECTANGLE_COUNT];
-
-    uint32_t sphereCount;
-    uint32_t triangleCount;
-    uint32_t rectangleCount;
-
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
-
-    light_type lights[LIGHT_COUNT];
-    uint32_t lightCount;
-
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16;
-
-    bxdfnode_type bxdfs[BXDF_COUNT];
-    uint32_t bxdfCount;
-
-    // AS ases;
-
-    static this_t create(
-        NBL_CONST_REF_ARG(Shape<PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
-        NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
-        NBL_CONST_REF_ARG(Shape<PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
-        uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount,
-        NBL_CONST_REF_ARG(light_type) lights[LIGHT_COUNT], uint32_t lightCount,
-        NBL_CONST_REF_ARG(bxdfnode_type) bxdfs[BXDF_COUNT], uint32_t bxdfCount)
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
     {
-        this_t retval;
-        retval.spheres = spheres;
-        retval.triangles = triangles;
-        retval.rectangles = rectangles;
-        retval.sphereCount = sphereCount;
-        retval.triangleCount = triangleCount;
-        retval.rectangleCount = rectangleCount;
-
-        retval.lights = lights;
-        retval.lightCount = lightCount;
-
-        retval.bxdfs = bxdfs;
-        retval.bxdfCount = bxdfCount;
-        return retval;
+        assert(idx < SphereCount);
+        if (idx < base_t::SCENE_SPHERE_COUNT)
+            return base_t::scene_spheres[idx];
+        else
+            return light_spheres[idx-base_t::SCENE_SPHERE_COUNT];
+    }
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(false);
+        return light_triangles[0];
+    }
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        return light_rectangles[0];
     }
 
-    void updateLight(float32_t3x4 generalPurposeLightMatrix)
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
     {
-#ifdef SPHERE_LIGHT
-        spheres[SCENE_SPHERE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
-#endif
-#ifdef TRIANGLE_LIGHT
-        triangles[SCENE_TRIANGLE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
-#endif
-#ifdef RECTANGLE_LIGHT
-        rectangles[SCENE_RECTANGLE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
-#endif
+        // Only spheres are lights in this specialization
+        [unroll]
+        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
+        {
+            light_spheres[i].updateTransform(generalPurposeLightMatrix);
+        }
     }
 
-#undef SCENE_SPHERE_COUNT
-#undef SCENE_TRIANGLE_COUNT
-#undef SCENE_RECTANGLE_COUNT
 
-    // TODO: get these to work with AS types as well
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
     {
-        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].bsdfLightIDs :
-                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].bsdfLightIDs :
-                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].bsdfLightIDs : -1;
+        assert(objectID.shapeType == PST_SPHERE);
+        return getSphere(objectID.id).bsdfLightIDs;
     }
 
-    float32_t3 getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(float32_t3) intersection)
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
-        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].getNormal(intersection) :
-                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].getNormalTimesArea() :
-                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].getNormalTimesArea() :
-                (float32_t3)0.0;
+        assert(objectID.shapeType == PST_SPHERE);
+        return getSphere(objectID.id).getNormal(intersection);
     }
 };
 
-}
-}
-}
+template<typename T>
+struct Scene<T, PST_TRIANGLE> : SceneBase<T>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, PST_TRIANGLE>;
+    using base_t = SceneBase<T>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
+
+    Shape<scalar_type, PST_SPHERE> light_spheres[1];
+    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
+
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        return base_t::scene_spheres[idx];
+    }
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(idx < TriangleCount);
+        return light_triangles[idx];
+    }
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        return light_rectangles[0];
+    }
+
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        // Only triangles are lights in this specialization
+        [unroll]
+        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
+        {
+            light_triangles[i].updateTransform(generalPurposeLightMatrix);
+        }
+    }
+
+
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
+        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getTriangle(objectID.id).bsdfLightIDs;
+    }
+
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
+        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getTriangle(objectID.id).getNormalTimesArea();
+    }
+};
+
+template<typename T>
+struct Scene<T, PST_RECTANGLE> : SceneBase<T>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, PST_RECTANGLE>;
+    using base_t = SceneBase<T>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = base_t::SCENE_LIGHT_COUNT;
+
+    Shape<scalar_type, PST_SPHERE> light_spheres[1];
+    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
+
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        return base_t::scene_spheres[idx];
+    }
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(false);
+        return light_triangles[0];
+    }
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(idx < RectangleCount);
+        return light_rectangles[idx];
+    }
+
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        // Only rectangles are lights in this specialization
+        [unroll]
+        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
+        {
+            light_rectangles[i].updateTransform(generalPurposeLightMatrix);
+        }
+    }
+
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
+        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getRectangle(objectID.id).bsdfLightIDs;
+    }
+
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
+        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getRectangle(objectID.id).getNormalTimesArea();
+    }
+};
 
 #endif

@@ -1,27 +1,26 @@
-#include <nabla.h>
+// Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "CCamera.hpp"
 
-#include "glm/glm/glm.hpp"
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include "nbl/examples/examples.hpp"
+// TODO: why is it not in nabla.h ?
+#include "nbl/asset/metadata/CHLSLMetadata.h"
 
-using namespace nbl::hlsl;
 using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "app_resources/gridUtils.hlsl"
 #include "app_resources/render_common.hlsl"
 #include "app_resources/descriptor_bindings.hlsl"
+
 
 enum SimPresets
 {
@@ -165,10 +164,10 @@ private:
     nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 
-class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FLIPFluidsApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-    using device_base_t = examples::SimpleWindowedApplication;
-    using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = SimpleWindowedApplication;
+    using asset_base_t = BuiltinResourcesApplication;
     using clock_t = std::chrono::steady_clock;
 
     constexpr static inline uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720;
@@ -1401,7 +1400,7 @@ private:
         numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
     }
 
-    smart_refctd_ptr<IGPUShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
+    smart_refctd_ptr<IShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
     {
         IAssetLoader::SAssetLoadParams lparams = {};
         lparams.logger = m_logger.get();
@@ -1415,17 +1414,19 @@ private:
         
         const auto assets = bundle.getContents();
         assert(assets.size() == 1);
-        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+        smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
+        const auto hlslMetadata = static_cast<const CHLSLMetadata*>(bundle.getMetadata());
+        const auto shaderStage = hlslMetadata->shaderStages->front();
 
-        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
+        smart_refctd_ptr<IShader> shader = shaderSrc;
         if (entryPoint != "main")
         {
             auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
             CHLSLCompiler::SOptions options = {};
-            options.stage = shaderSrc->getStage();
+            options.stage = shaderStage;
             if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
                 options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
-            options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+            options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
         #ifndef _NBL_DEBUG
             ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
@@ -1443,7 +1444,7 @@ private:
             shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options);
         }
 
-        return m_device->createShader(shader.get());
+        return m_device->compileShader({ shader.get() });
     }
 
     // TODO: there's a method in IUtilities for this
@@ -1562,7 +1563,7 @@ private:
 
         // init shaders and pipeline
 
-        auto compileShader = [&](const std::string& filePath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+        auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
             {
                 IAssetLoader::SAssetLoadParams lparams = {};
                 lparams.logger = m_logger.get();
@@ -1576,15 +1577,14 @@ private:
         
                 const auto assets = bundle.getContents();
                 assert(assets.size() == 1);
-                smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
-                shaderSrc->setShaderStage(stage);
+                smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
                 if (!shaderSrc)
                     return nullptr;
 
-                return m_device->createShader(shaderSrc.get());
+                return m_device->compileShader({ shaderSrc.get() });
             };
-        auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-        auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+        auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl");
+        auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl");
 
         smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1;
         {
@@ -1629,11 +1629,6 @@ private:
         blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
         {
-            IGPUShader::SSpecInfo specInfo[3] = {
-                {.shader = vs.get()},
-                {.shader = fs.get()},
-            };
-
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(uint64_t) };
             const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
@@ -1643,7 +1638,8 @@ private:
 
             IGPUGraphicsPipeline::SCreationParams params[1] = {};
             params[0].layout = pipelineLayout.get();
-            params[0].shaders = specInfo;
+            params[0].vertexShader = { .shader = vs.get(), .entryPoint = "main", };
+            params[0].fragmentShader = { .shader = fs.get(), .entryPoint = "main", };
             params[0].cached = {
                 .vertexInput = {
                 },
