@@ -1,21 +1,15 @@
 #ifndef _NBL_HLSL_EXT_NEXT_EVENT_ESTIMATOR_INCLUDED_
 #define _NBL_HLSL_EXT_NEXT_EVENT_ESTIMATOR_INCLUDED_
 
-#include "common.hlsl"
+#include "example_common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
-namespace NextEventEstimator
-{
+using namespace nbl;
+using namespace hlsl;
 
-template<typename T, ProceduralShapeType PST, PTPolygonMethod PPM>
+template<typename T, ProceduralShapeType PST, path_tracing::PTPolygonMethod PPM>
 struct ShapeSampling;
 
-template<typename T, PTPolygonMethod PPM>
+template<typename T, path_tracing::PTPolygonMethod PPM>
 struct ShapeSampling<T, PST_SPHERE, PPM>
 {
     using scalar_type = T;
@@ -71,14 +65,14 @@ struct ShapeSampling<T, PST_SPHERE, PPM>
 };
 
 template<typename T>
-struct ShapeSampling<T, PST_TRIANGLE, PPM_AREA>
+struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_AREA>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_TRIANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
+    static ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
     {
-        ShapeSampling<T, PST_TRIANGLE, PPM_AREA> retval;
+        ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_AREA> retval;
         retval.tri = tri;
         return retval;
     }
@@ -113,14 +107,14 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_AREA>
 };
 
 template<typename T>
-struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
+struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_SOLID_ANGLE>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
+    static ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
     {
-        ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE> retval;
+        ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_SOLID_ANGLE> retval;
         retval.tri = tri;
         return retval;
     }
@@ -154,14 +148,14 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
 };
 
 template<typename T>
-struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
+    static ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_APPROX_PROJECTED_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
     {
-        ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> retval;
+        ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_APPROX_PROJECTED_SOLID_ANGLE> retval;
         retval.tri = tri;
         return retval;
     }
@@ -197,14 +191,14 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 };
 
 template<typename T>
-struct ShapeSampling<T, PST_RECTANGLE, PPM_AREA>
+struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_AREA>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_RECTANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
+    static ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
     {
-        ShapeSampling<T, PST_RECTANGLE, PPM_AREA> retval;
+        ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_AREA> retval;
         retval.rect = rect;
         return retval;
     }
@@ -236,14 +230,14 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_AREA>
 };
 
 template<typename T>
-struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
+struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
+    static ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
     {
-        ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE> retval;
+        ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE> retval;
         retval.rect = rect;
         return retval;
     }
@@ -300,11 +294,11 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
 // PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_TRIANGLE
 
 
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, IntersectMode Mode, ProceduralShapeType PST, PTPolygonMethod PPM>
-struct Estimator;
+template<class Scene, class Light, typename Ray, class LightSample, class Aniso, IntersectMode Mode, ProceduralShapeType PST, path_tracing::PTPolygonMethod PPM>
+struct NextEventEstimator;
 
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, PTPolygonMethod PPM>
-struct Estimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
+template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, path_tracing::PTPolygonMethod PPM>
+struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
@@ -373,7 +367,7 @@ struct Estimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
         rayL.setDirection(sampleL);
         sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
-        newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
+        newRayMaxT *= path_tracing::Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(lightCount);
         spectral_type quo = light.radiance / pdf;
         quotient_pdf = quotient_pdf_type::create(quo, pdf);
@@ -384,10 +378,5 @@ struct Estimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
     uint32_t lightCount;
 };
-
-}
-}
-}
-}
 
 #endif

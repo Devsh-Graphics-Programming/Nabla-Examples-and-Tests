@@ -5,14 +5,10 @@
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/bxdf/common.hlsl>
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
-namespace MaterialSystem
-{
+#include "example_common.hlsl"
+
+using namespace nbl;
+using namespace hlsl;
 
 enum MaterialType : uint32_t    // enum class?
 {
@@ -22,9 +18,9 @@ enum MaterialType : uint32_t    // enum class?
 };
 
 template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class Scene>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
-struct System
+struct MaterialSystem
 {
-    using this_t = System<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF, Scene>;
+    using this_t = MaterialSystem<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF, Scene>;
     using scalar_type = typename DiffuseBxDF::scalar_type;      // types should be same across all 3 bxdfs
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
@@ -42,6 +38,13 @@ struct System
     using diffuse_op_type = DiffuseBxDF;
     using conductor_op_type = ConductorBxDF;
     using dielectric_op_type = DielectricBxDF;
+
+    static bool isBSDF(uint32_t material)
+    {
+        return (material == MaterialType::DIFFUSE) ? bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF :
+                (material == MaterialType::CONDUCTOR) ? bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF :
+                bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF;
+    }
 
     // these are specific for the bxdfs used for this example
     void fillBxdfParams(uint32_t material, NBL_CONST_REF_ARG(create_params_t) cparams)
@@ -170,10 +173,5 @@ struct System
     bxdfnode_type bxdfs[Scene::SCENE_BXDF_COUNT];
     uint32_t bxdfCount;
 };
-
-}
-}
-}
-}
 
 #endif

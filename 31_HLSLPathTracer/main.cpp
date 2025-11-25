@@ -1516,11 +1516,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// TODO: rewrite the `Camera` class so it uses hlsl::float32_t4x4 instead of core::matrix4SIMD
 			core::matrix4SIMD invMVP;
 			viewProjectionMatrix.getInverseTransform(invMVP);
-			hlsl::float32_t4x4* pcMVPMatrix;
 
 			if (useRWMC)
 			{
-				pcMVPMatrix = &rwmcPushConstants.renderPushConstants.invMVP;
+				memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
@@ -1529,18 +1528,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 			else
 			{
-				pcMVPMatrix = &pc.invMVP;
+				memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
 				pc.sampleCount = spp;
 				pc.depth = depth;
 				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 			}
-
-			*pcMVPMatrix = hlsl::float32_t4x4(
-				invMVP.rows[0].x, invMVP.rows[0].y, invMVP.rows[0].z, invMVP.rows[0].w,
-				invMVP.rows[1].x, invMVP.rows[1].y, invMVP.rows[1].z, invMVP.rows[1].w,
-				invMVP.rows[2].x, invMVP.rows[2].y, invMVP.rows[2].z, invMVP.rows[2].w,
-				invMVP.rows[3].x, invMVP.rows[3].y, invMVP.rows[3].z, invMVP.rows[3].w
-			);
 		}
 
 		IGPUComputePipeline* pickPTPipeline()

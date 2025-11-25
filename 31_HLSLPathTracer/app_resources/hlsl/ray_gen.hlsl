@@ -5,12 +5,6 @@
 
 #include "common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
 namespace RayGen
 {
 
@@ -76,9 +70,6 @@ struct Basic
     matrix4x4_type invMVP;
 };
 
-}
-}
-}
 }
 
 #endif

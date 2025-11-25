@@ -1,20 +1,14 @@
 #ifndef _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
 #define _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
 
-#include "common.hlsl"
+#include "example_common.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
-namespace Intersector
-{
+using namespace nbl;
+using namespace hlsl;
 
 template<class Ray, class Scene>
-struct Comprehensive
+struct Intersector
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
@@ -75,10 +69,5 @@ struct Comprehensive
         return objectID;
     }
 };
-
-}
-}
-}
-}
 
 #endif

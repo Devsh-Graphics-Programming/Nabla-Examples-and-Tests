@@ -9,43 +9,12 @@
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 #include <nbl/builtin/hlsl/concepts.hlsl>
 
-#include "rand_gen.hlsl"
-#include "ray_gen.hlsl"
-#include "intersector.hlsl"
-#include "material_system.hlsl"
-#include "next_event_estimator.hlsl"
-
 namespace nbl
 {
 namespace hlsl
 {
-namespace ext
+namespace path_tracing
 {
-namespace PathTracer
-{
-
-template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
-struct DefaultAccumulator
-{
-    using output_storage_type = OutputTypeVec;
-    using this_t = DefaultAccumulator<OutputTypeVec>;
-    output_storage_type accumulation;
-
-    static this_t create()
-    {
-        this_t retval;
-        retval.accumulation = promote<OutputTypeVec, float32_t>(0.0f);
-
-        return retval;
-    }
-
-    void addSample(uint32_t sampleCount, float32_t3 sample)
-    {
-        using ScalarType = typename vector_traits<OutputTypeVec>::scalar_type;
-        ScalarType rcpSampleSize = 1.0 / (sampleCount);
-        accumulation += (sample - accumulation) * rcpSampleSize;
-    }
-};
 
 template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator, class Scene>
 struct Unidirectional
@@ -67,7 +36,7 @@ struct Unidirectional
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
     using light_type = Light<measure_type>;
-    using bxdfnode_type = BxDFNode<measure_type>;
+    using bxdfnode_type = typename MaterialSystem::bxdfnode_type;
     using anisotropic_interaction_type = typename MaterialSystem::anisotropic_interaction_type;
     using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
     using anisocache_type = typename MaterialSystem::anisocache_type;
@@ -95,36 +64,19 @@ struct Unidirectional
         return hlsl::dot<vector3_type>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
     }
 
-    // TODO: probably will only work with procedural shapes, do the other ones
+    // TODO: probably will only work with isotropic surfaces, need to do aniso
     bool closestHitProgram(uint32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         const ObjectID objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
-        uint32_t bsdfLightIDs;
-        anisotropic_interaction_type interaction;
-        isotropic_interaction_type iso_interaction;
-        uint32_t mode = objectID.mode;
-        switch (mode)
-        {
-            // TODO
-            case IM_RAY_QUERY:
-            case IM_RAY_TRACING:
-                break;
-            case IM_PROCEDURAL:
-            {
-                bsdfLightIDs = scene.getBsdfLightIDs(objectID);
-                vector3_type N = scene.getNormal(objectID, intersection);
-                N = nbl::hlsl::normalize(N);
-                ray_dir_info_type V;
-                V.direction = -ray.direction;
-                isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
-                interaction = anisotropic_interaction_type::create(iso_interaction);
-            }
-            break;
-            default:
-                break;
-        }
+        uint32_t bsdfLightIDs = scene.getBsdfLightIDs(objectID);
+        vector3_type N = scene.getNormal(objectID, intersection);
+        N = nbl::hlsl::normalize(N);
+        ray_dir_info_type V;
+        V.setDirection(-ray.direction);
+        isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+        anisotropic_interaction_type interaction = anisotropic_interaction_type::create(iso_interaction);
 
         vector3_type throughput = ray.payload.throughput;
 
@@ -144,9 +96,7 @@ struct Unidirectional
 
         // TODO: ifdef kill diffuse specular paths
 
-        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIFFUSE) ? bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF :
-                            (bxdf.materialType == ext::MaterialSystem::MaterialType::CONDUCTOR) ? bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF :
-                            bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF;
+        const bool isBSDF = material_system_type::isBSDF(bxdf.materialType);
 
         vector3_type eps0 = rand3d(depth, _sample, 0u);
         vector3_type eps1 = rand3d(depth, _sample, 1u);
@@ -268,7 +218,7 @@ struct Unidirectional
     void sampleMeasure(uint32_t sampleIndex, uint32_t maxDepth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(Accumulator) accumulator)
     {
         //scalar_type meanLumaSq = 0.0;
-        vector3_type uvw = rand3d(0u, sampleIndex, 0u);    // TODO: take 3rd arg from scramblebuf?
+        vector3_type uvw = rand3d(0u, sampleIndex, 0u);
         ray_type ray = rayGen.generate(uvw);
 
         // bounces
@@ -305,7 +255,6 @@ struct Unidirectional
     uint64_t pSampleBuffer;
 };
 
-}
 }
 }
 }
