@@ -42,7 +42,7 @@ struct IES
     video::IGPUImage* getActiveImage() const;
 
     static const char* modeToRS(E_MODE mode);
-    static const char* symmetryToRS(CIESProfile::LuminairePlanesSymmetry symmetry);
+    static const char* symmetryToRS(CIESProfile::properties_t::LuminairePlanesSymmetry symmetry);
 
     template<IImage::LAYOUT newLayout, bool undefined = false>
     requires(newLayout == IImage::LAYOUT::GENERAL or newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)

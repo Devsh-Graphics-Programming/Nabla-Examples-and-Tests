@@ -18,14 +18,15 @@ void IESViewer::uiListener()
     auto& ies = m_assets[m_activeAssetIx];
     const auto name = path(ies.key).filename().string();
     auto* profile = ies.getProfile();
-    const float lowerBound = (float)profile->getHoriAngles().front();
-    const float upperBound = (float)profile->getHoriAngles().back();
+	const auto& accessor = profile->getAccessor();
+
+    const float lowerBound = accessor.hAngles.front();
+    const float upperBound = accessor.hAngles.back();
     const bool singleAngle = (upperBound == lowerBound);
 
     auto angle = ImClamp(ies.zDegree, lowerBound, upperBound);
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const ImVec2 imageSize(640.f, 640.f);
-
     // 2D Plot
     {
         ImDrawList* fg = ImGui::GetForegroundDrawList();
@@ -35,7 +36,7 @@ void IESViewer::uiListener()
         fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::modeToRS(ies.mode));
         y += ImGui::GetTextLineHeightWithSpacing();
 
-        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::symmetryToRS(profile->getSymmetry()));
+        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::symmetryToRS(accessor.symmetry()));
         y += ImGui::GetTextLineHeightWithSpacing();
 
         fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());

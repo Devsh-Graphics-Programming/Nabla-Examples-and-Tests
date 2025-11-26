@@ -53,11 +53,11 @@ core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t wi
     return imageView;
 }
 
-core::smart_refctd_ptr<IGPUBuffer> IESViewer::createBuffer(const core::vector<asset::CIESProfile::IES_STORAGE_FORMAT>& in, std::string name)
+core::smart_refctd_ptr<IGPUBuffer> IESViewer::createBuffer(const core::vector<float>& in, std::string name)
 {
     IGPUBuffer::SCreationParams bufferParams = {};
     bufferParams.usage = core::bitflag(asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT /*TODO: <- double check*/;;
-    bufferParams.size = sizeof(asset::CIESProfile::IES_STORAGE_FORMAT) * in.size();
+    bufferParams.size = sizeof(float) * in.size();
 
     auto buffer = m_device->createBuffer(std::move(bufferParams));
     buffer->setObjectDebugName(name.c_str());

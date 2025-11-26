@@ -5,7 +5,7 @@
 
 #include "nbl/examples/examples.hpp"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
-#include "app_resources/ies.pcs.hlsl"
+#include "app_resources/common.hlsl"
 
 namespace nbl::examples
 {
@@ -35,7 +35,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			inline auto computeForInstance(hlsl::float32_t3x4 world) const
 			{
 				using namespace nbl::hlsl;
-				hlsl::examples::ies::SInstanceMatrices retval = {
+				hlsl::this_example::ies::SInstanceMatrices retval = {
 					.worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj),float64_t3x4(world)))
 				};
 				const auto sub3x3 = mul(float64_t3x3(viewProj),float64_t3x3(world));
@@ -51,8 +51,6 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		struct SIESParams
 		{
 			hlsl::float32_t radius = 1.f;
-			uint32_t resX : 16;
-			uint32_t resY : 16;
 			IGPUDescriptorSet* ds = nullptr;
 			uint32_t texID;
 		};
@@ -63,7 +61,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
-			constexpr static inline auto MissingView = hlsl::examples::ies::SPushConstants::DescriptorCount;
+			constexpr static inline auto MissingView = hlsl::this_example::ies::PushConstants::DescriptorCount;
 			uint16_t positionView = MissingView;
 			uint16_t normalView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
@@ -71,7 +69,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		//
 		struct SInstance
 		{
-			using SPushConstants = hlsl::examples::ies::SPushConstants;
+			using SPushConstants = hlsl::this_example::ies::PushConstants;
 			inline SPushConstants computePushConstants(const SViewParams& viewParams, const SIESParams& iesParams) const
 			{
 				using namespace hlsl;
@@ -79,10 +77,8 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 					.matrices = viewParams.computeForInstance(world),
 					.positionView = packedGeo->positionView,
 					.normalView = packedGeo->normalView,
-					.resX = iesParams.resX,
-					.resY = iesParams.resY,
-					.texID = iesParams.texID,
-					.radius = iesParams.radius
+					.texIx = iesParams.texID,
+					.sphereRadius = iesParams.radius
 				};
 			}
 
@@ -167,7 +163,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			{
 				IGPUGraphicsPipeline::SCreationParams params[pipeline_e::Count] = {};
 				params[pipeline_e::SphereTriangleStrip].vertexShader = { .shader = shader.get(),.entryPoint = "SphereVS" };
-				params[pipeline_e::SphereTriangleStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "SphereFS" };
+				params[pipeline_e::SphereTriangleStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "SpherePS" };
 				for (auto i=0; i<pipeline_e::Count; i++)
 				{
 					params[i].layout = init.layout.get();

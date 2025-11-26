@@ -66,7 +66,7 @@ private:
     smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name, 
         bitflag<IImage::E_USAGE_FLAGS> usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT,
         bitflag<IImage::E_ASPECT_FLAGS> aspectFlags = bitflag(IImage::EAF_COLOR_BIT));
-    smart_refctd_ptr<IGPUBuffer> createBuffer(const core::vector<CIESProfile::IES_STORAGE_FORMAT>& in, std::string name);
+    smart_refctd_ptr<IGPUBuffer> createBuffer(const core::vector<float>& in, std::string name);
 
     void uiListener();
 };

@@ -28,20 +28,16 @@ struct PushConstants
     NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
 
     SInstanceMatrices matrices;
+    uint64_t hAnglesBDA;
+    uint64_t vAnglesBDA;
+    uint64_t dataBDA;
     uint32_t positionView : 16;
     uint32_t normalView : 16;
     uint32_t mode : 8;
     uint32_t symmetry : 8;
     uint32_t texIx : 16;
-
-    uint64_t hAnglesBDA;
-    uint64_t vAnglesBDA;
-    uint64_t dataBDA;
-
-    uint32_t hAnglesCount;
+	uint32_t hAnglesCount;
     uint32_t vAnglesCount;
-    uint32_t dataCount;
-
     float32_t maxIValue;
     float32_t zAngleDegreeRotation;
     float32_t sphereRadius;

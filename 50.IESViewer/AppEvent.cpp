@@ -13,10 +13,10 @@ void IESViewer::processMouse(const nbl::ui::IMouseEventChannel::range_t& events)
         if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
         {
             auto& ies = m_assets[m_activeAssetIx];
-            auto* profile = ies.getProfile();
+            const auto& accessor = ies.getProfile()->getAccessor();
 
             auto impulse = ev.scrollEvent.verticalScroll * 0.02f;
-            ies.zDegree = std::clamp<float>(ies.zDegree + impulse, profile->getHoriAngles().front(), profile->getHoriAngles().back());
+            ies.zDegree = std::clamp<float>(ies.zDegree + impulse, accessor.hAngles.front(), accessor.hAngles.back());
         }
     }
 }

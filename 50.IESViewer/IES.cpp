@@ -51,19 +51,19 @@ const char* IES::modeToRS(E_MODE mode)
     }
 }
 
-const char* IES::symmetryToRS(CIESProfile::LuminairePlanesSymmetry symmetry)
+const char* IES::symmetryToRS(CIESProfile::properties_t::LuminairePlanesSymmetry symmetry)
 {
     switch (symmetry)
     {
-    case asset::CIESProfile::ISOTROPIC:
+    case asset::CIESProfile::properties_t::ISOTROPIC:
         return "ISOTROPIC";
-    case asset::CIESProfile::QUAD_SYMETRIC:
+    case asset::CIESProfile::properties_t::QUAD_SYMETRIC:
         return "QUAD_SYMETRIC";
-    case asset::CIESProfile::HALF_SYMETRIC:
+    case asset::CIESProfile::properties_t::HALF_SYMETRIC:
         return "HALF_SYMETRIC";
-    case asset::CIESProfile::OTHER_HALF_SYMMETRIC:
+    case asset::CIESProfile::properties_t::OTHER_HALF_SYMMETRIC:
         return "OTHER_HALF_SYMMETRIC";
-    case asset::CIESProfile::NO_LATERAL_SYMMET:
+    case asset::CIESProfile::properties_t::NO_LATERAL_SYMMET:
         return "NO_LATERAL_SYMMET";
     default:
         return "ERROR (symmetry)";

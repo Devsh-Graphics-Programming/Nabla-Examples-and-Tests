@@ -108,7 +108,7 @@ SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
 }
 
 [shader("pixel")]
-float32_t4 SphereFS(SInterpolants input) : SV_Target0
+float32_t4 SpherePS(SInterpolants input) : SV_Target0
 {
     float32_t2 uv = 0.5f * Octahedral::dirToNDC(input.latDir) + 0.5f;
     float32_t candela = inIESCandelaImage[pc.texIx].Sample(generalSampler, uv).r;

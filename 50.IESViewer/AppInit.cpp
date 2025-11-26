@@ -67,7 +67,8 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         for (auto& ies : m_assets)
         {
             const auto* profile = ies.getProfile();
-            const auto resolution = profile->getOptimalIESResolution();
+			const auto& accessor = profile->getAccessor();
+            const auto& resolution = accessor.properties.optimalIESResolution;
 
             #define CREATE_VIEW(VIEW, FORMAT, NAME) \
 		    if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT, NAME + ies.key) )) return false;
@@ -80,9 +81,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             #define CREATE_BUFFER(BUFFER, DATA, NAME) \
             if (!(BUFFER = createBuffer(DATA, NAME + ies.key) )) return false;
 
-            CREATE_BUFFER(ies.buffers.vAngles, profile->getVertAngles(), "IES Vertical Angles Buffer: ")
-            CREATE_BUFFER(ies.buffers.hAngles, profile->getHoriAngles(), "IES Horizontal Angles Buffer: ")
-            CREATE_BUFFER(ies.buffers.data, profile->getData(), "IES Data Buffer: ")
+            CREATE_BUFFER(ies.buffers.vAngles, accessor.vAngles, "IES Vertical Angles Buffer: ")
+            CREATE_BUFFER(ies.buffers.hAngles, accessor.hAngles, "IES Horizontal Angles Buffer: ")
+            CREATE_BUFFER(ies.buffers.data, accessor.data, "IES Data Buffer: ")
         }
         auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
         auto took = std::to_string(elapsed.count());
@@ -119,15 +120,15 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 	if (!(SHADER = createShader.template operator()<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE(PATH)>() )) return false;
 
     m_logger->log("Loading GPU shaders..", system::ILogger::ELL_INFO);
-    smart_refctd_ptr<IShader> compute, pixel, vertex, ies, imguiVertex, imguiPixel;
+
+	struct
+	{
+		smart_refctd_ptr<IShader> ies, imgui;
+	} shaders;
     {
         auto start = std::chrono::high_resolution_clock::now();
-        CREATE_SHADER(compute, "compute")
-        CREATE_SHADER(pixel, "pixel")
-        CREATE_SHADER(vertex, "vertex")
-        CREATE_SHADER(ies, "ies.unified")
-        CREATE_SHADER(imguiVertex, "imgui.vertex")
-        CREATE_SHADER(imguiPixel, "imgui.pixel")
+        CREATE_SHADER(shaders.ies, "ies.unified")
+        CREATE_SHADER(shaders.imgui, "imgui.unified")
         auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
         auto took = std::to_string(elapsed.count());
         m_logger->log("Finished loading GPU shaders, took %s seconds!", system::ILogger::ELL_PERFORMANCE, took.c_str());
@@ -188,7 +189,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             if (not descriptorSetLayout)
                 return logFail("Failed to create descriptor set layout!");
 
-            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, 0u, sizeof(PushConstants)} });
+            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, 0u, sizeof(nbl::hlsl::this_example::ies::PushConstants)} });
             auto pipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
             if (not pipelineLayout)
@@ -198,8 +199,8 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             {
                 auto params = std::to_array<IGPUComputePipeline::SCreationParams>({ {} });;
                 params[0].layout = pipelineLayout.get();
-                params[0].shader.shader = compute.get();
-                params[0].shader.entryPoint = "main";
+                params[0].shader.shader = shaders.ies.get();
+                params[0].shader.entryPoint = "CdcCS";
 
                 if (!m_device->createComputePipelines(nullptr, params, &m_computePipeline))
                     return logFail("Failed to create compute pipeline!");
@@ -213,8 +214,8 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
                 video::IGPUPipelineBase::SShaderSpecInfo specInfo[] =
                 {
-                    {.shader = vertex.get(), .entryPoint = "main", .entries = &specConstants },
-                    {.shader = pixel.get(), .entryPoint = "PSMain" }
+                    {.shader = shaders.ies.get(), .entryPoint = "main", .entries = &specConstants },
+                    {.shader = shaders.ies.get(), .entryPoint = "CdcPS" }
                 };
 
                 auto params = std::to_array<IGPUGraphicsPipeline::SCreationParams>({ {} });
@@ -352,7 +353,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             for (auto i = 0u; i < m_assets.size(); ++i)
             {
                 auto& ies = m_assets[i];
-                auto resolution = ies.getProfile()->getOptimalIESResolution();
+                const auto& resolution = ies.getProfile()->getAccessor().properties.optimalIESResolution;
                 auto name = "Grid " + std::to_string(i);
                 addGeometry(name.c_str(), creator->createGrid({ resolution.x, resolution.y }));
             }
@@ -372,7 +373,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         const auto& geometries = m_scene->getInitParams().geometries;
 
-        m_renderer = CSimpleIESRenderer::create(ies, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(m_descriptors[0u]->getLayout()), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
+        m_renderer = CSimpleIESRenderer::create(shaders.ies, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(m_descriptors[0u]->getLayout()), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
         if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
             return logFail("Could not create 3D Plot Renderer!");
 
@@ -410,7 +411,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         params.pipelineCache = nullptr;
 
         using imgui_precompiled_spirv_t = ext::imgui::UI::SCreationParameters::PrecompiledShaders;
-        params.spirv = std::make_optional(imgui_precompiled_spirv_t{ .vertex = imguiVertex, .fragment = imguiPixel });
+        params.spirv = std::make_optional(imgui_precompiled_spirv_t{ .vertex = shaders.imgui, .fragment = shaders.imgui });
 
         auto* imgui = (ui.it = ext::imgui::UI::create(std::move(params))).get();
         if (not imgui)
