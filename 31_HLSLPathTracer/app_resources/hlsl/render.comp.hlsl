@@ -236,11 +236,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         camPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
-
+    
     scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
-
-    float32_t4x4 invMVP = renderPushConstants.invMVP;    
-    pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, invMVP);
+    pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, renderPushConstants.invMVP);
     pathtracer.nee.lights = lights;
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;

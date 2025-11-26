@@ -14,10 +14,11 @@ struct Intersector
     using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
     using scene_type = Scene;
+    using id_type = ObjectID;
 
-    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    static id_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        ObjectID objectID;
+        id_type objectID;
         objectID.id = -1;
 
         // prodedural shapes

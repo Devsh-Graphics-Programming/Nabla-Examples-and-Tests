@@ -14,7 +14,6 @@
 #include "app_resources/hlsl/resolve_common.hlsl"
 #include "app_resources/hlsl/rwmc_global_settings_common.hlsl"
 
-
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -83,6 +82,14 @@ public:
 	}
 
 	inline bool isComputeOnly() const override { return false; }
+
+
+	inline video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		video::SPhysicalDeviceLimits retval = device_base_t::getRequiredDeviceLimits();
+		retval.storagePushConstant16 = true;
+		return retval;
+	}
 
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{

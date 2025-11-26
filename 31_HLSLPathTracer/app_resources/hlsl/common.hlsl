@@ -6,7 +6,6 @@
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/numbers.hlsl>
 #include <nbl/builtin/hlsl/bxdf/common.hlsl>
-#include <nbl/builtin/hlsl/spirv_intrinsics/glsl.std.450.hlsl>
 
 namespace nbl
 {
@@ -15,7 +14,6 @@ namespace hlsl
 namespace path_tracing
 {
 
-// keep
 template<typename T>
 struct Tolerance
 {
@@ -38,7 +36,6 @@ struct Tolerance
     }
 };
 
-// keep
 enum PTPolygonMethod : uint16_t
 {
     PPM_AREA,
