@@ -75,14 +75,8 @@ struct Scene<T, PST_SPHERE> : SceneBase<T>
 
     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
     {
-        // Only spheres are lights in this specialization
-        [unroll]
-        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
-        {
-            light_spheres[i].updateTransform(generalPurposeLightMatrix);
-        }
+        light_spheres[0].updateTransform(generalPurposeLightMatrix);
     }
-
 
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
     {
@@ -131,14 +125,8 @@ struct Scene<T, PST_TRIANGLE> : SceneBase<T>
 
     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
     {
-        // Only triangles are lights in this specialization
-        [unroll]
-        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
-        {
-            light_triangles[i].updateTransform(generalPurposeLightMatrix);
-        }
+        light_triangles[0].updateTransform(generalPurposeLightMatrix);
     }
-
 
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
     {
@@ -187,12 +175,7 @@ struct Scene<T, PST_RECTANGLE> : SceneBase<T>
 
     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
     {
-        // Only rectangles are lights in this specialization
-        [unroll]
-        for (uint32_t i = 0u; i < base_t::SCENE_LIGHT_COUNT; i++)
-        {
-            light_rectangles[i].updateTransform(generalPurposeLightMatrix);
-        }
+        light_rectangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)

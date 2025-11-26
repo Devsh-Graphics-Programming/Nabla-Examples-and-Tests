@@ -184,14 +184,10 @@ struct Shape<T, PST_SPHERE>
         return create(position, radius * radius, bsdfLightIDs);
     }
 
-    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) m)
     {
-        position = float3(
-            generalPurposeLightMatrix[0][3],
-            generalPurposeLightMatrix[1][3],
-            generalPurposeLightMatrix[2][3]
-        );
-        radius2 = generalPurposeLightMatrix[0][0] * generalPurposeLightMatrix[0][0];
+        position = float3(m[0].w, m[1].w, m[2].w);
+        radius2 = m[0].x * m[0].x;
     }
 
     // return intersection distance if found, nan otherwise
@@ -250,24 +246,17 @@ struct Shape<T, PST_TRIANGLE>
         return create(vertex0, vertex1, vertex2, bsdfLightIDs);
     }
 
-    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) m)
     {
-        vertex0 = float32_t3(
-            generalPurposeLightMatrix[0][3],
-            generalPurposeLightMatrix[1][3],
-            generalPurposeLightMatrix[2][3]
-        );
-
-        float3 edge0 = generalPurposeLightMatrix[0].xyz;
-        float3 edge1 = generalPurposeLightMatrix[1].xyz;
-        // float3 edge2 = generalPurposeLightMatrix[2].xyz;
-
-        // Compute triangle vertices relative to v0
-        vertex1 = vertex0 + edge0;
-        vertex2 = vertex0 + edge1;
-
-        // If you want a fully general triangle using all three columns:
-        // vertex2 = vertex0 + edge2;
+        // Define triangle in local space
+        float3 localVertex0 = float3(0.0, 0.0, 0.0);
+        float3 localVertex1 = float3(1.0, 0.0, 0.0);
+        float3 localVertex2 = float3(0.0, 1.0, 0.0);
+        
+        // Transform each vertex
+        vertex0 = mul(m, float4(localVertex0, 1.0)).xyz;
+        vertex1 = mul(m, float4(localVertex1, 1.0)).xyz;
+        vertex2 = mul(m, float4(localVertex2, 1.0)).xyz;
     }
 
     scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
@@ -326,16 +315,22 @@ struct Shape<T, PST_RECTANGLE>
         return create(offset, edge0, edge1, bsdfLightIDs);
     }
 
-    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) m)
     {
-        offset = float3(
-            generalPurposeLightMatrix[0][3],
-            generalPurposeLightMatrix[1][3],
-            generalPurposeLightMatrix[2][3]
-        );
+        // Define rectangle in local space
+        float3 localVertex0 = float3(0.0, 0.0, 0.0);
+        float3 localVertex1 = float3(1.0, 0.0, 0.0);
+        float3 localVertex2 = float3(0.0, 1.0, 0.0);
 
-        edge0 = generalPurposeLightMatrix[0].xyz;
-        edge1 = generalPurposeLightMatrix[1].xyz;
+        // Transform each vertex
+        float3 vertex0 = mul(m, float4(localVertex0, 1.0)).xyz;
+        float3 vertex1 = mul(m, float4(localVertex1, 1.0)).xyz;
+        float3 vertex2 = mul(m, float4(localVertex2, 1.0)).xyz;
+
+        // Extract offset and edges from transformed vertices
+        offset = vertex0;
+        edge0 = vertex1 - vertex0;
+        edge1 = vertex2 - vertex0;
     }
 
     scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)

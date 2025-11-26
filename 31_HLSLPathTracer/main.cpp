@@ -8,6 +8,7 @@
 #include "nbl/builtin/hlsl/surface_transform.h"
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -1031,6 +1032,9 @@ public:
 
 				ImGui::Text("Camera");
 
+				ImGui::Text("Press Home to reset camera.");
+				ImGui::Text("Press End to reset light.");
+
 				ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 				ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 				ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
@@ -1059,28 +1063,53 @@ public:
 			{
 				static struct
 				{
-					core::matrix4SIMD view, projection;
+					hlsl::float32_t4x4 view, projection;
 				} imguizmoM16InOut;
 
 				ImGuizmo::SetID(0u);
 
-				imguizmoM16InOut.view = core::transpose(matrix4SIMD(m_camera.getViewMatrix()));
-				//imguizmoM16InOut.view[2] = -imguizmoM16InOut.view[2]; // Not needed for right-handedness 
-				imguizmoM16InOut.projection = core::transpose(m_camera.getProjectionMatrix());
+				// TODO: camera will return hlsl::float32_tMxN 
+				auto view = *reinterpret_cast<const float32_t3x4*>(m_camera.getViewMatrix().pointer());
+				imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
+
+				// TODO: camera will return hlsl::float32_tMxN 
+				imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(m_camera.getProjectionMatrix().pointer()));
 				imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 				m_transformParams.editTransformDecomposition = true;
+				m_transformParams.sceneTexDescIx = 1u;
 
 				if (ImGui::IsKeyPressed(ImGuiKey_End))
 				{
-					m_lightModelMatrix = {
-					 0.3f, 0.0f, 0.0f, 0.0f,
-					 0.0f, 0.3f, 0.0f, 0.0f,
-					 0.0f, 0.0f, 0.3f, 0.0f,
-					-1.0f, 1.5f, 0.0f, 1.0f
-					};
+					m_lightModelMatrix = hlsl::float32_t4x4(
+						0.3f, 0.0f, 0.0f, 0.0f,
+						0.0f, 0.3f, 0.0f, 0.0f,
+						0.0f, 0.0f, 0.3f, 0.0f,
+						-1.0f, 1.5f, 0.0f, 1.0f
+					);
 				}
-				EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), m_lightModelMatrix.pointer(), m_transformParams);
+
+				if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+				{
+					m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::SCALEU;
+					m_transformParams.isSphere = true;
+				}
+				else
+				{
+					m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::ROTATE | ImGuizmo::OPERATION::SCALE;
+					m_transformParams.isSphere = false;
+				}
+				EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &m_lightModelMatrix[0][0], m_transformParams);
+
+				if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+				{
+					// keep uniform scale for sphere
+					float32_t uniformScale = (m_lightModelMatrix[0][0] + m_lightModelMatrix[1][1] + m_lightModelMatrix[2][2]) / 3.0f;
+					m_lightModelMatrix[0][0] = uniformScale;
+					m_lightModelMatrix[1][1] = uniformScale; // Doesn't affect sphere but will affect rectangle/triangle if switching shapes
+					m_lightModelMatrix[2][2] = uniformScale;
+				}
+
 			});
 
 		// Set Camera
@@ -1534,11 +1563,10 @@ private:
 		// TODO: rewrite the `Camera` class so it uses hlsl::float32_t4x4 instead of core::matrix4SIMD
 		core::matrix4SIMD invMVP;
 		viewProjectionMatrix.getInverseTransform(invMVP);
-		matrix3x4SIMD transposedLightMatrix = transpose(m_lightModelMatrix).extractSub3x4();
 		if (useRWMC)
 		{
 			memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
-			memcpy(&rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix, transposedLightMatrix.pointer(), sizeof(rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix));
+			rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 			rwmcPushConstants.renderPushConstants.depth = depth;
 			rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 			rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
@@ -1548,7 +1576,7 @@ private:
 		else
 		{
 			memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
-			memcpy(&pc.generalPurposeLightMatrix, transposedLightMatrix.pointer(), sizeof(pc.generalPurposeLightMatrix));
+			pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 			pc.sampleCount = spp;
 			pc.depth = depth;
 			pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
@@ -1654,12 +1682,11 @@ private:
 	RenderPushConstants pc;
 	ResolvePushConstants resolvePushConstants;
 
-	// column major, changed by ImGuizmo
-	matrix4SIMD m_lightModelMatrix = {
+	hlsl::float32_t4x4 m_lightModelMatrix = {
 		 0.3f, 0.0f, 0.0f, 0.0f,
 		 0.0f, 0.3f, 0.0f, 0.0f,
 		 0.0f, 0.0f, 0.3f, 0.0f,
-		-1.0f, 1.5f, 0.0f, 1.0f
+		-1.0f, 1.5f, 0.0f, 1.0f,
 	};
 	TransformRequestParams m_transformParams;
 
