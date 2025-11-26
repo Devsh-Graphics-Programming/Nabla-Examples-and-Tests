@@ -43,6 +43,7 @@ struct Scene<T, PST_SPHERE> : SceneBase<T>
     using vector3_type = vector<T, 3>;
     using this_t = Scene<T, PST_SPHERE>;
     using base_t = SceneBase<T>;
+    using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
@@ -71,13 +72,13 @@ struct Scene<T, PST_SPHERE> : SceneBase<T>
         return light_rectangles[0];
     }
 
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE);
         return getSphere(objectID.id).bsdfLightIDs;
     }
 
-    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    vector3_type getNormal(NBL_CONST_REF_ARG(id_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
         assert(objectID.shapeType == PST_SPHERE);
         return getSphere(objectID.id).getNormal(intersection);
@@ -91,6 +92,7 @@ struct Scene<T, PST_TRIANGLE> : SceneBase<T>
     using vector3_type = vector<T, 3>;
     using this_t = Scene<T, PST_TRIANGLE>;
     using base_t = SceneBase<T>;
+    using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
@@ -116,13 +118,13 @@ struct Scene<T, PST_TRIANGLE> : SceneBase<T>
         return light_rectangles[0];
     }
 
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
         return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getTriangle(objectID.id).bsdfLightIDs;
     }
 
-    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    vector3_type getNormal(NBL_CONST_REF_ARG(id_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
         return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getTriangle(objectID.id).getNormalTimesArea();
@@ -136,6 +138,7 @@ struct Scene<T, PST_RECTANGLE> : SceneBase<T>
     using vector3_type = vector<T, 3>;
     using this_t = Scene<T, PST_RECTANGLE>;
     using base_t = SceneBase<T>;
+    using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
@@ -161,13 +164,13 @@ struct Scene<T, PST_RECTANGLE> : SceneBase<T>
         return light_rectangles[idx];
     }
 
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
         return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getRectangle(objectID.id).bsdfLightIDs;
     }
 
-    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    vector3_type getNormal(NBL_CONST_REF_ARG(id_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
         return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getRectangle(objectID.id).getNormalTimesArea();

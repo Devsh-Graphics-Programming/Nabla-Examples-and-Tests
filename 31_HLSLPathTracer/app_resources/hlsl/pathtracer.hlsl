@@ -1,5 +1,5 @@
-#ifndef _NBL_HLSL_EXT_PATHTRACER_INCLUDED_
-#define _NBL_HLSL_EXT_PATHTRACER_INCLUDED_
+#ifndef _NBL_HLSL_PATHTRACING_INCLUDED_
+#define _NBL_HLSL_PATHTRACING_INCLUDED_
 
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
@@ -7,7 +7,7 @@
 #include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
-#include <nbl/builtin/hlsl/concepts.hlsl>
+#include "concepts.hlsl"
 
 namespace nbl
 {
@@ -16,7 +16,11 @@ namespace hlsl
 namespace path_tracing
 {
 
-template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator, class Scene>
+template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator, class Scene
+NBL_PRIMARY_REQUIRES(concepts::RandGenerator<RandGen> && concepts::RayGenerator<RayGen> &&
+    concepts::Intersector<Intersector> && concepts::MaterialSystem<MaterialSystem> &&
+    concepts::NextEventEstimator<NextEventEstimator> && concepts::Accumulator<Accumulator> &&
+    concepts::Scene<Scene>)
 struct Unidirectional
 {
     using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator, Scene>;
@@ -35,6 +39,7 @@ struct Unidirectional
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
+    using id_type = typename Intersector::id_type;
     using light_type = Light<measure_type>;
     using bxdfnode_type = typename MaterialSystem::bxdfnode_type;
     using anisotropic_interaction_type = typename MaterialSystem::anisotropic_interaction_type;
@@ -67,7 +72,7 @@ struct Unidirectional
     // TODO: probably will only work with isotropic surfaces, need to do aniso
     bool closestHitProgram(uint32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const ObjectID objectID = ray.objectID;
+        const id_type objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
         uint32_t bsdfLightIDs = scene.getBsdfLightIDs(objectID);
