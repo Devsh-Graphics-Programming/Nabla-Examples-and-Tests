@@ -83,6 +83,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool isComputeOnly() const override { return false; }
 
+		inline video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		{
+			video::SPhysicalDeviceLimits retval = device_base_t::getRequiredDeviceLimits();
+			retval.storagePushConstant16 = true;
+			return retval;
+		}
+
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
