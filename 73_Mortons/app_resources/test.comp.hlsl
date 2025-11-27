@@ -8,6 +8,7 @@
 [[vk::binding(1, 0)]] RWStructuredBuffer<TestValues> outputTestValues;
 
 [numthreads(256, 1, 1)]
+[shader("compute")]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     if (invocationID.x == 0)

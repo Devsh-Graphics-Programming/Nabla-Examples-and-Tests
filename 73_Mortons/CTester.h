@@ -3,8 +3,6 @@
 
 #include <nabla.h>
 #include "app_resources/testCommon.hlsl"
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "ITester.h"
 
 using namespace nbl;

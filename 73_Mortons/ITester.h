@@ -4,7 +4,6 @@
 #include <nabla.h>
 #include "app_resources/common.hlsl"
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 
@@ -45,7 +44,7 @@ public:
             logFail("Failed to create Command Buffers!\n");
 
         // Load shaders, set up pipeline
-        core::smart_refctd_ptr<video::IGPUShader> shader;
+        core::smart_refctd_ptr<asset::IShader> shader;
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
@@ -53,31 +52,13 @@ public:
             auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
-            {
-                logFail("Could not load shader!");
-                assert(0);
-            }
+                return logFail("Could not load shader!");
 
             // It would be super weird if loading a shader from a file produced more than 1 asset
             assert(assets.size() == 1);
-            core::smart_refctd_ptr<asset::ICPUShader> source = asset::IAsset::castDown<asset::ICPUShader>(assets[0]);
+            core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
 
-            auto* compilerSet = m_assetMgr->getCompilerSet();
-
-            asset::IShaderCompiler::SCompilerOptions options = {};
-            options.stage = source->getStage();
-            options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-            options.spirvOptimizer = nullptr;
-            options.debugInfoFlags |= asset::IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-            options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-            options.preprocessorOptions.logger = m_logger.get();
-            options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-            auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-            video::ILogicalDevice::SShaderCreationParameters params{};
-            params.cpushader = spirv.get();
-            shader = m_device->createShader(params);
+            shader = m_device->compileShader({source.get()});
         }
 
         if (!shader)

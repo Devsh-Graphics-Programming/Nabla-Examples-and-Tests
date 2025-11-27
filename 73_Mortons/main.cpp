@@ -7,7 +7,7 @@
 #include <assert.h>
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
 #include "app_resources/common.hlsl"
 #include "CTester.h"
@@ -17,12 +17,13 @@ using namespace nbl::hlsl;
 using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::video;
+using namespace nbl::examples;
 using namespace nbl::application_templates;
 
-class MortonTest final : public MonoDeviceApplication, public MonoAssetManagerAndBuiltinResourceApplication
+class MortonTest final : public MonoDeviceApplication, public BuiltinResourcesApplication
 {
     using device_base_t = MonoDeviceApplication;
-    using asset_base_t = MonoAssetManagerAndBuiltinResourceApplication;
+    using asset_base_t = BuiltinResourcesApplication;
 public:
     MortonTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
