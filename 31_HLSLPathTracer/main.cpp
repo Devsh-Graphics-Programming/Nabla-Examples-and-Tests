@@ -858,9 +858,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
 					    {
 						    auto& seq = out[i * quantizedDimensions + dim];
-						    seq.setX(sampler.sample(dim + 0, i));
-						    seq.setY(sampler.sample(dim + 1, i));
-						    seq.setZ(sampler.sample(dim + 2, i));
+						    seq.setX(sampler.sample(dim * 3 + 0, i));
+						    seq.setY(sampler.sample(dim * 3 + 1, i));
+						    seq.setZ(sampler.sample(dim * 3 + 2, i));
 					    }
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
@@ -1530,8 +1530,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-				rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
-				rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
+				//rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
+				//rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
+				float32_t2 packLogs = float32_t2(std::log2(rwmcStart), std::log2(rwmcBase));
+				rwmcPushConstants.splattingParameters.packedLog2 = hlsl::packHalf2x16(packLogs);
 			}
 			else
 			{
