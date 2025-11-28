@@ -196,7 +196,10 @@ public:
 				if (m_drawBBs)
 				{
 					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-					m_drawAABB->render(cb, drawFinished, m_aabbInstances, viewProjMatrix);
+					ext::debug_draw::DrawAABB::DrawParameters drawParams;
+					drawParams.commandBuffer = cb;
+					drawParams.cameraMat = viewProjMatrix;
+					m_drawAABB->render(drawParams, drawFinished, m_aabbInstances);
 				}
 #endif
 				cb->endRenderPass();
@@ -471,14 +474,14 @@ private:
 #ifdef NBL_BUILD_DEBUG_DRAW
 					auto& inst = m_aabbInstances[i];
 					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
-					hlsl::float32_t4x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
+					hlsl::float32_t3x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
 					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
 					inst.color = { 1,1,1,1 };
 					inst.transform[0] = tmpWorld[0];
 					inst.transform[1] = tmpWorld[1];
 					inst.transform[2] = tmpWorld[2];
 					inst.transform[3] = float32_t4(0, 0, 0, 1);
-					inst.transform = hlsl::mul(inst.transform, instanceTransform);
+					inst.transform = math::linalg::promoted_mul(inst.transform, instanceTransform);
 #endif
 				}
 				printAABB(bound,"Total");

@@ -235,8 +235,11 @@ public:
 
 			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-			drawAABB->renderSingle(cmdbuf, testAABB, float32_t4{1, 0, 0, 1}, viewProjectionMatrix);
-
+			ext::debug_draw::DrawAABB::DrawParameters drawParams;
+			drawParams.commandBuffer = cmdbuf;
+			drawParams.cameraMat = viewProjectionMatrix;
+			
+			drawAABB->renderSingle(drawParams, testAABB, float32_t4{ 1, 0, 0, 1 });
 			{
 				using aabb_t = hlsl::shapes::AABB<3, float>;
 				using point_t = aabb_t::point_t;
@@ -257,12 +260,12 @@ public:
 					auto& instance = aabbInstances[i];
 					instance.color = { color_dis(gen),color_dis(gen),color_dis(gen),1 };
 
-					hlsl::float32_t4x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(aabb);
-					instance.transform = instanceTransform;
+					hlsl::float32_t3x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(aabb);
+					instance.transform = math::linalg::promoted_mul(float32_t4x4(1), instanceTransform);
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-				drawAABB->render(cmdbuf, drawFinished, aabbInstances, viewProjectionMatrix);
+				drawAABB->render(drawParams, drawFinished, aabbInstances);
 			}
 
 			cmdbuf->endRenderPass();
