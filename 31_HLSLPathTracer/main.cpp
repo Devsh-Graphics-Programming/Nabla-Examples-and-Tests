@@ -3,11 +3,12 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "nbl/examples/examples.hpp"
-
+#include "nbl/this_example/transform.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -460,13 +461,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						if (!rwmcPtPipelineLayout)
 							return logFail("Failed to create RWMC Pathtracing pipeline layout");
 
-						//{
-						//	auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
-						//	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-
-						//	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
-						//		return logFail("Failed to create GLSL compute pipeline!\n");
-						//}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
 							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -474,15 +468,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
 						}
-
-						// persistent wg pipelines
-						//{
-						//	auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
-						//	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-						//	
-						//	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
-						//		return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
-						//}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
 							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -1025,6 +1010,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_ui.manager->registerListener(
 				[this]() -> void {
 					ImGuiIO& io = ImGui::GetIO();
+					ImGuizmo::SetOrthographic(false);
+					ImGuizmo::BeginFrame();
 
 					m_camera.setProjectionMatrix([&]()
 					{
@@ -1047,6 +1034,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGui::Text("Camera");
 
+					ImGui::Text("Press Home to reset camera.");
+					ImGui::Text("Press End to reset light.");
+
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
@@ -1068,6 +1058,60 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("kappa", &rwmcKappa, 0.1f, 1024.0f);
 
 					ImGui::End();
+				}
+			);
+
+			m_ui.manager->registerListener(
+				[this]() -> void {
+					static struct
+					{
+						hlsl::float32_t4x4 view, projection;
+					} imguizmoM16InOut;
+
+					ImGuizmo::SetID(0u);
+
+					// TODO: camera will return hlsl::float32_tMxN 
+					auto view = *reinterpret_cast<const float32_t3x4*>(m_camera.getViewMatrix().pointer());
+					imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
+
+					// TODO: camera will return hlsl::float32_tMxN 
+					imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(m_camera.getProjectionMatrix().pointer()));
+					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+					m_transformParams.editTransformDecomposition = true;
+					m_transformParams.sceneTexDescIx = 1u;
+
+					if (ImGui::IsKeyPressed(ImGuiKey_End))
+					{
+						m_lightModelMatrix = hlsl::float32_t4x4(
+							0.3f, 0.0f, 0.0f, 0.0f,
+							0.0f, 0.3f, 0.0f, 0.0f,
+							0.0f, 0.0f, 0.3f, 0.0f,
+							-1.0f, 1.5f, 0.0f, 1.0f
+						);
+					}
+
+					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					{
+						m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::SCALEU;
+						m_transformParams.isSphere = true;
+					}
+					else
+					{
+						m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::ROTATE | ImGuizmo::OPERATION::SCALE;
+						m_transformParams.isSphere = false;
+					}
+					EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &m_lightModelMatrix[0][0], m_transformParams);
+
+					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					{
+						// keep uniform scale for sphere
+						float32_t uniformScale = (m_lightModelMatrix[0][0] + m_lightModelMatrix[1][1] + m_lightModelMatrix[2][2]) / 3.0f;
+						m_lightModelMatrix[0][0] = uniformScale;
+						m_lightModelMatrix[1][1] = uniformScale; // Doesn't affect sphere but will affect rectangle/triangle if switching shapes
+						m_lightModelMatrix[2][2] = uniformScale;
+					}
+
 				}
 			);
 
@@ -1095,7 +1139,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			rwmcBase = 8.0f;
 			rwmcMinReliableLuma = 1.0f;
 			rwmcKappa = 5.0f;
-
 			return true;
 		}
 
@@ -1523,10 +1566,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// TODO: rewrite the `Camera` class so it uses hlsl::float32_t4x4 instead of core::matrix4SIMD
 			core::matrix4SIMD invMVP;
 			viewProjectionMatrix.getInverseTransform(invMVP);
-
 			if (useRWMC)
 			{
 				memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
+				rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
@@ -1538,6 +1581,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			else
 			{
 				memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
+				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				pc.sampleCount = spp;
 				pc.depth = depth;
 				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
@@ -1642,6 +1686,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		RenderRWMCPushConstants rwmcPushConstants;
 		RenderPushConstants pc;
 		ResolvePushConstants resolvePushConstants;
+
+		hlsl::float32_t4x4 m_lightModelMatrix = {
+			0.3f, 0.0f, 0.0f, 0.0f,
+			0.0f, 0.3f, 0.0f, 0.0f,
+			0.0f, 0.0f, 0.3f, 0.0f,
+			-1.0f, 1.5f, 0.0f, 1.0f,
+		};
+		TransformRequestParams m_transformParams;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };

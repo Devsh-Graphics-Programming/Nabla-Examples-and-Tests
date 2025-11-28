@@ -9,9 +9,11 @@
 struct RenderPushConstants
 {
 #ifdef __HLSL_VERSION
-    float32_t4x4 invMVP;
+	float32_t4x4 invMVP;
+	float32_t3x4 generalPurposeLightMatrix;
 #else
     nbl::hlsl::float32_t4x4 invMVP;
+    nbl::hlsl::float32_t3x4 generalPurposeLightMatrix;
 #endif
     int sampleCount;
     int depth;

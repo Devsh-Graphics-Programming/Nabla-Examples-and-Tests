@@ -18,6 +18,8 @@ struct SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 7u;
 
+
+
     // TODO: can static const array of structs and init?
     // static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT] = {
     //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, -100.5, -1.0), 100.0, 0u, Light<vector3_type>::INVALID_ID),
@@ -61,17 +63,24 @@ struct Scene<T, PST_SPHERE> : SceneBase<T>
         else
             return light_spheres[idx-base_t::SCENE_SPHERE_COUNT];
     }
+
     Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
     {
         assert(false);
         return light_triangles[0];
     }
+
     Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
     {
         assert(false);
         return light_rectangles[0];
     }
 
+     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        light_spheres[0].updateTransform(generalPurposeLightMatrix);
+    }
+    
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE);
@@ -116,6 +125,11 @@ struct Scene<T, PST_TRIANGLE> : SceneBase<T>
     {
         assert(false);
         return light_rectangles[0];
+    }
+    
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        light_triangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
@@ -162,6 +176,11 @@ struct Scene<T, PST_RECTANGLE> : SceneBase<T>
     {
         assert(idx < RectangleCount);
         return light_rectangles[idx];
+    }
+
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        light_rectangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
