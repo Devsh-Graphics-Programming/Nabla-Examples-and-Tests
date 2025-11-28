@@ -930,13 +930,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.count = 1u,
 					.info = &writeDSInfos[2]
 				};
-				//writeDescriptorSets[3] = {
-				//	.dstSet = m_descriptorSet2.get(),
-				//	.binding = 1,
-				//	.arrayElement = 0u,
-				//	.count = 1u,
-				//	.info = &writeDSInfos[3]
-				//};
 				writeDescriptorSets[3] = {
 					.dstSet = m_descriptorSet2.get(),
 					.binding = 2,
@@ -1131,7 +1124,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
 			m_oracle.reportBeginFrameRecord();
-			m_camera.mapKeysToWASD();
+			m_camera.mapKeysToArrows();
 
 			// set initial rwmc settings
 			
