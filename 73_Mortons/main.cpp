@@ -47,10 +47,10 @@ public:
         // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         // Blocked by https://github.com/KhronosGroup/SPIRV-Tools/issues/6104
         {
-            CTester mortonTester;
-            pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
+            CTester mortonTester(100);
+            pplnSetupData.testCommonDataPath = "testCommon.hlsl";
             mortonTester.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
-            mortonTester.performTests();
+            mortonTester.performTestsAndVerifyResults();
         }
 
         return true;

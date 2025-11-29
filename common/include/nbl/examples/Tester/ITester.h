@@ -1,13 +1,12 @@
-#ifndef _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
+#ifndef _NBL_COMMON_I_TESTER_INCLUDED_
+#define _NBL_COMMON_I_TESTER_INCLUDED_
 
 #include <nabla.h>
-#include "app_resources/common.hlsl"
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
 
 using namespace nbl;
 
-class ITester 
+template<typename InputTestValues, typename TestResults, typename TestExecutor>
+class ITester
 {
 public:
     virtual ~ITester()
@@ -17,7 +16,7 @@ public:
 
     struct PipelineSetupData
     {
-        std::string testShaderPath;
+        std::string testCommonDataPath;
 
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
@@ -48,8 +47,8 @@ public:
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
+            lp.workingDirectory = "nbl/examples"; // virtual root
+            auto assetBundle = m_assetMgr->getAsset("Tester/test.comp.hlsl", lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -58,7 +57,15 @@ public:
             assert(assets.size() == 1);
             core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
 
-            shader = m_device->compileShader({source.get()});
+            // TODO: `pipleineSetupData.testCommonDataPath` is a path to a custom user provided file containing implementation of structures needed for the shader to work, this file need to be included somehow
+            // to the test shader 
+
+            auto overridenSource = asset::CHLSLCompiler::createOverridenCopy(
+                source.get(), "#define WORKGROUP_SIZE %d\n#define TEST_COUNT %d\n",
+                m_WorkgroupSize, m_testIterationCount
+            );
+
+            shader = m_device->compileShader({overridenSource.get()});
         }
 
         if (!shader)
@@ -100,7 +107,7 @@ public:
 
         // Allocate memory of the input buffer
         {
-            constexpr size_t BufferSize = sizeof(InputStruct);
+            const size_t BufferSize = sizeof(InputStruct) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -135,7 +142,7 @@ public:
 
         // Allocate memory of the output buffer
         {
-            constexpr size_t BufferSize = sizeof(OutputStruct);
+            const size_t BufferSize = sizeof(OutputStruct) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -180,11 +187,114 @@ public:
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
+    void performTestsAndVerifyResults()
+    {
+        core::vector<InputTestValues> inputTestValues;
+        core::vector<TestValues> exceptedTestResults;
+
+        inputTestValues.reserve(m_testIterationCount);
+        exceptedTestResults.reserve(m_testIterationCount);
+
+        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            // Set input thest values that will be used in both CPU and GPU tests
+            InputTestValues testInput = generateInputTestValues();
+            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
+            TestValues expected = determineExpectedResults(testInput);
+
+            inputTestValues.push_back(testInput);
+            exceptedTestResults.push_back(expected);
+        }
+
+        core::vector<TestValues> cpuTestResults = performCpuTests(inputTestValues);
+        core::vector<TestValues> gpuTestResults = performGpuTests(inputTestValues);
+
+        verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+
+        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+    }
+
+protected:
     enum class TestType
     {
         CPU,
         GPU
     };
+
+    virtual void verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, TestType testType) = 0;
+    
+    virtual InputTestValues generateInputTestValues() = 0;
+
+    virtual TestResults determineExpectedResults(const InputTestValues& testInput) = 0;
+
+protected:
+    uint32_t m_queueFamily;
+    core::smart_refctd_ptr<video::ILogicalDevice> m_device;
+    core::smart_refctd_ptr<video::CVulkanConnection> m_api;
+    video::IPhysicalDevice* m_physicalDevice;
+    core::smart_refctd_ptr<asset::IAssetManager> m_assetMgr;
+    core::smart_refctd_ptr<system::ILogger> m_logger;
+    video::IDeviceMemoryAllocator::SAllocation m_inputBufferAllocation = {};
+    video::IDeviceMemoryAllocator::SAllocation m_outputBufferAllocation = {};
+    core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf = nullptr;
+    core::smart_refctd_ptr<video::IGPUCommandPool> m_cmdpool = nullptr;
+    core::smart_refctd_ptr<video::IGPUDescriptorSet> m_ds = nullptr;
+    core::smart_refctd_ptr<video::IGPUPipelineLayout> m_pplnLayout = nullptr;
+    core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline;
+    core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
+    video::IQueue* m_queue;
+    uint64_t m_semaphoreCounter;
+    
+    ITester(const uint32_t testIterationCount)
+        : m_testIterationCount(testIterationCount) {};
+
+    void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
+    {
+        // Update input buffer
+        if (!m_inputBufferAllocation.memory->map({ 0ull,m_inputBufferAllocation.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
+            logFail("Failed to map the Device Memory!\n");
+
+        const video::ILogicalDevice::MappedMemoryRange memoryRange(m_inputBufferAllocation.memory.get(), 0ull, m_inputBufferAllocation.memory->getAllocationSize());
+        if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+
+        assert(m_testIterationCount == input.size());
+        const size_t inputDataSize = sizeof(InputTestValues) * m_testIterationCount;
+        std::memcpy(static_cast<InputTestValues*>(m_inputBufferAllocation.memory->getMappedPointer()), input.data(), inputDataSize);
+
+        m_inputBufferAllocation.memory->unmap();
+
+        // record command buffer
+        const uint32_t dispatchSizeX = (m_testIterationCount + (m_WorkgroupSize - 1)) / m_WorkgroupSize;
+        m_cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
+        m_cmdbuf->begin(video::IGPUCommandBuffer::USAGE::NONE);
+        m_cmdbuf->beginDebugMarker("test", core::vector4df_SIMD(0, 1, 0, 1));
+        m_cmdbuf->bindComputePipeline(m_pipeline.get());
+        m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+        m_cmdbuf->dispatch(dispatchSizeX, 1, 1);
+        m_cmdbuf->endDebugMarker();
+        m_cmdbuf->end();
+
+        video::IQueue::SSubmitInfo submitInfos[1] = {};
+        const video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
+        submitInfos[0].commandBuffers = cmdbufs;
+        const video::IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+        submitInfos[0].signalSemaphores = signals;
+
+        m_api->startCapture();
+        m_queue->submit(submitInfos);
+        m_api->endCapture();
+
+        m_device->waitIdle();
+
+        // save test results
+        assert(m_testIterationCount == output.size());
+        const size_t outputDataSize = sizeof(InputTestValues) * m_testIterationCount;
+        std::memcpy(output.data(), static_cast<TestResults*>(m_outputBufferAllocation.memory->getMappedPointer()), outputDataSize);
+
+        m_device->waitIdle();
+    }
 
     template<typename T>
     void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const TestType testType)
@@ -207,67 +317,6 @@ public:
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
 
-protected:
-    uint32_t m_queueFamily;
-    core::smart_refctd_ptr<video::ILogicalDevice> m_device;
-    core::smart_refctd_ptr<video::CVulkanConnection> m_api;
-    video::IPhysicalDevice* m_physicalDevice;
-    core::smart_refctd_ptr<asset::IAssetManager> m_assetMgr;
-    core::smart_refctd_ptr<system::ILogger> m_logger;
-    video::IDeviceMemoryAllocator::SAllocation m_inputBufferAllocation = {};
-    video::IDeviceMemoryAllocator::SAllocation m_outputBufferAllocation = {};
-    core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf = nullptr;
-    core::smart_refctd_ptr<video::IGPUCommandPool> m_cmdpool = nullptr;
-    core::smart_refctd_ptr<video::IGPUDescriptorSet> m_ds = nullptr;
-    core::smart_refctd_ptr<video::IGPUPipelineLayout> m_pplnLayout = nullptr;
-    core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline;
-    core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
-    video::IQueue* m_queue;
-    uint64_t m_semaphoreCounter;
-    
-    template<typename InputStruct, typename OutputStruct>
-    OutputStruct dispatch(const InputStruct& input)
-    {
-        // Update input buffer
-        if (!m_inputBufferAllocation.memory->map({ 0ull,m_inputBufferAllocation.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
-            logFail("Failed to map the Device Memory!\n");
-
-        const video::ILogicalDevice::MappedMemoryRange memoryRange(m_inputBufferAllocation.memory.get(), 0ull, m_inputBufferAllocation.memory->getAllocationSize());
-        if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
-
-        std::memcpy(static_cast<InputStruct*>(m_inputBufferAllocation.memory->getMappedPointer()), &input, sizeof(InputStruct));
-
-        m_inputBufferAllocation.memory->unmap();
-
-        // record command buffer
-        m_cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
-        m_cmdbuf->begin(video::IGPUCommandBuffer::USAGE::NONE);
-        m_cmdbuf->beginDebugMarker("test", core::vector4df_SIMD(0, 1, 0, 1));
-        m_cmdbuf->bindComputePipeline(m_pipeline.get());
-        m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
-        m_cmdbuf->dispatch(1, 1, 1);
-        m_cmdbuf->endDebugMarker();
-        m_cmdbuf->end();
-
-        video::IQueue::SSubmitInfo submitInfos[1] = {};
-        const video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
-        submitInfos[0].commandBuffers = cmdbufs;
-        const video::IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
-        submitInfos[0].signalSemaphores = signals;
-
-        m_api->startCapture();
-        m_queue->submit(submitInfos);
-        m_api->endCapture();
-
-        m_device->waitIdle();
-        OutputStruct output;
-        std::memcpy(&output, static_cast<OutputStruct*>(m_outputBufferAllocation.memory->getMappedPointer()), sizeof(OutputStruct));
-        m_device->waitIdle();
-
-        return output;
-    }
-
 private:
     template<typename... Args>
     inline void logFail(const char* msg, Args&&... args)
@@ -275,6 +324,37 @@ private:
         m_logger->log(msg, system::ILogger::ELL_ERROR, std::forward<Args>(args)...);
         exit(-1);
     }
+
+    core::vector<TestValues> performCpuTests(const core::vector<InputTestValues>& inputTestValues)
+    {
+        core::vector<TestValues> output(m_testIterationCount);
+        TestExecutor testExecutor;
+
+        for (int i = 0; i < m_testIterationCount; ++i)
+            testExecutor(inputTestValues[i], output[i]);
+
+        return output;
+    }
+
+    core::vector<TestValues> performGpuTests(const core::vector<InputTestValues>& inputTestValues)
+    {
+        core::vector<TestValues> output(m_testIterationCount);
+        dispatchGpuTests(inputTestValues, output);
+
+        return output;
+    }
+
+    void verifyAllTestResults(const core::vector<TestValues>& cpuTestReults, const core::vector<TestValues>& gpuTestReults, const core::vector<TestValues>& exceptedTestReults)
+    {
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], ITester::TestType::CPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], ITester::TestType::GPU);
+        }
+    }
+
+    const size_t m_testIterationCount;
+    static constexpr size_t m_WorkgroupSize = 32u;
 };
 
 #endif
