@@ -350,13 +350,18 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     {
         CGeometryCreatorScene::f_geometry_override_t injector = [&](auto* creator, auto addGeometry)
         {
-            for (auto i = 0u; i < m_assets.size(); ++i)
-            {
-                auto& ies = m_assets[i];
-                const auto& resolution = ies.getProfile()->getAccessor().properties.optimalIESResolution;
-                auto name = "Grid " + std::to_string(i);
-                addGeometry(name.c_str(), creator->createGrid({ resolution.x, resolution.y }));
-            }
+			std::set<std::pair<uint32_t, uint32_t>> seen;
+			for (auto i = 0u; i < m_assets.size(); ++i)
+			{
+				auto& ies = m_assets[i];
+				const auto& resolution = ies.getProfile()->getAccessor().properties.optimalIESResolution;
+				std::pair<uint32_t, uint32_t> key{resolution.x, resolution.y};
+				if (!seen.insert(key).second)
+					continue;
+
+				auto name = "Grid (" + std::to_string(resolution.x) + " x " + std::to_string(resolution.y) + ")"; // (**) used to assing polygons!
+				addGeometry(name.c_str(), creator->createGrid({ resolution.x, resolution.y }));
+			}
         };
 
         const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
@@ -371,10 +376,28 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             CSimpleIESRenderer::DefaultPolygonGeometryPatch
         );
 
-        const auto& geometries = m_scene->getInitParams().geometries;
+		const auto& geoParams = m_scene->getInitParams();
+		core::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> polygons(m_assets.size());
+		for (uint32_t i = 0u; i < m_assets.size(); ++i)
+		{
+			const auto& resolution = m_assets[i].getProfile()->getAccessor().properties.optimalIESResolution;
 
-        m_renderer = CSimpleIESRenderer::create(shaders.ies, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(m_descriptors[0u]->getLayout()), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
-        if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
+			for (uint32_t g = 0u; g < geoParams.geometryNames.size(); ++g)
+			{
+				uint32_t w = 0u, h = 0u;
+				std::sscanf(geoParams.geometryNames[g].c_str(), "Grid (%u x %u)", &w, &h); // (**)
+
+				if (w == resolution.x && h == resolution.y)
+				{
+					polygons[i] = geoParams.geometries[g];
+					break;
+				}
+			}
+			assert(polygons[i]);
+		}
+
+        m_renderer = CSimpleIESRenderer::create(shaders.ies, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(m_descriptors[0u]->getLayout()), scRes->getRenderpass(), 0, { &polygons.front().get(),polygons.size() });
+        if (!m_renderer || m_renderer->getGeometries().size() != polygons.size())
             return logFail("Could not create 3D Plot Renderer!");
 
         m_renderer->m_instances.resize(1);
