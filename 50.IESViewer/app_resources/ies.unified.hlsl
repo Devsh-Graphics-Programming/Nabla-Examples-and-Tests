@@ -156,7 +156,6 @@ void CdcCS(uint32_t3 ID : SV_DispatchThreadID)
 	}
 }
 
-
 float32_t plot(float32_t cand, float32_t pct, float32_t bold)
 {
 	return smoothstep(pct-0.005*bold, pct, cand) - smoothstep(pct, pct+0.005*bold, cand);
@@ -165,7 +164,21 @@ float32_t plot(float32_t cand, float32_t pct, float32_t bold)
 // vertical cut of IES (i.e. cut by plane x = 0)
 float32_t f(float32_t2 uv) 
 {
-	return inIESCandelaImage[pc.cdc.texIx].Sample(generalSampler, (0.5f * Octahedral::dirToNDC(normalize(float32_t3(uv.x, 0.001, uv.y))) + 0.5f)).x;
+	float32_t3 dir = normalize(float32_t3(uv.x, 0.001, uv.y));
+	if (pc.cdc.zAngleDegreeRotation != 0.f)
+	{
+		float32_t rad = radians(pc.cdc.zAngleDegreeRotation);
+		float32_t s = sin(rad);
+		float32_t c = cos(rad);
+
+		// rotate around Z axis
+		dir = float32_t3(
+			c * dir.x - s * dir.y,
+			s * dir.x + c * dir.y,
+			dir.z
+		);
+	}
+	return inIESCandelaImage[pc.cdc.texIx].Sample(generalSampler, (0.5f * Octahedral::dirToNDC(dir) + 0.5f)).x;
 }
 
 #include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
