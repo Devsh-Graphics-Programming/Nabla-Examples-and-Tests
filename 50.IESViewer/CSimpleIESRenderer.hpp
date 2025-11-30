@@ -52,7 +52,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		{
 			hlsl::float32_t radius = 1.f;
 			IGPUDescriptorSet* ds = nullptr;
-			uint32_t texID;
+			uint16_t texID;
 		};
 		//
 		struct SPackedGeometry
@@ -61,7 +61,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
-			constexpr static inline auto MissingView = hlsl::this_example::ies::PushConstants::DescriptorCount;
+			constexpr static inline auto MissingView = hlsl::this_example::ies::SpherePC::DescriptorCount;
 			uint16_t positionView = MissingView;
 			uint16_t normalView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
@@ -69,7 +69,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		//
 		struct SInstance
 		{
-			using SPushConstants = hlsl::this_example::ies::PushConstants;
+			using SPushConstants = hlsl::this_example::ies::SpherePC;
 			inline SPushConstants computePushConstants(const SViewParams& viewParams, const SIESParams& iesParams) const
 			{
 				using namespace hlsl;
@@ -77,8 +77,8 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 					.matrices = viewParams.computeForInstance(world),
 					.positionView = packedGeo->positionView,
 					.normalView = packedGeo->normalView,
-					.texIx = iesParams.texID,
-					.sphereRadius = iesParams.radius
+					.radius = iesParams.radius,
+					.texIx = iesParams.texID
 				};
 			}
 
@@ -153,7 +153,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			// create pipeline layout
 			const SPushConstantRange ranges[] = {{
 				.stageFlags = hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,
-				.offset = 0,
+				.offset = offsetof(hlsl::this_example::ies::PushConstants, sphere),
 				.size = sizeof(SInstance::SPushConstants),
 			}};
 			init.layout = device->createPipelineLayout(ranges, smart_refctd_ptr(iesDSLayout), smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
@@ -376,7 +376,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 				const auto* geo = instance.packedGeo;
 				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
 				const auto pc = instance.computePushConstants(viewParams, iesParams);
-				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(pc),&pc);
+				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,offsetof(hlsl::this_example::ies::PushConstants, sphere),sizeof(pc),&pc);
 				if (geo->indexBuffer)
 				{
 					cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);

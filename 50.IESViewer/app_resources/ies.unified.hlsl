@@ -19,7 +19,7 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 [[vk::binding(2 + 10, 0)]] RWTexture2D<float32_t3> outOUVProjectionDirectionImage[MAX_IES_IMAGES];
 [[vk::binding(3 + 10, 0)]] RWTexture2D<float32_t2> outPassTMask[MAX_IES_IMAGES];
 [[vk::binding(0 + 100, 0)]] SamplerState generalSampler;
-[[vk::binding(0, 1)]] Buffer<float32_t4> utbs[PushConstants::DescriptorCount];
+[[vk::binding(0, 1)]] Buffer<float32_t4> utbs[SpherePC::DescriptorCount];
 [[vk::push_constant]] PushConstants pc;
 
 struct Accessor
@@ -29,19 +29,19 @@ struct Accessor
     using value_t = float32_t;
     using symmetry_t = nbl::hlsl::ies::ProfileProperties::LuminairePlanesSymmetry;
 
-    static key_t vAnglesCount() { return pc.vAnglesCount; }
-    static key_t hAnglesCount() { return pc.hAnglesCount; }
+    static key_t vAnglesCount() { return pc.cdc.vAnglesCount; }
+    static key_t hAnglesCount() { return pc.cdc.hAnglesCount; }
 
     template<typename T NBL_FUNC_REQUIRES(is_same_v<T, key_t>)
-    static inline value_t vAngle(T j) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.vAnglesBDA) + j).deref().load(); }
+    static inline value_t vAngle(T j) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.cdc.vAnglesBDA) + j).deref().load(); }
 
     template<typename T NBL_FUNC_REQUIRES(is_same_v<T, key_t>)
-    static inline value_t hAngle(T i) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.hAnglesBDA) + i).deref().load(); } 
+    static inline value_t hAngle(T i) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.cdc.hAnglesBDA) + i).deref().load(); } 
 
     template<typename T NBL_FUNC_REQUIRES(is_same_v<T, key_t2>)
-    static inline value_t value(T ij) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.dataBDA) + vAnglesCount() * ij.x + ij.y).deref().load(); }
+    static inline value_t value(T ij) { return (nbl::hlsl::bda::__ptr<value_t>::create(pc.cdc.dataBDA) + vAnglesCount() * ij.x + ij.y).deref().load(); }
 
-    static inline symmetry_t symmetry() { return (symmetry_t)pc.symmetry; }
+    static inline symmetry_t symmetry() { return (symmetry_t)pc.cdc.symmetry; }
 };
 
 struct SInterpolants
@@ -83,7 +83,7 @@ float32_t3 latLongDir(float32_t2 uv)
 SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
 {
     uint32_t2 resolution;
-    outIESCandelaImage[pc.texIx].GetDimensions(resolution.x, resolution.y); // optimal IES texture size
+    inIESCandelaImage[pc.sphere.texIx].GetDimensions(resolution.x, resolution.y);
 
     const uint32_t W = resolution.x, H = resolution.y;
     const uint32_t i = VertexIndex % W, j = VertexIndex / W;
@@ -98,10 +98,10 @@ SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
     const float32_t2 uvPos = float32_t2(uPos, vPos);
 
     const float32_t3 dir = latLongDir(uvPos);
-    const float32_t3 pos = pc.sphereRadius * dir;
+    const float32_t3 pos = pc.sphere.radius * dir;
 
     SInterpolants o;
-    o.ndc = math::linalg::promoted_mul(pc.matrices.worldViewProj, pos);
+    o.ndc = math::linalg::promoted_mul(pc.sphere.matrices.worldViewProj, pos);
     o.latDir = dir;
 
     return o;
@@ -111,7 +111,7 @@ SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
 float32_t4 SpherePS(SInterpolants input) : SV_Target0
 {
     float32_t2 uv = 0.5f * Octahedral::dirToNDC(input.latDir) + 0.5f;
-    float32_t candela = inIESCandelaImage[pc.texIx].Sample(generalSampler, uv).r;
+    float32_t candela = inIESCandelaImage[pc.sphere.texIx].Sample(generalSampler, uv).r;
     float32_t v = 1.0f - exp(-candela);
     return float32_t4(v,v,v,1);
 }
@@ -121,7 +121,7 @@ float32_t4 SpherePS(SInterpolants input) : SV_Target0
 void CdcCS(uint32_t3 ID : SV_DispatchThreadID)
 {
 	uint32_t2 destinationSize;
-	outIESCandelaImage[pc.texIx].GetDimensions(destinationSize.x, destinationSize.y);
+	outIESCandelaImage[pc.cdc.texIx].GetDimensions(destinationSize.x, destinationSize.y);
 	const uint32_t2 pixelCoordinates = uint32_t2(glsl::gl_GlobalInvocationID().x, glsl::gl_GlobalInvocationID().y);
 
 	const float32_t VERTICAL_INVERSE = 1.0f / float32_t(destinationSize.x);
@@ -149,10 +149,10 @@ void CdcCS(uint32_t3 ID : SV_DispatchThreadID)
 
         Accessor accessor;
         CSampler candelaSampler;
-        outIESCandelaImage[pc.texIx][pixelCoordinates] = candelaSampler.sample(accessor, polar) / pc.maxIValue;
-		outSphericalCoordinatesImage[pc.texIx][pixelCoordinates] = sCoords;
-		outOUVProjectionDirectionImage[pc.texIx][pixelCoordinates] = dir;
-		outPassTMask[pc.texIx][pixelCoordinates] = mask;
+        outIESCandelaImage[pc.cdc.texIx][pixelCoordinates] = candelaSampler.sample(accessor, polar) / pc.cdc.maxIValue;
+		outSphericalCoordinatesImage[pc.cdc.texIx][pixelCoordinates] = sCoords;
+		outOUVProjectionDirectionImage[pc.cdc.texIx][pixelCoordinates] = dir;
+		outPassTMask[pc.cdc.texIx][pixelCoordinates] = mask;
 	}
 }
 
@@ -165,7 +165,7 @@ float32_t plot(float32_t cand, float32_t pct, float32_t bold)
 // vertical cut of IES (i.e. cut by plane x = 0)
 float32_t f(float32_t2 uv) 
 {
-	return inIESCandelaImage[pc.texIx].Sample(generalSampler, (0.5f * Octahedral::dirToNDC(normalize(float32_t3(uv.x, 0.001, uv.y))) + 0.5f)).x;
+	return inIESCandelaImage[pc.cdc.texIx].Sample(generalSampler, (0.5f * Octahedral::dirToNDC(normalize(float32_t3(uv.x, 0.001, uv.y))) + 0.5f)).x;
 }
 
 #include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
@@ -173,7 +173,7 @@ float32_t f(float32_t2 uv)
 [shader("pixel")]
 float32_t4 CdcPS(SVertexAttributes input) : SV_Target0
 {
-	switch (pc.mode)
+	switch (pc.cdc.mode)
 	{
 		case 0:
 		{
@@ -189,12 +189,12 @@ float32_t4 CdcPS(SVertexAttributes input) : SV_Target0
 			return float32_t4(col, 1.0f);
 		}
 		case 1:
-			return float32_t4(inIESCandelaImage[pc.texIx].Sample(generalSampler, input.uv).x, 0.f, 0.f, 1.f);
+			return float32_t4(inIESCandelaImage[pc.cdc.texIx].Sample(generalSampler, input.uv).x, 0.f, 0.f, 1.f);
 		case 2:
-			return float32_t4(inSphericalCoordinatesImage[pc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
+			return float32_t4(inSphericalCoordinatesImage[pc.cdc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
 		case 3:
-			return float32_t4(inOUVProjectionDirectionImage[pc.texIx].Sample(generalSampler, input.uv).xyz, 1.f);
+			return float32_t4(inOUVProjectionDirectionImage[pc.cdc.texIx].Sample(generalSampler, input.uv).xyz, 1.f);
 		default:
-			return float32_t4(inPassTMaskImage[pc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
+			return float32_t4(inPassTMaskImage[pc.cdc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
 	}
 }

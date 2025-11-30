@@ -140,7 +140,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         using stage_flags_t = asset::IShader::E_SHADER_STAGE;
         static constexpr auto TexturesCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT;
         static constexpr auto SamplersCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT);
-        static constexpr auto StageFlags = core::bitflag(stage_flags_t::ESS_FRAGMENT) | stage_flags_t::ESS_COMPUTE;
+        static constexpr auto StageFlags = core::bitflag(stage_flags_t::ESS_FRAGMENT) | stage_flags_t::ESS_VERTEX | stage_flags_t::ESS_COMPUTE;
 
         //! single descriptor for both compute & graphics, we will only need to trasition images' layout with a barrier
         #define BINDING_TEXTURE(IX, TYPE) { .binding = IX, .type = TYPE, .createFlags = TexturesCreateFlags, .stageFlags = StageFlags, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr }
@@ -189,7 +189,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             if (not descriptorSetLayout)
                 return logFail("Failed to create descriptor set layout!");
 
-            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, 0u, sizeof(nbl::hlsl::this_example::ies::PushConstants)} });
+            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, offsetof(hlsl::this_example::ies::PushConstants, cdc), sizeof(nbl::hlsl::this_example::ies::CdcPC)} });
             auto pipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
             if (not pipelineLayout)

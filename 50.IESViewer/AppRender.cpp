@@ -52,22 +52,20 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
     auto& ies = m_assets[m_activeAssetIx];
     const auto* profile = ies.getProfile();
-    nbl::hlsl::this_example::ies::PushConstants pc;
-    {
-        pc.vAnglesBDA = ies.buffers.vAngles->getDeviceAddress();
-        pc.hAnglesBDA = ies.buffers.hAngles->getDeviceAddress();
-        pc.dataBDA = ies.buffers.data->getDeviceAddress();
-
-		const auto& accessor = profile->getAccessor();
-        pc.maxIValue = accessor.properties.maxCandelaValue;
-        pc.vAnglesCount = accessor.vAnglesCount();
-        pc.hAnglesCount = accessor.hAnglesCount();
-
-        pc.zAngleDegreeRotation = ies.zDegree;
-        pc.mode = ies.mode;
-		pc.symmetry = static_cast<uint32_t>(accessor.symmetry());
-        pc.texIx = m_activeAssetIx;
-    }
+	const auto& accessor = profile->getAccessor();
+    const auto pc = nbl::hlsl::this_example::ies::CdcPC 
+	{
+        .hAnglesBDA = ies.buffers.hAngles->getDeviceAddress(),
+        .vAnglesBDA = ies.buffers.vAngles->getDeviceAddress(),
+        .dataBDA = ies.buffers.data->getDeviceAddress(),
+		.mode = ies.mode,
+		.symmetry = (uint32_t)accessor.symmetry(),
+		.texIx = (uint32_t)m_activeAssetIx,
+        .hAnglesCount = accessor.hAnglesCount(),
+        .vAnglesCount = accessor.vAnglesCount(),
+        .maxIValue = accessor.properties.maxCandelaValue,
+        .zAngleDegreeRotation = ies.zDegree
+	};
 
     for (auto& buffer : { ies.buffers.data, ies.buffers.hAngles, ies.buffers.vAngles }) // flush request for sanity
     {
@@ -89,7 +87,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         auto* layout = m_computePipeline->getLayout();
         cb->bindComputePipeline(m_computePipeline.get());
         cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
-        cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
+        cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, offsetof(hlsl::this_example::ies::PushConstants, cdc), sizeof(pc), &pc);
         const auto xGroups = (ies.getProfile()->getAccessor().properties.optimalIESResolution.x - 1u) / WORKGROUP_DIMENSION + 1u;
         cb->dispatch(xGroups, xGroups, 1);
         cb->endDebugMarker();
@@ -169,7 +167,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
                 memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
             }
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
-            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 100.f, .ds = m_descriptors[0u].get(), .texID = (uint32_t)m_activeAssetIx });
+            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 100.f, .ds = m_descriptors[0u].get(), .texID = (uint16_t)m_activeAssetIx });
 
             // tear down scene every frame
             m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + m_activeAssetIx;

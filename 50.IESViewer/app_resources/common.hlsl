@@ -23,16 +23,11 @@ struct SInstanceMatrices
     float32_t3x3 normal;
 };
 
-struct PushConstants
+struct CdcPC
 {
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
-
-    SInstanceMatrices matrices;
     uint64_t hAnglesBDA;
     uint64_t vAnglesBDA;
     uint64_t dataBDA;
-    uint32_t positionView : 16;
-    uint32_t normalView : 16;
     uint32_t mode : 8;
     uint32_t symmetry : 8;
     uint32_t texIx : 16;
@@ -40,7 +35,24 @@ struct PushConstants
     uint32_t vAnglesCount;
     float32_t maxIValue;
     float32_t zAngleDegreeRotation;
-    float32_t sphereRadius;
+
+	uint32_t pad;
+};
+
+struct SpherePC
+{
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
+	SInstanceMatrices matrices;
+    uint32_t positionView : 16;
+    uint32_t normalView : 16;
+	float32_t radius;
+	uint16_t texIx;
+};
+
+struct PushConstants
+{
+	CdcPC cdc;
+	SpherePC sphere;
 };
 	
 }		
