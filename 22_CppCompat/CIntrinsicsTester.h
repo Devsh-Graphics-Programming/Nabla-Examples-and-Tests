@@ -250,9 +250,8 @@ private:
         verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testType);
         verifyTestValue("addCarryResult", expectedTestValues.addCarry.result, testValues.addCarry.result, testType);
         verifyTestValue("addCarryCarry", expectedTestValues.addCarry.carry, testValues.addCarry.carry, testType);
-        // Disabled: current glm implementation is wrong
-        //verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testType);
-        //verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testType);
+        verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testType);
+        verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testType);
 
         verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
         verifyTestVector3dValue("cross", expectedTestValues.cross, testValues.cross, testType);
@@ -277,9 +276,8 @@ private:
         verifyTestVector3dValue("refract", expectedTestValues.refract, testValues.refract, testType);
         verifyTestVector3dValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testType);
         verifyTestVector3dValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testType);
-        // Disabled: current glm implementation is wrong
-        //verifyTestVector3dValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testType);
-        //verifyTestVector3dValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testType);
+        verifyTestVector3dValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testType);
+        verifyTestVector3dValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testType);
 
         verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
         verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
