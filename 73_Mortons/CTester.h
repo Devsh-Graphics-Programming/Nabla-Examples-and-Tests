@@ -21,26 +21,22 @@ public:
 private:
     InputTestValues generateInputTestValues() override
     {
-        std::random_device rd;
-        std::mt19937 mt(rd());
-
-        std::uniform_int_distribution<uint16_t> shortDistribution(uint16_t(0), std::numeric_limits<uint16_t>::max());
         std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
         std::uniform_int_distribution<uint64_t> longDistribution(uint64_t(0), std::numeric_limits<uint64_t>::max());
 
         // Set input thest values that will be used in both CPU and GPU tests
         InputTestValues testInput;
 
-        testInput.generatedA = longDistribution(mt);
-        testInput.generatedB = longDistribution(mt);
+        testInput.generatedA = longDistribution(getRandomEngine());
+        testInput.generatedB = longDistribution(getRandomEngine());
 
-        uint32_t generatedShift = intDistribution(mt) & uint32_t(63);
+        uint32_t generatedShift = intDistribution(getRandomEngine()) & uint32_t(63);
         testInput.shift = generatedShift;
 
-        testInput.coordX = longDistribution(mt);
-        testInput.coordY = longDistribution(mt);
-        testInput.coordZ = longDistribution(mt);
-        testInput.coordW = longDistribution(mt);
+        testInput.coordX = longDistribution(getRandomEngine());
+        testInput.coordY = longDistribution(getRandomEngine());
+        testInput.coordZ = longDistribution(getRandomEngine());
+        testInput.coordW = longDistribution(getRandomEngine());
 
         return testInput;
     }
@@ -247,7 +243,6 @@ private:
             expected.mortonSignedRightShift_full_4 = morton::code<true, fullBits_4, 4>::create((Vec4ASignedFull >> int16_t(castedShift % fullBits_4)) & int16_t(fullBitsMask_4));
         }
 
-        return {};
         return expected;
     }
 

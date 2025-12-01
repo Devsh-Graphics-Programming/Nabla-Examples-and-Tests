@@ -210,6 +210,7 @@ public:
         verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
 
         m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+        reloadSeed();
     }
 
 protected:
@@ -224,6 +225,11 @@ protected:
     virtual InputTestValues generateInputTestValues() = 0;
 
     virtual TestResults determineExpectedResults(const InputTestValues& testInput) = 0;
+
+    std::mt19937& getRandomEngine()
+    {
+        return m_mersenneTwister;
+    }
 
 protected:
     uint32_t m_queueFamily;
@@ -244,7 +250,10 @@ protected:
     uint64_t m_semaphoreCounter;
     
     ITester(const uint32_t testBatchCount)
-        : m_testIterationCount(testBatchCount * m_WorkgroupSize) {};
+        : m_testIterationCount(testBatchCount * m_WorkgroupSize)
+    {
+        reloadSeed();
+    };
 
     void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
     {
@@ -310,7 +319,7 @@ protected:
         }
 
         ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
-        ss << "TEST ITERATION: " << testIteration << " SEED: " << seed << '\n';
+        ss << "TEST ITERATION INDEX: " << testIteration << " SEED: " << seed << '\n';
         ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
@@ -347,13 +356,23 @@ private:
     {
         for (int i = 0; i < m_testIterationCount; ++i)
         {
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, 0, ITester::TestType::CPU);
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, 0, ITester::TestType::GPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::GPU);
         }
+    }
+
+    void reloadSeed()
+    {
+        std::random_device rd;
+        m_seed = rd();
+        m_mersenneTwister = std::mt19937(m_seed);
     }
 
     const size_t m_testIterationCount;
     static constexpr size_t m_WorkgroupSize = 128u;
+    // seed will change after every call to performTestsAndVerifyResults()
+    std::mt19937 m_mersenneTwister;
+    uint32_t m_seed;
 };
 
 #endif

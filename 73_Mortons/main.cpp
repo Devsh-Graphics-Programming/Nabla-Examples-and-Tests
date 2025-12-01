@@ -33,20 +33,25 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        std::random_device rd;
+        std::mt19937 mt(rd());
+        std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
+
+        uint32_t a = intDistribution(mt);
+        uint32_t b = intDistribution(mt);
+        uint32_t c = intDistribution(mt);
+
+        std::mt19937 mt2(rd());
+
+        a = intDistribution(mt2);
+        b = intDistribution(mt2);
+        c = intDistribution(mt2);
+
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-
-        uint32_t3 a = { 1, 3, 5 };
-        std::string astr = nbl::system::to_string(a);
-        m_logger->log(astr.c_str(), ILogger::ELL_ERROR);
-
-        morton::code<false, smallBits_2, 2> m;
-        m.value = 2;
-        astr = nbl::system::to_string(m);
-        m_logger->log(astr.c_str(), ILogger::ELL_ERROR);
 
         CTester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;
