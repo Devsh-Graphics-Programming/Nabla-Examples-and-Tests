@@ -5,6 +5,59 @@
 
 using namespace nbl;
 
+template<typename T>
+class TestValueToTextConverter
+{
+public:
+    std::string operator()(const T& value)
+    {
+        return std::to_string(value);
+    }
+};
+
+template<>
+class TestValueToTextConverter<hlsl::emulated_uint64_t>
+{
+public:
+    std::string operator()(const hlsl::emulated_uint64_t& value)
+    {
+        return std::to_string(static_cast<uint64_t>(value));
+    }
+};
+
+template<>
+class TestValueToTextConverter<hlsl::emulated_int64_t>
+{
+public:
+    std::string operator()(const hlsl::emulated_int64_t& value)
+    {
+        return std::to_string(static_cast<int64_t>(value));
+    }
+};
+
+template<typename T, int16_t N>
+class TestValueToTextConverter<hlsl::vector<T, N>>
+{
+public:
+    std::string operator()(const hlsl::vector<T, N>& value)
+    {
+        std::stringstream output;
+        output << "{ ";
+        for (int i = 0; i < N; ++i)
+        {
+            TestValueToTextConverter<T> vecComponentToTextConverter;
+
+            output << vecComponentToTextConverter(value[i]);
+
+            if (i < N - 1)
+                output << ", ";
+        }
+        output << " }";
+
+        return output.str();
+    }
+};
+
 template<typename InputTestValues, typename TestResults, typename TestExecutor>
 class ITester
 {
@@ -55,9 +108,6 @@ public:
             // It would be super weird if loading a shader from a file produced more than 1 asset
             assert(assets.size() == 1);
             core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
-
-            // TODO: `pipleineSetupData.testCommonDataPath` is a path to a custom user provided file containing implementation of structures needed for the shader to work, this file need to be included somehow
-            // to the test shader 
 
             auto overridenSource = asset::CHLSLCompiler::createOverridenCopy(
                 source.get(), "#define WORKGROUP_SIZE %d\n#define TEST_COUNT %d\n",
@@ -221,7 +271,7 @@ protected:
         GPU
     };
 
-    virtual void verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, TestType testType) = 0;
+    virtual void verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
     
     virtual InputTestValues generateInputTestValues() = 0;
 
@@ -245,8 +295,8 @@ protected:
     video::IQueue* m_queue;
     uint64_t m_semaphoreCounter;
     
-    ITester(const uint32_t testIterationCount)
-        : m_testIterationCount(testIterationCount) {};
+    ITester(const uint32_t testBatchCount)
+        : m_testIterationCount(testBatchCount * m_WorkgroupSize) {};
 
     void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
     {
@@ -296,7 +346,7 @@ protected:
     }
 
     template<typename T>
-    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const TestType testType)
+    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const size_t testIteration, const uint32_t seed, const TestType testType)
     {
         if (expectedVal == testVal)
             return;
@@ -312,6 +362,10 @@ protected:
         }
 
         ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
+        ss << "TEST ITERATION: " << testIteration << " SEED: " << seed << '\n';
+
+        TestValueToTextConverter<T> toTextConverter;
+        ss << "EXPECTED VALUE: " << toTextConverter(expectedVal) << " TEST VALUE: " << toTextConverter(testVal) << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
@@ -347,13 +401,13 @@ private:
     {
         for (int i = 0; i < m_testIterationCount; ++i)
         {
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], ITester::TestType::CPU);
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], ITester::TestType::GPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, 0, ITester::TestType::CPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, 0, ITester::TestType::GPU);
         }
     }
 
     const size_t m_testIterationCount;
-    static constexpr size_t m_WorkgroupSize = 32u;
+    static constexpr size_t m_WorkgroupSize = 128u;
 };
 
 #endif

@@ -3,18 +3,16 @@
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "testCommon.hlsl"
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<InputTestValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<TestValues> outputTestValues;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 [shader("compute")]
-void main(uint3 invocationID : SV_DispatchThreadID)
+void main()
 {
-    const uint invID = invocationID.x;
-    if (invID >= TEST_COUNT)
-        return;
-
+    const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID();
     TestExecutor executor;
     executor(inputTestValues[invID], outputTestValues[invID]);
 }

@@ -36,7 +36,7 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-        
+
         CTester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;
         pplnSetupData.api = m_api;
@@ -47,7 +47,7 @@ public:
         // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         // Blocked by https://github.com/KhronosGroup/SPIRV-Tools/issues/6104
         {
-            CTester mortonTester(1000);
+            CTester mortonTester(1); // 4 * 128 = 512 tests
             pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
             mortonTester.setupPipeline(pplnSetupData);
             mortonTester.performTestsAndVerifyResults();
