@@ -16,7 +16,7 @@ public:
 
     struct PipelineSetupData
     {
-        std::string testCommonDataPath;
+        std::string testShaderPath;
 
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
@@ -26,7 +26,6 @@ public:
         uint32_t computeFamilyIndex;
     };
 
-    template<typename InputStruct, typename OutputStruct>
     void setupPipeline(const PipelineSetupData& pipleineSetupData)
     {
         // setting up pipeline in the constructor
@@ -47,8 +46,8 @@ public:
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = "nbl/examples"; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("Tester/test.comp.hlsl", lp);
+            lp.workingDirectory = ""; // virtual root
+            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -107,7 +106,7 @@ public:
 
         // Allocate memory of the input buffer
         {
-            const size_t BufferSize = sizeof(InputStruct) * m_testIterationCount;
+            const size_t BufferSize = sizeof(InputTestValues) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -142,7 +141,7 @@ public:
 
         // Allocate memory of the output buffer
         {
-            const size_t BufferSize = sizeof(OutputStruct) * m_testIterationCount;
+            const size_t BufferSize = sizeof(TestResults) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -182,7 +181,7 @@ public:
         if (!m_outputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-        assert(memoryRange.valid() && memoryRange.length >= sizeof(OutputStruct));
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestResults));
 
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
