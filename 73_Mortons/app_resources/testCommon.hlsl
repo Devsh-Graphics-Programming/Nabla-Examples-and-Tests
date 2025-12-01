@@ -4,6 +4,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 {
 	emulated_uint64_t emulatedA = _static_cast<emulated_uint64_t>(input.generatedA);
 	emulated_uint64_t emulatedB = _static_cast<emulated_uint64_t>(input.generatedB);
+	emulated_int64_t signedEmulatedA = _static_cast<emulated_int64_t>(input.generatedA);
 
 	// Emulated int tests
 	output.emulatedAnd = emulatedA & emulatedB;
@@ -24,7 +25,9 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.emulatedUnsignedRightShifted = unsignedRightShift(emulatedA, input.shift);
 
 	arithmetic_right_shift_operator<emulated_int64_t> signedRightShift;
-	output.emulatedSignedRightShifted = signedRightShift(_static_cast<emulated_int64_t>(emulatedA), input.shift);
+	output.emulatedSignedRightShifted = signedRightShift(signedEmulatedA, input.shift);
+
+	output.emulatedUnaryMinus = signedEmulatedA.operator-();
 
 	// Morton tests
 	uint64_t2 Vec2A = { input.coordX, input.coordY };

@@ -61,6 +61,7 @@ struct TestValues
 	emulated_uint64_t emulatedNot;
 	emulated_uint64_t emulatedPlus;
 	emulated_uint64_t emulatedMinus;
+	emulated_int64_t emulatedUnaryMinus;
 	// These are bools but stored as uint because you can't store bools, causes a SPIR-V issue
 	uint32_t emulatedLess;
 	uint32_t emulatedLessEqual;

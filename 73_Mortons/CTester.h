@@ -42,6 +42,7 @@ public:
                 expected.emulatedNot = _static_cast<emulated_uint64_t>(~generatedA);
                 expected.emulatedPlus = _static_cast<emulated_uint64_t>(generatedA + generatedB);
                 expected.emulatedMinus = _static_cast<emulated_uint64_t>(generatedA - generatedB);
+                expected.emulatedUnaryMinus = _static_cast<emulated_int64_t>(-generatedA);
                 expected.emulatedLess = uint32_t(generatedA < generatedB);
                 expected.emulatedLessEqual = uint32_t(generatedA <= generatedB);
                 expected.emulatedGreater = uint32_t(generatedA > generatedB);
@@ -273,6 +274,7 @@ private:
         verifyTestValue("emulatedLeftShifted", expectedTestValues.emulatedLeftShifted, testValues.emulatedLeftShifted, testType);
         verifyTestValue("emulatedUnsignedRightShifted", expectedTestValues.emulatedUnsignedRightShifted, testValues.emulatedUnsignedRightShifted, testType);
         verifyTestValue("emulatedSignedRightShifted", expectedTestValues.emulatedSignedRightShifted, testValues.emulatedSignedRightShifted, testType);
+        verifyTestValue("emulatedUnaryMinus", expectedTestValues.emulatedUnaryMinus, testValues.emulatedUnaryMinus, testType);
 
         // Morton Plus
         verifyTestValue("mortonPlus_small_2", expectedTestValues.mortonPlus_small_2, testValues.mortonPlus_small_2, testType);
