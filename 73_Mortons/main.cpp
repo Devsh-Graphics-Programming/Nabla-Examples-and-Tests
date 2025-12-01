@@ -33,20 +33,6 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        std::random_device rd;
-        std::mt19937 mt(rd());
-        std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
-
-        uint32_t a = intDistribution(mt);
-        uint32_t b = intDistribution(mt);
-        uint32_t c = intDistribution(mt);
-
-        std::mt19937 mt2(rd());
-
-        a = intDistribution(mt2);
-        b = intDistribution(mt2);
-        c = intDistribution(mt2);
-
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;

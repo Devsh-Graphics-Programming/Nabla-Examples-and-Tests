@@ -333,9 +333,9 @@ private:
         verifyTestValue("mortonSignedLess_medium_3", expectedTestValues.mortonSignedLess_medium_3, testValues.mortonSignedLess_medium_3, testIteration, seed,  testType);
         verifyTestValue("mortonSignedLess_full_3", expectedTestValues.mortonSignedLess_full_3, testValues.mortonSignedLess_full_3, testIteration, seed,  testType);
 
-        verifyTestValue<uint32_t4>("mortonSignedLess_small_4", expectedTestValues.mortonSignedLess_small_4, testValues.mortonSignedLess_small_4, testIteration, seed,  testType);
-        verifyTestValue<uint32_t4>("mortonSignedLess_medium_4", expectedTestValues.mortonSignedLess_medium_4, testValues.mortonSignedLess_medium_4, testIteration, seed,  testType);
-        verifyTestValue<uint32_t4>("mortonSignedLess_full_4", expectedTestValues.mortonSignedLess_full_4, testValues.mortonSignedLess_full_4, testIteration, seed,  testType);
+        verifyTestValue("mortonSignedLess_small_4", expectedTestValues.mortonSignedLess_small_4, testValues.mortonSignedLess_small_4, testIteration, seed,  testType);
+        verifyTestValue("mortonSignedLess_medium_4", expectedTestValues.mortonSignedLess_medium_4, testValues.mortonSignedLess_medium_4, testIteration, seed,  testType);
+        verifyTestValue("mortonSignedLess_full_4", expectedTestValues.mortonSignedLess_full_4, testValues.mortonSignedLess_full_4, testIteration, seed,  testType);
 
         //// Morton left-shift
         verifyTestValue("mortonLeftShift_small_2", expectedTestValues.mortonLeftShift_small_2, testValues.mortonLeftShift_small_2, testIteration, seed,  testType);

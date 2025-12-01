@@ -3,6 +3,7 @@
 
 #include <nabla.h>
 #include <nbl/system/to_string.h>
+#include <ranges>
 
 using namespace nbl;
 
@@ -338,8 +339,13 @@ private:
         core::vector<TestValues> output(m_testIterationCount);
         TestExecutor testExecutor;
 
-        for (int i = 0; i < m_testIterationCount; ++i)
-            testExecutor(inputTestValues[i], output[i]);
+        auto iterations = std::views::iota(0ull, m_testIterationCount);
+        std::for_each(std::execution::par_unseq, iterations.begin(), iterations.end(),
+            [&](size_t i)
+            {
+                testExecutor(inputTestValues[i], output[i]);
+            }
+        );
 
         return output;
     }
