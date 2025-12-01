@@ -7,18 +7,6 @@
 
 using namespace nbl;
 
-template<bool Signed, uint16_t Bits, uint16_t D, typename _uint64_t>
-class TestValueToTextConverter<hlsl::morton::code<Signed, Bits, D, _uint64_t>>
-{
-    using value_t = hlsl::morton::code<Signed, Bits, D, _uint64_t>;
-public:
-    std::string operator()(const value_t& value)
-    {
-        TestValueToTextConverter<value_t::storage_t> mortonCodeDataToTextConverter;
-        return mortonCodeDataToTextConverter(value.value);
-    }
-};
-
 class CTester final : public ITester<InputTestValues, TestValues, TestExecutor>
 {
     using base_t = ITester<InputTestValues, TestValues, TestExecutor>;

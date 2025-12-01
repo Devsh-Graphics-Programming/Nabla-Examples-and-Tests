@@ -12,6 +12,8 @@
 #include "app_resources/common.hlsl"
 #include "CTester.h"
 
+#include <nbl/system/to_string.h>
+
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
@@ -36,6 +38,15 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
+
+        uint32_t3 a = { 1, 3, 5 };
+        std::string astr = nbl::system::to_string(a);
+        m_logger->log(astr.c_str(), ILogger::ELL_ERROR);
+
+        morton::code<false, smallBits_2, 2> m;
+        m.value = 2;
+        astr = nbl::system::to_string(m);
+        m_logger->log(astr.c_str(), ILogger::ELL_ERROR);
 
         CTester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;

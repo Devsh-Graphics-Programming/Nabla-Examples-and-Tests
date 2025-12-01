@@ -2,61 +2,9 @@
 #define _NBL_COMMON_I_TESTER_INCLUDED_
 
 #include <nabla.h>
+#include <nbl/system/to_string.h>
 
 using namespace nbl;
-
-template<typename T>
-class TestValueToTextConverter
-{
-public:
-    std::string operator()(const T& value)
-    {
-        return std::to_string(value);
-    }
-};
-
-template<>
-class TestValueToTextConverter<hlsl::emulated_uint64_t>
-{
-public:
-    std::string operator()(const hlsl::emulated_uint64_t& value)
-    {
-        return std::to_string(static_cast<uint64_t>(value));
-    }
-};
-
-template<>
-class TestValueToTextConverter<hlsl::emulated_int64_t>
-{
-public:
-    std::string operator()(const hlsl::emulated_int64_t& value)
-    {
-        return std::to_string(static_cast<int64_t>(value));
-    }
-};
-
-template<typename T, int16_t N>
-class TestValueToTextConverter<hlsl::vector<T, N>>
-{
-public:
-    std::string operator()(const hlsl::vector<T, N>& value)
-    {
-        std::stringstream output;
-        output << "{ ";
-        for (int i = 0; i < N; ++i)
-        {
-            TestValueToTextConverter<T> vecComponentToTextConverter;
-
-            output << vecComponentToTextConverter(value[i]);
-
-            if (i < N - 1)
-                output << ", ";
-        }
-        output << " }";
-
-        return output.str();
-    }
-};
 
 template<typename InputTestValues, typename TestResults, typename TestExecutor>
 class ITester
@@ -363,9 +311,7 @@ protected:
 
         ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
         ss << "TEST ITERATION: " << testIteration << " SEED: " << seed << '\n';
-
-        TestValueToTextConverter<T> toTextConverter;
-        ss << "EXPECTED VALUE: " << toTextConverter(expectedVal) << " TEST VALUE: " << toTextConverter(testVal) << '\n';
+        ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
