@@ -85,7 +85,7 @@ public:
 		    SPushConstantRange pcRange = {};
 		    pcRange.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 		    pcRange.offset = 0u;
-		    pcRange.size = 2 * sizeof(uint32_t);
+		    pcRange.size = sizeof(nbl::hlsl::PushConstants);
             auto layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(m_descriptorSetLayout));
             IGPUComputePipeline::SCreationParams params = {};
             params.layout = layout.get();
@@ -186,11 +186,18 @@ public:
         m_cmdbuf->pipelineBarrier(EDF_NONE, depInfo);
         
 
-        const uint32_t pushConstants[2] = { 1920, 1080 };
         const IGPUDescriptorSet* set = m_descriptorSet.get();
+        const uint32_t numIndices = sizeof(TestCaseIndices) / sizeof(TestCaseIndices[0]);
+        const uint32_t lastValue = TestCaseIndices[numIndices - 1];
+        const uint32_t totalValues = lastValue + 100;
+        nbl::hlsl::PushConstants coopBinarySearchPC = {
+            .EntityCount = numIndices,
+        };
+
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
         m_cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &set);
-        m_cmdbuf->dispatch(240, 135, 1u);
+        m_cmdbuf->pushConstants(m_pipeline->getLayout(), nbl::hlsl::ShaderStage::ESS_COMPUTE, 0u, sizeof(nbl::hlsl::PushConstants), &coopBinarySearchPC);
+        m_cmdbuf->dispatch((totalValues + 255u) / 256u, 1u, 1u);
 
 		layoutBufferBarrier[0].barrier.dep = layoutBufferBarrier[0].barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COPY_BIT,ACCESS_FLAGS::TRANSFER_READ_BIT);
         m_cmdbuf->pipelineBarrier(EDF_NONE,depInfo);
@@ -216,7 +223,14 @@ public:
 
         auto ptr = m_allocations[1].memory->getMappedPointer();
         assert(ptr);
-        printf("readback ptr %p\n", ptr);
+
+        uint32_t* valuesPtr = reinterpret_cast<uint32_t*>(ptr);
+        for (uint32_t i = 0; i < totalValues; i++) {
+            uint32_t value = valuesPtr[i];
+            const uint32_t* binarySearchResult = std::upper_bound(TestCaseIndices, TestCaseIndices + numIndices, i);
+            uint32_t lowerBoundIndex = std::distance(TestCaseIndices, binarySearchResult) - 1;
+            assert(value == lowerBoundIndex);
+        }
 
         m_keepRunning = false;
     }
