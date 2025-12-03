@@ -29,13 +29,16 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	void preload()
 	{
 		uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+		[unroll]
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			const float32_t4 firstLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x, globalElementIndex)];
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
 			const float32_t4 secondLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, globalElementIndex)];
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
 
@@ -47,12 +50,14 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	// Channels will be contiguous in buffer memory.
 	void unload()
 	{
+		[unroll]
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIndex), preloaded[channel][localElementIndex]);
@@ -63,12 +68,14 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 };
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	PreloadedFirstAxisAccessor preloadedAccessor;
 
 	preloadedAccessor.preload();
+	[unroll]
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;

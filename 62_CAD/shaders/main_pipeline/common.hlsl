@@ -3,6 +3,15 @@
 
 #include "../globals.hlsl"
 
+// This function soley exists to match n4ce's behaviour, colors and color operations for DTMs, Curves, Lines, Hatches are done in linear space and then outputted to linear surface (as if surface had UNORM format, but ours is SRGB)
+// We should do gamma "uncorrection" to account for the fact that our surface format is SRGB and will do gamma correction
+void gammaUncorrect(inout float3 col)
+{
+    bool outputToSRGB = true; // TODO
+    float gamma = (outputToSRGB) ? 2.2f : 1.0f;
+    col.rgb = pow(col.rgb, gamma);
+}
+
 // TODO: Use these in C++ as well once numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
 {
@@ -62,16 +71,26 @@ struct PrecomputedRootFinder
     }
 };
 
+ // TODO[Przemek]: your triangle mesh passed parameters from vtx to fragment will need to be here (e.g. height).
+ //     As always try to reuse parameters and try not to introduce new ones
 struct PSInput
 {
-    float4 position : SV_Position;
-    float4 clip : SV_ClipDistance;
-    [[vk::location(0)]] nointerpolation uint4 data1 : COLOR1;
-    [[vk::location(1)]] nointerpolation float4 data2 : COLOR2;
-    [[vk::location(2)]] nointerpolation float4 data3 : COLOR3;
-    [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(0)]] float4 position : SV_Position;
+    [[vk::location(1)]] float4 clip : SV_ClipDistance;
+    
+    [[vk::location(2)]] nointerpolation uint4 data1 : COLOR1;
+    [[vk::location(3)]] nointerpolation float4 data2 : COLOR2;
+    [[vk::location(4)]] nointerpolation float4 data3 : COLOR3;
+    [[vk::location(5)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
-    [[vk::location(5)]] float2 interp_data5 : COLOR5;
+    [[vk::location(6)]] float4 interp_data5 : COLOR5;
+    [[vk::location(7)]] nointerpolation float data6 : COLOR6;
+    
+#ifdef FRAGMENT_SHADER_INPUT
+    [[vk::location(8)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR7;
+#else
+    [[vk::location(8)]] float3 vertexScreenSpacePos : COLOR7;
+#endif
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
@@ -94,9 +113,6 @@ struct PSInput
     void setCurrentPhaseShift(float phaseShift)  { interp_data5.x = phaseShift; }
     float getCurrentPhaseShift() { return interp_data5.x; }
 
-    void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
-    float getCurrentWorldToScreenRatio() { return interp_data5.y; }
-    
     /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
@@ -206,19 +222,41 @@ struct PSInput
     
     void setImageUV(float2 uv) { interp_data5.xy = uv; }
     void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+
+    /* TRIANGLE MESH */
+    
+#ifndef FRAGMENT_SHADER_INPUT // vertex shader
+    void setScreenSpaceVertexAttribs(float3 pos) { vertexScreenSpacePos = pos; }
+#else // fragment shader
+    float3 getScreenSpaceVertexAttribs(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
+#endif
+
+    /* GRID DTM */
+    uint getGridDTMHeightTextureID() { return data1.z; }
+    float2 getGridDTMScreenSpaceGridExtents() { return data2.xy; }
+    float getGridDTMScreenSpaceCellWidth() { return data2.z; }
+
+    void setGridDTMHeightTextureID(uint textureID) { data1.z = textureID; }
+    void setGridDTMScreenSpaceGridExtents(float2 screenSpaceGridExtends) { data2.xy = screenSpaceGridExtends; }
+    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data2.z = screenSpaceGridWidth; }
+
+    void setCurrentWorldToScreenRatio(float worldToScreen) { data6.x = worldToScreen; }
+    float getCurrentWorldToScreenRatio() { return data6.x; }
+
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
-[[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
-[[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
-[[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
 
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float3> msdfTextures : register(t3);
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
+// [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals; ---> moved to globals.hlsl
 
-[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
-[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
+[[vk::push_constant]] PushConstants pc;
+
+[[vk::combinedImageSampler]][[vk::binding(1, 0)]] Texture2DArray<float3> msdfTextures : register(t4);
+[[vk::combinedImageSampler]][[vk::binding(1, 0)]] SamplerState msdfSampler : register(s4);
+
+[[vk::binding(2, 0)]] SamplerState textureSampler : register(s5);
+[[vk::binding(3, 0)]] Texture2D textures[ImagesBindingArraySize] : register(t5);
+[[vk::binding(3, 0)]] Texture2D<uint32_t> texturesU32[ImagesBindingArraySize] : register(t5);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);

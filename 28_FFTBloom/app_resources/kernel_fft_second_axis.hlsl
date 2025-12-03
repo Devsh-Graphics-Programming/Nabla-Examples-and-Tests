@@ -1,6 +1,5 @@
 #include "fft_mirror_common.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
@@ -56,6 +55,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 			// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
 			const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
 			const uint32_t y = oddThread ? FFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
 				const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
@@ -64,6 +64,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 				uint32_t packedColumnIndex = workgroup::SubgroupContiguousIndex() / 2;
+				[unroll]
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(packedColumnIndex, y));
@@ -86,6 +87,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 			// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 			// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
 			const uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
 				const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
@@ -94,6 +96,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 				uint32_t packedColumnIndex = workgroup::SubgroupContiguousIndex() / 2;
+				[unroll]
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(packedColumnIndex, y));
@@ -129,10 +132,12 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = bitReverseAs<uint32_t>(glsl::gl_WorkGroupID().x, NumWorkgroupsLog2);
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
 				uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+				[unroll]
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					// Get actual x,y coordinates for the element we wish to write
@@ -148,10 +153,12 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		// Remember that the first row has packed `Z + iN` so it has to unpack those
 		else
 		{
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
 				uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 				// FFT[Z + iN] was stored in the Nabla order
+				[unroll]
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					complex_t<scalar_t> zero = preloaded[channel][localElementIndex];
@@ -181,24 +188,26 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 						preloaded[channel][localElementIndex] = zero;
 				}
 			}
-			// Before leaving, store the power to the row major buffer start since we have that available
+			// Before leaving, store the reciprocal of power to the row major buffer start since we have that available
 			if (!workgroup::SubgroupContiguousIndex())
 			{
 				const vector <scalar_t, 3> channelWiseSums = { preloaded[0][0].real(), preloaded[1][0].real(), preloaded[2][0].real() };
 				const scalar_t power = mul(vector<scalar_t, 3>(colorspace::scRGBtoXYZ._m10_m11_m12), channelWiseSums);
-				vk::RawBufferStore<scalar_t>(pushConstants.rowMajorBufferAddress, power);
+				vk::RawBufferStore<scalar_t>(pushConstants.rowMajorBufferAddress, scalar_t(1) / power);
 			}
 		}
 	}
 };
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	PreloadedSecondAxisAccessor preloadedAccessor;
 
 	preloadedAccessor.preload();
+	[unroll]
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;

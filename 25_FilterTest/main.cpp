@@ -388,9 +388,9 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						blitFilterState.outOffsetBaseLayer = hlsl::uint32_t4();
 						blitFilterState.outExtentLayerCount = hlsl::uint32_t4(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],layerCount);
 
-						blitFilterState.axisWraps[0] = asset::ISampler::ETC_CLAMP_TO_EDGE;
-						blitFilterState.axisWraps[1] = asset::ISampler::ETC_CLAMP_TO_EDGE;
-						blitFilterState.axisWraps[2] = asset::ISampler::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[0] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[1] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[2] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 						blitFilterState.borderColor = asset::ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_WHITE;
 
 						blitFilterState.alphaSemantic = m_alphaSemantic;
@@ -868,7 +868,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 									logger->log("Failed to fit the preload region in shared memory even for 1x1x1 workgroup!",ILogger::ELL_ERROR);
 									return false;
 								}
-								cmdbuf->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(params),&params);
+								cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_COMPUTE,0,sizeof(params),&params);
 								cmdbuf->dispatch(params.perWG.getWorkgroupCount(outExtent16));
 								if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 								{

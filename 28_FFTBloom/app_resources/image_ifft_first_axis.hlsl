@@ -44,6 +44,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			// Load all even elements of first column
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
 				preloaded[channel][localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, globalElementIndex));
@@ -52,6 +53,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// Get all odd elements by trading
 			// Reset globalElementIndex - Add WorkgroupSize to account for `localElementIndex` starting at 1
 			globalElementIndex = WorkgroupSize | workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				preloaded[channel][localElementIndex] = conj(getDFTMirror<sharedmem_adaptor_t>(globalElementIndex, channel, adaptorForSharedMemory));
@@ -63,6 +65,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// This makes even positions hold C1 + iC2
 			// Reset globalElementIndex
 			globalElementIndex = workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
 				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, globalElementIndex)));
@@ -73,6 +76,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// add conj(C1) back to have conj(C1) + i * conj(C2).
 			// Reset globalElementIndex - Add WorkgroupSize to account for `localElementIndex` starting at 1
 			globalElementIndex = WorkgroupSize | workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(globalElementIndex, channel, adaptorForSharedMemory));
@@ -106,6 +110,8 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 	{
 		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex();
 		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.padding;
+		
+		[unroll]
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageColumnLength)
@@ -115,6 +121,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 				firstLineTexValue.a = 1.f; 
 				secondLineTexValue.a = 1.f;
 
+				[unroll]
 				for (uint16_t channel = 0; channel < Channels; channel++)
 				{
 					firstLineTexValue[channel] = scalar_t(preloaded[channel][localElementIndex].real());
@@ -129,6 +136,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 };
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;

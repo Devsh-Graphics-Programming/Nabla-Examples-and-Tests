@@ -451,6 +451,9 @@ void CPolyline::makeWideWhole(CPolyline& outOffset1, CPolyline& outOffset2, floa
 
 	if (!m_closedPolygon)
 	{
+		if (outOffset1.getSectionsCount() == 0u || outOffset2.getSectionsCount() == 0u)
+			return;
+
 		nbl::hlsl::float64_t2 beginToBeginConnector[2u];
 		beginToBeginConnector[0u] = outOffset1.getSectionFirstPoint(outOffset1.getSectionInfoAt(0u));
 		beginToBeginConnector[1u] = outOffset2.getSectionFirstPoint(outOffset2.getSectionInfoAt(0u));
@@ -468,7 +471,7 @@ void CPolyline::stippleBreakDown(const LineStyleInfo& lineStyle, const OutputPol
 		return;
 
 	// currently only works for road styles with only 2 stipple values (1 draw, 1 gap)
-	assert(lineStyle.stipplePatternSize == 1);
+	assert(lineStyle.stipplePatternSize <= 1);
 
 	const float64_t patternLen = 1.0 / lineStyle.reciprocalStipplePatternLen;
 	const float32_t drawSectionNormalizedLen = lineStyle.stipplePattern[0];
