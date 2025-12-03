@@ -1,13 +1,16 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
+//#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+//#include "SimpleWindowedApplication.hpp"
+
+#include "nbl/examples/examples.hpp"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/asset/interchange/IAssetLoader.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
+#include "nbl/builtin/hlsl/luma_meter/common.hlsl"
 #include "app_resources/common.hlsl"
 
 using namespace nbl;
@@ -17,16 +20,17 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace nbl::examples;
 
-class AutoexposureApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
 	enum class MeteringMode {
 		AVERAGE,
 		MEDIAN
 	};
 
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = SimpleWindowedApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	static inline std::string DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
@@ -288,94 +292,102 @@ public:
 					std::exit(-1);
 				}
 
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				auto source = IAsset::castDown<IShader>(assets[0]);
+
+				auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+				CHLSLCompiler::SOptions options = {};
+				options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+				options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+				options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+				ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+				options.spirvOptimizer = opt.get();
+#else
+				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+#endif
+				options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+				options.preprocessorOptions.logger = m_logger.get();
+
+				auto* includeFinder = compiler->getDefaultIncludeFinder();
+				options.preprocessorOptions.includeFinder = includeFinder;
+
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-				auto overriddenSource = CHLSLCompiler::createOverridenCopy(
-					source.get(),
-					"#define WorkgroupSize %d\n#define DeviceSubgroupSize %d\n",
-					workgroupSize,
-					subgroupSize
-				);
-				// The down-cast should not fail!
-				assert(overriddenSource);
+				const IShaderCompiler::SMacroDefinition defines[2] = {
+					{ "WorkgroupSize", std::to_string(workgroupSize) },
+					{ "DeviceSubgroupSize", std::to_string(subgroupSize) }
+				};
+			    options.preprocessorOptions.extraDefines = { defines, defines + 2 };
 
-				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-				auto shader = m_device->createShader(overriddenSource.get());
-				if (!shader)
+				auto overriddenSource = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+				if (!overriddenSource)
 				{
 					m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
 					std::exit(-1);
 				}
 
-				return shader;
+				return overriddenSource;
 			};
 
 			// Create compute pipelines
 			{
-				std::array<IGPUComputePipeline::SCreationParams, 2> params;
-				std::array<smart_refctd_ptr<IGPUShader>, 2> shaders;
-				std::array<smart_refctd_ptr<IGPUPipelineLayout>, 2> pipelineLayouts;
-				std::array<smart_refctd_ptr<IGPUComputePipeline>, 2> pipelines;
-				{
-					shaders[0] = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[0] : ShaderPaths[2]);
-					const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(AutoexposurePushData)
-					};
-					pipelineLayouts[0] = m_device->createPipelineLayout(
-						{ &pcRange, 1 },
-						smart_refctd_ptr(gpuLayouts[0]),
-						nullptr,
-						nullptr,
-						nullptr
-					);
-					if (!pipelineLayouts[0]) {
-						return logFail("Failed to create pipeline layout");
-					}
-
-					params[0] = {};
-					params[0].layout = pipelineLayouts[0].get();
-					params[0].shader.shader = shaders[0].get();
-					params[0].shader.entryPoint = "main";
-					params[0].shader.entries = nullptr;
-					params[0].shader.requireFullSubgroups = true;
-					params[0].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-				}
-				{
-					shaders[1] = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[1] : ShaderPaths[3]);
-					const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(AutoexposurePushData)
-					};
-					pipelineLayouts[1] = m_device->createPipelineLayout(
-						{ &pcRange, 1 },
-						smart_refctd_ptr(gpuLayouts[0]),
-						nullptr,
-						nullptr,
-						smart_refctd_ptr(gpuLayouts[1])
-					);
-					if (!pipelineLayouts[1]) {
-						return logFail("Failed to create pipeline layout");
-					}
-
-					params[1] = {};
-					params[1].layout = pipelineLayouts[1].get();
-					params[1].shader.shader = shaders[1].get();
-					params[1].shader.entryPoint = "main";
-					params[1].shader.entries = nullptr;
-					params[1].shader.requireFullSubgroups = true;
-					params[1].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-				}
-				
-				if (!m_device->createComputePipelines(nullptr, params, pipelines.data())) {
-					return logFail("Failed to create compute pipeline!\n");
+				IGPUComputePipeline::SCreationParams params;
+				auto shader = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[0] : ShaderPaths[2]);
+				const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(AutoexposurePushData)
+				};
+				auto pipelineLayout = m_device->createPipelineLayout(
+					{ &pcRange, 1 },
+					smart_refctd_ptr(gpuLayouts[0]),
+					nullptr,
+					nullptr,
+					nullptr
+				);
+				if (!pipelineLayout) {
+					return logFail("Failed to create pipeline layout");
 				}
 
-				m_meterPipeline = std::move(pipelines[0]);
-				m_tonemapPipeline = std::move(pipelines[1]);
+				params.layout = pipelineLayout.get();
+				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
+				params.cached.requireFullSubgroups = true;
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_meterPipeline)) {
+					return logFail("Failed to create meter compute pipeline!\n");
+				}
+			}
+			{
+				IGPUComputePipeline::SCreationParams params;
+				auto shader = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[1] : ShaderPaths[3]);
+				const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(AutoexposurePushData)
+				};
+				auto pipelineLayout = m_device->createPipelineLayout(
+					{ &pcRange, 1 },
+					smart_refctd_ptr(gpuLayouts[0]),
+					nullptr,
+					nullptr,
+					smart_refctd_ptr(gpuLayouts[1])
+				);
+				if (!pipelineLayout) {
+					return logFail("Failed to create pipeline layout");
+				}
+
+				params.layout = pipelineLayout.get();
+				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
+				params.cached.requireFullSubgroups = true;
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_tonemapPipeline)) {
+					return logFail("Failed to create tonemap compute pipeline!\n");
+				}
 			}
 
 			// Create graphics pipeline
@@ -390,9 +402,9 @@ public:
 				if (!fragmentShader)
 					return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-				const IGPUShader::SSpecInfo fragSpec = {
-					.entryPoint = "main",
-					.shader = fragmentShader.get()
+				const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+					.shader = fragmentShader.get(),
+				    .entryPoint = "main"
 				};
 
 				auto presentLayout = m_device->createPipelineLayout(
@@ -745,7 +757,7 @@ public:
 
 		auto pc = AutoexposurePushData
 		{
-			.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
+			.window = hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
 			.lumaMinMax = LumaMinMax,
 			.sampleCount = sampleCount,
 			.viewportSize = Dimensions,
