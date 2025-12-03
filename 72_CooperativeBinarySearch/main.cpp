@@ -22,6 +22,11 @@ using namespace nbl::examples;
 
 //using namespace glm;
 
+static constexpr uint32_t TestCaseIndices[] = {
+#include "testCaseData.h"
+};
+
+
 void cpu_tests();
 
 class CooperativeBinarySearch final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
@@ -101,14 +106,19 @@ public:
 
             auto reqs = m_buffers[i]->getMemoryReqs();
             reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-            m_device->allocate(reqs, m_buffers[i].get());
+
+            m_allocations[i] = m_device->allocate(reqs, m_buffers[i].get());
+            
+            auto allocationType = i == 0 ? IDeviceMemoryAllocation::EMCAF_WRITE : IDeviceMemoryAllocation::EMCAF_READ;
+            auto mapResult = m_allocations[i].memory->map({ 0ull,m_allocations[i].memory->getAllocationSize() }, allocationType);
+            assert(mapResult);
         }
 
 		smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 		{
             IDescriptorPool::SCreateInfo createInfo = {};
             createInfo.maxSets = 1;
-            createInfo.maxDescriptorCount[static_cast<uint32_t>(IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 1;
+            createInfo.maxDescriptorCount[static_cast<uint32_t>(IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = bindingCount;
             descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
         }
 
@@ -130,6 +140,14 @@ public:
 
         m_device->updateDescriptorSets(bindingCount, writeDescriptorSets, 0u, nullptr);
        
+        // Write test data to the m_buffers[0]
+        auto outPtr = m_allocations[0].memory->getMappedPointer();
+        assert(outPtr);
+        memcpy(
+            reinterpret_cast<void*>(outPtr), 
+            reinterpret_cast<const void*>(&TestCaseIndices[0]), 
+            sizeof(TestCaseIndices));
+
         // In contrast to fences, we just need one semaphore to rule all dispatches
         return true;
     }
@@ -196,9 +214,8 @@ public:
             m_device->blockForSemaphores(waitInfos);
         }
 
-		auto mem = m_buffers[1]->getBoundMemory();
-		assert(mem.memory->isMappable());
-		auto* ptr = mem.memory->map({ .offset = 0, .length = mem.memory->getAllocationSize() });
+        auto ptr = m_allocations[1].memory->getMappedPointer();
+        assert(ptr);
         printf("readback ptr %p\n", ptr);
 
         m_keepRunning = false;
@@ -216,6 +233,7 @@ private:
     smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet;
 
     smart_refctd_ptr<IGPUBuffer> m_buffers[2];
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_allocations[2] = {};
     smart_refctd_ptr<IGPUCommandBuffer> m_cmdbuf = nullptr;
     IQueue* m_queue;
     smart_refctd_ptr<IGPUCommandPool> m_commandPool;
