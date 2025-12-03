@@ -2,6 +2,7 @@
 #define _THIS_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/builtin/hlsl/ies/profile.hlsl"
 
 #define QUANT_ERROR_ADMISSIBLE 1/1024
 #define WORKGROUP_SIZE 256u
@@ -28,15 +29,13 @@ struct CdcPC
     uint64_t hAnglesBDA;
     uint64_t vAnglesBDA;
     uint64_t dataBDA;
+    uint64_t txtInfoBDA;
     uint32_t mode : 8;
-    uint32_t symmetry : 8;
-    uint32_t texIx : 16;
+    uint32_t texIx : 24;
 	uint32_t hAnglesCount;
     uint32_t vAnglesCount;
-    float32_t maxIValue;
     float32_t zAngleDegreeRotation;
-
-	uint32_t pad;
+	nbl::hlsl::ies::ProfileProperties properties;
 };
 
 struct SpherePC

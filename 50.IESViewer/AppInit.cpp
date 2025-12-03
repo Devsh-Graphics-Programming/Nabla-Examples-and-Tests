@@ -30,6 +30,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         auto start = std::chrono::high_resolution_clock::now();
         size_t loaded = {}, total = out.inputList.size();
         IAssetLoader::SAssetLoadParams lp = {};
+		lp.loaderFlags = IAssetLoader::E_LOADER_PARAMETER_FLAGS::ELPF_LOAD_METADATA_ONLY;
         lp.logger = system::logger_opt_ptr(m_logger.get());
 
         for (const auto& in : out.inputList)
