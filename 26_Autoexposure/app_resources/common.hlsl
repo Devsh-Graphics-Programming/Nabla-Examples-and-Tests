@@ -22,6 +22,18 @@ struct AutoexposurePushData
     uint64_t lumaMeterBDA;
 };
 
+#ifdef __HLSL_VERSION
+
+#ifndef WorkgroupSize
+#error "Define WorkgroupSize!"
+#endif
+
+#ifndef DeviceSubgroupSize
+#error "Define DeviceSubgroupSize!"
+#endif
+
+#endif
+
 }
 }
 
