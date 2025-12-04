@@ -14,13 +14,14 @@ enum MaterialType : uint32_t    // enum class?
 {
     DIFFUSE,
     CONDUCTOR,
-    DIELECTRIC
+    DIELECTRIC,
+    IRIDESCENT_CONDUCTOR
 };
 
-template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class Scene>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
+template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class Scene>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
 struct MaterialSystem
 {
-    using this_t = MaterialSystem<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF, Scene>;
+    using this_t = MaterialSystem<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF, IridescentConductorBxDF, Scene>;
     using scalar_type = typename DiffuseBxDF::scalar_type;      // types should be same across all 3 bxdfs
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
@@ -38,6 +39,7 @@ struct MaterialSystem
     using diffuse_op_type = DiffuseBxDF;
     using conductor_op_type = ConductorBxDF;
     using dielectric_op_type = DielectricBxDF;
+    using iri_conductor_op_type = IridescentConductorBxDF;
 
     static bool isBSDF(uint32_t material)
     {
@@ -73,6 +75,18 @@ struct MaterialSystem
                 dielectricBxDF.fresnel = dielectric_op_type::fresnel_type::create(orientedEta);
             }
             break;
+            case MaterialType::IRIDESCENT_CONDUCTOR:
+            {
+                iridescentConductorBxDF.ndf = iri_conductor_op_type::ndf_type::create(cparams.A.x);
+                using creation_params_t = typename iri_conductor_op_type::fresnel_type::creation_params_type;
+                creation_params_t params;
+                params.Dinc = cparams.A.y;
+                params.ior1 = hlsl::promote<float32_t3>(1.0);
+                params.ior2 = cparams.ior0;
+                params.ior3 = cparams.ior1;
+                params.iork3 = cparams.iork;
+                iridescentConductorBxDF.fresnel = iri_conductor_op_type::fresnel_type::create(params);
+            }
             default:
                 return;
         }
@@ -98,6 +112,11 @@ struct MaterialSystem
                 return dielectricBxDF.eval(_sample, interaction, _cache);
             }
             break;
+            case MaterialType::IRIDESCENT_CONDUCTOR:
+            {
+                return iridescentConductorBxDF.eval(_sample, interaction, _cache);
+            }
+            break;
             default:
                 return hlsl::promote<measure_type>(0.0);
         }
@@ -121,6 +140,11 @@ struct MaterialSystem
             case MaterialType::DIELECTRIC:
             {
                 return dielectricBxDF.generate(interaction, u, _cache);
+            }
+            break;
+            case MaterialType::IRIDESCENT_CONDUCTOR:
+            {
+                return iridescentConductorBxDF.generate(interaction, u.xy, _cache);
             }
             break;
             default:
@@ -159,6 +183,10 @@ struct MaterialSystem
                     return dielectricBxDF.quotient_and_pdf(_sample, interaction, _cache);
                 }
                 break;
+                case MaterialType::IRIDESCENT_CONDUCTOR:
+                {
+                    return iridescentConductorBxDF.quotient_and_pdf(_sample, interaction, _cache);
+                }
                 default:
                     return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
             }
@@ -169,6 +197,7 @@ struct MaterialSystem
     DiffuseBxDF diffuseBxDF;
     ConductorBxDF conductorBxDF;
     DielectricBxDF dielectricBxDF;
+    IridescentConductorBxDF iridescentConductorBxDF;
 
     bxdfnode_type bxdfs[Scene::SCENE_BXDF_COUNT];
     uint32_t bxdfCount;

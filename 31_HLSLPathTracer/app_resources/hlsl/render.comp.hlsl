@@ -92,6 +92,7 @@ using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_int
 using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
 using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
+using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 
 using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
@@ -100,7 +101,7 @@ using scene_type = Scene<float, LIGHT_TYPE>;
 using randgen_type = RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = RayGen::Basic<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type>;
-using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, scene_type>;
+using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, scene_type>;
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
@@ -119,7 +120,8 @@ static const Shape<float, PST_SPHERE> spheres[scene_type::SphereCount] = {
     Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
     Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
     Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
+    Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, light_type::INVALID_ID)
 #ifdef SPHERE_LIGHT
     ,Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
 #endif
@@ -140,7 +142,7 @@ static const Shape<float, PST_RECTANGLE> rectangles[scene_type::RectangleCount] 
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
     light_type::create(LightEminence,
 #ifdef SPHERE_LIGHT
-        8u,
+        scene_type::SCENE_SPHERE_COUNT,
 #else
         0u,
 #endif
@@ -154,7 +156,8 @@ static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
-    bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5))
+    bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5)),
+    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.05, 1600.0, spectral_t(1.2,1.2,1.2), spectral_t(1.1,1.1,1.1), spectral_t(1.5,1.5,1.5))
 };
 
 RenderPushConstants retireveRenderPushConstants()
@@ -209,10 +212,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up scene
     scene_type scene;
-    NBL_UNROLL for (uint32_t i = 0; i < 8; i++)
+    NBL_UNROLL for (uint32_t i = 0; i < scene_type::SCENE_SPHERE_COUNT; i++)
         scene.scene_spheres[i] = spheres[i];
 #ifdef SPHERE_LIGHT
-    scene.light_spheres[0] = spheres[8];
+    scene.light_spheres[0] = spheres[scene_type::SCENE_SPHERE_COUNT];
 #endif
 #ifdef TRIANGLE_LIGHT
     scene.light_triangles[0] = triangles[0];
