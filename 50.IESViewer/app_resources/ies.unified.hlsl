@@ -45,33 +45,16 @@ struct SInterpolants
 using octahedral_t = math::OctahedralTransform<float32_t>;
 using texture_t = nbl::hlsl::ies::Texture<Accessor>;
 
-float32_t3 latLongDir(float32_t2 uv)
-{
-    const float32_t phi = 6.28318530718f * uv.x;
-    const float32_t th = 3.14159265359f * uv.y;
-    const float32_t s = sin(th), c = cos(th);
-    return float32_t3(s * cos(phi), c, s * sin(phi));
-}
-
 [shader("vertex")]
-SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
+SInterpolants SphereVS(uint32_t vIx : SV_VertexID)
 {
-    uint32_t2 resolution;
-    inIESCandelaImage[pc.sphere.texIx].GetDimensions(resolution.x, resolution.y);
+    uint32_t2 res;
+    inIESCandelaImage[pc.sphere.texIx].GetDimensions(res.x, res.y);
 
-    const uint32_t W = resolution.x, H = resolution.y;
-    const uint32_t i = VertexIndex % W, j = VertexIndex / W;
+	const float32_t2 inv = float32_t2(1.f, 1.f) / float32_t2(res - 1u);
+	const float32_t2 uv = float32_t2(vIx % res.x, vIx / res.x) * inv;
 
-    // for sphere geometry created from our grid we need to make sure the surface is closed, aligned at U/V edges
-    const float32_t2 uv = float32_t2(
-        (float32_t(i)) / float32_t(W), 
-        (float32_t(j)) / float32_t(H)
-    );
-    const float32_t vPos = (j == 0u) ? 0.0f : (j == H - 1u) ? 1.0f : uv.y;
-    const float32_t uPos = (i == W - 1u) ? 1.0f : uv.x;
-    const float32_t2 uvPos = float32_t2(uPos, vPos);
-
-    const float32_t3 dir = latLongDir(uvPos);
+    const float32_t3 dir = octahedral_t::uvToDir(uv);
     const float32_t3 pos = pc.sphere.radius * dir;
 
     SInterpolants o;
@@ -85,8 +68,8 @@ SInterpolants SphereVS(uint32_t VertexIndex : SV_VertexID)
 float32_t4 SpherePS(SInterpolants input) : SV_Target0
 {
     float32_t2 uv = 0.5f * octahedral_t::dirToNDC(input.latDir) + 0.5f;
-    float32_t candela = inIESCandelaImage[pc.sphere.texIx].Sample(generalSampler, uv).r;
-    float32_t v = 1.0f - exp(-candela);
+    float32_t intensity = inIESCandelaImage[pc.sphere.texIx].Sample(generalSampler, uv).r;
+    float32_t v = 1.0f - exp(-intensity);
     return float32_t4(v,v,v,1);
 }
 
