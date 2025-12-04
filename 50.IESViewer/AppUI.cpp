@@ -19,6 +19,7 @@ void IESViewer::uiListener()
     const auto name = path(ies.key).filename().string();
     auto* profile = ies.getProfile();
 	const auto& accessor = profile->getAccessor();
+	const auto& properties = accessor.getProperties();
 
     const float lowerBound = accessor.hAngles.front();
     const float upperBound = accessor.hAngles.back();
@@ -33,10 +34,10 @@ void IESViewer::uiListener()
         float x = vp->Pos.x + 8.f;
         float y = vp->Pos.y + 8.f;
 
-        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::modeToRS(ies.mode));
+        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::modeToRS(mode));
         y += ImGui::GetTextLineHeightWithSpacing();
 
-        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::symmetryToRS(accessor.symmetry()));
+        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::symmetryToRS(properties.getSymmetry()));
         y += ImGui::GetTextLineHeightWithSpacing();
 
         fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());

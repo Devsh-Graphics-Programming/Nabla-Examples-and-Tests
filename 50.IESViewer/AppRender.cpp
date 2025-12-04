@@ -58,13 +58,13 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         .hAnglesBDA = ies.buffers.hAngles->getDeviceAddress(),
         .vAnglesBDA = ies.buffers.vAngles->getDeviceAddress(),
         .dataBDA = ies.buffers.data->getDeviceAddress(),
-		.mode = ies.mode,
-		.symmetry = (uint32_t)accessor.symmetry(),
+		.txtInfoBDA = ies.buffers.textureInfo.buffer->getDeviceAddress(),
+		.mode = mode,
 		.texIx = (uint32_t)m_activeAssetIx,
         .hAnglesCount = accessor.hAnglesCount(),
         .vAnglesCount = accessor.vAnglesCount(),
-        .maxIValue = accessor.properties.maxCandelaValue,
-        .zAngleDegreeRotation = ies.zDegree
+        .zAngleDegreeRotation = ies.zDegree,
+		.properties = accessor.getProperties()
 	};
 
     for (auto& buffer : { ies.buffers.data, ies.buffers.hAngles, ies.buffers.vAngles }) // flush request for sanity
@@ -78,7 +78,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     }
 
     auto* const descriptor = m_descriptors[0].get();
-    auto* image = ies.getActiveImage();
+    auto* image = ies.getActiveImage(mode);
 
     // Compute
     {

@@ -37,15 +37,9 @@ void IESViewer::processKeyboard(const nbl::ui::IKeyboardEventChannel::range_t& e
             auto& ies = m_assets[m_activeAssetIx];
 
             if (ev.keyCode == nbl::ui::EKC_C)
-                ies.mode = IES::EM_CDC;
+                mode = IES::EM_CDC;
             else if (ev.keyCode == nbl::ui::EKC_V)
-                ies.mode = IES::EM_IES_C;
-            else if (ev.keyCode == nbl::ui::EKC_S)
-                ies.mode = IES::EM_SPERICAL_C;
-            else if (ev.keyCode == nbl::ui::EKC_D)
-                ies.mode = IES::EM_DIRECTION;
-            else if (ev.keyCode == nbl::ui::EKC_M)
-                ies.mode = IES::EM_PASS_T_MASK;
+                mode = IES::EM_OCTAHEDRAL_MAP;
 
             if (ev.keyCode == nbl::ui::EKC_Q)
                 m_running = false;

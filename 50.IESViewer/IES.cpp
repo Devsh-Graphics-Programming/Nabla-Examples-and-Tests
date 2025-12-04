@@ -13,18 +13,12 @@ const asset::CIESProfile* IES::getProfile() const
     return nullptr;
 }
 
-video::IGPUImage* IES::getActiveImage() const
+video::IGPUImage* IES::getActiveImage(E_MODE mode) const
 {
     switch (mode)
     {
-    case EM_IES_C:
-        return views.candela->getCreationParameters().image.get();
-    case EM_SPERICAL_C:
-        return views.spherical->getCreationParameters().image.get();
-    case EM_DIRECTION:
-        return views.direction->getCreationParameters().image.get();
-    case EM_PASS_T_MASK:
-        return views.mask->getCreationParameters().image.get();
+    case EM_OCTAHEDRAL_MAP:
+        return views.candelaOctahedralMap->getCreationParameters().image.get();
 
     case EM_CDC:
     default:
@@ -38,16 +32,10 @@ const char* IES::modeToRS(E_MODE mode)
     {
     case IES::EM_CDC:
         return "Candlepower Distribution Curve";
-    case IES::EM_IES_C:
-        return "Sample IES Candela";
-    case IES::EM_SPERICAL_C:
-        return "Sample Spherical Coordinates";
-    case IES::EM_DIRECTION:
-        return "Sample Direction";
-    case IES::EM_PASS_T_MASK:
-        return "Sample Pass Mask";
-    default:
-        return "ERROR (mode)";
+    case IES::EM_OCTAHEDRAL_MAP:
+        return "Candela Octahedral Map";
+	default:
+		return "ERROR (mode)";
     }
 }
 

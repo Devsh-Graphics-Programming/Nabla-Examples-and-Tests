@@ -13,33 +13,30 @@ struct IES
 {
     enum E_MODE : uint32_t
     {
-        EM_CDC,         //! Candlepower Distribution Curve
-        EM_IES_C,       //! IES Candela
-        EM_SPERICAL_C,  //! Sperical coordinates
-        EM_DIRECTION,   //! Sample direction
-        EM_PASS_T_MASK, //! Test mask
+        EM_CDC,					//! Candlepower Distribution Curve
+		EM_OCTAHEDRAL_MAP,      //! Candela Octahedral Map
 
         EM_SIZE
     };
 
     struct
     {
-        smart_refctd_ptr<IGPUImageView> candela = nullptr, spherical = nullptr, direction = nullptr, mask = nullptr;
+        smart_refctd_ptr<IGPUImageView> candelaOctahedralMap = nullptr;
     } views;
 
     struct
     {
-        smart_refctd_ptr<IGPUBuffer> vAngles = nullptr, hAngles = nullptr, data = nullptr;
+        smart_refctd_ptr<IGPUBuffer> vAngles = nullptr, hAngles = nullptr, data = nullptr;		// allocation per ies
+		SBufferBinding<IGPUBuffer> textureInfo;													// shared allocation for all ies
     } buffers;
 
     SAssetBundle bundle;
     std::string key;
 
     float zDegree = 0.f;
-    E_MODE mode = EM_CDC;
 
     const asset::CIESProfile* getProfile() const;
-    video::IGPUImage* getActiveImage() const;
+    video::IGPUImage* getActiveImage(E_MODE mode) const;
 
     static const char* modeToRS(E_MODE mode);
     static const char* symmetryToRS(CIESProfile::properties_t::LuminairePlanesSymmetry symmetry);

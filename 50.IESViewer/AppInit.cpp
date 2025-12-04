@@ -65,19 +65,25 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     m_logger->log("Creating GPU IES resources..", system::ILogger::ELL_INFO);
     {
         auto start = std::chrono::high_resolution_clock::now();
-        for (auto& ies : m_assets)
+
+		auto textureInfos = createBuffer(m_assets.size() * sizeof(IESTextureInfo), "IES Textures Info", false);
+		if(!textureInfos) return false;
+		auto* textureInfosMapped = static_cast<IESTextureInfo*>(textureInfos->getBoundMemory().memory->getMappedPointer());
+
+        for (size_t i = 0u; i < m_assets.size(); ++i)
         {
+			auto& ies = m_assets[i];
             const auto* profile = ies.getProfile();
 			const auto& accessor = profile->getAccessor();
             const auto& resolution = accessor.properties.optimalIESResolution;
+			textureInfosMapped[i] = CIESProfile::texture_t::createInfo(accessor, resolution, 0.f, true);
+			ies.buffers.textureInfo.buffer = textureInfos;
+			ies.buffers.textureInfo.offset = i * sizeof(IESTextureInfo);
 
             #define CREATE_VIEW(VIEW, FORMAT, NAME) \
 		    if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT, NAME + ies.key) )) return false;
 
-            CREATE_VIEW(ies.views.candela, asset::EF_R16_UNORM, "IES Candela Data Image: ")
-            CREATE_VIEW(ies.views.spherical, asset::EF_R32G32_SFLOAT, "IES Spherical Data Image: ")
-            CREATE_VIEW(ies.views.direction, asset::EF_R32G32B32A32_SFLOAT, "IES Direction Data Image: ")
-            CREATE_VIEW(ies.views.mask, asset::EF_R8G8_UNORM, "IES Mask Data Image: ")
+            CREATE_VIEW(ies.views.candelaOctahedralMap, asset::EF_R16_UNORM, "IES Candela Octahedral Map Image: ")
 
             #define CREATE_BUFFER(BUFFER, DATA, NAME) \
             if (!(BUFFER = createBuffer(DATA, NAME + ies.key) )) return false;
@@ -148,10 +154,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         #define BINDING_SAMPLER(IX) { .binding = IX, .type = IDescriptor::E_TYPE::ET_SAMPLER, .createFlags = SamplersCreateFlags, .stageFlags = StageFlags, .count = 1u, .immutableSamplers = nullptr }
         static constexpr auto bindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
         ({
-            BINDING_TEXTURE(0u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(0u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // candela
-            BINDING_TEXTURE(1u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(1u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // spherical
-            BINDING_TEXTURE(2u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(2u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // direction
-            BINDING_TEXTURE(3u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(3u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // mask
+			BINDING_TEXTURE(0u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(0u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // candela octahedral map
             BINDING_SAMPLER(0u + 100u)
         });
 
@@ -245,8 +248,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, dscLayoutPtrs);
             pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_descriptors.data());
             {
-                std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u + 1u> infos;
-#define FILL_INFO(DESC, IX) \
+				constexpr auto ViewsCount = 1u; // used to be 4u with debug maps (counted x2 for RO & RW binding but one descriptor)
+                std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, ViewsCount + 1u> infos;
+				#define FILL_INFO(DESC, IX) \
                 { \
                     auto& info = infos[IX].emplace_back(); \
                     info.desc = DESC; \
@@ -257,17 +261,14 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 {
                     auto& ies = m_assets[i];
 
-                    FILL_INFO(ies.views.candela, 0u)
-                        FILL_INFO(ies.views.spherical, 1u)
-                        FILL_INFO(ies.views.direction, 2u)
-                        FILL_INFO(ies.views.mask, 3u)
+                    FILL_INFO(ies.views.candelaOctahedralMap, 0u)
                 }
-                FILL_INFO(generalSampler, 4u);
+                FILL_INFO(generalSampler, ViewsCount);
                 auto* samplerInfo = infos.back().data();
                 samplerInfo->info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-                std::array<IGPUDescriptorSet::SWriteDescriptorSet, 4u * 2u + 1u > writes;
-                for (uint32_t i = 0; i < 4u; ++i)
+                std::array<IGPUDescriptorSet::SWriteDescriptorSet, ViewsCount * 2u + 1u > writes;
+                for (uint32_t i = 0; i < ViewsCount; ++i)
                 {
                     auto& write = writes[i];
                     write.count = m_assets.size();
@@ -277,9 +278,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                     write.binding = i;
                 }
 
-                for (uint32_t i = 4u; i < 8u; ++i)
+                for (uint32_t i = ViewsCount; i < ViewsCount*2u; ++i)
                 {
-                    auto ix = i - 4u;
+                    auto ix = i - ViewsCount;
                     auto& write = writes[i] = writes[ix];
                     write.binding = ix + 10u;
                 }
@@ -467,7 +468,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 auto* ix = addresses.data();
                 infos[*ix].desc = smart_refctd_ptr<nbl::video::IGPUImageView>(imgui->getFontAtlasView()); ++ix;
 
-
                 for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers2D[i]->getCreationParameters().colorAttachments[0u];
                 for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers3D[i]->getCreationParameters().colorAttachments[0u];
                 
@@ -523,10 +523,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         {
             auto& ies = m_assets[i];
 
-            images.emplace_back() = ies.views.candela->getCreationParameters().image.get();
-            images.emplace_back() = ies.views.spherical->getCreationParameters().image.get();
-            images.emplace_back() = ies.views.direction->getCreationParameters().image.get();
-            images.emplace_back() = ies.views.mask->getCreationParameters().image.get();
+            images.emplace_back() = ies.views.candelaOctahedralMap->getCreationParameters().image.get();
         }
 
         auto* cb = cbs.front().get();

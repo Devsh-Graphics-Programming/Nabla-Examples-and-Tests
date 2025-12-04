@@ -53,11 +53,11 @@ core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t wi
     return imageView;
 }
 
-core::smart_refctd_ptr<IGPUBuffer> IESViewer::createBuffer(const core::vector<float>& in, std::string name)
+core::smart_refctd_ptr<IGPUBuffer> IESViewer::implCreateBuffer(const void* src, size_t bytes, const std::string& name, bool unmap)
 {
     IGPUBuffer::SCreationParams bufferParams = {};
-    bufferParams.usage = core::bitflag(asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT /*TODO: <- double check*/;;
-    bufferParams.size = sizeof(float) * in.size();
+    bufferParams.usage = core::bitflag(asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	bufferParams.size = bytes;
 
     auto buffer = m_device->createBuffer(std::move(bufferParams));
     buffer->setObjectDebugName(name.c_str());
@@ -88,13 +88,15 @@ core::smart_refctd_ptr<IGPUBuffer> IESViewer::createBuffer(const core::vector<fl
         return nullptr;
     }
 
-    memcpy(mappedPointer, in.data(), buffer->getSize());
+	if(src)
+		memcpy(mappedPointer, src, buffer->getSize());
 
-    if (not allocation.memory->unmap())
-    {
-        m_logger->log("Failed to unmap device memory for \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
-        return nullptr;
-    }
+	if(unmap)
+		if (not allocation.memory->unmap())
+		{
+			m_logger->log("Failed to unmap device memory for \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
+			return nullptr;
+		}
 
     return buffer;
 }

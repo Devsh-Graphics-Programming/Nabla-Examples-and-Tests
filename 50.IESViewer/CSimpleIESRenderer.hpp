@@ -213,7 +213,6 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			enum PipelineType : uint8_t
 			{
 				SphereTriangleStrip,
-				// TODO: I would also like to project onto cube in which a sphere is put
 				Count
 			};
 

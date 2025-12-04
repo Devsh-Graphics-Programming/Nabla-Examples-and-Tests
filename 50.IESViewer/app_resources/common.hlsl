@@ -36,6 +36,8 @@ struct CdcPC
     uint32_t vAnglesCount;
     float32_t zAngleDegreeRotation;
 	nbl::hlsl::ies::ProfileProperties properties;
+
+	float32_t pad;
 };
 
 struct SpherePC

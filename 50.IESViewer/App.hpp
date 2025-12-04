@@ -17,6 +17,18 @@
 
 NBL_EXPOSE_NAMESPACES
 
+template<typename T>
+concept AppIESByteCount = std::unsigned_integral<T>;
+
+template<typename T>
+concept AppIESContainer = std::ranges::sized_range<T> &&
+    (std::same_as<std::ranges::range_value_t<T>, float> ||
+     std::same_as<std::ranges::range_value_t<T>, IESTextureInfo>);
+static_assert(alignof(IESTextureInfo) == 4u, "IESTextureInfo must be 4 byte aligned");
+
+template<typename T>
+concept AppIESBufferCreationAllowed = AppIESByteCount<T> || AppIESContainer<T>;
+
 class IESViewer final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
     using device_base_t = MonoWindowApplication;
@@ -60,13 +72,32 @@ private:
         smart_refctd_ptr<SubAllocatedDescriptorSet> descriptor;
     } ui;
 
+	IES::E_MODE mode = IES::EM_CDC;
+
     void processMouse(const IMouseEventChannel::range_t& events);
     void processKeyboard(const IKeyboardEventChannel::range_t& events);
 
     smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name, 
         bitflag<IImage::E_USAGE_FLAGS> usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT,
         bitflag<IImage::E_ASPECT_FLAGS> aspectFlags = bitflag(IImage::EAF_COLOR_BIT));
-    smart_refctd_ptr<IGPUBuffer> createBuffer(const core::vector<float>& in, std::string name);
+
+	template<typename T>
+	requires AppIESBufferCreationAllowed<T>
+    smart_refctd_ptr<IGPUBuffer> createBuffer(const T& in, std::string name, bool unmap = true)
+	{
+		const void* src = nullptr; size_t bytes = {};
+		if constexpr (AppIESByteCount<T>)
+			bytes = static_cast<size_t>(in);
+		else if (AppIESContainer<T>)
+		{
+			using element_t = std::ranges::range_value_t<T>;
+			static_assert(alignof(element_t) == 4u, "IESViewer::createBuffer: AppIESContainer<T>'s \"T\" must be 4 byte aligned");
+			bytes = sizeof(element_t) * in.size();
+			src = static_cast<const void*>(std::data(in));
+		}
+		return implCreateBuffer(src, bytes, name, unmap);
+	}
+	smart_refctd_ptr<IGPUBuffer> implCreateBuffer(const void* src, size_t bytes, const std::string& name, bool unmap);
 
     void uiListener();
 };
