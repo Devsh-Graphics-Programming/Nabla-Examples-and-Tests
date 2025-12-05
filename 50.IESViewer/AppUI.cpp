@@ -7,6 +7,8 @@
 #include "app_resources/common.hlsl"
 #include "app_resources/imgui.opts.hlsl"
 
+using namespace this_example;
+
 void IESViewer::uiListener()
 {
     const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
@@ -34,7 +36,7 @@ void IESViewer::uiListener()
         float x = vp->Pos.x + 8.f;
         float y = vp->Pos.y + 8.f;
 
-        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::modeToRS(mode));
+        fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::modeToRS(mode.view));
         y += ImGui::GetTextLineHeightWithSpacing();
 
         fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), IES::symmetryToRS(properties.getSymmetry()));
@@ -141,35 +143,77 @@ void IESViewer::uiListener()
 
     ies.zDegree = angle;
 
-    // 3D plot
-    {
-        info.textureID += device_base_t::MaxFramesInFlight;
+	// 3D plot
+	{
+		info.textureID += device_base_t::MaxFramesInFlight;
 
-        {
-            const ImVec2 imageCenter(
-                vp->Pos.x + vp->Size.x * 0.5f,
-                vp->Pos.y + vp->Size.y * 0.75f
-            );
+		{
+			const ImVec2 imageCenter(
+				vp->Pos.x + vp->Size.x * 0.5f,
+				vp->Pos.y + vp->Size.y * 0.75f
+			);
 
-            ImGui::SetNextWindowPos(imageCenter, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+			ImGui::SetNextWindowPos(imageCenter, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
 
-            ImGuiWindowFlags imgFlags =
-                ImGuiWindowFlags_NoSavedSettings |
-                ImGuiWindowFlags_NoBringToFrontOnFocus |
-                ImGuiWindowFlags_NoNav |
-                ImGuiWindowFlags_NoScrollbar |
-                ImGuiWindowFlags_NoScrollWithMouse;
+			ImGuiWindowFlags imgFlags =
+				ImGuiWindowFlags_NoSavedSettings |
+				ImGuiWindowFlags_NoBringToFrontOnFocus |
+				ImGuiWindowFlags_NoNav |
+				ImGuiWindowFlags_NoScrollbar |
+				ImGuiWindowFlags_NoScrollWithMouse;
 
-            if (ImGui::Begin("3D Plot", nullptr, imgFlags))
-            {
-                ImGui::Image(info, imageSize);
-            }
-            ImGui::End();
+			if (ImGui::Begin("3D Plot", nullptr, imgFlags))
+			{
+				ImVec2 imgPos = ImGui::GetCursorScreenPos();
+				ImGui::Image(info, imageSize);
 
-            ImGui::PopStyleVar(2);
-        }
-    }
+				const ImGuiStyle& style = ImGui::GetStyle();
+				float frameH = ImGui::GetFrameHeight();
+				float margin = 6.0f;
+
+				ImVec2 overlayPos(
+					imgPos.x + margin,
+					imgPos.y + margin
+				);
+
+				bool interpolateCandela =
+					mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
+
+				ImGui::SetCursorScreenPos(overlayPos);
+				if (ImGui::Checkbox("interpolate candelas", &interpolateCandela))
+				{
+					if (interpolateCandela)
+						mode.sphere |= this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE;
+					else
+						mode.sphere &= static_cast<this_example::ies::E_SPHERE_MODE>(
+							~this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE
+						);
+				}
+
+				bool falseColor =
+					mode.sphere.hasFlags(this_example::ies::ESM_FALSE_COLOR);
+
+				ImVec2 overlayPos2(
+					overlayPos.x,
+					overlayPos.y + frameH + margin
+				);
+				ImGui::SetCursorScreenPos(overlayPos2);
+				if (ImGui::Checkbox("false color", &falseColor))
+				{
+					if (falseColor)
+						mode.sphere |= this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR;
+					else
+						mode.sphere &= static_cast<this_example::ies::E_SPHERE_MODE>(
+							~this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR
+						);
+				}
+			}
+			ImGui::End();
+
+			ImGui::PopStyleVar(2);
+		}
+	}
 }

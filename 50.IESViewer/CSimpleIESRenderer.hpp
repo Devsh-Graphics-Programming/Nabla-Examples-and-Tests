@@ -52,7 +52,8 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		{
 			hlsl::float32_t radius = 1.f;
 			IGPUDescriptorSet* ds = nullptr;
-			uint16_t texID;
+			uint16_t texID = 0u;
+			uint16_t mode = this_example::ies::ESM_NONE;
 		};
 		//
 		struct SPackedGeometry
@@ -78,6 +79,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 					.positionView = packedGeo->positionView,
 					.normalView = packedGeo->normalView,
 					.radius = iesParams.radius,
+					.mode = iesParams.mode,
 					.texIx = iesParams.texID
 				};
 			}

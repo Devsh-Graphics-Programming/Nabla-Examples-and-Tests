@@ -59,7 +59,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         .vAnglesBDA = ies.buffers.vAngles->getDeviceAddress(),
         .dataBDA = ies.buffers.data->getDeviceAddress(),
 		.txtInfoBDA = ies.buffers.textureInfo.buffer->getDeviceAddress(),
-		.mode = mode,
+		.mode = mode.view,
 		.texIx = (uint32_t)m_activeAssetIx,
         .hAnglesCount = accessor.hAnglesCount(),
         .vAnglesCount = accessor.vAnglesCount(),
@@ -78,7 +78,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     }
 
     auto* const descriptor = m_descriptors[0].get();
-    auto* image = ies.getActiveImage(mode);
+    auto* image = ies.getActiveImage(mode.view);
 
     // Compute
     {
@@ -167,7 +167,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
                 memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
             }
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
-            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 100.f, .ds = m_descriptors[0u].get(), .texID = (uint16_t)m_activeAssetIx });
+            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 100.f, .ds = m_descriptors[0u].get(), .texID = (uint16_t)m_activeAssetIx, .mode = mode.sphere.value });
 
             // tear down scene every frame
             m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + m_activeAssetIx;

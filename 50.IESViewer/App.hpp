@@ -72,7 +72,10 @@ private:
         smart_refctd_ptr<SubAllocatedDescriptorSet> descriptor;
     } ui;
 
-	IES::E_MODE mode = IES::EM_CDC;
+	struct {
+		IES::E_MODE view = IES::EM_CDC;
+		bitflag<this_example::ies::E_SPHERE_MODE> sphere = this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE;
+	} mode;
 
     void processMouse(const IMouseEventChannel::range_t& events);
     void processKeyboard(const IKeyboardEventChannel::range_t& events);

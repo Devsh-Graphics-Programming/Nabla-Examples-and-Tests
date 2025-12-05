@@ -40,6 +40,13 @@ struct CdcPC
 	float32_t pad;
 };
 
+enum E_SPHERE_MODE : uint16_t
+{
+    ESM_NONE								= 0,
+    ESM_OCTAHEDRAL_UV_INTERPOLATE			= 1u << 0,
+	ESM_FALSE_COLOR							= 1u << 1
+};
+
 struct SpherePC
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
@@ -47,7 +54,8 @@ struct SpherePC
     uint32_t positionView : 16;
     uint32_t normalView : 16;
 	float32_t radius;
-	uint16_t texIx;
+    uint32_t mode : 8;
+    uint32_t texIx : 24;
 };
 
 struct PushConstants

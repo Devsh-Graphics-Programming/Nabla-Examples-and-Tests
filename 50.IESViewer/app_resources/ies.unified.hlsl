@@ -40,6 +40,7 @@ struct SInterpolants
 {
     float32_t4 ndc : SV_Position;
     float32_t3 latDir : COLOR1;
+	float32_t2 uv : TEXCOORD0;
 };
 
 using octahedral_t = math::OctahedralTransform<float32_t>;
@@ -51,8 +52,8 @@ SInterpolants SphereVS(uint32_t vIx : SV_VertexID)
     uint32_t2 res;
     inIESCandelaImage[pc.sphere.texIx].GetDimensions(res.x, res.y);
 
-	const float32_t2 inv = float32_t2(1.f, 1.f) / float32_t2(res - 1u);
-	const float32_t2 uv = float32_t2(vIx % res.x, vIx / res.x) * inv;
+    const float32_t2 inv = float32_t2(1.f, 1.f) / float32_t2(res - 1u);
+    const float32_t2 uv  = float32_t2(vIx % res.x, vIx / res.x) * inv;
 
     const float32_t3 dir = octahedral_t::uvToDir(uv);
     const float32_t3 pos = pc.sphere.radius * dir;
@@ -60,17 +61,72 @@ SInterpolants SphereVS(uint32_t vIx : SV_VertexID)
     SInterpolants o;
     o.ndc = math::linalg::promoted_mul(pc.sphere.matrices.worldViewProj, pos);
     o.latDir = dir;
+    o.uv = uv;
 
     return o;
+}
+
+float32_t3 falseColor(float32_t v)
+{
+    v = saturate(v);
+    v = pow(v, 0.8f);
+
+    const float32_t3 c0 = float32_t3(0.0f, 0.0f, 0.0f);		// 0.00 - black
+    const float32_t3 c1 = float32_t3(0.0f, 0.0f, 0.35f);	// 0.15 - very dark blue
+    const float32_t3 c2 = float32_t3(0.10f, 0.20f, 0.90f);	// 0.35 - bright blue
+    const float32_t3 c3 = float32_t3(0.70f, 0.00f, 0.80f);	// 0.55 - violet/magenta
+    const float32_t3 c4 = float32_t3(1.00f, 0.30f, 1.00f);	// 0.75 - bright pink
+    const float32_t3 c5 = float32_t3(1.00f, 1.00f, 1.00f);	// 1.00 - white
+
+    if (v < 0.15f)
+    {
+        float32_t t = v / 0.15f;
+        return lerp(c0, c1, t);
+    }
+    else if (v < 0.35f)
+    {
+        float32_t t = (v - 0.15f) / (0.35f - 0.15f);
+        return lerp(c1, c2, t);
+    }
+    else if (v < 0.55f)
+    {
+        float32_t t = (v - 0.35f) / (0.55f - 0.35f);
+        return lerp(c2, c3, t);
+    }
+    else if (v < 0.75f)
+    {
+        float32_t t = (v - 0.55f) / (0.75f - 0.55f);
+        return lerp(c3, c4, t);
+    }
+    else
+    {
+        float32_t t = (v - 0.75f) / (1.0f - 0.75f);
+        return lerp(c4, c5, t);
+    }
 }
 
 [shader("pixel")]
 float32_t4 SpherePS(SInterpolants input) : SV_Target0
 {
-    float32_t2 uv = 0.5f * octahedral_t::dirToNDC(input.latDir) + 0.5f;
-    float32_t intensity = inIESCandelaImage[pc.sphere.texIx].Sample(generalSampler, uv).r;
-    float32_t v = 1.0f - exp(-intensity);
-    return float32_t4(v,v,v,1);
+    uint32_t2 res;
+    inIESCandelaImage[pc.sphere.texIx].GetDimensions(res.x, res.y);
+    float32_t2 uv = input.uv;
+
+    const bool dontInterpolateUV = (pc.sphere.mode & ESM_OCTAHEDRAL_UV_INTERPOLATE) == 0;
+    if (dontInterpolateUV)
+    {
+        float32_t2 pixel = floor(uv * float32_t2(res) + 0.5f);
+        uv = pixel / float32_t2(res);
+    }
+
+    float32_t2 scale    = 1.0f - 1.0f / float32_t2(res);
+    float32_t2 uvCorner = (uv - 0.5f) * scale + 0.5f;
+
+    float32_t I = inIESCandelaImage[pc.sphere.texIx].SampleLevel(generalSampler, uvCorner, 0.0f).r;
+    const bool useFalseColor = (pc.sphere.mode & ESM_FALSE_COLOR) != 0;
+    float32_t3 col = useFalseColor ? falseColor(I) : float32_t3(I, I, I);
+
+    return float32_t4(col, 1.0f);
 }
 
 [numthreads(WORKGROUP_DIMENSION, WORKGROUP_DIMENSION, 1)]
@@ -96,21 +152,26 @@ float32_t plot(float32_t cand, float32_t pct, float32_t bold)
 // vertical cut of IES (i.e. cut by plane x = 0)
 float32_t f(float32_t2 uv) 
 {
-	float32_t3 dir = normalize(float32_t3(uv.x, 0.001, uv.y));
-	if (pc.cdc.zAngleDegreeRotation != 0.f)
-	{
-		float32_t rad = radians(pc.cdc.zAngleDegreeRotation);
-		float32_t s = sin(rad);
-		float32_t c = cos(rad);
+    float32_t3 dir = normalize(float32_t3(uv.x, 0.001, uv.y));
+    if (pc.cdc.zAngleDegreeRotation != 0.f)
+    {
+        float32_t rad = radians(pc.cdc.zAngleDegreeRotation);
+        float32_t s = sin(rad);
+        float32_t c = cos(rad);
 
-		// rotate around Z axis
-		dir = float32_t3(
-			c * dir.x - s * dir.y,
-			s * dir.x + c * dir.y,
-			dir.z
-		);
-	}
-	return inIESCandelaImage[pc.cdc.texIx].Sample(generalSampler, (0.5f * octahedral_t::dirToNDC(dir) + 0.5f)).x;
+        dir = float32_t3(
+            c * dir.x - s * dir.y,
+            s * dir.x + c * dir.y,
+            dir.z
+        );
+    }
+
+    uint32_t2 res;
+    inIESCandelaImage[pc.cdc.texIx].GetDimensions(res.x, res.y);
+    float32_t2 halfMinusHalfPixel = 0.5f - 0.5f / float32_t2(res);
+    float32_t2 uvCorner = octahedral_t::toCornerSampledUV(dir, halfMinusHalfPixel);
+
+    return inIESCandelaImage[pc.cdc.texIx].SampleLevel(generalSampler, uvCorner, 0u).x;
 }
 
 #include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
