@@ -34,8 +34,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
+			//ELG_TRIANGLE,
+			//ELG_RECTANGLE,
 			ELG_COUNT
 		};
 
@@ -55,22 +55,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
 		    "app_resources/glsl/litBySphere.comp",
-		    "app_resources/glsl/litByTriangle.comp",
-		    "app_resources/glsl/litByRectangle.comp"
+		    //"app_resources/glsl/litByTriangle.comp",
+		    //"app_resources/glsl/litByRectangle.comp"
 		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
+		    //"TRIANGLE_LIGHT",
+		    //"RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
+			//"ELG_TRIANGLE",
+			//"ELG_RECTANGLE"
 		};
 
 		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {

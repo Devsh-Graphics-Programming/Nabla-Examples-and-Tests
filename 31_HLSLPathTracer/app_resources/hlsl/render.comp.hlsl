@@ -157,7 +157,7 @@ static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5)),
-    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.05, 1600.0, spectral_t(1.2,1.2,1.2), spectral_t(1.1,1.1,1.1), spectral_t(1.5,1.5,1.5))
+    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.0, 225.0, spectral_t(2.705,2.705,2.705), spectral_t(2.4401,2.044,1.6778), spectral_t(4.182,3.6732,3.117))
 };
 
 RenderPushConstants retireveRenderPushConstants()

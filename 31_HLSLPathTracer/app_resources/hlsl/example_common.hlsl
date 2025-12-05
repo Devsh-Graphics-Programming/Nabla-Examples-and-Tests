@@ -135,7 +135,7 @@ struct BxDFNode
         retval.albedo = albedo;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-3));
         retval.params.ior0 = hlsl::promote<spectral_type>(1.0);
         retval.params.ior1 = hlsl::promote<spectral_type>(1.0);
         return retval;
@@ -149,7 +149,7 @@ struct BxDFNode
         retval.albedo = hlsl::promote<spectral_type>(1.0);
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-3));
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         return retval;
@@ -162,7 +162,7 @@ struct BxDFNode
         retval.albedo = hlsl::promote<spectral_type>(1.0);
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = vector2_type(hlsl::max(A, 1e-4), Dinc);
+        retval.params.A = vector2_type(hlsl::max(A, 1e-3), Dinc);
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         retval.params.iork = iork1;

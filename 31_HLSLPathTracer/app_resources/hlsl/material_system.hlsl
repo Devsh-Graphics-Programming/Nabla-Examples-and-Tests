@@ -12,7 +12,7 @@ using namespace hlsl;
 
 enum MaterialType : uint32_t    // enum class?
 {
-    DIFFUSE,
+    DIFFUSE = 0u,
     CONDUCTOR,
     DIELECTRIC,
     IRIDESCENT_CONDUCTOR
@@ -41,11 +41,14 @@ struct MaterialSystem
     using dielectric_op_type = DielectricBxDF;
     using iri_conductor_op_type = IridescentConductorBxDF;
 
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t IsBSDFPacked = uint32_t(bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIFFUSE) &
+                                                        uint32_t(bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::CONDUCTOR) &
+                                                        uint32_t(bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIELECTRIC) &
+                                                        uint32_t(bxdf::traits<iri_conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_CONDUCTOR);
+
     static bool isBSDF(uint32_t material)
     {
-        return (material == MaterialType::DIFFUSE) ? bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF :
-                (material == MaterialType::CONDUCTOR) ? bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF :
-                bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF;
+        return bool(IsBSDFPacked & (1u << material));
     }
 
     // these are specific for the bxdfs used for this example
@@ -87,6 +90,7 @@ struct MaterialSystem
                 params.iork3 = cparams.iork;
                 iridescentConductorBxDF.fresnel = iri_conductor_op_type::fresnel_type::create(params);
             }
+            break;
             default:
                 return;
         }
@@ -187,6 +191,7 @@ struct MaterialSystem
                 {
                     return iridescentConductorBxDF.quotient_and_pdf(_sample, interaction, _cache);
                 }
+                break;
                 default:
                     return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
             }
