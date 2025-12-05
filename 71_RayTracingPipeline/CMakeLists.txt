@@ -110,7 +110,6 @@ string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
     -I "${CMAKE_CURRENT_SOURCE_DIR}"
-    -O3
     -T lib_${SM}
 )
 
