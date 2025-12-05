@@ -19,6 +19,10 @@ NBL_CONSTEXPR uint16_t smallBits_4 = 4;
 NBL_CONSTEXPR uint16_t mediumBits_4 = 8;
 NBL_CONSTEXPR uint16_t fullBits_4 = 16;
 
+template <typename T, uint16_t Bits>
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR T bitMask = (uint64_t(1) << Bits) - 1;
+
+
 #ifndef __HLSL_VERSION
 
 constexpr uint64_t smallBitsMask_2 = (uint64_t(1) << smallBits_2) - 1;
@@ -36,6 +40,42 @@ constexpr uint64_t fullBitsMask_4 = (uint64_t(1) << fullBits_4) - 1;
 #endif
 
 using namespace nbl::hlsl;
+template <typename T, bool Signed, uint16_t Bits>
+T createAnyBitIntegerFromU64(uint64_t val)
+{
+  if(Signed && (_static_cast<int64_t>(val) < 0))
+  {
+    // fill excess bit with one
+    return T(val) | ~bitMask<T, Bits>;
+  } else
+  {
+    return T(val) & bitMask<T, Bits>;
+    
+  }
+}
+
+template <typename T, bool Signed, uint16_t Bits, uint16_t D>
+vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
+{
+  array_get<portable_vector_t<T, D>, T> getter;
+  array_set<portable_vector_t<T, D>, T> setter;
+	vector<T, D> output;
+  NBL_UNROLL
+	for (uint16_t i = 0; i < D; i++)
+	{
+		setter(output, i, createAnyBitIntegerFromU64<T, Signed, Bits>(getter(val, i)));
+	}
+	return output;
+}
+
+template <bool Signed, uint16_t Bits, uint16_t D, typename _uint64_t = uint64_t>
+morton::code<Signed, Bits, D, _uint64_t> createMortonFromU64Vec(const vector<uint64_t, D> vec)
+{
+	using morton_code_t = morton::code<Signed, Bits, D, _uint64_t>;
+	using decode_component_t = typename morton_code_t::decode_component_t;
+	return morton_code_t::create(createAnyBitIntegerVecFromU64Vec<decode_component_t, Signed, Bits, D>(vec));
+}
+
 struct InputTestValues
 {
 	// Both tests
@@ -203,6 +243,7 @@ struct TestValues
 	morton::code<true, fullBits_4, 4>					  mortonSignedRightShift_full_4;
 	morton::code<true, fullBits_4, 4, emulated_uint64_t>  mortonSignedRightShift_emulated_4;
 
+	
 	/*
 	void fillSecondTestValues(NBL_CONST_REF_ARG(InputTestValues) input)
 	{
