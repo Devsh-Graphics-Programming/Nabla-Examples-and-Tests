@@ -9,7 +9,7 @@ using namespace ext::FullScreenTriangle;
 
 [[vk::push_constant]] struct PushConstants pc;
 
-static const float CIRCLE_RADIUS = 0.45f;
+static const float CIRCLE_RADIUS = 0.75f;
 
 // --- Geometry Utils ---
 
@@ -33,16 +33,22 @@ static float3 corners[8];
 static float3 faceCenters[6] = { float3(0,0,0), float3(0,0,0), float3(0,0,0), 
                             float3(0,0,0), float3(0,0,0), float3(0,0,0) };
 static float2 projCorners[8];
+static bool   cornerVisible[8];
 
 
 // Converts UV into centered, aspect-corrected NDC circle space
 float2 toCircleSpace(float2 uv)
 {
-    float aspect = pc.viewport.z / pc.viewport.w;
-    float2 centered = uv - 0.5f;
-    centered.x *= aspect;
-    return centered;
+    // Map [0,1] UV to [-1,1]
+    float2 p = uv * 2.0f - 1.0f;
+
+    // Correct aspect ratio
+    float aspect = pc.viewport.z / pc.viewport.w; // width / height
+    p.x *= aspect;
+
+    return p;
 }
+
 
 // Distance to a 2D line segment
 float sdSegment(float2 p, float2 a, float2 b)
@@ -54,9 +60,18 @@ float sdSegment(float2 p, float2 a, float2 b)
 }
 
 // TODO: Hemispherical Projection (Solid Angle / Orthographic/Lambertian Projection)
-float2 project(float3 p) 
+bool projectToOrthoSphere(float3 p, out float2 uv)
 {
-    return normalize(p).xy;
+    float3 n = normalize(p);   // direction to sphere
+
+    // hemisphere (Z > 0)
+    if (n.z <= 0.0)
+        return false;
+
+    // orthographic projection (drop Z)
+    uv = n.xy;
+
+    return true; // valid
 }
 
 void computeCubeGeo()
@@ -66,71 +81,72 @@ void computeCubeGeo()
         float3 localPos = float3(i % 2, (i / 2) % 2, (i / 4) % 2) * 2.0f - 1.0f;
         float3 worldPos = mul(pc.modelMatrix, float4(localPos, 1.0f)).xyz;
         
-        corners[i] = worldPos;
+        corners[i] = worldPos.xyz;
         
         faceCenters[i/4]      += worldPos / 4.0f; 
         faceCenters[2+i%2]    += worldPos / 4.0f; 
         faceCenters[4+(i/2)%2] += worldPos / 4.0f; 
 
-        float3 viewPos = worldPos; 
-        projCorners[i] = project(viewPos);
+        float3 viewPos = worldPos.xyz; 
+        cornerVisible[i] = projectToOrthoSphere(viewPos, projCorners[i]);
+        projCorners[i] *= CIRCLE_RADIUS; // scale to circle radius
     }
 }
 
-int getVisibilityCount(int2 faces, float3 cameraPos)
-{
-    float3x3 rotMatrix = (float3x3)pc.modelMatrix;
-    float3 n_world_f1 = mul(rotMatrix, localNormals[faces.x]);
-    float3 n_world_f2 = mul(rotMatrix, localNormals[faces.y]);
+// int getVisibilityCount(int2 faces, float3 cameraPos)
+// {
+//     float3x3 rotMatrix = (float3x3)pc.modelMatrix;
+//     float3 n_world_f1 = mul(rotMatrix, localNormals[faces.x]);
+//     float3 n_world_f2 = mul(rotMatrix, localNormals[faces.y]);
     
-    float3 viewVec_f1 = faceCenters[faces.x] - cameraPos; 
-    float3 viewVec_f2 = faceCenters[faces.y] - cameraPos;
+//     float3 viewVec_f1 = faceCenters[faces.x] - cameraPos; 
+//     float3 viewVec_f2 = faceCenters[faces.y] - cameraPos;
 
-    // Face is visible if its outward normal points towards the origin (camera).
-    bool visible1 = dot(n_world_f1, viewVec_f1) < 0.0f;
-    bool visible2 = dot(n_world_f2, viewVec_f2) < 0.0f;
+//     // Face is visible if its outward normal points towards the origin (camera).
+//     bool visible1 = dot(n_world_f1, viewVec_f1) < 0.0f;
+//     bool visible2 = dot(n_world_f2, viewVec_f2) < 0.0f;
 
-    // Determine Line Style:
-    bool isSilhouette = visible1 != visible2; // One face visible, the other hidden
-    bool isInner = visible1 && visible2;      // Both faces visible
+//     // Determine Line Style:
+//     bool isSilhouette = visible1 != visible2; // One face visible, the other hidden
+//     bool isInner = visible1 && visible2;      // Both faces visible
     
-    int visibilityCount = 0;
-    if (isSilhouette) 
-    {
-        visibilityCount = 1;
-    }
-    else if (isInner)
-    {
-        visibilityCount = 2;
-    }
+//     int visibilityCount = 0;
+//     if (isSilhouette) 
+//     {
+//         visibilityCount = 1;
+//     }
+//     else if (isInner)
+//     {
+//         visibilityCount = 2;
+//     }
 
-    return visibilityCount;
-}
+//     return visibilityCount;
+// }
 
-void drawLine(float2 p, int a, int b, int visibilityCount, inout float4 color, float aaWidth)
-{
-    if (visibilityCount > 0)
-    {
-        float3 A = corners[a];
-        float3 B = corners[b];
+// void drawLine(float2 p, int a, int b, int visibilityCount, inout float4 color, float aaWidth)
+// {
+//     if (visibilityCount > 0)
+//     {
+//         float3 A = corners[a];
+//         float3 B = corners[b];
 
-        float avgDepth = (length(A) + length(B)) * 0.5f;
-        float referenceDepth = 3.0f;
-        float depthScale = referenceDepth / avgDepth;
+//         float avgDepth = (length(A) + length(B)) * 0.5f;
+//         float referenceDepth = 3.0f;
+//         float depthScale = referenceDepth / avgDepth;
 
-        float baseWidth = (visibilityCount == 1) ? 0.005f : 0.002f;
-        float intensity = (visibilityCount == 1) ? 1.0f : 0.5f;
-        float4 edgeColor = (visibilityCount == 1) ? float4(0.0f, 0.5f, 1.0f, 1.0f) : float4(1.0f, 0.0f, 0.0f, 1.0f); // Blue vs Red
+//         float baseWidth = (visibilityCount == 1) ? 0.005f : 0.002f;
+//         float intensity = (visibilityCount == 1) ? 1.0f : 0.5f;
+//         float4 edgeColor = (visibilityCount == 1) ? float4(0.0f, 0.5f, 1.0f, 1.0f) : float4(1.0f, 0.0f, 0.0f, 1.0f); // Blue vs Red
         
-        float width = min(baseWidth * depthScale, 0.03f); 
+//         float width = min(baseWidth * depthScale, 0.03f); 
         
-        float dist = sdSegment(p, projCorners[a], projCorners[b]);
+//         float dist = sdSegment(p, projCorners[a], projCorners[b]);
         
-        float alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, dist);
+//         float alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, dist);
         
-        color += edgeColor * alpha * intensity;
-    }
-}
+//         color += edgeColor * alpha * intensity;
+//     }
+// }
 
 void drawRing(float2 p, inout float4 color, float aaWidth)
 {
@@ -149,6 +165,12 @@ void drawRing(float2 p, inout float4 color, float aaWidth)
     color = max(color, float4(1.0, 1.0, 1.0, 1.0) * ringAlpha); 
 }
 
+float plotPoint(float2 uv, float2 p, float r)
+{
+    return step(length(uv - p), r);
+}
+
+
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vx) : SV_Target0
 {
     float3 cameraPos = float3(0, 0, 0); // Camera at origin
@@ -159,15 +181,24 @@ void drawRing(float2 p, inout float4 color, float aaWidth)
     
     float aaWidth = max(fwidth(p.x), fwidth(p.y)); 
 
-    for (int j = 0; j < 12; j++)
+    float pointMask = 0.0;
+    for (int i=0; i<8; i++)
     {
-        int a = j % 4 * (j < 4 ? 1 : 2) - (j / 4 == 1 ? j % 2 : 0);
-        int b = a + (4 >> (j / 4));
-
-        int2 faces = edgeToFaces[j];
-        int visibilityCount = getVisibilityCount(faces, cameraPos);
-        drawLine(p, a, b, visibilityCount, color, aaWidth);
+        if (cornerVisible[i])
+            pointMask += plotPoint(p, projCorners[i], 0.015f);
     }
+
+    color += pointMask * float4(1,0,0,1); // red points
+
+    // for (int j = 0; j < 12; j++)
+    // {
+    //     int a = j % 4 * (j < 4 ? 1 : 2) - (j / 4 == 1 ? j % 2 : 0);
+    //     int b = a + (4 >> (j / 4));
+
+    //     // int2 faces = edgeToFaces[j];
+    //     // int visibilityCount = getVisibilityCount(faces, cameraPos);
+    //     // drawLine(p, a, b, visibilityCount, color, aaWidth);
+    // }
 
     drawRing(p, color, aaWidth);
 

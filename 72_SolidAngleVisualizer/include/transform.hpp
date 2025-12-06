@@ -19,7 +19,7 @@ struct TransformRequestParams
 
 struct TransformReturnInfo
 {
-	nbl::hlsl::uint16_t2 sceneResolution = { 2048,1024 };
+	nbl::hlsl::uint16_t2 sceneResolution = { 0, 0 };
 	bool isGizmoWindowHovered;
 	bool isGizmoBeingUsed;
 };

@@ -5,7 +5,6 @@
 
 #include "common.hpp"
 #include "app_resources/hlsl/common.hlsl"
-
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 /*
@@ -319,10 +318,13 @@ public:
 		// CPU events
 		update(nextPresentationTimestamp);
 
-		const auto& virtualWindowRes = interface.transformReturnInfo.sceneResolution;
-		// TODO: check main frame buffer too
-		if (!m_solidAngleViewFramebuffer || m_solidAngleViewFramebuffer->getCreationParameters().width != virtualWindowRes[0] || m_solidAngleViewFramebuffer->getCreationParameters().height != virtualWindowRes[1])
-			recreateFramebuffer(virtualWindowRes);
+		{
+			const auto& virtualSolidAngleWindowRes = interface.solidAngleViewTransformReturnInfo.sceneResolution;
+			const auto& virtualMainWindowRes = interface.mainViewTransformReturnInfo.sceneResolution;
+			if (!m_solidAngleViewFramebuffer || m_solidAngleViewFramebuffer->getCreationParameters().width != virtualSolidAngleWindowRes[0] || m_solidAngleViewFramebuffer->getCreationParameters().height != virtualSolidAngleWindowRes[1] ||
+				!m_mainViewFramebuffer || m_mainViewFramebuffer->getCreationParameters().width != virtualMainWindowRes[0] || m_mainViewFramebuffer->getCreationParameters().height != virtualMainWindowRes[1])
+				recreateFramebuffer();
+		}
 
 		//
 		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
@@ -334,6 +336,7 @@ public:
 		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 		if (m_solidAngleViewFramebuffer)
 		{
+			auto creationParams = m_solidAngleViewFramebuffer->getCreationParameters();
 			cb->beginDebugMarker("Draw Circle View Frame");
 			{
 				const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
@@ -344,7 +347,7 @@ public:
 					.depthStencilClearValues = &farValue,
 					.renderArea = {
 						.offset = {0,0},
-						.extent = {virtualWindowRes[0],virtualWindowRes[1]}
+						.extent = {creationParams.width, creationParams.height}
 					}
 				};
 				beginRenderpass(cb, renderpassInfo);
@@ -353,7 +356,7 @@ public:
 			{
 				PushConstants pc{
 					.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-					.viewport = { 0.f,0.f,static_cast<float>(virtualWindowRes[0]),static_cast<float>(virtualWindowRes[1]) }
+					.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) }
 				};
 				auto pipeline = m_visualizationPipeline;
 				cb->bindGraphicsPipeline(pipeline.get());
@@ -369,6 +372,7 @@ public:
 		{
 			cb->beginDebugMarker("Main Scene Frame");
 			{
+				auto creationParams = m_mainViewFramebuffer->getCreationParameters();
 				const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
 				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
 				{
@@ -377,7 +381,7 @@ public:
 					.depthStencilClearValues = &farValue,
 					.renderArea = {
 						.offset = {0,0},
-						.extent = {virtualWindowRes[0],virtualWindowRes[1]}
+						.extent = {creationParams.width, creationParams.height}
 					}
 				};
 				beginRenderpass(cb, renderpassInfo);
@@ -404,12 +408,12 @@ public:
 
 				// TODO: a better way to get identity matrix
 				float32_t3x4 origin = {
-					0.2f,0.0f,0.0f,0.0f,
-					0.0f,0.2f,0.0f,0.0f,
-					0.0f,0.0f,0.2f,0.0f
+					1.0f,0.0f,0.0f,0.0f,
+					0.0f,1.0f,0.0f,0.0f,
+					0.0f,0.0f,1.0f,0.0f
 				};
 				memcpy(&instance.world, &origin, sizeof(instance.world));
-				instance.packedGeo = m_renderer->getGeometries().data() + 3; // sphere
+				instance.packedGeo = m_renderer->getGeometries().data() + 2; // disk
 				m_renderer->render(cb, viewParams);
 			}
 			cb->endRenderPass();
@@ -575,7 +579,7 @@ private:
 			);
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					//if (interface.move)
+					if (interface.move)
 						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
@@ -606,9 +610,10 @@ private:
 		interface.imGUI->update(params);
 	}
 
-	void recreateFramebuffer(const uint16_t2 resolution)
+	void recreateFramebuffer()
 	{
-		auto createImageAndView = [&](E_FORMAT format)->smart_refctd_ptr<IGPUImageView>
+
+		auto createImageAndView = [&](const uint16_t2 resolution, E_FORMAT format)->smart_refctd_ptr<IGPUImageView>
 			{
 				auto image = m_device->createImage({ {
 					.type = IGPUImage::ET_2D,
@@ -632,29 +637,32 @@ private:
 
 		smart_refctd_ptr<IGPUImageView> solidAngleView;
 		smart_refctd_ptr<IGPUImageView> mainView;
+		const uint16_t2 solidAngleViewRes = interface.solidAngleViewTransformReturnInfo.sceneResolution;
+		const uint16_t2 mainViewRes = interface.mainViewTransformReturnInfo.sceneResolution;
+
 		// detect window minimization
-		if (resolution.x < 0x4000 && resolution.y < 0x4000)
+		if (solidAngleViewRes.x < 0x4000 && solidAngleViewRes.y < 0x4000 ||
+			mainViewRes.x < 0x4000 && mainViewRes.y < 0x4000)
 		{
-			solidAngleView = createImageAndView(finalSceneRenderFormat);
-			auto solidAngleDepthView = createImageAndView(sceneRenderDepthFormat);
+			solidAngleView = createImageAndView(solidAngleViewRes, finalSceneRenderFormat);
+			auto solidAngleDepthView = createImageAndView(solidAngleViewRes, sceneRenderDepthFormat);
 			m_solidAngleViewFramebuffer = m_device->createFramebuffer({ {
 				.renderpass = m_solidAngleRenderpass,
 				.depthStencilAttachments = &solidAngleDepthView.get(),
 				.colorAttachments = &solidAngleView.get(),
-				.width = resolution.x,
-				.height = resolution.y
+				.width = solidAngleViewRes.x,
+				.height = solidAngleViewRes.y
 			} });
 
-			mainView = createImageAndView(finalSceneRenderFormat);
-			auto mainDepthView = createImageAndView(sceneRenderDepthFormat);
+			mainView = createImageAndView(mainViewRes, finalSceneRenderFormat);
+			auto mainDepthView = createImageAndView(mainViewRes, sceneRenderDepthFormat);
 			m_mainViewFramebuffer = m_device->createFramebuffer({ {
 					.renderpass = m_mainRenderpass,
 					.depthStencilAttachments = &mainDepthView.get(),
 					.colorAttachments = &mainView.get(),
-					.width = resolution.x,
-					.height = resolution.y
+					.width = mainViewRes.x,
+					.height = mainViewRes.y
 				} });
-
 		}
 		else
 		{
@@ -715,6 +723,13 @@ private:
 	// we create the Descriptor Set with a few slots extra to spare, so we don't have to `waitIdle` the device whenever ImGUI virtual window resizes
 	constexpr static inline auto MaxImGUITextures = 2u + MaxFramesInFlight;
 
+	constexpr static inline float32_t4x4 OBBModelMatrixDefault
+	{
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 6.0f, 1.0f
+	};
 	//
 	smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 	smart_refctd_ptr<IGPURenderpass> m_solidAngleRenderpass;
@@ -722,7 +737,7 @@ private:
 	smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 	smart_refctd_ptr<IGPUFramebuffer> m_solidAngleViewFramebuffer;
 	smart_refctd_ptr<IGPUFramebuffer> m_mainViewFramebuffer;
-	smart_refctd_ptr<video::IGPUGraphicsPipeline> m_visualizationPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_visualizationPipeline;
 	//
 	smart_refctd_ptr<ISemaphore> m_semaphore;
 	uint64_t m_realFrameIx = 0;
@@ -733,19 +748,6 @@ private:
 	// UI stuff
 	struct CInterface
 	{
-		void cameraToHome()
-		{
-			core::vectorSIMDf cameraPosition(-3.0f, 3.0f, 6.0f);
-			core::vectorSIMDf cameraTarget(0.f, 0.f, 6.f);
-			const static core::vectorSIMDf up(0.f, 1.f, 0.f);
-
-			camera.setPosition(cameraPosition);
-			camera.setTarget(cameraTarget);
-			camera.setBackupUpVector(up);
-
-			camera.recomputeViewMatrix();
-		}
-
 		void operator()()
 		{
 			ImGuiIO& io = ImGui::GetIO();
@@ -773,7 +775,7 @@ private:
 					return projection;
 				}());
 
-			ImGuizmo::SetOrthographic(false);
+			ImGuizmo::SetOrthographic(!isPerspective);
 			ImGuizmo::BeginFrame();
 
 			ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
@@ -830,7 +832,12 @@ private:
 
 			if (viewDirty || firstFrame)
 			{
-				cameraToHome();
+				camera.setPosition(cameraIntialPosition);
+				camera.setTarget(cameraInitialTarget);
+				camera.setBackupUpVector(cameraInitialUp);
+				camera.setUpVector(cameraInitialUp);
+
+				camera.recomputeViewMatrix();
 			}
 			firstFrame = false;
 
@@ -895,19 +902,15 @@ private:
 			* note it also modifies input view matrix but projection matrix is immutable
 			*/
 
-			if (ImGui::IsKeyPressed(ImGuiKey_Home))
-			{
-				cameraToHome();
-			}
+			// No need because camera already has this functionality
+			// if (ImGui::IsKeyPressed(ImGuiKey_Home))
+			// {
+			// 	cameraToHome();
+			// }
 
 			if (ImGui::IsKeyPressed(ImGuiKey_End))
 			{
-				m_OBBModelMatrix = {
-					1.0f, 0.0f, 0.0f, 0.0f,
-					0.0f, 1.0f, 0.0f, 0.0f,
-					0.0f, 0.0f, 1.0f, 0.0f,
-					0.0f, 0.0f, 12.0f, 1.0f
-				};
+				m_OBBModelMatrix = OBBModelMatrixDefault;
 			}
 
 			static struct
@@ -930,10 +933,14 @@ private:
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 				transformParams.editTransformDecomposition = true;
-				transformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+				mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+				// MODEL: Zup -> Yup
+
+				m_OBBModelMatrix = imguizmoM16InOut.model;
 
 				// TODO: camera stops when cursor hovers gizmo, but we also want to stop when gizmo is being used
-				move = (ImGui::IsMouseDown(ImGuiMouseButton_Left) || transformReturnInfo.isGizmoWindowHovered) && (!transformReturnInfo.isGizmoBeingUsed);
+				move = (ImGui::IsMouseDown(ImGuiMouseButton_Left) || mainViewTransformReturnInfo.isGizmoWindowHovered) && (!mainViewTransformReturnInfo.isGizmoBeingUsed);
+
 			}
 
 			// to Nabla + update camera & model matrices
@@ -957,9 +964,12 @@ private:
 				ImGui::SetNextWindowSize(ImVec2(800, 800), ImGuiCond_Appearing);
 				ImGui::SetNextWindowPos(ImVec2(1240, 20), ImGuiCond_Appearing);
 				static bool isOpen = true;
-				ImGui::Begin("Solid angle view", &isOpen, 0);
+				ImGui::Begin("Projected Solid Angle View", &isOpen, 0);
 
 				ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+				solidAngleViewTransformReturnInfo.sceneResolution = uint16_t2(static_cast<uint16_t>(contentRegionSize.x), static_cast<uint16_t>(contentRegionSize.y));
+				solidAngleViewTransformReturnInfo.isGizmoBeingUsed = false; // not used in this view
+				solidAngleViewTransformReturnInfo.isGizmoWindowHovered = false; // not used in this view
 				ImGui::Image({ renderColorViewDescIndices[ERV_SOLID_ANGLE_VIEW] }, contentRegionSize);
 				ImGui::End();
 			}
@@ -1081,21 +1091,19 @@ private:
 		//
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		// mutables
-		float32_t4x4 m_OBBModelMatrix{
-			1.0f, 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			0.0f, 0.0f, 12.0f, 1.0f
-		};
+		float32_t4x4 m_OBBModelMatrix = OBBModelMatrixDefault;
 
 		//std::string_view objectName;
 		TransformRequestParams transformParams;
-		TransformReturnInfo transformReturnInfo;
+		TransformReturnInfo mainViewTransformReturnInfo;
+		TransformReturnInfo solidAngleViewTransformReturnInfo;
+
+		const static inline core::vectorSIMDf cameraIntialPosition{ -3.0f, 6.0f, 3.0f };
+		const static inline core::vectorSIMDf cameraInitialTarget{ 0.f, 0.0f, 3.f };
+		const static inline core::vectorSIMDf cameraInitialUp{ 0.f, 0.f, 1.f };
 
 		float fov = 90.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
-		float camYAngle = 90.f / 180.f * 3.14159f;
-		float camXAngle = 0.f / 180.f * 3.14159f;
 		//uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = true;
 		bool firstFrame = true;
