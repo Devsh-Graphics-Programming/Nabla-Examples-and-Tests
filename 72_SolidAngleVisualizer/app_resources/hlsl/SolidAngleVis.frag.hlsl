@@ -32,8 +32,7 @@ static const float3 localNormals[6] = {
 static float3 corners[8];
 static float3 faceCenters[6] = { float3(0,0,0), float3(0,0,0), float3(0,0,0), 
                             float3(0,0,0), float3(0,0,0), float3(0,0,0) };
-static float2 projCorners[8];
-static bool   cornerVisible[8];
+
 
 
 // Converts UV into centered, aspect-corrected NDC circle space
@@ -46,32 +45,7 @@ float2 toCircleSpace(float2 uv)
     float aspect = pc.viewport.z / pc.viewport.w; // width / height
     p.x *= aspect;
 
-    return p;
-}
-
-
-// Distance to a 2D line segment
-float sdSegment(float2 p, float2 a, float2 b)
-{
-    float2 pa = p - a;
-    float2 ba = b - a;
-    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0f, 1.0f);
-    return length(pa - ba * h);
-}
-
-// TODO: Hemispherical Projection (Solid Angle / Orthographic/Lambertian Projection)
-bool projectToOrthoSphere(float3 p, out float2 uv)
-{
-    float3 n = normalize(p);   // direction to sphere
-
-    // hemisphere (Z > 0)
-    if (n.z <= 0.0)
-        return false;
-
-    // orthographic projection (drop Z)
-    uv = n.xy;
-
-    return true; // valid
+    return p * CIRCLE_RADIUS;
 }
 
 void computeCubeGeo()
@@ -86,121 +60,121 @@ void computeCubeGeo()
         faceCenters[i/4]      += worldPos / 4.0f; 
         faceCenters[2+i%2]    += worldPos / 4.0f; 
         faceCenters[4+(i/2)%2] += worldPos / 4.0f; 
-
-        float3 viewPos = worldPos.xyz; 
-        cornerVisible[i] = projectToOrthoSphere(viewPos, projCorners[i]);
-        projCorners[i] *= CIRCLE_RADIUS; // scale to circle radius
     }
 }
 
-// int getVisibilityCount(int2 faces, float3 cameraPos)
-// {
-//     float3x3 rotMatrix = (float3x3)pc.modelMatrix;
-//     float3 n_world_f1 = mul(rotMatrix, localNormals[faces.x]);
-//     float3 n_world_f2 = mul(rotMatrix, localNormals[faces.y]);
-    
-//     float3 viewVec_f1 = faceCenters[faces.x] - cameraPos; 
-//     float3 viewVec_f2 = faceCenters[faces.y] - cameraPos;
-
-//     // Face is visible if its outward normal points towards the origin (camera).
-//     bool visible1 = dot(n_world_f1, viewVec_f1) < 0.0f;
-//     bool visible2 = dot(n_world_f2, viewVec_f2) < 0.0f;
-
-//     // Determine Line Style:
-//     bool isSilhouette = visible1 != visible2; // One face visible, the other hidden
-//     bool isInner = visible1 && visible2;      // Both faces visible
-    
-//     int visibilityCount = 0;
-//     if (isSilhouette) 
-//     {
-//         visibilityCount = 1;
-//     }
-//     else if (isInner)
-//     {
-//         visibilityCount = 2;
-//     }
-
-//     return visibilityCount;
-// }
-
-// void drawLine(float2 p, int a, int b, int visibilityCount, inout float4 color, float aaWidth)
-// {
-//     if (visibilityCount > 0)
-//     {
-//         float3 A = corners[a];
-//         float3 B = corners[b];
-
-//         float avgDepth = (length(A) + length(B)) * 0.5f;
-//         float referenceDepth = 3.0f;
-//         float depthScale = referenceDepth / avgDepth;
-
-//         float baseWidth = (visibilityCount == 1) ? 0.005f : 0.002f;
-//         float intensity = (visibilityCount == 1) ? 1.0f : 0.5f;
-//         float4 edgeColor = (visibilityCount == 1) ? float4(0.0f, 0.5f, 1.0f, 1.0f) : float4(1.0f, 0.0f, 0.0f, 1.0f); // Blue vs Red
-        
-//         float width = min(baseWidth * depthScale, 0.03f); 
-        
-//         float dist = sdSegment(p, projCorners[a], projCorners[b]);
-        
-//         float alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, dist);
-        
-//         color += edgeColor * alpha * intensity;
-//     }
-// }
-
-void drawRing(float2 p, inout float4 color, float aaWidth)
+float4 drawRing(float2 p, float aaWidth)
 {
     float positionLength = length(p);
-
-    // Mask to cut off drawing outside the circle
-    // float circleMask = 1.0f - smoothstep(CIRCLE_RADIUS, CIRCLE_RADIUS + aaWidth, positionLength);
-    // color *= circleMask;
     
     // Add a white background circle ring
-    float ringWidth = 0.005f;
+    float ringWidth = 0.01f;
     float ringDistance = abs(positionLength - CIRCLE_RADIUS);
     float ringAlpha = 1.0f - smoothstep(ringWidth - aaWidth, ringWidth + aaWidth, ringDistance);
     
-    // Ring color is now white
-    color = max(color, float4(1.0, 1.0, 1.0, 1.0) * ringAlpha); 
+    return ringAlpha.xxxx; 
 }
 
-float plotPoint(float2 uv, float2 p, float r)
+// Check if a face on the hemisphere is visible from camera at origin
+bool isFaceVisible(float3 faceCenter, float3 faceNormal)
 {
-    return step(length(uv - p), r);
+    // Face is visible if normal points toward camera (at origin)
+    float3 viewVec = -normalize(faceCenter); // Vector from face to camera
+    return dot(faceNormal, viewVec) > 0.0f;
 }
 
+int getEdgeVisibility(int edgeIdx, float3 cameraPos)
+{
+    int2 faces = edgeToFaces[edgeIdx];
+    
+    // Transform normals to world space
+    float3x3 rotMatrix = (float3x3)pc.modelMatrix;
+    float3 n_world_f1 = mul(rotMatrix, localNormals[faces.x]);
+    float3 n_world_f2 = mul(rotMatrix, localNormals[faces.y]);
+    
+    bool visible1 = isFaceVisible(faceCenters[faces.x], n_world_f1);
+    bool visible2 = isFaceVisible(faceCenters[faces.y], n_world_f2);
+    
+    // Silhouette: exactly one face visible
+    if (visible1 != visible2) return 1;
+    
+    // Inner edge: both faces visible
+    if (visible1 && visible2) return 2;
+    
+    // Hidden edge: both faces hidden
+    return 0;
+}
+
+// Draw great circle arc in fragment shader
+float4 drawGreatCircleArc(float3 fragPos, int2 edgeVerts, int visibility, float aaWidth)
+{
+    if (visibility == 0) return float4(0,0,0,0); // Hidden edge
+    
+    float3 v0 = normalize(corners[edgeVerts.x]);
+    float3 v1 = normalize(corners[edgeVerts.y]);
+    float3 p = normalize(fragPos); // Current point on hemisphere
+    
+    // Great circle plane normal
+    float3 arcNormal = normalize(cross(v0, v1));
+    
+    // Distance to great circle
+    float dist = abs(dot(p, arcNormal));
+    
+    // Check if point is within arc bounds
+    float dotMid = dot(v0, v1);
+    bool onArc = (dot(p, v0) >= dotMid) && (dot(p, v1) >= dotMid);
+    
+    if (!onArc) return float4(0,0,0,0);
+    
+    // Depth-based width scaling
+    float avgDepth = (length(corners[edgeVerts.x]) + length(corners[edgeVerts.y])) * 0.5f;
+    float depthScale = 3.0f / avgDepth;
+    
+    float baseWidth = (visibility == 1) ? 0.01f : 0.005f;
+    float width = min(baseWidth * depthScale, 0.02f);
+    
+    float alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, dist);
+    
+    float4 edgeColor = (visibility == 1) ? 
+        float4(0.0f, 0.5f, 1.0f, 1.0f) :  // Silhouette: blue
+        float4(1.0f, 0.0f, 0.0f, 1.0f);   // Inner: red
+    
+    float intensity = (visibility == 1) ? 1.0f : 0.5f;
+    return edgeColor * alpha * intensity;
+}
 
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vx) : SV_Target0
 {
-    float3 cameraPos = float3(0, 0, 0); // Camera at origin
-    float2 p = toCircleSpace(vx.uv);
+    float3 cameraPos = float3(0, 0, 0);
     float4 color = float4(0, 0, 0, 0);
-
-    computeCubeGeo();
+    float2 p = toCircleSpace(vx.uv);
     
-    float aaWidth = max(fwidth(p.x), fwidth(p.y)); 
-
-    float pointMask = 0.0;
-    for (int i=0; i<8; i++)
+    // Convert 2D disk position to 3D hemisphere position
+    // p is in range [-CIRCLE_RADIUS, CIRCLE_RADIUS]
+    float2 normalized = p / CIRCLE_RADIUS; // Now in range [-1, 1]
+    float r2 = dot(normalized, normalized);
+    
+    if (r2 > 1.0f)
+        discard;
+    
+    // Convert UV to 3D position on hemisphere
+    float3 spherePos = normalize(float3(normalized.x, normalized.y, sqrt(1 - r2)));
+    
+    computeCubeGeo(); // Your existing function
+    
+    float aaWidth = length(float2(ddx(p.x), ddy(p.y))); 
+    
+    // Draw edges as great circle arcs
+    for (int j = 0; j < 12; j++) 
     {
-        if (cornerVisible[i])
-            pointMask += plotPoint(p, projCorners[i], 0.015f);
+        int a = j % 4 * (j < 4 ? 1 : 2) - (j / 4 == 1 ? j % 2 : 0);
+        int b = a + (4 >> (j / 4));
+        
+        int visibility = getEdgeVisibility(j, cameraPos);
+        color += drawGreatCircleArc(spherePos, int2(a, b), visibility, aaWidth);
     }
-
-    color += pointMask * float4(1,0,0,1); // red points
-
-    // for (int j = 0; j < 12; j++)
-    // {
-    //     int a = j % 4 * (j < 4 ? 1 : 2) - (j / 4 == 1 ? j % 2 : 0);
-    //     int b = a + (4 >> (j / 4));
-
-    //     // int2 faces = edgeToFaces[j];
-    //     // int visibilityCount = getVisibilityCount(faces, cameraPos);
-    //     // drawLine(p, a, b, visibilityCount, color, aaWidth);
-    // }
-
-    drawRing(p, color, aaWidth);
-
+    
+    color += drawRing(p, aaWidth);
+    
     return color;
 }

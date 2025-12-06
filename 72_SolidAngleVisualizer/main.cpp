@@ -323,7 +323,7 @@ public:
 			const auto& virtualMainWindowRes = interface.mainViewTransformReturnInfo.sceneResolution;
 			if (!m_solidAngleViewFramebuffer || m_solidAngleViewFramebuffer->getCreationParameters().width != virtualSolidAngleWindowRes[0] || m_solidAngleViewFramebuffer->getCreationParameters().height != virtualSolidAngleWindowRes[1] ||
 				!m_mainViewFramebuffer || m_mainViewFramebuffer->getCreationParameters().width != virtualMainWindowRes[0] || m_mainViewFramebuffer->getCreationParameters().height != virtualMainWindowRes[1])
-				recreateFramebuffer();
+				recreateFramebuffers();
 		}
 
 		//
@@ -402,9 +402,8 @@ public:
 				auto& instance = m_renderer->m_instances[0];
 				auto transposed = hlsl::transpose(interface.m_OBBModelMatrix);
 				memcpy(&instance.world, &transposed, sizeof(instance.world));
-				instance.packedGeo = m_renderer->getGeometries().data();// +interface.gcIndex;
+				instance.packedGeo = m_renderer->getGeometries().data(); // cube // +interface.gcIndex;
 				m_renderer->render(cb, viewParams); // draw the cube/OBB
-
 
 				// TODO: a better way to get identity matrix
 				float32_t3x4 origin = {
@@ -536,7 +535,6 @@ private:
 		camera.setMoveSpeed(interface.moveSpeed);
 		camera.setRotateSpeed(interface.rotateSpeed);
 
-
 		m_inputSystem->getDefaultMouse(&mouse);
 		m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -610,7 +608,7 @@ private:
 		interface.imGUI->update(params);
 	}
 
-	void recreateFramebuffer()
+	void recreateFramebuffers()
 	{
 
 		auto createImageAndView = [&](const uint16_t2 resolution, E_FORMAT format)->smart_refctd_ptr<IGPUImageView>
@@ -671,30 +669,30 @@ private:
 		}
 
 		// release previous slot and its image
-		interface.subAllocDS->multi_deallocate(0, static_cast<int>(CInterface::Count), interface.renderColorViewDescIndices, { .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+		interface.subAllocDS->multi_deallocate(0, static_cast<int>(CInterface::Count), interface.renderColorViewDescIndices, { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1 });
 		//
-		if (solidAngleView)
+		if (solidAngleView && mainView)
 		{
 			interface.subAllocDS->multi_allocate(0, static_cast<int>(CInterface::Count), interface.renderColorViewDescIndices);
 			// update descriptor set
 			IGPUDescriptorSet::SDescriptorInfo infos[static_cast<int>(CInterface::Count)] = {};
-			infos[0].desc = solidAngleView;
+			infos[0].desc = mainView;
 			infos[0].info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
-			infos[1].desc = mainView;
+			infos[1].desc = solidAngleView;
 			infos[1].info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
 			const IGPUDescriptorSet::SWriteDescriptorSet write[static_cast<int>(CInterface::Count)] = {
 				{.dstSet = interface.subAllocDS->getDescriptorSet(),
 				.binding = TexturesImGUIBindingIndex,
-				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)],
+				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_MAIN_VIEW)],
 				.count = 1,
 				.info = &infos[static_cast<int>(CInterface::ERV_MAIN_VIEW)]
 				},
 				{
 				.dstSet = interface.subAllocDS->getDescriptorSet(),
 				.binding = TexturesImGUIBindingIndex,
-				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_MAIN_VIEW)],
+				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)],
 				.count = 1,
-				.info = &infos[1]
+				.info = &infos[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)]
 				}
 			};
 			m_device->updateDescriptorSets({ write, static_cast<int>(CInterface::Count) }, {});
@@ -728,7 +726,7 @@ private:
 		1.0f, 0.0f, 0.0f, 0.0f,
 		0.0f, 1.0f, 0.0f, 0.0f,
 		0.0f, 0.0f, 1.0f, 0.0f,
-		0.0f, 0.0f, 6.0f, 1.0f
+		0.0f, 0.0f, 3.0f, 1.0f
 	};
 	//
 	smart_refctd_ptr<CGeometryCreatorScene> m_scene;
