@@ -35,13 +35,15 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 	static bool boundSizing = false;
 	static bool boundSizingSnap = false;
 
+	ImGui::Text("Press T/R/G to change gizmo mode");
+
 	if (params.editTransformDecomposition)
 	{
 		if (ImGui::IsKeyPressed(ImGuiKey_T))
 			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 		if (ImGui::IsKeyPressed(ImGuiKey_R))
 			mCurrentGizmoOperation = ImGuizmo::ROTATE;
-		if (ImGui::IsKeyPressed(ImGuiKey_S))
+		if (ImGui::IsKeyPressed(ImGuiKey_G))
 			mCurrentGizmoOperation = ImGuizmo::SCALE;
 		if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;

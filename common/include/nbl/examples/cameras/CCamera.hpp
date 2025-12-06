@@ -39,6 +39,8 @@ public:
 	enum E_CAMERA_MOVE_KEYS : uint8_t
 	{
 		ECMK_MOVE_FORWARD = 0,
+		ECMK_MOVE_UP,
+		ECMK_MOVE_DOWN,
 		ECMK_MOVE_BACKWARD,
 		ECMK_MOVE_LEFT,
 		ECMK_MOVE_RIGHT,
@@ -47,6 +49,8 @@ public:
 
 	inline void mapKeysToWASD()
 	{
+		keysMap[ECMK_MOVE_UP] = nbl::ui::EKC_E;
+		keysMap[ECMK_MOVE_DOWN] = nbl::ui::EKC_Q;
 		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_W;
 		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_S;
 		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_A;
@@ -211,7 +215,7 @@ public:
 			assert(timeDiff >= 0);
 
 			// handle camera movement
-			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
+			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_UP, ECMK_MOVE_DOWN, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
 			{
 				const auto code = keysMap[logicalKey];
 
@@ -274,6 +278,9 @@ public:
 			{
 				up = nbl::core::normalize(backupUpVector);
 			}
+
+			pos += up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_UP] * moveSpeed * MoveSpeedScale;
+			pos -= up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_DOWN] * moveSpeed * MoveSpeedScale;
 
 			nbl::core::vectorSIMDf strafevect = localTarget;
 			if (leftHanded)
