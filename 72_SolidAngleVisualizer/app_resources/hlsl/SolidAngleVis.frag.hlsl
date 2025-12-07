@@ -114,6 +114,10 @@ float4 drawGreatCircleArc(float3 fragPos, int2 edgeVerts, int visibility, float 
     float3 v1 = normalize(corners[edgeVerts.y]);
     float3 p = normalize(fragPos); // Current point on hemisphere
     
+    // Skip fragment if not in front of hemisphere or edge if both endpoints are behind horizon
+    if (p.z < 0.0f || (v0.z < 0.0f && v1.z < 0.0f)) 
+        return float4(0,0,0,0);
+    
     // Great circle plane normal
     float3 arcNormal = normalize(cross(v0, v1));
     
