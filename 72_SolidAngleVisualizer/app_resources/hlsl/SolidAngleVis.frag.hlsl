@@ -20,6 +20,25 @@ static const int2 edgeToFaces[12] = {
     {0,4}, {5,0}, {4,1}, {1,5} 
 };
 
+//float3(i % 2, (i / 2) % 2, (i / 4) % 2) * 2.0f - 1.0f
+static const float3 constCorners[8] = {
+    float3(-1, -1, -1), // 0
+    float3( 1, -1, -1), // 1
+    float3(-1,  1, -1), // 2
+    float3( 1,  1, -1), // 3
+    float3(-1, -1,  1), // 4
+    float3( 1, -1,  1), // 5
+    float3(-1,  1,  1), // 6
+    float3( 1,  1,  1)  // 7
+};
+
+// All 12 edges of the cube (vertex index pairs)
+static const int2 allEdges[12] = {
+    {0, 1}, {2, 3}, {4, 5}, {6, 7}, // Edges along X axis
+    {0, 2}, {1, 3}, {4, 6}, {5, 7}, // Edges along Y axis
+    {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Edges along Z axis
+};
+
 static const float3 localNormals[6] = {
     float3(0, 0, -1), // Face 0 (Z-)
     float3(0, 0, 1),  // Face 1 (Z+)
@@ -34,6 +53,30 @@ static float3 faceCenters[6] = { float3(0,0,0), float3(0,0,0), float3(0,0,0),
                             float3(0,0,0), float3(0,0,0), float3(0,0,0) };
 
 
+static const float3 colorLUT[8] = {
+    float3(0, 0, 0),        // 0: Black
+    float3(1, 0, 0),       // 1: Red
+    float3(0, 1, 0),       // 2: Green
+    float3(1, 1, 0),       // 3: Yellow
+    float3(0, 0, 1),       // 4: Blue
+    float3(1, 0, 1),       // 5: Magenta
+    float3(0, 1, 1),       // 6: Cyan
+    float3(1, 1, 1)        // 7: White
+};
+
+
+    
+// Vertices are ordered CCW relative to the camera view.
+static const int silhouettes[8][6] = {
+    {2, 3, 1, 5, 4, 6}, // 0: Black
+    {6, 7, 5, 1, 0, 2}, // 1: Red
+    {7, 6, 4, 0, 1, 3}, // 2: Green
+    {3, 7, 5, 4, 0, 2}, // 3: Yellow
+    {3, 2, 0, 4, 5, 7}, // 4: Cyan
+    {1, 3, 7, 6, 4, 0}, // 5: Magenta
+    {0, 1, 5, 7, 6, 2}, // 6: White
+    {4, 6, 2, 3, 1, 5}  // 7: Gray
+};
 
 // Converts UV into centered, aspect-corrected NDC circle space
 float2 toCircleSpace(float2 uv)
@@ -52,7 +95,7 @@ void computeCubeGeo()
 {
     for (int i = 0; i < 8; i++)
     {
-        float3 localPos = float3(i % 2, (i / 2) % 2, (i / 4) % 2) * 2.0f - 1.0f;
+        float3 localPos = constCorners[i]; //float3(i % 2, (i / 2) % 2, (i / 4) % 2) * 2.0f - 1.0f;
         float3 worldPos = mul(pc.modelMatrix, float4(localPos, 1.0f)).xyz;
         
         corners[i] = worldPos.xyz;
@@ -72,7 +115,7 @@ float4 drawRing(float2 p, float aaWidth)
     float ringDistance = abs(positionLength - CIRCLE_RADIUS);
     float ringAlpha = 1.0f - smoothstep(ringWidth - aaWidth, ringWidth + aaWidth, ringDistance);
     
-    return ringAlpha.xxxx; 
+    return ringAlpha * float4(1, 1, 1, 1); 
 }
 
 // Check if a face on the hemisphere is visible from camera at origin
@@ -105,7 +148,7 @@ int getEdgeVisibility(int edgeIdx, float3 cameraPos)
     return 0;
 }
 
-// Draw great circle arc in fragment shader
+// Draw great circle arc in fragment shader with horizon clipping
 float4 drawGreatCircleArc(float3 fragPos, int2 edgeVerts, int visibility, float aaWidth)
 {
     if (visibility == 0) return float4(0,0,0,0); // Hidden edge
@@ -114,8 +157,12 @@ float4 drawGreatCircleArc(float3 fragPos, int2 edgeVerts, int visibility, float 
     float3 v1 = normalize(corners[edgeVerts.y]);
     float3 p = normalize(fragPos); // Current point on hemisphere
     
-    // Skip fragment if not in front of hemisphere or edge if both endpoints are behind horizon
-    if (p.z < 0.0f || (v0.z < 0.0f && v1.z < 0.0f)) 
+    // HORIZON CLIPPING: Current fragment must be on front hemisphere
+    if (p.z < 0.0f) 
+        return float4(0,0,0,0);
+    
+    // HORIZON CLIPPING: Skip edge if both endpoints are behind horizon
+    if (v0.z < 0.0f && v1.z < 0.0f) 
         return float4(0,0,0,0);
     
     // Great circle plane normal
@@ -149,36 +196,105 @@ float4 drawGreatCircleArc(float3 fragPos, int2 edgeVerts, int visibility, float 
 
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vx) : SV_Target0
 {
-    float3 cameraPos = float3(0, 0, 0);
     float4 color = float4(0, 0, 0, 0);
     float2 p = toCircleSpace(vx.uv);
     
     // Convert 2D disk position to 3D hemisphere position
-    // p is in range [-CIRCLE_RADIUS, CIRCLE_RADIUS]
-    float2 normalized = p / CIRCLE_RADIUS; // Now in range [-1, 1]
+    float2 normalized = p / CIRCLE_RADIUS;
     float r2 = dot(normalized, normalized);
-    
-    if (r2 > 1.0f)
-        discard;
     
     // Convert UV to 3D position on hemisphere
     float3 spherePos = normalize(float3(normalized.x, normalized.y, sqrt(1 - r2)));
     
-    computeCubeGeo(); // Your existing function
+    computeCubeGeo();
     
-    float aaWidth = length(float2(ddx(p.x), ddy(p.y))); 
+    float3 obbCenter = mul(pc.modelMatrix, float4(0, 0, 0, 1)).xyz;
     
-    // Draw edges as great circle arcs
-    for (int j = 0; j < 12; j++) 
+    float3 viewDir = obbCenter; 
+    
+    // Is this correct?
+    float dotX = dot(viewDir, float3(pc.modelMatrix[0][0], pc.modelMatrix[1][0], pc.modelMatrix[2][0]));
+    float dotY = dot(viewDir, float3(pc.modelMatrix[0][1], pc.modelMatrix[1][1], pc.modelMatrix[2][1]));
+    float dotZ = dot(viewDir, float3(pc.modelMatrix[0][2], pc.modelMatrix[1][2], pc.modelMatrix[2][2]));
+
+    // Determine octant from ray direction signs
+    int octant = (dotX >= 0 ? 4 : 0) + 
+                 (dotY >= 0 ? 2 : 0) + 
+                 (dotZ >= 0 ? 1 : 0);
+
+    if (all(vx.uv >= float2(0.49f, 0.49f) ) && all(vx.uv <= float2(0.51f, 0.51f)))
     {
-        int a = j % 4 * (j < 4 ? 1 : 2) - (j / 4 == 1 ? j % 2 : 0);
-        int b = a + (4 >> (j / 4));
+        return float4(colorLUT[octant], 1.0f);
+    }
+    
+    float aaWidth = length(float2(ddx(vx.uv.x), ddy(vx.uv.y))); 
+    
+
+    // Draw the 6 silhouette edges
+    for (int i = 0; i < 6; i++) 
+    {
+        int v0Idx = silhouettes[octant][i];
+        int v1Idx = silhouettes[octant][(i + 1) % 6];
         
-        int visibility = getEdgeVisibility(j, cameraPos);
-        color += drawGreatCircleArc(spherePos, int2(a, b), visibility, aaWidth);
+        float4 edgeContribution = drawGreatCircleArc(spherePos, int2(v0Idx, v1Idx), 1, aaWidth);
+        color += float4(colorLUT[i] * edgeContribution.a, edgeContribution.a);
+    }
+    
+    // Draw the remaining edges (non-silhouette) in a different color
+    float3 hiddenEdgeColor = float3(0.3, 0.3, 0.3); // Gray color for hidden edges
+    
+    for (int i = 0; i < 12; i++)
+    {
+        int2 edge = allEdges[i];
+        
+        // Check if this edge is already drawn as a silhouette edge
+        bool isSilhouette = false;
+        for (int j = 0; j < 6; j++)
+        {
+            int v0 = silhouettes[octant][j];
+            int v1 = silhouettes[octant][(j + 1) % 6];
+            
+            if ((edge.x == v0 && edge.y == v1) || (edge.x == v1 && edge.y == v0))
+            {
+                isSilhouette = true;
+                break;
+            }
+        }
+        
+        // Only draw if it's not a silhouette edge
+        if (!isSilhouette)
+        {
+            float4 edgeContribution = drawGreatCircleArc(spherePos, edge, 1, aaWidth);
+            color += float4(hiddenEdgeColor * edgeContribution.a, edgeContribution.a);
+        }
+    }
+
+    // Draw corner labels for debugging
+    for (int i = 0; i < 8; i++)
+    {
+        float3 corner = normalize(corners[i]);
+        float2 cornerPos = corner.xy;
+        // Project corner onto 2D circle space
+        
+        // Distance from current fragment to corner
+        float dist = length(spherePos.xy - cornerPos);
+        
+        // Draw a small colored dot at the corner
+        float dotSize = 0.03f;
+        float dotAlpha = 1.0f - smoothstep(dotSize - aaWidth, dotSize + aaWidth, dist);
+        
+        if (dotAlpha > 0.0f)
+        {
+            float brightness = float(i) / 7.0f;
+            float3 dotColor = colorLUT[i];
+            color += float4(dotColor * dotAlpha, dotAlpha);
+        }
     }
     
     color += drawRing(p, aaWidth);
+
+    // if (r2 > 1.1f)
+    //     color.a = 0.0f; // Outside circle, make transparent
     
     return color;
 }
