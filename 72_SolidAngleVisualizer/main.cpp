@@ -753,16 +753,17 @@ private:
 			// TODO: why is this a lambda and not just an assignment in a scope ?
 			camera.setProjectionMatrix([&]()
 				{
-					matrix4SIMD projection;
+					const auto& sceneRes = mainViewTransformReturnInfo.sceneResolution;
 
+					matrix4SIMD projection;
 					if (isPerspective)
 						if (isLH)
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), sceneRes.x / sceneRes.y, zNear, zFar);
 						else
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), sceneRes.x / sceneRes.y, zNear, zFar);
 					else
 					{
-						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+						float viewHeight = viewWidth * sceneRes.y / sceneRes.x;
 
 						if (isLH)
 							projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
