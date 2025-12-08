@@ -280,7 +280,7 @@ float4 drawHiddenEdges(float3 spherePos, int configIndex, float aaWidth)
 {
     float4 color = float4(0,0,0,0);
     // Draw the remaining edges (non-silhouette) in a different color
-    float3 hiddenEdgeColor = float3(0.3, 0.3, 0); // dark yellow color for hidden edges
+    float3 hiddenEdgeColor = float3(0.1, 0.1, 0.1); // dark yellow color for hidden edges
     
     for (int i = 0; i < 12; i++)
     {

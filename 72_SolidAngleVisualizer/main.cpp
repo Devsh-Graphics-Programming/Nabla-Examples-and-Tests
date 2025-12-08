@@ -933,9 +933,6 @@ private:
 
 				transformParams.editTransformDecomposition = true;
 				mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
-				// MODEL: Zup -> Yup
-
-				m_OBBModelMatrix = imguizmoM16InOut.model;
 
 				// TODO: camera stops when cursor hovers gizmo, but we also want to stop when gizmo is being used
 				move = (ImGui::IsMouseDown(ImGuiMouseButton_Left) || mainViewTransformReturnInfo.isGizmoWindowHovered) && (!mainViewTransformReturnInfo.isGizmoBeingUsed);
