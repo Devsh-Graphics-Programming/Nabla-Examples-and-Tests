@@ -753,7 +753,7 @@ private:
 			// TODO: why is this a lambda and not just an assignment in a scope ?
 			camera.setProjectionMatrix([&]()
 				{
-					const auto& sceneRes = mainViewTransformReturnInfo.sceneResolution;
+					const auto& sceneRes = float16_t2(mainViewTransformReturnInfo.sceneResolution);
 
 					matrix4SIMD projection;
 					if (isPerspective)

@@ -322,10 +322,7 @@ float4 drawHiddenEdges(float3 spherePos, int configIndex, float aaWidth)
     float r2 = dot(normalized, normalized);
     float aaWidth = length(float2(ddx(vx.uv.x), ddy(vx.uv.y))); 
 
-    if (all(vx.uv >= float2(0.49f, 0.49f) ) && all(vx.uv <= float2(0.51f, 0.51f)))
-    {
-        return float4(colorLUT[configIndex], 1.0f);
-    }
+
     
     // Convert UV to 3D position on hemisphere
     float3 spherePos = normalize(float3(normalized.x, normalized.y, sqrt(1 - r2)));
@@ -350,7 +347,7 @@ float4 drawHiddenEdges(float3 spherePos, int configIndex, float aaWidth)
     );
 
     int configIndex = region.x + region.y * 3 + region.z * 9; // 0-26
-    
+
     int vertexCount = silhouettes[configIndex][0];
     for (int i = 0; i < vertexCount; i++) 
     {
@@ -367,8 +364,13 @@ float4 drawHiddenEdges(float3 spherePos, int configIndex, float aaWidth)
     
     color += drawRing(p, aaWidth);
 
-    if (r2 > 1.1f)
-        color.a = 0.0f; // Outside circle, make transparent
+    if (all(vx.uv >= float2(0.49f, 0.49f) ) && all(vx.uv <= float2(0.51f, 0.51f)))
+    {
+        return float4(colorLUT[configIndex], 1.0f);
+    }
+
+    // if (r2 > 1.1f)
+    //     color.a = 0.0f; // Outside circle, make transparent
     
     return color;
 }
