@@ -58,12 +58,7 @@ struct Unidirectional
         using sequence_type = sampling::QuantizedSequence<uint32_t2,3>;
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
         sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + (address + i) * sizeof(sequence_type));
-        uint32_t3 seqVal;
-        seqVal.x = tmpSeq.getX();
-        seqVal.y = tmpSeq.getY();
-        seqVal.z = tmpSeq.getZ();
-	    seqVal ^= randGen();
-        return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
+        return sampling::decode<uint32_t2,3>(tmpSeq, randGen());
     }
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
