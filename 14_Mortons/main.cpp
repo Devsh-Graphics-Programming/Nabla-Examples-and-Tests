@@ -2,8 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include <nabla.h>
-#include <iostream>
-#include <cstdio>
 #include <assert.h>
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
@@ -47,10 +45,15 @@ public:
         // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         // Blocked by https://github.com/KhronosGroup/SPIRV-Tools/issues/6104
         {
-            CTester mortonTester;
-            pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
-            mortonTester.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
-            mortonTester.performTests();
+            // CTester mortonTester;
+            // pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
+            // mortonTester.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
+            // mortonTester.performTests();
+
+            CTester2 mortonTester2;
+            pplnSetupData.testShaderPath = "app_resources/test2.comp.hlsl";
+            mortonTester2.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
+            mortonTester2.performTests();
         }
 
         return true;

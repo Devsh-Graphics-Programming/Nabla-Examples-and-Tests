@@ -18,7 +18,6 @@ public:
     struct PipelineSetupData
     {
         std::string testShaderPath;
-
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
         core::smart_refctd_ptr<asset::IAssetManager> assetMgr;

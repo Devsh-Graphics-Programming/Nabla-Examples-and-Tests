@@ -98,7 +98,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonPlus_full_4 = morton_full_4A + morton_full_4B;
 	output.mortonPlus_emulated_4 = morton_emulated_4A + morton_emulated_4B;
 	
-	// // Minus
+	// Minus
 	output.mortonMinus_small_2 = morton_small_2A - morton_small_2B;
 	output.mortonMinus_medium_2 = morton_medium_2A - morton_medium_2B;
 	output.mortonMinus_full_2 = morton_full_2A - morton_full_2B;
@@ -114,7 +114,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonMinus_full_4 = morton_full_4A - morton_full_4B;
 	output.mortonMinus_emulated_4 = morton_emulated_4A - morton_emulated_4B;
 	
-	// // Coordinate-wise equality
+	// Coordinate-wise equality
 	output.mortonEqual_small_2 = uint32_t2(morton_small_2A.equal<false>(uint16_t2(Vec2B)));
 	output.mortonEqual_medium_2 = uint32_t2(morton_medium_2A.equal<false>(uint16_t2(Vec2B)));
 	output.mortonEqual_full_2 = uint32_t2(morton_full_2A.equal<false>(uint32_t2(Vec2B)));
@@ -128,7 +128,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonEqual_small_4 = uint32_t4(morton_small_4A.equal<false>(uint16_t4(Vec4B)));
 	output.mortonEqual_medium_4 = uint32_t4(morton_medium_4A.equal<false>(uint16_t4(Vec4B)));
 	output.mortonEqual_full_4 = uint32_t4(morton_full_4A.equal<false>(uint16_t4(Vec4B)));
-	// output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(uint16_t4(Vec4B)));
+    output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(uint16_t4(Vec4B)));
 	
 	// Coordinate-wise unsigned inequality (just testing with less)
 	output.mortonUnsignedLess_small_2 = uint32_t2(morton_small_2A.lessThan<false>(uint16_t2(Vec2B)));
@@ -139,34 +139,29 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonUnsignedLess_small_3 = uint32_t3(morton_small_3A.lessThan<false>(uint16_t3(Vec3B)));
 	output.mortonUnsignedLess_medium_3 = uint32_t3(morton_medium_3A.lessThan<false>(uint16_t3(Vec3B)));
 	output.mortonUnsignedLess_full_3 = uint32_t3(morton_full_3A.lessThan<false>(uint32_t3(Vec3B)));
-	// output.mortonUnsignedLess_emulated_3 = uint32_t3(morton_emulated_3A.lessThan<false>(uint32_t3(Vec3B)));
+	output.mortonUnsignedLess_emulated_3 = uint32_t3(morton_emulated_3A.lessThan<false>(uint32_t3(Vec3B)));
 	
 	output.mortonUnsignedLess_small_4 = uint32_t4(morton_small_4A.lessThan<false>(uint16_t4(Vec4B)));
 	output.mortonUnsignedLess_medium_4 = uint32_t4(morton_medium_4A.lessThan<false>(uint16_t4(Vec4B)));
 	output.mortonUnsignedLess_full_4 = uint32_t4(morton_full_4A.lessThan<false>(uint16_t4(Vec4B)));
-	// output.mortonUnsignedLess_emulated_4 = uint32_t4(morton_emulated_4A.lessThan<false>(uint16_t4(Vec4B)));
-	// less(Vec4A, Vec4B);
 	
 	// Coordinate-wise signed inequality
 	output.mortonSignedLess_small_2 = uint32_t2(morton_small_2_signed.lessThan<false>(int16_t2(Vec2B)));
 	output.mortonSignedLess_medium_2 = uint32_t2(morton_medium_2_signed.lessThan<false>(int16_t2(Vec2B)));
 	output.mortonSignedLess_full_2 = uint32_t2(morton_full_2_signed.lessThan<false>(int32_t2(Vec2B)));
-	// output.mortonSignedLess_emulated_2 = uint32_t2(morton_emulated_2_signed.lessThan<false>(int32_t2(Vec2B))); 
 	
 	output.mortonSignedLess_small_3 = uint32_t3(morton_small_3_signed.lessThan<false>(int16_t3(Vec3B)));
 	output.mortonSignedLess_medium_3 = uint32_t3(morton_medium_3_signed.lessThan<false>(int16_t3(Vec3B)));
 	output.mortonSignedLess_full_3 = uint32_t3(morton_full_3_signed.lessThan<false>(int32_t3(Vec3B)));
-	output.mortonSignedLess_emulated_3 = uint32_t3(morton_emulated_3_signed.lessThan<false>(int32_t3(Vec3B))); 
 	
 	output.mortonSignedLess_small_4 = uint32_t4(morton_small_4_signed.lessThan<false>(int16_t4(Vec4B)));
 	output.mortonSignedLess_medium_4 = uint32_t4(morton_medium_4_signed.lessThan<false>(int16_t4(Vec4B)));
 	output.mortonSignedLess_full_4 = uint32_t4(morton_full_4_signed.lessThan<false>(int16_t4(Vec4B)));
-	// output.mortonSignedLess_emulated_4 = uint32_t4(morton_emulated_4_signed.lessThan<false>(int16_t4(Vec4B))); 
 	
-	// // Cast to uint16_t which is what left shift for Mortons expect
+	// Cast to uint16_t which is what left shift for Mortons expect
 	uint16_t castedShift = uint16_t(input.shift);
-	// // Each left shift clamps to correct bits so the result kinda makes sense
-	// // Left-shift
+	// Each left shift clamps to correct bits so the result kinda makes sense
+	// Left-shift
 	left_shift_operator<morton::code<false, smallBits_2, 2> > leftShiftSmall2;
 	output.mortonLeftShift_small_2 = leftShiftSmall2(morton_small_2A, castedShift % smallBits_2);
 	left_shift_operator<morton::code<false, mediumBits_2, 2> > leftShiftMedium2;
@@ -244,10 +239,4 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4> > rightShiftSignedFull4;
 	output.mortonSignedRightShift_full_4 = rightShiftSignedFull4(morton_full_4_signed, castedShift % fullBits_4);
 
-	// arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2, emulated_uint64_t> > rightShiftSignedEmulated2;
-	// output.mortonSignedRightShift_emulated_2 = rightShiftSignedEmulated2(morton_emulated_2_signed, castedShift); 
-	// arithmetic_right_shift_operator<morton::code<true, fullBits_3, 3, emulated_uint64_t> > rightShiftSignedEmulated3;
-	// output.mortonSignedRightShift_emulated_3 = rightShiftSignedEmulated3(morton_emulated_3_signed, castedShift); 
-	// arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4, emulated_uint64_t> > rightShiftSignedEmulated4;
-	// output.mortonSignedRightShift_emulated_4 = rightShiftSignedEmulated4(morton_emulated_4_signed, castedShift); 
 }

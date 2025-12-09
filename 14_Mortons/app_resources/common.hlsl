@@ -57,10 +57,10 @@ T createAnyBitIntegerFromU64(uint64_t val)
 template <typename T, bool Signed, uint16_t Bits, uint16_t D>
 vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
 {
-  array_get<portable_vector_t<T, D>, T> getter;
-  array_set<portable_vector_t<T, D>, T> setter;
+    array_get<portable_vector_t<T, D>, T> getter;
+    array_set<portable_vector_t<T, D>, T> setter;
 	vector<T, D> output;
-  NBL_UNROLL
+    NBL_UNROLL
 	for (uint16_t i = 0; i < D; i++)
 	{
 		setter(output, i, createAnyBitIntegerFromU64<T, Signed, Bits>(getter(val, i)));
