@@ -12,8 +12,7 @@
 #include <fstream>
 #include <chrono>
 
-#include <nbl/builtin/hlsl/camera/view_matrix.hlsl>
-#include <nbl/builtin/hlsl/vector_utils/vector_utils.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
 
 class Camera 
 { 
@@ -77,7 +76,7 @@ public:
 		{
 			leftHanded = nbl::hlsl::determinant(hlslMatMap) < 0.f;
 		}
-		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::getMatrix3x4As4x4<nbl::hlsl::float32_t>(viewMatrix));
+		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::math::linalg::promote_affine<4,4,3,4>(viewMatrix));
 	}
 	
 	inline void setPosition(const nbl::core::vectorSIMDf& pos)
@@ -123,16 +122,17 @@ public:
 		// problem. so solve this problem:
 		nbl::hlsl::float32_t3 up = nbl::core::convertToHLSLVector(nbl::core::normalize(upVector)).xyz;
 		nbl::hlsl::float32_t3 cross = nbl::hlsl::cross(localTarget, up);
-		const bool upVectorNeedsChange = nbl::hlsl::lengthsquared(cross) == 0;
+		const float squaredLength = dot(cross, cross);
+		const bool upVectorNeedsChange = squaredLength == 0;
 		if (upVectorNeedsChange)
 			up = nbl::core::convertToHLSLVector(nbl::core::normalize(backupUpVector));
 
 		if (leftHanded)
-			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixLH(pos, _target, up);
+			viewMatrix = nbl::hlsl::math::linalg::lhLookAt(pos, _target, up);
 		else
-			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixRH(pos, _target, up);
+			viewMatrix = nbl::hlsl::math::linalg::rhLookAt(pos, _target, up);
 
-		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
+		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::math::linalg::promote_affine<4, 4, 3, 4>(viewMatrix));
 	}
 
 	inline bool getLeftHanded() const { return leftHanded; }
@@ -182,8 +182,8 @@ public:
 				pos.w = 0;
 				localTarget = nbl::hlsl::float32_t4(0, 0, nbl::core::max(1.f, nbl::hlsl::length(pos)), 1.0f);
 
-				nbl::hlsl::float32_t3x4 mat;
-				nbl::hlsl::setRotation(mat, nbl::hlsl::quaternion<float>::create(relativeRotationX, relativeRotationY, 0));
+				const nbl::hlsl::math::quaternion<float> quat = nbl::hlsl::math::quaternion<float>::create(relativeRotationX, relativeRotationY, 0);
+				nbl::hlsl::float32_t3x4 mat = nbl::hlsl::math::linalg::promote_affine<3, 4, 3, 3>(quat.constructMatrix());
 
 				localTarget = nbl::hlsl::float32_t4(nbl::hlsl::mul(mat, localTarget), 1.0f);
 
