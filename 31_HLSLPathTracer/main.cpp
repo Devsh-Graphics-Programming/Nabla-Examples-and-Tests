@@ -9,6 +9,7 @@
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -34,8 +35,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			//ELG_TRIANGLE,
-			//ELG_RECTANGLE,
+			ELG_TRIANGLE,
+			ELG_RECTANGLE,
 			ELG_COUNT
 		};
 
@@ -55,22 +56,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
 		    "app_resources/glsl/litBySphere.comp",
-		    //"app_resources/glsl/litByTriangle.comp",
-		    //"app_resources/glsl/litByRectangle.comp"
+		    "app_resources/glsl/litByTriangle.comp",
+		    "app_resources/glsl/litByRectangle.comp"
 		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    //"TRIANGLE_LIGHT",
-		    //"RECTANGLE_LIGHT"
+		    "TRIANGLE_LIGHT",
+		    "RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			//"ELG_TRIANGLE",
-			//"ELG_RECTANGLE"
+			"ELG_TRIANGLE",
+			"ELG_RECTANGLE"
 		};
 
 		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
@@ -826,7 +827,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
 				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
-				std::array<QuantizedSequence, bufferSize> data = {};
+				std::array<sampling::QuantizedSequence<uint32_t2, 3>, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
 				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
@@ -835,10 +836,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = quantizedDimensions * MaxBufferSamples * sizeof(QuantizedSequence);
+					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sampling::QuantizedSequence<uint32_t2, 3>);
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
-					auto out = reinterpret_cast<QuantizedSequence*>(sampleSeq->getPointer());
+					auto out = reinterpret_cast<sampling::QuantizedSequence<uint32_t2, 3>*>(sampleSeq->getPointer());
 					for (auto dim = 0u; dim < quantizedDimensions; dim++)
 					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
 					    {

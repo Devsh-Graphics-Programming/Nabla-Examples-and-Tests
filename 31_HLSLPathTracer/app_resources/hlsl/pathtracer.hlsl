@@ -6,6 +6,7 @@
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
+#include <nbl/builtin/hlsl/sampling/quantized_sequence.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 #include "concepts.hlsl"
 
@@ -54,8 +55,9 @@ struct Unidirectional
 
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
+        using sequence_type = sampling::QuantizedSequence<uint32_t2,3>;
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-        QuantizedSequence tmpSeq = vk::RawBufferLoad<QuantizedSequence>(pSampleBuffer + (address + i) * sizeof(QuantizedSequence));
+        sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + (address + i) * sizeof(sequence_type));
         uint32_t3 seqVal;
         seqVal.x = tmpSeq.getX();
         seqVal.y = tmpSeq.getY();
@@ -81,6 +83,7 @@ struct Unidirectional
         ray_dir_info_type V;
         V.setDirection(-ray.direction);
         isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+        iso_interaction.luminosityContributionHint = hlsl::transpose(colorspace::scRGBtoXYZ)[1];
         anisotropic_interaction_type interaction = anisotropic_interaction_type::create(iso_interaction);
 
         vector3_type throughput = ray.payload.throughput;

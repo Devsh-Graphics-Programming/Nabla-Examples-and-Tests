@@ -93,6 +93,7 @@ using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
 using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
+using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
 using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
@@ -101,7 +102,7 @@ using scene_type = Scene<float, LIGHT_TYPE>;
 using randgen_type = RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = RayGen::Basic<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type>;
-using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, scene_type>;
+using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
@@ -121,7 +122,8 @@ static const Shape<float, PST_SPHERE> spheres[scene_type::SphereCount] = {
     Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
     Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
     Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, light_type::INVALID_ID)
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, -1.0), 0.5, 8u, light_type::INVALID_ID)
 #ifdef SPHERE_LIGHT
     ,Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
 #endif
@@ -157,7 +159,8 @@ static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5)),
-    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.0, 225.0, spectral_t(2.705,2.705,2.705), spectral_t(2.4401,2.044,1.6778), spectral_t(4.182,3.6732,3.117))
+    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.0, 505.0, spectral_t(1.39,1.39,1.39), spectral_t(1.2,1.2,1.2), spectral_t(0.5,0.5,0.5)),
+    bxdfnode_type::create(MaterialType::IRIDESCENT_DIELECTRIC, false, 0.0, 400.0, spectral_t(1.7,1.7,1.7), spectral_t(1.0,1.0,1.0), spectral_t(0,0,0))
 };
 
 RenderPushConstants retireveRenderPushConstants()
