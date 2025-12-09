@@ -6,7 +6,7 @@
 
 using namespace nbl::hlsl;
 
-using BitonicSortConfig = workgroup::bitonic_sort::bitonic_sort_config<ElementsPerThreadLog2, WorkgroupSizeLog2, uint32_t, uint32_t, less<uint32_t> >;
+using BitonicSortConfig = workgroup::bitonic_sort::bitonic_sort_config<ElementsPerThreadLog2, WorkgroupSizeLog2, uint32_t, uint32_t, KeyComparator<uint32_t> >;
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = BitonicSortConfig::WorkgroupSize;
 
@@ -65,6 +65,5 @@ void main()
 	Accessor accessor = Accessor::create(pushConstants.deviceBufferAddress);
 	SharedMemoryAccessor sharedmemAccessor;
 
-	// The sort handles load/store internally
-	workgroup::BitonicSort<BitonicSortConfig>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	workgroup::bitonic_sort::BitonicSort<BitonicSortConfig>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 }
