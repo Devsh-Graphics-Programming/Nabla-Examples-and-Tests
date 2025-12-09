@@ -1,5 +1,5 @@
 #include "fft_mirror_common.hlsl"
-#include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/colorspace.hlsl"
 
 [[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
@@ -192,7 +192,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 			if (!workgroup::SubgroupContiguousIndex())
 			{
 				const vector <scalar_t, 3> channelWiseSums = { preloaded[0][0].real(), preloaded[1][0].real(), preloaded[2][0].real() };
-				const scalar_t power = mul(vector<scalar_t, 3>(colorspace::scRGBtoXYZ._m10_m11_m12), channelWiseSums);
+				const scalar_t power = mul(vector<scalar_t, 3>(colorspace::scRGB::ToXYZ()._m10_m11_m12), channelWiseSums);
 				vk::RawBufferStore<scalar_t>(pushConstants.rowMajorBufferAddress, scalar_t(1) / power);
 			}
 		}
