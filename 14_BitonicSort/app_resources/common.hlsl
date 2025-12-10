@@ -1,7 +1,6 @@
 #ifndef _BITONIC_SORT_COMMON_INCLUDED_
 #define _BITONIC_SORT_COMMON_INCLUDED_
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
-#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/functional.hlsl"
 
 struct PushConstantData
@@ -24,7 +23,7 @@ template<typename KeyType, uint32_t KeyBits, typename StorageType = uint32_t>
 struct SubgroupType
 {
     static const StorageType KeyMask = (StorageType(1) << KeyBits) - 1;
-    StorageType packed; 
+    StorageType packed;
 
     static SubgroupType create(KeyType key, uint32_t subgroupRelativeIndex)
     {
@@ -36,13 +35,6 @@ struct SubgroupType
     KeyType getKey() { return KeyType(packed & KeyMask); }
     uint32_t getSubgroupRelativeIndex() { return packed >> KeyBits; }
 
-    WorkgroupType<KeyType> toWorkgroupType()
-    {
-        WorkgroupType<KeyType> wt;
-        wt.key = getKey();
-        wt.workgroupRelativeIndex = nbl::hlsl::workgroup::SubgroupContiguousIndex();
-        return wt;
-    }
 };
 
 template<typename KeyType>
