@@ -403,6 +403,7 @@ private:
     }
 };
 
+// Some hlsl code will result in compilation error if mixed together due to some bug in dxc. So we separate them into multiple shader compilation and test.
 class CTester2 final : public ITester
 {
 public:
