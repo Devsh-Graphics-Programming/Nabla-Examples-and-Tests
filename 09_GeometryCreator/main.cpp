@@ -2,8 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include <nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl>
-#include <nbl/builtin/hlsl/projection/projection.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/matrix_utils/transformation_matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 #include "common.hpp"
 
@@ -75,7 +75,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				float32_t4x4 projectionMatrix = hlsl::buildProjectionMatrixPerspectiveFovLH<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
+				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
 				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 

@@ -13,6 +13,7 @@
 #include <chrono>
 
 #include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/fast_affine.hlsl>
 
 class Camera 
 { 
@@ -28,6 +29,7 @@ public:
 		, rotateSpeed(rotateSpeed)
 		, upVector(upVec)
 		, backupUpVector(backupUpVec)
+		, viewMatrix(nbl::hlsl::math::linalg::diagonal<nbl::hlsl::float32_t3x4>(1.0f))
 	{
 		initDefaultKeysMap();
 		allKeysUp();
@@ -71,12 +73,8 @@ public:
 	inline void setProjectionMatrix(const nbl::hlsl::float32_t4x4& projection)
 	{
 		projMatrix = projection;
-
-		const auto hlslMatMap = *reinterpret_cast<const nbl::hlsl::float32_t4x4*>(&projMatrix); // TEMPORARY TILL THE CAMERA CLASS IS REFACTORED TO WORK WITH HLSL MATRICIES!
-		{
-			leftHanded = nbl::hlsl::determinant(hlslMatMap) < 0.f;
-		}
-		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::math::linalg::promote_affine<4,4,3,4>(viewMatrix));
+		leftHanded = nbl::hlsl::determinant(projMatrix) < 0.f;
+		concatMatrix = nbl::hlsl::math::linalg::promoted_mul(projMatrix, viewMatrix);
 	}
 	
 	inline void setPosition(const nbl::core::vectorSIMDf& pos)
@@ -132,7 +130,7 @@ public:
 		else
 			viewMatrix = nbl::hlsl::math::linalg::rhLookAt(pos, _target, up);
 
-		concatMatrix = nbl::hlsl::mul(projMatrix, nbl::hlsl::math::linalg::promote_affine<4, 4, 3, 4>(viewMatrix));
+		concatMatrix = nbl::hlsl::math::linalg::promoted_mul(projMatrix, viewMatrix);
 	}
 
 	inline bool getLeftHanded() const { return leftHanded; }
