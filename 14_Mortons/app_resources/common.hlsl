@@ -19,8 +19,8 @@ NBL_CONSTEXPR uint16_t smallBits_4 = 4;
 NBL_CONSTEXPR uint16_t mediumBits_4 = 8;
 NBL_CONSTEXPR uint16_t fullBits_4 = 16;
 
-template <typename T, uint16_t Bits>
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR T bitMask = (uint64_t(1) << Bits) - 1;
+template <uint16_t Bits>
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint64_t bitMask = (uint64_t(1) << (Bits-1)) - 1;
 
 
 #ifndef __HLSL_VERSION
@@ -41,23 +41,27 @@ constexpr uint64_t fullBitsMask_4 = (uint64_t(1) << fullBits_4) - 1;
 
 using namespace nbl::hlsl;
 template <typename T, bool Signed, uint16_t Bits>
-T createAnyBitIntegerFromU64(uint64_t val)
+NBL_CONSTEXPR_INLINE_FUNC T createAnyBitIntegerFromU64(uint64_t val)
 {
-  if(Signed && (_static_cast<int64_t>(val) < 0))
+  if(Signed)
   {
+    NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << (Bits - 1)) - 1;
     // fill excess bit with one
-    return T(val) | ~bitMask<T, Bits>;
+	if (int64_t(val) < 0)
+		return T(val) | ~mask;
+	else
+        return T(val) & mask;
   } else
   {
-    return T(val) & bitMask<T, Bits>;
-    
+    NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << Bits) - 1;
+    return T(val) & mask;
   }
 }
 
 template <typename T, bool Signed, uint16_t Bits, uint16_t D>
-vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
+NBL_CONSTEXPR_INLINE_FUNC vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
 {
-    array_get<portable_vector_t<T, D>, T> getter;
+    array_get<portable_vector_t<uint64_t, D>, uint64_t> getter;
     array_set<portable_vector_t<T, D>, T> setter;
 	vector<T, D> output;
     NBL_UNROLL
@@ -69,7 +73,7 @@ vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
 }
 
 template <bool Signed, uint16_t Bits, uint16_t D, typename _uint64_t = uint64_t>
-morton::code<Signed, Bits, D, _uint64_t> createMortonFromU64Vec(const vector<uint64_t, D> vec)
+NBL_CONSTEXPR_INLINE_FUNC morton::code<Signed, Bits, D, _uint64_t> createMortonFromU64Vec(const vector<uint64_t, D> vec)
 {
 	using morton_code_t = morton::code<Signed, Bits, D, _uint64_t>;
 	using decode_component_t = typename morton_code_t::decode_component_t;

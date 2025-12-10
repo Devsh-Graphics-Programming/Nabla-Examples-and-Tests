@@ -40,6 +40,48 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	uint64_t4 Vec4A = { input.coordX, input.coordY, input.coordZ, input.coordW };
 	uint64_t4 Vec4B = { input.coordY, input.coordZ, input.coordW, input.coordX };
 
+	uint16_t2 Vec2ASmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_2, 2>(Vec2A);
+	uint16_t2 Vec2BSmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_2, 2>(Vec2B);
+	uint16_t2 Vec2AMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_2, 2>(Vec2A);
+	uint16_t2 Vec2BMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_2, 2>(Vec2B);
+	uint32_t2 Vec2AFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_2, 2>(Vec2A);
+  	uint32_t2 Vec2BFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_2, 2>(Vec2B);
+
+	uint16_t3 Vec3ASmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_3, 3>(Vec3A);
+	uint16_t3 Vec3BSmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_3, 3>(Vec3B);
+	uint16_t3 Vec3AMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_3, 3>(Vec3A);
+	uint16_t3 Vec3BMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_3, 3>(Vec3B);
+	uint32_t3 Vec3AFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_3, 3>(Vec3A);
+	uint32_t3 Vec3BFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_3, 3>(Vec3B);
+
+	uint16_t4 Vec4ASmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_4, 4>(Vec4A);
+	uint16_t4 Vec4BSmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_4, 4>(Vec4B);
+	uint16_t4 Vec4AMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_4, 4>(Vec4A);
+	uint16_t4 Vec4BMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_4, 4>(Vec4B);
+	uint16_t4 Vec4AFull = createAnyBitIntegerVecFromU64Vec<uint16_t, false, fullBits_4, 4>(Vec4A);
+	uint16_t4 Vec4BFull = createAnyBitIntegerVecFromU64Vec<uint16_t, false, fullBits_4, 4>(Vec4B);
+
+	int16_t2 Vec2ASignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_2, 2>(Vec2A);
+	int16_t2 Vec2BSignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_2, 2>(Vec2B);
+	int16_t2 Vec2ASignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true,mediumBits_2, 2 >(Vec2A);
+	int16_t2 Vec2BSignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_2, 2>(Vec2B);
+	int32_t2 Vec2ASignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2, 2>(Vec2A);
+	int32_t2 Vec2BSignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2, 2>(Vec2B);
+
+	int16_t3 Vec3ASignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_3, 3>(Vec3A);
+	int16_t3 Vec3BSignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_3, 3>(Vec3B);
+	int16_t3 Vec3ASignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_3, 3>(Vec3A);
+	int16_t3 Vec3BSignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_3, 3>(Vec3B);
+	int32_t3 Vec3ASignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_3, 3>(Vec3A);
+	int32_t3 Vec3BSignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_3, 3>(Vec3B);
+
+	int16_t4 Vec4ASignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_4, 4>(Vec4A);
+	int16_t4 Vec4BSignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_4, 4>(Vec4B);
+	int16_t4 Vec4ASignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_4, 4>(Vec4A);
+	int16_t4 Vec4BSignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_4, 4>(Vec4B);
+	int16_t4 Vec4ASignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4, 4>(Vec4A);
+	int16_t4 Vec4BSignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4, 4>(Vec4B);
+
 	morton::code<false, smallBits_2, 2> morton_small_2A = createMortonFromU64Vec<false, smallBits_2, 2>(Vec2A);
 	morton::code<false, mediumBits_2, 2> morton_medium_2A = createMortonFromU64Vec<false, mediumBits_2, 2>(Vec2A);
 	morton::code<false, fullBits_2, 2> morton_full_2A = createMortonFromU64Vec<false, fullBits_2, 2>(Vec2A);
@@ -115,48 +157,48 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonMinus_emulated_4 = morton_emulated_4A - morton_emulated_4B;
 	
 	// Coordinate-wise equality
-	output.mortonEqual_small_2 = uint32_t2(morton_small_2A.equal<false>(uint16_t2(Vec2B)));
-	output.mortonEqual_medium_2 = uint32_t2(morton_medium_2A.equal<false>(uint16_t2(Vec2B)));
-	output.mortonEqual_full_2 = uint32_t2(morton_full_2A.equal<false>(uint32_t2(Vec2B)));
-	output.mortonEqual_emulated_2 = uint32_t2(morton_emulated_2A.equal<false>(uint32_t2(Vec2B)));
+	output.mortonEqual_small_2 = uint32_t2(morton_small_2A.equal<false>(Vec2BSmall));
+	output.mortonEqual_medium_2 = uint32_t2(morton_medium_2A.equal<false>(Vec2BMedium));
+	output.mortonEqual_full_2 = uint32_t2(morton_full_2A.equal<false>(Vec2BFull));
+	output.mortonEqual_emulated_2 = uint32_t2(morton_emulated_2A.equal<false>(Vec2BFull));
 	
-	output.mortonEqual_small_3 = uint32_t3(morton_small_3A.equal<false>(uint16_t3(Vec3B)));
-	output.mortonEqual_medium_3 = uint32_t3(morton_medium_3A.equal<false>(uint16_t3(Vec3B)));
-	output.mortonEqual_full_3 = uint32_t3(morton_full_3A.equal<false>(uint32_t3(Vec3B)));
-	output.mortonEqual_emulated_3 = uint32_t3(morton_emulated_3A.equal<false>(uint32_t3(Vec3B)));
+	output.mortonEqual_small_3 = uint32_t3(morton_small_3A.equal<false>(Vec3BSmall));
+	output.mortonEqual_medium_3 = uint32_t3(morton_medium_3A.equal<false>(Vec3BMedium));
+	output.mortonEqual_full_3 = uint32_t3(morton_full_3A.equal<false>(Vec3BFull));
+	output.mortonEqual_emulated_3 = uint32_t3(morton_emulated_3A.equal<false>(Vec3BFull));
 	
-	output.mortonEqual_small_4 = uint32_t4(morton_small_4A.equal<false>(uint16_t4(Vec4B)));
-	output.mortonEqual_medium_4 = uint32_t4(morton_medium_4A.equal<false>(uint16_t4(Vec4B)));
-	output.mortonEqual_full_4 = uint32_t4(morton_full_4A.equal<false>(uint16_t4(Vec4B)));
-    output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(uint16_t4(Vec4B)));
+	output.mortonEqual_small_4 = uint32_t4(morton_small_4A.equal<false>(Vec4BSmall));
+	output.mortonEqual_medium_4 = uint32_t4(morton_medium_4A.equal<false>(Vec4BMedium));
+	output.mortonEqual_full_4 = uint32_t4(morton_full_4A.equal<false>(Vec4BFull));
+    output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(Vec4BFull));
 	
 	// Coordinate-wise unsigned inequality (just testing with less)
-	output.mortonUnsignedLess_small_2 = uint32_t2(morton_small_2A.lessThan<false>(uint16_t2(Vec2B)));
-	output.mortonUnsignedLess_medium_2 = uint32_t2(morton_medium_2A.lessThan<false>(uint16_t2(Vec2B)));
-	output.mortonUnsignedLess_full_2 = uint32_t2(morton_full_2A.lessThan<false>(uint32_t2(Vec2B)));
-	output.mortonUnsignedLess_emulated_2 = uint32_t2(morton_emulated_2A.lessThan<false>(uint32_t2(Vec2B)));
+	output.mortonUnsignedLess_small_2 = uint32_t2(morton_small_2A.lessThan<false>(Vec2BSmall));
+	output.mortonUnsignedLess_medium_2 = uint32_t2(morton_medium_2A.lessThan<false>(Vec2BMedium));
+	output.mortonUnsignedLess_full_2 = uint32_t2(morton_full_2A.lessThan<false>(Vec2BFull));
+	output.mortonUnsignedLess_emulated_2 = uint32_t2(morton_emulated_2A.lessThan<false>(Vec2BFull));
 	
-	output.mortonUnsignedLess_small_3 = uint32_t3(morton_small_3A.lessThan<false>(uint16_t3(Vec3B)));
-	output.mortonUnsignedLess_medium_3 = uint32_t3(morton_medium_3A.lessThan<false>(uint16_t3(Vec3B)));
-	output.mortonUnsignedLess_full_3 = uint32_t3(morton_full_3A.lessThan<false>(uint32_t3(Vec3B)));
-	output.mortonUnsignedLess_emulated_3 = uint32_t3(morton_emulated_3A.lessThan<false>(uint32_t3(Vec3B)));
+	output.mortonUnsignedLess_small_3 = uint32_t3(morton_small_3A.lessThan<false>(Vec3BSmall));
+	output.mortonUnsignedLess_medium_3 = uint32_t3(morton_medium_3A.lessThan<false>(Vec3BMedium));
+	output.mortonUnsignedLess_full_3 = uint32_t3(morton_full_3A.lessThan<false>(Vec3BFull));
+	output.mortonUnsignedLess_emulated_3 = uint32_t3(morton_emulated_3A.lessThan<false>(Vec3BFull));
 	
-	output.mortonUnsignedLess_small_4 = uint32_t4(morton_small_4A.lessThan<false>(uint16_t4(Vec4B)));
-	output.mortonUnsignedLess_medium_4 = uint32_t4(morton_medium_4A.lessThan<false>(uint16_t4(Vec4B)));
-	output.mortonUnsignedLess_full_4 = uint32_t4(morton_full_4A.lessThan<false>(uint16_t4(Vec4B)));
+	output.mortonUnsignedLess_small_4 = uint32_t4(morton_small_4A.lessThan<false>(Vec4BSmall));
+	output.mortonUnsignedLess_medium_4 = uint32_t4(morton_medium_4A.lessThan<false>(Vec4BMedium));
+	output.mortonUnsignedLess_full_4 = uint32_t4(morton_full_4A.lessThan<false>(Vec4BFull));
 	
 	// Coordinate-wise signed inequality
-	output.mortonSignedLess_small_2 = uint32_t2(morton_small_2_signed.lessThan<false>(int16_t2(Vec2B)));
-	output.mortonSignedLess_medium_2 = uint32_t2(morton_medium_2_signed.lessThan<false>(int16_t2(Vec2B)));
-	output.mortonSignedLess_full_2 = uint32_t2(morton_full_2_signed.lessThan<false>(int32_t2(Vec2B)));
+	output.mortonSignedLess_small_2 = uint32_t2(morton_small_2_signed.lessThan<false>(Vec2BSignedSmall));
+	output.mortonSignedLess_medium_2 = uint32_t2(morton_medium_2_signed.lessThan<false>(Vec2BSignedMedium));
+	output.mortonSignedLess_full_2 = uint32_t2(morton_full_2_signed.lessThan<false>(Vec2BSignedFull));
 	
-	output.mortonSignedLess_small_3 = uint32_t3(morton_small_3_signed.lessThan<false>(int16_t3(Vec3B)));
-	output.mortonSignedLess_medium_3 = uint32_t3(morton_medium_3_signed.lessThan<false>(int16_t3(Vec3B)));
-	output.mortonSignedLess_full_3 = uint32_t3(morton_full_3_signed.lessThan<false>(int32_t3(Vec3B)));
+	output.mortonSignedLess_small_3 = uint32_t3(morton_small_3_signed.lessThan<false>(Vec3BSignedSmall));
+	output.mortonSignedLess_medium_3 = uint32_t3(morton_medium_3_signed.lessThan<false>(Vec3BSignedMedium));
+	output.mortonSignedLess_full_3 = uint32_t3(morton_full_3_signed.lessThan<false>(Vec3BSignedFull));
 	
-	output.mortonSignedLess_small_4 = uint32_t4(morton_small_4_signed.lessThan<false>(int16_t4(Vec4B)));
-	output.mortonSignedLess_medium_4 = uint32_t4(morton_medium_4_signed.lessThan<false>(int16_t4(Vec4B)));
-	output.mortonSignedLess_full_4 = uint32_t4(morton_full_4_signed.lessThan<false>(int16_t4(Vec4B)));
+	output.mortonSignedLess_small_4 = uint32_t4(morton_small_4_signed.lessThan<false>(Vec4BSignedSmall));
+	output.mortonSignedLess_medium_4 = uint32_t4(morton_medium_4_signed.lessThan<false>(Vec4BSignedMedium));
+	output.mortonSignedLess_full_4 = uint32_t4(morton_full_4_signed.lessThan<false>(Vec4BSignedFull));
 	
 	// Cast to uint16_t which is what left shift for Mortons expect
 	uint16_t castedShift = uint16_t(input.shift);
