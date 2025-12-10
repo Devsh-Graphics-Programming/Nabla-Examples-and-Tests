@@ -113,8 +113,6 @@ public:
                 int16_t4 Vec4ASignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4>(Vec4A);
                 int16_t4 Vec4BSignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4>(Vec4B);
 
-                const auto dummy1 = morton::code<true, smallBits_2, 2>(Vec2ASignedSmall);
-                const auto dummy2 = createMortonFromU64Vec<true, smallBits_2, 2>(Vec2A);
                 // Plus
                 expected.mortonPlus_small_2 = createMortonFromU64Vec<false, smallBits_2, 2>(Vec2ASmall + Vec2BSmall);
                 expected.mortonPlus_medium_2 = createMortonFromU64Vec<false, mediumBits_2, 2>(Vec2AMedium + Vec2BMedium);
