@@ -19,26 +19,6 @@ NBL_CONSTEXPR uint16_t smallBits_4 = 4;
 NBL_CONSTEXPR uint16_t mediumBits_4 = 8;
 NBL_CONSTEXPR uint16_t fullBits_4 = 16;
 
-template <uint16_t Bits>
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint64_t bitMask = (uint64_t(1) << (Bits-1)) - 1;
-
-
-#ifndef __HLSL_VERSION
-
-constexpr uint64_t smallBitsMask_2 = (uint64_t(1) << smallBits_2) - 1;
-constexpr uint64_t mediumBitsMask_2 = (uint64_t(1) << mediumBits_2) - 1;
-constexpr uint64_t fullBitsMask_2 = (uint64_t(1) << fullBits_2) - 1;
-
-constexpr uint64_t smallBitsMask_3 = (uint64_t(1) << smallBits_3) - 1;
-constexpr uint64_t mediumBitsMask_3 = (uint64_t(1) << mediumBits_3) - 1;
-constexpr uint64_t fullBitsMask_3 = (uint64_t(1) << fullBits_3) - 1;
-
-constexpr uint64_t smallBitsMask_4 = (uint64_t(1) << smallBits_4) - 1;
-constexpr uint64_t mediumBitsMask_4 = (uint64_t(1) << mediumBits_4) - 1;
-constexpr uint64_t fullBitsMask_4 = (uint64_t(1) << fullBits_4) - 1;
-
-#endif
-
 using namespace nbl::hlsl;
 template <typename T, bool Signed, uint16_t Bits>
 NBL_CONSTEXPR_INLINE_FUNC T createAnyBitIntegerFromU64(uint64_t val)
