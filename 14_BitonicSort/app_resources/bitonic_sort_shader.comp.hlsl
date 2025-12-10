@@ -6,13 +6,46 @@
 
 using namespace nbl::hlsl;
 
-using BitonicSortConfig = workgroup::bitonic_sort::bitonic_sort_config<ElementsPerThreadLog2, WorkgroupSizeLog2, uint32_t, uint32_t, KeyComparator<uint32_t> >;
+// User-defined types for the bitonic sort
+using WgType = WorkgroupType<uint32_t>;
+using SortableType = pair<uint32_t, uint32_t>;  
+
+using BitonicSortConfig = workgroup::bitonic_sort::bitonic_sort_config<
+    ElementsPerThreadLog2,
+    WorkgroupSizeLog2,
+    WgType,
+    uint32_t,               // KeyType
+    SortableType,           // SortableType
+    KeyComparator<uint32_t> // Comparator
+>;
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = BitonicSortConfig::WorkgroupSize;
 
 groupshared uint32_t sharedmem[BitonicSortConfig::SharedmemDWORDs];
 
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(uint32_t(BitonicSortConfig::WorkgroupSize), 1, 1); }
+
+struct ToWorkgroupType
+{
+    WgType operator()(SortableType sortable, uint32_t idx)
+    {
+        WgType wt;
+        wt.key = sortable.first;
+        wt.workgroupRelativeIndex = sortable.second;
+        return wt;
+    }
+};
+
+struct FromWorkgroupType
+{
+    SortableType operator()(WgType wt)
+    {
+        SortableType result;
+        result.first = wt.key;
+        result.second = wt.workgroupRelativeIndex;
+        return result;
+    }
+};
 
 struct SharedMemoryAccessor
 {
@@ -64,6 +97,8 @@ void main()
 {
 	Accessor accessor = Accessor::create(pushConstants.deviceBufferAddress);
 	SharedMemoryAccessor sharedmemAccessor;
+	ToWorkgroupType toWgType;
+	FromWorkgroupType fromWgType;
 
-	workgroup::bitonic_sort::BitonicSort<BitonicSortConfig>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	workgroup::bitonic_sort::BitonicSort<BitonicSortConfig>::__call(accessor, sharedmemAccessor, toWgType, fromWgType);
 }
