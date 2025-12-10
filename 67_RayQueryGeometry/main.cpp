@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "common.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 class RayQueryGeometryApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -197,7 +198,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 1000);
+				hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1f, 1000.0f);
 				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 
@@ -266,13 +267,10 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			const auto projectionMatrix = camera.getProjectionMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-			core::matrix3x4SIMD modelMatrix;
-			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-			modelMatrix.setRotation(quaternion(0, 0, 0));
+			hlsl::float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
 
-			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-			core::matrix4SIMD invModelViewProjectionMatrix;
-			modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
+			hlsl::float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
+			hlsl::float32_t4x4 invModelViewProjectionMatrix = hlsl::inverse(modelViewProjectionMatrix);
 
 			auto* queue = getGraphicsQueue();
 
@@ -305,7 +303,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 
 			const core::vector3df camPos = camera.getPosition().getAsVector3df();
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
-			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
+			pc.invMVP = invModelViewProjectionMatrix;
 
 			pc.scaleNDC = { 2.f / WIN_W, -2.f / WIN_H };
 			pc.offsetNDC = { -1.f, 1.f };
@@ -494,8 +492,8 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			auto transform_i = 0;
 			auto nextTransform = [&transform_i]()
 			{
-				core::matrix3x4SIMD transform;
-				transform.setTranslation(nbl::core::vectorSIMDf(5.f * transform_i, 0, 0, 0));
+				hlsl::float32_t3x4 transform = hlsl::math::linalg::identity<float32_t3x4>();
+				hlsl::math::linalg::setTranslation(transform, hlsl::float32_t3(5.f * transform_i, 0.0f, 0.0f));
 				transform_i++;
 				return transform;
 			};
@@ -981,7 +979,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 		video::CDumbPresentationOracle oracle;
 
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;
