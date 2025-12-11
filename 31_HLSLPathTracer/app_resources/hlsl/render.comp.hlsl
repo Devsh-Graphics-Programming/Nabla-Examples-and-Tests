@@ -205,10 +205,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up scene
     scene_type scene;
-    // NBL_UNROLL for (uint32_t i = 0; i < scene_type::SCENE_SPHERE_COUNT; i++)
-    //     scene.scene_spheres[i] = spheres[i];
 #ifdef SPHERE_LIGHT
-    scene.light_spheres[0] = spheres[scene_type::SCENE_SPHERE_COUNT];
+    scene.light_spheres[0] = spheres[0];
 #endif
 #ifdef TRIANGLE_LIGHT
     scene.light_triangles[0] = triangles[0];
