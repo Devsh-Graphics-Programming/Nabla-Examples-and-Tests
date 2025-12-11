@@ -827,7 +827,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
 				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
-				std::array<sampling::QuantizedSequence<uint32_t2, 3>, bufferSize> data = {};
+				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
+				std::array<sequence_type, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
 				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
@@ -836,17 +837,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sampling::QuantizedSequence<uint32_t2, 3>);
+					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sequence_type);
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
-					auto out = reinterpret_cast<sampling::QuantizedSequence<uint32_t2, 3>*>(sampleSeq->getPointer());
+					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
 					for (auto dim = 0u; dim < quantizedDimensions; dim++)
 					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
 					    {
 						    auto& seq = out[i * quantizedDimensions + dim];
-						    seq.setX(sampler.sample(dim * 3 + 0, i));
-						    seq.setY(sampler.sample(dim * 3 + 1, i));
-						    seq.setZ(sampler.sample(dim * 3 + 2, i));
+						    seq.set(0, sampler.sample(dim * 3 + 0, i));
+						    seq.set(1, sampler.sample(dim * 3 + 1, i));
+						    seq.set(2, sampler.sample(dim * 3 + 2, i));
 					    }
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);

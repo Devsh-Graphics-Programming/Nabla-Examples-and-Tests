@@ -7,44 +7,42 @@
 using namespace nbl;
 using namespace hlsl;
 
-template<typename T>
 struct SceneBase
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using this_t = SceneBase<T>;
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using light_type = Light<vector3_type>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 10u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 9u;
 
-
-
-    // TODO: can static const array of structs and init?
-    // static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT] = {
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, -100.5, -1.0), 100.0, 0u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(2.0, 0.0, -1.0), 0.5, 1u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, 0.0, -1.0), 0.5, 2u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(-2.0, 0.0, -1.0), 0.5, 3u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(2.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(-2.0, 0.0, 1.0), 0.5, 5u, Light<vector3_type>::INVALID_ID),
-    //     Shape<scalar_type, PST_SPHERE>::create(vector3_type(0.5, 1.0, 0.5), 0.5, 6u, Light<vector3_type>::INVALID_ID)
-    // };
-    Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
+    static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
 };
 
+const Shape<float, PST_SPHERE> SceneBase::scene_spheres[SCENE_SPHERE_COUNT] = {
+    Shape<float, PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, SceneBase::light_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, -1.0), 0.5, 8u, SceneBase::light_type::INVALID_ID)
+};
 
-template<typename T, ProceduralShapeType LightShape>
+template<ProceduralShapeType LightShape>
 struct Scene;
 
-template<typename T>
-struct Scene<T, PST_SPHERE> : SceneBase<T>
+template<>
+struct Scene<PST_SPHERE> : SceneBase
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using this_t = Scene<T, PST_SPHERE>;
-    using base_t = SceneBase<T>;
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using this_t = Scene<PST_SPHERE>;
+    using base_t = SceneBase;
     using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
@@ -94,13 +92,13 @@ struct Scene<T, PST_SPHERE> : SceneBase<T>
     }
 };
 
-template<typename T>
-struct Scene<T, PST_TRIANGLE> : SceneBase<T>
+template<>
+struct Scene<PST_TRIANGLE> : SceneBase
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using this_t = Scene<T, PST_TRIANGLE>;
-    using base_t = SceneBase<T>;
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using this_t = Scene<PST_TRIANGLE>;
+    using base_t = SceneBase;
     using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
@@ -145,13 +143,13 @@ struct Scene<T, PST_TRIANGLE> : SceneBase<T>
     }
 };
 
-template<typename T>
-struct Scene<T, PST_RECTANGLE> : SceneBase<T>
+template<>
+struct Scene<PST_RECTANGLE> : SceneBase
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using this_t = Scene<T, PST_RECTANGLE>;
-    using base_t = SceneBase<T>;
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using this_t = Scene<PST_RECTANGLE>;
+    using base_t = SceneBase;
     using id_type = ObjectID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
