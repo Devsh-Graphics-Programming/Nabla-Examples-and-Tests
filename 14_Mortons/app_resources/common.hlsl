@@ -27,14 +27,14 @@ NBL_CONSTEXPR_INLINE_FUNC T createAnyBitIntegerFromU64(uint64_t val)
   {
     NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << (Bits - 1)) - 1;
     // fill excess bit with one
-	if (int64_t(val) < 0)
-		return T(val) | ~mask;
+	if (_static_cast<int64_t>(val) < 0)
+		return _static_cast<T>(val | ~mask);
 	else
-        return T(val) & mask;
+        return _static_cast<T>(val & mask);
   } else
   {
     NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << Bits) - 1;
-    return T(val) & mask;
+    return _static_cast<T>(val & mask);
   }
 }
 
