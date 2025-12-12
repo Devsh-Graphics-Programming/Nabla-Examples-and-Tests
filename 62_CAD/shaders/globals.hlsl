@@ -1,12 +1,6 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
-#ifdef __HLSL_VERSION
-#ifndef NBL_USE_SPIRV_BUILTINS
-#include "runtimeDeviceConfigCaps.hlsl" // defines DeviceConfigCaps, uses JIT device caps
-#endif
-#endif
-
 // TODO[Erfan]: Turn off in the future, but keep enabled to test
 // #define NBL_FORCE_EMULATED_FLOAT_64
 
