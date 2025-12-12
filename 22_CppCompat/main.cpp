@@ -67,6 +67,9 @@ public:
         pplnSetupData.physicalDevice = m_physicalDevice;
         pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
 
+        if (!concepts::Matricial<float32_t3x3>)
+            return logFail("assert on float32_t3x3 doesn't work!\n");
+
         {
             CTgmathTester tgmathTester;
             pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";

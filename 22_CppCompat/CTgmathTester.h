@@ -7,6 +7,8 @@
 #include "app_resources/common.hlsl"
 #include "ITester.h"
 
+#include "nbl/builtin/hlsl/math/quaternions.hlsl"
+
 
 using namespace nbl;
 
@@ -355,6 +357,33 @@ private:
         verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.exponent, testValues.frexpStruct.exponent, testType);
         verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.significand, testValues.frexpStructVec.significand, testType);
         verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.exponent, testValues.frexpStructVec.exponent, testType);
+
+
+        {
+            float32_t angle = 0.5;
+            float32_t2 dir = float32_t2{ cos(angle), sin(angle) };
+            float32_t3x3 rotateMat =
+            {
+                dir.x, -dir.y, 0.0,
+                dir.y, dir.x,  0.0,
+                0.0, 0.0, 1.0
+            };
+
+            float32_t scale = 100.0;
+            float32_t3x3 scaleMat =
+            {
+                scale, 0.0, 0.0,
+                0.0, scale, 0.0,
+                0.0, 0.0, scale
+            };
+
+            float32_t3x3 expectedTransform = nbl::hlsl::mul(rotateMat, scaleMat);
+
+            math::quaternion<float> quat = math::quaternion<float>::create(expectedTransform);
+            float32_t3x3 testTransform = quat.constructMatrix();
+
+            verifyTestMatrix3x3Value("quaternion create from matrix", expectedTransform, testTransform, testType);
+        }
     }
 };
 
