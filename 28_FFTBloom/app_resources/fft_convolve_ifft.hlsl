@@ -97,7 +97,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
 				#ifdef MIRROR_PADDING
-				preloaded[localElementIndex] = select(oddThread ^ invert, hi, lo);
+				preloaded[localElementIndex] = select(_static_cast<bool>(oddThread ^ invert), hi, lo);
 				// ----------------------------------------------------- ZERO PADDING -------------------------------------------------------------------------------------------
 				#else
 				const complex_t<scalar_t> Zero = { scalar_t(0), scalar_t(0) };
@@ -114,7 +114,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[localElementIndex] = select(oddThread ^ invert, oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = select(_static_cast<bool>(oddThread ^ invert), oddThreadHi, evenThreadLo);
 			}
 			paddedIndex += WorkgroupSize / 2;
 		}
