@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "common.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 class RayQueryGeometryApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -150,8 +151,10 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				const std::string shaderPath = "app_resources/render.comp.hlsl";
 				IAssetLoader::SAssetLoadParams lparams = {};
 				lparams.logger = m_logger.get();
-				lparams.workingDirectory = "";
-				auto bundle = m_assetMgr->getAsset(shaderPath, lparams);
+				lparams.workingDirectory = "app_resources";
+
+				auto key = nbl::this_example::builtin::build::get_spirv_key<"render">(m_device.get());
+				auto bundle = m_assetMgr->getAsset(key.data(), lparams);
 				if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
 				{
 					m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, shaderPath);
@@ -160,10 +163,9 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 
 				const auto assets = bundle.getContents();
 				assert(assets.size() == 1);
-				smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
-				auto shader = m_device->compileShader({shaderSrc.get()});
+				smart_refctd_ptr<IShader> shader = IAsset::castDown<IShader>(assets[0]);
 				if (!shader)
-					return logFail("Failed to create shader!");
+					return logFail("Failed to load precompiled shader!");
 
 				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
 				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr<const IGPUDescriptorSetLayout>(renderDs->getLayout()), nullptr, nullptr, nullptr);

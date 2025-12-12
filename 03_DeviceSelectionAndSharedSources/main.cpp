@@ -257,7 +257,7 @@ public:
 		}
 
 		const auto* metadata = assetBundle.getMetadata();
-    const auto hlslMetadata = static_cast<const CHLSLMetadata*>(metadata);
+		const auto hlslMetadata = static_cast<const CHLSLMetadata*>(metadata);
 		const auto shaderStage = hlslMetadata->shaderStages->front();
 
 		// It would be super weird if loading a shader from a file produced more than 1 asset
