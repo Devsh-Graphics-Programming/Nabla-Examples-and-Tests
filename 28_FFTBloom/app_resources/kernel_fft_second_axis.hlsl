@@ -70,10 +70,10 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 					const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
 					const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-					complex_t<scalar_t> lo = hlsl::select(oddThread, otherThreadLoOrHi, loOrHi);
-					complex_t<scalar_t> hi = hlsl::select(oddThread, loOrHi, otherThreadLoOrHi);
+					complex_t<scalar_t> lo = nbl::hlsl::select(oddThread, otherThreadLoOrHi, loOrHi);
+					complex_t<scalar_t> hi = nbl::hlsl::select(oddThread, loOrHi, otherThreadLoOrHi);
 					fft::unpack<scalar_t>(lo, hi);
-					preloaded[channel][localElementIndex] = hlsl::select(oddThread, hi, lo);
+					preloaded[channel][localElementIndex] = nbl::hlsl::select(oddThread, hi, lo);
 
 					packedColumnIndex += WorkgroupSize / 2;
 				}
@@ -110,7 +110,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 					// Odd thread writes `hi = Z1 + iN1`
 					const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-					preloaded[channel][localElementIndex] = hlsl::select(oddThread, oddThreadHi, evenThreadLo);
+					preloaded[channel][localElementIndex] = nbl::hlsl::select(oddThread, oddThreadHi, evenThreadLo);
 
 					packedColumnIndex += WorkgroupSize / 2;
 				}
