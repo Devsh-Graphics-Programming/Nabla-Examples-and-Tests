@@ -123,7 +123,8 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	morton::code<true, mediumBits_4, 4> morton_medium_4_signed = createMortonFromU64Vec<true, mediumBits_4, 4>(Vec4A);
 	morton::code<true, fullBits_4, 4> morton_full_4_signed = createMortonFromU64Vec<true, fullBits_4, 4>(Vec4A);
 	morton::code<true, fullBits_4, 4, emulated_uint64_t> morton_emulated_4_signed = createMortonFromU64Vec<true, fullBits_4, 4, emulated_uint64_t>(Vec4A);
-	
+
+    // Some test and operation is moved to testCommon2.hlsl due to dxc bug that cause compilation failure. Uncomment when the bug is fixed.
 	// Plus
 	output.mortonPlus_small_2 = morton_small_2A + morton_small_2B;
 	output.mortonPlus_medium_2 = morton_medium_2A + morton_medium_2B;
@@ -186,19 +187,23 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonUnsignedLess_small_4 = uint32_t4(morton_small_4A.lessThan<false>(Vec4BSmall));
 	output.mortonUnsignedLess_medium_4 = uint32_t4(morton_medium_4A.lessThan<false>(Vec4BMedium));
 	output.mortonUnsignedLess_full_4 = uint32_t4(morton_full_4A.lessThan<false>(Vec4BFull));
+	// output.mortonUnsignedLess_emulated_4 = uint32_t4(morton_emulated_4A.lessThan<false>(Vec4BFull));
 	
 	// Coordinate-wise signed inequality
 	output.mortonSignedLess_small_2 = uint32_t2(morton_small_2_signed.lessThan<false>(Vec2BSignedSmall));
 	output.mortonSignedLess_medium_2 = uint32_t2(morton_medium_2_signed.lessThan<false>(Vec2BSignedMedium));
 	output.mortonSignedLess_full_2 = uint32_t2(morton_full_2_signed.lessThan<false>(Vec2BSignedFull));
+	// output.mortonSignedLess_emulated_2 = uint32_t2(morton_emulated_2_signed.lessThan<false>(Vec2BSignedFull)); 
 	
 	output.mortonSignedLess_small_3 = uint32_t3(morton_small_3_signed.lessThan<false>(Vec3BSignedSmall));
 	output.mortonSignedLess_medium_3 = uint32_t3(morton_medium_3_signed.lessThan<false>(Vec3BSignedMedium));
 	output.mortonSignedLess_full_3 = uint32_t3(morton_full_3_signed.lessThan<false>(Vec3BSignedFull));
+	// output.mortonSignedLess_emulated_3 = uint32_t3(morton_emulated_3_signed.lessThan<false>(Vec3BSignedFull)); 
 	
 	output.mortonSignedLess_small_4 = uint32_t4(morton_small_4_signed.lessThan<false>(Vec4BSignedSmall));
 	output.mortonSignedLess_medium_4 = uint32_t4(morton_medium_4_signed.lessThan<false>(Vec4BSignedMedium));
 	output.mortonSignedLess_full_4 = uint32_t4(morton_full_4_signed.lessThan<false>(Vec4BSignedFull));
+	// output.mortonSignedLess_emulated_4 = uint32_t4(morton_emulated_4_signed.lessThan<false>(Vec4BSignedFull)); 
 	
 	// Cast to uint16_t which is what left shift for Mortons expect
 	uint16_t castedShift = uint16_t(input.shift);
@@ -231,7 +236,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	left_shift_operator<morton::code<false, fullBits_4, 4, emulated_uint64_t> > leftShiftEmulated4;
 	output.mortonLeftShift_emulated_4 = leftShiftEmulated4(morton_emulated_4A, castedShift % fullBits_4);
 	
-	// // Unsigned right-shift
+	// Unsigned right-shift
 	arithmetic_right_shift_operator<morton::code<false, smallBits_2, 2> > rightShiftSmall2;
 	output.mortonUnsignedRightShift_small_2 = rightShiftSmall2(morton_small_2A, castedShift % smallBits_2);
 	arithmetic_right_shift_operator<morton::code<false, mediumBits_2, 2> > rightShiftMedium2;
@@ -259,13 +264,15 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	arithmetic_right_shift_operator<morton::code<false, fullBits_4, 4, emulated_uint64_t> > rightShiftEmulated4;
 	output.mortonUnsignedRightShift_emulated_4 = rightShiftEmulated4(morton_emulated_4A, castedShift % fullBits_4);
 	
-	// // Signed right-shift
+	// Signed right-shift
 	arithmetic_right_shift_operator<morton::code<true, smallBits_2, 2> > rightShiftSignedSmall2;
 	output.mortonSignedRightShift_small_2 = rightShiftSignedSmall2(morton_small_2_signed, castedShift % smallBits_2);
 	arithmetic_right_shift_operator<morton::code<true, mediumBits_2, 2> > rightShiftSignedMedium2;
 	output.mortonSignedRightShift_medium_2 = rightShiftSignedMedium2(morton_medium_2_signed, castedShift % mediumBits_2);
 	arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2> > rightShiftSignedFull2;
 	output.mortonSignedRightShift_full_2 = rightShiftSignedFull2(morton_full_2_signed, castedShift % fullBits_2);
+	// arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2, emulated_uint64_t> > rightShiftSignedEmulated2;
+	// output.mortonSignedRightShift_emulated_2 = rightShiftSignedEmulated2(morton_emulated_2_signed, castedShift % fullBits_2); 
 	
 	arithmetic_right_shift_operator<morton::code<true, smallBits_3, 3> > rightShiftSignedSmall3;
 	output.mortonSignedRightShift_small_3 = rightShiftSignedSmall3(morton_small_3_signed, castedShift % smallBits_3);
@@ -273,6 +280,8 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonSignedRightShift_medium_3 = rightShiftSignedMedium3(morton_medium_3_signed, castedShift % mediumBits_3);
 	arithmetic_right_shift_operator<morton::code<true, fullBits_3, 3> > rightShiftSignedFull3;
 	output.mortonSignedRightShift_full_3 = rightShiftSignedFull3(morton_full_3_signed, castedShift % fullBits_3);
+	// arithmetic_right_shift_operator<morton::code<true, fullBits_3, 3, emulated_uint64_t> > rightShiftSignedEmulated3;
+	// output.mortonSignedRightShift_emulated_3 = rightShiftSignedEmulated3(morton_emulated_3_signed, castedShift % fullBits_3); 
 	
 	arithmetic_right_shift_operator<morton::code<true, smallBits_4, 4> > rightShiftSignedSmall4;
 	output.mortonSignedRightShift_small_4 = rightShiftSignedSmall4(morton_small_4_signed, castedShift % smallBits_4);
@@ -280,5 +289,7 @@ void fillTestValues(NBL_CONST_REF_ARG(InputTestValues) input, NBL_REF_ARG(TestVa
 	output.mortonSignedRightShift_medium_4 = rightShiftSignedMedium4(morton_medium_4_signed, castedShift % mediumBits_4);
 	arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4> > rightShiftSignedFull4;
 	output.mortonSignedRightShift_full_4 = rightShiftSignedFull4(morton_full_4_signed, castedShift % fullBits_4);
+	// arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4, emulated_uint64_t> > rightShiftSignedEmulated4;
+	// output.mortonSignedRightShift_emulated_4 = rightShiftSignedEmulated4(morton_emulated_4_signed, castedShift % fullBits_4); 
 
 }

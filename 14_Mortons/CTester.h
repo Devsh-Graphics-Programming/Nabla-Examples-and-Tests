@@ -175,19 +175,23 @@ public:
                 expected.mortonUnsignedLess_small_4 = uint32_t4(glm::lessThan(Vec4ASmall, Vec4BSmall));
                 expected.mortonUnsignedLess_medium_4 = uint32_t4(glm::lessThan(Vec4AMedium, Vec4BMedium));
                 expected.mortonUnsignedLess_full_4 = uint32_t4(glm::lessThan(Vec4AFull, Vec4BFull));
+                expected.mortonUnsignedLess_emulated_4 = uint32_t4(glm::lessThan(Vec4AFull, Vec4BFull));
 
                 // Coordinate-wise signed inequality
                 expected.mortonSignedLess_small_2 = uint32_t2(glm::lessThan(Vec2ASignedSmall, Vec2BSignedSmall));
                 expected.mortonSignedLess_medium_2 = uint32_t2(glm::lessThan(Vec2ASignedMedium, Vec2BSignedMedium));
                 expected.mortonSignedLess_full_2 = uint32_t2(glm::lessThan(Vec2ASignedFull, Vec2BSignedFull));
+                expected.mortonSignedLess_emulated_2 = uint32_t2(glm::lessThan(Vec2ASignedFull, Vec2BSignedFull));
 
                 expected.mortonSignedLess_small_3 = uint32_t3(glm::lessThan(Vec3ASignedSmall, Vec3BSignedSmall));
                 expected.mortonSignedLess_medium_3 = uint32_t3(glm::lessThan(Vec3ASignedMedium, Vec3BSignedMedium));
                 expected.mortonSignedLess_full_3 = uint32_t3(glm::lessThan(Vec3ASignedFull, Vec3BSignedFull));
+                expected.mortonSignedLess_emulated_3 = uint32_t3(glm::lessThan(Vec3ASignedFull, Vec3BSignedFull));
 
                 expected.mortonSignedLess_small_4 = uint32_t4(glm::lessThan(Vec4ASignedSmall, Vec4BSignedSmall));
                 expected.mortonSignedLess_medium_4 = uint32_t4(glm::lessThan(Vec4ASignedMedium, Vec4BSignedMedium));
                 expected.mortonSignedLess_full_4 = uint32_t4(glm::lessThan(Vec4ASignedFull, Vec4BSignedFull));
+                expected.mortonSignedLess_emulated_4 = uint32_t4(glm::lessThan(Vec4ASignedFull, Vec4BSignedFull));
 
                 uint16_t castedShift = uint16_t(generatedShift);
                 // Left-shift
@@ -226,14 +230,17 @@ public:
                 expected.mortonSignedRightShift_small_2 = morton::code<true, smallBits_2, 2>::create(Vec2ASignedSmall >> int16_t(castedShift % smallBits_2));
                 expected.mortonSignedRightShift_medium_2 = morton::code<true, mediumBits_2, 2>::create(Vec2ASignedMedium >> int16_t(castedShift % mediumBits_2));
                 expected.mortonSignedRightShift_full_2 = morton::code<true, fullBits_2, 2>::create(Vec2ASignedFull >> int32_t(castedShift % fullBits_2));
+                expected.mortonSignedRightShift_emulated_2 = createMortonFromU64Vec<true, fullBits_2, 2, emulated_uint64_t>(Vec2ASignedFull >> int32_t(castedShift % fullBits_2));
                 
                 expected.mortonSignedRightShift_small_3 = morton::code<true, smallBits_3, 3>::create(Vec3ASignedSmall >> int16_t(castedShift % smallBits_3));
                 expected.mortonSignedRightShift_medium_3 = morton::code<true, mediumBits_3, 3>::create(Vec3ASignedMedium >> int16_t(castedShift % mediumBits_3));
                 expected.mortonSignedRightShift_full_3 = morton::code<true, fullBits_3, 3>::create(Vec3ASignedFull >> int32_t(castedShift % fullBits_3));
+                expected.mortonSignedRightShift_emulated_3 = createMortonFromU64Vec<true, fullBits_3, 3, emulated_uint64_t>(Vec3ASignedFull >> int32_t(castedShift % fullBits_3));
                 
                 expected.mortonSignedRightShift_small_4 = morton::code<true, smallBits_4, 4>::create(Vec4ASignedSmall >> int16_t(castedShift % smallBits_4));
                 expected.mortonSignedRightShift_medium_4 = morton::code<true, mediumBits_4, 4>::create(Vec4ASignedMedium >> int16_t(castedShift % mediumBits_4));
                 expected.mortonSignedRightShift_full_4 = morton::code<true, fullBits_4, 4>::create(Vec4ASignedFull >> int16_t(castedShift % fullBits_4));
+                expected.mortonSignedRightShift_emulated_4 = createMortonFromU64Vec<true, fullBits_4, 4, emulated_uint64_t>(Vec4ASignedFull >> int16_t(castedShift % fullBits_4));
             }
 
             performCpuTests(testInput, expected);
@@ -263,6 +270,7 @@ private:
 
     void verifyTestValues(const TestValues& expectedTestValues, const TestValues& testValues, ITester::TestType testType)
     {
+        // Some verification is commented out and moved to CTester2 due to bug in dxc. Uncomment them when the bug is fixed.
         verifyTestValue("emulatedAnd", expectedTestValues.emulatedAnd, testValues.emulatedAnd, testType);
         verifyTestValue("emulatedOr", expectedTestValues.emulatedOr, testValues.emulatedOr, testType);
         verifyTestValue("emulatedXor", expectedTestValues.emulatedXor, testValues.emulatedXor, testType);
@@ -340,19 +348,23 @@ private:
         verifyTestValue("mortonUnsignedLess_small_4", expectedTestValues.mortonUnsignedLess_small_4, testValues.mortonUnsignedLess_small_4, testType);
         verifyTestValue("mortonUnsignedLess_medium_4", expectedTestValues.mortonUnsignedLess_medium_4, testValues.mortonUnsignedLess_medium_4, testType);
         verifyTestValue("mortonUnsignedLess_full_4", expectedTestValues.mortonUnsignedLess_full_4, testValues.mortonUnsignedLess_full_4, testType);
+        // verifyTestValue("mortonUnsignedLess_emulated_4", expectedTestValues.mortonUnsignedLess_emulated_4, testValues.mortonUnsignedLess_emulated_4, testType);
         
         // Morton coordinate-wise signed inequality
         verifyTestValue("mortonSignedLess_small_2", expectedTestValues.mortonSignedLess_small_2, testValues.mortonSignedLess_small_2, testType);
         verifyTestValue("mortonSignedLess_medium_2", expectedTestValues.mortonSignedLess_medium_2, testValues.mortonSignedLess_medium_2, testType);
         verifyTestValue("mortonSignedLess_full_2", expectedTestValues.mortonSignedLess_full_2, testValues.mortonSignedLess_full_2, testType);
+        // verifyTestValue("mortonSignedLess_emulated_2", expectedTestValues.mortonSignedLess_emulated_2, testValues.mortonSignedLess_emulated_2, testType);
         
         verifyTestValue("mortonSignedLess_small_3", expectedTestValues.mortonSignedLess_small_3, testValues.mortonSignedLess_small_3, testType);
         verifyTestValue("mortonSignedLess_medium_3", expectedTestValues.mortonSignedLess_medium_3, testValues.mortonSignedLess_medium_3, testType);
         verifyTestValue("mortonSignedLess_full_3", expectedTestValues.mortonSignedLess_full_3, testValues.mortonSignedLess_full_3, testType);
+        // verifyTestValue("mortonSignedLess_emulated_3", expectedTestValues.mortonSignedLess_emulated_3, testValues.mortonSignedLess_emulated_3, testType);
         
         verifyTestValue("mortonSignedLess_small_4", expectedTestValues.mortonSignedLess_small_4, testValues.mortonSignedLess_small_4, testType);
         verifyTestValue("mortonSignedLess_medium_4", expectedTestValues.mortonSignedLess_medium_4, testValues.mortonSignedLess_medium_4, testType);
         verifyTestValue("mortonSignedLess_full_4", expectedTestValues.mortonSignedLess_full_4, testValues.mortonSignedLess_full_4, testType);
+        // verifyTestValue("mortonSignedLess_emulated_4", expectedTestValues.mortonSignedLess_emulated_4, testValues.mortonSignedLess_emulated_4, testType);
         
         // Morton left-shift
         verifyTestValue("mortonLeftShift_small_2", expectedTestValues.mortonLeftShift_small_2, testValues.mortonLeftShift_small_2, testType);
@@ -390,14 +402,17 @@ private:
         verifyTestValue("mortonSignedRightShift_small_2", expectedTestValues.mortonSignedRightShift_small_2, testValues.mortonSignedRightShift_small_2, testType);
         verifyTestValue("mortonSignedRightShift_medium_2", expectedTestValues.mortonSignedRightShift_medium_2, testValues.mortonSignedRightShift_medium_2, testType);
         verifyTestValue("mortonSignedRightShift_full_2", expectedTestValues.mortonSignedRightShift_full_2, testValues.mortonSignedRightShift_full_2, testType);
+        // verifyTestValue("mortonSignedRightShift_emulated_2", expectedTestValues.mortonSignedRightShift_emulated_2, testValues.mortonSignedRightShift_emulated_2, testType);
         
         verifyTestValue("mortonSignedRightShift_small_3", expectedTestValues.mortonSignedRightShift_small_3, testValues.mortonSignedRightShift_small_3, testType);
         verifyTestValue("mortonSignedRightShift_medium_3", expectedTestValues.mortonSignedRightShift_medium_3, testValues.mortonSignedRightShift_medium_3, testType);
         verifyTestValue("mortonSignedRightShift_full_3", expectedTestValues.mortonSignedRightShift_full_3, testValues.mortonSignedRightShift_full_3, testType);
+        //verifyTestValue("mortonSignedRightShift_emulated_3", expectedTestValues.mortonSignedRightShift_emulated_3, testValues.mortonSignedRightShift_emulated_3, testType);
         
         verifyTestValue("mortonSignedRightShift_small_4", expectedTestValues.mortonSignedRightShift_small_4, testValues.mortonSignedRightShift_small_4, testType);
         verifyTestValue("mortonSignedRightShift_medium_4", expectedTestValues.mortonSignedRightShift_medium_4, testValues.mortonSignedRightShift_medium_4, testType);
         verifyTestValue("mortonSignedRightShift_full_4", expectedTestValues.mortonSignedRightShift_full_4, testValues.mortonSignedRightShift_full_4, testType);
+        // verifyTestValue("mortonSignedRightShift_emulated_4", expectedTestValues.mortonSignedRightShift_emulated_4, testValues.mortonSignedRightShift_emulated_4, testType);
     }
 };
 
