@@ -91,17 +91,17 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 			if (glsl::gl_WorkGroupID().x)
 			{
-				complex_t<scalar_t> lo = select(oddThread, otherThreadLoOrHi, loOrHi);
-				complex_t<scalar_t> hi = select(oddThread, loOrHi, otherThreadLoOrHi);
+				complex_t<scalar_t> lo = hlsl::select(oddThread, otherThreadLoOrHi, loOrHi);
+				complex_t<scalar_t> hi = hlsl::select(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
 
 				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
 				#ifdef MIRROR_PADDING
-				preloaded[localElementIndex] = select(_static_cast<bool>(oddThread ^ invert), hi, lo);
+				preloaded[localElementIndex] = hlsl::select(_static_cast<bool>(oddThread ^ invert), hi, lo);
 				// ----------------------------------------------------- ZERO PADDING -------------------------------------------------------------------------------------------
 				#else
 				const complex_t<scalar_t> Zero = { scalar_t(0), scalar_t(0) };
-				preloaded[localElementIndex] = select(invert, Zero, select(oddThread, hi, lo));
+				preloaded[localElementIndex] = hlsl::select(invert, Zero, hlsl::select(oddThread, hi, lo));
 				#endif
 				// ------------------------------------------------ END PADDING DIVERGENCE ----------------------------------------------------------------------------------------
 			}
@@ -114,7 +114,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[localElementIndex] = select(_static_cast<bool>(oddThread ^ invert), oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = hlsl::select(_static_cast<bool>(oddThread ^ invert), oddThreadHi, evenThreadLo);
 			}
 			paddedIndex += WorkgroupSize / 2;
 		}
