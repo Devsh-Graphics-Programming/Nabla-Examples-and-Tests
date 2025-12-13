@@ -80,7 +80,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		{
 			// If mirrored, we need to invert which thread is loading lo and which is loading hi
 			// If using zero-padding, useful to find out if we're outside of [0,1) bounds
-			bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
+			bool inPadding = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
 			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 			wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 			const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
@@ -97,11 +97,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
 				#ifdef MIRROR_PADDING
-				preloaded[localElementIndex] = nbl::hlsl::select(_static_cast<bool>(oddThread ^ invert), hi, lo);
+				preloaded[localElementIndex] = nbl::hlsl::select(oddThread != inPadding, hi, lo);
 				// ----------------------------------------------------- ZERO PADDING -------------------------------------------------------------------------------------------
 				#else
 				const complex_t<scalar_t> Zero = { scalar_t(0), scalar_t(0) };
-				preloaded[localElementIndex] = nbl::hlsl::select(invert, Zero, nbl::hlsl::select(oddThread, hi, lo));
+				preloaded[localElementIndex] = nbl::hlsl::select(inPadding, Zero, nbl::hlsl::select(oddThread, hi, lo));
 				#endif
 				// ------------------------------------------------ END PADDING DIVERGENCE ----------------------------------------------------------------------------------------
 			}
@@ -114,7 +114,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[localElementIndex] = nbl::hlsl::select(_static_cast<bool>(oddThread ^ invert), oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = nbl::hlsl::select(oddThread != inPadding, oddThreadHi, evenThreadLo);
 			}
 			paddedIndex += WorkgroupSize / 2;
 		}
