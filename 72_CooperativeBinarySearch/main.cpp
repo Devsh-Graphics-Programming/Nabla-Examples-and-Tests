@@ -20,11 +20,14 @@ using namespace nbl::ui;
 using namespace nbl::video;
 using namespace nbl::examples;
 
-//using namespace glm;
-
-static constexpr uint32_t TestCaseIndices[] = {
+//
+constexpr uint32_t TestCaseIndices[] = {
 #include "testCaseData.h"
 };
+constexpr uint32_t numIndices = sizeof(TestCaseIndices) / sizeof(TestCaseIndices[0]);
+constexpr uint32_t lastValue = TestCaseIndices[numIndices - 1];
+// just some extra stuff over the edge
+constexpr uint32_t totalValues = lastValue + 100;
 
 
 void cpu_tests();
@@ -85,7 +88,7 @@ public:
 		    SPushConstantRange pcRange = {};
 		    pcRange.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 		    pcRange.offset = 0u;
-		    pcRange.size = sizeof(nbl::hlsl::PushConstants);
+		    pcRange.size = sizeof(PushConstants);
             auto layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(m_descriptorSetLayout));
             IGPUComputePipeline::SCreationParams params = {};
             params.layout = layout.get();
@@ -94,11 +97,12 @@ public:
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
         }
-
+        
+        const size_t sizes[2] = {sizeof(TestCaseIndices),sizeof(uint32_t)*totalValues};
         for (uint32_t i = 0; i < bindingCount; i++)
         {
             m_buffers[i] = m_device->createBuffer(IGPUBuffer::SCreationParams {
-                {.size = 500000, .usage = 
+                {.size = sizes[i], .usage =
                     IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | 
                     IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT,
                 }
@@ -146,7 +150,8 @@ public:
         memcpy(
             reinterpret_cast<void*>(outPtr), 
             reinterpret_cast<const void*>(&TestCaseIndices[0]), 
-            sizeof(TestCaseIndices));
+            sizeof(TestCaseIndices)
+        );
 
         // In contrast to fences, we just need one semaphore to rule all dispatches
         return true;
@@ -187,16 +192,13 @@ public:
         
 
         const IGPUDescriptorSet* set = m_descriptorSet.get();
-        const uint32_t numIndices = sizeof(TestCaseIndices) / sizeof(TestCaseIndices[0]);
-        const uint32_t lastValue = TestCaseIndices[numIndices - 1];
-        const uint32_t totalValues = lastValue + 100;
-        nbl::hlsl::PushConstants coopBinarySearchPC = {
+        PushConstants coopBinarySearchPC = {
             .EntityCount = numIndices,
         };
 
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
         m_cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &set);
-        m_cmdbuf->pushConstants(m_pipeline->getLayout(), nbl::hlsl::ShaderStage::ESS_COMPUTE, 0u, sizeof(nbl::hlsl::PushConstants), &coopBinarySearchPC);
+        m_cmdbuf->pushConstants(m_pipeline->getLayout(), nbl::hlsl::ShaderStage::ESS_COMPUTE, 0u, sizeof(PushConstants), &coopBinarySearchPC);
         m_cmdbuf->dispatch((totalValues + 255u) / 256u, 1u, 1u);
 
 		layoutBufferBarrier[0].barrier.dep = layoutBufferBarrier[0].barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COPY_BIT,ACCESS_FLAGS::TRANSFER_READ_BIT);

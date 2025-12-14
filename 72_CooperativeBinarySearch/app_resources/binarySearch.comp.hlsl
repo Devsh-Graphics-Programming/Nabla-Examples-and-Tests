@@ -1,18 +1,18 @@
-// Copyright (C) 2024-2024 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #pragma wave shader_stage(compute)
 
 #include "common.h"
+
 #include "nbl/builtin/hlsl/glsl_compat/subgroup_ballot.hlsl"
+
 using namespace nbl::hlsl;
 
 [[vk::push_constant]] PushConstants Constants;
 [[vk::binding(0)]] StructuredBuffer<uint> Histogram;
 [[vk::binding(1)]] RWStructuredBuffer<uint> Output;
 
-static const uint32_t GroupsharedSize = 256;
 
 uint getNextPowerOfTwo(uint number) {
 	return 2 << firstbithigh(number - 1);
@@ -61,9 +61,10 @@ uint binarySearchLowerBoundFindValue(uint findValue, StructuredBuffer<uint> sear
 	return left + firstLaneGreaterThan - 1;
 }
 
+static const uint32_t GroupsharedSize = WorkgroupSize;
 groupshared uint shared_groupSearchBufferMinIndex;
 groupshared uint shared_groupSearchBufferMaxIndex;
-groupshared uint shared_groupSearchValues[GroupsharedSize];
+groupshared uint shared_groupSearchValues[WorkgroupSize];
 
 // Binary search using the entire workgroup, making it log32 or log64 (every iteration, the possible set of 
 // values is divided by the number of lanes in a wave)
@@ -112,7 +113,7 @@ uint binarySearchLowerBoundCooperative(uint groupIndex, uint groupThread, Struct
 	return laneValue;
 }
 
-[numthreads(256, 1, 1)]
+[numthreads(WorkgroupSize,1,1)]
 void main(const uint3 thread : SV_DispatchThreadID, const uint3 groupThread : SV_GroupThreadID, const uint3 group : SV_GroupID)
 {
     Output[thread.x] = binarySearchLowerBoundCooperative(group.x, groupThread.x, Histogram, Constants.EntityCount);
