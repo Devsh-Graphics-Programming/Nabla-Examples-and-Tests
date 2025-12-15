@@ -11,11 +11,6 @@ template<typename InputTestValues, typename TestResults, typename TestExecutor>
 class ITester
 {
 public:
-    virtual ~ITester()
-    {
-        m_outputBufferAllocation.memory->unmap();
-    };
-
     struct PipelineSetupData
     {
         std::string testShaderPath;
@@ -213,6 +208,11 @@ public:
         reloadSeed();
     }
 
+    virtual ~ITester()
+    {
+        m_outputBufferAllocation.memory->unmap();
+    };
+
 protected:
     enum class TestType
     {
@@ -220,8 +220,17 @@ protected:
         GPU
     };
 
+    /**
+    * @param testBatchCount one test batch is equal to m_WorkgroupSize, so number of tests performed will be m_WorkgroupSize * testbatchCount
+    */
+    ITester(const uint32_t testBatchCount)
+        : m_testIterationCount(testBatchCount* m_WorkgroupSize)
+    {
+        reloadSeed();
+    };
+
     virtual void verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
-    
+
     virtual InputTestValues generateInputTestValues() = 0;
 
     virtual TestResults determineExpectedResults(const InputTestValues& testInput) = 0;
@@ -248,12 +257,6 @@ protected:
     core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
     video::IQueue* m_queue;
     uint64_t m_semaphoreCounter;
-    
-    ITester(const uint32_t testBatchCount)
-        : m_testIterationCount(testBatchCount * m_WorkgroupSize)
-    {
-        reloadSeed();
-    };
 
     void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
     {

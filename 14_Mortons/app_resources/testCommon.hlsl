@@ -46,7 +46,7 @@ struct TestExecutor
 		uint16_t2 Vec2AMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_2, 2>(Vec2A);
 		uint16_t2 Vec2BMedium = createAnyBitIntegerVecFromU64Vec<uint16_t, false, mediumBits_2, 2>(Vec2B);
 		uint32_t2 Vec2AFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_2, 2>(Vec2A);
-  		uint32_t2 Vec2BFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_2, 2>(Vec2B);
+		uint32_t2 Vec2BFull = createAnyBitIntegerVecFromU64Vec<uint32_t, false, fullBits_2, 2>(Vec2B);
 
 		uint16_t3 Vec3ASmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_3, 3>(Vec3A);
 		uint16_t3 Vec3BSmall = createAnyBitIntegerVecFromU64Vec<uint16_t, false, smallBits_3, 3>(Vec3B);
@@ -64,7 +64,7 @@ struct TestExecutor
 
 		int16_t2 Vec2ASignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_2, 2>(Vec2A);
 		int16_t2 Vec2BSignedSmall = createAnyBitIntegerVecFromU64Vec<int16_t, true, smallBits_2, 2>(Vec2B);
-		int16_t2 Vec2ASignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true,mediumBits_2, 2 >(Vec2A);
+		int16_t2 Vec2ASignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_2, 2 >(Vec2A);
 		int16_t2 Vec2BSignedMedium = createAnyBitIntegerVecFromU64Vec<int16_t, true, mediumBits_2, 2>(Vec2B);
 		int32_t2 Vec2ASignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2, 2>(Vec2A);
 		int32_t2 Vec2BSignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2, 2>(Vec2B);
@@ -91,7 +91,7 @@ struct TestExecutor
 		morton::code<false, mediumBits_2, 2> morton_medium_2B = createMortonFromU64Vec<false, mediumBits_2, 2>(Vec2B);
 		morton::code<false, fullBits_2, 2> morton_full_2B = createMortonFromU64Vec<false, fullBits_2, 2>(Vec2B);
 		morton::code<false, fullBits_2, 2, emulated_uint64_t> morton_emulated_2B = createMortonFromU64Vec<false, fullBits_2, 2, emulated_uint64_t>(Vec2B);
-	
+
 		morton::code<false, smallBits_3, 3> morton_small_3A = createMortonFromU64Vec<false, smallBits_3, 3>(Vec3A);
 		morton::code<false, mediumBits_3, 3> morton_medium_3A = createMortonFromU64Vec<false, mediumBits_3, 3>(Vec3A);
 		morton::code<false, fullBits_3, 3> morton_full_3A = createMortonFromU64Vec<false, fullBits_3, 3>(Vec3A);
@@ -100,7 +100,7 @@ struct TestExecutor
 		morton::code<false, mediumBits_3, 3> morton_medium_3B = createMortonFromU64Vec<false, mediumBits_3, 3>(Vec3B);
 		morton::code<false, fullBits_3, 3> morton_full_3B = createMortonFromU64Vec<false, fullBits_3, 3>(Vec3B);
 		morton::code<false, fullBits_3, 3, emulated_uint64_t> morton_emulated_3B = createMortonFromU64Vec<false, fullBits_3, 3, emulated_uint64_t>(Vec3B);
-	
+
 		morton::code<false, smallBits_4, 4> morton_small_4A = createMortonFromU64Vec<false, smallBits_4, 4>(Vec4A);
 		morton::code<false, mediumBits_4, 4> morton_medium_4A = createMortonFromU64Vec<false, mediumBits_4, 4>(Vec4A);
 		morton::code<false, fullBits_4, 4> morton_full_4A = createMortonFromU64Vec<false, fullBits_4, 4>(Vec4A);
@@ -109,23 +109,23 @@ struct TestExecutor
 		morton::code<false, mediumBits_4, 4> morton_medium_4B = createMortonFromU64Vec<false, mediumBits_4, 4>(Vec4B);
 		morton::code<false, fullBits_4, 4> morton_full_4B = createMortonFromU64Vec<false, fullBits_4, 4>(Vec4B);
 		morton::code<false, fullBits_4, 4, emulated_uint64_t> morton_emulated_4B = createMortonFromU64Vec<false, fullBits_4, 4, emulated_uint64_t>(Vec4B);
-	
+
 		morton::code<true, smallBits_2, 2> morton_small_2_signed = createMortonFromU64Vec<true, smallBits_2, 2>(Vec2A);
 		morton::code<true, mediumBits_2, 2> morton_medium_2_signed = createMortonFromU64Vec<true, mediumBits_2, 2>(Vec2A);
 		morton::code<true, fullBits_2, 2> morton_full_2_signed = createMortonFromU64Vec<true, fullBits_2, 2>(Vec2A);
 		morton::code<true, fullBits_2, 2, emulated_uint64_t> morton_emulated_2_signed = createMortonFromU64Vec<true, fullBits_2, 2, emulated_uint64_t>(Vec2A);
-	
+
 		morton::code<true, smallBits_3, 3> morton_small_3_signed = createMortonFromU64Vec<true, smallBits_3, 3>(Vec3A);
 		morton::code<true, mediumBits_3, 3> morton_medium_3_signed = createMortonFromU64Vec<true, mediumBits_3, 3>(Vec3A);
 		morton::code<true, fullBits_3, 3> morton_full_3_signed = createMortonFromU64Vec<true, fullBits_3, 3>(Vec3A);
 		morton::code<true, fullBits_3, 3, emulated_uint64_t> morton_emulated_3_signed = createMortonFromU64Vec<true, fullBits_3, 3, emulated_uint64_t>(Vec3A);
-	
+
 		morton::code<true, smallBits_4, 4> morton_small_4_signed = createMortonFromU64Vec<true, smallBits_4, 4>(Vec4A);
 		morton::code<true, mediumBits_4, 4> morton_medium_4_signed = createMortonFromU64Vec<true, mediumBits_4, 4>(Vec4A);
 		morton::code<true, fullBits_4, 4> morton_full_4_signed = createMortonFromU64Vec<true, fullBits_4, 4>(Vec4A);
 		morton::code<true, fullBits_4, 4, emulated_uint64_t> morton_emulated_4_signed = createMortonFromU64Vec<true, fullBits_4, 4, emulated_uint64_t>(Vec4A);
 
-    	// Some test and operation is moved to testCommon2.hlsl due to dxc bug that cause compilation failure. Uncomment when the bug is fixed.
+		// Some test and operation is moved to testCommon2.hlsl due to dxc bug that cause compilation failure. Uncomment when the bug is fixed.
 		// Plus
 		output.mortonPlus_small_2 = morton_small_2A + morton_small_2B;
 		output.mortonPlus_medium_2 = morton_medium_2A + morton_medium_2B;
@@ -172,7 +172,7 @@ struct TestExecutor
 		output.mortonEqual_small_4 = uint32_t4(morton_small_4A.equal<false>(Vec4BSmall));
 		output.mortonEqual_medium_4 = uint32_t4(morton_medium_4A.equal<false>(Vec4BMedium));
 		output.mortonEqual_full_4 = uint32_t4(morton_full_4A.equal<false>(Vec4BFull));
-    	output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(Vec4BFull));
+		output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(Vec4BFull));
 
 		// Coordinate-wise unsigned inequality (just testing with less)
 		output.mortonUnsignedLess_small_2 = uint32_t2(morton_small_2A.lessThan<false>(Vec2BSmall));
@@ -227,7 +227,7 @@ struct TestExecutor
 		output.mortonLeftShift_full_3 = leftShiftFull3(morton_full_3A, castedShift % fullBits_3);
 		left_shift_operator<morton::code<false, fullBits_3, 3, emulated_uint64_t> > leftShiftEmulated3;
 		output.mortonLeftShift_emulated_3 = leftShiftEmulated3(morton_emulated_3A, castedShift % fullBits_3);
-	
+
 		left_shift_operator<morton::code<false, smallBits_4, 4> > leftShiftSmall4;
 		output.mortonLeftShift_small_4 = leftShiftSmall4(morton_small_4A, castedShift % smallBits_4);
 		left_shift_operator<morton::code<false, mediumBits_4, 4> > leftShiftMedium4;
@@ -236,7 +236,7 @@ struct TestExecutor
 		output.mortonLeftShift_full_4 = leftShiftFull4(morton_full_4A, castedShift % fullBits_4);
 		left_shift_operator<morton::code<false, fullBits_4, 4, emulated_uint64_t> > leftShiftEmulated4;
 		output.mortonLeftShift_emulated_4 = leftShiftEmulated4(morton_emulated_4A, castedShift % fullBits_4);
-		
+
 		// Unsigned right-shift
 		arithmetic_right_shift_operator<morton::code<false, smallBits_2, 2> > rightShiftSmall2;
 		output.mortonUnsignedRightShift_small_2 = rightShiftSmall2(morton_small_2A, castedShift % smallBits_2);
@@ -246,7 +246,7 @@ struct TestExecutor
 		output.mortonUnsignedRightShift_full_2 = rightShiftFull2(morton_full_2A, castedShift % fullBits_2);
 		arithmetic_right_shift_operator<morton::code<false, fullBits_2, 2, emulated_uint64_t> > rightShiftEmulated2;
 		output.mortonUnsignedRightShift_emulated_2 = rightShiftEmulated2(morton_emulated_2A, castedShift % fullBits_2);
-		
+
 		arithmetic_right_shift_operator<morton::code<false, smallBits_3, 3> > rightShiftSmall3;
 		output.mortonUnsignedRightShift_small_3 = rightShiftSmall3(morton_small_3A, castedShift % smallBits_3);
 		arithmetic_right_shift_operator<morton::code<false, mediumBits_3, 3> > rightShiftMedium3;
@@ -255,7 +255,7 @@ struct TestExecutor
 		output.mortonUnsignedRightShift_full_3 = rightShiftFull3(morton_full_3A, castedShift % fullBits_3);
 		arithmetic_right_shift_operator<morton::code<false, fullBits_3, 3, emulated_uint64_t> > rightShiftEmulated3;
 		output.mortonUnsignedRightShift_emulated_3 = rightShiftEmulated3(morton_emulated_3A, castedShift % fullBits_3);
-		
+
 		arithmetic_right_shift_operator<morton::code<false, smallBits_4, 4> > rightShiftSmall4;
 		output.mortonUnsignedRightShift_small_4 = rightShiftSmall4(morton_small_4A, castedShift % smallBits_4);
 		arithmetic_right_shift_operator<morton::code<false, mediumBits_4, 4> > rightShiftMedium4;
@@ -264,7 +264,7 @@ struct TestExecutor
 		output.mortonUnsignedRightShift_full_4 = rightShiftFull4(morton_full_4A, castedShift % fullBits_4);
 		arithmetic_right_shift_operator<morton::code<false, fullBits_4, 4, emulated_uint64_t> > rightShiftEmulated4;
 		output.mortonUnsignedRightShift_emulated_4 = rightShiftEmulated4(morton_emulated_4A, castedShift % fullBits_4);
-		
+
 		// Signed right-shift
 		arithmetic_right_shift_operator<morton::code<true, smallBits_2, 2> > rightShiftSignedSmall2;
 		output.mortonSignedRightShift_small_2 = rightShiftSignedSmall2(morton_small_2_signed, castedShift % smallBits_2);
@@ -274,7 +274,7 @@ struct TestExecutor
 		output.mortonSignedRightShift_full_2 = rightShiftSignedFull2(morton_full_2_signed, castedShift % fullBits_2);
 		// arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2, emulated_uint64_t> > rightShiftSignedEmulated2;
 		// output.mortonSignedRightShift_emulated_2 = rightShiftSignedEmulated2(morton_emulated_2_signed, castedShift % fullBits_2); 
-		
+
 		arithmetic_right_shift_operator<morton::code<true, smallBits_3, 3> > rightShiftSignedSmall3;
 		output.mortonSignedRightShift_small_3 = rightShiftSignedSmall3(morton_small_3_signed, castedShift % smallBits_3);
 		arithmetic_right_shift_operator<morton::code<true, mediumBits_3, 3> > rightShiftSignedMedium3;
@@ -283,7 +283,7 @@ struct TestExecutor
 		output.mortonSignedRightShift_full_3 = rightShiftSignedFull3(morton_full_3_signed, castedShift % fullBits_3);
 		// arithmetic_right_shift_operator<morton::code<true, fullBits_3, 3, emulated_uint64_t> > rightShiftSignedEmulated3;
 		// output.mortonSignedRightShift_emulated_3 = rightShiftSignedEmulated3(morton_emulated_3_signed, castedShift % fullBits_3); 
-		
+
 		arithmetic_right_shift_operator<morton::code<true, smallBits_4, 4> > rightShiftSignedSmall4;
 		output.mortonSignedRightShift_small_4 = rightShiftSignedSmall4(morton_small_4_signed, castedShift % smallBits_4);
 		arithmetic_right_shift_operator<morton::code<true, mediumBits_4, 4> > rightShiftSignedMedium4;
@@ -293,4 +293,5 @@ struct TestExecutor
 		// arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4, emulated_uint64_t> > rightShiftSignedEmulated4;
 		// output.mortonSignedRightShift_emulated_4 = rightShiftSignedEmulated4(morton_emulated_4_signed, castedShift % fullBits_4); 
 
-}
+	}
+};

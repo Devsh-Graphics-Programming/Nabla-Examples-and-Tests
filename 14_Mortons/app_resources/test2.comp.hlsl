@@ -13,6 +13,6 @@
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
-    TestExecutor executor;
+    TestExecutor2 executor;
     executor(inputTestValues[invID], outputTestValues[invID]);
 }
