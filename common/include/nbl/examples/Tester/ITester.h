@@ -182,7 +182,7 @@ public:
     void performTestsAndVerifyResults()
     {
         core::vector<InputTestValues> inputTestValues;
-        core::vector<TestValues> exceptedTestResults;
+        core::vector<TestResults> exceptedTestResults;
 
         inputTestValues.reserve(m_testIterationCount);
         exceptedTestResults.reserve(m_testIterationCount);
@@ -193,14 +193,14 @@ public:
             // Set input thest values that will be used in both CPU and GPU tests
             InputTestValues testInput = generateInputTestValues();
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-            TestValues expected = determineExpectedResults(testInput);
+            TestResults expected = determineExpectedResults(testInput);
 
             inputTestValues.push_back(testInput);
             exceptedTestResults.push_back(expected);
         }
 
-        core::vector<TestValues> cpuTestResults = performCpuTests(inputTestValues);
-        core::vector<TestValues> gpuTestResults = performGpuTests(inputTestValues);
+        core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
+        core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
 
         verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
 
@@ -229,7 +229,7 @@ protected:
         reloadSeed();
     };
 
-    virtual void verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
+    virtual void verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
 
     virtual InputTestValues generateInputTestValues() = 0;
 
@@ -336,9 +336,9 @@ private:
         exit(-1);
     }
 
-    core::vector<TestValues> performCpuTests(const core::vector<InputTestValues>& inputTestValues)
+    core::vector<TestResults> performCpuTests(const core::vector<InputTestValues>& inputTestValues)
     {
-        core::vector<TestValues> output(m_testIterationCount);
+        core::vector<TestResults> output(m_testIterationCount);
         TestExecutor testExecutor;
 
         auto iterations = std::views::iota(0ull, m_testIterationCount);
@@ -352,15 +352,15 @@ private:
         return output;
     }
 
-    core::vector<TestValues> performGpuTests(const core::vector<InputTestValues>& inputTestValues)
+    core::vector<TestResults> performGpuTests(const core::vector<InputTestValues>& inputTestValues)
     {
-        core::vector<TestValues> output(m_testIterationCount);
+        core::vector<TestResults> output(m_testIterationCount);
         dispatchGpuTests(inputTestValues, output);
 
         return output;
     }
 
-    void verifyAllTestResults(const core::vector<TestValues>& cpuTestReults, const core::vector<TestValues>& gpuTestReults, const core::vector<TestValues>& exceptedTestReults)
+    void verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
     {
         for (int i = 0; i < m_testIterationCount; ++i)
         {
