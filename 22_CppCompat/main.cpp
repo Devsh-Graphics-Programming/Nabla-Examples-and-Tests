@@ -59,25 +59,33 @@ public:
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
 
-        ITester::PipelineSetupData pplnSetupData;
-        pplnSetupData.device = m_device;
-        pplnSetupData.api = m_api;
-        pplnSetupData.assetMgr = m_assetMgr;
-        pplnSetupData.logger = m_logger;
-        pplnSetupData.physicalDevice = m_physicalDevice;
-        pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-
         {
-            CTgmathTester tgmathTester;
+            CTgmathTester::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
             pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
-            tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
-            tgmathTester.performTests();
+
+            CTgmathTester tgmathTester(4);
+            tgmathTester.setupPipeline(pplnSetupData);
+            tgmathTester.performTestsAndVerifyResults();
         }
         {
-            CIntrinsicsTester intrinsicsTester;
+            CIntrinsicsTester::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
             pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
-            intrinsicsTester.setupPipeline<IntrinsicsIntputTestValues, IntrinsicsTestValues>(pplnSetupData);
-            intrinsicsTester.performTests();
+
+            CIntrinsicsTester intrinsicsTester(4);
+            intrinsicsTester.setupPipeline(pplnSetupData);
+            intrinsicsTester.performTestsAndVerifyResults();
         }
 
         m_queue = m_device->getQueue(0, 0);

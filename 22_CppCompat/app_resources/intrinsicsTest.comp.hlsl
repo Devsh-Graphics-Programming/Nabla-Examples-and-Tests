@@ -4,13 +4,16 @@
 #pragma shader_stage(compute)
 
 #include "common.hlsl"
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<IntrinsicsIntputTestValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<IntrinsicsTestValues> outputTestValues;
 
-[numthreads(256, 1, 1)]
-void main(uint3 invocationID : SV_DispatchThreadID)
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+[shader("compute")]
+void main()
 {
-    if(invocationID.x == 0)
-        outputTestValues[0].fillTestValues(inputTestValues[0]);
+    const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+    IntrinsicsTestExecutor executor;
+    executor(inputTestValues[invID], outputTestValues[invID]);
 }

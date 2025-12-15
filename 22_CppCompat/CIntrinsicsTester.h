@@ -5,19 +5,21 @@
 #include "nbl/examples/examples.hpp"
 
 #include "app_resources/common.hlsl"
-#include "ITester.h"
 
 
 using namespace nbl;
 
-class CIntrinsicsTester final : public ITester
+class CIntrinsicsTester final : public ITester<IntrinsicsIntputTestValues, IntrinsicsTestValues, IntrinsicsTestExecutor>
 {
-public:
-    void performTests()
-    {
-        std::random_device rd;
-        std::mt19937 mt(rd());
+    using base_t = ITester<IntrinsicsIntputTestValues, IntrinsicsTestValues, IntrinsicsTestExecutor>;
 
+public:
+    CIntrinsicsTester(const uint32_t testBatchCount)
+        : base_t(testBatchCount) {};
+
+private:
+    IntrinsicsIntputTestValues generateInputTestValues() override
+    {
         std::uniform_real_distribution<float> realDistributionNeg(-50.0f, -1.0f);
         std::uniform_real_distribution<float> realDistributionPos(1.0f, 50.0f);
         std::uniform_real_distribution<float> realDistributionZeroToOne(0.0f, 1.0f);
@@ -26,262 +28,232 @@ public:
         std::uniform_int_distribution<int> intDistribution(-100, 100);
         std::uniform_int_distribution<uint32_t> uintDistribution(0, 100);
 
-        m_logger->log("intrinsics.hlsl TESTS:", system::ILogger::ELL_PERFORMANCE);
-        for (int i = 0; i < Iterations; ++i)
-        {
-            // Set input thest values that will be used in both CPU and GPU tests
-            IntrinsicsIntputTestValues testInput;
-            testInput.bitCount = intDistribution(mt);
-            testInput.crossLhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.crossRhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.clampVal = realDistribution(mt);
-            testInput.clampMin = realDistributionNeg(mt);
-            testInput.clampMax = realDistributionPos(mt);
-            testInput.length = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.normalize = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.dotLhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            testInput.dotRhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            testInput.determinant = float32_t3x3(
-                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
-                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
-                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt)
-            );
-            testInput.findMSB = realDistribution(mt);
-            testInput.findLSB = realDistribution(mt);
-            testInput.inverse = float32_t3x3(
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt)
-            );
-            testInput.transpose = float32_t3x3(
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt)
-            );
-            testInput.mulLhs = float32_t3x3(
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt)
-            );
-            testInput.mulRhs = float32_t3x3(
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt)
-            );
-            testInput.minA = realDistribution(mt);
-            testInput.minB = realDistribution(mt);
-            testInput.maxA = realDistribution(mt);
-            testInput.maxB = realDistribution(mt);
-            testInput.rsqrt = realDistributionPos(mt);
-            testInput.bitReverse = realDistribution(mt);
-            testInput.frac = realDistribution(mt);
-            testInput.mixX = realDistributionNeg(mt);
-            testInput.mixY = realDistributionPos(mt);
-            testInput.mixA = realDistributionZeroToOne(mt);
-            testInput.sign = realDistribution(mt);
-            testInput.radians = realDistribution(mt);
-            testInput.degrees = realDistribution(mt);
-            testInput.stepEdge = realDistribution(mt);
-            testInput.stepX = realDistribution(mt);
-            testInput.smoothStepEdge0 = realDistributionNeg(mt);
-            testInput.smoothStepEdge1 = realDistributionPos(mt);
-            testInput.smoothStepX = realDistribution(mt);
-            testInput.addCarryA = std::numeric_limits<uint32_t>::max() - uintDistribution(mt);
-            testInput.addCarryB = uintDistribution(mt);
-            testInput.subBorrowA = uintDistribution(mt);
-            testInput.subBorrowB = uintDistribution(mt);
+        IntrinsicsIntputTestValues testInput;
+        testInput.bitCount = intDistribution(getRandomEngine());
+        testInput.crossLhs = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.crossRhs = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.clampVal = realDistribution(getRandomEngine());
+        testInput.clampMin = realDistributionNeg(getRandomEngine());
+        testInput.clampMax = realDistributionPos(getRandomEngine());
+        testInput.length = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.normalize = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.dotLhs = float32_t3(realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()));
+        testInput.dotRhs = float32_t3(realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()));
+        testInput.determinant = float32_t3x3(
+            realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()),
+            realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()),
+            realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine())
+        );
+        testInput.findMSB = realDistribution(getRandomEngine());
+        testInput.findLSB = realDistribution(getRandomEngine());
+        testInput.inverse = float32_t3x3(
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
+        );
+        testInput.transpose = float32_t3x3(
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
+        );
+        testInput.mulLhs = float32_t3x3(
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
+        );
+        testInput.mulRhs = float32_t3x3(
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
+        );
+        testInput.minA = realDistribution(getRandomEngine());
+        testInput.minB = realDistribution(getRandomEngine());
+        testInput.maxA = realDistribution(getRandomEngine());
+        testInput.maxB = realDistribution(getRandomEngine());
+        testInput.rsqrt = realDistributionPos(getRandomEngine());
+        testInput.bitReverse = realDistribution(getRandomEngine());
+        testInput.frac = realDistribution(getRandomEngine());
+        testInput.mixX = realDistributionNeg(getRandomEngine());
+        testInput.mixY = realDistributionPos(getRandomEngine());
+        testInput.mixA = realDistributionZeroToOne(getRandomEngine());
+        testInput.sign = realDistribution(getRandomEngine());
+        testInput.radians = realDistribution(getRandomEngine());
+        testInput.degrees = realDistribution(getRandomEngine());
+        testInput.stepEdge = realDistribution(getRandomEngine());
+        testInput.stepX = realDistribution(getRandomEngine());
+        testInput.smoothStepEdge0 = realDistributionNeg(getRandomEngine());
+        testInput.smoothStepEdge1 = realDistributionPos(getRandomEngine());
+        testInput.smoothStepX = realDistribution(getRandomEngine());
 
-            testInput.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
-            testInput.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.clampMinVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            testInput.clampMaxVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            testInput.findMSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            testInput.findLSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            testInput.minAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.minBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.maxAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.maxBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.rsqrtVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            testInput.bitReverseVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            testInput.fracVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            testInput.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            testInput.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
+        testInput.bitCountVec = int32_t3(intDistribution(getRandomEngine()), intDistribution(getRandomEngine()), intDistribution(getRandomEngine()));
+        testInput.clampValVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.clampMinVec = float32_t3(realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()));
+        testInput.clampMaxVec = float32_t3(realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()));
+        testInput.findMSBVec = uint32_t3(uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()));
+        testInput.findLSBVec = uint32_t3(uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()));
+        testInput.minAVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.minBVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.maxAVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.maxBVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.rsqrtVec = float32_t3(realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()));
+        testInput.bitReverseVec = uint32_t3(uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()), uintDistribution(getRandomEngine()));
+        testInput.fracVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.mixXVec = float32_t3(realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()));
+        testInput.mixYVec = float32_t3(realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()));
+        testInput.mixAVec = float32_t3(realDistributionZeroToOne(getRandomEngine()), realDistributionZeroToOne(getRandomEngine()), realDistributionZeroToOne(getRandomEngine()));
 
-            testInput.signVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.radiansVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.degreesVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.stepEdgeVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.stepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.smoothStepEdge0Vec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            testInput.smoothStepEdge1Vec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            testInput.smoothStepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.faceForwardN = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.faceForwardI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.faceForwardNref = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.reflectI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.reflectN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
-            testInput.refractI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
-            testInput.refractEta = realDistribution(mt);
-            testInput.addCarryAVec = uint32_t3(std::numeric_limits<uint32_t>::max() - uintDistribution(mt), std::numeric_limits<uint32_t>::max() - uintDistribution(mt), std::numeric_limits<uint32_t>::max() - uintDistribution(mt));
-            testInput.addCarryBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            testInput.subBorrowAVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            testInput.subBorrowBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+        testInput.signVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.radiansVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.degreesVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.stepEdgeVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.stepXVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.smoothStepEdge0Vec = float32_t3(realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()), realDistributionNeg(getRandomEngine()));
+        testInput.smoothStepEdge1Vec = float32_t3(realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()), realDistributionPos(getRandomEngine()));
+        testInput.smoothStepXVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.faceForwardN = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.faceForwardI = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.faceForwardNref = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.reflectI = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.reflectN = glm::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
+        testInput.refractI = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.refractN = glm::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
+        testInput.refractEta = realDistribution(getRandomEngine());
 
-            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-            IntrinsicsTestValues expected;
-            expected.bitCount = glm::bitCount(testInput.bitCount);
-            expected.clamp = glm::clamp(testInput.clampVal, testInput.clampMin, testInput.clampMax);
-            expected.length = glm::length(testInput.length);
-            expected.dot = glm::dot(testInput.dotLhs, testInput.dotRhs);
-            expected.determinant = glm::determinant(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.determinant));
-            expected.findMSB = glm::findMSB(testInput.findMSB);
-            expected.findLSB = glm::findLSB(testInput.findLSB);
-            expected.min = glm::min(testInput.minA, testInput.minB);
-            expected.max = glm::max(testInput.maxA, testInput.maxB);
-            expected.rsqrt = (1.0f / std::sqrt(testInput.rsqrt));
-            expected.mix = std::lerp(testInput.mixX, testInput.mixY, testInput.mixA);
-            expected.sign = glm::sign(testInput.sign);
-            expected.radians = glm::radians(testInput.radians);
-            expected.degrees = glm::degrees(testInput.degrees);
-            expected.step = glm::step(testInput.stepEdge, testInput.stepX);
-            expected.smoothStep = glm::smoothstep(testInput.smoothStepEdge0, testInput.smoothStepEdge1, testInput.smoothStepX);
-
-            expected.addCarry.result = glm::uaddCarry(testInput.addCarryA, testInput.addCarryB, expected.addCarry.carry);
-            expected.subBorrow.result = glm::usubBorrow(testInput.subBorrowA, testInput.subBorrowB, expected.subBorrow.borrow);
-
-            expected.frac = testInput.frac - std::floor(testInput.frac);
-            expected.bitReverse = glm::bitfieldReverse(testInput.bitReverse);
-
-            expected.normalize = glm::normalize(testInput.normalize);
-            expected.cross = glm::cross(testInput.crossLhs, testInput.crossRhs);
-            expected.bitCountVec = int32_t3(glm::bitCount(testInput.bitCountVec.x), glm::bitCount(testInput.bitCountVec.y), glm::bitCount(testInput.bitCountVec.z));
-            expected.clampVec = float32_t3(
-                glm::clamp(testInput.clampValVec.x, testInput.clampMinVec.x, testInput.clampMaxVec.x),
-                glm::clamp(testInput.clampValVec.y, testInput.clampMinVec.y, testInput.clampMaxVec.y),
-                glm::clamp(testInput.clampValVec.z, testInput.clampMinVec.z, testInput.clampMaxVec.z)
-            );
-            expected.findMSBVec = glm::findMSB(testInput.findMSBVec);
-            expected.findLSBVec = glm::findLSB(testInput.findLSBVec);
-            expected.minVec = float32_t3(
-                glm::min(testInput.minAVec.x, testInput.minBVec.x),
-                glm::min(testInput.minAVec.y, testInput.minBVec.y),
-                glm::min(testInput.minAVec.z, testInput.minBVec.z)
-            );
-            expected.maxVec = float32_t3(
-                glm::max(testInput.maxAVec.x, testInput.maxBVec.x),
-                glm::max(testInput.maxAVec.y, testInput.maxBVec.y),
-                glm::max(testInput.maxAVec.z, testInput.maxBVec.z)
-            );
-            expected.rsqrtVec = float32_t3(1.0f / std::sqrt(testInput.rsqrtVec.x), 1.0f / std::sqrt(testInput.rsqrtVec.y), 1.0f / std::sqrt(testInput.rsqrtVec.z));
-            expected.bitReverseVec = glm::bitfieldReverse(testInput.bitReverseVec);
-            expected.fracVec = float32_t3(
-                testInput.fracVec.x - std::floor(testInput.fracVec.x),
-                testInput.fracVec.y - std::floor(testInput.fracVec.y),
-                testInput.fracVec.z - std::floor(testInput.fracVec.z));
-            expected.mixVec.x = std::lerp(testInput.mixXVec.x, testInput.mixYVec.x, testInput.mixAVec.x);
-            expected.mixVec.y = std::lerp(testInput.mixXVec.y, testInput.mixYVec.y, testInput.mixAVec.y);
-            expected.mixVec.z = std::lerp(testInput.mixXVec.z, testInput.mixYVec.z, testInput.mixAVec.z);
-
-            expected.signVec = glm::sign(testInput.signVec);
-            expected.radiansVec = glm::radians(testInput.radiansVec);
-            expected.degreesVec = glm::degrees(testInput.degreesVec);
-            expected.stepVec = glm::step(testInput.stepEdgeVec, testInput.stepXVec);
-            expected.smoothStepVec = glm::smoothstep(testInput.smoothStepEdge0Vec, testInput.smoothStepEdge1Vec, testInput.smoothStepXVec);
-            expected.faceForward = glm::faceforward(testInput.faceForwardN, testInput.faceForwardI, testInput.faceForwardNref);
-            expected.reflect = glm::reflect(testInput.reflectI, testInput.reflectN);
-            expected.refract = glm::refract(testInput.refractI, testInput.refractN, testInput.refractEta);
-
-            expected.addCarryVec.result = glm::uaddCarry(testInput.addCarryAVec, testInput.addCarryBVec, expected.addCarryVec.carry);
-            expected.subBorrowVec.result = glm::usubBorrow(testInput.subBorrowAVec, testInput.subBorrowBVec, expected.subBorrowVec.borrow);
-
-            auto mulGlm = nbl::hlsl::mul(testInput.mulLhs, testInput.mulRhs);
-            expected.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
-            auto transposeGlm = glm::transpose(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.transpose));
-            expected.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
-            auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
-            expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
-
-            performCpuTests(testInput, expected);
-            performGpuTests(testInput, expected);
-        }
-        m_logger->log("intrinsics.hlsl TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+        return testInput;
     }
 
-private:
-    inline static constexpr int Iterations = 100u;
-
-    void performCpuTests(const IntrinsicsIntputTestValues& commonTestInputValues, const IntrinsicsTestValues& expectedTestValues)
+    IntrinsicsTestValues determineExpectedResults(const IntrinsicsIntputTestValues& testInput) override
     {
-        IntrinsicsTestValues cpuTestValues;
+        IntrinsicsTestValues expected;
+        expected.bitCount = glm::bitCount(testInput.bitCount);
+        expected.clamp = glm::clamp(testInput.clampVal, testInput.clampMin, testInput.clampMax);
+        expected.length = glm::length(testInput.length);
+        expected.dot = glm::dot(testInput.dotLhs, testInput.dotRhs);
+        expected.determinant = glm::determinant(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.determinant));
+        expected.findMSB = glm::findMSB(testInput.findMSB);
+        expected.findLSB = glm::findLSB(testInput.findLSB);
+        expected.min = glm::min(testInput.minA, testInput.minB);
+        expected.max = glm::max(testInput.maxA, testInput.maxB);
+        expected.rsqrt = (1.0f / std::sqrt(testInput.rsqrt));
+        expected.mix = std::lerp(testInput.mixX, testInput.mixY, testInput.mixA);
+        expected.sign = glm::sign(testInput.sign);
+        expected.radians = glm::radians(testInput.radians);
+        expected.degrees = glm::degrees(testInput.degrees);
+        expected.step = glm::step(testInput.stepEdge, testInput.stepX);
+        expected.smoothStep = glm::smoothstep(testInput.smoothStepEdge0, testInput.smoothStepEdge1, testInput.smoothStepX);
 
-        cpuTestValues.fillTestValues(commonTestInputValues);
-        verifyTestValues(expectedTestValues, cpuTestValues, ITester::TestType::CPU);
+        expected.addCarry.result = glm::uaddCarry(testInput.addCarryA, testInput.addCarryB, expected.addCarry.carry);
+        expected.subBorrow.result = glm::usubBorrow(testInput.subBorrowA, testInput.subBorrowB, expected.subBorrow.borrow);
 
+        expected.frac = testInput.frac - std::floor(testInput.frac);
+        expected.bitReverse = glm::bitfieldReverse(testInput.bitReverse);
+
+        expected.normalize = glm::normalize(testInput.normalize);
+        expected.cross = glm::cross(testInput.crossLhs, testInput.crossRhs);
+        expected.bitCountVec = int32_t3(glm::bitCount(testInput.bitCountVec.x), glm::bitCount(testInput.bitCountVec.y), glm::bitCount(testInput.bitCountVec.z));
+        expected.clampVec = float32_t3(
+            glm::clamp(testInput.clampValVec.x, testInput.clampMinVec.x, testInput.clampMaxVec.x),
+            glm::clamp(testInput.clampValVec.y, testInput.clampMinVec.y, testInput.clampMaxVec.y),
+            glm::clamp(testInput.clampValVec.z, testInput.clampMinVec.z, testInput.clampMaxVec.z)
+        );
+        expected.findMSBVec = glm::findMSB(testInput.findMSBVec);
+        expected.findLSBVec = glm::findLSB(testInput.findLSBVec);
+        expected.minVec = float32_t3(
+            glm::min(testInput.minAVec.x, testInput.minBVec.x),
+            glm::min(testInput.minAVec.y, testInput.minBVec.y),
+            glm::min(testInput.minAVec.z, testInput.minBVec.z)
+        );
+        expected.maxVec = float32_t3(
+            glm::max(testInput.maxAVec.x, testInput.maxBVec.x),
+            glm::max(testInput.maxAVec.y, testInput.maxBVec.y),
+            glm::max(testInput.maxAVec.z, testInput.maxBVec.z)
+        );
+        expected.rsqrtVec = float32_t3(1.0f / std::sqrt(testInput.rsqrtVec.x), 1.0f / std::sqrt(testInput.rsqrtVec.y), 1.0f / std::sqrt(testInput.rsqrtVec.z));
+        expected.bitReverseVec = glm::bitfieldReverse(testInput.bitReverseVec);
+        expected.fracVec = float32_t3(
+            testInput.fracVec.x - std::floor(testInput.fracVec.x),
+            testInput.fracVec.y - std::floor(testInput.fracVec.y),
+            testInput.fracVec.z - std::floor(testInput.fracVec.z));
+        expected.mixVec.x = std::lerp(testInput.mixXVec.x, testInput.mixYVec.x, testInput.mixAVec.x);
+        expected.mixVec.y = std::lerp(testInput.mixXVec.y, testInput.mixYVec.y, testInput.mixAVec.y);
+        expected.mixVec.z = std::lerp(testInput.mixXVec.z, testInput.mixYVec.z, testInput.mixAVec.z);
+
+        expected.signVec = glm::sign(testInput.signVec);
+        expected.radiansVec = glm::radians(testInput.radiansVec);
+        expected.degreesVec = glm::degrees(testInput.degreesVec);
+        expected.stepVec = glm::step(testInput.stepEdgeVec, testInput.stepXVec);
+        expected.smoothStepVec = glm::smoothstep(testInput.smoothStepEdge0Vec, testInput.smoothStepEdge1Vec, testInput.smoothStepXVec);
+        expected.faceForward = glm::faceforward(testInput.faceForwardN, testInput.faceForwardI, testInput.faceForwardNref);
+        expected.reflect = glm::reflect(testInput.reflectI, testInput.reflectN);
+        expected.refract = glm::refract(testInput.refractI, testInput.refractN, testInput.refractEta);
+
+        expected.addCarryVec.result = glm::uaddCarry(testInput.addCarryAVec, testInput.addCarryBVec, expected.addCarryVec.carry);
+        expected.subBorrowVec.result = glm::usubBorrow(testInput.subBorrowAVec, testInput.subBorrowBVec, expected.subBorrowVec.borrow);
+
+        auto mulGlm = nbl::hlsl::mul(testInput.mulLhs, testInput.mulRhs);
+        expected.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
+        auto transposeGlm = glm::transpose(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.transpose));
+        expected.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
+        auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
+        expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
+
+        return expected;
     }
 
-    void performGpuTests(const IntrinsicsIntputTestValues& commonTestInputValues, const IntrinsicsTestValues& expectedTestValues)
+    void verifyTestResults(const IntrinsicsTestValues& expectedTestValues, const IntrinsicsTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        IntrinsicsTestValues gpuTestValues;
-        gpuTestValues = dispatch<IntrinsicsIntputTestValues, IntrinsicsTestValues>(commonTestInputValues);
-        verifyTestValues(expectedTestValues, gpuTestValues, ITester::TestType::GPU);
-    }
+        verifyTestValue("bitCount", expectedTestValues.bitCount, testValues.bitCount, testIteration, seed, testType);
+        verifyTestValue("clamp", expectedTestValues.clamp, testValues.clamp, testIteration, seed, testType);
+        verifyTestValue("length", expectedTestValues.length, testValues.length, testIteration, seed, testType);
+        verifyTestValue("dot", expectedTestValues.dot, testValues.dot, testIteration, seed, testType);
+        verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testIteration, seed, testType);
+        verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testIteration, seed, testType);
+        verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testIteration, seed, testType);
+        verifyTestValue("min", expectedTestValues.min, testValues.min, testIteration, seed, testType);
+        verifyTestValue("max", expectedTestValues.max, testValues.max, testIteration, seed, testType);
+        verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testIteration, seed, testType);
+        verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testIteration, seed, testType);
+        verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testIteration, seed, testType);
+        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testIteration, seed, testType);
+        verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testIteration, seed, testType);
+        verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testIteration, seed, testType);
+        verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testIteration, seed, testType);
+        verifyTestValue("step", expectedTestValues.step, testValues.step, testIteration, seed, testType);
+        verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testIteration, seed, testType);
+        verifyTestValue("addCarryResult", expectedTestValues.addCarry.result, testValues.addCarry.result, testIteration, seed, testType);
+        verifyTestValue("addCarryCarry", expectedTestValues.addCarry.carry, testValues.addCarry.carry, testIteration, seed, testType);
+        verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testIteration, seed, testType);
+        verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testIteration, seed, testType);
 
-    void verifyTestValues(const IntrinsicsTestValues& expectedTestValues, const IntrinsicsTestValues& testValues, ITester::TestType testType)
-    {
-        verifyTestValue("bitCount", expectedTestValues.bitCount, testValues.bitCount, testType);
-        verifyTestValue("clamp", expectedTestValues.clamp, testValues.clamp, testType);
-        verifyTestValue("length", expectedTestValues.length, testValues.length, testType);
-        verifyTestValue("dot", expectedTestValues.dot, testValues.dot, testType);
-        verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testType);
-        verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testType);
-        verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testType);
-        verifyTestValue("min", expectedTestValues.min, testValues.min, testType);
-        verifyTestValue("max", expectedTestValues.max, testValues.max, testType);
-        verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testType);
-        verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testType);
-        verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testType);
-        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
-        verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testType);
-        verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testType);
-        verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testType);
-        verifyTestValue("step", expectedTestValues.step, testValues.step, testType);
-        verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testType);
-        verifyTestValue("addCarryResult", expectedTestValues.addCarry.result, testValues.addCarry.result, testType);
-        verifyTestValue("addCarryCarry", expectedTestValues.addCarry.carry, testValues.addCarry.carry, testType);
-        verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testType);
-        verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testType);
+        verifyTestValue("normalize", expectedTestValues.normalize, testValues.normalize, testIteration, seed, testType);
+        verifyTestValue("cross", expectedTestValues.cross, testValues.cross, testIteration, seed, testType);
+        verifyTestValue("bitCountVec", expectedTestValues.bitCountVec, testValues.bitCountVec, testIteration, seed, testType);
+        verifyTestValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testIteration, seed, testType);
+        verifyTestValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testIteration, seed, testType);
+        verifyTestValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testIteration, seed, testType);
+        verifyTestValue("minVec", expectedTestValues.minVec, testValues.minVec, testIteration, seed, testType);
+        verifyTestValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testIteration, seed, testType);
+        verifyTestValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testIteration, seed, testType);
+        verifyTestValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testIteration, seed, testType);
+        verifyTestValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testIteration, seed, testType);
+        verifyTestValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testIteration, seed, testType);
 
-        verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
-        verifyTestVector3dValue("cross", expectedTestValues.cross, testValues.cross, testType);
-        verifyTestVector3dValue("bitCountVec", expectedTestValues.bitCountVec, testValues.bitCountVec, testType);
-        verifyTestVector3dValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testType);
-        verifyTestVector3dValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testType);
-        verifyTestVector3dValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testType);
-        verifyTestVector3dValue("minVec", expectedTestValues.minVec, testValues.minVec, testType);
-        verifyTestVector3dValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testType);
-        verifyTestVector3dValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testType);
-        verifyTestVector3dValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testType);
-        verifyTestVector3dValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testType);
-        verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
+        verifyTestValue("signVec", expectedTestValues.signVec, testValues.signVec, testIteration, seed, testType);
+        verifyTestValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testIteration, seed, testType);
+        verifyTestValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testIteration, seed, testType);
+        verifyTestValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testIteration, seed, testType);
+        verifyTestValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testIteration, seed, testType);
+        verifyTestValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testIteration, seed, testType);
+        verifyTestValue("reflect", expectedTestValues.reflect, testValues.reflect, testIteration, seed, testType);
+        verifyTestValue("refract", expectedTestValues.refract, testValues.refract, testIteration, seed, testType);
+        verifyTestValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testIteration, seed, testType);
+        verifyTestValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testIteration, seed, testType);
+        verifyTestValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testIteration, seed, testType);
+        verifyTestValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testIteration, seed, testType);
 
-        verifyTestVector3dValue("signVec", expectedTestValues.signVec, testValues.signVec, testType);
-        verifyTestVector3dValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testType);
-        verifyTestVector3dValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testType);
-        verifyTestVector3dValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testType);
-        verifyTestVector3dValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testType);
-        verifyTestVector3dValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testType);
-        verifyTestVector3dValue("reflect", expectedTestValues.reflect, testValues.reflect, testType);
-        verifyTestVector3dValue("refract", expectedTestValues.refract, testValues.refract, testType);
-        verifyTestVector3dValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testType);
-        verifyTestVector3dValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testType);
-        verifyTestVector3dValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testType);
-        verifyTestVector3dValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testType);
-
-        verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
-        verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
-        verifyTestMatrix3x3Value("inverse", expectedTestValues.inverse, testValues.inverse, testType);
+        verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType);
+        verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType);
+        verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType);
     }
 };
 
