@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
 
@@ -45,15 +46,6 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
 
-	inline core::smart_refctd_ptr<asset::IShader> createShader(
-		const char* includeMainName)
-	{
-		std::string prelude = "#include \"";
-		auto hlslShader = core::make_smart_refctd_ptr<IShader>((prelude + includeMainName + "\"\n").c_str(), IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
-		assert(hlslShader);
-		return m_device->compileShader({ hlslShader.get() });
-	}
-
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -68,28 +60,23 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// this time we load a shader directly from a file
 		smart_refctd_ptr<IShader> shader;
-		/* {
+		{
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
-			lp.workingDirectory = ""; // virtual root
-			auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
+			lp.workingDirectory = "app_resources"; // virtual root
+			auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 			const auto assets = assetBundle.getContents();
 			if (assets.empty())
 				return logFail("Could not load shader!");
 
 			// Cast down the asset to its proper type
-			auto source = IAsset::castDown<IShader>(assets[0]);
-			// The down-cast should not fail!
-			assert(source);
-
-			// Compile directly to SPIR-V Shader
-			shader = m_device->compileShader({ source.get() });
+			shader = IAsset::castDown<IShader>(assets[0]);
+			
 			if (!shader)
-				return logFail("Creation of a SPIR-V Shader from HLSL Shader source failed!");
-		}*/
-		shader = createShader("app_resources/shader.comp.hlsl");
+				return logFail("Invalid shader!");
+		}
 
 		// Create massive upload/download buffers
 		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
