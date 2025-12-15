@@ -841,14 +841,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
 					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
-					for (auto dim = 0u; dim < quantizedDimensions; dim++)
-					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
-					    {
-						    auto& seq = out[i * quantizedDimensions + dim];
-						    seq.set(0, sampler.sample(dim * 3 + 0, i));
-						    seq.set(1, sampler.sample(dim * 3 + 1, i));
-						    seq.set(2, sampler.sample(dim * 3 + 2, i));
-					    }
+					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						{
+							const uint32_t quant_dim = dim / 3u;
+							const uint32_t offset = dim % 3u;
+							auto& seq = out[i * quantizedDimensions + quant_dim];
+							const uint32_t sample = sampler.sample(dim, i);
+							seq.set(offset, sample);
+						}
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
 				}
@@ -863,6 +864,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					std::move(params),
 					sampleSeq->getPointer()
 				).move_into(m_sequenceBuffer);
+
+				m_sequenceBuffer->setObjectDebugName("Sequence buffer");
 			}
 
 			// Update Descriptors
