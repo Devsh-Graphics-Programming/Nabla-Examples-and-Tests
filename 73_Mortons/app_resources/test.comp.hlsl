@@ -12,7 +12,7 @@
 [shader("compute")]
 void main()
 {
-    const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID();
+    const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
     TestExecutor executor;
     executor(inputTestValues[invID], outputTestValues[invID]);
 }
