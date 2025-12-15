@@ -299,7 +299,7 @@ protected:
 
         // save test results
         assert(m_testIterationCount == output.size());
-        const size_t outputDataSize = sizeof(InputTestValues) * m_testIterationCount;
+        const size_t outputDataSize = sizeof(TestResults) * m_testIterationCount;
         std::memcpy(output.data(), static_cast<TestResults*>(m_outputBufferAllocation.memory->getMappedPointer()), outputDataSize);
 
         m_device->waitIdle();
