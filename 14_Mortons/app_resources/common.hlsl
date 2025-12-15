@@ -19,23 +19,47 @@ NBL_CONSTEXPR uint16_t smallBits_4 = 4;
 NBL_CONSTEXPR uint16_t mediumBits_4 = 8;
 NBL_CONSTEXPR uint16_t fullBits_4 = 16;
 
-#ifndef __HLSL_VERSION
-
-constexpr uint64_t smallBitsMask_2 = (uint64_t(1) << smallBits_2) - 1;
-constexpr uint64_t mediumBitsMask_2 = (uint64_t(1) << mediumBits_2) - 1;
-constexpr uint64_t fullBitsMask_2 = (uint64_t(1) << fullBits_2) - 1;
-
-constexpr uint64_t smallBitsMask_3 = (uint64_t(1) << smallBits_3) - 1;
-constexpr uint64_t mediumBitsMask_3 = (uint64_t(1) << mediumBits_3) - 1;
-constexpr uint64_t fullBitsMask_3 = (uint64_t(1) << fullBits_3) - 1;
-
-constexpr uint64_t smallBitsMask_4 = (uint64_t(1) << smallBits_4) - 1;
-constexpr uint64_t mediumBitsMask_4 = (uint64_t(1) << mediumBits_4) - 1;
-constexpr uint64_t fullBitsMask_4 = (uint64_t(1) << fullBits_4) - 1;
-
-#endif
-
 using namespace nbl::hlsl;
+template <typename T, bool Signed, uint16_t Bits>
+NBL_CONSTEXPR_INLINE_FUNC T createAnyBitIntegerFromU64(uint64_t val)
+{
+  if(Signed)
+  {
+    NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << (Bits - 1)) - 1;
+    // fill excess bit with one
+	if (_static_cast<int64_t>(val) < 0)
+		return _static_cast<T>(val | ~mask);
+	else
+        return _static_cast<T>(val & mask);
+  } else
+  {
+    NBL_CONSTEXPR_FUNC_SCOPE_VAR uint64_t mask = (uint64_t(1) << Bits) - 1;
+    return _static_cast<T>(val & mask);
+  }
+}
+
+template <typename T, bool Signed, uint16_t Bits, uint16_t D>
+NBL_CONSTEXPR_INLINE_FUNC vector<T, D> createAnyBitIntegerVecFromU64Vec(vector<uint64_t, D> val)
+{
+    array_get<portable_vector_t<uint64_t, D>, uint64_t> getter;
+    array_set<portable_vector_t<T, D>, T> setter;
+	vector<T, D> output;
+    NBL_UNROLL
+	for (uint16_t i = 0; i < D; i++)
+	{
+		setter(output, i, createAnyBitIntegerFromU64<T, Signed, Bits>(getter(val, i)));
+	}
+	return output;
+}
+
+template <bool Signed, uint16_t Bits, uint16_t D, typename _uint64_t = uint64_t>
+NBL_CONSTEXPR_INLINE_FUNC morton::code<Signed, Bits, D, _uint64_t> createMortonFromU64Vec(const vector<uint64_t, D> vec)
+{
+	using morton_code_t = morton::code<Signed, Bits, D, _uint64_t>;
+	using decode_component_t = typename morton_code_t::decode_component_t;
+	return morton_code_t::create(createAnyBitIntegerVecFromU64Vec<decode_component_t, Signed, Bits, D>(vec));
+}
+
 struct InputTestValues
 {
 	// Both tests
@@ -61,6 +85,7 @@ struct TestValues
 	emulated_uint64_t emulatedNot;
 	emulated_uint64_t emulatedPlus;
 	emulated_uint64_t emulatedMinus;
+	emulated_int64_t emulatedUnaryMinus;
 	// These are bools but stored as uint because you can't store bools, causes a SPIR-V issue
 	uint32_t emulatedLess;
 	uint32_t emulatedLessEqual;
@@ -202,50 +227,7 @@ struct TestValues
 	morton::code<true, fullBits_4, 4>					  mortonSignedRightShift_full_4;
 	morton::code<true, fullBits_4, 4, emulated_uint64_t>  mortonSignedRightShift_emulated_4;
 
-	/*
-	void fillSecondTestValues(NBL_CONST_REF_ARG(InputTestValues) input)
-	{
-		uint64_t2 Vec2A = { input.coordX, input.coordY };
-		uint64_t2 Vec2B = { input.coordZ, input.coordW };
-
-		uint64_t3 Vec3A = { input.coordX, input.coordY, input.coordZ };
-		uint64_t3 Vec3B = { input.coordY, input.coordZ, input.coordW };
-
-		uint64_t4 Vec4A = { input.coordX, input.coordY, input.coordZ, input.coordW };
-		uint64_t4 Vec4B = { input.coordY, input.coordZ, input.coordW, input.coordX };
-
-		int64_t2 Vec2ASigned = int64_t2(Vec2A);
-		int64_t2 Vec2BSigned = int64_t2(Vec2B);
-
-		int64_t3 Vec3ASigned = int64_t3(Vec3A);
-		int64_t3 Vec3BSigned = int64_t3(Vec3B);
-
-		int64_t4 Vec4ASigned = int64_t4(Vec4A);
-		int64_t4 Vec4BSigned = int64_t4(Vec4B);
-
-		morton::code<false, fullBits_4, 4, emulated_uint64_t> morton_emulated_4A = morton::code<false, fullBits_4, 4, emulated_uint64_t>::create(Vec4A);
-		morton::code<true, fullBits_2, 2, emulated_uint64_t> morton_emulated_2_signed = morton::code<true, fullBits_2, 2, emulated_uint64_t>::create(Vec2ASigned);
-		morton::code<true, fullBits_3, 3, emulated_uint64_t> morton_emulated_3_signed = morton::code<true, fullBits_3, 3, emulated_uint64_t>::create(Vec3ASigned);
-		morton::code<true, fullBits_4, 4, emulated_uint64_t> morton_emulated_4_signed = morton::code<true, fullBits_4, 4, emulated_uint64_t>::create(Vec4ASigned);
-
-		output.mortonEqual_emulated_4 = uint32_t4(morton_emulated_4A.equal<false>(uint16_t4(Vec4B)));
-		
-		output.mortonUnsignedLess_emulated_4 = uint32_t4(morton_emulated_4A.lessThan<false>(uint16_t4(Vec4B)));
-		
-		mortonSignedLess_emulated_2 = uint32_t2(morton_emulated_2_signed.lessThan<false>(int32_t2(Vec2BSigned))); 
-		mortonSignedLess_emulated_3 = uint32_t3(morton_emulated_3_signed.lessThan<false>(int32_t3(Vec3BSigned))); 
-		mortonSignedLess_emulated_4 = uint32_t4(morton_emulated_4_signed.lessThan<false>(int16_t4(Vec4BSigned))); 
-
-		uint16_t castedShift = uint16_t(input.shift);
-
-		arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2, emulated_uint64_t> > rightShiftSignedEmulated2;
-		mortonSignedRightShift_emulated_2 = rightShiftSignedEmulated2(morton_emulated_2_signed, castedShift); 
-		arithmetic_right_shift_operator<morton::code<true, fullBits_3, 3, emulated_uint64_t> > rightShiftSignedEmulated3;
-		mortonSignedRightShift_emulated_3 = rightShiftSignedEmulated3(morton_emulated_3_signed, castedShift); 
-		arithmetic_right_shift_operator<morton::code<true, fullBits_4, 4, emulated_uint64_t> > rightShiftSignedEmulated4;
-		mortonSignedRightShift_emulated_4 = rightShiftSignedEmulated4(morton_emulated_4_signed, castedShift); 
-	}
-	*/
+	
 };
 
 #endif

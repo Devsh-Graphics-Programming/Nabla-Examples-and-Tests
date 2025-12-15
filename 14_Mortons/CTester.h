@@ -4,6 +4,7 @@
 #include <nabla.h>
 #include "app_resources/testCommon.hlsl"
 #include "nbl/examples/Tester/ITester.h"
+#include "app_resources/testCommon2.hlsl"
 
 using namespace nbl;
 
@@ -384,4 +385,106 @@ private:
     }
 };
 
+// Some hlsl code will result in compilation error if mixed together due to some bug in dxc. So we separate them into multiple shader compilation and test.
+class CTester2 final : public ITester
+{
+public:
+    void performTests()
+    {
+        std::random_device rd;
+        std::mt19937 mt(rd());
+
+        std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
+        std::uniform_int_distribution<uint64_t> longDistribution(uint64_t(0), std::numeric_limits<uint64_t>::max());
+
+        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
+        for (int i = 0; i < Iterations; ++i)
+        {
+            // Set input thest values that will be used in both CPU and GPU tests
+            InputTestValues testInput;
+            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
+            TestValues expected;
+
+            uint32_t generatedShift = intDistribution(mt) & uint32_t(63);
+            testInput.shift = generatedShift;
+            {
+                testInput.coordX = longDistribution(mt);
+                testInput.coordY = longDistribution(mt);
+                testInput.coordZ = longDistribution(mt);
+                testInput.coordW = longDistribution(mt);
+
+                uint64_t2 Vec2A = { testInput.coordX, testInput.coordY };
+                uint64_t2 Vec2B = { testInput.coordZ, testInput.coordW };
+
+                uint64_t3 Vec3A = { testInput.coordX, testInput.coordY, testInput.coordZ };
+                uint64_t3 Vec3B = { testInput.coordY, testInput.coordZ, testInput.coordW };
+
+                uint64_t4 Vec4A = { testInput.coordX, testInput.coordY, testInput.coordZ, testInput.coordW };
+                uint64_t4 Vec4B = { testInput.coordY, testInput.coordZ, testInput.coordW, testInput.coordX };
+
+                uint16_t4 Vec4AFull = createAnyBitIntegerVecFromU64Vec<uint16_t, false, fullBits_4>(Vec4A);
+                uint16_t4 Vec4BFull = createAnyBitIntegerVecFromU64Vec<uint16_t, false, fullBits_4>(Vec4B);
+
+                int32_t2 Vec2ASignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2>(Vec2A);
+                int32_t2 Vec2BSignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_2>(Vec2B);
+
+                int32_t3 Vec3ASignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_3>(Vec3A);
+                int32_t3 Vec3BSignedFull = createAnyBitIntegerVecFromU64Vec<int32_t, true, fullBits_3>(Vec3B);
+
+                int16_t4 Vec4ASignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4>(Vec4A);
+                int16_t4 Vec4BSignedFull = createAnyBitIntegerVecFromU64Vec<int16_t, true, fullBits_4>(Vec4B);
+
+                expected.mortonUnsignedLess_emulated_4 = uint32_t4(glm::lessThan(Vec4AFull, Vec4BFull));
+                
+                expected.mortonSignedLess_emulated_2 = uint32_t2(glm::lessThan(Vec2ASignedFull, Vec2BSignedFull));
+                expected.mortonSignedLess_emulated_3 = uint32_t3(glm::lessThan(Vec3ASignedFull, Vec3BSignedFull));
+                expected.mortonSignedLess_emulated_4 = uint32_t4(glm::lessThan(Vec4ASignedFull, Vec4BSignedFull));
+
+                uint16_t castedShift = uint16_t(generatedShift);
+                expected.mortonSignedRightShift_emulated_2 = createMortonFromU64Vec<true, fullBits_2, 2, emulated_uint64_t>(Vec2ASignedFull >> int32_t(castedShift % fullBits_2));
+                expected.mortonSignedRightShift_emulated_3 = createMortonFromU64Vec<true, fullBits_3, 3, emulated_uint64_t>(Vec3ASignedFull >> int32_t(castedShift % fullBits_3));
+                expected.mortonSignedRightShift_emulated_4 = createMortonFromU64Vec<true, fullBits_4, 4, emulated_uint64_t>(Vec4ASignedFull >> int16_t(castedShift % fullBits_4));
+
+            }
+
+            performCpuTests(testInput, expected);
+            performGpuTests(testInput, expected);
+        }
+        m_logger->log("SECOND TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+    }
+
+private:
+    inline static constexpr int Iterations = 100u;
+
+    void performCpuTests(const InputTestValues& commonTestInputValues, const TestValues& expectedTestValues)
+    {
+        TestValues cpuTestValues;
+
+        fillTestValues2(commonTestInputValues, cpuTestValues);
+        verifyTestValues(expectedTestValues, cpuTestValues, ITester::TestType::CPU);
+
+    }
+
+    void performGpuTests(const InputTestValues& commonTestInputValues, const TestValues& expectedTestValues)
+    {
+        TestValues gpuTestValues;
+        gpuTestValues = dispatch<InputTestValues, TestValues>(commonTestInputValues);
+        verifyTestValues(expectedTestValues, gpuTestValues, ITester::TestType::GPU);
+    }
+
+    void verifyTestValues(const TestValues& expectedTestValues, const TestValues& testValues, ITester::TestType testType)
+    {
+        
+        verifyTestValue("mortonUnsignedLess_emulated_4", expectedTestValues.mortonUnsignedLess_emulated_4, testValues.mortonUnsignedLess_emulated_4, testType);
+        
+        verifyTestValue("mortonSignedLess_emulated_2", expectedTestValues.mortonSignedLess_emulated_2, testValues.mortonSignedLess_emulated_2, testType);
+        verifyTestValue("mortonSignedLess_emulated_3", expectedTestValues.mortonSignedLess_emulated_3, testValues.mortonSignedLess_emulated_3, testType);
+        verifyTestValue("mortonSignedLess_emulated_4", expectedTestValues.mortonSignedLess_emulated_4, testValues.mortonSignedLess_emulated_4, testType);
+        
+        verifyTestValue("mortonSignedRightShift_emulated_2", expectedTestValues.mortonSignedRightShift_emulated_2, testValues.mortonSignedRightShift_emulated_2, testType);
+        verifyTestValue("mortonSignedRightShift_emulated_3", expectedTestValues.mortonSignedRightShift_emulated_3, testValues.mortonSignedRightShift_emulated_3, testType);
+        verifyTestValue("mortonSignedRightShift_emulated_4", expectedTestValues.mortonSignedRightShift_emulated_4, testValues.mortonSignedRightShift_emulated_4, testType);
+        
+    }
+};
 #endif

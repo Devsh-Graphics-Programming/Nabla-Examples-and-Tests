@@ -22,3 +22,70 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
+
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+set(DEPENDS
+	app_resources/common.hlsl
+	app_resources/prefix_sum_shader.comp.hlsl
+	app_resources/scatter_shader.comp.hlsl
+)
+target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
+set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
+
+set(SM 6_8)
+set(REQUIRED_CAPS [=[
+	{
+	  "kind": "limits",
+	  "name": "maxComputeWorkGroupInvocations",
+	  "type": "uint32_t",
+	  "values": [256,512,1024]
+	},
+	{
+	  "kind": "limits",
+	  "name": "maxComputeSharedMemorySize",
+	  "type": "uint32_t",
+	  "values": [16384, 32768, 65536]
+	}
+]=])
+
+set(JSON [=[
+[
+	{
+		"INPUT": "app_resources/prefix_sum_shader.comp.hlsl",
+		"KEY": "prefix_sum_shader",
+		"CAPS": [${REQUIRED_CAPS}]
+    },
+    {
+		"INPUT": "app_resources/scatter_shader.comp.hlsl",
+		"KEY": "scatter_shader",
+		"CAPS": [${REQUIRED_CAPS}]
+    }
+]
+]=])
+string(CONFIGURE "${JSON}" JSON)
+
+set(COMPILE_OPTIONS
+    -I "${CMAKE_CURRENT_SOURCE_DIR}"
+    -T lib_${SM}
+)
+
+NBL_CREATE_NSC_COMPILE_RULES(
+    TARGET ${EXECUTABLE_NAME}SPIRV
+    LINK_TO ${EXECUTABLE_NAME}
+    DEPENDS ${DEPENDS}
+    BINARY_DIR ${OUTPUT_DIRECTORY}
+    MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+    COMMON_OPTIONS ${COMPILE_OPTIONS}
+    OUTPUT_VAR KEYS
+    INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+    NAMESPACE nbl::this_example::builtin::build
+    INPUTS ${JSON}
+)
+
+NBL_CREATE_RESOURCE_ARCHIVE(
+    NAMESPACE nbl::this_example::builtin::build
+    TARGET ${EXECUTABLE_NAME}_builtinsBuild
+    LINK_TO ${EXECUTABLE_NAME}
+    BIND ${OUTPUT_DIRECTORY}
+    BUILTINS ${KEYS}
+)

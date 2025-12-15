@@ -45,6 +45,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(12_MeshLoaders)
 	#
 	add_subdirectory(13_MaterialCompilerTest)
+	add_subdirectory(14_Mortons EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -87,7 +88,7 @@ if(NBL_BUILD_EXAMPLES)
 
   	add_subdirectory(70_FLIPFluids)
 	add_subdirectory(71_RayTracingPipeline)
-	add_subdirectory(73_Mortons EXCLUDE_FROM_ALL)
+	add_subdirectory(72_CooperativeBinarySearch)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)

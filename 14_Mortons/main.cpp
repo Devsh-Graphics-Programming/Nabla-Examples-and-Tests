@@ -2,8 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include <nabla.h>
-#include <iostream>
-#include <cstdio>
 #include <assert.h>
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
@@ -51,6 +49,11 @@ public:
         {
             CTester mortonTester(1); // 4 * 128 = 512 tests
             pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
+            mortonTester.setupPipeline(pplnSetupData);
+            mortonTester.performTestsAndVerifyResults();
+
+            CTester2 mortonTester2(1);
+            pplnSetupData.testShaderPath = "app_resources/test2.comp.hlsl";
             mortonTester.setupPipeline(pplnSetupData);
             mortonTester.performTestsAndVerifyResults();
         }

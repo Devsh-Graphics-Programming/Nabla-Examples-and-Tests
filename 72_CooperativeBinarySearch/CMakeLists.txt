@@ -7,7 +7,7 @@ nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-	set(RESOURCE_DIR "app_resources")
+	set(RESOURCE_DIR "app_resources") 
 
 	get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 	get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
@@ -22,48 +22,3 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
-
-set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(DEPENDS
-	app_resources/common.hlsl
-	app_resources/shader.comp.hlsl
-)
-target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
-set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
-
-set(SM 6_8)
-set(JSON [=[
-[
-    {
-		"INPUT": "app_resources/shader.comp.hlsl",
-		"KEY": "shader",
-    }
-]
-]=])
-string(CONFIGURE "${JSON}" JSON)
-
-set(COMPILE_OPTIONS
-    -I "${CMAKE_CURRENT_SOURCE_DIR}"
-    -T lib_${SM}
-)
-
-NBL_CREATE_NSC_COMPILE_RULES(
-    TARGET ${EXECUTABLE_NAME}SPIRV
-    LINK_TO ${EXECUTABLE_NAME}
-    DEPENDS ${DEPENDS}
-    BINARY_DIR ${OUTPUT_DIRECTORY}
-    MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-    COMMON_OPTIONS ${COMPILE_OPTIONS}
-    OUTPUT_VAR KEYS
-    INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
-    NAMESPACE nbl::this_example::builtin::build
-    INPUTS ${JSON}
-)
-
-NBL_CREATE_RESOURCE_ARCHIVE(
-    NAMESPACE nbl::this_example::builtin::build
-    TARGET ${EXECUTABLE_NAME}_builtinsBuild
-    LINK_TO ${EXECUTABLE_NAME}
-    BIND ${OUTPUT_DIRECTORY}
-    BUILTINS ${KEYS}
-)
