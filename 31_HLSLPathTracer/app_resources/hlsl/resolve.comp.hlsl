@@ -1,3 +1,6 @@
+[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
+
 #include <nbl/builtin/hlsl/rwmc/resolve.hlsl>
 #include "resolve_common.hlsl"
 #include "rwmc_global_settings_common.hlsl"
@@ -6,8 +9,6 @@
 #endif
 
 [[vk::push_constant]] ResolvePushConstants pc;
-[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
-[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
 
 using namespace nbl;
 using namespace hlsl;
@@ -30,7 +31,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     using ResolveAccessorAdaptorType = rwmc::ResolveAccessorAdaptor<float>;
     using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, float32_t3>;
     ResolveAccessorAdaptorType accessor;
-    accessor.cascade = cascade;
     ResolverType resolve = ResolverType::create(pc.resolveParameters);
 
     float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
