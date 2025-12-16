@@ -115,7 +115,8 @@ struct Unidirectional
         const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
         scalar_type rcpChoiceProb;
         sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
-        if (!partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
+        partitionRandVariable.leftProb = neeProbability;
+        if (!partitionRandVariable(eps0.z, rcpChoiceProb) && depth < 2u)
         {
             uint32_t randLightID = uint32_t(float32_t(randGen.rng()) / numeric_limits<uint32_t>::max) * nee.lightCount;
             quotient_pdf_type neeContrib_pdf;
