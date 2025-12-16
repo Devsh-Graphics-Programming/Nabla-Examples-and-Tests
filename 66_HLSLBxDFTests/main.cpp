@@ -234,7 +234,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<rectest_iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>::run(initparams, cb);
-    //TestReciprocity<bxdf::transmission::SIridescent<rectest_iso_microfacet_config_t>, false>::run(initparams, cb);    // viewing angle changes result?
+    TestReciprocity<bxdf::transmission::SIridescent<rectest_iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
