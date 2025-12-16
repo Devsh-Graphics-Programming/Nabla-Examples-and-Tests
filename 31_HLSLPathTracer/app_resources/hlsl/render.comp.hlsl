@@ -241,7 +241,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
 #ifdef RWMC_ENABLED
     const float32_t2 unpacked = hlsl::unpackHalf2x16(pc.packedSplattingParams);
-    rwmc::SplattingParameters splattingParameters = rwmc::SplattingParameters::create(unpacked[0], unpacked[1]);
+    rwmc::SplattingParameters splattingParameters = rwmc::SplattingParameters::create(unpacked[0], unpacked[1], CascadeCount);
     accumulator_type accumulator = accumulator_type::create(splattingParameters);
 #else
     accumulator_type accumulator = accumulator_type::create();
