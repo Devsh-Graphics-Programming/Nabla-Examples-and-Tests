@@ -1,12 +1,9 @@
 #include "common.hlsl"
 
-// just a small test
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
-
 [[vk::push_constant]] PushConstantData pushConstants;
 
 // does absolutely nothing, a later example will show how it gets used
-template<typename capability_traits=nbl::hlsl::jit::device_capabilities_traits>
+template<typename capability_traits=DeviceConfigCaps>
 void dummyTraitTest() {}
 
 [numthreads(WorkgroupSize,1,1)]

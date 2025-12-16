@@ -1,7 +1,5 @@
 #include "common.hlsl"
 
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
-
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
