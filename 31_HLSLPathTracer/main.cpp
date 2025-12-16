@@ -1571,10 +1571,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-				//rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
-				//rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
-				float32_t2 packLogs = float32_t2(std::log2(rwmcStart), std::log2(rwmcBase));
-				rwmcPushConstants.splattingParameters.packedLog2 = hlsl::packHalf2x16(packLogs);
+				float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
+				rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
 			}
 			else
 			{

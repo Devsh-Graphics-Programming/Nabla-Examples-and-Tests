@@ -240,7 +240,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.pSampleBuffer = renderPushConstants.pSampleSequence;
 
 #ifdef RWMC_ENABLED
-    accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
+    const float32_t2 unpacked = hlsl::unpackHalf2x16(pc.packedSplattingParams);
+    rwmc::SplattingParameters splattingParameters = rwmc::SplattingParameters::create(unpacked[0], unpacked[1]);
+    accumulator_type accumulator = accumulator_type::create(splattingParameters);
 #else
     accumulator_type accumulator = accumulator_type::create();
 #endif
