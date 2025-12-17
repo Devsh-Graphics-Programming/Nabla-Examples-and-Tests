@@ -168,7 +168,7 @@ struct TestBucket : TestBxDF<BxDF>
         return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -627,7 +627,7 @@ struct TestChi2 : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -637,7 +637,7 @@ struct TestChi2 : TestBxDF<BxDF>
         t.phiSplits = initparams.phiSplits;
         t.write_frequencies = initparams.writeFrequencies;
         t.initBxDF(t.rc);
-        
+
         ErrorType e = t.test();
         if (e != BET_NONE)
             cb.__call(e, t, initparams.logInfo);

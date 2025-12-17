@@ -14,6 +14,7 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
+#include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -108,7 +109,7 @@ struct SBxDFTestResources
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.eta = ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
-        retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
+        retval.luma_coeff = colorspace::scRGBtoXYZ[1];
 
         retval.Dinc = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 2400.0f + 100.0f;
         retval.etaThinFilm = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 0.5 + 1.1f; // range [1.1,1.6]
@@ -192,9 +193,10 @@ struct TestBase
 #endif
 };
 
+template<class TestT>
 struct FailureCallback
 {
-    virtual void __call(ErrorType error, NBL_REF_ARG(TestBase) failedFor, bool logInfo) {}
+    virtual void __call(ErrorType error, NBL_REF_ARG(TestT) failedFor, bool logInfo) {}
 };
 
 template<class BxDF>

@@ -178,7 +178,7 @@ struct TestNDF : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -324,7 +324,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
