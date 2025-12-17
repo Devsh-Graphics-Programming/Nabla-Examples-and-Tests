@@ -302,6 +302,11 @@ public:
 		lastVirtualUpTimeStamp = nextPresentationTimeStamp;
 	}
 
+	// TODO: temporary but a good fix for the camera events when mouse stops dragging gizmo
+	void mouseKeysUp()
+	{
+		mouseDown = false;
+	}
 private:
 
 	inline void initDefaultKeysMap() { mapKeysToWASD(); }

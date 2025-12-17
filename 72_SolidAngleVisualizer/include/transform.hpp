@@ -1,27 +1,21 @@
 #ifndef _NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED_
 #define _NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED_
 
-
 #include "nbl/ui/ICursorControl.h"
-
 #include "nbl/ext/ImGui/ImGui.h"
-
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
 
-
 struct TransformRequestParams
 {
-	float camDistance = 8.f;
 	uint8_t sceneTexDescIx = ~0;
-	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
+	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = true;
 };
 
 struct TransformReturnInfo
 {
 	nbl::hlsl::uint16_t2 sceneResolution = { 1, 1 };
-	bool isGizmoWindowHovered;
-	bool isGizmoBeingUsed;
+	bool allowCameraMovement = false;
 };
 
 TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params)
@@ -35,7 +29,7 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 	static bool boundSizing = false;
 	static bool boundSizingSnap = false;
 
-	ImGui::Text("Press T/R/G to change gizmo mode");
+	ImGui::Text("Use gizmo (T/R/G) or ViewManipulate widget to transform the cube");
 
 	if (params.editTransformDecomposition)
 	{
@@ -55,11 +49,13 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 			mCurrentGizmoOperation = ImGuizmo::SCALE;
 		if (ImGui::RadioButton("Universal", mCurrentGizmoOperation == ImGuizmo::UNIVERSAL))
 			mCurrentGizmoOperation = ImGuizmo::UNIVERSAL;
+
+		// For UI editing, decompose temporarily
 		float matrixTranslation[3], matrixRotation[3], matrixScale[3];
 		ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
-		ImGui::InputFloat3("Tr", matrixTranslation);
-		ImGui::InputFloat3("Rt", matrixRotation);
-		ImGui::InputFloat3("Sc", matrixScale);
+		ImGui::DragFloat3("Tr", matrixTranslation, 0.01f);
+		ImGui::DragFloat3("Rt", matrixRotation, 0.01f);
+		ImGui::DragFloat3("Sc", matrixScale, 0.01f);
 		ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
 
 		if (mCurrentGizmoOperation != ImGuizmo::SCALE)
@@ -101,17 +97,18 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 	ImGuiIO& io = ImGui::GetIO();
 	float viewManipulateRight = io.DisplaySize.x;
 	float viewManipulateTop = 0;
+	bool isWindowHovered = false;
 	static ImGuiWindowFlags gizmoWindowFlags = 0;
 
 	/*
-		for the "useWindow" case we just render to a gui area, 
+		for the "useWindow" case we just render to a gui area,
 		otherwise to fake full screen transparent window
 
-		note that for both cases we make sure gizmo being 
-		rendered is aligned to our texture scene using 
-        imgui  "cursor" screen positions
+		note that for both cases we make sure gizmo being
+		rendered is aligned to our texture scene using
+		imgui  "cursor" screen positions
 	*/
-// TODO: this shouldn't be handled here I think
+	// TODO: this shouldn't be handled here I think
 	SImResourceInfo info;
 	info.textureID = params.sceneTexDescIx;
 	info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
@@ -128,17 +125,17 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
 		ImVec2 windowPos = ImGui::GetWindowPos();
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+		isWindowHovered = ImGui::IsWindowHovered();
 
 		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-		retval.sceneResolution = {contentRegionSize.x,contentRegionSize.y};
-		retval.isGizmoWindowHovered = ImGui::IsWindowHovered();
+		retval.sceneResolution = { contentRegionSize.x,contentRegionSize.y };
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
 		viewManipulateTop = cursorPos.y;
 
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
-		gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
+		gizmoWindowFlags = (isWindowHovered && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
 	}
 	else
 	{
@@ -149,21 +146,45 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 
 		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+		isWindowHovered = ImGui::IsWindowHovered();
 
 		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-		retval.sceneResolution = {contentRegionSize.x,contentRegionSize.y};
-		retval.isGizmoWindowHovered = ImGui::IsWindowHovered();
+		retval.sceneResolution = { contentRegionSize.x,contentRegionSize.y };
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
 		viewManipulateTop = cursorPos.y;
 	}
 
+	// Standard Manipulate gizmo - let ImGuizmo modify the matrix directly
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
-	retval.isGizmoBeingUsed = ImGuizmo::IsOver() || (ImGuizmo::IsUsing() && ImGui::IsMouseDown(ImGuiMouseButton_Left));
 
-	if(params.enableViewManipulate)
-		ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+	retval.allowCameraMovement = isWindowHovered && !ImGuizmo::IsUsing();
+
+	// ViewManipulate for rotating the view
+	if (params.enableViewManipulate)
+	{
+		// Store original translation and scale before ViewManipulate
+		// Decompose original matrix
+		nbl::hlsl::float32_t3 translation, rotation, scale;
+		ImGuizmo::DecomposeMatrixToComponents(matrix, &translation.x, &rotation.x, &scale.x);
+
+		float temp[16];
+		nbl::hlsl::float32_t3 baseTranslation(0.0f);
+		nbl::hlsl::float32_t3 baseScale(1.0f);
+		ImGuizmo::RecomposeMatrixFromComponents(&baseTranslation.x, &rotation.x, &baseScale.x, temp);
+		// Manipulate rotation only
+		ImGuizmo::ViewManipulate(temp, 1.0f, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+
+		// Extract rotation from manipulated temp
+		nbl::hlsl::float32_t3 newRot;
+		ImGuizmo::DecomposeMatrixToComponents(temp, &baseTranslation.x, &newRot.x, &baseScale.x);
+
+		// Recompose original matrix with new rotation but keep translation & scale
+		ImGuizmo::RecomposeMatrixFromComponents(&translation.x, &newRot.x, &scale.x, matrix);
+
+		retval.allowCameraMovement &= isWindowHovered && !ImGuizmo::IsUsingViewManipulate();
+	}
 
 	ImGui::End();
 	ImGui::PopStyleColor();
@@ -171,4 +192,4 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 	return retval;
 }
 
-#endif // __NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED__
+#endif // _NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED_

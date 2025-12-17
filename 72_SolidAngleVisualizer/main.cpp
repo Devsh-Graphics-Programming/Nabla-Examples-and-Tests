@@ -211,7 +211,6 @@ public:
 					return shader;
 				};
 
-			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
 			if (!fsTriProtoPPln)
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
@@ -232,17 +231,73 @@ public:
 				.size = sizeof(PushConstants)
 			} };
 
-			auto visualizationLayout = m_device->createPipelineLayout(
-				ranges,
-				nullptr,
-				nullptr,
-				nullptr,
-				nullptr
+			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+				{
+					.binding = 0,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = ShaderStage::ESS_FRAGMENT,
+					.count = 1
+				}
+			};
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+			if (!dsLayout)
+				logFail("Failed to create a Descriptor Layout!\n");
+
+
+			auto visualizationLayout = m_device->createPipelineLayout(ranges
+#if DEBUG_DATA
+				, dsLayout
+#endif
 			);
 			m_visualizationPipeline = fsTriProtoPPln.createPipeline(fragSpec, visualizationLayout.get(), m_solidAngleRenderpass.get());
 			if (!m_visualizationPipeline)
 				return logFail("Could not create Graphics Pipeline!");
 
+			// Allocate the memory
+#if DEBUG_DATA
+			{
+				constexpr size_t BufferSize = sizeof(ResultData);
+
+				nbl::video::IGPUBuffer::SCreationParams params = {};
+				params.size = BufferSize;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+				m_outputStorageBuffer = m_device->createBuffer(std::move(params));
+				if (!m_outputStorageBuffer)
+					logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+				m_outputStorageBuffer->setObjectDebugName("ResultData output buffer");
+
+				nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputStorageBuffer->getMemoryReqs();
+				reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+				m_allocation = m_device->allocate(reqs, m_outputStorageBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+				if (!m_allocation.isValid())
+					logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+				assert(m_outputStorageBuffer->getBoundMemory().memory == m_allocation.memory.get());
+				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+				m_ds = pool->createDescriptorSet(std::move(dsLayout));
+				{
+					IGPUDescriptorSet::SDescriptorInfo info[1];
+					info[0].desc = smart_refctd_ptr(m_outputStorageBuffer);
+					info[0].info.buffer = { .offset = 0,.size = BufferSize };
+					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+						{.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+					};
+					m_device->updateDescriptorSets(writes, {});
+				}
+			}
+
+			if (!m_allocation.memory->map({ 0ull,m_allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+				logFail("Failed to map the Device Memory!\n");
+
+			// if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+			const ILogicalDevice::MappedMemoryRange memoryRange(m_allocation.memory.get(), 0ull, m_allocation.memory->getAllocationSize());
+			if (!m_allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+				m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+#endif
 		}
 
 		// Create ImGUI
@@ -336,6 +391,15 @@ public:
 		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 		if (m_solidAngleViewFramebuffer)
 		{
+#if DEBUG_DATA
+			asset::SBufferRange<IGPUBuffer> range
+			{
+				.offset = 0,
+				.size = m_outputStorageBuffer->getSize(),
+				.buffer = m_outputStorageBuffer
+			};
+			cb->fillBuffer(range, 0u);
+#endif
 			auto creationParams = m_solidAngleViewFramebuffer->getCreationParameters();
 			cb->beginDebugMarker("Draw Circle View Frame");
 			{
@@ -361,11 +425,17 @@ public:
 				auto pipeline = m_visualizationPipeline;
 				cb->bindGraphicsPipeline(pipeline.get());
 				cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
-				//cb->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, pipeline->getLayout(), 3, 1, &ds);
+				cb->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, pipeline->getLayout(), 0, 1, &m_ds.get());
 				ext::FullScreenTriangle::recordDrawCall(cb);
 			}
 			cb->endRenderPass();
 			cb->endDebugMarker();
+
+#if DEBUG_DATA
+			m_device->waitIdle();
+			std::memcpy(&m_GPUOutResulData, static_cast<ResultData*>(m_allocation.memory->getMappedPointer()), sizeof(ResultData));
+			m_device->waitIdle();
+#endif
 		}
 		// draw main view
 		if (m_mainViewFramebuffer)
@@ -557,6 +627,8 @@ private:
 				{
 					if (interface.move)
 						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+					else
+						camera.mouseKeysUp();
 
 					for (const auto& e : events) // here capture
 					{
@@ -713,6 +785,13 @@ private:
 		cb->setViewport(0u, 1u, &viewport);
 	}
 
+#if DEBUG_DATA
+	~SolidAngleVisualizer() override
+	{
+		m_allocation.memory->unmap();
+	}
+#endif
+
 	// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 	constexpr static inline auto sceneRenderDepthFormat = EF_D32_SFLOAT;
@@ -721,13 +800,7 @@ private:
 	// we create the Descriptor Set with a few slots extra to spare, so we don't have to `waitIdle` the device whenever ImGUI virtual window resizes
 	constexpr static inline auto MaxImGUITextures = 2u + MaxFramesInFlight;
 
-	constexpr static inline float32_t4x4 OBBModelMatrixDefault
-	{
-		1.0f, 0.0f, 0.0f, 0.0f,
-		0.0f, 1.0f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.0f, 0.0f, 3.0f, 1.0f
-	};
+	static inline ResultData m_GPUOutResulData;
 	//
 	smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 	smart_refctd_ptr<IGPURenderpass> m_solidAngleRenderpass;
@@ -737,6 +810,9 @@ private:
 	smart_refctd_ptr<IGPUFramebuffer> m_mainViewFramebuffer;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_visualizationPipeline;
 	//
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
+	smart_refctd_ptr<IGPUBuffer> m_outputStorageBuffer;
+	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_ds = nullptr;
 	smart_refctd_ptr<ISemaphore> m_semaphore;
 	uint64_t m_realFrameIx = 0;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
@@ -794,7 +870,6 @@ private:
 			//	transformParams.useWindow = true;
 
 			ImGui::Text("Camera");
-			bool viewDirty = false;
 
 			if (ImGui::RadioButton("LH", isLH))
 				isLH = true;
@@ -827,13 +902,11 @@ private:
 			ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 			ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
-			viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
 
-			if (viewDirty || firstFrame)
+			if (firstFrame)
 			{
 				camera.setPosition(cameraIntialPosition);
 				camera.setTarget(cameraInitialTarget);
-				camera.setBackupUpVector(cameraInitialUp);
 				camera.setUpVector(cameraInitialUp);
 
 				camera.recomputeViewMatrix();
@@ -909,45 +982,35 @@ private:
 
 			if (ImGui::IsKeyPressed(ImGuiKey_End))
 			{
-				m_OBBModelMatrix = OBBModelMatrixDefault;
+				m_TRS = TRS{};
 			}
 
-			static struct
 			{
-				float32_t4x4 view, projection, model;
-			} imguizmoM16InOut;
+				static struct
+				{
+					float32_t4x4 view, projection, model;
+				} imguizmoM16InOut;
 
-			ImGuizmo::SetID(0u);
+				ImGuizmo::SetID(0u);
 
-			// TODO: camera will return hlsl::float32_tMxN 
-			auto view = *reinterpret_cast<const float32_t3x4*>(camera.getViewMatrix().pointer());
-			imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
+				// TODO: camera will return hlsl::float32_tMxN 
+				auto view = *reinterpret_cast<const float32_t3x4*>(camera.getViewMatrix().pointer());
+				imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
 
-			// TODO: camera will return hlsl::float32_tMxN 
-			imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(camera.getProjectionMatrix().pointer()));
-			imguizmoM16InOut.model = m_OBBModelMatrix;
+				// TODO: camera will return hlsl::float32_tMxN 
+				imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(camera.getProjectionMatrix().pointer()));
+				ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
 
-			{
 				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 				transformParams.editTransformDecomposition = true;
 				mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+				move = mainViewTransformReturnInfo.allowCameraMovement;
 
-				// TODO: camera stops when cursor hovers gizmo, but we also want to stop when gizmo is being used
-				move = (ImGui::IsMouseDown(ImGuiMouseButton_Left) || mainViewTransformReturnInfo.isGizmoWindowHovered) && (!mainViewTransformReturnInfo.isGizmoBeingUsed);
-
+				ImGuizmo::DecomposeMatrixToComponents(&imguizmoM16InOut.model[0][0], &m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x);
+				ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
 			}
-
-			// to Nabla + update camera & model matrices
-			// TODO: make it more nicely, extract:
-			// - Position by computing inverse of the view matrix and grabbing its translation
-			// - Target from 3rd row without W component of view matrix multiplied by some arbitrary distance value (can be the length of position from origin) and adding the position
-			// But then set the view matrix this way anyway, because up-vector may not be compatible
-			//const auto& view = camera.getViewMatrix();
-			//const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-			m_OBBModelMatrix = imguizmoM16InOut.model;
-
 			// object meta display
 			//{
 			//	ImGui::Begin("Object");
@@ -964,12 +1027,193 @@ private:
 
 				ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
 				solidAngleViewTransformReturnInfo.sceneResolution = uint16_t2(static_cast<uint16_t>(contentRegionSize.x), static_cast<uint16_t>(contentRegionSize.y));
-				solidAngleViewTransformReturnInfo.isGizmoBeingUsed = false; // not used in this view
-				solidAngleViewTransformReturnInfo.isGizmoWindowHovered = false; // not used in this view
+				solidAngleViewTransformReturnInfo.allowCameraMovement = false; // not used in this view
 				ImGui::Image({ renderColorViewDescIndices[ERV_SOLID_ANGLE_VIEW] }, contentRegionSize);
 				ImGui::End();
 			}
 
+			// Show data coming from GPU
+#if DEBUG_DATA
+			{
+				if (ImGui::Begin("Result Data"))
+				{
+					auto drawColorField = [&](const char* fieldName, uint32_t index)
+						{
+							ImGui::Text("%s: %u", fieldName, index);
+
+							if (index >= 27)
+							{
+								ImGui::SameLine();
+								ImGui::Text("<invalid>");
+								return;
+							}
+
+							const auto& c = colorLUT[index]; // uses the combined LUT we made earlier
+
+							ImGui::SameLine();
+
+							// Color preview button
+							ImGui::ColorButton(
+								fieldName,
+								ImVec4(c.r, c.g, c.b, 1.0f),
+								0,
+								ImVec2(20, 20)
+							);
+
+							ImGui::SameLine();
+							ImGui::Text("%s", colorNames[index]);
+						};
+
+					// Vertices
+					if (ImGui::CollapsingHeader("Vertices", ImGuiTreeNodeFlags_DefaultOpen))
+					{
+						for (uint32_t i = 0; i < 6; ++i)
+						{
+							if (i < m_GPUOutResulData.silhouetteVertexCount)
+							{
+								ImGui::Text("corners[%u]", i);
+								ImGui::SameLine();
+								drawColorField(":", m_GPUOutResulData.vertices[i]);
+								ImGui::SameLine();
+								static const float32_t3 constCorners[8] = {
+									float32_t3(-1, -1, -1), float32_t3(1, -1, -1), float32_t3(-1,  1, -1), float32_t3(1,  1, -1),
+									float32_t3(-1, -1,  1), float32_t3(1, -1,  1), float32_t3(-1,  1,  1), float32_t3(1,  1,  1)
+								};
+								float32_t3 vertexLocation = constCorners[m_GPUOutResulData.vertices[i]];
+								ImGui::Text(" : (%.3f, %.3f, %.3f", vertexLocation.x, vertexLocation.y, vertexLocation.z);
+							}
+							else
+							{
+								ImGui::Text("corners[%u] ::  ", i);
+								ImGui::SameLine();
+								ImGui::ColorButton(
+									"<unused>",
+									ImVec4(0.0f, 0.0f, 0.0f, 0.0f),
+									0,
+									ImVec2(20, 20)
+								);
+								ImGui::SameLine();
+								ImGui::Text("<unused>");
+
+							}
+
+						}
+					}
+
+					if (ImGui::CollapsingHeader("Color LUT Map"))
+					{
+						for (int i = 0; i < 27; i++)
+							drawColorField(" ", i);
+					}
+
+					ImGui::Separator();
+
+					// Silhouette info
+					drawColorField("silhouetteIndex", m_GPUOutResulData.silhouetteIndex);
+
+					ImGui::Text("silhouette Vertex Count: %u", m_GPUOutResulData.silhouetteVertexCount);
+					ImGui::Text("silhouette Clipped VertexCount: %u", m_GPUOutResulData.clippedVertexCount);
+					ImGui::Text("Silhouette Mismatch: %s", m_GPUOutResulData.edgeVisibilityMismatch ? "true" : "false");
+
+					{
+						float32_t3 xAxis = m_OBBModelMatrix[0].xyz;
+						float32_t3 yAxis = m_OBBModelMatrix[1].xyz;
+						float32_t3 zAxis = m_OBBModelMatrix[2].xyz;
+
+						float32_t3 nx = normalize(xAxis);
+						float32_t3 ny = normalize(yAxis);
+						float32_t3 nz = normalize(zAxis);
+
+						const float epsilon = 1e-4;
+						bool hasSkew = false;
+						if (abs(dot(nx, ny)) > epsilon || abs(dot(nx, nz)) > epsilon || abs(dot(ny, nz)) > epsilon)
+							hasSkew = true;
+						ImGui::Text("Matrix Has Skew: %s", hasSkew ? "true" : "false");
+					}
+
+					static bool modalShown = false;
+					static uint32_t lastSilhouetteIndex = ~0u;
+
+					// Reset modal flag if silhouette configuration changed
+					if (m_GPUOutResulData.silhouetteIndex != lastSilhouetteIndex)
+					{
+						modalShown = false;
+						lastSilhouetteIndex = m_GPUOutResulData.silhouetteIndex;
+					}
+
+					if (!m_GPUOutResulData.edgeVisibilityMismatch)
+					{
+						// Reset flag when mismatch is cleared
+						modalShown = false;
+					}
+					if (m_GPUOutResulData.edgeVisibilityMismatch && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
+					{
+						// Open modal popup only once per configuration
+						ImGui::OpenPopup("Edge Visibility Mismatch Warning");
+						modalShown = true;
+					}
+
+					// Modal popup
+					if (ImGui::BeginPopupModal("Edge Visibility Mismatch Warning", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+					{
+						ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Warning: Edge Visibility Mismatch Detected!");
+						ImGui::Separator();
+
+						ImGui::Text("The silhouette lookup table (LUT) does not match the computed edge visibility.");
+						ImGui::Text("This indicates the pre-computed silhouette data may be incorrect.");
+						ImGui::Spacing();
+
+						// Show configuration info
+						ImGui::TextWrapped("Configuration Index: %u", m_GPUOutResulData.silhouetteIndex);
+						ImGui::TextWrapped("Region: (%d, %d, %d)",
+							m_GPUOutResulData.region.x,
+							m_GPUOutResulData.region.y,
+							m_GPUOutResulData.region.z);
+						ImGui::Spacing();
+
+						ImGui::Text("Mismatched Vertices (bitmask): 0x%08X", m_GPUOutResulData.edgeVisibilityMismatch);
+
+						// Show which specific vertices are mismatched
+						ImGui::Text("Vertices involved in mismatched edges:");
+						ImGui::Indent();
+						for (int i = 0; i < 8; i++)
+						{
+							if (m_GPUOutResulData.edgeVisibilityMismatch & (1u << i))
+							{
+								ImGui::BulletText("Vertex %d", i);
+							}
+						}
+						ImGui::Unindent();
+						ImGui::Spacing();
+
+						if (ImGui::Button("OK", ImVec2(120, 0)))
+						{
+							ImGui::CloseCurrentPopup();
+						}
+
+						ImGui::EndPopup();
+					}
+
+					ImGui::Separator();
+
+					// Region (uint32_t3)
+					ImGui::Text("region: (%u, %u, %u)",
+						m_GPUOutResulData.region.x, m_GPUOutResulData.region.y, m_GPUOutResulData.region.z);
+
+					ImGui::Separator();
+
+					// Silhouette mask printed in binary
+					char buf[33];
+					for (int i = 0; i < 32; i++)
+						buf[i] = (m_GPUOutResulData.silhouette & (1u << (31 - i))) ? '1' : '0';
+					buf[32] = '\0';
+
+					ImGui::Text("silhouette: 0x%08X", m_GPUOutResulData.silhouette);
+					ImGui::Text("binary: %s", buf);
+				}
+				ImGui::End();
+			}
+#endif
 			// view matrices editor
 			{
 				ImGui::Begin("Matrices");
@@ -994,6 +1238,32 @@ private:
 						if (withSeparator)
 							ImGui::Separator();
 					};
+
+				static RandomSampler rng(69); // Initialize RNG with seed
+				if (ImGui::Button("Randomize Translation"))
+				{
+					m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
+				}
+				ImGui::SameLine();
+
+				if (ImGui::Button("Randomize Rotation"))
+				{
+					m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
+				}
+				ImGui::SameLine();
+
+				if (ImGui::Button("Randomize Scale"))
+				{
+					m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Button("Randomize All"))
+				{
+					m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
+					m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
+					m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+				}
 
 				addMatrixTable("Model Matrix", "ModelMatrixTable", 4, 4, &m_OBBModelMatrix[0][0]);
 				addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, camera.getViewMatrix().pointer());
@@ -1071,6 +1341,8 @@ private:
 				ImGui::End();
 			}
 			ImGui::End();
+
+			ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &m_OBBModelMatrix[0][0]);
 		}
 
 		smart_refctd_ptr<ext::imgui::UI> imGUI;
@@ -1085,14 +1357,21 @@ private:
 		};
 		SubAllocatedDescriptorSet::value_type renderColorViewDescIndices[E_RENDER_VIEWS::Count] = { SubAllocatedDescriptorSet::invalid_value, SubAllocatedDescriptorSet::invalid_value };
 		//
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera camera = Camera(cameraIntialPosition, cameraInitialTarget, core::matrix4SIMD(), 1, 1, nbl::core::vectorSIMDf(0.0f, 0.0f, 1.0f));
 		// mutables
-		float32_t4x4 m_OBBModelMatrix = OBBModelMatrixDefault;
+		struct TRS // Source of truth
+		{
+			float32_t3 translation{ 0.0f, 0.0f, 3.0f };
+			float32_t3 rotation{ 0.0f };  // MUST stay orthonormal
+			float32_t3 scale{ 1.0f };
+		} m_TRS;
+		float32_t4x4 m_OBBModelMatrix; // always overwritten from TRS
 
 		//std::string_view objectName;
 		TransformRequestParams transformParams;
 		TransformReturnInfo mainViewTransformReturnInfo;
 		TransformReturnInfo solidAngleViewTransformReturnInfo;
+
 
 		const static inline core::vectorSIMDf cameraIntialPosition{ -3.0f, 6.0f, 3.0f };
 		const static inline core::vectorSIMDf cameraInitialTarget{ 0.f, 0.0f, 3.f };
