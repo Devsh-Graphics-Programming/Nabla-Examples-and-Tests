@@ -9,17 +9,6 @@
 using namespace nbl;
 
 #include <nbl/builtin/hlsl/ieee754.hlsl>
-template<typename T> // TODO: require to be float
-struct RelativeFloatingPointComparator
-{
-    bool operator()(const T a, const T b, const T epsilon)
-    {
-        if (ieee754::isSubnormal(a) && ieee754::isSubnormal(b))
-            return true;
-
-        return max(abs(a / b), abs(b / a)) <= 1.f + epsilon;
-    }
-};
 
 template<typename InputTestValues, typename TestResults, typename TestExecutor>
 class ITester
@@ -193,8 +182,12 @@ public:
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
-    void performTestsAndVerifyResults()
+    void performTestsAndVerifyResults(const std::string& logFileName)
     {
+        m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
+        if (!m_logFile.is_open())
+            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
         core::vector<InputTestValues> inputTestValues;
         core::vector<TestResults> exceptedTestResults;
 
@@ -220,6 +213,8 @@ public:
 
         m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
         reloadSeed();
+
+        m_logFile.close();
     }
 
     virtual ~ITester()
@@ -341,6 +336,7 @@ protected:
         ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
+        m_logFile << ss.str() << '\n';
     }
 
 private:
@@ -391,10 +387,9 @@ private:
         m_mersenneTwister = std::mt19937(m_seed);
     }
 
-    template<typename T> requires concepts::IntegralLikeScalar<T> || concepts::IntegralLikeVectorial<T> || (concepts::Matricial<T> && concepts::IntegralLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
+    template<typename T>
     bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference)
     {
-        // no difference allowed for integers
         return lhs == rhs;
     }
     template<typename T> requires concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
@@ -408,6 +403,7 @@ private:
     // seed will change after every call to performTestsAndVerifyResults()
     std::mt19937 m_mersenneTwister;
     uint32_t m_seed;
+    std::ofstream m_logFile;
 };
 
 #endif

@@ -53,8 +53,6 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        ieee754::isZero(-0.0f);
-
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -71,9 +69,9 @@ public:
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
             pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
 
-            CTgmathTester tgmathTester(4);
+            CTgmathTester tgmathTester(8);
             tgmathTester.setupPipeline(pplnSetupData);
-            tgmathTester.performTestsAndVerifyResults();
+            tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
             CIntrinsicsTester::PipelineSetupData pplnSetupData;
@@ -85,9 +83,9 @@ public:
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
             pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
 
-            CIntrinsicsTester intrinsicsTester(4);
+            CIntrinsicsTester intrinsicsTester(8);
             intrinsicsTester.setupPipeline(pplnSetupData);
-            intrinsicsTester.performTestsAndVerifyResults();
+            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
         }
 
         m_queue = m_device->getQueue(0, 0);
