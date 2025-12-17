@@ -223,21 +223,20 @@ void computeCubeGeo()
 
 	computeCubeGeo();
 
-	float3 obbCenter = mul(pc.modelMatrix, float4(0, 0, 0, 1)).xyz;
+    float4x3 columnModel = transpose(pc.modelMatrix);
 
-	float3x3 upper3x3 = (float3x3)pc.modelMatrix;
+	float3 obbCenter = columnModel[3].xyz;
 
-#if 1
-float3 rcpScales = rsqrt(float3(
-    dot(upper3x3[0], upper3x3[0]),
-    dot(upper3x3[1], upper3x3[1]),
-    dot(upper3x3[2], upper3x3[2])
-));
+	float3x3 upper3x3 = (float3x3)columnModel;
 
-float3 normalizedProj = mul(transpose(upper3x3), obbCenter) * rcpScales;
-#else
-	float3 normalizedProj = mul(inverse(upper3x3), obbCenter);
-#endif
+    float3 rcpScales = rcp(float3(
+        dot(upper3x3[0], upper3x3[0]),
+        dot(upper3x3[1], upper3x3[1]),
+        dot(upper3x3[2], upper3x3[2])
+    ));
+
+    float3 normalizedProj = mul(upper3x3, obbCenter) * rcpScales;
+
 	int3 region = int3(
 		normalizedProj.x < -1.0f ? 0 : (normalizedProj.x > 1.0f ? 2 : 1),
 		normalizedProj.y < -1.0f ? 0 : (normalizedProj.y > 1.0f ? 2 : 1),
