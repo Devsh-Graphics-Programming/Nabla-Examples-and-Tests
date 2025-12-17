@@ -15,32 +15,6 @@
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
 
-#ifndef __HLSL_VERSION
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/hash.hpp>
-#include <unordered_map>
-#include <vector>
-#include <cmath>
-#include <format>
-#include <functional>
-
-#include "ImfRgbaFile.h"
-#include "ImfArray.h"
-#include "ImfHeader.h"
-
-#include "ImfNamespace.h"
-#include <iostream>
-
-#include "nlohmann/json.hpp"
-
-namespace IMF = Imf;
-namespace IMATH = Imath;
-
-using namespace IMF;
-using namespace IMATH;
-using json = nlohmann::json;
-#endif
-
 using namespace nbl;
 using namespace hlsl;
 
@@ -186,12 +160,12 @@ enum ErrorType : uint32_t
     BET_NEGATIVE_VAL,       // pdf/quotient/eval < 0
     BET_PDF_ZERO,           // pdf = 0
     BET_QUOTIENT_INF,       // quotient -> inf
-    BET_JACOBIAN,
-    BET_PDF_EVAL_DIFF,
-    BET_RECIPROCITY,
-    BET_GENERATE_H,
+    BET_JACOBIAN,           // jacobian * pdf != 0
+    BET_PDF_EVAL_DIFF,      // quotient * pdf != eval
+    BET_NO_RECIPROCITY,     // eval(incoming) != eval(outgoing)
+    BET_GENERATE_H_INVALID, // generated H is invalid
 
-    BET_NOBREAK,    // not an error code, ones after this don't break
+    BET_NOBREAK,    // not an error code, ones after this don't hit debugbreak
     BET_INVALID,
     BET_PRINT_MSG
 };
@@ -206,8 +180,6 @@ struct TestBase
         isointer.luminosityContributionHint = rc.luma_coeff;
         anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
     }
-
-    virtual ErrorType compute() { return BET_NONE; }
 
     SBxDFTestResources rc;
 

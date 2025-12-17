@@ -10,7 +10,7 @@ struct TestNDF : TestBxDF<BxDF>
     using this_t = TestNDF<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
-    virtual ErrorType compute() override
+    ErrorType compute()
     {
         aniso_cache dummy;
         iso_cache dummy_iso;
@@ -199,7 +199,6 @@ struct TestNDF : TestBxDF<BxDF>
     bool verbose;
 };
 
-#ifndef __HLSL_VERSION
 template<class BxDF, bool aniso = false>
 struct TestCTGenerateH : TestBxDF<BxDF>
 {
@@ -207,7 +206,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
     using this_t = TestCTGenerateH<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
-    virtual ErrorType compute() override
+    ErrorType compute()
     {
         counter.reset();
 
@@ -271,7 +270,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (NdotV*VdotH): i={}, u=[{},{},{}] NdotV={}, VdotH={}", i, u.x, u.y, u.z, NdotV, VdotH);
-                    return BET_GENERATE_H;
+                    return BET_GENERATE_H_INVALID;
                 }
                 else
                 {
@@ -285,7 +284,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (compare VdotL): i={}, u=[{},{},{}] {}!={}", i, u.x, u.y, u.z, dotProductVdotL, VdotL);
-                    return BET_GENERATE_H;
+                    return BET_GENERATE_H_INVALID;
                 }
                 else
                 {
@@ -303,7 +302,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             base_t::errMsg += std::format("fail count={} out of {} valid samples: [{}] NdotV*VdotH, [{}] compare VdotL, [{}] transmitted, [{}] reflected, alpha=[{},{}]",
                                 totalFails, counter.total, counter.NdotVVdotHfail, counter.VdotLfail,
                                 counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
-            return BET_GENERATE_H;
+            return BET_GENERATE_H_INVALID;
         }
 
         return BET_NONE;
@@ -363,6 +362,5 @@ struct TestCTGenerateH : TestBxDF<BxDF>
     uint32_t numSamples = 1000000;
     Counter counter;
 };
-#endif
 
 #endif

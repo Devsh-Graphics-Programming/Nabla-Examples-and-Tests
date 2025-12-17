@@ -21,6 +21,7 @@ using namespace nbl::hlsl;
 
 #include "app_resources/test_components.hlsl"
 #include "app_resources/tests.hlsl"
+#include "tests.h"
 #include "nbl/builtin/hlsl/math/angle_adding.hlsl"
 #include "nbl/builtin/hlsl/bxdf/ndf.hlsl"
 #include "nbl/builtin/hlsl/bxdf/fresnel.hlsl"
@@ -50,13 +51,13 @@ struct PrintFailureCallback : FailureCallback
         case BET_PDF_EVAL_DIFF:
             fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_RECIPROCITY:
+        case BET_NO_RECIPROCITY:
             fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PRINT_MSG:
             fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_GENERATE_H:
+        case BET_GENERATE_H_INVALID:
             fprintf(stderr, "[ERROR] seed %u: %s failed invalid H configuration generated    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         default:
