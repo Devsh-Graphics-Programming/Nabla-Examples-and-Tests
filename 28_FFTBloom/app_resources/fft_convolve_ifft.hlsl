@@ -68,8 +68,6 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
 
-		ternary_operator<complex_t<scalar_t> > ternaryOp;
-
 		// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
 		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
@@ -82,7 +80,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		{
 			// If mirrored, we need to invert which thread is loading lo and which is loading hi
 			// If using zero-padding, useful to find out if we're outside of [0,1) bounds
-			bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
+			bool inPadding = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
 			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 			wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 			const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
@@ -93,17 +91,17 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 			if (glsl::gl_WorkGroupID().x)
 			{
-				complex_t<scalar_t> lo = ternaryOp(oddThread, otherThreadLoOrHi, loOrHi);
-				complex_t<scalar_t> hi = ternaryOp(oddThread, loOrHi, otherThreadLoOrHi);
+				complex_t<scalar_t> lo = nbl::hlsl::select(oddThread, otherThreadLoOrHi, loOrHi);
+				complex_t<scalar_t> hi = nbl::hlsl::select(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
 
 				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
 				#ifdef MIRROR_PADDING
-				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, hi, lo);
+				preloaded[localElementIndex] = nbl::hlsl::select(oddThread != inPadding, hi, lo);
 				// ----------------------------------------------------- ZERO PADDING -------------------------------------------------------------------------------------------
 				#else
 				const complex_t<scalar_t> Zero = { scalar_t(0), scalar_t(0) };
-				preloaded[localElementIndex] = ternaryOp(invert, Zero, ternaryOp(oddThread, hi, lo));
+				preloaded[localElementIndex] = nbl::hlsl::select(inPadding, Zero, nbl::hlsl::select(oddThread, hi, lo));
 				#endif
 				// ------------------------------------------------ END PADDING DIVERGENCE ----------------------------------------------------------------------------------------
 			}
@@ -116,7 +114,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = nbl::hlsl::select(oddThread != inPadding, oddThreadHi, evenThreadLo);
 			}
 			paddedIndex += WorkgroupSize / 2;
 		}

@@ -218,6 +218,7 @@ public:
         {
         case TestType::CPU:
             ss << "CPU TEST ERROR:\n";
+            break;
         case TestType::GPU:
             ss << "GPU TEST ERROR:\n";
         }
