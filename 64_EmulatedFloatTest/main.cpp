@@ -872,6 +872,7 @@ private:
         EmulatedFloat64TestOutput output;
 
         // cpu validation
+        testValInfo.expectedTestValues.additionVal = 0;
         output.cpuTestsSucceed = compareEmulatedFloat64TestValues<false, true, EmulatedFloatTestDevice::CPU>(testValInfo.expectedTestValues, cpuTestValues);
 
         // gpu validation

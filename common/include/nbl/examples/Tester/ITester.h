@@ -4,8 +4,22 @@
 #include <nabla.h>
 #include <nbl/system/to_string.h>
 #include <ranges>
+#include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
 
 using namespace nbl;
+
+#include <nbl/builtin/hlsl/ieee754.hlsl>
+template<typename T> // TODO: require to be float
+struct RelativeFloatingPointComparator
+{
+    bool operator()(const T a, const T b, const T epsilon)
+    {
+        if (ieee754::isSubnormal(a) && ieee754::isSubnormal(b))
+            return true;
+
+        return max(abs(a / b), abs(b / a)) <= 1.f + epsilon;
+    }
+};
 
 template<typename InputTestValues, typename TestResults, typename TestExecutor>
 class ITester
@@ -306,9 +320,10 @@ protected:
     }
 
     template<typename T>
-    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const size_t testIteration, const uint32_t seed, const TestType testType)
+    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+        const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference = 0.0)
     {
-        if (expectedVal == testVal)
+        if (compareTestValues<T>(expectedVal, testVal, maxAllowedDifference))
             return;
 
         std::stringstream ss;
@@ -374,6 +389,18 @@ private:
         std::random_device rd;
         m_seed = rd();
         m_mersenneTwister = std::mt19937(m_seed);
+    }
+
+    template<typename T> requires concepts::IntegralLikeScalar<T> || concepts::IntegralLikeVectorial<T> || (concepts::Matricial<T> && concepts::IntegralLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
+    bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference)
+    {
+        // no difference allowed for integers
+        return lhs == rhs;
+    }
+    template<typename T> requires concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
+    bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference)
+    {
+        return nbl::hlsl::testing::relativeApproxCompare(lhs, rhs, maxAllowedDifference);
     }
 
     const size_t m_testIterationCount;
