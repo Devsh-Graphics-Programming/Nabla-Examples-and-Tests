@@ -63,7 +63,7 @@ struct Unidirectional
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
     {
-        return hlsl::dot<vector3_type>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
+        return hlsl::dot<vector3_type>(colorspace::scRGBtoXYZ[1], col);
     }
 
     // TODO: probably will only work with isotropic surfaces, need to do aniso
@@ -78,7 +78,7 @@ struct Unidirectional
         ray_dir_info_type V;
         V.setDirection(-ray.direction);
         isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
-        iso_interaction.luminosityContributionHint = hlsl::transpose(colorspace::scRGBtoXYZ)[1];
+        iso_interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1];
         anisotropic_interaction_type interaction = anisotropic_interaction_type::create(iso_interaction);
 
         vector3_type throughput = ray.payload.throughput;
@@ -107,7 +107,7 @@ struct Unidirectional
         // thresholds
         const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
-        const vector3_type throughputCIE_Y = hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;    // TODO: this only works if spectral_type is dim 3
+        const vector3_type throughputCIE_Y = colorspace::sRGBtoXYZ[1] * throughput;    // TODO: this only works if spectral_type is dim 3
         const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
         const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
