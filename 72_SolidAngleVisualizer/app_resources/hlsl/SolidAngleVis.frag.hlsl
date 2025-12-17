@@ -228,21 +228,13 @@ void computeCubeGeo()
 	float3x3 upper3x3 = (float3x3)pc.modelMatrix;
 
 #if 1
-	// Compute reciprocal scales
-	float3 rcpScales = rsqrt(float3(
-		dot(upper3x3[0], upper3x3[0]),
-		dot(upper3x3[1], upper3x3[1]),
-		dot(upper3x3[2], upper3x3[2])
-	));
+float3 rcpScales = rsqrt(float3(
+    dot(upper3x3[0], upper3x3[0]),
+    dot(upper3x3[1], upper3x3[1]),
+    dot(upper3x3[2], upper3x3[2])
+));
 
-	// Build inverse-rotation-only matrix
-	float3x3 invRot;
-	invRot[0] = upper3x3[0] * rcpScales.x;
-	invRot[1] = upper3x3[1] * rcpScales.y;
-	invRot[2] = upper3x3[2] * rcpScales.z;
-
-	// Project center into OBB local space
-	float3 normalizedProj = mul(invRot, obbCenter);
+float3 normalizedProj = mul(transpose(upper3x3), obbCenter) * rcpScales;
 #else
 	float3 normalizedProj = mul(inverse(upper3x3), obbCenter);
 #endif
