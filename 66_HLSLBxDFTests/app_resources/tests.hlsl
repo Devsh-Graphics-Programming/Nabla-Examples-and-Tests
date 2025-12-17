@@ -157,12 +157,8 @@ struct TestJacobian : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
-        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
-        uint32_t2 state = rand2d();
-
         this_t t;
-        t.init(state);
+        t.init(initparams.halfSeed);
         t.rc.halfSeed = initparams.halfSeed;
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
@@ -357,12 +353,8 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
-        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
-        uint32_t2 state = rand2d();
-
         this_t t;
-        t.init(state);
+        t.init(initparams.halfSeed);
         t.rc.halfSeed = initparams.halfSeed;
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
@@ -380,7 +372,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     bool verbose;
 };
 
-#ifndef __HLSL_VERSION  // because unordered_map
+#ifndef __HLSL_VERSION  // because unordered_map -- next time, do fixed size array of atomic offsets and linked lists (for readback and verification on cpu)
 template<class BxDF, bool aniso = false>
 struct TestBucket : TestBxDF<BxDF>
 {
@@ -417,11 +409,9 @@ struct TestBucket : TestBxDF<BxDF>
         quotient_pdf_t pdf;
         float32_t3 bsdf;
 
-        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(base_t::rc.rng);
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-            // u.z = 0.0;
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
 
             if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
@@ -524,12 +514,8 @@ struct TestBucket : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
-        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
-        uint32_t2 state = rand2d();
-
         this_t t;
-        t.init(state);
+        t.init(initparams.halfSeed);
         t.rc.halfSeed = initparams.halfSeed;
         t.numSamples = initparams.samples;
         t.initBxDF(t.rc);
@@ -764,10 +750,9 @@ struct TestChi2 : TestBxDF<BxDF>
         sample_t s;
         iso_cache isocache;
         aniso_cache cache;
-        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(base_t::rc.rng);
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
             u.x = hlsl::clamp(u.x, base_t::rc.eps, 1.f-base_t::rc.eps);
             u.y = hlsl::clamp(u.y, base_t::rc.eps, 1.f-base_t::rc.eps);
             // u.z = 0.0;
@@ -988,12 +973,8 @@ struct TestChi2 : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
-        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
-        uint32_t2 state = rand2d();
-
         this_t t;
-        t.init(state);
+        t.init(initparams.halfSeed);
         t.rc.halfSeed = initparams.halfSeed;
         t.numSamples = initparams.samples;
         t.thetaSplits = initparams.thetaSplits;

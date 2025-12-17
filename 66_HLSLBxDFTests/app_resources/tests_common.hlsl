@@ -60,7 +60,7 @@ using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso
 
 using bool32_t3 = hlsl::vector<bool, 3>;
 
-template<typename T>
+template<typename T NBL_PRIMARY_REQUIRES(concepts::UnsignedIntegral<T>)
 struct ConvertToFloat01
 {
     using ret_t = conditional_t<vector_traits<T>::Dimension==1, float, hlsl::vector<float, vector_traits<T>::Dimension> >;
@@ -107,18 +107,19 @@ bool checkZero<float32_t>(float32_t a, float32_t eps)
 
 struct SBxDFTestResources
 {
-    static SBxDFTestResources create(uint32_t2 seed)
+    static SBxDFTestResources create(uint32_t _halfseed)
     {
+        random::PCG32 pcg = random::PCG32::construct(_halfseed);
+        uint32_t2 seed = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::random::PCG32, 2>::__call(pcg);
+
         SBxDFTestResources retval;
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
-        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
-        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
-        retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+        retval.u = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>());
         retval.u.x = hlsl::clamp(retval.u.x, retval.eps, 1.f-retval.eps);
         retval.u.y = hlsl::clamp(retval.u.y, retval.eps, 1.f-retval.eps);
 
-        retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
-        retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
+        retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>())));
+        retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>())));
         
         float32_t3 tangent, bitangent;
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
@@ -132,12 +133,19 @@ struct SBxDFTestResources
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
-        retval.eta = ConvertToFloat01<uint32_t2>::__call(rng_vec2()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
+        retval.eta = ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
         retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
 
         retval.Dinc = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 2400.0f + 100.0f;
         retval.etaThinFilm = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 0.5 + 1.1f; // range [1.1,1.6]
         return retval;
+    }
+
+    template<uint32_t D>
+    hlsl::vector<uint32_t,D> rng_vec()
+    {
+        // don't construct an adaptor, use a static call which takes base RNG by reference, so modifies its state while producing numbers
+        return nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, D>::__call(rng);
     }
 
     float eps = 1e-3;   // epsilon
@@ -159,11 +167,12 @@ struct SBxDFTestResources
     float etaThinFilm;
 };
 
+// refer to config to see which params are used in which test
 struct STestInitParams
 {
     bool logInfo;
-    uint32_t halfSeed;
-    uint32_t samples;
+    uint32_t halfSeed;  // state used to get vec2 seed from hash, default: iteration no.
+    uint32_t samples;   // num samples generated for distribution tests, e.g. chi2, bucket, etc.
     uint32_t thetaSplits;
     uint32_t phiSplits;
     bool writeFrequencies;
@@ -189,9 +198,9 @@ enum ErrorType : uint32_t
 
 struct TestBase
 {
-    void init(uint32_t2 seed)
+    void init(uint32_t halfSeed)
     {
-        rc = SBxDFTestResources::create(seed);
+        rc = SBxDFTestResources::create(halfSeed);
 
         isointer = iso_interaction::create(rc.V, rc.N);
         isointer.luminosityContributionHint = rc.luma_coeff;
