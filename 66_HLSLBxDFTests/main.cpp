@@ -236,11 +236,11 @@ int main(int argc, char** argv)
     RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SSmoothDielectric<iso_config_t> >), initparams);
     RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >), initparams);
     RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
+    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
+    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
+    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
+    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SIridescent<rectest_iso_microfacet_config_t>, false>), initparams);
     FOR_EACH_END
 
 
