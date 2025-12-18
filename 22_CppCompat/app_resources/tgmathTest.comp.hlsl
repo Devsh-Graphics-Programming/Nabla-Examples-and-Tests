@@ -9,7 +9,7 @@
 [[vk::binding(0, 0)]] RWStructuredBuffer<TgmathIntputTestValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<TgmathTestValues> outputTestValues;
 
-[numthreads(WORKGROUP_SIZE, 1, 1)]
+[numthreads(256, 1, 1)]
 [shader("compute")]
 void main()
 {

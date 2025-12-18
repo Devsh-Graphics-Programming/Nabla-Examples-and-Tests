@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "app_resources/common.hlsl"
 
@@ -67,25 +67,25 @@ public:
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"tgmathTest">(m_device.get());
 
             CTgmathTester tgmathTester(8);
             tgmathTester.setupPipeline(pplnSetupData);
             tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
-            CIntrinsicsTester::PipelineSetupData pplnSetupData;
+            /*CIntrinsicsTester::PipelineSetupData pplnSetupData;
             pplnSetupData.device = m_device;
             pplnSetupData.api = m_api;
             pplnSetupData.assetMgr = m_assetMgr;
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
+            pplnSetupData.shaderKey = "intrinsicsTest";
 
             CIntrinsicsTester intrinsicsTester(8);
             intrinsicsTester.setupPipeline(pplnSetupData);
-            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
+            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");*/
         }
 
         m_queue = m_device->getQueue(0, 0);

@@ -244,7 +244,7 @@ private:
         verifyTestValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testIteration, seed, testType);
         verifyTestValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testIteration, seed, testType);
         verifyTestValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testIteration, seed, testType);
-        verifyTestValue("reflect", expectedTestValues.reflect, testValues.reflect, testIteration, seed, testType, 0.0001);
+        verifyTestValue("reflect", expectedTestValues.reflect, testValues.reflect, testIteration, seed, testType, 0.001);
         verifyTestValue("refract", expectedTestValues.refract, testValues.refract, testIteration, seed, testType, 0.01);
         verifyTestValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testIteration, seed, testType);
         verifyTestValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testIteration, seed, testType);

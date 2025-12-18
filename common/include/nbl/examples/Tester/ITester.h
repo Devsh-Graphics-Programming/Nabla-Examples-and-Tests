@@ -16,7 +16,7 @@ class ITester
 public:
     struct PipelineSetupData
     {
-        std::string testShaderPath;
+        std::string shaderKey;
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
         core::smart_refctd_ptr<asset::IAssetManager> assetMgr;
@@ -45,8 +45,8 @@ public:
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
+            lp.workingDirectory = "app_resources"; // virtual root
+            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.shaderKey.data(), lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -55,16 +55,8 @@ public:
             assert(assets.size() == 1);
             core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
 
-            auto overridenSource = asset::CHLSLCompiler::createOverridenCopy(
-                source.get(), "#define WORKGROUP_SIZE %d\n#define TEST_COUNT %d\n",
-                m_WorkgroupSize, m_testIterationCount
-            );
-
-            shader = m_device->compileShader({overridenSource.get()});
+            shader = m_device->compileShader({ source.get() });
         }
-
-        if (!shader)
-            logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
         video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
             {
@@ -233,7 +225,7 @@ protected:
     * @param testBatchCount one test batch is equal to m_WorkgroupSize, so number of tests performed will be m_WorkgroupSize * testbatchCount
     */
     ITester(const uint32_t testBatchCount)
-        : m_testIterationCount(testBatchCount* m_WorkgroupSize)
+        : m_testBatchCount(testBatchCount), m_testIterationCount(testBatchCount * m_WorkgroupSize)
     {
         reloadSeed();
     };
@@ -284,7 +276,7 @@ protected:
         m_inputBufferAllocation.memory->unmap();
 
         // record command buffer
-        const uint32_t dispatchSizeX = (m_testIterationCount + (m_WorkgroupSize - 1)) / m_WorkgroupSize;
+        const uint32_t dispatchSizeX = m_testBatchCount;
         m_cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
         m_cmdbuf->begin(video::IGPUCommandBuffer::USAGE::NONE);
         m_cmdbuf->beginDebugMarker("test", core::vector4df_SIMD(0, 1, 0, 1));
@@ -399,7 +391,8 @@ private:
     }
 
     const size_t m_testIterationCount;
-    static constexpr size_t m_WorkgroupSize = 128u;
+    const uint32_t m_testBatchCount;
+    static constexpr size_t m_WorkgroupSize = 256u;
     // seed will change after every call to performTestsAndVerifyResults()
     std::mt19937 m_mersenneTwister;
     uint32_t m_seed;

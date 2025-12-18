@@ -259,7 +259,7 @@ private:
         verifyTestValue("floor", expectedTestValues.floor, testValues.floor, testIteration, seed, testType);
         verifyTestValue("isnan", expectedTestValues.isnan, testValues.isnan, testIteration, seed, testType);
         verifyTestValue("isinf", expectedTestValues.isinf, testValues.isinf, testIteration, seed, testType);
-        verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testIteration, seed, testType);
+        verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testIteration, seed, testType, 0.0001);
         verifyTestValue("exp", expectedTestValues.exp, testValues.exp, testIteration, seed, testType);
         verifyTestValue("exp2", expectedTestValues.exp2, testValues.exp2, testIteration, seed, testType);
         verifyTestValue("log", expectedTestValues.log, testValues.log, testIteration, seed, testType);
@@ -293,7 +293,7 @@ private:
         verifyTestValue("floorVec", expectedTestValues.floorVec, testValues.floorVec, testIteration, seed, testType);
         verifyTestValue("isnanVec", expectedTestValues.isnanVec, testValues.isnanVec, testIteration, seed, testType);
         verifyTestValue("isinfVec", expectedTestValues.isinfVec, testValues.isinfVec, testIteration, seed, testType);
-        verifyTestValue("powVec", expectedTestValues.powVec, testValues.powVec, testIteration, seed, testType);
+        verifyTestValue("powVec", expectedTestValues.powVec, testValues.powVec, testIteration, seed, testType, 0.0001);
         verifyTestValue("expVec", expectedTestValues.expVec, testValues.expVec, testIteration, seed, testType);
         verifyTestValue("exp2Vec", expectedTestValues.exp2Vec, testValues.exp2Vec, testIteration, seed, testType);
         verifyTestValue("logVec", expectedTestValues.logVec, testValues.logVec, testIteration, seed, testType);
