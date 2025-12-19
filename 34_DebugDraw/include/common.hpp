@@ -8,7 +8,6 @@
 #include "nbl/examples/common/CEventCallback.hpp"
 #include "nbl/examples/examples.hpp"
 
-//#include "nbl/CDrawAABB.h"
 #include "nbl/ext/DebugDraw/CDrawAABB.h"
 
 using namespace nbl;
