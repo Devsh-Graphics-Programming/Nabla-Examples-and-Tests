@@ -17,7 +17,7 @@
         "samples": 1000000,
         "thetaSplits": 80,
         "phiSplits": 160,
-        "writeFrequencies": false
+        "writeFrequencies": true
     },
     "TestNDF": {
         "runs": 10,

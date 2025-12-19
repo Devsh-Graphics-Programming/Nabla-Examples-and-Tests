@@ -339,9 +339,9 @@ struct TestChi2 : TestBxDF<BxDF>
         }
     }
 
-    Imf::Rgba mapColor(float v, float vmin, float vmax)
+    float32_t3 mapColor(float v, float vmin, float vmax)
     {
-        Imf::Rgba c(1, 1, 1);
+        float32_t3 c = float32_t3(1, 1, 1);
         float diff = vmax - vmin;
         v = clamp<float>(v, vmin, vmax);
 
@@ -369,31 +369,111 @@ struct TestChi2 : TestBxDF<BxDF>
         return c;
     }
 
-    void writeToEXR()
+    //void writeToEXR()
+    //{
+    //    std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.halfSeed, base_t::name);
+
+    //    int totalWidth = phiSplits;
+    //    int totalHeight = 2 * thetaSplits + 1;
+    //    
+    //    // write sample count from generate, top half
+    //    Array2D<Rgba> pixels(totalWidth, totalHeight);
+    //    for (int y = 0; y < thetaSplits; y++)
+    //        for (int x = 0; x < phiSplits; x++)
+    //            pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0.f, maxCountFreq);
+
+    //    // for (int x = 0; x < phiSplits; x++)
+    //    //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
+
+    //    // write values of pdf, bottom half
+    //    for (int y = 0; y < thetaSplits; y++)
+    //        for (int x = 0; x < phiSplits; x++)
+    //            pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0.f, maxIntFreq);
+    //
+    //    Header header(totalWidth, totalHeight);
+    //    RgbaOutputFile file(filename.c_str(), header, WRITE_RGBA);
+    //    file.setFrameBuffer(&pixels[0][0], 1, totalWidth+1);
+    //    file.writePixels(totalHeight);
+    //}
+
+    smart_refctd_ptr<ICPUImage> writeToCPUImage()
+    {
+        const uint32_t totalWidth = phiSplits;
+        const uint32_t totalHeight = 2 * thetaSplits;
+        const auto format = E_FORMAT::EF_R32G32B32A32_SFLOAT;
+
+        IImage::SCreationParams imageParams = {};
+        imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
+        imageParams.type = IImage::E_TYPE::ET_2D;
+        imageParams.format = format;
+        imageParams.extent = { totalWidth, totalHeight, 1 };
+        imageParams.mipLevels = 1;
+        imageParams.arrayLayers = 1;
+        imageParams.samples = ICPUImage::ESCF_1_BIT;
+        imageParams.usage = IImage::EUF_SAMPLED_BIT;
+
+        smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
+        assert(image);
+
+        const size_t bufferSize = totalWidth * totalHeight * getTexelOrBlockBytesize(format);
+        {
+            auto imageRegions = make_refctd_dynamic_array<smart_refctd_dynamic_array<IImage::SBufferCopy>>(1ull);
+            auto& region = imageRegions->front();
+            region.bufferImageHeight = 0u;
+            region.bufferOffset = 0ull;
+            region.bufferRowLength = totalWidth;
+            region.imageExtent = { totalWidth, totalHeight, 1 };
+            region.imageOffset = { 0u, 0u, 0u };
+            region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+            region.imageSubresource.baseArrayLayer = 0u;
+            region.imageSubresource.layerCount = 1;
+            region.imageSubresource.mipLevel = 0;
+
+            image->setBufferAndRegions(ICPUBuffer::create({ bufferSize }), std::move(imageRegions));
+        }
+
+        uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
+
+        // write sample count from generate, top half
+        for (uint64_t j = 0u; j < thetaSplits; ++j)
+            for (uint64_t i = 0; i < phiSplits; ++i)
+            {
+                float32_t3 pixelColor = mapColor(countFreq[j * phiSplits + i], 0.f, maxCountFreq);
+                double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
+
+                const uint64_t pixelIndex = j * phiSplits + i;
+                asset::encodePixelsRuntime(format, bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+            }
+
+        // write values of pdf, bottom half
+        for (uint64_t j = 0u; j < thetaSplits; ++j)
+            for (uint64_t i = 0; i < phiSplits; ++i)
+            {
+                float32_t3 pixelColor = mapColor(integrateFreq[j * phiSplits + i], 0.f, maxIntFreq);
+                double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
+
+                const uint64_t pixelIndex = (thetaSplits + j) * phiSplits + i;
+                asset::encodePixelsRuntime(format, bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+            }
+
+        return image;
+    }
+
+    void writeToEXR(asset::IAssetManager* assetManager)
     {
         std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.halfSeed, base_t::name);
 
-        int totalWidth = phiSplits;
-        int totalHeight = 2 * thetaSplits + 1;
-        
-        // write sample count from generate, top half
-        Array2D<Rgba> pixels(totalWidth, totalHeight);
-        for (int y = 0; y < thetaSplits; y++)
-            for (int x = 0; x < phiSplits; x++)
-                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0.f, maxCountFreq);
+        auto cpuImage = writeToCPUImage();
+        ICPUImageView::SCreationParams imgViewParams;
+        imgViewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+        imgViewParams.format = cpuImage->getCreationParameters().format;
+        imgViewParams.image = smart_refctd_ptr(cpuImage);
+        imgViewParams.viewType = ICPUImageView::ET_2D;
+        imgViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
+        smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(imgViewParams));
 
-        // for (int x = 0; x < phiSplits; x++)
-        //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
-
-        // write values of pdf, bottom half
-        for (int y = 0; y < thetaSplits; y++)
-            for (int x = 0; x < phiSplits; x++)
-                pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0.f, maxIntFreq);
-    
-        Header header(totalWidth, totalHeight);
-        RgbaOutputFile file(filename.c_str(), header, WRITE_RGBA);
-        file.setFrameBuffer(&pixels[0][0], 1, totalWidth+1);
-        file.writePixels(totalHeight);
+        IAssetWriter::SAssetWriteParams wp(imageView.get());
+        assetManager->writeAsset(filename, wp);
     }
 
     ErrorType compute()
@@ -540,7 +620,7 @@ struct TestChi2 : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    ErrorType test()
+    ErrorType test(asset::IAssetManager* assetManager)
     {
         if (traits_t::type == bxdf::BT_BRDF)
             if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
@@ -554,7 +634,7 @@ struct TestChi2 : TestBxDF<BxDF>
             return res;
 
         if (write_frequencies)
-            writeToEXR();
+            writeToEXR(assetManager);
 
         // chi2
         std::vector<Cell> cells(thetaSplits * phiSplits);
@@ -627,7 +707,7 @@ struct TestChi2 : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb, asset::IAssetManager* assetManager)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -638,7 +718,7 @@ struct TestChi2 : TestBxDF<BxDF>
         t.write_frequencies = initparams.writeFrequencies;
         t.initBxDF(t.rc);
 
-        ErrorType e = t.test();
+        ErrorType e = t.test(assetManager);
         if (e != BET_NONE)
             cb.__call(e, t, initparams.logInfo);
     }

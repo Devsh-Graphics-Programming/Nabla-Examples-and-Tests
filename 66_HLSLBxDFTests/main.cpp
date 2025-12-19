@@ -35,34 +35,34 @@ struct PrintFailureCallback : FailureCallback<TestT>
         {
         case BET_INVALID:
             if (logInfo)
-                fprintf(stderr, "[INFO] seed %u: %s skipping test due to invalid NdotV/NdotL config\n", failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s skipping test due to invalid NdotV/NdotL config\n", ILogger::ELL_INFO, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_NEGATIVE_VAL:
-            fprintf(stderr, "[ERROR] seed %u: %s pdf/quotient/eval < 0\n", failedFor.rc.halfSeed, failedFor.name.c_str());
+            logger->log("seed %u: %s pdf/quotient/eval < 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_PDF_ZERO:
-            fprintf(stderr, "[ERROR] seed %u: %s pdf = 0\n", failedFor.rc.halfSeed, failedFor.name.c_str());
+            logger->log("seed %u: %s pdf = 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_QUOTIENT_INF:
-            fprintf(stderr, "[ERROR] seed %u: %s quotient -> inf\n", failedFor.rc.halfSeed, failedFor.name.c_str());
+            logger->log("seed %u: %s quotient -> inf\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_JACOBIAN:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            logger->log("seed %u: %s failed the jacobian * pdf test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PDF_EVAL_DIFF:
-            fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            logger->log("seed %u: %s quotient * pdf != eval    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_NO_RECIPROCITY:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            logger->log("seed %u: %s failed the reciprocity test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PRINT_MSG:
-            fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            logger->log("seed %u: %s error message\n%s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_GENERATE_H_INVALID:
-            fprintf(stderr, "[ERROR] seed %u: %s failed invalid H configuration generated    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            logger->log("seed %u: %s failed invalid H configuration generated    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         default:
-            fprintf(stderr, "[ERROR] seed %u: %s unknown error\n", failedFor.rc.halfSeed, failedFor.name.c_str());
+            logger->log("seed %u: %s unknown error\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
         }
 
 #ifdef _NBL_DEBUG
@@ -74,25 +74,34 @@ struct PrintFailureCallback : FailureCallback<TestT>
         }
 #endif
     }
+
+    smart_refctd_ptr<ILogger> logger;
 };
 
 #define FOR_EACH_BEGIN_EX(r, ex) std::for_each(ex, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
-#define RUN_TEST_OF_TYPE(TEST_TYPE, INIT_PARAMS) {\
+#define RUN_TEST_OF_TYPE(TEST_TYPE, INIT_PARAMS, ...) {\
     PrintFailureCallback<BOOST_PP_REMOVE_PARENS(TEST_TYPE)> cb;\
-    BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb);\
+    cb.logger = logger;\
+    BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb __VA_OPT__(,) __VA_ARGS__);\
 }\
 
 int main(int argc, char** argv)
 {
     std::cout << std::fixed << std::setprecision(4);
+    IApplicationFramework::GlobalsInit();
+    auto system = IApplicationFramework::createSystem();
+    const system::path CWD = path(argv[0]).parent_path().generic_string() + "/";
+    smart_refctd_ptr<ILogger> logger = make_smart_refctd_ptr<CColoredStdoutLoggerANSI>(ILogger::DefaultLogMask());
+    logger->log("Logger Created!", ILogger::ELL_INFO);
+    auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(system));
 
     std::ifstream f("../app_resources/config.json");
     if (f.fail())
     {
-        fprintf(stderr, "[ERROR] could not open config file\n");
+        logger->log("could not open config file\n", ILogger::ELL_ERROR);
         return -1;
     }
     json testconfigs;
@@ -102,38 +111,33 @@ int main(int argc, char** argv)
     }
     catch (json::parse_error& ex)
     {
-        fprintf(stderr, "[ERROR] parse_error.%d failed to parse config file at byte %u: %s\n", ex.id, ex.byte, ex.what());
+        logger->log( "parse_error.%d failed to parse config file at byte %u: %s\n", ILogger::ELL_ERROR, ex.id, ex.byte, ex.what());
         return -1;
     }
 
     // test compile with dxc
     {
-        smart_refctd_ptr<system::ISystem> m_system = system::IApplicationFramework::createSystem();
-        smart_refctd_ptr<system::ILogger> m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(system::ILogger::DefaultLogMask());
-        m_logger->log("Logger Created!", system::ILogger::ELL_INFO);
-        smart_refctd_ptr<asset::IAssetManager> m_assetMgr = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
-
         path CWD = system::path(argv[0]).parent_path().generic_string() + "/";
         path localInputCWD = CWD / "../";
         auto resourceArchive =
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
-            make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+            make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(logger));
 #else
-            make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
+            make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(logger), system.get());
 #endif
-        m_system->mount(std::move(resourceArchive), "app_resources");
+        system->mount(std::move(resourceArchive), "app_resources");
 
         constexpr uint32_t WorkgroupSize = 256;
         const std::string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
         const std::string filePath = "app_resources/test_compile.comp.hlsl";
 
         IAssetLoader::SAssetLoadParams lparams = {};
-        lparams.logger = m_logger.get();
+        lparams.logger = logger.get();
         lparams.workingDirectory = "";
-        auto bundle = m_assetMgr->getAsset(filePath, lparams);
+        auto bundle = assetManager->getAsset(filePath, lparams);
         if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
         {
-            m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
+            logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
             exit(-1);
         }
 
@@ -142,19 +146,19 @@ int main(int argc, char** argv)
         auto shaderSrc = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 
         auto shader = shaderSrc;
-        auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+        auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(system));
         CHLSLCompiler::SOptions options = {};
         options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
         options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
         options.spirvOptimizer = nullptr;
         // if you don't set the logger and source identifier you'll have no meaningful errors
         options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
-        options.preprocessorOptions.logger = m_logger.get();
+        options.preprocessorOptions.logger = logger.get();
         options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
         const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE", WorkgroupSizeAsStr };
         options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
         if (!(shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options)))
-            fprintf(stderr, "[ERROR] compile shader test failed!\n");
+            logger->log("compile shader test failed!\n", ILogger::ELL_ERROR);
     }
 
     assert(bxdf::surface_interactions::Isotropic<iso_interaction>);
@@ -274,7 +278,7 @@ int main(int argc, char** argv)
     // chi2 test for sampling and pdf
     runs = testconfigs["TestChi2"]["runs"];
     auto rChi2 = std::ranges::views::iota(0u, runs);
-    FOR_EACH_BEGIN_EX(rChi2, std::execution::seq)
+    FOR_EACH_BEGIN_EX(rChi2, std::execution::par_unseq)
     STestInitParams initparams{ .logInfo = logInfo };
     initparams.halfSeed = i;
     initparams.samples = testconfigs["TestChi2"]["samples"];
@@ -282,21 +286,21 @@ int main(int argc, char** argv)
     initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
     initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
 
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
 
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
     FOR_EACH_END
 
     // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
