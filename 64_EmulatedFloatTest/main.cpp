@@ -101,7 +101,7 @@ private:
             else
                 errorMsgPrefix = "GPU test fail:";
 
-            m_logger->log(errorMsgPrefix.c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, errorMsgPrefix.c_str());
             m_logFile << errorMsgPrefix << '\n';
         };
 
@@ -122,7 +122,7 @@ private:
             ss << std::bitset<64>(expectedValue) << " - expectedValue bit pattern\n";
             ss << std::bitset<64>(testValue) << " - testValue bit pattern \n";
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
             m_logFile << ss.str() << '\n';
 
             //std::cout << "ULP error: " << std::max(expectedValue, testValue) - std::min(expectedValue, testValue) << "\n\n";
@@ -138,7 +138,7 @@ private:
         {
             std::string inputValuesStr = std::string("for input values: A = ") + std::to_string(a) + std::string(" B = ") + std::to_string(b);
 
-            m_logger->log(inputValuesStr.c_str() , ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, inputValuesStr.c_str());
             m_logFile << inputValuesStr << '\n';
 
             std::stringstream ss;
@@ -146,7 +146,7 @@ private:
             ss << "\nexpected value: " << std::boolalpha << bool(expectedValue);
             ss << "\ntest value: " << std::boolalpha << bool(testValue);
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
             m_logFile << ss.str() << '\n';
         };
 

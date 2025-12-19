@@ -327,7 +327,7 @@ protected:
         ss << "TEST ITERATION INDEX: " << testIteration << " SEED: " << seed << '\n';
         ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
 
-        m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
+        m_logger->log("%s", system::ILogger::ELL_ERROR, ss.str().c_str());
         m_logFile << ss.str() << '\n';
     }
 

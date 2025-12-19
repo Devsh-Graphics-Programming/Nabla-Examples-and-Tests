@@ -51,7 +51,6 @@ public:
             CTester mortonTester(4); // 4 * 128 = 512 tests
             mortonTester.setupPipeline(pplnSetupData);
             mortonTester.performTestsAndVerifyResults("MortonTestLog.txt");
-
         }
         {
             CTester2::PipelineSetupData pplnSetupData;
