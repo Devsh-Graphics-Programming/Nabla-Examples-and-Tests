@@ -96,8 +96,9 @@ public:
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("app_resources/test.comp.hlsl", lp);
+            lp.workingDirectory = "app_resources"; // virtual root
+            auto key = nbl::this_example::builtin::build::get_spirv_key<"intrinsicsTest">(m_device.get());
+            auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
