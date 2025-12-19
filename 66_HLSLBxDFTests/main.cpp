@@ -4,6 +4,10 @@
 #include <ranges>
 #include <execution>
 
+#include "nlohmann/json.hpp"
+
+using json = nlohmann::json;
+
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
 #ifdef NBL_EMBED_BUILTIN_RESOURCES

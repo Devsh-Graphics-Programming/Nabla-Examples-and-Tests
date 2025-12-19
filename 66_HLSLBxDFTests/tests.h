@@ -10,22 +10,6 @@
 #include <format>
 #include <functional>
 
-#include "ImfRgbaFile.h"
-#include "ImfArray.h"
-#include "ImfHeader.h"
-
-#include "ImfNamespace.h"
-#include <iostream>
-
-#include "nlohmann/json.hpp"
-
-namespace IMF = Imf;
-namespace IMATH = Imath;
-
-using namespace IMF;
-using namespace IMATH;
-using json = nlohmann::json;
-
 #include "app_resources/tests_common.hlsl"
 
 // because unordered_map -- next time, do fixed size array of atomic offsets and linked lists (for readback and verification on cpu)
@@ -368,33 +352,6 @@ struct TestChi2 : TestBxDF<BxDF>
 
         return c;
     }
-
-    //void writeToEXR()
-    //{
-    //    std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.halfSeed, base_t::name);
-
-    //    int totalWidth = phiSplits;
-    //    int totalHeight = 2 * thetaSplits + 1;
-    //    
-    //    // write sample count from generate, top half
-    //    Array2D<Rgba> pixels(totalWidth, totalHeight);
-    //    for (int y = 0; y < thetaSplits; y++)
-    //        for (int x = 0; x < phiSplits; x++)
-    //            pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0.f, maxCountFreq);
-
-    //    // for (int x = 0; x < phiSplits; x++)
-    //    //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
-
-    //    // write values of pdf, bottom half
-    //    for (int y = 0; y < thetaSplits; y++)
-    //        for (int x = 0; x < phiSplits; x++)
-    //            pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0.f, maxIntFreq);
-    //
-    //    Header header(totalWidth, totalHeight);
-    //    RgbaOutputFile file(filename.c_str(), header, WRITE_RGBA);
-    //    file.setFrameBuffer(&pixels[0][0], 1, totalWidth+1);
-    //    file.writePixels(totalHeight);
-    //}
 
     smart_refctd_ptr<ICPUImage> writeToCPUImage()
     {
