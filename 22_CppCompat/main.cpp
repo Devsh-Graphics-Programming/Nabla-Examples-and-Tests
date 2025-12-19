@@ -74,18 +74,18 @@ public:
             tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
-            /*CIntrinsicsTester::PipelineSetupData pplnSetupData;
+            CIntrinsicsTester::PipelineSetupData pplnSetupData;
             pplnSetupData.device = m_device;
             pplnSetupData.api = m_api;
             pplnSetupData.assetMgr = m_assetMgr;
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.shaderKey = "intrinsicsTest";
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"intrinsicsTest">(m_device.get());
 
             CIntrinsicsTester intrinsicsTester(8);
             intrinsicsTester.setupPipeline(pplnSetupData);
-            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");*/
+            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
         }
 
         m_queue = m_device->getQueue(0, 0);

@@ -4,6 +4,8 @@
 #include <nabla.h>
 #include <assert.h>
 
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
@@ -44,7 +46,7 @@ public:
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"test">(m_device.get());
 
             CTester mortonTester(4); // 4 * 128 = 512 tests
             mortonTester.setupPipeline(pplnSetupData);
@@ -59,7 +61,7 @@ public:
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.testShaderPath = "app_resources/test2.comp.hlsl";
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"test2">(m_device.get());
 
             CTester2 mortonTester2(4);
             mortonTester2.setupPipeline(reinterpret_cast<CTester2::PipelineSetupData&>(pplnSetupData));
