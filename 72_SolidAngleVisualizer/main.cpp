@@ -475,13 +475,7 @@ public:
 				instance.packedGeo = m_renderer->getGeometries().data(); // cube // +interface.gcIndex;
 				m_renderer->render(cb, viewParams); // draw the cube/OBB
 
-				// TODO: a better way to get identity matrix
-				float32_t3x4 origin = {
-					1.0f,0.0f,0.0f,0.0f,
-					0.0f,1.0f,0.0f,0.0f,
-					0.0f,0.0f,1.0f,0.0f
-				};
-				memcpy(&instance.world, &origin, sizeof(instance.world));
+				instance.world = float32_t3x4(1.0f);
 				instance.packedGeo = m_renderer->getGeometries().data() + 2; // disk
 				m_renderer->render(cb, viewParams);
 			}
@@ -1112,8 +1106,9 @@ private:
 					drawColorField("silhouetteIndex", m_GPUOutResulData.silhouetteIndex);
 
 					ImGui::Text("silhouette Vertex Count: %u", m_GPUOutResulData.silhouetteVertexCount);
-					ImGui::Text("silhouette Clipped VertexCount: %u", m_GPUOutResulData.clippedVertexCount);
+					ImGui::Text("silhouette Positive VertexCount: %u", m_GPUOutResulData.positiveVertCount);
 					ImGui::Text("Silhouette Mismatch: %s", m_GPUOutResulData.edgeVisibilityMismatch ? "true" : "false");
+					ImGui::Text("More Than Two Bit Transitions: %s", m_GPUOutResulData.MoreThanTwoBitTransitions ? "true" : "false");
 
 					{
 						float32_t3 xAxis = m_OBBModelMatrix[0].xyz;
@@ -1141,12 +1136,12 @@ private:
 						lastSilhouetteIndex = m_GPUOutResulData.silhouetteIndex;
 					}
 
-					if (!m_GPUOutResulData.edgeVisibilityMismatch)
+					if (!m_GPUOutResulData.edgeVisibilityMismatch || !m_GPUOutResulData.MoreThanTwoBitTransitions)
 					{
 						// Reset flag when mismatch is cleared
 						modalShown = false;
 					}
-					if (m_GPUOutResulData.edgeVisibilityMismatch && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
+					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.MoreThanTwoBitTransitions) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
 					{
 						// Open modal popup only once per configuration
 						ImGui::OpenPopup("Edge Visibility Mismatch Warning");
@@ -1165,10 +1160,7 @@ private:
 
 						// Show configuration info
 						ImGui::TextWrapped("Configuration Index: %u", m_GPUOutResulData.silhouetteIndex);
-						ImGui::TextWrapped("Region: (%d, %d, %d)",
-							m_GPUOutResulData.region.x,
-							m_GPUOutResulData.region.y,
-							m_GPUOutResulData.region.z);
+						ImGui::TextWrapped("Region: (%u, %u, %u)", m_GPUOutResulData.region.x, m_GPUOutResulData.region.y, m_GPUOutResulData.region.z);
 						ImGui::Spacing();
 
 						ImGui::Text("Mismatched Vertices (bitmask): 0x%08X", m_GPUOutResulData.edgeVisibilityMismatch);
@@ -1203,13 +1195,26 @@ private:
 					ImGui::Separator();
 
 					// Silhouette mask printed in binary
-					char buf[33];
-					for (int i = 0; i < 32; i++)
-						buf[i] = (m_GPUOutResulData.silhouette & (1u << (31 - i))) ? '1' : '0';
-					buf[32] = '\0';
 
-					ImGui::Text("silhouette: 0x%08X", m_GPUOutResulData.silhouette);
-					ImGui::Text("binary: %s", buf);
+
+					auto printBin = [](uint32_t bin, const char* name)
+						{
+							char buf[33];
+							for (int i = 0; i < 32; i++)
+								buf[i] = (bin & (1u << (31 - i))) ? '1' : '0';
+							buf[32] = '\0';
+							ImGui::Text("%s: 0x%08X", name, bin);
+							ImGui::Text("binary: 0b%s", buf);
+							ImGui::Separator();
+						};
+					printBin(m_GPUOutResulData.silhouette, "Silhouette");
+					printBin(m_GPUOutResulData.rotatedSil, "rotatedSilhouette");
+
+					printBin(m_GPUOutResulData.clipCount, "clipCount");
+					printBin(m_GPUOutResulData.clipMask, "clipMask");
+					printBin(m_GPUOutResulData.rotatedClipMask, "rotatedClipMask");
+					printBin(m_GPUOutResulData.rotateAmount, "rotateAmount");
+					printBin(m_GPUOutResulData.wrapAround, "wrapAround");
 				}
 				ImGui::End();
 			}
@@ -1240,29 +1245,56 @@ private:
 					};
 
 				static RandomSampler rng(69); // Initialize RNG with seed
+
+				// Helper function to check if cube intersects unit sphere at origin
+				auto isCubeOutsideUnitSphere = [](const float32_t3& translation, const float32_t3& scale) -> bool {
+					float cubeRadius = glm::length(scale) * 0.5f;
+					float distanceToCenter = glm::length(translation);
+					return (distanceToCenter - cubeRadius) > 1.0f;
+				};
+
+				static TRS lastTRS = {};
 				if (ImGui::Button("Randomize Translation"))
 				{
-					m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
+					lastTRS = m_TRS; // Backup before randomizing
+					int attempts = 0;
+					do {
+						m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
+						attempts++;
+					} while (!isCubeOutsideUnitSphere(m_TRS.translation, m_TRS.scale) && attempts < 100);
 				}
 				ImGui::SameLine();
-
 				if (ImGui::Button("Randomize Rotation"))
 				{
+					lastTRS = m_TRS; // Backup before randomizing
 					m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
 				}
 				ImGui::SameLine();
-
 				if (ImGui::Button("Randomize Scale"))
 				{
-					m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+					lastTRS = m_TRS; // Backup before randomizing
+					int attempts = 0;
+					do {
+						m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+						attempts++;
+					} while (!isCubeOutsideUnitSphere(m_TRS.translation, m_TRS.scale) && attempts < 100);
 				}
-
-				ImGui::SameLine();
+				//ImGui::SameLine();
 				if (ImGui::Button("Randomize All"))
 				{
-					m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
-					m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
-					m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+					lastTRS = m_TRS; // Backup before randomizing
+					int attempts = 0;
+					do {
+						m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
+						m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
+						m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
+						attempts++;
+					} while (!isCubeOutsideUnitSphere(m_TRS.translation, m_TRS.scale) && attempts < 100);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Revert to Last"))
+				{
+					m_TRS = lastTRS; // Restore backed-up TRS
 				}
 
 				addMatrixTable("Model Matrix", "ModelMatrixTable", 4, 4, &m_OBBModelMatrix[0][0]);

@@ -16,79 +16,124 @@ float2 sphereToCircle(float3 spherePoint)
     }
 }
 
-float4 drawGreatCircleArc(float3 fragPos, float3 points[2], int visibility, float aaWidth)
+float drawGreatCircleArc(float3 fragPos, float3 points[2], float aaWidth, float width = 0.01f)
 {
-    if (visibility == 0) return float4(0,0,0,0);
-    
     float3 v0 = normalize(points[0]);
     float3 v1 = normalize(points[1]);
     float3 p = normalize(fragPos);
-    
+
     float3 arcNormal = normalize(cross(v0, v1));
     float dist = abs(dot(p, arcNormal));
-    
+
     float dotMid = dot(v0, v1);
     bool onArc = (dot(p, v0) >= dotMid) && (dot(p, v1) >= dotMid);
-    
-    if (!onArc) return float4(0,0,0,0);
-    
+
+    if (!onArc)
+        return 0.0f;
+
     float avgDepth = (length(points[0]) + length(points[1])) * 0.5f;
     float depthScale = 3.0f / avgDepth;
-    
-    float baseWidth = (visibility == 1) ? 0.01f : 0.005f;
-    float width = min(baseWidth * depthScale, 0.02f);
-    
+
+    width = min(width * depthScale, 0.02f);
     float alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, dist);
-    
-    float4 edgeColor = (visibility == 1) ? 
-        float4(0.0f, 0.5f, 1.0f, 1.0f) :
-        float4(1.0f, 0.0f, 0.0f, 1.0f);
-    
-    float intensity = (visibility == 1) ? 1.0f : 0.5f;
-    return edgeColor * alpha * intensity;
+
+    return alpha;
 }
 
 float4 drawHiddenEdges(float3 spherePos, uint32_t silEdgeMask, float aaWidth)
 {
-    float4 color = float4(0,0,0,0);
+    float4 color = 0;
     float3 hiddenEdgeColor = float3(0.1, 0.1, 0.1);
-    
+
+    NBL_UNROLL
     for (int i = 0; i < 12; i++)
     {
-        if ((silEdgeMask & (1u << i)) == 0)
+        // skip silhouette edges
+        if (silEdgeMask & (1u << i))
+            continue;
+
+        int2 edge = allEdges[i];
+
+        float3 v0 = normalize(getVertex(edge.x));
+        float3 v1 = normalize(getVertex(edge.y));
+
+        bool neg0 = v0.z < 0.0f;
+        bool neg1 = v1.z < 0.0f;
+
+        // fully hidden
+        if (neg0 && neg1)
+            continue;
+
+        float3 p0 = v0;
+        float3 p1 = v1;
+
+        // clip if needed
+        if (neg0 ^ neg1)
         {
-            int2 edge = allEdges[i];
-            float3 edgePoints[2] = { corners[edge.x], corners[edge.y] };
-            float4 edgeContribution = drawGreatCircleArc(spherePos, edgePoints, 1, aaWidth);
-            color += float4(hiddenEdgeColor * edgeContribution.a, edgeContribution.a);
+            float t = v0.z / (v0.z - v1.z);
+            float3 clip = normalize(lerp(v0, v1, t));
+
+            p0 = neg0 ? clip : v0;
+            p1 = neg1 ? clip : v1;
         }
+
+        float3 pts[2] = {p0, p1};
+        float4 c = drawGreatCircleArc(spherePos, pts, aaWidth, 0.005f);
+        color += float4(hiddenEdgeColor * c.a, c.a);
     }
+
     return color;
 }
 
 float4 drawCorners(float3 spherePos, float2 p, float aaWidth)
 {
-    float4 color = float4(0,0,0,0);
+    float4 color = 0;
+
+    float dotSize = 0.02f;
+    float innerDotSize = dotSize * 0.5f;
+
     for (int i = 0; i < 8; i++)
     {
-        float3 corner3D = normalize(corners[i]);
+        float3 corner3D = normalize(getVertex(i));
         float2 cornerPos = sphereToCircle(corner3D);
+
         float dist = length(p - cornerPos);
-        float dotSize = 0.02f;
-        float dotAlpha = 1.0f - smoothstep(dotSize - aaWidth, dotSize + aaWidth, dist);
-        if (dotAlpha > 0.0f)
+
+        // outer dot
+        float outerAlpha = 1.0f - smoothstep(dotSize - aaWidth,
+                                             dotSize + aaWidth,
+                                             dist);
+
+        if (outerAlpha <= 0.0f)
+            continue;
+
+        float3 dotColor = colorLUT[i];
+        color += float4(dotColor * outerAlpha, outerAlpha);
+
+        // -------------------------------------------------
+        // inner black dot for hidden corners
+        // -------------------------------------------------
+        if (corner3D.z < 0.0f)
         {
-            float3 dotColor = colorLUT[i];
-            color += float4(dotColor * dotAlpha, dotAlpha);
+            float innerAlpha = 1.0f - smoothstep(innerDotSize - aaWidth,
+                                                 innerDotSize + aaWidth,
+                                                 dist);
+
+            // ensure it stays inside the outer dot
+            innerAlpha *= outerAlpha;
+
+            float3 innerColor = float3(0.0, 0.0, 0.0);
+            color -= float4(innerAlpha.xxx, 0.0f);
         }
     }
+
     return color;
 }
 
 float4 drawRing(float2 p, float aaWidth)
 {
     float positionLength = length(p);
-    float ringWidth = 0.002f;
+    float ringWidth = 0.003f;
     float ringDistance = abs(positionLength - CIRCLE_RADIUS);
     float ringAlpha = 1.0f - smoothstep(ringWidth - aaWidth, ringWidth + aaWidth, ringDistance);
     return ringAlpha * float4(1, 1, 1, 1);
@@ -114,10 +159,12 @@ int getEdgeVisibility(int edgeIdx)
     bool visible2 = isFaceVisible(faceCenters[faces.y], n_world_f2);
 
     // Silhouette: exactly one face visible
-    if (visible1 != visible2) return 1;
+    if (visible1 != visible2)
+        return 1;
 
     // Inner edge: both faces visible
-    if (visible1 && visible2) return 2;
+    if (visible1 && visible2)
+        return 2;
 
     // Hidden edge: both faces hidden
     return 0;
@@ -162,11 +209,10 @@ void validateEdgeVisibility(uint32_t sil, int vertexCount, uint32_t generatedSil
             }
         }
     }
-    
+
     // Simple Write (assuming all fragments calculate the same result)
     InterlockedOr(DebugDataBuffer[0].edgeVisibilityMismatch, mismatchAccumulator);
 }
 #endif
-
 
 #endif // _DEBUG_HLSL_
