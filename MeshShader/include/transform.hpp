@@ -129,6 +129,7 @@ struct TransformWidget {
 			ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
 		ImGui::End();
+		ImGui::PopStyleColor();
 
 		return contentRegionSize;
 	}

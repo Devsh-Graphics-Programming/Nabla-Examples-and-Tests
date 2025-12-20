@@ -247,7 +247,8 @@ namespace nbl::examples {
 			}
 			const auto& view = geom->getIndexView();
 			if (view) {
-				assert(false && "not currently setup to support index buffer");
+				view.getElementCount();
+				assert(out.vertCount == view.getElementCount() && "not currently setup to support index buffer");
 			}
 		}
 
@@ -270,8 +271,9 @@ namespace nbl::examples {
 	}
 
 	void MeshDebugRenderer::clearGeometries(const video::ISemaphore::SWaitInfo& info) {
-		for (uint8_t i = 0; i < m_geoms.currentObjectCount; i++) {
-
+		//im currently assuming every object gets loaded correctly. definitely incorrect
+		for (uint8_t i = 0; i < m_geoms.MaxObjectCount; i++) {
+			removeGeometry(i, info);
 		}
 	}
 
@@ -312,7 +314,7 @@ namespace nbl::examples {
 		for (const auto& instance : m_instances) {
 			cmdbuf->bindMeshPipeline(m_params.pipeline.get());
 			const auto pc = instance.computePushConstants(viewParams);
-			cmdbuf->pushConstants(layout, hlsl::ShaderStage::ESS_MESH | hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
+			cmdbuf->pushConstants(layout, hlsl::ShaderStage::ESS_TASK | hlsl::ShaderStage::ESS_MESH | hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
 			//if (m_geoms->indexBuffer)
 			//{
 				//cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);
@@ -323,7 +325,7 @@ namespace nbl::examples {
 				//cmdbuf->bindDescriptorSets(geo->indexBuffer);
 				//cmdbuf->draw(geo->elementCount, 1, 0, 0);
 			//}
-			cmdbuf->dispatch(1, 1, 1);
+			cmdbuf->drawMeshTasks(1, 1, 1);
 		}
 		cmdbuf->endDebugMarker();
 	}

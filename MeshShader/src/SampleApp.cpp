@@ -529,26 +529,33 @@
 
     void UISampleApp::CInterface::operator()() {
         ImGuiIO& io = ImGui::GetIO();
+        io.ConfigDebugIsDebuggerPresent = true;
 
+        //camera
         {
             matrix4SIMD projection;
+            const float viewHeight = viewWidth * io.DisplaySize.x / io.DisplaySize.y;
 
-            if (isPerspective)
-                if(isLH)
-                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-                else
-                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+            if (isPerspective) {
+                if (isLH) {
+                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), viewHeight, zNear, zFar);
+                }
+                else {
+                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), viewHeight, zNear, zFar);
+                }
+            }
             else
             {
-                float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
-
-                if(isLH)
-                    projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
-                else
-                    projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+                if (isLH) {
+                    projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, 1.f / viewHeight, zNear, zFar);
+                }
+                else {
+                    projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, 1.f / viewHeight, zNear, zFar);
+                }
             }
             camera.setProjectionMatrix(projection);
-        }
+        } //end camera
+        
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
@@ -559,211 +566,182 @@
         // create a window and insert the inspector
         ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-        ImGui::Begin("Editor");
+        if(ImGui::Begin("Editor")) {
 
-        for(uint8_t i = 0; i < objectNames.size(); i++){
-            if (ImGui::TreeNode(objectNames[i].c_str())) {
-                ImGui::Text("objectCount - %d", objectCount[i]);
+            //object data
+            for(uint8_t i = 0; i < objectNames.size(); i++){
+                if (ImGui::TreeNode(objectNames[i].c_str())) {
+                    ImGui::Text("objectCount - %d", objectCount[i]);
                 
-                ImGui::TreePop();
-            }
-        }
-
-        ImGui::Separator();
-
-        if (ImGui::Button("reload mesh shader")) {
-            //printf("test shader result - %d\n", CreateTestShaderFuncPtr());
-        }
-
-        if (ImGui::RadioButton("Full view", !transformParams.useWindow))
-            transformParams.useWindow = false;
-
-        ImGui::SameLine();
-
-        if (ImGui::RadioButton("Window", transformParams.useWindow))
-            transformParams.useWindow = true;
-
-        ImGui::Text("Camera");
-        bool viewDirty = false;
-
-        if (ImGui::RadioButton("LH", isLH))
-            isLH = true;
-
-        ImGui::SameLine();
-
-        if (ImGui::RadioButton("RH", !isLH))
-            isLH = false;
-
-        if (ImGui::RadioButton("Perspective", isPerspective))
-            isPerspective = true;
-
-        ImGui::SameLine();
-
-        if (ImGui::RadioButton("Orthographic", !isPerspective))
-            isPerspective = false;
-
-        ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
-        ImGui::Checkbox("Enable camera movement", &move);
-        ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-        ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
-
-        // ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
-
-        if (isPerspective)
-            ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-        else
-            ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
-
-        ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
-        ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-
-        viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
-
-        if (viewDirty || firstFrame)
-        {
-            core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
-            core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
-            const static core::vectorSIMDf up(0.f, 1.f, 0.f);
-
-            camera.setPosition(cameraPosition);
-            camera.setTarget(cameraTarget);
-            camera.setBackupUpVector(up);
-
-            camera.recomputeViewMatrix();
-        }
-        firstFrame = false;
-
-        ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
-        if (ImGuizmo::IsUsing())
-        {
-            ImGui::Text("Using gizmo");
-        }
-        else {
-            ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
-            ImGui::SameLine();
-            ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
-            ImGui::SameLine();
-            ImGui::Text(ImGuizmo::IsOver(ImGuizmo::ROTATE) ? "Over rotate gizmo" : "");
-            ImGui::SameLine();
-            ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
-        }
-        ImGui::Separator();
-
-        /*
-        * ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
-        * and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
-
-        - VIEW:
-
-            ImGuizmo
-
-            |     X[0]          Y[0]          Z[0]         0.0f |
-            |     X[1]          Y[1]          Z[1]         0.0f |
-            |     X[2]          Y[2]          Z[2]         0.0f |
-            | -Dot(X, eye)  -Dot(Y, eye)  -Dot(Z, eye)     1.0f |
-
-            Nabla
-
-            |     X[0]         X[1]           X[2]     -Dot(X, eye)  |
-            |     Y[0]         Y[1]           Y[2]     -Dot(Y, eye)  |
-            |     Z[0]         Z[1]           Z[2]     -Dot(Z, eye)  |
-
-            <ImGuizmo View Matrix> = transpose(nbl::core::matrix4SIMD(<Nabla View Matrix>))
-
-        - PERSPECTIVE [PROJECTION CASE]:
-
-            ImGuizmo
-
-            |      (temp / temp2)                 (0.0)                       (0.0)                   (0.0)  |
-            |          (0.0)                  (temp / temp3)                  (0.0)                   (0.0)  |
-            | ((right + left) / temp2)   ((top + bottom) / temp3)    ((-zfar - znear) / temp4)       (-1.0f) |
-            |          (0.0)                      (0.0)               ((-temp * zfar) / temp4)        (0.0)  |
-
-            Nabla
-
-            |            w                        (0.0)                       (0.0)                   (0.0)               |
-            |          (0.0)                       -h                         (0.0)                   (0.0)               |
-            |          (0.0)                      (0.0)               (-zFar/(zFar-zNear))     (-zNear*zFar/(zFar-zNear)) |
-            |          (0.0)                      (0.0)                      (-1.0)                   (0.0)               |
-
-            <ImGuizmo Projection Matrix> = transpose(<Nabla Projection Matrix>)
-
-        *
-        * the ViewManipulate final call (inside EditTransform) returns world space column major matrix for an object,
-        * note it also modifies input view matrix but projection matrix is immutable
-        */
-
-// TODO: do all computation using `hlsl::matrix` and its `hlsl::float32_tNxM` aliases
-        static struct
-        {
-            core::matrix4SIMD view, projection, model;
-        } imguizmoM16InOut;
-
-        ImGuizmo::SetID(0u);
-
-        imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-        imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-
-        if (currentTransform < 0) {
-            currentTransform = 0;
-        }
-
-        if (currentTransform >= 0 && currentTransform < transforms.size()) {
-            imguizmoM16InOut.model = core::transpose(matrix4SIMD(transforms[currentTransform]));
-        }
-        {
-            transformParams.editTransformDecomposition = true;
-            static TransformWidget transformWidget{};
-            const auto tempForConversion = transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
-            sceneResolution = { tempForConversion.x, tempForConversion.y };
-            
-        }
-
-        if (currentTransform >= 0 && currentTransform < transforms.size()) {
-            transforms[currentTransform] = core::transpose(imguizmoM16InOut.model).extractSub3x4();
-        }
-        // to Nabla + update camera & model matrices
-// TODO: make it more nicely, extract:
-// - Position by computing inverse of the view matrix and grabbing its translation
-// - Target from 3rd row without W component of view matrix multiplied by some arbitrary distance value (can be the length of position from origin) and adding the position
-// But then set the view matrix this way anyway, because up-vector may not be compatible
-        const auto& view = camera.getViewMatrix();
-        const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-        // update concatanated matrix
-        const auto& projection = camera.getProjectionMatrix();
-        camera.setProjectionMatrix(projection);
-            
-        // view matrices editor
-        {
-            ImGui::Begin("Matrices");
-
-            auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
-            {
-                ImGui::Text(topText);
-                if (ImGui::BeginTable(tableName, columns))
-                {
-                    for (int y = 0; y < rows; ++y)
-                    {
-                        ImGui::TableNextRow();
-                        for (int x = 0; x < columns; ++x)
-                        {
-                            ImGui::TableSetColumnIndex(x);
-                            ImGui::Text("%.3f", *(pointer + (y * columns) + x));
-                        }
-                    }
-                    ImGui::EndTable();
+                    ImGui::TreePop();
                 }
+            }
 
-                if (withSeparator)
-                    ImGui::Separator();
-            };
+            ImGui::Separator();
+
+            //controls
+            {
+                //if (ImGui::Button("reload mesh shader")) {
+                    //printf("test shader result - %d\n", CreateTestShaderFuncPtr());
+                //}
+
+                if (ImGui::RadioButton("Full view", !transformParams.useWindow))
+                    transformParams.useWindow = false;
+
+                ImGui::SameLine();
+
+                if (ImGui::RadioButton("Window", transformParams.useWindow))
+                    transformParams.useWindow = true;
+
+                ImGui::Text("Camera");
+                bool viewDirty = false;
+
+                if (ImGui::RadioButton("LH", isLH))
+                    isLH = true;
+
+                ImGui::SameLine();
+
+                if (ImGui::RadioButton("RH", !isLH))
+                    isLH = false;
+
+                if (ImGui::RadioButton("Perspective", isPerspective))
+                    isPerspective = true;
+
+                ImGui::SameLine();
+
+                if (ImGui::RadioButton("Orthographic", !isPerspective))
+                    isPerspective = false;
+
+                ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
+                ImGui::Checkbox("Enable camera movement", &move);
+                ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
+                ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
+
+                // ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
+
+                if (isPerspective)
+                    ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
+                else
+                    ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
+
+                ImGui::SliderFloat("zNear", &zNear, 0.1f, zFar);
+                ImGui::SliderFloat("zFar", &zFar, zNear, 10000.f);
+
+                viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
+
+                if (viewDirty || firstFrame)
+                {
+                    core::vectorSIMDf cameraPosition(cosf(camYAngle) * cosf(camXAngle) * transformParams.camDistance, sinf(camXAngle) * transformParams.camDistance, sinf(camYAngle) * cosf(camXAngle) * transformParams.camDistance);
+                    core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
+                    const static core::vectorSIMDf up(0.f, 1.f, 0.f);
+
+                    camera.setPosition(cameraPosition);
+                    camera.setTarget(cameraTarget);
+                    camera.setBackupUpVector(up);
+
+                    camera.recomputeViewMatrix();
+                }
+                firstFrame = false;
+
+                ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
+                if (ImGuizmo::IsUsing())
+                {
+                    ImGui::Text("Using gizmo");
+                }
+                else {
+                    ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
+                    ImGui::SameLine();
+                    ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
+                    ImGui::SameLine();
+                    ImGui::Text(ImGuizmo::IsOver(ImGuizmo::ROTATE) ? "Over rotate gizmo" : "");
+                    ImGui::SameLine();
+                    ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
+                }
+            }//end controls
+            
+            ImGui::Separator();
+
+            /*
+            * ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
+            * and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
+
+            *
+            * the ViewManipulate final call (inside EditTransform) returns world space column major matrix for an object,
+            * note it also modifies input view matrix but projection matrix is immutable
+            */
+
+    // TODO: do all computation using `hlsl::matrix` and its `hlsl::float32_tNxM` aliases
+            static struct
+            {
+                core::matrix4SIMD view, projection, model;
+            } imguizmoM16InOut;
+
+            ImGuizmo::SetID(0u);
+
+            imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
+            imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
+
+            if (currentTransform < 0) {
+                currentTransform = 0;
+            }
 
             if (currentTransform >= 0 && currentTransform < transforms.size()) {
-                addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, transforms[currentTransform].pointer());
+                imguizmoM16InOut.model = core::transpose(matrix4SIMD(transforms[currentTransform]));
             }
-            addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-            addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+            {
+                transformParams.editTransformDecomposition = true;
+                static TransformWidget transformWidget{};
+                const auto tempForConversion = transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+                sceneResolution = { tempForConversion.x, tempForConversion.y };
+            
+            }
 
+            if (currentTransform >= 0 && currentTransform < transforms.size()) {
+                transforms[currentTransform] = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+            }
+            // to Nabla + update camera & model matrices
+    // TODO: make it more nicely, extract:
+    // - Position by computing inverse of the view matrix and grabbing its translation
+    // - Target from 3rd row without W component of view matrix multiplied by some arbitrary distance value (can be the length of position from origin) and adding the position
+    // But then set the view matrix this way anyway, because up-vector may not be compatible
+            const auto& view = camera.getViewMatrix();
+            const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+            // update concatanated matrix
+            const auto& projection = camera.getProjectionMatrix();
+            camera.setProjectionMatrix(projection);
+            
+            // view matrices editor
+            if(ImGui::Begin("Matrices")){
+
+                auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
+                    {
+                        ImGui::Text(topText);
+                        if (ImGui::BeginTable(tableName, columns))
+                        {
+                            for (int y = 0; y < rows; ++y)
+                            {
+                                ImGui::TableNextRow();
+                                for (int x = 0; x < columns; ++x)
+                                {
+                                    ImGui::TableSetColumnIndex(x);
+                                    ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+                                }
+                            }
+                            ImGui::EndTable();
+                        }
+
+                        if (withSeparator)
+                            ImGui::Separator();
+                    };
+
+                if (currentTransform >= 0 && currentTransform < transforms.size()) {
+                    addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, transforms[currentTransform].pointer());
+                }
+                addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
+                addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+
+            } //end view matrix editor
             ImGui::End();
-        }
+        } //end editor window
+        ImGui::End();
     }

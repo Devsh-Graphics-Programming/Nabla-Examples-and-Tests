@@ -124,6 +124,7 @@ protected:
 	inline ~MeshDebugRenderer()	{
 		// clean shutdown, can also make SubAllocatedDescriptorSet resillient against that, and issue `device->waitIdle` if not everything is freed
 		const_cast<video::ILogicalDevice*>(m_params.layout->getOriginDevice())->waitIdle();
+		clearGeometries({});
 	}
 	void clearGeometries(const video::ISemaphore::SWaitInfo& info);
 
