@@ -6,6 +6,8 @@ endif()
 if(NBL_BUILD_IMGUI)
 	set(NBL_EXTRA_SOURCES
 		#"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp" #just leaving this so i can easily reference it later
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/SampleApp.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/MeshRenderer.cpp"
 	)
 
 	set(NBL_INCLUDE_SEARCH_DIRECTORIES

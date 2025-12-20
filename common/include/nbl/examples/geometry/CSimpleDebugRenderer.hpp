@@ -228,8 +228,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> pipelines[PipelineType::Count];
 		};
 		inline const SInitParams& getInitParams() const {return m_params;}
-
-		//
+		
 		inline bool addGeometries(const std::span<const video::IGPUPolygonGeometry* const> geometries)
 		{
 			EXPOSE_NABLA_NAMESPACES;
@@ -261,8 +260,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				};
 				return index;
 			};
-			if (anyFailed)
-				device->getLogger()->log("Failed to allocate a UTB for some geometries, probably ran out of space in Descriptor Set!",system::ILogger::ELL_ERROR);
 
 			auto sizeToSet = m_geoms.size();
 			auto resetGeoms = core::makeRAIIExiter([&]()->void
@@ -308,6 +305,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				out.positionView = allocateUTB(geom->getPositionView());
 				out.normalView = allocateUTB(geom->getNormalView());
 			}
+
+			if (anyFailed)
+				device->getLogger()->log("Failed to allocate a UTB for some geometries, probably ran out of space in Descriptor Set!", system::ILogger::ELL_ERROR);
 
 			// no geometry
 			if (infos.empty())
@@ -356,7 +356,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		//
 		inline void clearGeometries(const video::ISemaphore::SWaitInfo& info)
 		{
-			// back to front to avoid O(n^2) resize
+			//why woudl oyu delete element by element instead of just deallocating all then clearing once?
 			while (!m_geoms.empty())
 				removeGeometry(m_geoms.size()-1,info);
 		}

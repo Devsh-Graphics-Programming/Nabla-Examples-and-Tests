@@ -4,7 +4,7 @@
 
 
 //utb is short for "uniform texel buffer", or its a storage buffer with vec4s
-[[vk::binding(0)]] StructuredBuffer<float32_t4> utbs[PushDescCount];
+[[vk::binding(0)]] Buffer<float32_t4> utbs[PushDescCount];
 //none of the objects use the index buffer
 
 struct VertexOut {

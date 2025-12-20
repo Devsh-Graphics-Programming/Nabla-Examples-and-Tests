@@ -13,3 +13,4 @@ compiled.spv
 */.vscode/*
 */__main__.py
 /tmp/rtSamples.bin
+imgui.ini

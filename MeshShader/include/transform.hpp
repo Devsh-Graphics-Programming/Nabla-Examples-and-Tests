@@ -94,7 +94,7 @@ struct TransformWidget {
 	}
 
 
-	void ViewingGizmo(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
+	ImVec2 ViewingGizmo(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
 		ImGuiIO& io = ImGui::GetIO();
 		float viewManipulateRight = io.DisplaySize.x;
 		float viewManipulateTop = 0;
@@ -103,17 +103,39 @@ struct TransformWidget {
 		info.textureID = params.sceneTexDescIx;
 		info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
+
+		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+		ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+		ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
+		ImGuizmo::SetDrawlist();
+
+		ImVec2 windowPos = ImGui::GetWindowPos();
+		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+		ImGui::Image(info, contentRegionSize);
+		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+		viewManipulateRight = cursorPos.x + contentRegionSize.x;
+		viewManipulateTop = cursorPos.y;
+
+		ImGuiWindow* window = ImGui::GetCurrentWindow();
+		gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
+
 		ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
 
 		if (params.enableViewManipulate)
 			ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
 		ImGui::End();
+
+		return contentRegionSize;
 	}
 
-	void Update(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
+	ImVec2 Update(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
 		EditTransform(matrix, params);
-		ViewingGizmo(cameraView, cameraProjection, matrix, params);
+		return ViewingGizmo(cameraView, cameraProjection, matrix, params);
 	}
 
 };
