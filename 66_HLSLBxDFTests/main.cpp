@@ -44,8 +44,8 @@ struct PrintFailureCallback : FailureCallback<TestT>
         case BET_NEGATIVE_VAL:
             logger->log("seed %u: %s pdf/quotient/eval < 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
-        case BET_PDF_ZERO:
-            logger->log("seed %u: %s pdf = 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+        case BET_GENERATED_SAMPLE_NON_POSITIVE_PDF:
+            logger->log("seed %u: %s generated sample has pdf = 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_QUOTIENT_INF:
             logger->log("seed %u: %s quotient -> inf\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());

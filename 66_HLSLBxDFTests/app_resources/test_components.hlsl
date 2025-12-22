@@ -163,7 +163,7 @@ struct TestNDF : TestBxDF<BxDF>
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
         float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
-        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 5e-2))
+        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 1e-2))
         {
 #ifndef __HLSL_VERSION
             if (verbose)

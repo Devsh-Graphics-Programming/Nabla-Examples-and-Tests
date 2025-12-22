@@ -118,7 +118,7 @@ struct TestJacobian : TestBxDF<BxDF>
             return res;
 
         if (checkZero<float>(pdf.pdf, 1e-5) && !checkZero<float32_t3>(pdf.quotient, 1e-5))  // something generated cannot have 0 probability of getting generated
-            return BET_PDF_ZERO;
+            return BET_GENERATED_SAMPLE_NON_POSITIVE_PDF;
 
         if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
             return BET_QUOTIENT_INF;

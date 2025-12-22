@@ -49,16 +49,16 @@ struct ConvertToFloat01
 template<typename T>
 bool checkEq(T a, T b, float32_t eps)
 {
-    T _a = hlsl::abs(a);
-    T _b = hlsl::abs(b);
+    T _a = hlsl::max(hlsl::abs(a), hlsl::promote<T>(1e-5));
+    T _b = hlsl::max(hlsl::abs(b), hlsl::promote<T>(1e-5));
     return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
 }
 
 template<>
 bool checkEq<float32_t>(float32_t a, float32_t b, float32_t eps)
 {
-    float32_t _a = hlsl::abs(a);
-    float32_t _b = hlsl::abs(b);
+    float32_t _a = hlsl::max(hlsl::abs(a), 1e-5f);   // prevent divide by 0
+    float32_t _b = hlsl::max(hlsl::abs(b), 1e-5f);
     return nbl::hlsl::max<float32_t>(_a / _b, _b / _a) <= float32_t(1 + eps);
 }
 
@@ -108,7 +108,8 @@ struct SBxDFTestResources
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
-        retval.eta = ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
+        retval.eta = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>()) * hlsl::promote<float32_t3>(1.5) + hlsl::promote<float32_t3>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
+        retval.etak = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>()) * hlsl::promote<float32_t3>(1.5) + hlsl::promote<float32_t3>(1.1); // same as above
         retval.luma_coeff = colorspace::scRGBtoXYZ[1];
 
         retval.Dinc = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 2400.0f + 100.0f;
@@ -134,7 +135,8 @@ struct SBxDFTestResources
 
     float32_t3 u;
     float32_t2 alpha;
-    float32_t2 eta; // (eta, etak)
+    float32_t3 eta;
+    float32_t3 etak;
     float32_t3 luma_coeff;
 
     // thin film stuff;
@@ -159,7 +161,7 @@ enum ErrorType : uint32_t
 {
     BET_NONE = 0,
     BET_NEGATIVE_VAL,       // pdf/quotient/eval < 0
-    BET_PDF_ZERO,           // pdf = 0
+    BET_GENERATED_SAMPLE_NON_POSITIVE_PDF,  // pdf = 0
     BET_QUOTIENT_INF,       // quotient -> inf
     BET_JACOBIAN,           // jacobian * pdf != 0
     BET_PDF_EVAL_DIFF,      // quotient * pdf != eval
@@ -257,7 +259,7 @@ struct TestBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>> :
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.eta,_rc.etak);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann BRDF";
 #endif
@@ -272,7 +274,7 @@ struct TestBxDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x, _rc.alpha.y);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.eta,_rc.etak);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Aniso BRDF";
 #endif
@@ -287,7 +289,7 @@ struct TestBxDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>> : Test
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.eta,_rc.etak);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX BRDF";
 #endif
@@ -302,7 +304,7 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x, _rc.alpha.y);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.eta,_rc.etak);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Aniso BRDF";
 #endif
@@ -322,8 +324,8 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
         params.Dinc = _rc.Dinc;
         params.ior1 = hlsl::promote<float32_t3>(1.0);
         params.ior2 = hlsl::promote<float32_t3>(_rc.etaThinFilm);
-        params.ior3 = hlsl::promote<float32_t3>(_rc.eta.x);
-        params.iork3 = hlsl::promote<float32_t3>(_rc.eta.y);
+        params.ior3 = _rc.eta;
+        params.iork3 = _rc.etak;
         base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BRDF";
