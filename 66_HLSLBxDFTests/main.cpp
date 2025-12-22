@@ -165,30 +165,30 @@ int main(int argc, char** argv)
             logger->log("compile shader test failed!\n", ILogger::ELL_ERROR);
     }
 
-    assert(bxdf::surface_interactions::Isotropic<iso_interaction>);
-    assert(bxdf::surface_interactions::Isotropic<aniso_interaction>);
-    assert(bxdf::surface_interactions::Anisotropic<aniso_interaction>);
+    static_assert(bxdf::surface_interactions::Isotropic<iso_interaction>);
+    static_assert(bxdf::surface_interactions::Isotropic<aniso_interaction>);
+    static_assert(bxdf::surface_interactions::Anisotropic<aniso_interaction>);
 
-    assert(bxdf::CreatableIsotropicMicrofacetCache<iso_cache>);
-    assert(bxdf::ReadableIsotropicMicrofacetCache<aniso_cache>);
-    assert(bxdf::AnisotropicMicrofacetCache<aniso_cache>);
+    static_assert(bxdf::CreatableIsotropicMicrofacetCache<iso_cache>);
+    static_assert(bxdf::ReadableIsotropicMicrofacetCache<aniso_cache>);
+    static_assert(bxdf::AnisotropicMicrofacetCache<aniso_cache>);
 
     using ndf_beckmann_t = bxdf::ndf::Beckmann<float, false, bxdf::ndf::MTT_REFLECT>;
-    assert(bxdf::ndf::NDF<ndf_beckmann_t>);
+    static_assert(bxdf::ndf::NDF<ndf_beckmann_t>);
     using ndf_ggx_t = bxdf::ndf::GGX<float, true, bxdf::ndf::MTT_REFLECT_REFRACT>;
-    assert(bxdf::ndf::NDF<ndf_ggx_t>);
+    static_assert(bxdf::ndf::NDF<ndf_ggx_t>);
 
     using fresnel_schlick_t = bxdf::fresnel::Schlick<float32_t3>;
-    assert(bxdf::fresnel::Fresnel<fresnel_schlick_t>);
+    static_assert(bxdf::fresnel::Fresnel<fresnel_schlick_t>);
 
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SLambertian<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SOrenNayar<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>>);
+    static_assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SLambertian<iso_config_t>>);
+    static_assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SOrenNayar<iso_config_t>>);
+    static_assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>>);
 
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>);
+    static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>);
+    static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>);
+    static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>);
+    static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>);
 
     const bool logInfo = testconfigs["logInfo"];
 
@@ -196,29 +196,29 @@ int main(int argc, char** argv)
     uint32_t runs = testconfigs["TestJacobian"]["runs"];
     auto rJacobian = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rJacobian)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.verbose = testconfigs["TestJacobian"]["verbose"];
+        STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.verbose = testconfigs["TestJacobian"]["verbose"];
 
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SDeltaDistribution<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SDeltaDistribution<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SSmoothDielectric<iso_config_t> >), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SSmoothDielectric<iso_config_t> >), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
     FOR_EACH_END
 
 
@@ -226,56 +226,55 @@ int main(int argc, char** argv)
     runs = testconfigs["TestReciprocity"]["runs"];
     auto rReciprocity = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rReciprocity)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.verbose = testconfigs["TestReciprocity"]["verbose"];
+        STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.verbose = testconfigs["TestReciprocity"]["verbose"];
 
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SDeltaDistribution<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SDeltaDistribution<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SSmoothDielectric<iso_config_t> >), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SIridescent<rectest_iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SSmoothDielectric<iso_config_t> >), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<rectest_iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestReciprocity<bxdf::transmission::SIridescent<rectest_iso_microfacet_config_t>, false>), initparams);
     FOR_EACH_END
 
 
     // test buckets of inf
-    // NOTE: can safely ignore any errors for smooth dielectric BxDFs because pdf SHOULD be inf
     runs = testconfigs["TestBucket"]["runs"];
     auto rBucket = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rBucket)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.samples = testconfigs["TestBucket"]["samples"];
+        STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.samples = testconfigs["TestBucket"]["samples"];
 
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
     FOR_EACH_END
 
 
@@ -283,67 +282,67 @@ int main(int argc, char** argv)
     runs = testconfigs["TestChi2"]["runs"];
     auto rChi2 = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN_EX(rChi2, std::execution::par_unseq)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.samples = testconfigs["TestChi2"]["samples"];
-    initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];
-    initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
-    initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
+        STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.samples = testconfigs["TestChi2"]["samples"];
+        initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];
+        initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
+        initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
 
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
 
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
-    RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager.get());
+        RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager.get());
     FOR_EACH_END
 
     // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
     runs = testconfigs["TestNDF"]["runs"];
     auto rNdf = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rNdf)
-        STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.verbose = testconfigs["TestNDF"]["verbose"];
+            STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.verbose = testconfigs["TestNDF"]["verbose"];
 
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
 
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
     FOR_EACH_END
 
     // test generated H that NdotV*VdotH>=0.0, VdotL calculation
     runs = testconfigs["TestCTGenerateH"]["runs"];
     auto rGenerateH = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN_EX(rGenerateH, std::execution::par_unseq)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.halfSeed = i;
-    initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
-    initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
+        STestInitParams initparams{ .logInfo = logInfo };
+        initparams.halfSeed = i;
+        initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
+        initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
 
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
 
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-    RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
     FOR_EACH_END
 
     // test arccos angle sums
