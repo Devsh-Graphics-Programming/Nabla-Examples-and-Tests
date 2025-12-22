@@ -117,8 +117,8 @@ public:
 
 		SPushConstantRange simplePcRange = {
 				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
-				.offset = 0,
-				.size = sizeof(ext::debug_draw::SSinglePushConstants)
+				.offset = offsetof(ext::debug_draw::PushConstants, spc),
+				.size = sizeof(ext::debug_draw::SSinglePC)
 		};
 	    {
 			ext::debug_draw::DrawAABB::SCreationParameters params = {};
