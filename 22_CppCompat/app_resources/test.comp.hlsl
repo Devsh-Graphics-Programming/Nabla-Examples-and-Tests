@@ -5,9 +5,6 @@
 
 #include "app_resources/common.hlsl"
 
-template<typename L, typename R>
-const static bool is_same_v = nbl::hlsl::is_same_v<L,R>;
-
 
 struct PushConstants
 {
@@ -160,9 +157,9 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         static const uint16_t TEST_VALUE_0 = 5;
         static const uint32_t TEST_VALUE_1 = 0x80000000u;
-        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u;
+        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
         static const uint32_t TEST_VALUE_3 = 0x00000001u;
-        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u;
+        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
         
 
         fill(invocationID, 5.01);
