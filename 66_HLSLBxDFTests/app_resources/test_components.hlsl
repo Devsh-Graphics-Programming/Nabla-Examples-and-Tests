@@ -10,7 +10,7 @@ struct TestNDF : TestBxDF<BxDF>
     using this_t = TestNDF<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
-    ErrorType compute()
+    TestResult compute()
     {
         aniso_cache dummy;
         iso_cache dummy_iso;
@@ -49,29 +49,18 @@ struct TestNDF : TestBxDF<BxDF>
             }
         }
 
-        // test jacobian is correct
-        // float32_t3x3 fromTangentSpace = base_t::anisointer.getFromTangentSpace();
-        // ray_dir_info_t tmpL;
-        // tmpL.setDirection(sampling::ProjectedSphere<float>::generate(base_t::rc.u));
-        // s = sample_t::createFromTangentSpace(tmpL, fromTangentSpace);
-        // tmpL.setDirection(sampling::ProjectedSphere<float>::generate(ux));
-        // sx = sample_t::createFromTangentSpace(tmpL, fromTangentSpace);
-        // tmpL.setDirection(sampling::ProjectedSphere<float>::generate(uy));
-        // sy = sample_t::createFromTangentSpace(tmpL, fromTangentSpace);
+        if (!BxDF::ndf_type::GuaranteedVNDF && !(s.isValid() && sx.isValid() && sy.isValid()))
+            return BTR_INVALID_TEST_CONFIG;
 
-        if (!(s.isValid() && sx.isValid() && sy.isValid()))
-            return BET_INVALID;
-
-        // TODO: add checks with need clamp trait
         if (traits_t::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
         using ndf_type = typename base_t::bxdf_t::ndf_type;
@@ -107,7 +96,7 @@ struct TestNDF : TestBxDF<BxDF>
         }
 
         if (isNdfInfinity)
-            return BET_INVALID;
+            return BTR_INVALID_TEST_CONFIG;
 
         if (transmitted)
         {
@@ -135,24 +124,24 @@ struct TestNDF : TestBxDF<BxDF>
                 dg1 = 0.25f * dg1 / hlsl::abs(isocache.getVdotH());
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test()
+    TestResult test()
     {
         if (traits_t::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
         // get jacobian
@@ -172,10 +161,10 @@ struct TestNDF : TestBxDF<BxDF>
                                         aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), NdotH, base_t::rc.eta.x,
                                         det, dg1, jacobi_dg1_ndoth);
 #endif
-            return BET_JACOBIAN;
+            return BTR_ERROR_JACOBIAN_TEST_FAIL;
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
@@ -186,8 +175,8 @@ struct TestNDF : TestBxDF<BxDF>
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
-        ErrorType e = t.test();
-        if (e != BET_NONE)
+        TestResult e = t.test();
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 
@@ -206,7 +195,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
     using this_t = TestCTGenerateH<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
-    ErrorType compute()
+    TestResult compute()
     {
         counter.reset();
 
@@ -270,7 +259,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (NdotV*VdotH): i={}, u=[{},{},{}] NdotV={}, VdotH={}", i, u.x, u.y, u.z, NdotV, VdotH);
-                    return BET_GENERATE_H_INVALID;
+                    return BTR_ERROR_GENERATED_H_INVALID;
                 }
                 else
                 {
@@ -284,7 +273,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (compare VdotL): i={}, u=[{},{},{}] {}!={}", i, u.x, u.y, u.z, dotProductVdotL, VdotL);
-                    return BET_GENERATE_H_INVALID;
+                    return BTR_ERROR_GENERATED_H_INVALID;
                 }
                 else
                 {
@@ -302,26 +291,26 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             base_t::errMsg += std::format("fail count={} out of {} valid samples: [{}] NdotV*VdotH, [{}] compare VdotL, [{}] transmitted, [{}] reflected, alpha=[{},{}]",
                                 totalFails, counter.total, counter.NdotVVdotHfail, counter.VdotLfail,
                                 counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
-            return BET_GENERATE_H_INVALID;
+            return BTR_ERROR_GENERATED_H_INVALID;
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test()
+    TestResult test()
     {
         if (traits_t::type == bxdf::BT_BRDF)
             if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         else if (traits_t::type == bxdf::BT_BSDF)
             if (hlsl::abs(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
@@ -333,8 +322,8 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         t.immediateFail = initparams.immediateFail;
         t.initBxDF(t.rc);
         
-        ErrorType e = t.test();
-        if (e != BET_NONE)
+        TestResult e = t.test();
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 

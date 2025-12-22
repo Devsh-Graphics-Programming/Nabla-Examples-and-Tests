@@ -157,20 +157,21 @@ struct STestInitParams
     bool verbose;
 };
 
-enum ErrorType : uint32_t
+enum TestResult : uint32_t
 {
-    BET_NONE = 0,
-    BET_NEGATIVE_VAL,       // pdf/quotient/eval < 0
-    BET_GENERATED_SAMPLE_NON_POSITIVE_PDF,  // pdf = 0
-    BET_QUOTIENT_INF,       // quotient -> inf
-    BET_JACOBIAN,           // jacobian * pdf != 0
-    BET_PDF_EVAL_DIFF,      // quotient * pdf != eval
-    BET_NO_RECIPROCITY,     // eval(incoming) != eval(outgoing)
-    BET_GENERATE_H_INVALID, // generated H is invalid
+    BTR_NOBREAK = 0,
+    BTR_NONE = 1,
+    BTR_PRINT_MSG = 2,
 
-    BET_NOBREAK,    // not an error code, ones after this don't hit debugbreak
-    BET_INVALID,
-    BET_PRINT_MSG
+    BTR_ERROR_NEGATIVE_VAL = -1,        // pdf/quotient/eval < 0
+    BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF = -2,  // pdf = 0
+    BTR_ERROR_QUOTIENT_INF = -3,        // quotient -> inf
+    BTR_ERROR_JACOBIAN_TEST_FAIL = -4,  // jacobian * pdf != 0
+    BTR_ERROR_PDF_EVAL_DIFF = -5,       // quotient * pdf != eval
+    BTR_ERROR_NO_RECIPROCITY = -6,      // eval(incoming) != eval(outgoing)
+    BTR_ERROR_GENERATED_H_INVALID = -7, // generated H is invalid
+    
+    BTR_INVALID_TEST_CONFIG = -8
 };
 
 struct TestBase
@@ -198,7 +199,7 @@ struct TestBase
 template<class TestT>
 struct FailureCallback
 {
-    virtual void __call(ErrorType error, NBL_REF_ARG(TestT) failedFor, bool logInfo) {}
+    virtual void __call(TestResult error, NBL_REF_ARG(TestT) failedFor, bool logInfo) {}
 };
 
 template<class BxDF>
@@ -620,11 +621,12 @@ struct SAnisotropic
 template<class LS, class Interaction, class MicrofacetCache, class Spectrum>
 struct CustomIsoMicrofacetConfiguration;
 
-#define CUSTOM_MICROFACET_CONF_ISO bxdf::LightSample<LS> && bxdf::surface_interactions::Isotropic<Interaction> && !bxdf::surface_interactions::Anisotropic<Interaction> && bxdf::CreatableIsotropicMicrofacetCache<MicrofacetCache> && !bxdf::AnisotropicMicrofacetCache<MicrofacetCache> && concepts::FloatingPointLikeVectorial<Spectrum>
+template<class LS, class Interaction, class MicrofacetCache, class Spectrum>
+NBL_BOOL_CONCEPT CustomMicrofacetConfigIso = bxdf::LightSample<LS> && bxdf::surface_interactions::Isotropic<Interaction> && !bxdf::surface_interactions::Anisotropic<Interaction> && bxdf::CreatableIsotropicMicrofacetCache<MicrofacetCache> && !bxdf::AnisotropicMicrofacetCache<MicrofacetCache> && concepts::FloatingPointLikeVectorial<Spectrum>;
 
 template<class LS, class Interaction, class MicrofacetCache, class Spectrum>
-NBL_PARTIAL_REQ_TOP(CUSTOM_MICROFACET_CONF_ISO)
-struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum NBL_PARTIAL_REQ_BOT(CUSTOM_MICROFACET_CONF_ISO) >
+NBL_PARTIAL_REQ_TOP(CustomMicrofacetConfigIso<LS, Interaction, MicrofacetCache, Spectrum>)
+struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum NBL_PARTIAL_REQ_BOT(CustomMicrofacetConfigIso<LS, Interaction, MicrofacetCache, Spectrum>) >
 #undef MICROFACET_CONF_ISO
 {
     NBL_CONSTEXPR_STATIC_INLINE bool IsAnisotropic = false;

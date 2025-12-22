@@ -38,7 +38,7 @@ struct TestBucket : TestBxDF<BxDF>
         return a - diff + b;
     }
 
-    ErrorType compute()
+    TestResult compute()
     {
         clearBuckets();
 
@@ -129,27 +129,27 @@ struct TestBucket : TestBxDF<BxDF>
             }
         }
 #endif
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test()
+    TestResult test()
     {
         if (traits_t::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
-        return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
+        return (base_t::errMsg.length() == 0) ? BTR_NONE : BTR_PRINT_MSG;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
@@ -160,8 +160,8 @@ struct TestBucket : TestBxDF<BxDF>
         t.numSamples = initparams.samples;
         t.initBxDF(t.rc);
         
-        ErrorType e = t.test();
-        if (e != BET_NONE)
+        TestResult e = t.test();
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 
@@ -433,7 +433,7 @@ struct TestChi2 : TestBxDF<BxDF>
         assetManager->writeAsset(filename, wp);
     }
 
-    ErrorType compute()
+    TestResult compute()
     {
         clearBuckets();
 
@@ -574,20 +574,20 @@ struct TestChi2 : TestBxDF<BxDF>
             }
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test(asset::IAssetManager* assetManager)
+    TestResult test(asset::IAssetManager* assetManager)
     {
         if (traits_t::type == bxdf::BT_BRDF)
             if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         else if (traits_t::type == bxdf::BT_BSDF)
             if (hlsl::abs(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
         if (write_frequencies)
@@ -615,7 +615,7 @@ struct TestChi2 : TestBxDF<BxDF>
                 if (countFreq[c.index] > numSamples * 1e-5)
                 {
                     base_t::errMsg = std::format("expected frequency of 0 for c but found {} samples", countFreq[c.index]);
-                    return BET_PRINT_MSG;
+                    return BTR_PRINT_MSG;
                 }
             }
             else if (integrateFreq[c.index] < minFreq)
@@ -649,7 +649,7 @@ struct TestChi2 : TestBxDF<BxDF>
         if (dof <= 0)
         {
             base_t::errMsg = std::format("degrees of freedom {} too low", dof);
-            return BET_PRINT_MSG;
+            return BTR_PRINT_MSG;
         }
 
         float pval = 1.0f - static_cast<float>(chi2CDF(chsq, dof));
@@ -658,10 +658,10 @@ struct TestChi2 : TestBxDF<BxDF>
         if (pval < alpha || !std::isfinite(pval))
         {
             base_t::errMsg = std::format("chi2 test: rejected the null hypothesis (p-value = {:.3f}, significance level = {:.3f}", pval, alpha);
-            return BET_PRINT_MSG;
+            return BTR_PRINT_MSG;
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb, asset::IAssetManager* assetManager)
@@ -675,8 +675,8 @@ struct TestChi2 : TestBxDF<BxDF>
         t.write_frequencies = initparams.writeFrequencies;
         t.initBxDF(t.rc);
 
-        ErrorType e = t.test(assetManager);
-        if (e != BET_NONE)
+        TestResult e = t.test(assetManager);
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 

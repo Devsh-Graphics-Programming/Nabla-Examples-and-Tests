@@ -10,7 +10,7 @@ struct TestJacobian : TestBxDF<BxDF>
     using this_t = TestJacobian<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
-    ErrorType compute()
+    TestResult compute()
     {
         aniso_cache cache, dummy;
         iso_cache isocache, dummy_iso;
@@ -62,17 +62,17 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         if (!(s.isValid() && sx.isValid() && sy.isValid()))
-            return BET_INVALID;
+            return BTR_INVALID_TEST_CONFIG;
 
         if (traits_t::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
         if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
@@ -97,37 +97,37 @@ struct TestJacobian : TestBxDF<BxDF>
             }
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test()
+    TestResult test()
     {
         if (traits_t::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
         if (checkZero<float>(pdf.pdf, 1e-5) && !checkZero<float32_t3>(pdf.quotient, 1e-5))  // something generated cannot have 0 probability of getting generated
-            return BET_GENERATED_SAMPLE_NON_POSITIVE_PDF;
+            return BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF;
 
         if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
-            return BET_QUOTIENT_INF;
+            return BTR_ERROR_QUOTIENT_INF;
 
         if (checkZero<float32_t3>(bsdf, 1e-5) || checkZero<float32_t3>(pdf.quotient, 1e-5))
-            return BET_NONE;    // produces an "impossible" sample
+            return BTR_NONE;    // produces an "impossible" sample
 
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
-            return BET_NEGATIVE_VAL;
+            return BTR_ERROR_NEGATIVE_VAL;
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(
@@ -137,7 +137,7 @@ struct TestJacobian : TestBxDF<BxDF>
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
         if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-4))
-            return BET_JACOBIAN;
+            return BTR_ERROR_JACOBIAN_TEST_FAIL;
 
         float32_t3 quo_pdf = pdf.value();
         if (!checkEq<float32_t3>(quo_pdf, bsdf, 1e-4))
@@ -149,10 +149,10 @@ struct TestJacobian : TestBxDF<BxDF>
                     quo_pdf.x, quo_pdf.y, quo_pdf.z,
                     bsdf.x, bsdf.y, bsdf.z);
 #endif
-            return BET_PDF_EVAL_DIFF;
+            return BTR_ERROR_PDF_EVAL_DIFF;
         }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
@@ -163,8 +163,8 @@ struct TestJacobian : TestBxDF<BxDF>
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
-        ErrorType e = t.test();
-        if (e != BET_NONE)
+        TestResult e = t.test();
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 
@@ -185,7 +185,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     using iso_interaction_t = typename BxDF::isotropic_interaction_type;
     using aniso_interaction_t = typename BxDF::anisotropic_interaction_type;
 
-    ErrorType compute()
+    TestResult compute()
     {
         aniso_cache cache, rec_cache;
         iso_cache isocache, rec_isocache;
@@ -233,17 +233,17 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
 
         if (!s.isValid())
-            return BET_INVALID;
+            return BTR_INVALID_TEST_CONFIG;
 
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
         float32_t3x3 toTangentSpace = anisointer.getToTangentSpace();
@@ -308,31 +308,31 @@ struct TestReciprocity : TestBxDF<BxDF>
                 aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH());
 #endif
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
-    ErrorType test()
+    TestResult test()
     {
         if (traits_t::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BET_INVALID;
+                return BTR_INVALID_TEST_CONFIG;
         }
 
-        ErrorType res = compute();
-        if (res != BET_NONE)
+        TestResult res = compute();
+        if (res != BTR_NONE)
             return res;
 
         if (checkZero<float32_t3>(bsdf, 1e-5))
-            return BET_NONE;    // produces an "impossible" sample
+            return BTR_NONE;    // produces an "impossible" sample
 
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
-            return BET_NEGATIVE_VAL;
+            return BTR_ERROR_NEGATIVE_VAL;
 
         float32_t3 a = bsdf / hlsl::abs(s.getNdotL());
         float32_t3 b = rec_bsdf / hlsl::abs(rec_s.getNdotL());
@@ -345,10 +345,10 @@ struct TestReciprocity : TestBxDF<BxDF>
                         a.x, a.y, a.z,
                         b.x, b.y, b.z);
 #endif
-                return BET_NO_RECIPROCITY;
+                return BTR_ERROR_NO_RECIPROCITY;
             }
 
-        return BET_NONE;
+        return BTR_NONE;
     }
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
@@ -359,8 +359,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
-        ErrorType e = t.test();
-        if (e != BET_NONE)
+        TestResult e = t.test();
+        if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
     }
 

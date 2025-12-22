@@ -33,36 +33,36 @@ using namespace nbl::hlsl;
 template<class TestT>
 struct PrintFailureCallback : FailureCallback<TestT>
 {
-    void __call(ErrorType error, NBL_REF_ARG(TestT) failedFor, bool logInfo) override
+    void __call(TestResult error, NBL_REF_ARG(TestT) failedFor, bool logInfo) override
     {
         switch (error)
         {
-        case BET_INVALID:
+        case BTR_INVALID_TEST_CONFIG:
             if (logInfo)
                 logger->log("seed %u: %s skipping test due to invalid NdotV/NdotL config\n", ILogger::ELL_INFO, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
-        case BET_NEGATIVE_VAL:
+        case BTR_ERROR_NEGATIVE_VAL:
             logger->log("seed %u: %s pdf/quotient/eval < 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
-        case BET_GENERATED_SAMPLE_NON_POSITIVE_PDF:
+        case BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF:
             logger->log("seed %u: %s generated sample has pdf = 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
-        case BET_QUOTIENT_INF:
+        case BTR_ERROR_QUOTIENT_INF:
             logger->log("seed %u: %s quotient -> inf\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
-        case BET_JACOBIAN:
+        case BTR_ERROR_JACOBIAN_TEST_FAIL:
             logger->log("seed %u: %s failed the jacobian * pdf test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_PDF_EVAL_DIFF:
+        case BTR_ERROR_PDF_EVAL_DIFF:
             logger->log("seed %u: %s quotient * pdf != eval    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_NO_RECIPROCITY:
+        case BTR_ERROR_NO_RECIPROCITY:
             logger->log("seed %u: %s failed the reciprocity test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_PRINT_MSG:
+        case BTR_PRINT_MSG:
             logger->log("seed %u: %s error message\n%s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
-        case BET_GENERATE_H_INVALID:
+        case BTR_ERROR_GENERATED_H_INVALID:
             logger->log("seed %u: %s failed invalid H configuration generated    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         default:
@@ -70,7 +70,7 @@ struct PrintFailureCallback : FailureCallback<TestT>
         }
 
 #ifdef _NBL_DEBUG
-        for (volatile bool repeat = true; IsDebuggerPresent() && repeat && error < BET_NOBREAK; )
+        for (volatile bool repeat = true; IsDebuggerPresent() && repeat && error < BTR_NOBREAK; )
         {
             repeat = false;
             _NBL_DEBUG_BREAK_IF(true);
