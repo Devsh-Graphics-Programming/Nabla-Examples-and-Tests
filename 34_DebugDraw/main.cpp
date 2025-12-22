@@ -53,9 +53,10 @@ public:
 			return false;
 
 	    {
+			constexpr float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 	        core::vectorSIMDf cameraPosition(14, 8, 12);
 		    core::vectorSIMDf cameraTarget(0, 0, 0);
-		    matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, zNear, zFar);
+		    matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
 		    camera = Camera(cameraPosition, cameraTarget, projectionMatrix, moveSpeed, rotateSpeed);
 	    }
 
@@ -239,7 +240,8 @@ public:
 			drawParams.commandBuffer = cmdbuf;
 			drawParams.cameraMat = viewProjectionMatrix;
 			
-			drawAABB->renderSingle(drawParams, testAABB, float32_t4{ 1, 0, 0, 1 });
+			if (!drawAABB->renderSingle(drawParams, testAABB, float32_t4{ 1, 0, 0, 1 }))
+				m_logger->log("Unable to draw AABB with single draw pipeline!", ILogger::ELL_ERROR);
 			{
 				using aabb_t = hlsl::shapes::AABB<3, float>;
 				using point_t = aabb_t::point_t;
@@ -265,7 +267,8 @@ public:
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-				drawAABB->render(drawParams, drawFinished, aabbInstances);
+				if (!drawAABB->render(drawParams, drawFinished, aabbInstances))
+					m_logger->log("Unable to draw AABBs with instanced draw pipeline!", ILogger::ELL_ERROR);
 			}
 
 			cmdbuf->endRenderPass();
@@ -341,52 +344,11 @@ public:
 	}
 
 private:
-	std::array<float32_t3, 24> getVerticesFromAABB(core::aabbox3d<float>& aabb)
-	{
-		const auto& pMin = aabb.MinEdge;
-		const auto& pMax = aabb.MaxEdge;
-
-		std::array<float32_t3, 24> vertices;
-		vertices[0] = float32_t3(pMin.X, pMin.Y, pMin.Z);
-		vertices[1] = float32_t3(pMax.X, pMin.Y, pMin.Z);
-		vertices[2] = float32_t3(pMin.X, pMin.Y, pMin.Z);
-		vertices[3] = float32_t3(pMin.X, pMin.Y, pMax.Z);
-
-		vertices[4] = float32_t3(pMax.X, pMin.Y, pMax.Z);
-		vertices[5] = float32_t3(pMax.X, pMin.Y, pMin.Z);
-		vertices[6] = float32_t3(pMax.X, pMin.Y, pMax.Z);
-		vertices[7] = float32_t3(pMin.X, pMin.Y, pMax.Z);
-
-		vertices[8] = float32_t3(pMin.X, pMax.Y, pMin.Z);
-		vertices[9] = float32_t3(pMax.X, pMax.Y, pMin.Z);
-		vertices[10] = float32_t3(pMin.X, pMax.Y, pMin.Z);
-		vertices[11] = float32_t3(pMin.X, pMax.Y, pMax.Z);
-
-		vertices[12] = float32_t3(pMax.X, pMax.Y, pMax.Z);
-		vertices[13] = float32_t3(pMax.X, pMax.Y, pMin.Z);
-		vertices[14] = float32_t3(pMax.X, pMax.Y, pMax.Z);
-		vertices[15] = float32_t3(pMin.X, pMax.Y, pMax.Z);
-
-		vertices[16] = float32_t3(pMin.X, pMin.Y, pMin.Z);
-		vertices[17] = float32_t3(pMin.X, pMax.Y, pMin.Z);
-		vertices[18] = float32_t3(pMax.X, pMin.Y, pMin.Z);
-		vertices[19] = float32_t3(pMax.X, pMax.Y, pMin.Z);
-
-		vertices[20] = float32_t3(pMin.X, pMin.Y, pMax.Z);
-		vertices[21] = float32_t3(pMin.X, pMax.Y, pMax.Z);
-		vertices[22] = float32_t3(pMax.X, pMin.Y, pMax.Z);
-		vertices[23] = float32_t3(pMax.X, pMax.Y, pMax.Z);
-
-		return vertices;
-	}
-
 	// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
-	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline> m_streamingPipeline;
 	smart_refctd_ptr<ISemaphore> m_semaphore;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	uint64_t m_realFrameIx = 0;
@@ -397,20 +359,11 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-	core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
-
 	Camera camera;
 	video::CDumbPresentationOracle oracle;
 
-	uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
-
-	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-
 	smart_refctd_ptr<ext::debug_draw::DrawAABB> drawAABB;
 	hlsl::shapes::AABB<3, float> testAABB = hlsl::shapes::AABB<3, float>{ { -5, -5, -5 }, { 10, 10, -10 } };
-
-	using streaming_buffer_t = video::StreamingTransientDataBufferST<core::allocator<uint8_t>>;
-	smart_refctd_ptr<streaming_buffer_t> streamingBuffer;
 };
 
 NBL_MAIN_FUNC(DebugDrawSampleApp)
