@@ -35,11 +35,6 @@ using namespace video;
 
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 
-//TODO: remove
-#include <nbl/builtin/hlsl/concepts/core.hlsl>
-#include <nbl/builtin/hlsl/concepts/vector.hlsl>
-#include <nbl/builtin/hlsl/concepts/matrix.hlsl>
-
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
@@ -85,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_12;
 
 class Camera2D
 {
@@ -935,12 +930,6 @@ public:
 		return {};
 	}
 	
-	double dt = 0;
-	double m_timeElapsed = 0.0;
-	std::chrono::steady_clock::time_point lastTime;
-	uint32_t m_hatchDebugStep = 10u;
-	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
-
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<nbl::examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -1122,7 +1111,7 @@ public:
 						.size = sizeof(PushConstants)
 			};
 
-			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+			m_pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 
 		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
@@ -1232,49 +1221,68 @@ public:
 		premultipliedUnderBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
 		premultipliedUnderBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
 
+		IGPUGraphicsPipeline::SCreationParams mainGraphicsPipelineParams = {};
+		mainGraphicsPipelineParams.layout = m_pipelineLayout.get();
+		mainGraphicsPipelineParams.cached = {
+			.vertexInput = {},
+			.primitiveAssembly = {
+				.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
+			},
+			.rasterization = {
+				.polygonMode = EPM_FILL,
+				.faceCullingMode = EFCM_NONE,
+				.depthWriteEnable = false,
+			},
+			.blend = premultipliedOverBlendParams,
+		};
+		mainGraphicsPipelineParams.renderpass = compatibleRenderPass.get();
+
 		// Create Main Graphics Pipelines 
 		{
-			
 			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
-				{
-					.shader = mainPipelineVertexShader.get(),
-					.entryPoint = "vtxMain"
-				},
-				{
-					.shader = mainPipelineFragmentShaders.get(),
-					.entryPoint = "fragMain"
-				},
+				{ .shader = mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader = mainPipelineFragmentShaders.get(), .entryPoint = "fragMain" },
 			};
-
-			IGPUGraphicsPipeline::SCreationParams params[1] = {};
-			params[0].layout = pipelineLayout.get();
+			
+			IGPUGraphicsPipeline::SCreationParams params[1] = { mainGraphicsPipelineParams };
 			params[0].vertexShader = specInfo[0];
 			params[0].fragmentShader = specInfo[1];
-			params[0].cached = {
-				.vertexInput = {},
-				.primitiveAssembly = {
-					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
-				},
-				.rasterization = {
-					.polygonMode = EPM_FILL,
-					.faceCullingMode = EFCM_NONE,
-					.depthWriteEnable = false,
-				},
-				.blend = premultipliedOverBlendParams,
-			};
-			params[0].renderpass = compatibleRenderPass.get();
-			
-			if (!m_device->createGraphicsPipelines(nullptr,params,&graphicsPipeline))
-				return logFail("Graphics Pipeline Creation Failed.");
 
-			if constexpr (DebugModeWireframe)
-			{
-				specInfo[1u].entryPoint = "fragDebugMain"; // change only fragment shader entrypoint
-				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
+			if (!m_device->createGraphicsPipelines(nullptr,params,&m_graphicsPipeline))
+				return logFail("Graphics Pipeline Creation Failed.");
+		}
+		
+		// Debug Pipeline
+		if constexpr (DebugModeWireframe)
+		{
+			// Create Main Graphics Pipelines 
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
+				{ .shader=mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader=mainPipelineFragmentShaders.get(), .entryPoint = "fragDebugMain" },
+			};
+			IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineParams[1] = { mainGraphicsPipelineParams };
+			debugGraphicsPipelineParams[0].cached.rasterization.polygonMode = asset::EPM_LINE;
+			debugGraphicsPipelineParams[0].vertexShader = specInfo[0];
+			debugGraphicsPipelineParams[0].fragmentShader = specInfo[1];
 				
-				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))
-					return logFail("Debug Graphics Pipeline Creation Failed.");
-			}
+			if (!m_device->createGraphicsPipelines(nullptr,debugGraphicsPipelineParams,&m_debugGraphicsPipeline))
+				return logFail("Debug Graphics Pipeline Creation Failed.");
+		}
+
+		// StreamedImages Pipeline
+		{
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
+				{ .shader=mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader=mainPipelineFragmentShaders.get(), .entryPoint = "fragGeoref" },
+			};
+
+			IGPUGraphicsPipeline::SCreationParams params[1] = { mainGraphicsPipelineParams };
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
+			params[0].cached.blend = premultipliedUnderBlendParams;
+			
+			if (!m_device->createGraphicsPipelines(nullptr, params, &m_streamedImagesGraphicsPipeline))
+				return logFail("StreamedImages Graphics Pipeline Creation Failed.");
 		}
 
 		// Create Alpha Resovle Pipeline
@@ -1284,7 +1292,7 @@ public:
 			
 			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "fragShaderResolveAlphas" };
 
-			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, m_pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
 			if (!resolveAlphaGraphicsPipeline)
 				return logFail("Graphics Pipeline Creation Failed.");
 
@@ -1301,8 +1309,6 @@ public:
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
 		m_Camera.setSize(cameraExtents[uint32_t(mode)]);
 
-		m_timeElapsed = 0.0;
-		
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
@@ -1351,13 +1357,6 @@ public:
 
 		// Load image
 		system::path m_loadCWD = "..";
-		std::string imagePaths[] =
-		{
-			"../../media/color_space_test/R8G8B8_1.jpg",
-			"../../media/color_space_test/R8G8B8_1.png",
-			"../../media/color_space_test/R8G8B8A8_2.png",
-			"../../media/color_space_test/R8G8B8A8_1.png",
-		};
 
 		/**
 		* @param formatOverride override format of an image view, use special argument asset::E_FORMAT::EF_COUNT to don't override image view format and use one retrieved from the loaded image
@@ -1463,50 +1462,62 @@ public:
 				return loadedCPUImage;
 			}
 		};
-
-		for (const auto& imagePath : imagePaths)
+		
+		if constexpr (mode == ExampleMode::CASE_7)
 		{
-			auto image = loadImage(imagePath);
-			if (image)
-				sampleImages.push_back(image);
+			std::string imagePaths[] =
+			{
+				"../../media/color_space_test/R8G8B8_1.jpg",
+				"../../media/color_space_test/R8G8B8_1.png",
+				"../../media/color_space_test/R8G8B8A8_2.png",
+				"../../media/color_space_test/R8G8B8A8_1.png",
+			};
+			for (const auto& imagePath : imagePaths)
+			{
+				auto image = loadImage(imagePath);
+				if (image)
+					sampleImages.push_back(image);
+			}
+			assert(gridDTMHeightMap);
 		}
 
-		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+		if constexpr (mode == ExampleMode::CASE_11)
+		{
+			gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+			// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
+			{
+				// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
+
+				auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
+				auto imageExtent = region->getExtent();
+				auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
+				float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
+				const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
+				assert(imageByteSize % sizeof(float) == 0);
+
+				std::random_device rd;
+				std::mt19937 mt(rd());
+				std::uniform_int_distribution<int> dist(0, 1);
+
+				for (int i = 0; i < imageByteSize; i += sizeof(float))
+				{
+					const bool isTexelEven = static_cast<bool>(dist(mt));
+					E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
+
+					setDiagonalModeBit(imageData, diagonal);
+					imageData++;
+				}
+
+			}
+		}
 
 		// Create case 12 image loader
 		if constexpr (mode == ExampleMode::CASE_12)
-		{
 			drawResourcesFiller.setGeoreferencedImageLoader(make_smart_refctd_ptr<ImageLoader>(m_assetMgr.get(), m_logger.get(), m_physicalDevice));
-		}
 
-		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
-		{
-			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
-
-			auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
-			auto imageExtent = region->getExtent();
-			auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
-			float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
-			const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
-			assert(imageByteSize % sizeof(float) == 0);
-
-			std::random_device rd;
-			std::mt19937 mt(rd());
-			std::uniform_int_distribution<int> dist(0, 1);
-
-			for (int i = 0; i < imageByteSize; i += sizeof(float))
-			{
-				const bool isTexelEven = static_cast<bool>(dist(mt));
-				E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
-
-				setDiagonalModeBit(imageData, diagonal);
-				imageData++;
-			}
-
-		}
-
-		assert(gridDTMHeightMap);
-
+		
+		m_timeElapsed = 0.0;
+		
 		return true;
 	}
 
@@ -1514,7 +1525,7 @@ public:
 	inline void workLoopBody() override
 	{
 		auto now = std::chrono::high_resolution_clock::now();
-		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
 		m_timeElapsed += dt;
 		if constexpr (mode == ExampleMode::CASE_0)
@@ -1814,9 +1825,9 @@ public:
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, m_pipelineLayout.get(), 0u, 2u, descriptorSets);
 		
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		cb->bindGraphicsPipeline(m_graphicsPipeline.get());
 
 		for (auto& drawCall : drawResourcesFiller.getDrawCalls())
 		{
@@ -1829,7 +1840,7 @@ public:
 					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
 					.isDTMRendering = true
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -1838,7 +1849,7 @@ public:
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
@@ -1857,14 +1868,14 @@ public:
 		
 		if constexpr (DebugModeWireframe)
 		{
-			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
+			cb->bindGraphicsPipeline(m_debugGraphicsPipeline.get());
 
 			for (auto& drawCall : drawResourcesFiller.getDrawCalls())
 			{
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
@@ -1967,8 +1978,9 @@ public:
 		retval.synchronizationValidation = false;
 		return retval;
 	}
+
 protected:
-	
+
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
 		drawResourcesFiller.setSubmitDrawsFunction(
@@ -3891,6 +3903,13 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_12)
 		{
+			// [TODO]: Use streamedImagesGraphicsPipeline which is underblended, it requires:
+			// 1. Only queuing draws here to be rendered(underblended) later. (same as n4ce's Nabla Renderer)
+			// 2. EndFrame should do some special checks, then call these drawResourcesFiller functions (launchLoad -> draw -> finalize) after everything else was rendered.
+			// 3. Basically another submit at the end for underblending the georeferenced images using it's own dedicated pipeline
+			// 4. since CASE_12 only has images, underblending or overblending doesn't matter and VirtualTexturing might make a lot of these efforts useless
+			// 5. so let's just render the georeferenced images normally (over blend on bg) here for now 
+			
 			// placeholder, actual path is right now hardcoded into the loader
 			const static std::string georeferencedImagePath = "../../media/tiled_grid_mip_0.exr";
 
@@ -3955,8 +3974,12 @@ protected:
 	}
 
 protected:
-	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+
 	clock_t::time_point start;
+	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+
+	double m_timeElapsed = 0.0;
+	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
 	bool finishedCachingDraw = false;
@@ -3996,12 +4019,13 @@ protected:
 
 	uint64_t m_realFrameIx = 0u;
 
-	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout1;
-	smart_refctd_ptr<IGPUPipelineLayout>		pipelineLayout;
+	smart_refctd_ptr<IGPUPipelineLayout>		m_pipelineLayout;
 	smart_refctd_ptr<IGPUGraphicsPipeline>		resolveAlphaGraphicsPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_debugGraphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_graphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_streamedImagesGraphicsPipeline;
 
 	Camera2D m_Camera;
 
@@ -4027,6 +4051,10 @@ protected:
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
 	bool stopBenchamrkFlag = false;
 	#endif
+	
+	// Example Specific Settings:
+	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
