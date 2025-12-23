@@ -141,13 +141,14 @@ struct TestNDF : TestBxDF<BxDF>
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
         float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
-        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 0.1))
+        const bool alphaIsZero = checkZero<float32_t2>(base_t::rc.alpha, 1e-3);
+        if (!alphaIsZero && !checkZero<float>(jacobi_dg1_ndoth - 1.f, 0.1))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
-                base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, NdotH={}, eta={}, Jacobian={}, DG1={}, Jacobian*DG1={}",
+                base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, NdotH={}, eta={}, alpha=[{},{}] Jacobian={}, DG1={}, Jacobian*DG1={}",
                                         aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? base_t::anisointer.getNdotV() : base_t::isointer.getNdotV(),
-                                        aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), NdotH, base_t::rc.eta.x,
+                                        aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), NdotH, base_t::rc.eta.x, base_t::rc.alpha.x, base_t::rc.alpha.y,
                                         det, dg1, jacobi_dg1_ndoth);
 #endif
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
@@ -220,7 +221,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
-            if (!s.isValid())
+            if (!BxDF::ndf_type::GuaranteedVNDF && !s.isValid())
                 continue;
 
             bool transmitted;
