@@ -1,6 +1,8 @@
 //// Copyright (C) 2023-2024 - DevSH Graphics Programming Sp. z O.O.
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
+#pragma shader_stage(compute)
+
 #include "app_resources/common.hlsl"
 
 
