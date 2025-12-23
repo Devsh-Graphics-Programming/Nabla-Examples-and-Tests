@@ -53,13 +53,13 @@ struct TestBucket : TestBxDF<BxDF>
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
 
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u.xy);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
             {
-                if NBL_CONSTEXPR_FUNC (aniso)
+                NBL_IF_CONSTEXPR(aniso)
                 {
                     s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
                 }
@@ -68,13 +68,13 @@ struct TestBucket : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
                 }
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
             {
-                if NBL_CONSTEXPR_FUNC (aniso)
+                NBL_IF_CONSTEXPR(aniso)
                 {
                     s = base_t::bxdf.generate(base_t::anisointer, u, cache);
                 }
@@ -87,14 +87,14 @@ struct TestBucket : TestBxDF<BxDF>
             if (!s.isValid())
                 continue;
 
-            if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
             {
-                if NBL_CONSTEXPR_FUNC (aniso)
+                NBL_IF_CONSTEXPR(aniso)
                 {
                     pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
                     bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
@@ -450,22 +450,22 @@ struct TestChi2 : TestBxDF<BxDF>
             u.y = hlsl::clamp(u.y, base_t::rc.eps, 1.f-base_t::rc.eps);
             // u.z = 0.0;
 
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u.xy);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
             {
                 if NBL_CONSTEXPR_FUNC(aniso)
                     s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
                 else
                     s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
             {
                 if NBL_CONSTEXPR_FUNC(aniso)
                     s = base_t::bxdf.generate(base_t::anisointer, u, cache);
@@ -550,13 +550,13 @@ struct TestChi2 : TestBxDF<BxDF>
                         }
 
                         float pdf;
-                        if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
+                        NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
                         {
                             pdf = base_t::bxdf.pdf(s, base_t::isointer);
                         }
-                        if NBL_CONSTEXPR_FUNC (traits_t::IsMicrofacet)
+                        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
                         {
-                            if NBL_CONSTEXPR_FUNC (aniso)
+                            NBL_IF_CONSTEXPR(aniso)
                             {
                                 pdf = base_t::bxdf.pdf(s, base_t::anisointer, cache);
                             }

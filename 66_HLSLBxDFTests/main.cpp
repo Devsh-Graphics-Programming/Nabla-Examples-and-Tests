@@ -59,6 +59,9 @@ struct PrintFailureCallback : FailureCallback<TestT>
         case BTR_ERROR_NO_RECIPROCITY:
             logger->log("seed %u: %s failed the reciprocity test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
+        case BTR_ERROR_REFLECTANCE_OUT_OF_RANGE:
+            logger->log("seed %u: %s reflectance not between 0 and 1    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            break;
         case BTR_PRINT_MSG:
             logger->log("seed %u: %s error message\n%s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;

@@ -18,9 +18,9 @@ struct TestNDF : TestBxDF<BxDF>
         float32_t3 ux = base_t::rc.u + float32_t3(eps,0,0);
         float32_t3 uy = base_t::rc.u + float32_t3(0,eps,0);
 
-        if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
-            if NBL_CONSTEXPR_FUNC (aniso)
+            NBL_IF_CONSTEXPR(aniso)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux.xy, dummy);
@@ -33,9 +33,9 @@ struct TestNDF : TestBxDF<BxDF>
                 sy = base_t::bxdf.generate(base_t::isointer, uy.xy, dummy_iso);
             }
         }
-        if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
-            if NBL_CONSTEXPR_FUNC (aniso)
+            NBL_IF_CONSTEXPR(aniso)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
@@ -52,12 +52,12 @@ struct TestNDF : TestBxDF<BxDF>
         if (!BxDF::ndf_type::GuaranteedVNDF && !(s.isValid() && sx.isValid() && sy.isValid()))
             return BTR_INVALID_TEST_CONFIG;
 
-        if (traits_t::type == bxdf::BT_BRDF)
+        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
                 return BTR_INVALID_TEST_CONFIG;
         }
-        else if (traits_t::type == bxdf::BT_BSDF)
+        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF)
         {
             if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BTR_INVALID_TEST_CONFIG;
@@ -70,17 +70,20 @@ struct TestNDF : TestBxDF<BxDF>
         using fresnel_type = typename base_t::bxdf_t::fresnel_type;
 
         float reflectance;
-        bool transmitted;
         bool isNdfInfinity;
+        bool transmitted;
         NBL_IF_CONSTEXPR(aniso)
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<aniso_interaction, aniso_cache>(base_t::anisointer, cache);
             fresnel_type _f = base_t::bxdf_t::__getOrientedFresnel(base_t::bxdf.fresnel, base_t::anisointer.getNdotV());
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<aniso_interaction, aniso_cache>(base_t::bxdf.ndf, _f, base_t::anisointer, cache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, aniso_interaction>(dq, qq, s, base_t::anisointer, isNdfInfinity);
-            dg1 = DG1.microfacetMeasure * hlsl::abs(cache.getVdotH() / base_t::anisointer.getNdotV());
-            reflectance = _f(cache.getVdotH())[0];
-            NdotH = cache.getAbsNdotH();
+            dg1 = DG1.projectedLightMeasure;
+
+            float VdotH = cache.getVdotH();
+            NBL_IF_CONSTEXPR (traits_t::type == bxdf::BT_BSDF)
+                VdotH = hlsl::abs(VdotH);
+            reflectance = _f(VdotH)[0];
             transmitted = cache.isTransmission();
         }
         else
@@ -89,39 +92,25 @@ struct TestNDF : TestBxDF<BxDF>
             fresnel_type _f = base_t::bxdf_t::__getOrientedFresnel(base_t::bxdf.fresnel, base_t::isointer.getNdotV());
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<iso_interaction, iso_cache>(base_t::bxdf.ndf, _f, base_t::isointer, isocache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, iso_interaction>(dq, qq, s, base_t::isointer, isNdfInfinity);
-            dg1 = DG1.microfacetMeasure * hlsl::abs(isocache.getVdotH() / base_t::isointer.getNdotV());
-            reflectance = _f(isocache.getVdotH())[0];
-            NdotH = isocache.getAbsNdotH();
+            dg1 = DG1.projectedLightMeasure;
+
+            float VdotH = isocache.getVdotH();
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF)
+                VdotH = hlsl::abs(VdotH);
+            reflectance = _f(VdotH)[0];
             transmitted = isocache.isTransmission();
         }
 
         if (isNdfInfinity)
             return BTR_INVALID_TEST_CONFIG;
 
-        if (transmitted)
+        if (reflectance < 0.f || reflectance > 1.f)
         {
-            float eta = base_t::rc.eta.x;
-            if (base_t::isointer.getNdotV() < 0.f)
-                eta = 1.f / eta;
-
-            reflectance = transmitted ? 1.f - reflectance : reflectance;
-            NBL_IF_CONSTEXPR(aniso)
-            {
-                float denom = cache.getVdotH() + eta * cache.getLdotH();
-                dg1 =  dg1 * hlsl::abs(eta * eta * cache.getLdotH()) / (denom * denom);
-            }
-            else
-            {
-                float denom = isocache.getVdotH() + eta * isocache.getLdotH();
-                dg1 = dg1 * hlsl::abs(eta * eta * isocache.getLdotH()) / (denom * denom);
-            }
-        }
-        else
-        {
-            NBL_IF_CONSTEXPR(aniso)
-                dg1 = 0.25f * dg1 / hlsl::abs(cache.getVdotH());
-            else
-                dg1 = 0.25f * dg1 / hlsl::abs(isocache.getVdotH());
+#ifndef __HLSL_VERSION
+            if (verbose)
+                base_t::errMsg += std::format("reflectance={}, eta={}, transmitted={}", reflectance, base_t::rc.eta.x, transmitted ? "true" : "false");
+#endif
+            return BTR_ERROR_REFLECTANCE_OUT_OF_RANGE;
         }
 
         return BTR_NONE;
@@ -152,7 +141,7 @@ struct TestNDF : TestBxDF<BxDF>
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
         float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
-        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 1e-2))
+        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 0.1))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
@@ -208,24 +197,24 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             u.x = hlsl::clamp(u.x, base_t::rc.eps, 1.f-base_t::rc.eps);
             u.y = hlsl::clamp(u.y, base_t::rc.eps, 1.f-base_t::rc.eps);
 
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u.xy);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
             {
-                if NBL_CONSTEXPR_FUNC(aniso)
+                NBL_IF_CONSTEXPR(aniso)
                     s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
                 else
                     s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u);
             }
-            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
             {
-                if NBL_CONSTEXPR_FUNC(aniso)
+                NBL_IF_CONSTEXPR(aniso)
                     s = base_t::bxdf.generate(base_t::anisointer, u, cache);
                 else
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);

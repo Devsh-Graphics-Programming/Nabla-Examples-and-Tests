@@ -157,7 +157,7 @@ struct STestInitParams
     bool verbose;
 };
 
-enum TestResult : uint32_t
+enum TestResult
 {
     BTR_NOBREAK = 0,
     BTR_NONE = 1,
@@ -170,8 +170,9 @@ enum TestResult : uint32_t
     BTR_ERROR_PDF_EVAL_DIFF = -5,       // quotient * pdf != eval
     BTR_ERROR_NO_RECIPROCITY = -6,      // eval(incoming) != eval(outgoing)
     BTR_ERROR_GENERATED_H_INVALID = -7, // generated H is invalid
+    BTR_ERROR_REFLECTANCE_OUT_OF_RANGE = -8,    // reflectance not [0, 1]
     
-    BTR_INVALID_TEST_CONFIG = -8
+    BTR_INVALID_TEST_CONFIG = -9
 };
 
 struct TestBase
