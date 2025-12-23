@@ -1,23 +1,22 @@
-#ifndef _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
+#ifndef _NBL_COMMON_I_TESTER_INCLUDED_
+#define _NBL_COMMON_I_TESTER_INCLUDED_
 
 #include <nabla.h>
-#include "app_resources/common.hlsl"
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include <nbl/system/to_string.h>
+#include <ranges>
+#include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
 
 using namespace nbl;
 
-class ITester 
+#include <nbl/builtin/hlsl/ieee754.hlsl>
+
+template<typename InputTestValues, typename TestResults, typename TestExecutor>
+class ITester
 {
 public:
-    virtual ~ITester()
-    {
-        m_outputBufferAllocation.memory->unmap();
-    };
-
     struct PipelineSetupData
     {
-        std::string testShaderPath;
+        std::string shaderKey;
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
         core::smart_refctd_ptr<asset::IAssetManager> assetMgr;
@@ -26,7 +25,6 @@ public:
         uint32_t computeFamilyIndex;
     };
 
-    template<typename InputStruct, typename OutputStruct>
     void setupPipeline(const PipelineSetupData& pipleineSetupData)
     {
         // setting up pipeline in the constructor
@@ -47,8 +45,8 @@ public:
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
+            lp.workingDirectory = "app_resources"; // virtual root
+            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.shaderKey.data(), lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -57,11 +55,8 @@ public:
             assert(assets.size() == 1);
             core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
 
-            shader = m_device->compileShader({source.get()});
+            shader = m_device->compileShader({ source.get() });
         }
-
-        if (!shader)
-            logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
         video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
             {
@@ -99,7 +94,7 @@ public:
 
         // Allocate memory of the input buffer
         {
-            constexpr size_t BufferSize = sizeof(InputStruct);
+            const size_t BufferSize = sizeof(InputTestValues) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -134,7 +129,7 @@ public:
 
         // Allocate memory of the output buffer
         {
-            constexpr size_t BufferSize = sizeof(OutputStruct);
+            const size_t BufferSize = sizeof(TestResults) * m_testIterationCount;
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -174,36 +169,76 @@ public:
         if (!m_outputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-        assert(memoryRange.valid() && memoryRange.length >= sizeof(OutputStruct));
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestResults));
 
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
+    void performTestsAndVerifyResults(const std::string& logFileName)
+    {
+        m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
+        if (!m_logFile.is_open())
+            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
+        core::vector<InputTestValues> inputTestValues;
+        core::vector<TestResults> exceptedTestResults;
+
+        inputTestValues.reserve(m_testIterationCount);
+        exceptedTestResults.reserve(m_testIterationCount);
+
+        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            // Set input thest values that will be used in both CPU and GPU tests
+            InputTestValues testInput = generateInputTestValues();
+            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
+            TestResults expected = determineExpectedResults(testInput);
+
+            inputTestValues.push_back(testInput);
+            exceptedTestResults.push_back(expected);
+        }
+
+        core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
+        core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
+
+        verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+
+        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+        reloadSeed();
+
+        m_logFile.close();
+    }
+
+    virtual ~ITester()
+    {
+        m_outputBufferAllocation.memory->unmap();
+    };
+
+protected:
     enum class TestType
     {
         CPU,
         GPU
     };
 
-    template<typename T>
-    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const TestType testType)
+    /**
+    * @param testBatchCount one test batch is equal to m_WorkgroupSize, so number of tests performed will be m_WorkgroupSize * testbatchCount
+    */
+    ITester(const uint32_t testBatchCount)
+        : m_testBatchCount(testBatchCount), m_testIterationCount(testBatchCount * m_WorkgroupSize)
     {
-        if (expectedVal == testVal)
-            return;
+        reloadSeed();
+    };
 
-        std::stringstream ss;
-        switch (testType)
-        {
-        case TestType::CPU:
-            ss << "CPU TEST ERROR:\n";
-            break;
-        case TestType::GPU:
-            ss << "GPU TEST ERROR:\n";
-        }
+    virtual void verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
 
-        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
+    virtual InputTestValues generateInputTestValues() = 0;
 
-        m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
+    virtual TestResults determineExpectedResults(const InputTestValues& testInput) = 0;
+
+    std::mt19937& getRandomEngine()
+    {
+        return m_mersenneTwister;
     }
 
 protected:
@@ -223,9 +258,8 @@ protected:
     core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
     video::IQueue* m_queue;
     uint64_t m_semaphoreCounter;
-    
-    template<typename InputStruct, typename OutputStruct>
-    OutputStruct dispatch(const InputStruct& input)
+
+    void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
     {
         // Update input buffer
         if (!m_inputBufferAllocation.memory->map({ 0ull,m_inputBufferAllocation.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
@@ -235,17 +269,20 @@ protected:
         if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-        std::memcpy(static_cast<InputStruct*>(m_inputBufferAllocation.memory->getMappedPointer()), &input, sizeof(InputStruct));
+        assert(m_testIterationCount == input.size());
+        const size_t inputDataSize = sizeof(InputTestValues) * m_testIterationCount;
+        std::memcpy(static_cast<InputTestValues*>(m_inputBufferAllocation.memory->getMappedPointer()), input.data(), inputDataSize);
 
         m_inputBufferAllocation.memory->unmap();
 
         // record command buffer
+        const uint32_t dispatchSizeX = m_testBatchCount;
         m_cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
         m_cmdbuf->begin(video::IGPUCommandBuffer::USAGE::NONE);
         m_cmdbuf->beginDebugMarker("test", core::vector4df_SIMD(0, 1, 0, 1));
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
         m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
-        m_cmdbuf->dispatch(1, 1, 1);
+        m_cmdbuf->dispatch(dispatchSizeX, 1, 1);
         m_cmdbuf->endDebugMarker();
         m_cmdbuf->end();
 
@@ -260,11 +297,38 @@ protected:
         m_api->endCapture();
 
         m_device->waitIdle();
-        OutputStruct output;
-        std::memcpy(&output, static_cast<OutputStruct*>(m_outputBufferAllocation.memory->getMappedPointer()), sizeof(OutputStruct));
-        m_device->waitIdle();
 
-        return output;
+        // save test results
+        assert(m_testIterationCount == output.size());
+        const size_t outputDataSize = sizeof(TestResults) * m_testIterationCount;
+        std::memcpy(output.data(), static_cast<TestResults*>(m_outputBufferAllocation.memory->getMappedPointer()), outputDataSize);
+
+        m_device->waitIdle();
+    }
+
+    template<typename T>
+    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+        const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference = 0.0)
+    {
+        if (compareTestValues<T>(expectedVal, testVal, maxAllowedDifference))
+            return;
+
+        std::stringstream ss;
+        switch (testType)
+        {
+        case TestType::CPU:
+            ss << "CPU TEST ERROR:\n";
+            break;
+        case TestType::GPU:
+            ss << "GPU TEST ERROR:\n";
+        }
+
+        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
+        ss << "TEST ITERATION INDEX: " << testIteration << " SEED: " << seed << '\n';
+        ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
+
+        m_logger->log("%s", system::ILogger::ELL_ERROR, ss.str().c_str());
+        m_logFile << ss.str() << '\n';
     }
 
 private:
@@ -274,6 +338,65 @@ private:
         m_logger->log(msg, system::ILogger::ELL_ERROR, std::forward<Args>(args)...);
         exit(-1);
     }
+
+    core::vector<TestResults> performCpuTests(const core::vector<InputTestValues>& inputTestValues)
+    {
+        core::vector<TestResults> output(m_testIterationCount);
+        TestExecutor testExecutor;
+
+        auto iterations = std::views::iota(0ull, m_testIterationCount);
+        std::for_each(std::execution::par_unseq, iterations.begin(), iterations.end(),
+            [&](size_t i)
+            {
+                testExecutor(inputTestValues[i], output[i]);
+            }
+        );
+
+        return output;
+    }
+
+    core::vector<TestResults> performGpuTests(const core::vector<InputTestValues>& inputTestValues)
+    {
+        core::vector<TestResults> output(m_testIterationCount);
+        dispatchGpuTests(inputTestValues, output);
+
+        return output;
+    }
+
+    void verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
+    {
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU);
+            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::GPU);
+        }
+    }
+
+    void reloadSeed()
+    {
+        std::random_device rd;
+        m_seed = rd();
+        m_mersenneTwister = std::mt19937(m_seed);
+    }
+
+    template<typename T>
+    bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference)
+    {
+        return lhs == rhs;
+    }
+    template<typename T> requires concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
+    bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference)
+    {
+        return nbl::hlsl::testing::relativeApproxCompare(lhs, rhs, maxAllowedDifference);
+    }
+
+    const size_t m_testIterationCount;
+    const uint32_t m_testBatchCount;
+    static constexpr size_t m_WorkgroupSize = 256u;
+    // seed will change after every call to performTestsAndVerifyResults()
+    std::mt19937 m_mersenneTwister;
+    uint32_t m_seed;
+    std::ofstream m_logFile;
 };
 
 #endif

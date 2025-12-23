@@ -4,6 +4,8 @@
 #include <nabla.h>
 #include <assert.h>
 
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
@@ -34,26 +36,35 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-        
-        CTester::PipelineSetupData pplnSetupData;
-        pplnSetupData.device = m_device;
-        pplnSetupData.api = m_api;
-        pplnSetupData.assetMgr = m_assetMgr;
-        pplnSetupData.logger = m_logger;
-        pplnSetupData.physicalDevice = m_physicalDevice;
-        pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
         // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         // Blocked by https://github.com/KhronosGroup/SPIRV-Tools/issues/6104
         {
-            CTester mortonTester;
-            pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
-            mortonTester.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
-            mortonTester.performTests();
+            CTester::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"test">(m_device.get());
 
-            CTester2 mortonTester2;
-            pplnSetupData.testShaderPath = "app_resources/test2.comp.hlsl";
-            mortonTester2.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
-            mortonTester2.performTests();
+            CTester mortonTester(4); // 4 * 128 = 512 tests
+            mortonTester.setupPipeline(pplnSetupData);
+            mortonTester.performTestsAndVerifyResults("MortonTestLog.txt");
+        }
+        {
+            CTester2::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"test2">(m_device.get());
+
+            CTester2 mortonTester2(4);
+            mortonTester2.setupPipeline(reinterpret_cast<CTester2::PipelineSetupData&>(pplnSetupData));
+            mortonTester2.performTestsAndVerifyResults("MortonTestLog2.txt");
         }
 
         return true;
