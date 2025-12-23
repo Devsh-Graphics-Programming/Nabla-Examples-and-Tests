@@ -19,18 +19,10 @@ namespace nbl::examples {
 		return patch;
 	}();
 
-	MeshDebugRenderer::SViewParams::SViewParams(const hlsl::float32_t3x4& _view, const hlsl::float32_t4x4& _viewProj)
+	MeshDebugRenderer::SViewParams::SViewParams(const hlsl::float32_t4x4& _viewProj, std::array<uint32_t, MeshDataBuffer::MaxObjectCount> const& objectCounts)
+		: viewProj{_viewProj},
+		objectCounts{objectCounts}
 	{
-		view = _view;
-		viewProj = _viewProj;
-		using namespace nbl::hlsl;
-		normal = transpose(inverse(float32_t3x3(view)));
-	}
-
-	hlsl::float32_t4x4 MeshDebugRenderer::SViewParams::computeForInstance(hlsl::float32_t3x4 world) const
-	{
-		using namespace nbl::hlsl;
-		return float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj), float64_t3x4(world)));
 	}
 
 
@@ -76,7 +68,7 @@ namespace nbl::examples {
 			};
 		constexpr uint32_t WorkgroupSize = 64;
 		const uint32_t ObjectCount = 7;
-		const uint32_t InstanceCount = WorkgroupSize; //this is going to be based off limits. 64 is PROBABLY safe on all hardware, but cant guarantee
+		const uint32_t InstanceCount = 8; //this is going to be based off limits. 64 is PROBABLY safe on all hardware, but cant guarantee
 		const std::string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
 		const std::string ObjectCountAsStr = std::to_string(ObjectCount);
 		const std::string InstanceCountAsStr = std::to_string(InstanceCount);
@@ -107,10 +99,13 @@ namespace nbl::examples {
 
 		SInitParams init;
 
+		//
+		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+		smart_refctd_ptr<IGPUDescriptorSetLayout> meshLayout;
+
 		// create descriptor set
 		{
 			// create Descriptor Set Layout
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
 				const IGPUDescriptorSetLayout::SBinding bindings[] =
@@ -123,16 +118,14 @@ namespace nbl::examples {
 						.stageFlags = IShader::E_SHADER_STAGE::ESS_TASK | IShader::E_SHADER_STAGE::ESS_MESH | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 						.count = MissingView
 					},
-					//{//indices, none of these objects use indices so I'll skip over this
-
-					//},
-					{ //meshletdataobject
+					{ //indices
 						.binding = 1,
-						.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-						.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_TASK | IShader::E_SHADER_STAGE::ESS_MESH | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 1
-					}
+						.type = IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+						// need this trifecta of flags for `SubAllocatedDescriptorSet` to accept the binding as suballocatable
+						.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT | binding_flags_t::ECF_PARTIALLY_BOUND_BIT,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_MESH,
+						.count = MissingView
+					},
 				};
 				dsLayout = device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
@@ -141,9 +134,31 @@ namespace nbl::examples {
 					return nullptr;
 				}
 			}
+			//creating meshdatabuffer descriptor set
+			{
+				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
+				const IGPUDescriptorSetLayout::SBinding bindings[] =
+				{ //meshletdataobject
+					{
+						.binding = 0,
+						.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+						.createFlags = binding_flags_t::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_TASK | IShader::E_SHADER_STAGE::ESS_MESH | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.count = 1
+					}
+				};
+				meshLayout = device->createDescriptorSetLayout(bindings);
+				if (!meshLayout)
+				{
+					logger->log("Could not create mesh descriptor set layout!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+			}
 
 			// create Descriptor Set
-			auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &dsLayout.get(),1 });
+			std::vector< IGPUDescriptorSetLayout const*> dsls{ dsLayout.get(), meshLayout.get() };
+
+			auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, dsls);
 			auto ds = pool->createDescriptorSet(std::move(dsLayout));
 			if (!ds)
 			{
@@ -159,7 +174,9 @@ namespace nbl::examples {
 			.offset = 0,
 			.size = sizeof(SInstance::SPushConstants),
 		} };
-		init.layout = device->createPipelineLayout(ranges, smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
+
+		//because of the move semantics, the descriptor set we just created is no longer valid. instead, we need to go and rebuild a smart pointer to that descriptor set.
+		init.layout = device->createPipelineLayout(ranges, smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()), meshLayout);
 		auto shaderRet = CreateTestShader(assMan, renderpass, subpassIX);
 		// create pipelines
 		{
@@ -184,7 +201,10 @@ namespace nbl::examples {
 			}
 		}
 
-		return smart_refctd_ptr<MeshDebugRenderer>(new MeshDebugRenderer(std::move(init)), dont_grab);
+		auto ret = smart_refctd_ptr<MeshDebugRenderer>(new MeshDebugRenderer(std::move(init)), dont_grab);
+		ret->mesh_layout = meshLayout;
+
+		return ret;
 	}
 
 	bool MeshDebugRenderer::addGeometries(const std::span<const video::IGPUPolygonGeometry* const> geometries)
@@ -196,6 +216,7 @@ namespace nbl::examples {
 
 		core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
 		core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+		core::vector<IGPUDescriptorSet::SDescriptorInfo> infos_index;
 		bool anyFailed = false;
 		auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value)
 			{
@@ -212,6 +233,29 @@ namespace nbl::examples {
 				writes.emplace_back() = {
 					.dstSet = m_params.subAllocDS->getDescriptorSet(),
 					.binding = VertexAttrubUTBDescBinding,
+					.arrayElement = index,
+					.count = 1,
+					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(infosOffset)
+				};
+				return index;
+			};
+		auto allocateIndexBuffer = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value) {
+				if (!view) {
+					return MissingView;
+				}
+				auto index = SubAllocatedDescriptorSet::invalid_value;
+				if (m_params.subAllocDS->multi_allocate(1, 1, &index) != 0)
+				{
+					anyFailed = true;
+					return MissingView;
+				}
+				const auto infosOffset = infos_index.size();
+				//i dont think the desc was used? but regardless, a storage buffer cant be a view because views are for texel buffers
+				//still going to use bindless, just without views
+				//infos_index.emplace_back().desc = device->createBufferView(view.src, view.composed.format);
+				writes.emplace_back() = {
+					.dstSet = m_params.subAllocDS->getDescriptorSet(),
+					.binding = 1,
 					.arrayElement = index,
 					.count = 1,
 					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(infosOffset)
@@ -238,17 +282,23 @@ namespace nbl::examples {
 			
 			auto& out = m_geoms.meshData[meshIndex];
 			meshIndex++;
-			out.vertCount = geom->getVertexReferenceCount();
+			out.primCount = geom->getPrimitiveCount();
+
 			out.positionView = allocateUTB(geom->getPositionView());
 			out.normalView = allocateUTB(geom->getNormalView());
 
+			out.objectType = 0;
 			if(geom->getIndexingCallback()->knownTopology() == E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN){
-				out.objectType &= 2;
+				out.objectType |= 2;
 			}
 			const auto& view = geom->getIndexView();
 			if (view) {
-				view.getElementCount();
-				assert(out.vertCount == view.getElementCount() && "not currently setup to support index buffer");
+				out.indexView = allocateIndexBuffer(geom->getIndexView());
+				out.vertCount = view.getElementCount();
+			}
+			else {
+				out.indexView = MissingView;
+				out.vertCount = geom->getVertexReferenceCount();
 			}
 		}
 
@@ -260,8 +310,14 @@ namespace nbl::examples {
 			return false;
 
 		// unbase our pointers
-		for (auto& write : writes)
-			write.info = infos.data() + reinterpret_cast<const size_t&>(write.info);
+		std::size_t bindingZeroPoint = 0;
+		for (; bindingZeroPoint < infos.size(); bindingZeroPoint++) {
+			writes[bindingZeroPoint].info = infos.data() + reinterpret_cast<const size_t&>(writes[bindingZeroPoint].info);
+		}
+		for (std::size_t bindingOnePoint = 0; bindingOnePoint < infos_index.size(); bindingOnePoint++) {
+			writes[bindingOnePoint + bindingZeroPoint].info = infos_index.data() + reinterpret_cast<const size_t&>(writes[bindingOnePoint + bindingZeroPoint].info);
+		}
+
 		if (!device->updateDescriptorSets(writes, {}))
 			return false;
 
@@ -309,24 +365,18 @@ namespace nbl::examples {
 
 		const auto* layout = m_params.layout.get();
 		const auto ds = m_params.subAllocDS->getDescriptorSet();
-		cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS, layout, 0, 1, &ds);
+		std::array descriptors = { m_params.subAllocDS->getDescriptorSet(), m_params.meshDescriptor.get()};
+		cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS, layout, 0, descriptors.size(), descriptors.data());
 
-		for (const auto& instance : m_instances) {
-			cmdbuf->bindMeshPipeline(m_params.pipeline.get());
-			const auto pc = instance.computePushConstants(viewParams);
-			cmdbuf->pushConstants(layout, hlsl::ShaderStage::ESS_TASK | hlsl::ShaderStage::ESS_MESH | hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
-			//if (m_geoms->indexBuffer)
-			//{
-				//cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);
-				//cmdbuf->drawIndexed(geo->elementCount,1,0,0,0);
-				//cmdbuf->bindDescriptorSets(geo->indexBuffer);
-			//}
-			//else {
-				//cmdbuf->bindDescriptorSets(geo->indexBuffer);
-				//cmdbuf->draw(geo->elementCount, 1, 0, 0);
-			//}
-			cmdbuf->drawMeshTasks(1, 1, 1);
-		}
+		cmdbuf->bindMeshPipeline(m_params.pipeline.get());
+		SInstance::SPushConstants pc{
+			.viewProj = viewParams.viewProj,
+		};
+		memcpy(pc.objectCount, viewParams.objectCounts.data(), viewParams.objectCounts.size() * sizeof(uint32_t));
+		cmdbuf->pushConstants(layout, hlsl::ShaderStage::ESS_TASK | hlsl::ShaderStage::ESS_MESH | hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
+
+		cmdbuf->drawMeshTasks(1, 1, 1);
+		
 		cmdbuf->endDebugMarker();
 	}
 }//namespace nbl::examples

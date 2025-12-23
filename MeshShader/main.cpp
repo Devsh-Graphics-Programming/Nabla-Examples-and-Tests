@@ -12,5 +12,5 @@ Written with Nabla's UI extension and got integrated with ImGuizmo to handle sce
 */
 int main(int argc, char** argv) {
 	//expanded macro for easier IDE peeking
-	return UISampleApp::main<UISampleApp>(argc, argv);
+	return MeshSampleApp::main<MeshSampleApp>(argc, argv);
 }

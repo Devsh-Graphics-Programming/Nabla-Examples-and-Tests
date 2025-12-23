@@ -2,7 +2,7 @@
 //this is user defined data sent from the task shader to the mesh shader
 //1 packet is sent, but it can use arrays so that each workgroup can receive customized data
 struct TaskToMeshPayload {
-    uint objectType[INSTANCE_COUNT];
+    uint objectType[INSTANCE_COUNT * OBJECT_COUNT];
 };
 
 //1 is cone, 2 is for fan, anything else for trangle list without the special normal calc.
@@ -12,13 +12,14 @@ struct TaskToMeshPayload {
 #define T_FAN_OBJECT_TYPE 2
 struct MeshData{
     uint vertCount;
-    uint primCount;
+    uint primCount; //were assuming vertCount is always equal to primCount (no index buffer)
     uint objType; 
 	uint positionView;
-	uint normalView;
+    uint normalView;
+    uint indexView;
 };
 
-[[vk::binding(1)]] cbuffer MeshDataBuffer {
+[[vk::binding(0, 1)]] cbuffer MeshDataBuffer {
     
     MeshData meshData[OBJECT_COUNT];
     float4x4 transform[INSTANCE_COUNT]; //this is goign to be based on device limits
