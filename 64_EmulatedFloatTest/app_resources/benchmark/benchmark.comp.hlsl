@@ -66,6 +66,7 @@ uint64_t calcIntegral()
 }
 
 [numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)]
+[shader("compute")]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
 	static const uint32_t NativeToEmulatedRatio = 6;

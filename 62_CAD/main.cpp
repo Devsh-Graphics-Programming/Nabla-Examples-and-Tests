@@ -1,5 +1,5 @@
 ﻿// TODO: Copyright notice
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
 
@@ -1120,84 +1120,29 @@ public:
 		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
 		std::array<smart_refctd_ptr<IShader>, 2u> geoTexturePipelineShaders = {};
 		{
-			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
-			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
-			auto shaderCachePath = localOutputCWD / "main_pipeline_shader_cache.bin";
-
-			{
-				core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
-				{
-					system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-					m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
-					if (future.wait())
-					{
-						future.acquire().move_into(shaderReadCacheFile);
-						if (shaderReadCacheFile)
-						{
-							const size_t size = shaderReadCacheFile->getSize();
-							if (size > 0ull)
-							{
-								std::vector<uint8_t> contents(size);
-								system::IFile::success_t succ;
-								shaderReadCacheFile->read(succ, contents.data(), 0, size);
-								if (succ)
-									shaderReadCache = IShaderCompiler::CCache::deserialize(contents);
-							}
-						}
-					}
-					else
-						m_logger->log("Failed Openning Shader Cache File.", ILogger::ELL_ERROR);
-				}
-
-			}
-
 			// Load Custom Shader
-			auto loadCompileShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto source = IAsset::castDown<IShader>(assets[0]);
-					if (!source)
-						return nullptr;
-	
-					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
-				};
-
-			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/all_fragment_shaders.hlsl");
-			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
-			
-			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
+			auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
 			{
-				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
-				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
-				if (future.wait())
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = "app_resources";
+
+				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
 				{
-					future.acquire().move_into(shaderWriteCacheFile);
-					if (shaderWriteCacheFile)
-					{
-						auto serializedCache = shaderWriteCache->serialize();
-						if (shaderWriteCacheFile)
-						{
-							system::IFile::success_t succ;
-							shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
-							if (!succ)
-								m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
-						}
-					}
-					else
-						m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+					m_logger->log("Failed to load a precompiled ahsder.", ILogger::ELL_ERROR);
+					return nullptr;
 				}
-				else
-					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
-			}
+					
+
+				auto shader = IAsset::castDown<IShader>(assets[0]);
+				return shader;
+			};
+
+			mainPipelineFragmentShaders = loadPrecompiledShader.operator()<"main_pipeline_fragment_shader">(); // "../shaders/main_pipeline/fragment.hlsl"
+			mainPipelineVertexShader = loadPrecompiledShader.operator() <"main_pipeline_vertex_shader">(); // "../shaders/main_pipeline/vertex_shader.hlsl"
 		}
 
 

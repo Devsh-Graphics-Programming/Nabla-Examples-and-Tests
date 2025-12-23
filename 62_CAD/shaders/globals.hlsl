@@ -1,12 +1,6 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
-#ifdef __HLSL_VERSION
-#ifndef NBL_USE_SPIRV_BUILTINS
-#include "runtimeDeviceConfigCaps.hlsl" // defines DeviceConfigCaps, uses JIT device caps
-#endif
-#endif
-
 // TODO[Erfan]: Turn off in the future, but keep enabled to test
 // #define NBL_FORCE_EMULATED_FLOAT_64
 
@@ -355,8 +349,8 @@ static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
 static_assert(sizeof(CurveBox) == 80u);
 #endif
 
-NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
-NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 
 // TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like  stipple patterns) and requires upper_bound to figure out the color based on height value.
@@ -550,27 +544,27 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 }
 #endif
 
-NBL_CONSTEXPR uint32_t ImagesBindingArraySize = 128;
-NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
-NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t AlphaBits = 32u - MainObjectIdxBits;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
-NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
-NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 
 // Text or MSDF Hatches
-NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
-NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
-NBL_CONSTEXPR float MSDFSize = 64.0f; 
-NBL_CONSTEXPR uint32_t MSDFMips = 4; 
-NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float MSDFPixelRange = 4.0f;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float MSDFSize = 64.0f; 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MSDFMips = 4; 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
 inline bool isInvalidGridDtmHeightValue(float value)
 {
