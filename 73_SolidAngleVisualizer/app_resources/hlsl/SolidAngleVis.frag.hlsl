@@ -19,7 +19,10 @@ static const float3 constCorners[8] = {
     float3(-1, -1, 1), float3(1, -1, 1), float3(-1, 1, 1), float3(1, 1, 1)};
 
 static const int2 allEdges[12] = {
-    {0, 1}, {2, 3}, {4, 5}, {6, 7}, // X axis
+    {0, 1},
+    {2, 3},
+    {4, 5},
+    {6, 7}, // X axis
     {0, 2},
     {1, 3},
     {4, 6},
@@ -27,7 +30,7 @@ static const int2 allEdges[12] = {
     {0, 4},
     {1, 5},
     {2, 6},
-    {3, 7} // Z axis
+    {3, 7}, // Z axis
 };
 
 // Adjacency of edges to faces
@@ -245,7 +248,7 @@ float4 drawSilhouette(uint32_t vertexCount, uint32_t sil, float3 spherePos, floa
     float4 color = 0;
 
     // Build clip mask (z < 0)
-    uint32_t clipMask = 0u;
+    int clipMask = 0u;
     NBL_UNROLL
     for (int i = 0; i < 4; i++)
         clipMask |= (getVertexZNeg(getSilhouetteVertex(sil, i)) ? 1u : 0u) << i;
@@ -260,25 +263,25 @@ float4 drawSilhouette(uint32_t vertexCount, uint32_t sil, float3 spherePos, floa
     int clipCount = countbits(clipMask);
 
     // Early exit if fully clipped
-    if (clipCount == vertexCount)
-        return color;
+    // if (clipCount == vertexCount)
+    //     return color;
 
     // No clipping needed - fast path
-    if (clipCount == 0)
-    {
-        for (int i = 0; i < vertexCount; i++)
-        {
-            int i0 = i;
-            int i1 = (i + 1) % vertexCount;
+    // if (clipCount == 0)
+    // {
+    //     for (int i = 0; i < vertexCount; i++)
+    //     {
+    //         int i0 = i;
+    //         int i1 = (i + 1) % vertexCount;
 
-            float3 v0 = getVertex(getSilhouetteVertex(sil, i0));
-            float3 v1 = getVertex(getSilhouetteVertex(sil, i1));
-            float3 pts[2] = {v0, v1};
+    //         float3 v0 = getVertex(getSilhouetteVertex(sil, i0));
+    //         float3 v1 = getVertex(getSilhouetteVertex(sil, i1));
+    //         float3 pts[2] = {v0, v1};
 
-            color += drawEdge(i1, pts, spherePos, aaWidth);
-        }
-        return color;
-    }
+    //         color += drawEdge(i1, pts, spherePos, aaWidth);
+    //     }
+    //     return color;
+    // }
 
     // Rotate clip mask so positives come first
     uint32_t invertedMask = ~clipMask & ((1u << vertexCount) - 1u);
@@ -286,7 +289,7 @@ float4 drawSilhouette(uint32_t vertexCount, uint32_t sil, float3 spherePos, floa
                       ((clipMask & (1u << (vertexCount - 1))) != 0u);
     int rotateAmount = wrapAround
                            ? firstbitlow(invertedMask)   // -> First POSITIVE
-                           : firstbithigh(clipMask) + 1; // -> First vertex AFTER last negative
+                           : firstbithigh(clipMask) + 1; // -> First vertex AFTER last negative,
 
     uint32_t rotatedClipMask = rotr(clipMask, rotateAmount, vertexCount);
     uint32_t rotatedSil = rotr(sil, rotateAmount * 3, vertexCount * 3);
@@ -310,13 +313,17 @@ float4 drawSilhouette(uint32_t vertexCount, uint32_t sil, float3 spherePos, floa
     NBL_UNROLL
     for (int i = 0; i < positiveCount; i++)
     {
-
         float3 v0 = getVertex(getSilhouetteVertex(rotatedSil, i));
-        bool useClipA = (i == positiveCount - 1);
+
+        // ONLY use clipA if we are at the end of the positive run AND there's a clip
+        bool isLastPositive = (i == positiveCount - 1);
+        bool useClipA = (clipCount > 0) && isLastPositive;
+
+        // If not using clipA, wrap around to the next vertex
         float3 v1 = useClipA ? clipA : getVertex(getSilhouetteVertex(rotatedSil, (i + 1) % vertexCount));
 
         float3 pts[2] = {v0, v1};
-        color += drawEdge(i + 1, pts, spherePos, aaWidth);
+        color += drawEdge((i + 1) % vertexCount, pts, spherePos, aaWidth);
     }
 
     // NP edge
