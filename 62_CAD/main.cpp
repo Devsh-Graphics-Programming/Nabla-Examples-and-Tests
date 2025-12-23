@@ -85,7 +85,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -1181,7 +1181,7 @@ public:
 					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
 				};
 
-			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/fragment.hlsl");
+			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/all_fragment_shaders.hlsl");
 			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
@@ -1232,19 +1232,6 @@ public:
 		premultipliedUnderBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
 		premultipliedUnderBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
 
-		// Create Alpha Resovle Pipeline
-		{
-			// Load FSTri Shader
-			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
-			
-			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
-
-			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
-			if (!resolveAlphaGraphicsPipeline)
-				return logFail("Graphics Pipeline Creation Failed.");
-
-		}
-		
 		// Create Main Graphics Pipelines 
 		{
 			
@@ -1290,6 +1277,19 @@ public:
 			}
 		}
 
+		// Create Alpha Resovle Pipeline
+		{
+			// Load FSTri Shader
+			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
+			
+			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "fragShaderResolveAlphas" };
+
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
+			if (!resolveAlphaGraphicsPipeline)
+				return logFail("Graphics Pipeline Creation Failed.");
+
+		}
+		
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
 		m_graphicsCommandPool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		if (!m_graphicsCommandPool)

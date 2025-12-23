@@ -743,8 +743,6 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
             const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
             const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
-            // Remember we are constructing a quad in worldspace whose corners are matched to a quad in our toroidally-resident gpu image. `minUV` and `maxUV` are used to indicate where to sample from
-            // the gpu image to reconstruct the toroidal quad. 
             const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
             const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
 
