@@ -22,7 +22,7 @@ using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectra
 using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
 using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_cache, spectral_t>;
 
-[numthreads(WORKGROUP_SIZE,1,1)]
+[numthreads(64,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     bxdf::reflection::SLambertian<iso_config_t> lambertianBRDF;
