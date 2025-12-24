@@ -739,20 +739,22 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {
-            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-            float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+            const pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+            const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
+            const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
+            const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
+            const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
 
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-            const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
-            const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
-            const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
+            const float32_t2 ndcTopLeft = _static_cast<float32_t2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+            const float32_t2 ndcDirU = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
+            const float32_t2 ndcDirV = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
 
-            float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            float2 uv = corner; // non-dilated
+            const bool2 corner = bool2(vertexIdx & 0x1u, vertexIdx >> 1u);
         
-            float2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+            const float32_t2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+            const float32_t2 uv = float32_t2(corner.x ? maxUV.x : minUV.x, corner.y ? maxUV.y : minUV.y);
         
             outV.position = float4(ndcCorner, 0.f, 1.f);
             outV.setImageUV(uv);
