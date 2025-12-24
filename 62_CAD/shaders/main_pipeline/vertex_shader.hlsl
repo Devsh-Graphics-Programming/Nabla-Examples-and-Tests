@@ -706,19 +706,19 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
             if (corner.x == 0.0f && corner.y == 0.0f)
             {
-                dilationVector.x = ieee754::flipSign(dilationVector.x);
+                dilationVector.x = ieee754::flipSign(dilationVector.x, true);
                 uvOffset.x = -uvOffset.x;
                 uvOffset.y = -uvOffset.y;
             }
             else if (corner.x == 0.0f && corner.y == 1.0f)
             {
-                dilationVector.x = ieee754::flipSign(dilationVector.x);
-                dilationVector.y = ieee754::flipSign(dilationVector.y);
+                dilationVector.x = ieee754::flipSign(dilationVector.x, true);
+                dilationVector.y = ieee754::flipSign(dilationVector.y, true);
                 uvOffset.x = -uvOffset.x;
             }
             else if (corner.x == 1.0f && corner.y == 1.0f)
             {
-                dilationVector.y = ieee754::flipSign(dilationVector.y);
+                dilationVector.y = ieee754::flipSign(dilationVector.y, true);
             }
             else if (corner.x == 1.0f && corner.y == 0.0f)
             {
@@ -730,7 +730,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
             pfloat64_t2 worldSpaceExtentsYAxisFlipped;
             worldSpaceExtentsYAxisFlipped.x = worldSpaceExtents.x;
-            worldSpaceExtentsYAxisFlipped.y = ieee754::flipSign(worldSpaceExtents.y);
+            worldSpaceExtentsYAxisFlipped.y = ieee754::flipSign(worldSpaceExtents.y, true);
             const pfloat64_t2 vtxPos = topLeft + worldSpaceExtentsYAxisFlipped * _static_cast<pfloat64_t2>(corner);
             const pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
 

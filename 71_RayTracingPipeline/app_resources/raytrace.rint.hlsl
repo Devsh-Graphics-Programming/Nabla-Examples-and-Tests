@@ -36,8 +36,9 @@ void main()
 
     const int primID = spirv::PrimitiveId;
 
+    const static uint64_t SProceduralGeomInfoAlignment = nbl::hlsl::alignment_of_v<STriangleGeomInfo>;
     // Sphere data
-    SProceduralGeomInfo sphere = vk::RawBufferLoad<SProceduralGeomInfo>(pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));
+    SProceduralGeomInfo sphere = vk::BufferPointer<SProceduralGeomInfo, SProceduralGeomInfoAlignment>(pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo)).Get();
 
     const float32_t tHit = hitSphere(sphere, ray);
     
