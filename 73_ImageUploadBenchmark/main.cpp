@@ -28,8 +28,8 @@ public:
 		constexpr uint32_t TILE_BYTES_PER_PIXEL = 4;
 		constexpr uint32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * TILE_BYTES_PER_PIXEL;
 		constexpr uint32_t STAGING_BUFFER_SIZE = 64 * 1024 * 1024;
-		constexpr uint32_t TILES_PER_FRAME = STAGING_BUFFER_SIZE / TILE_SIZE_BYTES;
 		constexpr uint32_t FRAMES_IN_FLIGHT = 4;
+		constexpr uint32_t TILES_PER_FRAME = STAGING_BUFFER_SIZE / (TILE_SIZE_BYTES * FRAMES_IN_FLIGHT);
 		constexpr uint32_t TOTAL_FRAMES = 1000;
 
 		m_logger->log("GPU Memory Transfer Benchmark", ILogger::ELL_INFO);
@@ -40,12 +40,20 @@ public:
 
 		uint32_t hostVisibleBits = m_physicalDevice->getHostVisibleMemoryTypeBits();
 		uint32_t deviceLocalBits = m_physicalDevice->getDeviceLocalMemoryTypeBits();
-		uint32_t hostVisibleOnlyBits = hostVisibleBits & ~deviceLocalBits;
+		uint32_t hostCachedBits = m_physicalDevice->getMemoryTypeBitsFromMemoryTypeFlags(IDeviceMemoryAllocation::EMPF_HOST_CACHED_BIT);
+
+		uint32_t hostVisibleOnlyBits = hostVisibleBits & ~deviceLocalBits & ~hostCachedBits;
+
 		uint32_t hostVisibleDeviceLocalBits = hostVisibleBits & deviceLocalBits;
+
+		m_logger->log("Memory type bits - HostVisible: 0x%X, DeviceLocal: 0x%X, HostCached: 0x%X",
+			ILogger::ELL_INFO, hostVisibleBits, deviceLocalBits, hostCachedBits);
+		m_logger->log("System RAM (non-cached): 0x%X, VRAM: 0x%X",
+			ILogger::ELL_INFO, hostVisibleOnlyBits, hostVisibleDeviceLocalBits);
 
 		if (!hostVisibleOnlyBits)
 		{
-			m_logger->log("HOST_VISIBLE memory types not found!", ILogger::ELL_ERROR);
+			m_logger->log("HOST_VISIBLE non-cached memory types not found!", ILogger::ELL_ERROR);
 			return false;
 		}
 
@@ -122,7 +130,7 @@ public:
 
 		if (hostVisibleDeviceLocalBits)
 		{
-			m_logger->log("\nTesting Strategy 2: VRAM (ReBAR)", ILogger::ELL_INFO);
+			m_logger->log("\nTesting Strategy 2: VRAM", ILogger::ELL_INFO);
 
 			double throughputVRAM = 0.0;
 			{
@@ -131,13 +139,13 @@ public:
 				void* mappedPtr = nullptr;
 
 				if (!createStagingBuffer(STAGING_BUFFER_SIZE, hostVisibleDeviceLocalBits,
-					"Staging Buffer - VRAM (ReBAR)", stagingBuffer, stagingAlloc, mappedPtr))
+					"Staging Buffer - VRAM", stagingBuffer, stagingAlloc, mappedPtr))
 				{
 					return false;
 				}
 
 				throughputVRAM = runBenchmark(
-					"VRAM (ReBAR)",
+					"VRAM",
 					stagingBuffer.get(),
 					mappedPtr,
 					destinationImage.get(),
@@ -205,7 +213,8 @@ private:
 		uint32_t tilesPerFrame,
 		uint32_t tileSize,
 		uint32_t tileSizeBytes,
-		uint32_t imageWidth)
+		uint32_t imageWidth,
+		uint32_t bufferBaseOffset)
 	{
 		uint32_t tilesPerRow = imageWidth / tileSize;
 		for (size_t i = 0; i < tilesPerFrame; i++)
@@ -213,7 +222,7 @@ private:
 			uint32_t tileX = (i % tilesPerRow) * tileSize;
 			uint32_t tileY = (i / tilesPerRow) * tileSize;
 
-			outRegions[i].bufferOffset = i * tileSizeBytes;
+			outRegions[i].bufferOffset = bufferBaseOffset + (i * tileSizeBytes);
 			outRegions[i].bufferRowLength = tileSize;
 			outRegions[i].bufferImageHeight = tileSize;
 			outRegions[i].imageOffset = { tileX, tileY, 0 };
@@ -223,23 +232,6 @@ private:
 			outRegions[i].imageSubresource.baseArrayLayer = 0;
 			outRegions[i].imageSubresource.layerCount = 1;
 		}
-	}
-
-	void generateRandomTileData(void* mappedPtr, uint32_t sizeBytes)
-	{
-		uint32_t* data = (uint32_t*)mappedPtr;
-		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-		std::mt19937 g(seed);
-		const uint32_t valueCount = sizeBytes / sizeof(uint32_t);
-
-		auto bufferData = new uint32_t[valueCount];
-
-		for (uint32_t i = 0; i < valueCount; i++)
-		{
-			bufferData[i] = g();
-		}
-		memcpy(mappedPtr, bufferData, sizeBytes);
-		delete[] bufferData;
 	}
 
 	double runBenchmark(
@@ -305,12 +297,31 @@ private:
 		};
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
-		auto regions = new IImage::SBufferCopy[tilesPerFrame];
-
-		generateRandomTileData(mappedPtr, tilesPerFrame * tileSizeBytes);
-
 		uint32_t imageWidth = destinationImage->getCreationParameters().extent.width;
-		generateTileCopyRegions(regions, tilesPerFrame, tileSize, tileSizeBytes, imageWidth);
+		uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
+
+		// CPU source buffer with random data (generated once, reused each frame)
+		auto cpuSourceData = new uint8_t[partitionSize];
+		{
+			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			std::mt19937 g(seed);
+			uint32_t* data = reinterpret_cast<uint32_t*>(cpuSourceData);
+			for (uint32_t i = 0; i < partitionSize / sizeof(uint32_t); i++)
+				data[i] = g();
+		}
+
+		auto regionsPerFrame = new IImage::SBufferCopy*[framesInFlight];
+		for (uint32_t i = 0; i < framesInFlight; i++)
+		{
+			regionsPerFrame[i] = new IImage::SBufferCopy[tilesPerFrame];
+			uint32_t bufferOffset = i * partitionSize;
+			generateTileCopyRegions(regionsPerFrame[i], tilesPerFrame, tileSize, tileSizeBytes, imageWidth, bufferOffset);
+		}
+
+		double totalWaitTime = 0.0;
+		double totalMemcpyTime = 0.0;
+		double totalRecordTime = 0.0;
+		double totalSubmitTime = 0.0;
 
 		auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -318,19 +329,35 @@ private:
 		{
 			uint32_t cmdBufIndex = frame % framesInFlight;
 
-			commandBuffers[cmdBufIndex]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			auto t1 = std::chrono::high_resolution_clock::now();
+			if (frame >= framesInFlight)
+			{
+				ISemaphore::SWaitInfo frameWaitInfo = {
+					.semaphore = timelineSemaphore.get(),
+					.value = timelineValue - framesInFlight + 1
+				};
+				m_device->blockForSemaphores({&frameWaitInfo, 1});
+			}
+			auto t2 = std::chrono::high_resolution_clock::now();
 
+			commandPools[cmdBufIndex]->reset();
+
+			uint32_t bufferOffset = cmdBufIndex * partitionSize;
+			void* targetPtr = static_cast<uint8_t*>(mappedPtr) + bufferOffset;
+			memcpy(targetPtr, cpuSourceData, partitionSize);
+			auto t3 = std::chrono::high_resolution_clock::now();
+
+			commandBuffers[cmdBufIndex]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			commandBuffers[cmdBufIndex]->copyBufferToImage(
 				stagingBuffer,
 				destinationImage,
 				IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				tilesPerFrame,
-				regions
+				regionsPerFrame[cmdBufIndex]
 			);
-
 			commandBuffers[cmdBufIndex]->end();
+			auto t4 = std::chrono::high_resolution_clock::now();
 
-			// Create submit info for THIS frame
 			IQueue::SSubmitInfo frameSubmitInfo = {};
 			IQueue::SSubmitInfo::SCommandBufferInfo frameCmdBufInfo = {.cmdbuf = commandBuffers[cmdBufIndex].get()};
 			frameSubmitInfo.commandBuffers = {&frameCmdBufInfo, 1};
@@ -342,18 +369,13 @@ private:
 			};
 			frameSubmitInfo.signalSemaphores = {&frameSignalInfo, 1};
 
-			// Submit to GPU
 			queue->submit({&frameSubmitInfo, 1});
+			auto t5 = std::chrono::high_resolution_clock::now();
 
-			// Wait for old frames 
-			if (frame >= framesInFlight)
-			{
-				ISemaphore::SWaitInfo frameWaitInfo = {
-					.semaphore = timelineSemaphore.get(),
-					.value = timelineValue - framesInFlight
-				};
-				m_device->blockForSemaphores({&frameWaitInfo, 1});
-			}
+			totalWaitTime += std::chrono::duration<double>(t2 - t1).count();
+			totalMemcpyTime += std::chrono::duration<double>(t3 - t2).count();
+			totalRecordTime += std::chrono::duration<double>(t4 - t3).count();
+			totalSubmitTime += std::chrono::duration<double>(t5 - t4).count();
 		}
 
 		// Wait for all remaining frames to complete
@@ -365,14 +387,23 @@ private:
 
 		auto endTime = std::chrono::high_resolution_clock::now();
 
-		delete[] regions;
+		delete[] cpuSourceData;
+		for (uint32_t i = 0; i < framesInFlight; i++)
+			delete[] regionsPerFrame[i];
+		delete[] regionsPerFrame;
 		delete[] commandPools;
 		delete[] commandBuffers;
 
-		// Calculate throughput
 		double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
 		uint64_t totalBytes = (uint64_t)totalFrames * tilesPerFrame * tileSizeBytes;
 		double throughputGBps = (totalBytes / (1024.0 * 1024.0 * 1024.0)) / elapsedSeconds;
+
+		m_logger->log("  Timing breakdown for %s:", ILogger::ELL_INFO, strategyName);
+		m_logger->log("    Wait time:   %.3f s (%.1f%%)", ILogger::ELL_INFO, totalWaitTime, 100.0 * totalWaitTime / elapsedSeconds);
+		m_logger->log("    Memcpy time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalMemcpyTime, 100.0 * totalMemcpyTime / elapsedSeconds);
+		m_logger->log("    Record time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalRecordTime, 100.0 * totalRecordTime / elapsedSeconds);
+		m_logger->log("    Submit time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalSubmitTime, 100.0 * totalSubmitTime / elapsedSeconds);
+		m_logger->log("    Memcpy speed: %.2f GB/s", ILogger::ELL_INFO, (totalBytes / (1024.0 * 1024.0 * 1024.0)) / totalMemcpyTime);
 
 		return throughputGBps;
 	}
@@ -401,7 +432,7 @@ private:
 		if (!outAllocation.isValid())
 			return logFail("Failed to allocate Device Memory!\n");
 
-		outMappedPtr = outAllocation.memory->map({0ull, outAllocation.memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ);
+		outMappedPtr = outAllocation.memory->map({0ull, outAllocation.memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_WRITE);
 		if (!outMappedPtr)
 			return logFail("Failed to map Device Memory!\n");
 
