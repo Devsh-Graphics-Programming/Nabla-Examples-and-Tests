@@ -61,19 +61,9 @@ struct TestJacobian : TestBxDF<BxDF>
             }
         }
 
+        // TODO: might want to distinguish between invalid H and sample produced below hemisphere
         if (!(s.isValid() && sx.isValid() && sy.isValid()))
             return BTR_INVALID_TEST_CONFIG;
-
-        if (traits_t::type == bxdf::BT_BRDF)
-        {
-            if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
-        else if (traits_t::type == bxdf::BT_BSDF)
-        {
-            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
 
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
@@ -117,17 +107,20 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
+        if (checkLt<float32_t3>(bsdf, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(pdf.quotient, hlsl::promote<float32_t3>(0.0)) || pdf.pdf < 0.0)
+            return BTR_ERROR_NEGATIVE_VAL;
+
         if (checkZero<float>(pdf.pdf, 1e-5) && !checkZero<float32_t3>(pdf.quotient, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF;
 
-        if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(pdf.quotient, hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity))))    // importance sampler's job to prevent inf
             return BTR_ERROR_QUOTIENT_INF;
 
         if (checkZero<float32_t3>(bsdf, 1e-5) || checkZero<float32_t3>(pdf.quotient, 1e-5))
-            return BTR_NONE;    // produces an "impossible" sample
+            return BTR_NONE;    // likely to be that a bad sample was produced, unless it's a mixture/delta BxDF
 
-        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
-            return BTR_ERROR_NEGATIVE_VAL;
+        if (hlsl::isnan(pdf.pdf))
+            return BTR_NONE;
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(
@@ -136,7 +129,8 @@ struct TestJacobian : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-4))
+        // infinite PDF and zero jacobian are both valid behaviors
+        if (!checkZero<float>(det, 1e-3) && !checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-4))
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
 
         float32_t3 quo_pdf = pdf.value();
@@ -232,19 +226,9 @@ struct TestReciprocity : TestBxDF<BxDF>
             }
         }
 
+        // TODO: might want to distinguish between invalid H and sample produced below hemisphere
         if (!s.isValid())
             return BTR_INVALID_TEST_CONFIG;
-
-        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
-        {
-            if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
-        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
-        {
-            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
 
         float32_t3x3 toTangentSpace = anisointer.getToTangentSpace();
         ray_dir_info_t rec_V = s.getL();

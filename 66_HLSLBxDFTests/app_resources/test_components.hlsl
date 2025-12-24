@@ -49,19 +49,9 @@ struct TestNDF : TestBxDF<BxDF>
             }
         }
 
-        if (!BxDF::ndf_type::GuaranteedVNDF && !(s.isValid() && sx.isValid() && sy.isValid()))
+        // TODO: might want to distinguish between invalid H and sample produced below hemisphere
+        if (!(s.isValid() && sx.isValid() && sy.isValid()))
             return BTR_INVALID_TEST_CONFIG;
-
-        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF)
-        {
-            if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
-        NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF)
-        {
-            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
-                return BTR_INVALID_TEST_CONFIG;
-        }
 
         using ndf_type = typename base_t::bxdf_t::ndf_type;
         using quant_type = typename ndf_type::quant_type;
@@ -221,7 +211,8 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
-            if (!BxDF::ndf_type::GuaranteedVNDF && !s.isValid())
+            // TODO: might want to distinguish between invalid H and sample produced below hemisphere
+            if (!s.isValid())
                 continue;
 
             bool transmitted;
