@@ -8,7 +8,7 @@
 "../media/mitsuba/aniso_ies/72_render_0_2.xml"
 "../media/mitsuba/bathroom/scene.xml"
 "../media/mitsuba/bathroom2/scene.xml"
-"../media/mitsuba/bedroom/scene.xml"
+;"../media/mitsuba/bedroom/scene.xml" ; we'd need to commit uncompressed 100MB OBJ, and this example doesn't load from ZIP
 "../media/mitsuba/car2/scene.xml"
 "../media/mitsuba/coffee/scene.xml"
 ;"../media/mitsuba/classroom/scene.xml" ; skip because <emitter type="sunsky"> is not supported
