@@ -55,6 +55,7 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 					while (++retval<end && std::find(newlines.begin(),newlines.end(),*retval)!=newlines.end()) {}
 					return retval;
 				};
+				auto cursorEnd = nextLine();
 				if (*cursor=='\"')
 				{
 					const auto begin = ++cursor;
@@ -80,9 +81,11 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 				else if (*cursor!=';')
 				{
 					const char chr[2] = {*cursor,0};
-					return logFail("Parser Error, encountered unsupprted character %s near line start",chr);
+					cursor = std::find(cursor,cursorEnd,'\"');
+					if (cursor==cursorEnd)
+						return logFail("Parser Error, encountered unsupprted character %s near line start",chr);
 				}
-				cursor = nextLine();
+				cursor = cursorEnd;
 			}
 			return true;
 		}
@@ -105,8 +108,8 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 			// public batch
 			if (!test(localInputCWD/"test_scenes.txt"))
 				return false;
-//			if (!test(sharedInputCWD/"Ditt-Reference-Scenes/private_test_scenes.txt"))
-//				return false;
+			if (!test(sharedInputCWD/"Ditt-Reference-Scenes/private_test_scenes.txt"))
+				return false;
 
 			return true;
 		}
