@@ -47,7 +47,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(13_MaterialCompilerTest)
 	#
 	if (NBL_BUILD_MITSUBA_LOADER)
-		add_subdirectory(14_MitsubaLoader)
+		add_subdirectory(15_MitsubaLoader)
 	endif()
 
 	# Waiting for a refactor
