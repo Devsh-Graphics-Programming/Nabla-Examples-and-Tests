@@ -47,7 +47,7 @@ struct TestBucket : TestBxDF<BxDF>
 
         sample_t s;
         quotient_pdf_t pdf;
-        float32_t3 bsdf;
+        //float32_t3 bsdf;
 
         for (uint32_t i = 0; i < numSamples; i++)
         {
@@ -90,19 +90,19 @@ struct TestBucket : TestBxDF<BxDF>
             NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+                //bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
             }
             NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
             {
                 NBL_IF_CONSTEXPR(aniso)
                 {
                     pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                    //bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
                 }
                 else
                 {
                     pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                    //bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
                 }
             }
 
@@ -116,7 +116,6 @@ struct TestBucket : TestBxDF<BxDF>
                 buckets[bucket] += 1;
         }
 
-#ifndef __HLSL_VERSION
         // double check this conversion makes sense
         for (auto const& b : buckets) {
             if (!selective || b.second > 0)
@@ -128,7 +127,6 @@ struct TestBucket : TestBxDF<BxDF>
                 base_t::errMsg += std::format("({:.3f},{:.3f},{:.3f}): {}\n", v.x, v.y, v.z, b.second);
             }
         }
-#endif
         return BTR_NONE;
     }
 
@@ -433,6 +431,13 @@ struct TestChi2 : TestBxDF<BxDF>
         assetManager->writeAsset(filename, wp);
     }
 
+    enum WriteFrequenciesToEXR : uint16_t
+    {
+        WFE_DONT_WRITE = 0,
+        WFE_WRITE_ERRORS = 1,
+        WFE_WRITE_ALL = 2
+    };
+
     TestResult compute()
     {
         clearBuckets();
@@ -473,6 +478,7 @@ struct TestChi2 : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
+            // TODO: might want to distinguish between invalid H and sample produced below hemisphere?
             if (!s.isValid())
                 continue;
 
@@ -590,9 +596,6 @@ struct TestChi2 : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (write_frequencies)
-            writeToEXR(assetManager);
-
         // chi2
         std::vector<Cell> cells(thetaSplits * phiSplits);
         for (uint32_t i = 0; i < cells.size(); i++)
@@ -614,6 +617,8 @@ struct TestChi2 : TestBxDF<BxDF>
             {
                 if (countFreq[c.index] > numSamples * 1e-5)
                 {
+                    if (write_frequencies == WFE_WRITE_ERRORS)
+                        writeToEXR(assetManager);
                     base_t::errMsg = std::format("expected frequency of 0 for c but found {} samples", countFreq[c.index]);
                     return BTR_PRINT_MSG;
                 }
@@ -648,6 +653,8 @@ struct TestChi2 : TestBxDF<BxDF>
 
         if (dof <= 0)
         {
+            if (write_frequencies == WFE_WRITE_ERRORS)
+                writeToEXR(assetManager);
             base_t::errMsg = std::format("degrees of freedom {} too low", dof);
             return BTR_PRINT_MSG;
         }
@@ -657,9 +664,14 @@ struct TestChi2 : TestBxDF<BxDF>
 
         if (pval < alpha || !std::isfinite(pval))
         {
+            if (write_frequencies == WFE_WRITE_ERRORS)
+                writeToEXR(assetManager);
             base_t::errMsg = std::format("chi2 test: rejected the null hypothesis (p-value = {:.3f}, significance level = {:.3f}", pval, alpha);
             return BTR_PRINT_MSG;
         }
+
+        if (write_frequencies == WFE_WRITE_ALL)
+            writeToEXR(assetManager);
 
         return BTR_NONE;
     }
@@ -672,7 +684,7 @@ struct TestChi2 : TestBxDF<BxDF>
         t.numSamples = initparams.samples;
         t.thetaSplits = initparams.thetaSplits;
         t.phiSplits = initparams.phiSplits;
-        t.write_frequencies = initparams.writeFrequencies;
+        t.write_frequencies = static_cast<WriteFrequenciesToEXR>(initparams.writeFrequencies);
         t.initBxDF(t.rc);
 
         TestResult e = t.test(assetManager);
@@ -693,7 +705,7 @@ struct TestChi2 : TestBxDF<BxDF>
     uint32_t minFreq = 5;
     uint32_t numTests = 5;
     
-    bool write_frequencies = true;
+    WriteFrequenciesToEXR write_frequencies;
     float maxCountFreq;
     float maxIntFreq;
 

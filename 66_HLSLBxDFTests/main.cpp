@@ -49,7 +49,7 @@ public:
         std::ifstream f("../app_resources/config.json");
         if (f.fail())
         {
-            m_logger->log("could not open config file\n", ILogger::ELL_ERROR);
+            m_logger->log("could not open config file", ILogger::ELL_ERROR);
             return false;
         }
         try
@@ -58,7 +58,7 @@ public:
         }
         catch (json::parse_error& ex)
         {
-            m_logger->log("parse_error.%d failed to parse config file at byte %u: %s\n", ILogger::ELL_ERROR, ex.id, ex.byte, ex.what());
+            m_logger->log("parse_error.%d failed to parse config file at byte %u: %s", ILogger::ELL_ERROR, ex.id, ex.byte, ex.what());
             return false;
         }
 
@@ -140,37 +140,37 @@ private:
             {
             case BTR_INVALID_TEST_CONFIG:
                 if (logInfo)
-                    logger->log("seed %u: %s skipping test due to invalid NdotV/NdotL config\n", ILogger::ELL_INFO, failedFor.rc.halfSeed, failedFor.name.c_str());
+                    logger->log("seed %u: %s skipping test due to invalid NdotV/NdotL config", ILogger::ELL_INFO, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_NEGATIVE_VAL:
-                logger->log("seed %u: %s pdf/quotient/eval < 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s pdf/quotient/eval < 0", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF:
-                logger->log("seed %u: %s generated sample has pdf = 0\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s generated sample has pdf = 0", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_QUOTIENT_INF:
-                logger->log("seed %u: %s quotient -> inf\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s quotient -> inf", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_JACOBIAN_TEST_FAIL:
-                logger->log("seed %u: %s failed the jacobian * pdf test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s failed the jacobian * pdf test    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_ERROR_PDF_EVAL_DIFF:
-                logger->log("seed %u: %s quotient * pdf != eval    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s quotient * pdf != eval    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_ERROR_NO_RECIPROCITY:
-                logger->log("seed %u: %s failed the reciprocity test    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s failed the reciprocity test    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_ERROR_REFLECTANCE_OUT_OF_RANGE:
-                logger->log("seed %u: %s reflectance not between 0 and 1    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s reflectance not between 0 and 1    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_PRINT_MSG:
-                logger->log("seed %u: %s error message\n%s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s error message    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_ERROR_GENERATED_H_INVALID:
-                logger->log("seed %u: %s failed invalid H configuration generated    %s\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s failed invalid H configuration generated    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             default:
-                logger->log("seed %u: %s unknown error\n", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s unknown error", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             }
 
 #ifdef _NBL_DEBUG

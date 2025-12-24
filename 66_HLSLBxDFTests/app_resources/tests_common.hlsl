@@ -152,7 +152,7 @@ struct STestInitParams
     uint32_t samples;   // num samples generated for distribution tests, e.g. chi2, bucket, etc.
     uint32_t thetaSplits;
     uint32_t phiSplits;
-    bool writeFrequencies;
+    uint16_t writeFrequencies;
     bool immediateFail;
     bool verbose;
 };
