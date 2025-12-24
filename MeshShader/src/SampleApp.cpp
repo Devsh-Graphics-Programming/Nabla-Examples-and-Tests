@@ -1,5 +1,86 @@
 #include "SampleApp.h"
 
+#include "transform.hpp"
+
+#include <glm/gtc/matrix_transform.hpp>
+
+
+
+std::vector<hlsl::vector<float, 3>> GetCubeData()
+{
+
+    std::array<hlsl::vector<float, 3>, 8> cube_vertices{
+        hlsl::vector<float, 3>{-0.5f, -0.5f, -0.5f},
+        hlsl::vector<float, 3>{ 0.5f, -0.5f, -0.5f},
+        hlsl::vector<float, 3>{ 0.5f,  0.5f, -0.5f},
+        hlsl::vector<float, 3>{-0.5f,  0.5f, -0.5f},
+        hlsl::vector<float, 3>{-0.5f, -0.5f,  0.5f},
+        hlsl::vector<float, 3>{ 0.5f, -0.5f,  0.5f},
+        hlsl::vector<float, 3>{ 0.5f,  0.5f,  0.5f},
+        hlsl::vector<float, 3>{-0.5f,  0.5f,  0.5f}
+    };
+
+    std::vector<hlsl::vector<float, 3>> triangleList;
+
+    //-z
+    triangleList.push_back(cube_vertices[0]);
+    triangleList.push_back(cube_vertices[2]);
+    triangleList.push_back(cube_vertices[1]);
+
+    triangleList.push_back(cube_vertices[0]);
+    triangleList.push_back(cube_vertices[3]);
+    triangleList.push_back(cube_vertices[2]);
+
+    //+z
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[5]);
+    triangleList.push_back(cube_vertices[6]);
+
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[6]);
+    triangleList.push_back(cube_vertices[7]);
+
+    //-x
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[7]);
+    triangleList.push_back(cube_vertices[3]);
+
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[3]);
+    triangleList.push_back(cube_vertices[0]);
+
+    //+x
+    triangleList.push_back(cube_vertices[1]);
+    triangleList.push_back(cube_vertices[2]);
+    triangleList.push_back(cube_vertices[6]);
+
+    triangleList.push_back(cube_vertices[1]);
+    triangleList.push_back(cube_vertices[6]);
+    triangleList.push_back(cube_vertices[5]);
+
+    //-y
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[0]);
+    triangleList.push_back(cube_vertices[1]);
+
+    triangleList.push_back(cube_vertices[4]);
+    triangleList.push_back(cube_vertices[1]);
+    triangleList.push_back(cube_vertices[5]);
+
+    //+y
+    triangleList.push_back(cube_vertices[3]);
+    triangleList.push_back(cube_vertices[7]);
+    triangleList.push_back(cube_vertices[6]);
+
+    triangleList.push_back(cube_vertices[3]);
+    triangleList.push_back(cube_vertices[6]);
+    triangleList.push_back(cube_vertices[2]);
+
+    return triangleList;
+}
+
+
+
     bool MeshSampleApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system) {
         if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -20,17 +101,6 @@
         }
         
         const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
-
-
-        m_scene = CGeometryCreatorScene::create(
-            {
-                .transferQueue = getTransferUpQueue(),
-                .utilities = m_utils.get(),
-                .logger = m_logger.get(),
-                .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-            },
-            CSimpleDebugRenderer::DefaultPolygonGeometryPatch
-        );
 
         
         // for the scene drawing pass
@@ -79,8 +149,7 @@
                 return logFail("Failed to create Scene Renderpass!");
         }
 
-        const auto& geometries = m_scene->getInitParams().geometries;
-        m_renderer = MeshDebugRenderer::create(m_assetMgr.get(), m_renderpass.get(), 0, { &geometries.front().get(),geometries.size() });
+        m_renderer = MeshDebugRenderer::create(m_assetMgr.get(), m_renderpass.get(), 0);
 
         // Create ImGUI
         {
@@ -197,34 +266,24 @@
                 return logFail("failed to map device memory");
             }
 
-            memcpy(interface.mesh_mapped_memory, m_renderer->m_geoms.meshData, sizeof(MeshletObjectData) * MeshDataBuffer::MaxObjectCount);
+            auto cubeData = GetCubeData();
+
+            memcpy(interface.mesh_mapped_memory, cubeData.data(), sizeof(hlsl::vector<float, 3>) * cubeData.size());
+            m_device->flushMappedMemoryRanges(1, &interface.meshMemoryRange);
+            //flush it here
 
             imgui->registerListener([this](){interface();});
 
         }
-        
-        interface.objectNames = {
-            "Cube",
-            "Rectangle",
-            "Disk",
-            "Sphere",
-            "Cylinder",
-            "Cone",
-            "Icosphere"
-            //magicenum reflection?
-        };
 
-        const hlsl::matrix<float, 4, 4> fillVal{
-            1.f, 0.f, 0.f, 0.f,
-            0.f, 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f, 0.f,
-            0.f, 0.f, 0.f, 1.f
-        };
-        interface.transforms.fill(fillVal);
+        //interface.transform = {
+        //    1.f, 0.f, 0.f, 0.f,
+        //    0.f, 1.f, 0.f, 0.f,
+        //    0.f, 0.f, 1.f, 0.f,
+        //    0.f, 0.f, 0.f, 1.f
+        //};
+        //interface.transforms.fill(fillVal);
 
-        //load up the ICPUGeometry, then convert it to GPU geometry
-
-        interface.camera.mapKeysToArrows();
 
         onAppInitializedFinish();
         return true;
@@ -348,9 +407,6 @@
         return retval;
     }
 
-    void MeshSampleApp::UpdateDescriptor() {
-        m_renderer.get()->getInitParams().subAllocDS;
-    }
 
     const video::IGPURenderpass::SCreationParams::SSubpassDependency* MeshSampleApp::getDefaultSubpassDependencies() const {
         // Subsequent submits don't wait for each other, but they wait for acquire and get waited on by present
@@ -388,26 +444,25 @@
 
 
     void MeshSampleApp::UpdateScene(nbl::video::IGPUCommandBuffer* cb) {
-        float32_t4x4 viewProjMatrix;
-        // TODO: get rid of legacy matrices //<-- camera.getViewMatrix returns matrix3x4SIMD
-        {
-            const auto& camera = interface.camera;
-            memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
-        }
-        if (interface.transposeCameraViewProj) {
-            viewProjMatrix = hlsl::transpose(viewProjMatrix);
-        }
-        const auto viewParams = MeshDebugRenderer::SViewParams(viewProjMatrix, interface.objectCount);
+        //viewProjMatrix = hlsl::transpose(viewProjMatrix);
 
-        m_renderer->render(cb, viewParams);
+        float32_t3x4 viewMatrix;
+        float32_t4x4 viewProjMatrix;
+        const auto& camera = interface.camera;
+        memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
+        memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
+        hlsl::float32_t3x4 world;
+        memcpy(&world, &interface.model, sizeof(world));
+        float32_t4x4 worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProjMatrix), float64_t3x4(world)));
+
+        m_renderer->render(cb, worldViewProj);
     }
 
 
     void MeshSampleApp::update(const std::chrono::microseconds nextPresentationTimestamp)
     {
-        auto& camera = interface.camera;
-        camera.setMoveSpeed(interface.moveSpeed);
-        camera.setRotateSpeed(interface.rotateSpeed);
+        interface.camera.setMoveSpeed(interface.moveSpeed);
+        interface.camera.setRotateSpeed(interface.rotateSpeed);
 
 
         m_inputSystem->getDefaultMouse(&mouse);
@@ -426,12 +481,12 @@
         // If you stop begin/end, whatever keys were up/down get their up/down values frozen leading to
         // `perActionDt` becoming obnoxiously large the first time the even processing resumes due to
         // `timeDiff` being computed since `lastVirtualUpTimeStamp` 
-        camera.beginInputProcessing(nextPresentationTimestamp);
+        interface.camera.beginInputProcessing(nextPresentationTimestamp);
         {
             mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
                 {
                     if (interface.move)
-                        camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+                        interface.camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
                     for (const auto& e : events) // here capture
                     {
@@ -452,7 +507,7 @@
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
                 {
                     if (interface.move)
-                        camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+                        interface.camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
                     for (const auto& e : events) // here capture
                     {
@@ -466,7 +521,7 @@
                 m_logger.get()
             );
         }
-        camera.endInputProcessing(nextPresentationTimestamp);
+        interface.camera.endInputProcessing(nextPresentationTimestamp);
 
         const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
@@ -479,16 +534,6 @@
         };
 
         interface.imGUI->update(params);
-
-
-
-        auto* countMem = reinterpret_cast<MeshletObjectData*>(interface.mesh_mapped_memory);
-        //i only need to set the meslet object data once on initialization
-        //memcpy(countMem, interface.objectCount.data(), sizeof(MeshletObjectData) * MeshDataBuffer::MaxObjectCount);
-        countMem += MeshDataBuffer::MaxObjectCount;
-        auto* matrixMem = reinterpret_cast<hlsl::matrix<float, 4, 4>*>(countMem);
-        memcpy(matrixMem, interface.transforms.data(), interface.transforms.size() * sizeof(hlsl::matrix<float, 4, 4>));
-        m_device->flushMappedMemoryRanges(1, &interface.meshMemoryRange);
     }
 
     void MeshSampleApp::recreateFramebuffer(const uint16_t2 resolution)
@@ -592,53 +637,11 @@
                 ImGui::Separator();
         };
 
-    void MeshSampleApp::CInterface::DrawMeshControls() {
-        //this was for learning hlsl, given the shader takes like 2 minutes to compile, might as well just relaunch
-        //if (ImGui::Button("reload mesh shader")) {
-            //printf("test shader result - %d\n", CreateTestShaderFuncPtr());
-        //}
-
-        ImGui::DragInt("current transform editting", &currentTransform, 1, 0, MeshDataBuffer::MaxObjectCount * MeshDataBuffer::MaxInstanceCount);
-
-        for (uint8_t i = 0; i < objectNames.size(); i++) {
-            const std::string objNameWithCount = objectNames[i] + " {" + std::to_string(objectCount[i]) + '}';
-            if (ImGui::TreeNode(objNameWithCount.c_str())) {
-                const std::string objCountDraggerName = ("object count ##") + objectNames[i];
-
-                int imguiCopy = objectCount[i];
-                //ImGui::DragInt(objCountDraggerName.c_str(), &imguiCopy, 1, 0, localMax);
-                ImGui::SliderInt(objCountDraggerName.c_str(), &imguiCopy, 0, MeshDataBuffer::MaxInstanceCount);
-                objectCount[i] = imguiCopy;
-
-                for (uint64_t j = 0; j < objectCount[i]; j++) {
-                    const std::string treeName = std::string("transform[") + std::to_string(j) + "]##" + objectNames[i];
-                    if (ImGui::TreeNode(treeName.c_str())) {
-                        const std::size_t transformIndex = i * MeshDataBuffer::MaxInstanceCount + j;
-                        addMatrixTable("model", "", 4, 4, &transforms[transformIndex][0][0]);
-
-                        //imguizmo overwrites these changes
-                        //for (uint8_t x = 0; x < 4; x++) {
-                        //    const std::size_t rowIndex = transformIndex * 4 + x;
-                        //    const std::string rowName = std::string("##") + std::to_string(rowIndex);
-                        //    ImGui::DragFloat4(rowName.c_str(), &transforms[transformIndex][x][0], 0.1f, -100.f, 100.f);
-                        //}
-                        ImGui::TreePop();
-                    }
-                }
-
-                ImGui::TreePop();
-            }
-        }
-    }
-
     void MeshSampleApp::CInterface::DrawCameraControls() {
         ImGuiIO& io = ImGui::GetIO();
 
         ImGui::Text("Camera");
         bool viewDirty = false;
-
-        ImGui::Checkbox("transpose view proj (holy space intermixing)", &transposeCameraViewProj);
-
         if (ImGui::RadioButton("LH", isLH))
             isLH = true;
 
@@ -662,10 +665,7 @@
 
         // ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
 
-        if (isPerspective)
-            ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-        else
-            ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
+        ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 
         ImGui::SliderFloat("zNear", &zNear, 0.1f, zFar);
         ImGui::SliderFloat("zFar", &zFar, zNear, 10000.f);
@@ -701,12 +701,10 @@
             ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
         }
 
-        const auto& view = camera.getViewMatrix(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-
-        auto const& projection = camera.getProjectionMatrix();
-        if (ImGui::TreeNode("camera matrices")) {
-            addMatrixTable("View", "ViewMatrixTable", 3, 4, view.pointer());
-            addMatrixTable("Projection", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+        if (ImGui::TreeNode("matrices")) {
+            addMatrixTable("View", "ViewMatrixTable", 3, 4, camera.getViewMatrix().pointer());
+            addMatrixTable("Projection", "ViewProjectionMatrixTable", 4, 4, camera.getProjectionMatrix().pointer(), false);
+            addMatrixTable("model", "transform", 3, 4, model.pointer(), false);
             ImGui::TreePop();
         }
     }
@@ -729,75 +727,46 @@
 
         ImGuizmo::SetID(0u);
 
+
         imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
         imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-
-        if (currentTransform < 0) {
-            currentTransform = 0;
-        }
-
-        if (currentTransform >= 0 && currentTransform < transforms.size()) {
-            //auto transposedTemp = core::transpose(transforms[currentTransform]);
-            //the model is a double matrix, so a memcpy or reinterpret wont work
-            //i might have the x and y backwards it doesnt matter as long as its x:x and y:y
-            //skipping the transform from example 61
-            for (uint8_t x = 0; x < 4; x++) {
-                for (uint8_t y = 0; y < 4; y++) {
-                    imguizmoM16InOut.model[x][y] = transforms[currentTransform][x][y];
-                }
-            }
-        }
+        imguizmoM16InOut.model = core::transpose(matrix4SIMD(model));
         {
+            if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
+                imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
             transformParams.editTransformDecomposition = true;
-            static TransformWidget transformWidget{};
-            const auto tempForConversion = transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
-            sceneResolution = { tempForConversion.x, tempForConversion.y };
-
+            sceneResolution = EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
         }
 
-        if (currentTransform >= 0 && currentTransform < transforms.size()) {
-            for (uint8_t x = 0; x < 4; x++) {
-                for (uint8_t y = 0; y < 4; y++) {
-                    //tranposed
-                    transforms[currentTransform][x][y] = imguizmoM16InOut.model[x][y];
-                }
-            }
-        }
-        const auto& view = camera.getViewMatrix();
-        const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-        const auto& projection = camera.getProjectionMatrix();
-        camera.setProjectionMatrix(projection); //this recalcs viewproj
-
+        model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
     }
 
     void MeshSampleApp::CInterface::operator()() {
         ImGuiIO& io = ImGui::GetIO();
         //io.ConfigDebugIsDebuggerPresent = true;
 
-        //camera
-        matrix4SIMD projection;
+        camera.setProjectionMatrix([&]()
         {
-            const float viewHeight = viewWidth * io.DisplaySize.x / io.DisplaySize.y;
+            matrix4SIMD projection;
 
-            if (isPerspective) {
-                if (isLH) {
-                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), viewHeight, zNear, zFar);
-                }
-                else {
-                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), viewHeight, zNear, zFar);
-                }
-            }
+            if (isPerspective)
+                if (isLH)
+                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+                else
+                    projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
             else
             {
-                if (isLH) {
-                    projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, 1.f / viewHeight, zNear, zFar);
-                }
-                else {
-                    projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, 1.f / viewHeight, zNear, zFar);
-                }
+                float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+
+                if (isLH)
+                    projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+                else
+                    projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
             }
-            camera.setProjectionMatrix(projection);
-        } //end camera
+
+            return projection;
+        }());
         
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
@@ -810,13 +779,6 @@
         ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 
-        if (meshControlSeparated) {
-            if (ImGui::Begin("mesh controls", &meshControlSeparated)) {
-                meshControlSeparated = !ImGui::Button("Rejoin mesh control");
-                DrawMeshControls();
-            }
-            ImGui::End();
-        }
         if (cameraControlSeparated) {
             if (ImGui::Begin("camera controls", &cameraControlSeparated)) {
                 cameraControlSeparated = !ImGui::Button("Rejoin camera control");
@@ -825,12 +787,6 @@
             ImGui::End();
         }
         if(ImGui::Begin("Editor")) {
-
-            if (!meshControlSeparated) {
-                meshControlSeparated = ImGui::Button("Separate mesh control");
-                DrawMeshControls();
-                ImGui::Separator();
-            }
 
             if (!cameraControlSeparated) {
                 cameraControlSeparated = ImGui::Button("Separate camera controls");

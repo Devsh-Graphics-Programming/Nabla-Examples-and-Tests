@@ -31,9 +31,6 @@ class MeshSampleApp final : public MonoWindowApplication, public BuiltinResource
 	protected:
 		const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;
 	private:
-
-		void UpdateDescriptor();
-		
 		void UpdateScene(nbl::video::IGPUCommandBuffer* cb);
 		void update(const std::chrono::microseconds nextPresentationTimestamp);
 		void recreateFramebuffer(const uint16_t2 resolution);
@@ -47,8 +44,6 @@ class MeshSampleApp final : public MonoWindowApplication, public BuiltinResource
 		// we create the Descriptor Set with a few slots extra to spare, so we don't have to `waitIdle` the device whenever ImGUI virtual window resizes
 		constexpr static inline auto MaxImGUITextures = 2u+MaxFramesInFlight;
 
-		//
-		smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 		smart_refctd_ptr<IGPURenderpass> m_renderpass;
 		smart_refctd_ptr<IGPUFramebuffer> m_framebuffer;
 
@@ -73,8 +68,6 @@ class MeshSampleApp final : public MonoWindowApplication, public BuiltinResource
 		//i really hate interface beign it's own object
 		struct CInterface
 		{
-			bool meshControlSeparated = false;
-			void DrawMeshControls();
 			bool cameraControlSeparated = false;
 			void DrawCameraControls();
 
@@ -83,19 +76,14 @@ class MeshSampleApp final : public MonoWindowApplication, public BuiltinResource
 
 			void operator()();
 			
-			bool transposeCameraViewProj = false;
 			smart_refctd_ptr<ext::imgui::UI> imGUI;
 			// descriptor set
 			smart_refctd_ptr<SubAllocatedDescriptorSet> subAllocDS;
 			SubAllocatedDescriptorSet::value_type renderColorViewDescIndex = SubAllocatedDescriptorSet::invalid_value;
-			//
-			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
-			// mutables
-			int32_t currentTransform = -1;
-			std::array<hlsl::matrix<float, 4, 4>, MeshDataBuffer::MaxInstanceCount * MeshDataBuffer::MaxObjectCount> transforms;
 
-			std::array<std::string, MeshDataBuffer::MaxObjectCount> objectNames;
-			std::array<uint32_t, MeshDataBuffer::MaxObjectCount> objectCount = { 1, 0, 0, 0,  0, 0, 0 };
+			core::matrix3x4SIMD model;
+
+			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};

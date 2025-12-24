@@ -20,7 +20,6 @@ namespace nbl::examples
 		//this is buffer data
 	struct MeshletObjectData {
 		uint32_t vertCount;
-		uint32_t primCount;
 		uint32_t objectType;
 		uint32_t positionView;
 		uint32_t normalView;
@@ -52,15 +51,6 @@ public:
 	//
 	constexpr static inline uint16_t VertexAttrubUTBDescBinding = 0;
 
-	//
-	struct SViewParams
-	{
-		SViewParams(const hlsl::float32_t4x4& _viewProj, std::array<uint32_t, MeshDataBuffer::MaxObjectCount> const& objectCounts);
-
-		hlsl::float32_t4x4 viewProj;
-		std::array<uint32_t, MeshDataBuffer::MaxObjectCount> objectCounts;
-		//hlsl::float32_t3x3 normal;
-	};
 	constexpr static inline auto MissingView = hlsl::examples::geometry_creator_scene::SPushConstants::DescriptorCount;
 
 	//
@@ -70,40 +60,22 @@ public:
 		{
 			NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1 << 16) - 1;
 
-			hlsl::float32_t4x4 viewProj;
-			uint32_t objectCount[MeshDataBuffer::MaxObjectCount];
+			nbl::hlsl::float32_t4x4 viewProj;
+			uint32_t vertCount;
 		};
-		inline SPushConstants computePushConstants(const SViewParams& viewParams) const	{
-			SPushConstants ret{
-				.viewProj = viewParams.viewProj
-			};
-			memcpy(ret.objectCount, viewParams.objectCounts.data(), viewParams.objectCounts.size() * sizeof(uint32_t));
-			return ret;
-		}
 
 		hlsl::float32_t3x4 world;
 	};
 
-	static std::array<const core::smart_refctd_ptr<nbl::asset::IShader>, 3> CreateTestShader(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX);
+	static std::array<const core::smart_refctd_ptr<nbl::asset::IShader>, 2> CreateTestShader(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX);
 
 	//
 	static core::smart_refctd_ptr<MeshDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX);
-
-	//
-	static inline core::smart_refctd_ptr<MeshDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
-	{
-		auto retval = create(assMan,renderpass,subpassIX);
-		if (retval)
-			retval->addGeometries(geometries);
-		return retval;
-	}
-
 	//
 	struct SInitParams {
 
 		core::smart_refctd_ptr<video::IGPUDescriptorSet> meshDescriptor;
-		core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> subAllocDS;//vertex and normal views
-		core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
+		core::smart_refctd_ptr<video::IGPUPipelineLayout> pipe_layout; //when im looking at it from outside the class i need to know what kind of layout this is
 		core::smart_refctd_ptr<video::IGPUMeshPipeline> pipeline;
 	};
 	inline SInitParams& getInitParams() {return m_params;}
@@ -112,13 +84,13 @@ public:
 	//device should be const* but im not going to fix it right now 
 	//(scope creep)
 		
-	bool addGeometries(const std::span<const video::IGPUPolygonGeometry* const> geometries);
+	bool addGeometries();
 
 	void removeGeometry(const uint32_t ix, const video::ISemaphore::SWaitInfo& info);
 
 	inline const auto& getGeometries() const {return m_geoms;}
 
-	void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const;
+	void render(video::IGPUCommandBuffer* cmdbuf, nbl::hlsl::float32_t4x4 const& mvp) const;
 
 	SInstance m_instance;
 
@@ -133,16 +105,10 @@ protected:
 	inline MeshDebugRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
 	inline ~MeshDebugRenderer()	{
 		// clean shutdown, can also make SubAllocatedDescriptorSet resillient against that, and issue `device->waitIdle` if not everything is freed
-		const_cast<video::ILogicalDevice*>(m_params.layout->getOriginDevice())->waitIdle();
+		const_cast<video::ILogicalDevice*>(m_params.pipe_layout->getOriginDevice())->waitIdle();
 		clearGeometries({});
 	}
 	void clearGeometries(const video::ISemaphore::SWaitInfo& info);
-
-	inline void immediateDealloc(video::SubAllocatedDescriptorSet::value_type index)
-	{
-		video::IGPUDescriptorSet::SDropDescriptorSet dummy[1];
-		m_params.subAllocDS->multi_deallocate(dummy,VertexAttrubUTBDescBinding,1,&index);
-	}
 
 	SInitParams m_params;
 #undef EXPOSE_NABLA_NAMESPACES
