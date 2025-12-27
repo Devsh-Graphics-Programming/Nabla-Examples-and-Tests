@@ -3,17 +3,18 @@
 //// For conditions of distribution and use, see copyright notice in nabla.h
 #pragma shader_stage(compute)
 
-#include "common.hlsl"
+#include "testCommon2.hlsl"
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<IntrinsicsIntputTestValues> inputTestValues;
-[[vk::binding(1, 0)]] RWStructuredBuffer<IntrinsicsTestValues> outputTestValues;
+[[vk::binding(0, 0)]] RWStructuredBuffer<InputTestValues> inputTestValues;
+[[vk::binding(1, 0)]] RWStructuredBuffer<TestValues> outputTestValues;
 
 [numthreads(256, 1, 1)]
 [shader("compute")]
 void main()
 {
     const uint invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
-    IntrinsicsTestExecutor executor;
+    TestExecutor2 executor;
     executor(inputTestValues[invID], outputTestValues[invID]);
 }
+ 

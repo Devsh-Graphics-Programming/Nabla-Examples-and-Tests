@@ -7,7 +7,7 @@ nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-	set(RESOURCE_DIR "app_resources") 
+	set(RESOURCE_DIR "app_resources")
 
 	get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 	get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
@@ -32,9 +32,10 @@ endif()
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 set(DEPENDS
 	app_resources/common.hlsl
+	app_resources/testCommon.hlsl
+	app_resources/testCommon2.hlsl
     app_resources/test.comp.hlsl
-	app_resources/intrinsicsTest.comp.hlsl
-	app_resources/tgmathTest.comp.hlsl
+	app_resources/test2.comp.hlsl
 )
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
 set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
@@ -47,13 +48,9 @@ set(JSON [=[
         "KEY": "test",
     },
 	{
-        "INPUT": "app_resources/intrinsicsTest.comp.hlsl",
-        "KEY": "intrinsicsTest",
+        "INPUT": "app_resources/test2.comp.hlsl",
+        "KEY": "test2",
     },
-	{
-        "INPUT": "app_resources/tgmathTest.comp.hlsl",
-        "KEY": "tgmathTest",
-    }
 ]
 ]=])
 string(CONFIGURE "${JSON}" JSON)

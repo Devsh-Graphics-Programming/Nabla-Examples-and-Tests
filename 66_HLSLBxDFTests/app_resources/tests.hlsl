@@ -356,13 +356,13 @@ struct is_microfacet_bsdf : bool_constant<
 > {};
 
 template<class T>
-NBL_CONSTEXPR bool is_basic_brdf_v = is_basic_brdf<T>::value;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR bool is_basic_brdf_v = is_basic_brdf<T>::value;
 template<class T>
-NBL_CONSTEXPR bool is_microfacet_brdf_v = is_microfacet_brdf<T>::value;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR bool is_microfacet_brdf_v = is_microfacet_brdf<T>::value;
 template<class T>
-NBL_CONSTEXPR bool is_basic_bsdf_v = is_basic_bsdf<T>::value;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR bool is_basic_bsdf_v = is_basic_bsdf<T>::value;
 template<class T>
-NBL_CONSTEXPR bool is_microfacet_bsdf_v = is_microfacet_bsdf<T>::value;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR bool is_microfacet_bsdf_v = is_microfacet_bsdf<T>::value;
 
 
 template<class BxDF, bool aniso = false>

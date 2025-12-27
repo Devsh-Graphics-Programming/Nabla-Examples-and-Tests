@@ -1,8 +1,8 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-NBL_CONSTEXPR uint32_t WorkgroupSizeX = 16;
-NBL_CONSTEXPR uint32_t WorkgroupSizeY = 16;
-NBL_CONSTEXPR uint32_t WorkgroupSize = WorkgroupSizeX*WorkgroupSizeY;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupSizeX = 16;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupSizeY = 16;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupSize = WorkgroupSizeX*WorkgroupSizeY;
 
 static const uint32_t FRAMES_IN_FLIGHT = 3u;
 
