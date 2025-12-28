@@ -12,6 +12,16 @@ void IESViewer::processMouse(const nbl::ui::IMouseEventChannel::range_t& events)
 
         if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
         {
+            auto* cursorControl = m_window ? m_window->getCursorControl() : nullptr;
+            if (!cursorControl || !m_plot2DRectValid)
+                continue;
+            const auto cursor = cursorControl->getPosition();
+            const float cursorX = static_cast<float>(cursor.x);
+            const float cursorY = static_cast<float>(cursor.y);
+            if (cursorX < m_plot2DRectMin.x || cursorX > m_plot2DRectMax.x ||
+                cursorY < m_plot2DRectMin.y || cursorY > m_plot2DRectMax.y)
+                continue;
+
             auto& ies = m_assets[m_activeAssetIx];
             const auto& accessor = ies.getProfile()->getAccessor();
 

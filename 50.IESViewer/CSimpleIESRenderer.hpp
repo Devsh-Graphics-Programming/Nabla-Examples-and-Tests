@@ -6,6 +6,7 @@
 #include "nbl/examples/examples.hpp"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "app_resources/common.hlsl"
+#include <vector>
 
 namespace nbl::examples
 {
@@ -240,8 +241,8 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 				return false;
 			auto device = const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice());
 
-			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
-			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+			std::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
+			std::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
 			bool anyFailed = false;
 			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value)
 			{
@@ -335,7 +336,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			if (ix>=m_geoms.size())
 				return;
 
-			core::vector<SubAllocatedDescriptorSet::value_type> deferredFree;
+			std::vector<SubAllocatedDescriptorSet::value_type> deferredFree;
 			deferredFree.reserve(3);
 			auto deallocate = [&](SubAllocatedDescriptorSet::value_type index)->void
 			{
@@ -400,7 +401,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			cmdbuf->endDebugMarker();
 		}
 
-		core::vector<SInstance> m_instances;
+		std::vector<SInstance> m_instances;
 
 	protected:
 		inline CSimpleIESRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
@@ -418,7 +419,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		}
 
 		SInitParams m_params;
-		core::vector<SPackedGeometry> m_geoms;
+		std::vector<SPackedGeometry> m_geoms;
 #undef EXPOSE_NABLA_NAMESPACES
 };
 

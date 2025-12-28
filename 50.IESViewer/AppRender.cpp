@@ -3,13 +3,14 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "App.hpp"
+#include <cstring>
+#include <type_traits>
+#include "nbl/ext/ImGui/ImGui.h"
 #include "app_resources/common.hlsl"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
 {
-#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-    return true;
-#else
     if (width == 0u || height == 0u)
         return false;
 
@@ -50,21 +51,22 @@ bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
             return false;
     }
 
-    if (ui.it && ui.descriptor)
+    auto* imgui = static_cast<ext::imgui::UI*>(ui.it.get());
+    if (imgui && ui.descriptor)
     {
         std::array<IGPUDescriptorSet::SDescriptorInfo, 1u + 2u * device_base_t::MaxFramesInFlight> infos;
         for (auto& it : infos)
             it.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
         auto* ix = infos.data();
-        ix->desc = smart_refctd_ptr<IGPUImageView>(ui.it->getFontAtlasView());
+        ix->desc = smart_refctd_ptr<IGPUImageView>(imgui->getFontAtlasView());
         ++ix;
         for (uint8_t i = 0u; i < device_base_t::MaxFramesInFlight; ++i, ++ix)
             ix->desc = m_frameBuffers2D[i]->getCreationParameters().colorAttachments[0u];
         for (uint8_t i = 0u; i < device_base_t::MaxFramesInFlight; ++i, ++ix)
             ix->desc = m_frameBuffers3D[i]->getCreationParameters().colorAttachments[0u];
 
-        const auto texturesBinding = ui.it->getCreationParameters().resources.texturesInfo.bindingIx;
+        const auto texturesBinding = imgui->getCreationParameters().resources.texturesInfo.bindingIx;
         auto writes = std::to_array({ IGPUDescriptorSet::SWriteDescriptorSet{
             .dstSet = ui.descriptor->getDescriptorSet(),
             .binding = texturesBinding,
@@ -77,11 +79,14 @@ bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
             return false;
     }
 
-    matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), float(width) / float(height), 0.1f, 10000.0f);
-    camera.setProjectionMatrix(projectionMatrix);
+    const float aspect = float(width) / float(height);
+    const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
+    using core_mat_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getConcatenatedMatrix())>>;
+    core_mat_t coreProjection;
+    std::memcpy(coreProjection.pointer(), &projectionMatrix, sizeof(projectionMatrix));
+    camera.setProjectionMatrix(coreProjection);
 
     return true;
-#endif
 }
 
 IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::microseconds nextPresentationTimestamp)
@@ -90,15 +95,25 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     auto* const cb = m_cmdBuffers.data()[resourceIx].get();
 
     auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+    auto* imgui = static_cast<ext::imgui::UI*>(ui.it.get());
 
     const bool windowFocused = m_window->hasInputFocus() || m_window->hasMouseFocus();
     if (!windowFocused && m_cameraControlEnabled)
         m_cameraControlEnabled = false;
     const bool wantCameraControl = m_cameraControlEnabled && windowFocused;
 
-    const uint32_t windowWidth = m_window->getWidth();
-    const uint32_t windowHeight = m_window->getHeight();
-    if (windowWidth == 0u || windowHeight == 0u || m_window->isMinimized())
+    uint32_t renderWidth = m_window->getWidth();
+    uint32_t renderHeight = m_window->getHeight();
+    if (auto* sc = scRes->getSwapchain())
+    {
+        const auto& params = sc->getCreationParameters().sharedParams;
+        if (params.width && params.height)
+        {
+            renderWidth = params.width;
+            renderHeight = params.height;
+        }
+    }
+    if (renderWidth == 0u || renderHeight == 0u || m_window->isMinimized())
         return {};
 
     if (m_cameraControlApplied != wantCameraControl)
@@ -112,18 +127,13 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
 
 
-#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-    IGPUFramebuffer* const fb2D = nullptr;
-    auto* const fb3D = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
-#else
-    const uint32_t desired3DWidth = windowWidth;
-    const uint32_t desired3DHeight = windowHeight;
+    const uint32_t desired3DWidth = renderWidth;
+    const uint32_t desired3DHeight = renderHeight;
     if (!recreate3DPlotFramebuffers(desired3DWidth, desired3DHeight))
         return {};
 
     auto* const fb2D = m_frameBuffers2D[resourceIx].get();
     auto* const fb3D = m_frameBuffers3D[resourceIx].get();
-#endif 
 
     cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
     cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -165,15 +175,24 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         {
             const float maxRadius = m_plotRadius * 0.98f;
             const float clampRadius = maxRadius * 0.999f;
-            auto pos = camera.getPosition();
-            const float dist = core::length(pos)[0];
+            using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
+            const auto toHlslVec3 = [](const core_vec_t& v)
+            {
+                return float32_t3(v.x, v.y, v.z);
+            };
+            const auto toCoreVec3 = [](const float32_t3& v)
+            {
+                return core_vec_t(v.x, v.y, v.z);
+            };
+            auto pos = toHlslVec3(camera.getPosition());
+            const float dist = length(pos);
             if (dist > maxRadius)
             {
-                auto forward = camera.getTarget() - pos;
-                pos.makeSafe3D();
-                pos = core::normalize(pos) * clampRadius;
-                camera.setPosition(pos);
-                camera.setTarget(pos + forward);
+                const auto target = toHlslVec3(camera.getTarget());
+                const auto forward = target - pos;
+                pos = normalize(pos) * clampRadius;
+                camera.setPosition(toCoreVec3(pos));
+                camera.setTarget(toCoreVec3(pos + forward));
             }
         }
 
@@ -190,14 +209,13 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         ext::imgui::UI::SUpdateParameters params =
         {
             .mousePosition = float32_t2(cursorPosition.x,cursorPosition.y) - float32_t2(m_window->getX(),m_window->getY()),
-            .displaySize = {m_window->getWidth(),m_window->getHeight()},
+            .displaySize = {renderWidth,renderHeight},
             .mouseEvents = captured.mouse,
             .keyboardEvents = captured.keyboard
         };
 
-#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-        ui.it->update(params);
-#endif
+        if (imgui)
+            imgui->update(params);
     }
 
     if (m_cameraControlApplied)
@@ -209,7 +227,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     auto& ies = m_assets[m_activeAssetIx];
     const auto* profile = ies.getProfile();
 	const auto& accessor = profile->getAccessor();
-    const auto pc = nbl::hlsl::this_example::ies::CdcPC 
+    const auto pc = hlsl::this_example::ies::CdcPC
 	{
         .hAnglesBDA = ies.buffers.hAngles->getDeviceAddress(),
         .vAnglesBDA = ies.buffers.vAngles->getDeviceAddress(),
@@ -258,11 +276,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
     // Graphics
     {
-#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-        asset::VkExtent3D extent = { m_window->getWidth(), m_window->getHeight() };
-#else
         auto extent = fb2D->getCreationParameters().colorAttachments[0u]->getCreationParameters().image->getCreationParameters().extent;
-#endif
         const uint32_t plotHeight = extent.height / 2u;
 
         asset::SViewport viewport;
@@ -299,7 +313,6 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             .renderArea = currentRenderArea
         };
 
-#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
         cb->beginDebugMarker("IES::graphics 2D plot");
         cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
@@ -332,7 +345,6 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         }
         cb->endRenderPass();
         cb->endDebugMarker();
-#endif
 
         const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
         auto info3D = info;
@@ -367,21 +379,21 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->endRenderPass();
         cb->endDebugMarker();
 
-#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
         cb->beginDebugMarker("IES::graphics ImGUI");
 
-        viewport.width = m_window->getWidth(); viewport.height = m_window->getHeight();
+        viewport.width = renderWidth;
+        viewport.height = renderHeight;
         cb->setViewport(0u, 1u, &viewport);
-        scissor.extent = { m_window->getWidth(), m_window->getHeight() };
+        scissor.extent = { renderWidth, renderHeight };
         cb->setScissor(0u, 1u, &scissor);
-        currentRenderArea.extent = { m_window->getWidth(),m_window->getHeight() };
+        currentRenderArea.extent = { renderWidth, renderHeight };
         
         info.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
         info.renderArea = currentRenderArea;
 
         cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+        if (imgui)
         {
-            auto* imgui = ui.it.get();
             auto* pipeline = imgui->getPipeline();
             cb->bindGraphicsPipeline(pipeline);
             const auto* ds = ui.descriptor->getDescriptorSet();
@@ -395,7 +407,6 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         }
         cb->endRenderPass();
         cb->endDebugMarker();
-#endif
         cb->end();
     }
 
@@ -478,3 +489,4 @@ const video::IGPURenderpass::SCreationParams::SSubpassDependency* IESViewer::get
     };
     return dependencies;
 }
+

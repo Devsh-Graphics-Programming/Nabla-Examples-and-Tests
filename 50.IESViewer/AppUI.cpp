@@ -3,10 +3,19 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "App.hpp"
+#include <array>
+#include <cstdio>
+#include <cstring>
+#include <type_traits>
+#include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
+#include "nbl/ext/ImGui/ImGui.h"
 #include "app_resources/common.hlsl"
 #include "app_resources/false_color.hlsl"
 #include "app_resources/imgui.opts.hlsl"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
+#include "nbl/builtin/hlsl/math/octahedral.hlsl"
 
 using namespace this_example;
 
@@ -16,13 +25,13 @@ void IESViewer::uiListener()
 
     SImResourceInfo info;
     info.textureID = ext::imgui::UI::FontAtlasTexId + resourceIx + 1u;
-    info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+    info.samplerIx = (uint16_t)ext::imgui::UI::DefaultSamplerIx::USER;
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const ImVec2 viewportPos = vp->Pos;
     const ImVec2 viewportSize = vp->Size;
     auto* cursorControl = m_window->getCursorControl();
-    const auto cursorPosition = cursorControl ? cursorControl->getPosition() : nbl::ui::ICursorControl::SPosition{};
+    const auto cursorPosition = cursorControl ? cursorControl->getPosition() : ICursorControl::SPosition{};
     const int32_t windowX = m_window->getX();
     const int32_t windowY = m_window->getY();
     const int32_t windowW = static_cast<int32_t>(m_window->getWidth());
@@ -43,6 +52,16 @@ void IESViewer::uiListener()
         }
         return ImGui::ColorConvertFloat4ToU32(ImVec4(clamped, clamped, clamped, 1.0f));
     };
+    const auto showHint = [&](const char* text)
+    {
+        if (!m_showHints || !text || text[0] == '\0')
+            return;
+        if (!ImGui::IsItemHovered())
+            return;
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(text);
+        ImGui::EndTooltip();
+    };
     std::vector<const char*> assetLabelPtrs;
     assetLabelPtrs.reserve(m_assetLabels.size());
     for (const auto& label : m_assetLabels)
@@ -58,6 +77,7 @@ void IESViewer::uiListener()
     ImVec2 plotRectMax(0.f, 0.f);
     bool plotRectValid = false;
     bool plotHovered = false;
+    m_plot2DRectValid = false;
 
     auto& ies = m_assets[activeIx];
     auto* profile = ies.getProfile();
@@ -69,6 +89,7 @@ void IESViewer::uiListener()
     const bool singleAngle = (upperBound == lowerBound);
 
     constexpr float kMinFlatten = 0.0f;
+    constexpr size_t kSmallBufSize = 32;
     auto angle = ImClamp(ies.zDegree, lowerBound, upperBound);
 
     auto updateCameraProjection = [&]()
@@ -76,14 +97,16 @@ void IESViewer::uiListener()
         if (m_plot3DWidth == 0u || m_plot3DHeight == 0u)
             return;
         const float aspect = float(m_plot3DWidth) / float(m_plot3DHeight);
-        auto projectionMatrix = core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
-        camera.setProjectionMatrix(projectionMatrix);
+        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
+        using core_mat_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getConcatenatedMatrix())>>;
+        core_mat_t coreProjection;
+        std::memcpy(coreProjection.pointer(), &projectionMatrix, sizeof(projectionMatrix));
+        camera.setProjectionMatrix(coreProjection);
     };
 
-    auto draw3DControls = [&](float controlWidth)
+    auto draw3DControls = [&]()
     {
-        bool interpolateCandela =
-            mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
+        bool interpolateCandela = mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
 
         if (ImGui::Checkbox("interpolate candelas", &interpolateCandela))
         {
@@ -94,9 +117,9 @@ void IESViewer::uiListener()
                     ~this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE
                 );
         }
+        showHint("Interpolate candela values in the octahedral map.");
 
-        bool falseColor =
-            mode.sphere.hasFlags(this_example::ies::ESM_FALSE_COLOR);
+        bool falseColor = mode.sphere.hasFlags(this_example::ies::ESM_FALSE_COLOR);
 
         if (ImGui::Checkbox("false color", &falseColor))
         {
@@ -107,13 +130,19 @@ void IESViewer::uiListener()
                     ~this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR
                 );
         }
+        showHint("Use false color palette for the 3D plot.");
 
         bool showOctaMap = m_showOctaMapPreview;
         if (ImGui::Checkbox("octahedral map", &showOctaMap))
             m_showOctaMapPreview = showOctaMap;
+        showHint("Show octahedral map preview under the 2D plot.");
 
-        bool cubePlot =
-            mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
+        bool showHints = m_showHints;
+        if (ImGui::Checkbox("show hints", &showHints))
+            m_showHints = showHints;
+        showHint("Toggle help tooltips.");
+
+        bool cubePlot = mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
 
         if (ImGui::Checkbox("cube plot", &cubePlot))
         {
@@ -124,39 +153,84 @@ void IESViewer::uiListener()
                     ~this_example::ies::E_SPHERE_MODE::ESM_CUBE
                 );
         }
+        showHint("Render the plot on a cube instead of a sphere.");
 
         bool wireframe = m_wireframeEnabled;
         if (ImGui::Checkbox("wireframe", &wireframe))
             m_wireframeEnabled = wireframe;
+        showHint("Show wireframe topology in the 3D plot.");
 
         bool cameraControl = m_cameraControlEnabled;
         if (ImGui::Checkbox("camera control (space)", &cameraControl))
             m_cameraControlEnabled = cameraControl;
+        showHint("Enable camera movement with mouse and keyboard.");
 
+        float flatten = ImClamp(ies.flatten, kMinFlatten, 1.0f);
         bool speedChanged = false;
-        ImGui::SetNextItemWidth(controlWidth);
-        speedChanged |= ImGui::SliderFloat("move speed", &m_cameraMoveSpeed, 0.1f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SetNextItemWidth(controlWidth);
-        speedChanged |= ImGui::SliderFloat("rotate speed", &m_cameraRotateSpeed, 0.1f, 5.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        bool fovChanged = false;
+        bool flattenChanged = false;
+        if (ImGui::BeginTable("##camera_controls", 2, ImGuiTableFlags_SizingStretchProp))
+        {
+            float labelWidth = 0.0f;
+            labelWidth = ImMax(labelWidth, ImGui::CalcTextSize("move speed").x);
+            labelWidth = ImMax(labelWidth, ImGui::CalcTextSize("rotate speed").x);
+            labelWidth = ImMax(labelWidth, ImGui::CalcTextSize("fov").x);
+            labelWidth = ImMax(labelWidth, ImGui::CalcTextSize("flatten").x);
+            labelWidth += ImGui::GetStyle().CellPadding.x * 2.0f;
+            labelWidth = ImMin(labelWidth, ImGui::GetContentRegionAvail().x * 0.6f);
+            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, labelWidth);
+            ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+            auto sliderRow = [&](const char* label, float* value, float min, float max, const char* fmt, const char* hint)
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(label);
+                showHint(hint);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::PushID(label);
+                const bool changed = ImGui::SliderFloat("##value", value, min, max, fmt, ImGuiSliderFlags_AlwaysClamp);
+                ImGui::PopID();
+                showHint(hint);
+                return changed;
+            };
+
+            speedChanged |= sliderRow("move speed", &m_cameraMoveSpeed, 0.1f, 10.0f, "%.2f", "Camera movement speed.");
+            speedChanged |= sliderRow("rotate speed", &m_cameraRotateSpeed, 0.1f, 5.0f, "%.2f", "Camera rotation speed.");
+            fovChanged |= sliderRow("fov", &m_cameraFovDeg, 30.0f, 120.0f, "%.0f", "Camera field of view.");
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("flatten");
+            showHint("Flatten the profile (0..1).");
+            ImGui::TableSetColumnIndex(1);
+            const float inputWidth = ImMax(64.0f, ImGui::CalcTextSize("0.000").x + ImGui::GetStyle().FramePadding.x * 2.0f);
+            const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+            float sliderWidth = ImGui::GetContentRegionAvail().x - inputWidth - spacing;
+            if (sliderWidth < 40.0f)
+                sliderWidth = ImGui::GetContentRegionAvail().x;
+            ImGui::SetNextItemWidth(sliderWidth);
+            flattenChanged |= ImGui::SliderFloat("##flatten", &flatten, kMinFlatten, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+            showHint("Flatten the profile (0..1).");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(inputWidth);
+            flattenChanged |= ImGui::InputFloat("##flatten_value", &flatten, 0.0f, 0.0f, "%.3f");
+            showHint("Enter flatten value manually.");
+
+            ImGui::EndTable();
+        }
+
         if (speedChanged && m_cameraControlEnabled)
         {
             camera.setMoveSpeed(m_cameraMoveSpeed);
             camera.setRotateSpeed(m_cameraRotateSpeed);
         }
 
-        bool fovChanged = false;
-        ImGui::SetNextItemWidth(controlWidth);
-        fovChanged |= ImGui::SliderFloat("fov", &m_cameraFovDeg, 30.0f, 120.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
         if (fovChanged)
             updateCameraProjection();
 
-        float flatten = ImClamp(ies.flatten, kMinFlatten, 1.0f);
-        bool flattenChanged = false;
-        ImGui::SetNextItemWidth(controlWidth);
-        flattenChanged |= ImGui::SliderFloat("flatten", &flatten, kMinFlatten, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(64.0f);
-        flattenChanged |= ImGui::InputFloat("##flatten_value", &flatten, 0.0f, 0.0f, "%.3f");
         if (flattenChanged)
         {
             flatten = ImClamp(flatten, kMinFlatten, 1.0f);
@@ -199,34 +273,79 @@ void IESViewer::uiListener()
     {
         const auto& resolution = accessor.properties.optimalIESResolution;
 
-        char b1[64];
-        snprintf(b1, sizeof(b1), "%.3f deg", angle);
-        if (ImGui::BeginTable("##profile_info", 2, ImGuiTableFlags_SizingStretchProp))
+        constexpr size_t kInfoBufSize = 64;
+        std::array<char, kInfoBufSize> bAngle{};
+        std::array<char, kInfoBufSize> bAngles{};
+        std::array<char, kInfoBufSize> bRes{};
+        std::array<char, kInfoBufSize> bMax{};
+        std::array<char, kInfoBufSize> bAvg{};
+        std::array<char, kInfoBufSize> bAvgFull{};
+        std::snprintf(bAngle.data(), bAngle.size(), "%.3f deg", angle);
+        std::snprintf(bAngles.data(), bAngles.size(), "angles: %u x %u", accessor.hAnglesCount(), accessor.vAnglesCount());
+        std::snprintf(bRes.data(), bRes.size(), "resolution: %u x %u", resolution.x, resolution.y);
+        std::snprintf(bMax.data(), bMax.size(), "max cd: %.3f", properties.maxCandelaValue);
+        std::snprintf(bAvg.data(), bAvg.size(), "avg: %.3f", properties.avgEmmision);
+        std::snprintf(bAvgFull.data(), bAvgFull.size(), "avg full: %.3f", properties.fullDomainAvgEmission);
+        float leftWidth = 0.0f;
+        leftWidth = ImMax(leftWidth, ImGui::CalcTextSize(IES::symmetryToRS(properties.getSymmetry())).x);
+        leftWidth = ImMax(leftWidth, ImGui::CalcTextSize(IES::versionToRS(properties.getVersion())).x);
+        leftWidth = ImMax(leftWidth, ImGui::CalcTextSize(bAngles.data()).x);
+        leftWidth = ImMax(leftWidth, ImGui::CalcTextSize(bMax.data()).x);
+        leftWidth = ImMax(leftWidth, ImGui::CalcTextSize(bAvgFull.data()).x);
+        leftWidth += ImGui::GetStyle().CellPadding.x * 2.0f;
+        leftWidth = ImMin(leftWidth, ImGui::GetContentRegionAvail().x * 0.6f);
+        if (ImGui::BeginTable("##profile_info", 2, ImGuiTableFlags_SizingFixedFit))
         {
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(IES::symmetryToRS(properties.getSymmetry()));
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(IES::typeToRS(properties.getType()));
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthFixed, leftWidth);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch);
+            auto rightText = [&](const char* text, const char* hint)
+            {
+                const float avail = ImGui::GetContentRegionAvail().x;
+                const float textWidth = ImGui::CalcTextSize(text).x;
+                const char* displayText = text;
+                std::string clipped;
+                if (textWidth > avail && avail > 0.0f)
+                {
+                    const char* ell = "...";
+                    const float ellW = ImGui::CalcTextSize(ell).x;
+                    const float target = ImMax(0.0f, avail - ellW);
+                    const int len = static_cast<int>(std::strlen(text));
+                    int lo = 0;
+                    int hi = len;
+                    while (lo < hi)
+                    {
+                        int mid = (lo + hi + 1) / 2;
+                        float w = ImGui::CalcTextSize(text, text + mid).x;
+                        if (w <= target)
+                            lo = mid;
+                        else
+                            hi = mid - 1;
+                    }
+                    clipped.assign(text, text + lo);
+                    clipped.append(ell);
+                    displayText = clipped.c_str();
+                }
+                const float displayWidth = ImGui::CalcTextSize(displayText).x;
+                if (displayWidth < avail)
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - displayWidth));
+                ImGui::TextUnformatted(displayText);
+                showHint(hint);
+            };
+            auto row = [&](const char* left, const char* right, const char* leftHint, const char* rightHint)
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(left);
+                showHint(leftHint);
+                ImGui::TableSetColumnIndex(1);
+                rightText(right, rightHint);
+            };
 
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(IES::versionToRS(properties.getVersion()));
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(assetLabelPtrs.empty() ? ies.key.c_str() : assetLabelPtrs[activeIx]);
-
-            ImGui::TableNextColumn();
-            ImGui::Text("angles: %u x %u", accessor.hAnglesCount(), accessor.vAnglesCount());
-            ImGui::TableNextColumn();
-            ImGui::Text("resolution: %u x %u", resolution.x, resolution.y);
-
-            ImGui::TableNextColumn();
-            ImGui::Text("max cd: %.3f", properties.maxCandelaValue);
-            ImGui::TableNextColumn();
-            ImGui::Text("avg: %.3f", properties.avgEmmision);
-
-            ImGui::TableNextColumn();
-            ImGui::Text("avg full: %.3f", properties.fullDomainAvgEmission);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(b1);
+            row(IES::symmetryToRS(properties.getSymmetry()), IES::typeToRS(properties.getType()), "IES symmetry mode.", "IES photometric type.");
+            row(IES::versionToRS(properties.getVersion()), assetLabelPtrs.empty() ? ies.key.c_str() : assetLabelPtrs[activeIx], "IES standard/version.", "Active IES profile file.");
+            row(bAngles.data(), bRes.data(), "Horizontal and vertical angle count.", "Octahedral map resolution.");
+            row(bMax.data(), bAvg.data(), "Maximum candela value.", "Average candela value.");
+            row(bAvgFull.data(), bAngle.data(), "Average candela over full domain.", "Current horizontal angle.");
 
             ImGui::EndTable();
         }
@@ -246,10 +365,17 @@ void IESViewer::uiListener()
                 const float titleX = ImMax(0.0f, (ImGui::GetContentRegionAvail().x - titleSize.x) * 0.5f);
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + titleX);
                 ImGui::TextUnformatted(title);
+                showHint("2D candlepower distribution curve.");
             }
 
             plotPos = ImGui::GetCursorScreenPos();
             ImGui::Image(info, plotSize, ImVec2(0.f, 0.f), ImVec2(1.f, 0.5f));
+            const ImVec2 itemMin = ImGui::GetItemRectMin();
+            const ImVec2 itemMax = ImGui::GetItemRectMax();
+            m_plot2DRectMin = float32_t2(itemMin.x, itemMin.y);
+            m_plot2DRectMax = float32_t2(itemMax.x, itemMax.y);
+            m_plot2DRectValid = true;
+            showHint("2D candlepower distribution curve.");
 
             ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -263,6 +389,7 @@ void IESViewer::uiListener()
             {
                 ImGui::SetCursorScreenPos(ImVec2(sliderX, sliderY));
                 ImGui::InvisibleButton("##angle_slider", ImVec2(barWidth, sliderH));
+                showHint("Adjust horizontal angle.");
                 ImVec2 rmin = ImGui::GetItemRectMin();
                 ImVec2 rmax = ImGui::GetItemRectMax();
                 ImU32 col = IM_COL32(220, 60, 60, 255);
@@ -278,9 +405,10 @@ void IESViewer::uiListener()
                 {
                     float y = (y0 + y1) * 0.5f;
                     dl->AddLine(ImVec2(trackX - 22.f, y), ImVec2(trackX - 8.f, y), ImGui::GetColorU32(ImGuiCol_Text));
-                    char tb[32]; snprintf(tb, sizeof(tb), "%.0f", lowerBound);
-                    ImVec2 ts = ImGui::CalcTextSize(tb);
-                    dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb);
+                    std::array<char, kSmallBufSize> tb{};
+                    std::snprintf(tb.data(), tb.size(), "%.0f", lowerBound);
+                    ImVec2 ts = ImGui::CalcTextSize(tb.data());
+                    dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb.data());
                 }
                 else
                 {
@@ -290,9 +418,10 @@ void IESViewer::uiListener()
                         float t = (v - lowerBound) / (upperBound - lowerBound);
                         float y = y1 - t * (y1 - y0);
                         dl->AddLine(ImVec2(trackX - 22.f, y), ImVec2(trackX - 8.f, y), ImGui::GetColorU32(ImGuiCol_Text));
-                        char tb[32]; snprintf(tb, sizeof(tb), "%.0f", v);
-                        ImVec2 ts = ImGui::CalcTextSize(tb);
-                        dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb);
+                        std::array<char, kSmallBufSize> tb{};
+                        std::snprintf(tb.data(), tb.size(), "%.0f", v);
+                        ImVec2 ts = ImGui::CalcTextSize(tb.data());
+                        dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb.data());
                     }
                 }
 
@@ -319,19 +448,37 @@ void IESViewer::uiListener()
                 const float titleX = ImMax(0.0f, (ImGui::GetContentRegionAvail().x - titleSize.x) * 0.5f);
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + titleX);
                 ImGui::TextUnformatted(title);
+                showHint("Octahedral map preview.");
             }
             ImGui::Image(info, plotSize, ImVec2(0.f, 0.5f), ImVec2(1.f, 1.f));
+            showHint("Octahedral map preview.");
         }
 
         ImGui::Separator();
-        draw3DControls(ImMax(120.0f, ImMin(panelWidth - panelMargin * 2.0f, 260.0f)));
+        draw3DControls();
         ImGui::Separator();
 
         if (!assetLabelPtrs.empty())
         {
-            ImGui::SetNextItemWidth(ImMin(260.0f, panelWidth - panelMargin * 2.0f));
-            if (ImGui::Combo("profile", &activeIxUi, assetLabelPtrs.data(), static_cast<int>(assetLabelPtrs.size())))
+            ImGui::TextUnformatted("profile");
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##profile_prev", ImGuiDir_Up))
+            {
+                activeIx = (activeIx + assetLabelPtrs.size() - 1u) % assetLabelPtrs.size();
+                activeIxUi = static_cast<int>(activeIx);
+            }
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##profile_next", ImGuiDir_Down))
+            {
+                activeIx = (activeIx + 1u) % assetLabelPtrs.size();
+                activeIxUi = static_cast<int>(activeIx);
+            }
+            showHint("Select active IES profile. Use up/down arrows.");
+            ImGui::NewLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::Combo("##profile", &activeIxUi, assetLabelPtrs.data(), static_cast<int>(assetLabelPtrs.size())))
                 activeIx = static_cast<size_t>(activeIxUi);
+            showHint("Select active IES profile.");
         }
     }
     ImGui::End();
@@ -399,10 +546,10 @@ void IESViewer::uiListener()
                         const float y = barMin.y + (1.0f - stop) * barHeight;
                         dl->AddLine(ImVec2(barMin.x - 4.0f, y), ImVec2(barMin.x, y), textCol);
                         const float cdValue = stop * properties.maxCandelaValue;
-                        char label[32];
-                        snprintf(label, sizeof(label), "%.0f cd", cdValue);
-                        ImVec2 labelSize = ImGui::CalcTextSize(label);
-                        dl->AddText(ImVec2(barMin.x - labelSize.x - 6.0f, y - labelSize.y * 0.5f), textCol, label);
+                        std::array<char, kSmallBufSize> label{};
+                        std::snprintf(label.data(), label.size(), "%.0f cd", cdValue);
+                        ImVec2 labelSize = ImGui::CalcTextSize(label.data());
+                        dl->AddText(ImVec2(barMin.x - labelSize.x - 6.0f, y - labelSize.y * 0.5f), textCol, label.data());
                     }
                 }
 			}
@@ -424,7 +571,6 @@ void IESViewer::uiListener()
             const auto& iesCandela = m_assets[activeIx];
             const auto* profileCandela = iesCandela.getProfile();
             const auto& accessorCandela = profileCandela->getAccessor();
-            const auto& propertiesCandela = accessorCandela.getProperties();
             const auto& resolutionCandela = accessorCandela.properties.optimalIESResolution;
 
             const float u = (mousePos.x - plotRectMin.x) / plotW;
@@ -432,151 +578,109 @@ void IESViewer::uiListener()
             const float ndcX = u * 2.0f - 1.0f;
             const float ndcY = v * 2.0f - 1.0f;
 
-            core::matrix4SIMD invViewProj;
-            if (camera.getConcatenatedMatrix().getInverseTransform(invViewProj))
+            float32_t4x4 viewProj;
+            std::memcpy(&viewProj, camera.getConcatenatedMatrix().pointer(), sizeof(viewProj));
+            const auto invViewProj = inverse(viewProj);
+
+            const float32_t4 nearPoint(ndcX, ndcY, 0.0f, 1.0f);
+            const float32_t4 farPoint(ndcX, ndcY, 1.0f, 1.0f);
+            auto nearWorld = mul(invViewProj, nearPoint);
+            auto farWorld = mul(invViewProj, farPoint);
+            nearWorld /= nearWorld.w;
+            farWorld /= farWorld.w;
+
+            using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
+            const auto toHlslVec3 = [](const core_vec_t& v)
             {
-                core::vectorSIMDf nearPoint(ndcX, ndcY, 0.0f, 1.0f);
-                core::vectorSIMDf farPoint(ndcX, ndcY, 1.0f, 1.0f);
-                invViewProj.transformVect(nearPoint);
-                invViewProj.transformVect(farPoint);
-                nearPoint /= nearPoint.wwww();
-                farPoint /= farPoint.wwww();
+                return float32_t3(v.x, v.y, v.z);
+            };
 
-                const core::vectorSIMDf origin = camera.getPosition();
-                core::vectorSIMDf direction = farPoint - origin;
-                direction.makeSafe3D();
-                direction = core::normalize(direction);
+            const float32_t3 origin = toHlslVec3(camera.getPosition());
+            const float32_t3 farPos = float32_t3(farWorld);
+            float32_t3 direction = normalize(farPos - origin);
 
-                core::vectorSIMDf hitPos;
-                bool hit = false;
-                const bool cubePlot = mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
-                if (cubePlot)
+            float32_t3 hitPos(0.f);
+            bool hit = false;
+            const bool cubePlot = mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
+            if (cubePlot)
+            {
+                float tmin = -1.0e20f;
+                float tmax = 1.0e20f;
+                auto update = [&](float originAxis, float dirAxis) -> bool
                 {
-                    float tmin = -1.0e20f;
-                    float tmax = 1.0e20f;
-                    auto update = [&](float originAxis, float dirAxis) -> bool
+                    const float eps = 1.0e-6f;
+                    if (abs(dirAxis) < eps)
                     {
-                        const float eps = 1.0e-6f;
-                        if (core::abs<float>(dirAxis) < eps)
-                        {
-                            if (originAxis < -m_plotRadius || originAxis > m_plotRadius)
-                                return false;
-                            return true;
-                        }
-                        float t1 = (-m_plotRadius - originAxis) / dirAxis;
-                        float t2 = (m_plotRadius - originAxis) / dirAxis;
-                        if (t1 > t2)
-                        {
-                            float tmp = t1;
-                            t1 = t2;
-                            t2 = tmp;
-                        }
-                        tmin = core::max(tmin, t1);
-                        tmax = core::min(tmax, t2);
-                        return tmin <= tmax;
-                    };
+                        if (originAxis < -m_plotRadius || originAxis > m_plotRadius)
+                            return false;
+                        return true;
+                    }
+                    float t1 = (-m_plotRadius - originAxis) / dirAxis;
+                    float t2 = (m_plotRadius - originAxis) / dirAxis;
+                    if (t1 > t2)
+                    {
+                        float tmp = t1;
+                        t1 = t2;
+                        t2 = tmp;
+                    }
+                    tmin = hlsl::max(tmin, t1);
+                    tmax = hlsl::min(tmax, t2);
+                    return tmin <= tmax;
+                };
 
-                    if (update(origin.x, direction.x) && update(origin.y, direction.y) && update(origin.z, direction.z))
+                if (update(origin.x, direction.x) && update(origin.y, direction.y) && update(origin.z, direction.z))
+                {
+                    const float t = (tmax < 0.0f) ? tmin : tmax;
+                    if (t >= 0.0f)
                     {
-                        float t = tmax;
-                        if (t < 0.0f)
-                            t = tmin;
-                        if (t >= 0.0f)
-                        {
-                            hitPos = origin + direction * t;
-                            hit = true;
-                        }
+                        hitPos = origin + direction * t;
+                        hit = true;
                     }
                 }
-                else
+            }
+            else
+            {
+                const float b = dot(origin, direction);
+                const float c = dot(origin, origin) - m_plotRadius * m_plotRadius;
+                const float disc = b * b - c;
+                if (disc >= 0.0f)
                 {
-                    const float b = core::dot(origin, direction)[0];
-                    const float c = core::dot(origin, origin)[0] - m_plotRadius * m_plotRadius;
-                    const float disc = b * b - c;
-                    if (disc >= 0.0f)
+                    const float sqrtDisc = sqrt(disc);
+                    const float tFar = -b + sqrtDisc;
+                    const float tNear = -b - sqrtDisc;
+                    const float t = (tFar < 0.0f) ? tNear : tFar;
+                    if (t >= 0.0f)
                     {
-                        const float sqrtDisc = core::sqrt<float>(disc);
-                        float t = -b + sqrtDisc;
-                        if (t < 0.0f)
-                            t = -b - sqrtDisc;
-                        if (t >= 0.0f)
-                        {
-                            hitPos = origin + direction * t;
-                            hit = true;
-                        }
+                        hitPos = origin + direction * t;
+                        hit = true;
                     }
                 }
+            }
 
-                if (hit)
+            if (hit)
+            {
+                using octahedral_t = math::OctahedralTransform<float32_t>;
+                const float32_t3 dir = normalize(hitPos);
+                float32_t2 uv = octahedral_t::dirToNDC(dir) * 0.5f + float32_t2(0.5f, 0.5f);
+
+                const uint32_t resX = resolutionCandela.x;
+                const uint32_t resY = resolutionCandela.y;
+                if (resX > 0u && resY > 0u)
                 {
-                    core::vectorSIMDf dir = core::normalize(hitPos);
-                    const float sum = core::abs<float>(dir.x) + core::abs<float>(dir.y) + core::abs<float>(dir.z);
-                    core::vectorSIMDf s = dir / sum;
-                    if (s.z < 0.0f)
+                    const float32_t2 res(static_cast<float>(resX), static_cast<float>(resY));
+                    const bool interpolateCandela = mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
+                    if (!interpolateCandela)
                     {
-                        const float sx = s.x;
-                        const float sy = s.y;
-                        s.x = (sx < 0.0f ? -1.0f : 1.0f) * (1.0f - core::abs<float>(sy));
-                        s.y = (sy < 0.0f ? -1.0f : 1.0f) * (1.0f - core::abs<float>(sx));
+                        const auto pixel = floor(uv * res + float32_t2(0.5f, 0.5f));
+                        uv = pixel / res;
                     }
 
-                    float uvx = s.x * 0.5f + 0.5f;
-                    float uvy = s.y * 0.5f + 0.5f;
-
-                    const uint32_t resX = resolutionCandela.x;
-                    const uint32_t resY = resolutionCandela.y;
-                    if (resX > 0u && resY > 0u)
-                    {
-                        const float resFx = static_cast<float>(resX);
-                        const float resFy = static_cast<float>(resY);
-
-                        const bool interpolateCandela = mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
-                        if (!interpolateCandela)
-                        {
-                            float px = core::floor<float>(uvx * resFx + 0.5f);
-                            float py = core::floor<float>(uvy * resFy + 0.5f);
-                            uvx = px / resFx;
-                            uvy = py / resFy;
-                        }
-
-                        const float scaleX = 1.0f - 1.0f / resFx;
-                        const float scaleY = 1.0f - 1.0f / resFy;
-                        const float uvCornerX = (uvx - 0.5f) * scaleX + 0.5f;
-                        const float uvCornerY = (uvy - 0.5f) * scaleY + 0.5f;
-
-                        const float tx = uvCornerX * resFx - 0.5f;
-                        const float ty = uvCornerY * resFy - 0.5f;
-
-                        int x0 = static_cast<int>(core::floor<float>(tx));
-                        int y0 = static_cast<int>(core::floor<float>(ty));
-                        int x1 = x0 + 1;
-                        int y1 = y0 + 1;
-                        const float fx = tx - static_cast<float>(x0);
-                        const float fy = ty - static_cast<float>(y0);
-
-                        x0 = ImClamp(x0, 0, static_cast<int>(resX - 1u));
-                        y0 = ImClamp(y0, 0, static_cast<int>(resY - 1u));
-                        x1 = ImClamp(x1, 0, static_cast<int>(resX - 1u));
-                        y1 = ImClamp(y1, 0, static_cast<int>(resY - 1u));
-
-                        const auto info = CIESProfile::texture_t::createInfo(accessorCandela, resolutionCandela, iesCandela.flatten, true);
-                        const auto sample = [&](int x, int y) -> float
-                        {
-                            return CIESProfile::texture_t::eval(accessorCandela, info, nbl::hlsl::uint32_t2(static_cast<uint32_t>(x), static_cast<uint32_t>(y)));
-                        };
-
-                        const float c00 = sample(x0, y0);
-                        const float c10 = sample(x1, y0);
-                        const float c01 = sample(x0, y1);
-                        const float c11 = sample(x1, y1);
-
-                        const float cx0 = c00 + (c10 - c00) * fx;
-                        const float cx1 = c01 + (c11 - c01) * fx;
-                        const float c = cx0 + (cx1 - cx0) * fy;
-
-                        candelaValue = c * propertiesCandela.maxCandelaValue;
-                        candelaValid = true;
-                    }
+                    const auto info = CIESProfile::texture_t::createInfo(accessorCandela, resolutionCandela, iesCandela.flatten, true);
+                    const float32_t2 scale = float32_t2(1.0f, 1.0f) - float32_t2(1.0f, 1.0f) / res;
+                    const float32_t2 uvCorner = (uv - float32_t2(0.5f, 0.5f)) * scale + float32_t2(0.5f, 0.5f);
+                    const float normalized = CIESProfile::texture_t::eval(accessorCandela, info, uvCorner);
+                    candelaValue = info.maxValueRecip > 0.0f ? (normalized / info.maxValueRecip) : 0.0f;
+                    candelaValid = true;
                 }
             }
         }
@@ -589,3 +693,6 @@ void IESViewer::uiListener()
         ImGui::EndTooltip();
     }
 }
+
+
+

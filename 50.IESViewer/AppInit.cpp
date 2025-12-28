@@ -3,9 +3,14 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "App.hpp"
+#include <cstring>
+#include <type_traits>
+#include <vector>
 #include "AppInputParser.hpp"
 #include "app_resources/common.hlsl"
 #include "app_resources/imgui.opts.hlsl"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #define MEDIA_ENTRY "../../media"
 #define INPUT_JSON_FILE "../inputs.json"
@@ -199,7 +204,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             if (not descriptorSetLayout)
                 return logFail("Failed to create descriptor set layout!");
 
-            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, offsetof(hlsl::this_example::ies::PushConstants, cdc), sizeof(nbl::hlsl::this_example::ies::CdcPC)} });
+            auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, offsetof(hlsl::this_example::ies::PushConstants, cdc), sizeof(hlsl::this_example::ies::CdcPC)} });
             auto pipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
             if (not pipelineLayout)
@@ -219,7 +224,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             // Graphics Pipeline
             {
                 IGPUPipelineBase::SShaderEntryMap specConstants;
-                const auto orientationAsUint32 = static_cast<uint32_t>(hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT);
+                const auto orientationAsUint32 = static_cast<uint32_t>(SurfaceTransform::FLAG_BITS::IDENTITY_BIT);
                 specConstants[0] = std::span{ reinterpret_cast<const uint8_t*>(&orientationAsUint32), sizeof(orientationAsUint32) };
 
                 video::IGPUPipelineBase::SShaderSpecInfo specInfo[] =
@@ -300,7 +305,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         }
     }
 
-#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
     // frame buffers
     {
         // TODO: I will create my own
@@ -348,8 +352,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             }
         }
     }
-#endif
-
     auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 
     // geometries for 3D scene
@@ -383,7 +385,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         );
 
 		const auto& geoParams = m_scene->getInitParams();
-		core::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> polygons(m_assets.size());
+		std::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> polygons(m_assets.size());
 		for (uint32_t i = 0u; i < m_assets.size(); ++i)
 		{
 			const auto& resolution = m_assets[i].getProfile()->getAccessor().properties.optimalIESResolution;
@@ -413,24 +415,29 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             float32_t4(0, 0, 1, 0)
         );
 
-        core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-        core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+        using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
+        using core_mat_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getConcatenatedMatrix())>>;
+        const auto toCoreVec3 = [](const float32_t3& v) -> core_vec_t
+        {
+            return core_vec_t(v.x, v.y, v.z);
+        };
+
+        float32_t3 cameraPosition(-5.81655884f, 2.58630896f, -4.23974705f);
+        float32_t3 cameraTarget(-0.349590302f, -0.213266611f, 0.317821503f);
         const auto cameraOffset = cameraPosition - cameraTarget;
         cameraPosition = cameraTarget + cameraOffset * 1.5f;
 
-#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), float(m_window->getWidth()) / float(m_window->getHeight()), 0.1, 10000);
-#else
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), float(params.width) / float(params.height), 0.1, 10000);
-#endif
-        camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+        const float aspect = float(params.width) / float(params.height);
+        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
+        core_mat_t coreProjection;
+        std::memcpy(coreProjection.pointer(), &projectionMatrix, sizeof(projectionMatrix));
+        camera = Camera(toCoreVec3(cameraPosition), toCoreVec3(cameraTarget), coreProjection, 1.069f, 0.4f);
         m_cameraMoveSpeed = camera.getMoveSpeed();
         m_cameraRotateSpeed = camera.getRotateSpeed();
         m_cameraControlApplied = !m_cameraControlEnabled;
     }
 
-#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
     // imGUI
     {
         ext::imgui::UI::SCreationParameters params = {};
@@ -447,7 +454,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         using imgui_precompiled_spirv_t = ext::imgui::UI::SCreationParameters::PrecompiledShaders;
         params.spirv = std::make_optional(imgui_precompiled_spirv_t{ .vertex = shaders.imgui, .fragment = shaders.imgui });
 
-        auto* imgui = (ui.it = ext::imgui::UI::create(std::move(params))).get();
+        auto imguiPtr = ext::imgui::UI::create(std::move(params));
+        auto* imgui = imguiPtr.get();
+        ui.it = smart_refctd_ptr_static_cast<core::IReferenceCounted>(imguiPtr);
         if (not imgui)
             return logFail("Failed to create `nbl::ext::imgui::UI` class");
 
@@ -498,7 +507,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             uiListener();
         });
     }
-#endif
 
     m_semaphore = m_device->createSemaphore(m_realFrameIx);
     if (!m_semaphore)
@@ -598,7 +606,7 @@ void IESViewer::applyWindowMode()
 
     if (m_surface)
     {
-        if (auto* scRes = m_surface->getSwapchainResources())
-            scRes->invalidate();
+        m_surface->recreateSwapchain();
     }
 }
+
