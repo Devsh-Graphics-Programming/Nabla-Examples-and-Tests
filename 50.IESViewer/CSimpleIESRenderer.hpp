@@ -54,7 +54,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			hlsl::float32_t radius = 1.f;
 			IGPUDescriptorSet* ds = nullptr;
 			uint16_t texID = 0u;
-			uint16_t mode = this_example::ies::ESM_NONE;
+			uint16_t mode = hlsl::this_example::ies::ESM_NONE;
 			bool wireframe = false;
 		};
 		//

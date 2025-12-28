@@ -17,8 +17,6 @@
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/math/octahedral.hlsl"
 
-using namespace this_example;
-
 void IESViewer::uiListener()
 {
     const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
@@ -47,7 +45,7 @@ void IESViewer::uiListener()
         const float clamped = ImClamp(v, 0.0f, 1.0f);
         if (useFalseColor)
         {
-            const auto col = this_example::ies::falseColor(clamped);
+            const auto col = hlsl::this_example::ies::falseColor(clamped);
             return ImGui::ColorConvertFloat4ToU32(ImVec4(col.x, col.y, col.z, 1.0f));
         }
         return ImGui::ColorConvertFloat4ToU32(ImVec4(clamped, clamped, clamped, 1.0f));
@@ -106,28 +104,28 @@ void IESViewer::uiListener()
 
     auto draw3DControls = [&]()
     {
-        bool interpolateCandela = mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
+        bool interpolateCandela = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
 
         if (ImGui::Checkbox("interpolate candelas", &interpolateCandela))
         {
             if (interpolateCandela)
-                mode.sphere |= this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE;
+                mode.sphere |= hlsl::this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE;
             else
-                mode.sphere &= static_cast<this_example::ies::E_SPHERE_MODE>(
-                    ~this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE
+                mode.sphere &= static_cast<hlsl::this_example::ies::E_SPHERE_MODE>(
+                    ~hlsl::this_example::ies::E_SPHERE_MODE::ESM_OCTAHEDRAL_UV_INTERPOLATE
                 );
         }
         showHint("Interpolate candela values in the octahedral map.");
 
-        bool falseColor = mode.sphere.hasFlags(this_example::ies::ESM_FALSE_COLOR);
+        bool falseColor = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_FALSE_COLOR);
 
         if (ImGui::Checkbox("false color", &falseColor))
         {
             if (falseColor)
-                mode.sphere |= this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR;
+                mode.sphere |= hlsl::this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR;
             else
-                mode.sphere &= static_cast<this_example::ies::E_SPHERE_MODE>(
-                    ~this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR
+                mode.sphere &= static_cast<hlsl::this_example::ies::E_SPHERE_MODE>(
+                    ~hlsl::this_example::ies::E_SPHERE_MODE::ESM_FALSE_COLOR
                 );
         }
         showHint("Use false color palette for the 3D plot.");
@@ -142,15 +140,15 @@ void IESViewer::uiListener()
             m_showHints = showHints;
         showHint("Toggle help tooltips.");
 
-        bool cubePlot = mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
+        bool cubePlot = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_CUBE);
 
         if (ImGui::Checkbox("cube plot", &cubePlot))
         {
             if (cubePlot)
-                mode.sphere |= this_example::ies::E_SPHERE_MODE::ESM_CUBE;
+                mode.sphere |= hlsl::this_example::ies::E_SPHERE_MODE::ESM_CUBE;
             else
-                mode.sphere &= static_cast<this_example::ies::E_SPHERE_MODE>(
-                    ~this_example::ies::E_SPHERE_MODE::ESM_CUBE
+                mode.sphere &= static_cast<hlsl::this_example::ies::E_SPHERE_MODE>(
+                    ~hlsl::this_example::ies::E_SPHERE_MODE::ESM_CUBE
                 );
         }
         showHint("Render the plot on a cube instead of a sphere.");
@@ -521,7 +519,7 @@ void IESViewer::uiListener()
                 const float barHeight = ImMax(80.0f, plotSize.y - margin * 2.0f);
                 if (plotSize.x > barWidth + margin * 2.0f && plotSize.y > margin * 2.0f)
                 {
-                    const bool useFalseColorLegend = mode.sphere.hasFlags(this_example::ies::ESM_FALSE_COLOR);
+                    const bool useFalseColorLegend = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_FALSE_COLOR);
                     ImVec2 barMin(imgPos.x + plotSize.x - barWidth - margin, imgPos.y + margin);
                     ImVec2 barMax(barMin.x + barWidth, barMin.y + barHeight);
 
@@ -540,9 +538,9 @@ void IESViewer::uiListener()
                     dl->AddRect(barMin, barMax, ImGui::GetColorU32(ImGuiCol_Border));
 
                     const ImU32 textCol = ImGui::GetColorU32(ImGuiCol_Text);
-                    for (uint32_t i = 0u; i < this_example::ies::FalseColorStopCount; ++i)
+                    for (uint32_t i = 0u; i < hlsl::this_example::ies::FalseColorStopCount; ++i)
                     {
-                        const float stop = this_example::ies::falseColorStop(i);
+                        const float stop = hlsl::this_example::ies::falseColorStop(i);
                         const float y = barMin.y + (1.0f - stop) * barHeight;
                         dl->AddLine(ImVec2(barMin.x - 4.0f, y), ImVec2(barMin.x, y), textCol);
                         const float cdValue = stop * properties.maxCandelaValue;
@@ -601,7 +599,7 @@ void IESViewer::uiListener()
 
             float32_t3 hitPos(0.f);
             bool hit = false;
-            const bool cubePlot = mode.sphere.hasFlags(this_example::ies::ESM_CUBE);
+            const bool cubePlot = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_CUBE);
             if (cubePlot)
             {
                 float tmin = -1.0e20f;
@@ -668,7 +666,7 @@ void IESViewer::uiListener()
                 if (resX > 0u && resY > 0u)
                 {
                     const float32_t2 res(static_cast<float>(resX), static_cast<float>(resY));
-                    const bool interpolateCandela = mode.sphere.hasFlags(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
+                    const bool interpolateCandela = mode.sphere.hasFlags(hlsl::this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE);
                     if (!interpolateCandela)
                     {
                         const auto pixel = floor(uv * res + float32_t2(0.5f, 0.5f));

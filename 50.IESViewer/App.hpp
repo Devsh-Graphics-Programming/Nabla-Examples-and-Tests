@@ -267,8 +267,8 @@ private:
 
 	struct {
 		IES::E_MODE view = IES::EM_CDC;
-		bitflag<this_example::ies::E_SPHERE_MODE> sphere =
-			bitflag<this_example::ies::E_SPHERE_MODE>(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE) | this_example::ies::ESM_FALSE_COLOR;
+		bitflag<hlsl::this_example::ies::E_SPHERE_MODE> sphere =
+			bitflag<hlsl::this_example::ies::E_SPHERE_MODE>(hlsl::this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE) | hlsl::this_example::ies::ESM_FALSE_COLOR;
 	} mode;
 
     void processMouse(const IMouseEventChannel::range_t& events);
