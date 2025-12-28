@@ -18,7 +18,9 @@ nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_L
 # LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
 
 if (NBL_BUILD_DEBUG_DRAW)
-	add_dependencies(${EXECUTABLE_NAME} ${NBL_EXT_DEBUG_DRAW_TARGET})
-	target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${NBL_EXT_DEBUG_DRAW_TARGET})
-	target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:${NBL_EXT_DEBUG_DRAW_TARGET},INCLUDE_DIRECTORIES>)
+	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
 endif()
+
+
+add_dependencies(${EXECUTABLE_NAME} argparse)
+target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)

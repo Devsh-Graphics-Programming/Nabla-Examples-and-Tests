@@ -1,6 +1,7 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/examples/examples.hpp"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -160,26 +161,24 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Custom Shader
-				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
-					{
-						IAssetLoader::SAssetLoadParams lp = {};
-						lp.logger = m_logger.get();
-						lp.workingDirectory = ""; // virtual root
-						auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-						const auto assets = assetBundle.getContents();
-						if (assets.empty())
-							return nullptr;
+				auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = "app_resources";
 
-						// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-						auto source = IAsset::castDown<IShader>(assets[0]);
-						if (!source)
-							return nullptr;
+					auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+					auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-						return m_device->compileShader({ source.get() });
-					};
-				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+					auto shader = IAsset::castDown<IShader>(assets[0]);
+					return shader;
+				};
+				auto fragmentShader = loadPrecompiledShader.operator()<"present">(); // "app_resources/present.frag.hlsl"
 				if (!fragmentShader)
-					return logFail("Failed to Load and Compile Fragment Shader!");
+					return logFail("Failed to load precompiled fragment shader!");
 
 				// Now surface indep resources
 				m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -562,7 +561,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						const std::string prettyJson = current.data.dump(4);
 
 						if (options.verbose)
-							m_logger->log(prettyJson, ILogger::ELL_INFO);
+							m_logger->log("%s", ILogger::ELL_INFO, prettyJson);
 
 						system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
 						m_system->createFile(future, current.path, system::IFileBase::ECF_WRITE);

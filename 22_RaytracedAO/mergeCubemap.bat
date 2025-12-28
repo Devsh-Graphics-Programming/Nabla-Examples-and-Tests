@@ -1,31 +1,32 @@
 @echo off
 
-set right=%1
-set left=%2
-set top=%3
-set bottom=%4
-set front=%5
-set back=%6
+REM the ordering of the cubemap faces is irrelevant as long as extractCubemap knows what has been merged together here
+set first=%1
+set second=%2
+set third=%3
+set fourth=%4
+set fifth=%5
+set sixth=%6
 set output=%~dpn7
 
 REM examplary usage: 
-REM mergeCubemap.bat right.png left.png top.png bottom.png front.png back.png outputImageName
+REM mergeCubemap.bat first.png second.png third.png fourth.png fifth.png sixth.png outputImageName
 
 REM set image size
-for /f "tokens=*" %%s in ('magick identify -format "%%w" %right%') do set sz=%%s
+for /f "tokens=*" %%s in ('magick identify -format "%%w" %first%') do set sz=%%s
 
 REM set image fromat
-for /f "tokens=*" %%s in ('magick identify -format "%%m" %right%') do set format=%%s
+for /f "tokens=*" %%s in ('magick identify -format "%%m" %first%') do set format=%%s
 
 set /a szx2=2*sz
 set /a outputWidth=3*sz
 set /a outputHeight=2*sz
 
 magick convert -size %outputwidth%x%outputHeight% canvas:none ^
--draw "image over  0,0 0,0 '%right%'" ^
--draw "image over  %sz%,0 0,0 '%left%'" ^
--draw "image over  %szx2%,0 0,0 '%top%'" ^
--draw "image over  0,%sz% 0,0 '%bottom%'" ^
--draw "image over  %sz%,%sz% 0,0 '%front%'" ^
--draw "image over  %szx2%,%sz% 0,0 '%back%'" ^
+-draw "image over  0,0 0,0 '%sixth%'" ^
+-draw "image over  %sz%,0 0,0 '%fourth%'" ^
+-draw "image over  %szx2%,0 0,0 '%third%'" ^
+-draw "image over  0,%sz% 0,0 '%first%'" ^
+-draw "image over  %sz%,%sz% 0,0 '%fifth%'" ^
+-draw "image over  %szx2%,%sz% 0,0 '%second%'" ^
 %output%.%format%

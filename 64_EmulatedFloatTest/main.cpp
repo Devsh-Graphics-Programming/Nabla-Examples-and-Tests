@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
 
@@ -42,13 +42,11 @@ public:
         // since emulated_float64_t rounds to zero
         std::fesetround(FE_TOWARDZERO);
 
-        // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-       
-        // In contrast to fences, we just need one semaphore to rule all dispatches
+
         return true;
     }
 
@@ -97,10 +95,14 @@ private:
 
         auto printOnFailure = [this](EmulatedFloatTestDevice device)
         {
+            std::string errorMsgPrefix = "";
             if (device == EmulatedFloatTestDevice::CPU)
-                m_logger->log("CPU test fail:", ILogger::ELL_ERROR);
+                errorMsgPrefix = "CPU test fail:";
             else
-                m_logger->log("GPU test fail:", ILogger::ELL_ERROR);
+                errorMsgPrefix = "GPU test fail:";
+
+            m_logger->log("%s", ILogger::ELL_ERROR, errorMsgPrefix.c_str());
+            m_logFile << errorMsgPrefix << '\n';
         };
 
         auto printOnArithmeticFailure = [this](const char* valName, uint64_t expectedValue, uint64_t testValue, uint64_t a, uint64_t b)
@@ -120,9 +122,10 @@ private:
             ss << std::bitset<64>(expectedValue) << " - expectedValue bit pattern\n";
             ss << std::bitset<64>(testValue) << " - testValue bit pattern \n";
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
+            m_logFile << ss.str() << '\n';
 
-            std::cout << "ULP error: " << std::max(expectedValue, testValue) - std::min(expectedValue, testValue) << "\n\n";
+            //std::cout << "ULP error: " << std::max(expectedValue, testValue) - std::min(expectedValue, testValue) << "\n\n";
 
         };
 
@@ -133,14 +136,18 @@ private:
 
         auto printOnComparisonFailure = [this](const char* valName, int expectedValue, int testValue, double a, double b)
         {
-            m_logger->log("for input values: A = %f B = %f", ILogger::ELL_ERROR, a, b);
+            std::string inputValuesStr = std::string("for input values: A = ") + std::to_string(a) + std::string(" B = ") + std::to_string(b);
+
+            m_logger->log("%s", ILogger::ELL_ERROR, inputValuesStr.c_str());
+            m_logFile << inputValuesStr << '\n';
 
             std::stringstream ss;
             ss << valName << " not equal!";
             ss << "\nexpected value: " << std::boolalpha << bool(expectedValue);
             ss << "\ntest value: " << std::boolalpha << bool(testValue);
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
+            m_logFile << ss.str() << '\n';
         };
 
         if (calcULPError(expectedValues.int32CreateVal, testValues.int32CreateVal) > 1u)
@@ -262,9 +269,10 @@ private:
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
-                    lp.workingDirectory = ""; // virtual root
-                    // this time we load a shader directly from a file
-                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/test.comp.hlsl", lp);
+                    lp.workingDirectory = "app_resources"; // virtual root
+
+                    auto key = nbl::this_example::builtin::build::get_spirv_key<"test">(base.m_device.get());
+                    auto assetBundle = base.m_assetMgr->getAsset(key.data(), lp);
                     const auto assets = assetBundle.getContents();
                     if (assets.empty())
                     {
@@ -274,26 +282,11 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
-
-                    auto* compilerSet = base.m_assetMgr->getCompilerSet();
-
-                    nbl::asset::IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = ESS_COMPUTE;
-                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
-                    options.spirvOptimizer = nullptr;
-                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-                    options.preprocessorOptions.logger = base.m_logger.get();
-                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-                    shader = base.m_device->compileShader({spirv.get()});
+                    shader = IAsset::castDown<IShader>(assets[0]);
                 }
 
                 if (!shader)
-                    base.logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+                    base.logFail("Failed to load precompiled \"test\" shader!\n");
 
                 nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
                     {
@@ -452,6 +445,10 @@ private:
                     m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
             };
 
+        m_logFile.open("EmulatedFloatTestLog.txt", std::ios::out | std::ios::trunc);
+        if (!m_logFile.is_open())
+            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
         printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(submitter));
         printTestOutput("emulatedFloat64RandomValuesTestContrastingExponents", emulatedFloat64RandomValuesTestContrastingExponents(submitter));
         printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(submitter));
@@ -464,6 +461,8 @@ private:
             printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
         printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
         printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
+
+        m_logFile.close();
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -928,9 +927,10 @@ private:
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
-                    lp.workingDirectory = ""; // virtual root
+                    lp.workingDirectory = "app_resources"; // virtual root
                     // this time we load a shader directly from a file
-                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/benchmark/benchmark.comp.hlsl", lp);
+                    auto key = nbl::this_example::builtin::build::get_spirv_key<"benchmark">(m_device.get());
+                    auto assetBundle = base.m_assetMgr->getAsset(key.data(), lp);
                     const auto assets = assetBundle.getContents();
                     if (assets.empty())
                     {
@@ -940,26 +940,11 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
-
-                    auto* compilerSet = base.m_assetMgr->getCompilerSet();
-
-                    IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = ESS_COMPUTE;
-                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
-                    options.spirvOptimizer = nullptr;
-                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-                    options.preprocessorOptions.logger = base.m_logger.get();
-                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-                    shader = base.m_device->compileShader({spirv.get()});
+                    shader = IAsset::castDown<IShader>(assets[0]);
                 }
 
                 if (!shader)
-                    base.logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+                    base.logFail("Failed to load precompiled \"benchmark\" shader!\n");
 
                 nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
                     {
@@ -1199,6 +1184,8 @@ private:
         m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
         return false;
     }
+
+    std::ofstream m_logFile;
 };
 
 NBL_MAIN_FUNC(CompatibilityTest)

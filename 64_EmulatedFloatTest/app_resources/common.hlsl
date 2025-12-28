@@ -8,7 +8,7 @@
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
 #include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
 
-NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WORKGROUP_SIZE = 1;
 
 using namespace nbl;
 using namespace hlsl;

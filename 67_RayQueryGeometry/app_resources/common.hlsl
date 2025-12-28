@@ -3,7 +3,7 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupSize = 16;
 
 enum NormalType : uint32_t
 {

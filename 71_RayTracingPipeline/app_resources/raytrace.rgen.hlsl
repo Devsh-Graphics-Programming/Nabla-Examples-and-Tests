@@ -1,6 +1,5 @@
 #include "common.hlsl"
 
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
@@ -8,6 +7,8 @@
 
 static const int32_t s_sampleCount = 10;
 static const float32_t3 s_clearColor = float32_t3(0.3, 0.3, 0.8);
+
+using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 
@@ -23,12 +24,12 @@ float32_t nextRandomUnorm(inout nbl::hlsl::Xoroshiro64StarStar rnd)
 [shader("raygeneration")]
 void main()
 {
-    const uint32_t3 launchID = DispatchRaysIndex();
-    const uint32_t3 launchSize = DispatchRaysDimensions();
+    const uint32_t3 launchID = spirv::LaunchIdKHR;
+    const uint32_t3 launchSize = spirv::LaunchSizeKHR;
     const uint32_t2 coords = launchID.xy;
 
-    const uint32_t seed1 = nbl::hlsl::random::Pcg::create(pc.frameCounter)();
-    const uint32_t seed2 = nbl::hlsl::random::Pcg::create(launchID.y * launchSize.x + launchID.x)();
+    const uint32_t seed1 = nbl::hlsl::random::PCG32::construct(pc.frameCounter)();
+    const uint32_t seed2 = nbl::hlsl::random::PCG32::construct(launchID.y * launchSize.x + launchID.x)();
     nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
 
     float32_t3 hitValues = float32_t3(0, 0, 0);
@@ -53,9 +54,11 @@ void main()
         rayDesc.TMin = 0.01;
         rayDesc.TMax = 10000.0;
         
+        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
         PrimaryPayload payload;
-        payload.pcg = PrimaryPayload::generator_t::create(rnd());
-        TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
+        payload.pcg = PrimaryPayload::generator_t::construct(rnd());
+        spirv::traceRayKHR(topLevelAS, spv::RayFlagsMaskNone, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
+        // TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
         const float32_t rayDistance = payload.rayDistance;
         if (rayDistance < 0)
@@ -67,23 +70,25 @@ void main()
         const float32_t3 worldPosition = pc.camPos + (camDirection * rayDistance);
 
         // make sure to call with least live state
+        [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]]
         RayLight cLight;
         cLight.inHitPosition = worldPosition;
-        CallShader(pc.light.type, cLight);
+        spirv::executeCallable(pc.light.type, cLight);
 
         const float32_t3 worldNormal = payload.worldNormal;
 
         Material material;
         MaterialId materialId = payload.materialId;
+        const static uint64_t MaterialPackedAlignment = nbl::hlsl::alignment_of_v<MaterialPacked>;
         // we use negative index to indicate that this is a procedural geometry
         if (materialId.isHitProceduralGeom())
         {
-            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.proceduralGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(SProceduralGeomInfo));
+            const MaterialPacked materialPacked = vk::BufferPointer<MaterialPacked, MaterialPackedAlignment>(pc.proceduralGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(SProceduralGeomInfo)).Get();
             material = nbl::hlsl::_static_cast<Material>(materialPacked);
         }
         else
         {
-            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo));
+            const MaterialPacked materialPacked = vk::BufferPointer<MaterialPacked, MaterialPackedAlignment>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo)).Get();
             material = nbl::hlsl::_static_cast<Material>(materialPacked);
         }
 
@@ -97,12 +102,16 @@ void main()
             rayDesc.TMin = 0.01;
             rayDesc.TMax = cLight.outLightDistance;
 
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
             OcclusionPayload occlusionPayload;
             // negative means its a hit, the miss shader will flip it back around to positive
             occlusionPayload.attenuation = -1.f;
             // abuse of miss shader to mean "not hit shader" solves us having to call closest hit shaders
-            uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
-            TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
+            uint32_t shadowRayFlags = spv::RayFlagsTerminateOnFirstHitKHRMask | spv::RayFlagsSkipClosestHitShaderKHRMask;
+            spirv::traceRayKHR(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, occlusionPayload);
+
+            // uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+            // TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
 
             attenuation = occlusionPayload.attenuation;
             if (occlusionPayload.attenuation > 1.f/1024.f)
