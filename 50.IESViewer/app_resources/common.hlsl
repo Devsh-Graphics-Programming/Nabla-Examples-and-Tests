@@ -44,7 +44,8 @@ enum E_SPHERE_MODE : uint16_t
 {
     ESM_NONE								= 0,
     ESM_OCTAHEDRAL_UV_INTERPOLATE			= 1u << 0,
-	ESM_FALSE_COLOR							= 1u << 1
+	ESM_FALSE_COLOR							= 1u << 1,
+	ESM_CUBE								= 1u << 2
 };
 
 struct SpherePC

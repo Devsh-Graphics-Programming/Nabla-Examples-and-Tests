@@ -57,3 +57,32 @@ const char* IES::symmetryToRS(CIESProfile::properties_t::LuminairePlanesSymmetry
         return "ERROR (symmetry)";
     }
 }
+
+const char* IES::typeToRS(CIESProfile::properties_t::PhotometricType type)
+{
+    switch (type)
+    {
+    case asset::CIESProfile::properties_t::TYPE_C:
+        return "TYPE_C";
+    case asset::CIESProfile::properties_t::TYPE_B:
+        return "TYPE_B";
+    case asset::CIESProfile::properties_t::TYPE_A:
+        return "TYPE_A";
+    case asset::CIESProfile::properties_t::TYPE_NONE:
+    default:
+        return "TYPE_NONE";
+    }
+}
+
+const char* IES::versionToRS(CIESProfile::properties_t::Version version)
+{
+    switch (version)
+    {
+    case asset::CIESProfile::properties_t::V_1995:
+        return "V_1995";
+    case asset::CIESProfile::properties_t::V_2002:
+        return "V_2002";
+    default:
+        return "V_UNKNOWN";
+    }
+}

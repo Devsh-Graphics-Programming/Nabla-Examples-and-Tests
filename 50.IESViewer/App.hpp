@@ -63,6 +63,19 @@ private:
     smart_refctd_ptr<CGeometryCreatorScene> m_scene;
     smart_refctd_ptr<CSimpleIESRenderer> m_renderer;
     Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD()); // TODO: orbit would be better
+    uint32_t m_plot3DWidth = 640u;
+    uint32_t m_plot3DHeight = 640u;
+    float m_plotRadius = 100.0f;
+    float m_cameraMoveSpeed = 1.0f;
+    float m_cameraRotateSpeed = 1.0f;
+    float m_cameraFovDeg = 60.0f;
+    bool m_cameraControlEnabled = false;
+    bool m_cameraControlApplied = false;
+    bool m_fullscreen3D = false;
+    bool m_wireframeEnabled = false;
+    bool m_showOctaMapPreview = true;
+    std::vector<std::string> m_assetLabels;
+    std::vector<bool> m_candelaDirty;
 
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -74,7 +87,8 @@ private:
 
 	struct {
 		IES::E_MODE view = IES::EM_CDC;
-		bitflag<this_example::ies::E_SPHERE_MODE> sphere = this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE;
+		bitflag<this_example::ies::E_SPHERE_MODE> sphere =
+			bitflag<this_example::ies::E_SPHERE_MODE>(this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE) | this_example::ies::ESM_FALSE_COLOR;
 	} mode;
 
     void processMouse(const IMouseEventChannel::range_t& events);
@@ -83,6 +97,8 @@ private:
     smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name, 
         bitflag<IImage::E_USAGE_FLAGS> usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT,
         bitflag<IImage::E_ASPECT_FLAGS> aspectFlags = bitflag(IImage::EAF_COLOR_BIT));
+    bool recreate3DPlotFramebuffers(uint32_t width, uint32_t height);
+    void applyWindowMode();
 
 	template<typename T>
 	requires AppIESBufferCreationAllowed<T>

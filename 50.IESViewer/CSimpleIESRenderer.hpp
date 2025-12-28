@@ -54,6 +54,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			IGPUDescriptorSet* ds = nullptr;
 			uint16_t texID = 0u;
 			uint16_t mode = this_example::ies::ESM_NONE;
+			bool wireframe = false;
 		};
 		//
 		struct SPackedGeometry
@@ -166,6 +167,8 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 				IGPUGraphicsPipeline::SCreationParams params[pipeline_e::Count] = {};
 				params[pipeline_e::SphereTriangleStrip].vertexShader = { .shader = shader.get(),.entryPoint = "SphereVS" };
 				params[pipeline_e::SphereTriangleStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "SpherePS" };
+				params[pipeline_e::SphereTriangleStripWire].vertexShader = { .shader = shader.get(),.entryPoint = "SphereVS" };
+				params[pipeline_e::SphereTriangleStripWire].fragmentShader = { .shader = shader.get(),.entryPoint = "SpherePS" };
 				for (auto i=0; i<pipeline_e::Count; i++)
 				{
 					params[i].layout = init.layout.get();
@@ -178,6 +181,10 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 					{
 						case pipeline_e::SphereTriangleStrip:
 							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP;
+							break;
+						case pipeline_e::SphereTriangleStripWire:
+							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP;
+							rasterization.polygonMode = EPM_LINE;
 							break;
 						default:
 							assert(false);
@@ -215,6 +222,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			enum PipelineType : uint8_t
 			{
 				SphereTriangleStrip,
+				SphereTriangleStripWire,
 				Count
 			};
 
@@ -375,7 +383,10 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			for (const auto& instance : m_instances)
 			{
 				const auto* geo = instance.packedGeo;
-				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
+				auto pipeline = geo->pipeline;
+				if (iesParams.wireframe)
+					pipeline = m_params.pipelines[SInitParams::PipelineType::SphereTriangleStripWire];
+				cmdbuf->bindGraphicsPipeline(pipeline.get());
 				const auto pc = instance.computePushConstants(viewParams, iesParams);
 				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,offsetof(hlsl::this_example::ies::PushConstants, sphere),sizeof(pc),&pc);
 				if (geo->indexBuffer)

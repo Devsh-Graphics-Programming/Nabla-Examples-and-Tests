@@ -3,6 +3,7 @@
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/ies/texture.hlsl"
 #include "nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl"
+#include "false_color.hlsl"
 
 using namespace nbl::hlsl;
 using namespace nbl::hlsl::this_example::ies;
@@ -56,7 +57,15 @@ SInterpolants SphereVS(uint32_t vIx : SV_VertexID)
     const float32_t2 uv  = float32_t2(vIx % res.x, vIx / res.x) * inv;
 
     const float32_t3 dir = octahedral_t::uvToDir(uv);
-    const float32_t3 pos = pc.sphere.radius * dir;
+    float32_t3 pos = dir;
+    const bool useCube = (pc.sphere.mode & ESM_CUBE) != 0;
+    if (useCube)
+    {
+        const float32_t3 ad = abs(dir);
+        const float32_t maxAxis = max(ad.x, max(ad.y, ad.z));
+        pos = dir / maxAxis;
+    }
+    pos *= pc.sphere.radius;
 
     SInterpolants o;
     o.ndc = math::linalg::promoted_mul(pc.sphere.matrices.worldViewProj, pos);
@@ -64,45 +73,6 @@ SInterpolants SphereVS(uint32_t vIx : SV_VertexID)
     o.uv = uv;
 
     return o;
-}
-
-float32_t3 falseColor(float32_t v)
-{
-    v = saturate(v);
-    v = pow(v, 0.8f);
-
-    const float32_t3 c0 = float32_t3(0.0f, 0.0f, 0.0f);		// 0.00 - black
-    const float32_t3 c1 = float32_t3(0.0f, 0.0f, 0.35f);	// 0.15 - very dark blue
-    const float32_t3 c2 = float32_t3(0.10f, 0.20f, 0.90f);	// 0.35 - bright blue
-    const float32_t3 c3 = float32_t3(0.70f, 0.00f, 0.80f);	// 0.55 - violet/magenta
-    const float32_t3 c4 = float32_t3(1.00f, 0.30f, 1.00f);	// 0.75 - bright pink
-    const float32_t3 c5 = float32_t3(1.00f, 1.00f, 1.00f);	// 1.00 - white
-
-    if (v < 0.15f)
-    {
-        float32_t t = v / 0.15f;
-        return lerp(c0, c1, t);
-    }
-    else if (v < 0.35f)
-    {
-        float32_t t = (v - 0.15f) / (0.35f - 0.15f);
-        return lerp(c1, c2, t);
-    }
-    else if (v < 0.55f)
-    {
-        float32_t t = (v - 0.35f) / (0.55f - 0.35f);
-        return lerp(c2, c3, t);
-    }
-    else if (v < 0.75f)
-    {
-        float32_t t = (v - 0.55f) / (0.75f - 0.55f);
-        return lerp(c3, c4, t);
-    }
-    else
-    {
-        float32_t t = (v - 0.75f) / (1.0f - 0.75f);
-        return lerp(c4, c5, t);
-    }
 }
 
 [shader("pixel")]

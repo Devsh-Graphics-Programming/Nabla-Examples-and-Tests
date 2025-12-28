@@ -40,6 +40,10 @@ void IESViewer::processKeyboard(const nbl::ui::IKeyboardEventChannel::range_t& e
                 mode.view = IES::EM_CDC;
             else if (ev.keyCode == nbl::ui::EKC_V)
                 mode.view = IES::EM_OCTAHEDRAL_MAP;
+            else if (ev.keyCode == nbl::ui::EKC_ESCAPE && m_cameraControlEnabled)
+                m_cameraControlEnabled = false;
+            else if (ev.keyCode == nbl::ui::EKC_SPACE)
+                m_cameraControlEnabled = !m_cameraControlEnabled;
 
             if (ev.keyCode == nbl::ui::EKC_Q)
                 m_running = false;

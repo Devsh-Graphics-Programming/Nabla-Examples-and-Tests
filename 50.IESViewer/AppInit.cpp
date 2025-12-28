@@ -7,7 +7,6 @@
 #include "app_resources/common.hlsl"
 #include "app_resources/imgui.opts.hlsl"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
-
 #define MEDIA_ENTRY "../../media"
 #define INPUT_JSON_FILE "../inputs.json"
 
@@ -61,6 +60,13 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         auto took = std::to_string(elapsed.count());
         m_logger->log("Finished loading IES m_assets, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
     }
+    {
+        m_assetLabels.clear();
+        m_assetLabels.reserve(m_assets.size());
+        for (const auto& ies : m_assets)
+            m_assetLabels.emplace_back(path(ies.key).filename().string());
+    }
+    m_candelaDirty.assign(m_assets.size(), true);
 
     m_logger->log("Creating GPU IES resources..", system::ILogger::ELL_INFO);
     {
@@ -76,7 +82,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             const auto* profile = ies.getProfile();
 			const auto& accessor = profile->getAccessor();
             const auto& resolution = accessor.properties.optimalIESResolution;
-			textureInfosMapped[i] = CIESProfile::texture_t::createInfo(accessor, resolution, 0.f, true);
+			textureInfosMapped[i] = CIESProfile::texture_t::createInfo(accessor, resolution, ies.flatten, true);
 			ies.buffers.textureInfo.buffer = textureInfos;
 			ies.buffers.textureInfo.offset = i * sizeof(IESTextureInfo);
 
@@ -248,42 +254,38 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, dscLayoutPtrs);
             pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_descriptors.data());
             {
-				constexpr auto ViewsCount = 1u; // used to be 4u with debug maps (counted x2 for RO & RW binding but one descriptor)
-                std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, ViewsCount + 1u> infos;
-				#define FILL_INFO(DESC, IX) \
-                { \
-                    auto& info = infos[IX].emplace_back(); \
-                    info.desc = DESC; \
-                    info.info.image.imageLayout = IImage::LAYOUT::GENERAL; \
-                }
+			constexpr auto ViewsCount = 1u; // used to be 4u with debug maps (counted x2 for RO & RW binding but one descriptor)
+                std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, ViewsCount * 2u + 1u> infos;
+                auto addInfo = [](auto& list, auto desc, IImage::LAYOUT layout)
+                {
+                    auto& info = list.emplace_back();
+                    info.desc = desc;
+                    info.info.image.imageLayout = layout;
+                };
 
                 for (uint32_t i = 0; i < m_assets.size(); ++i)
                 {
                     auto& ies = m_assets[i];
-
-                    FILL_INFO(ies.views.candelaOctahedralMap, 0u)
+                    addInfo(infos[0u], ies.views.candelaOctahedralMap, IImage::LAYOUT::READ_ONLY_OPTIMAL);
+                    addInfo(infos[1u], ies.views.candelaOctahedralMap, IImage::LAYOUT::GENERAL);
                 }
-                FILL_INFO(generalSampler, ViewsCount);
+                addInfo(infos.back(), generalSampler, IImage::LAYOUT::READ_ONLY_OPTIMAL);
                 auto* samplerInfo = infos.back().data();
-                samplerInfo->info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-                std::array<IGPUDescriptorSet::SWriteDescriptorSet, ViewsCount * 2u + 1u > writes;
-                for (uint32_t i = 0; i < ViewsCount; ++i)
-                {
-                    auto& write = writes[i];
-                    write.count = m_assets.size();
-                    write.info = infos[i].data();
-                    write.dstSet = m_descriptors[0u].get();
-                    write.arrayElement = 0u;
-                    write.binding = i;
-                }
+                std::array<IGPUDescriptorSet::SWriteDescriptorSet, ViewsCount * 2u + 1u> writes = {};
+                auto& sampledWrite = writes[0u];
+                sampledWrite.count = m_assets.size();
+                sampledWrite.info = infos[0u].data();
+                sampledWrite.dstSet = m_descriptors[0u].get();
+                sampledWrite.arrayElement = 0u;
+                sampledWrite.binding = 0u;
 
-                for (uint32_t i = ViewsCount; i < ViewsCount*2u; ++i)
-                {
-                    auto ix = i - ViewsCount;
-                    auto& write = writes[i] = writes[ix];
-                    write.binding = ix + 10u;
-                }
+                auto& storageWrite = writes[1u];
+                storageWrite.count = m_assets.size();
+                storageWrite.info = infos[1u].data();
+                storageWrite.dstSet = m_descriptors[0u].get();
+                storageWrite.arrayElement = 0u;
+                storageWrite.binding = 10u;
 
                 auto& write = writes.back();
                 write.count = 1u;
@@ -311,10 +313,12 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             auto ixs = std::to_string(i);
 
             // TODO: may actually change it, temporary hardcoding
-            constexpr auto WIDTH = 640, HEIGHT = 640;
+            constexpr auto WIDTH = 640;
+            constexpr auto HEIGHT_2D = WIDTH * 2;
+            constexpr auto HEIGHT_3D = WIDTH;
 
             {
-                auto color = createImageView(WIDTH, HEIGHT, EF_R8G8B8A8_SRGB, "[2D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
+                auto color = createImageView(WIDTH, HEIGHT_2D, EF_R8G8B8A8_SRGB, "[2D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
                 fb2D = m_device->createFramebuffer
                 (
                     { {
@@ -322,14 +326,14 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                         .depthStencilAttachments = nullptr,
                         .colorAttachments = &color.get(),
                         .width = WIDTH,
-                        .height = HEIGHT
+                        .height = HEIGHT_2D
                     } }
                 );
             }
 
             {
-                auto color = createImageView(WIDTH, HEIGHT, EF_R8G8B8A8_SRGB, "[3D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
-                auto depth = createImageView(WIDTH, HEIGHT, EF_D16_UNORM, "[3D Plot]: framebuffer[" + ixs + "].depth attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IGPUImage::EAF_DEPTH_BIT);
+                auto color = createImageView(WIDTH, HEIGHT_3D, EF_R8G8B8A8_SRGB, "[3D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
+                auto depth = createImageView(WIDTH, HEIGHT_3D, EF_D16_UNORM, "[3D Plot]: framebuffer[" + ixs + "].depth attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IGPUImage::EAF_DEPTH_BIT);
 
                 fb3D = m_device->createFramebuffer
                 (
@@ -338,7 +342,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                         .depthStencilAttachments = &depth.get(),
                         .colorAttachments = &color.get(),
                         .width = WIDTH,
-                        .height = HEIGHT
+                        .height = HEIGHT_3D
                     } }
                 );
             }
@@ -411,14 +415,19 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
         core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+        const auto cameraOffset = cameraPosition - cameraTarget;
+        cameraPosition = cameraTarget + cameraOffset * 1.5f;
 
 #ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(m_window->getWidth()) / float(m_window->getHeight()), 0.1, 10000);
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), float(m_window->getWidth()) / float(m_window->getHeight()), 0.1, 10000);
 #else
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(params.width) / float(params.height), 0.1, 10000);
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(m_cameraFovDeg), float(params.width) / float(params.height), 0.1, 10000);
 #endif
         camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+        m_cameraMoveSpeed = camera.getMoveSpeed();
+        m_cameraRotateSpeed = camera.getRotateSpeed();
+        m_cameraControlApplied = !m_cameraControlEnabled;
     }
 
 #ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
@@ -574,6 +583,22 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     }
 
     onAppInitializedFinish();
+    if (m_window && m_winMgr)
+        applyWindowMode();
 
     return true;
+}
+
+void IESViewer::applyWindowMode()
+{
+    if (!m_window || !m_winMgr)
+        return;
+
+    m_winMgr->maximize(m_window.get());
+
+    if (m_surface)
+    {
+        if (auto* scRes = m_surface->getSwapchainResources())
+            scRes->invalidate();
+    }
 }

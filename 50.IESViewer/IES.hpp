@@ -34,12 +34,15 @@ struct IES
     std::string key;
 
     float zDegree = 0.f;
+    float flatten = 0.0f;
 
     const asset::CIESProfile* getProfile() const;
     video::IGPUImage* getActiveImage(E_MODE mode) const;
 
     static const char* modeToRS(E_MODE mode);
     static const char* symmetryToRS(CIESProfile::properties_t::LuminairePlanesSymmetry symmetry);
+    static const char* typeToRS(CIESProfile::properties_t::PhotometricType type);
+    static const char* versionToRS(CIESProfile::properties_t::Version version);
 
     template<IImage::LAYOUT newLayout, bool undefined = false>
     requires(newLayout == IImage::LAYOUT::GENERAL or newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
@@ -77,8 +80,8 @@ struct IES
             if constexpr (newLayout == IImage::LAYOUT::GENERAL)
             {
                 // READ_ONLY_OPTIMAL -> GENERAL, RW
-                it.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-                it.barrier.dep.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                it.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS;
+                it.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
                 it.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
                 it.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
                 it.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
@@ -88,8 +91,8 @@ struct IES
                 // GENERAL -> READ_ONLY_OPTIMAL, RO
                 it.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
                 it.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
-                it.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-                it.barrier.dep.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                it.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS;
+                it.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
                 it.oldLayout = IImage::LAYOUT::GENERAL;
             }
 

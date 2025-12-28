@@ -19,6 +19,7 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 set(DEPENDS
 	app_resources/common.hlsl
+	app_resources/false_color.hlsl
 	app_resources/imgui.opts.hlsl
 	app_resources/ies.unified.hlsl
 	app_resources/imgui.unified.hlsl
