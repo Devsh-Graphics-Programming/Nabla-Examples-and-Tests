@@ -26,6 +26,6 @@
     "TestCTGenerateH": {
         "runs": 10,
         "samples": 1000000,
-        "immediateFail": true
+        "immediateFail": false
     }
 }

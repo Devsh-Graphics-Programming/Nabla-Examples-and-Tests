@@ -49,8 +49,7 @@ struct TestNDF : TestBxDF<BxDF>
             }
         }
 
-        // TODO: might want to distinguish between invalid H and sample produced below hemisphere
-        if (!(s.isValid() && sx.isValid() && sy.isValid()))
+        if (!BxDF::ndf_type::GuaranteedVNDF && !(s.isValid() && sx.isValid() && sy.isValid()))
             return BTR_INVALID_TEST_CONFIG;
 
         using ndf_type = typename base_t::bxdf_t::ndf_type;
@@ -211,8 +210,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
-            // TODO: might want to distinguish between invalid H and sample produced below hemisphere
-            if (!s.isValid())
+            if (!BxDF::ndf_type::GuaranteedVNDF && !s.isValid())
                 continue;
 
             bool transmitted;

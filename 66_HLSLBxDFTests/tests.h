@@ -358,7 +358,6 @@ struct TestChi2 : TestBxDF<BxDF>
         const auto format = E_FORMAT::EF_R32G32B32A32_SFLOAT;
 
         IImage::SCreationParams imageParams = {};
-        imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
         imageParams.type = IImage::E_TYPE::ET_2D;
         imageParams.format = format;
         imageParams.extent = { totalWidth, totalHeight, 1 };

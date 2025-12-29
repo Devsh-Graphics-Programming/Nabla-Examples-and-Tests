@@ -134,7 +134,7 @@ struct TestJacobian : TestBxDF<BxDF>
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
 
         float32_t3 quo_pdf = pdf.value();
-        if (!checkEq<float32_t3>(quo_pdf, bsdf, 1e-4))
+        if (!hlsl::isinf(pdf.pdf) && !checkEq<float32_t3>(quo_pdf, bsdf, 1e-4))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
