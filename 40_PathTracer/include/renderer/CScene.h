@@ -5,10 +5,7 @@
 #define _NBL_THIS_EXAMPLE_C_SCENE_H_INCLUDED_
 
 
-#include "nabla.h"
-// TODO: move to `io`
-#include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
-#include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
+#include "io/CSceneLoader.h"
 
 
 namespace nbl::this_example
@@ -19,26 +16,34 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
     public:
 		struct SCachedCreationParams
 		{
+		};
+		struct SCreationParams : SCachedCreationParams
+		{
+			CSceneLoader::SLoadResult load = {};
+			video::CAssetConverter* converter = nullptr;
+
 			inline operator bool() const
 			{
-				if (!scene || !metadata)
+				if (!load)
 					return false;
+				// converter can be null, we can make a new one
 				return true;
 			}
-
-			//
-			core::smart_refctd_ptr<asset::ICPUScene> scene;
-			//
-			core::smart_refctd_ptr<ext::MitsubaLoader::CMitsubaMetadata> metadata;
 		};
-		static core::smart_refctd_ptr<CScene> create(SCachedCreationParams&& params);
+
+		// TODO: figure out whats constant, and whats state that can be passed around
+		inline std::span<const CSceneLoader::SLoadResult::SSensor> getSensors() const {return m_params.sensors;}
+
+		// TODO: function to initialize per-sensor stuff
 
     protected:
+		friend class CRenderer;
 		struct SConstructorParams : SCachedCreationParams
 		{
 			// descriptor set for a scene shall contain sampled textures and compiled materials
 			core::smart_refctd_ptr<video::IGPUDescriptorSet> sceneDS;
 
+			core::vector<CSceneLoader::SLoadResult::SSensor> sensors;
 #if 0
 			nbl::core::aabbox3df m_sceneBound;
 			float m_maxAreaLightLuma;
@@ -69,8 +74,6 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_maskAcc;
 		
 #endif
-		// TODO: for Material Compiler
-		//std::future<bool> compileShadersFuture;
 };
 
 }

@@ -14,7 +14,7 @@ using namespace nbl::asset;
 using namespace nbl::video;
 
 //
-core::smart_refctd_ptr<CRenderer> CRenderer::create(SCachedCreationParams&& _params)
+core::smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 {
 	if (!_params)
 		return nullptr;
@@ -23,8 +23,6 @@ core::smart_refctd_ptr<CRenderer> CRenderer::create(SCachedCreationParams&& _par
 	//
 	ILogicalDevice* device = params.utilities->getLogicalDevice();
 
-	//
-	params.converter = CAssetConverter::create({.device=device,.optimizer={}});
 
 	// create the layouts
 	{
@@ -56,6 +54,26 @@ core::smart_refctd_ptr<CRenderer> CRenderer::create(SCachedCreationParams&& _par
 	}
 
 	return core::smart_refctd_ptr<CRenderer>(new CRenderer(std::move(params)),core::dont_grab);
+}
+
+
+core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& _params)
+{
+	if (!_params)
+		return nullptr;
+	auto converter = core::smart_refctd_ptr<CAssetConverter>(_params.converter);
+
+	CScene::SConstructorParams params = {std::move(_params)};
+	
+	// new cache if none provided
+	if (!converter)
+		converter = CAssetConverter::create({.device=getDevice(),.optimizer={}});
+
+	// build the BLAS and TLAS
+	{
+	}
+
+	return core::smart_refctd_ptr<CScene>(new CScene(std::move(params)),core::dont_grab);
 }
 
 }

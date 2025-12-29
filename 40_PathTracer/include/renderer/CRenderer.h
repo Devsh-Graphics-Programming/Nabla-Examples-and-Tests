@@ -86,20 +86,24 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			//
 			core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
 		};
-		static core::smart_refctd_ptr<CRenderer> create(SCachedCreationParams&& params);
+		struct SCreationParams : SCachedCreationParams
+		{
+		};
+		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
 		//
 		inline video::ILogicalDevice* getDevice() { return m_params.utilities->getLogicalDevice(); }
 
+		//
+		core::smart_refctd_ptr<CScene> createScene(CScene::SCreationParams&& _params);
+
     protected:
 		struct SConstructorParams : SCachedCreationParams
 		{
-			core::smart_refctd_ptr<video::CAssetConverter> converter;
-
 			// per pipeline UBO, with fast updates
-			core::smart_refctd_ptr<video::IGPUDescriptorSet> uboDS;
+			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> uboDSLayout;
 			// descriptor set for a scene shall contain sampled textures and compiled materials
-			core::smart_refctd_ptr<video::IGPUDescriptorSet> sceneDS;
+			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> sceneDSLayout;
 
 			// rendering pipelines
 			core::smart_refctd_ptr<video::IGPURayTracingPipeline> preVis;
@@ -150,20 +154,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			private:
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
-		uint16_t maxPathDepth;
-		uint16_t noRussianRouletteDepth : 15;
-		uint16_t hideEnvironment : 1;
-		uint32_t maxSensorSamples;
-
-		nbl::core::matrix3x4SIMD m_prevView;
-		nbl::core::matrix4x3 m_prevCamTform;
-		nbl::core::aabbox3df m_sceneBound;
-		uint32_t m_framesDispatched;
-		float m_maxAreaLightLuma;
-		vec2 m_rcpPixelSize;
-		uint64_t m_totalRaysCast;
-		StaticViewData_t m_staticViewData;
-		RaytraceShaderCommonData_t m_raytraceCommonData; 
 		
 		// Resources used for envmap sampling
 		nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;

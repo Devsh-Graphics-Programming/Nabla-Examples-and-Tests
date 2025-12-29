@@ -17,6 +17,7 @@
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 
+using namespace nbl::core;
 using namespace nbl::application_templates;
 using namespace nbl::examples;
 using namespace nbl::this_example;
@@ -102,6 +103,25 @@ public:
 
 		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
+		
+		// TODO: move new members
+		smart_refctd_ptr<CSceneLoader> m_sceneLoader;
+		smart_refctd_ptr<CRenderer> m_renderer;
+
+		// set up the scene loader
+		m_sceneLoader = CSceneLoader::create({{
+			.assMan = smart_refctd_ptr(m_assetMgr),
+			.logger = smart_refctd_ptr(m_logger)
+		}});
+
+		//
+		m_renderer = CRenderer::create({{
+			.graphicsQueue = getGraphicsQueue(),
+			.computeQueue = getComputeQueue(),
+			.uploadQueue = getTransferUpQueue(),
+			.utilities = smart_refctd_ptr(m_utils)
+		}});
+
 
 		// Load Custom Shader
 		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
