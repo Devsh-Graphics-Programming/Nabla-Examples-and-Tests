@@ -131,7 +131,7 @@ struct TestNDF : TestBxDF<BxDF>
         
         float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
         const bool alphaIsZero = checkZero<float32_t2>(base_t::rc.alpha, 1e-3);
-        if (!alphaIsZero && !checkZero<float>(jacobi_dg1_ndoth - 1.f, 0.1))
+        if (!alphaIsZero && !checkZero<float>(det, 1e-3) && !checkZero<float>(jacobi_dg1_ndoth - 1.f, 0.1))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
