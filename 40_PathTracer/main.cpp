@@ -1,34 +1,43 @@
-// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2025-2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "common.hpp"
 
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
-
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-#include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
+#include "nbl/examples/examples.hpp"
 
-class RaytracingPipelineApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
+#include "renderer/CRenderer.h"
+
+
+// TODO remove
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "common.hpp"
+#include "nbl/builtin/hlsl/indirect_commands.hlsl"
+
+
+using namespace nbl::application_templates;
+using namespace nbl::examples;
+using namespace nbl::this_example;
+
+class PathTracingApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = BuiltinResourcesApplication;
-	using clock_t = std::chrono::steady_clock;
 
-	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
+	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720; // TODO: remove
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
-	constexpr static inline uint8_t MaxUITextureCount = 1u;
-	constexpr static inline uint32_t NumberOfProceduralGeometries = 5;
+	constexpr static inline uint8_t MaxUITextureCount = 1u; // TODO: remove
+	constexpr static inline uint32_t NumberOfProceduralGeometries = 5; // TODO: remove
 
-	static constexpr const char* s_lightTypeNames[E_LIGHT_TYPE::ELT_COUNT] = {
+	static constexpr const char* s_lightTypeNames[E_LIGHT_TYPE::ELT_COUNT] = {  // TODO: remove
 	  "Directional",
 	  "Point",
 	  "Spot"
 	};
 
-	struct ShaderBindingTable
+	struct ShaderBindingTable // TODO: remove
 	{
 		SBufferRange<IGPUBuffer> raygenGroupRange;
 		SBufferRange<IGPUBuffer> hitGroupsRange;
@@ -41,25 +50,19 @@ class RaytracingPipelineApp final : public SimpleWindowedApplication, public Bui
 
 
 public:
-	inline RaytracingPipelineApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
-	{
-	}
+	inline PathTracingApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)	{}
 
 	inline SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
-		retval.rayTracingPipeline = true;
-		retval.accelerationStructure = true;
-		retval.rayQuery = true;
-		return retval;
+		return retval.unionWith(CRenderer::RequiredDeviceFeatures());
 	}
 
 	inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
 	{
 		auto retval = device_base_t::getPreferredDeviceFeatures();
-		retval.accelerationStructureHostCommands = true;
-		return retval;
+		return retval.unionWith(CRenderer::PreferredDeviceFeatures());
 	}
 
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
@@ -67,7 +70,7 @@ public:
 		if (!m_surface)
 		{
 			{
-				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem),smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params = {};
 				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
 				params.width = WIN_W;
@@ -88,14 +91,6 @@ public:
 			return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
 		return {};
-	}
-
-	// so that we can use the same queue for asset converter and rendering
-	inline core::vector<queue_req_t> getQueueRequirements() const override
-	{
-		auto reqs = device_base_t::getQueueRequirements();
-		reqs.front().requiredFlags |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
-		return reqs;
 	}
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -1523,4 +1518,4 @@ private:
 	bool m_useIndirectCommand = false;
 
 };
-NBL_MAIN_FUNC(RaytracingPipelineApp)
+NBL_MAIN_FUNC(PathTracingApp)
