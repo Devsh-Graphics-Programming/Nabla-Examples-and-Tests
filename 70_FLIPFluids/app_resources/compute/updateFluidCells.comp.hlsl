@@ -23,6 +23,7 @@ cbuffer GridData
 
 // TODO: f 0 is AIR, and >=2 is SOLID, we can perform Atomic OR 0b01 to have a particle set the cell to FLUID, and this dispatch looping over all grid cells is not needed!
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cIdx = ID;
