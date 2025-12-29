@@ -415,7 +415,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				if (m_shouldDrawOBB)
 				{
 					const auto obbTransform = ext::debug_draw::DrawAABB::getTransformFromOBB(meshInstance.obb);
-					debugDrawInstances.push_back(ext::debug_draw::InstanceData{ .transform = hlsl::mul(world4x4, obbTransform), .color = float32_t4(0, 0, 1, 1)});
+					debugDrawInstances.push_back(ext::debug_draw::InstanceData{ .transform = math::linalg::promoted_mul(world4x4, obbTransform), .color = float32_t4(0, 0, 1, 1)});
 				}
 				m_bbRenderer->render({ cb, viewProjMatrix }, drawFinished, debugDrawInstances);
 

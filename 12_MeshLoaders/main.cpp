@@ -495,11 +495,7 @@ private:
 					};
 
 					aabbInst.color = { 1,1,1,1 };
-					aabbInst.transform[0] = tmpWorld[0];
-					aabbInst.transform[1] = tmpWorld[1];
-					aabbInst.transform[2] = tmpWorld[2];
-					aabbInst.transform[3] = float32_t4(0, 0, 0, 1);
-					aabbInst.transform = math::linalg::promoted_mul(aabbInst.transform, aabbTransform);
+					aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
 
 					auto& obbInst = m_obbInstances[i];
 					const auto& cpuGeom = geometries[i].get();
@@ -513,7 +509,7 @@ private:
 					});
 					obbInst.color = { 0, 0, 1, 1 };
 					const auto obbTransform = ext::debug_draw::DrawAABB::getTransformFromOBB(obb);
-					obbInst.transform = hlsl::mul(world4x4, obbTransform);
+					obbInst.transform = math::linalg::promoted_mul(world4x4, obbTransform);
 #endif
 				}
 
