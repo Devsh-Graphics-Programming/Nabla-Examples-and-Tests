@@ -208,7 +208,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					drawParams.commandBuffer = cb;
 					drawParams.cameraMat = viewProjMatrix;
 					m_drawAABB->render(drawParams, drawFinished, m_drawBBMode == DBBM_OBB ? m_obbInstances : m_aabbInstances);
->>>>>>> master
 				}
 #endif
 				cb->endRenderPass();
@@ -480,13 +479,6 @@ private:
 					const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
 					printAABB(transformed,"Transformed");
 					bound = hlsl::shapes::util::union_(transformed,bound);
-					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-					const auto world4x4 = float32_t4x4{
-						tmpWorld[0],
-						tmpWorld[1],
-						tmpWorld[2],
-						float32_t4(0, 0, 0, 1)
-					};
 
 #ifdef NBL_BUILD_DEBUG_DRAW
 
@@ -495,12 +487,19 @@ private:
 
 					hlsl::float32_t3x4 aabbTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
 					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
+					const auto world4x4 = float32_t4x4{
+						tmpWorld[0],
+						tmpWorld[1],
+						tmpWorld[2],
+						float32_t4(0, 0, 0, 1)
+					};
+
 					aabbInst.color = { 1,1,1,1 };
 					aabbInst.transform[0] = tmpWorld[0];
 					aabbInst.transform[1] = tmpWorld[1];
 					aabbInst.transform[2] = tmpWorld[2];
 					aabbInst.transform[3] = float32_t4(0, 0, 0, 1);
-					aabbInst.transform = math::linalg::promoted_mul(aabbInst.transform, instanceTransform);
+					aabbInst.transform = math::linalg::promoted_mul(aabbInst.transform, aabbTransform);
 
 					auto& obbInst = m_obbInstances[i];
 					const auto& cpuGeom = geometries[i].get();
