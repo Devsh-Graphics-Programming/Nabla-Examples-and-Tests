@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "app_resources/tests_common.hlsl"
+#include "nbl/builtin/hlsl/visualization/turbo.hlsl"
 
 // because unordered_map -- next time, do fixed size array of atomic offsets and linked lists (for readback and verification on cpu)
 template<class BxDF, bool aniso = false>
@@ -247,36 +248,6 @@ struct TestChi2 : TestBxDF<BxDF>
         }
     }
 
-    float32_t3 mapColor(float v, float vmin, float vmax)
-    {
-        float32_t3 c = float32_t3(1, 1, 1);
-        float diff = vmax - vmin;
-        v = clamp<float>(v, vmin, vmax);
-
-        if (v < (vmin + 0.25f * diff))
-        {
-            c.r = 0;
-            c.g = 4.f * (v - vmin) / diff;
-        }
-        else if (v < (vmin + 0.5f * diff))
-        {
-            c.r = 0;
-            c.b = 1.f + 4.f * (vmin + 0.25f * diff - v) / diff;
-        }
-        else if (v < (vmin + 0.75f * diff))
-        {
-            c.r = 4.f * (v - vmin - 0.5f * diff) / diff;
-            c.b = 0;
-        }
-        else
-        {
-            c.g = 1.f + 4.f * (vmin + 0.75f * diff - v) / diff;
-            c.b = 0;
-        }
-
-        return c;
-    }
-
     smart_refctd_ptr<ICPUImage> writeToCPUImage()
     {
         const uint32_t totalWidth = phiSplits;
@@ -318,7 +289,8 @@ struct TestChi2 : TestBxDF<BxDF>
         for (uint64_t j = 0u; j < thetaSplits; ++j)
             for (uint64_t i = 0; i < phiSplits; ++i)
             {
-                float32_t3 pixelColor = mapColor(countFreq[j * phiSplits + i], 0.f, maxCountFreq);
+                //float32_t3 pixelColor = mapColor(countFreq[j * phiSplits + i], 0.f, maxCountFreq);
+                float32_t3 pixelColor = hlsl::visualization::Turbo::map(countFreq[j * phiSplits + i] / maxCountFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
                 const uint64_t pixelIndex = j * phiSplits + i;
@@ -329,7 +301,8 @@ struct TestChi2 : TestBxDF<BxDF>
         for (uint64_t j = 0u; j < thetaSplits; ++j)
             for (uint64_t i = 0; i < phiSplits; ++i)
             {
-                float32_t3 pixelColor = mapColor(integrateFreq[j * phiSplits + i], 0.f, maxIntFreq);
+                //float32_t3 pixelColor = mapColor(integrateFreq[j * phiSplits + i], 0.f, maxIntFreq);
+                float32_t3 pixelColor = hlsl::visualization::Turbo::map(integrateFreq[j * phiSplits + i] / maxIntFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
                 const uint64_t pixelIndex = (thetaSplits + j) * phiSplits + i;
