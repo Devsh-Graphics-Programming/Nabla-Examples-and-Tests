@@ -122,6 +122,19 @@ public:
 			.utilities = smart_refctd_ptr(m_utils)
 		}});
 
+		// TODO: tmp code
+		auto scene_daily_pt = m_sceneLoader->load({
+			.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
+			.workingDirectory = localOutputCWD 
+		});
+		// the UI would have you load the zip first, then present a dropdown of what to load
+		// but still need to support archive mount for cmdline load
+#if 0 // this particular zip goes down an unsupported path in our zip loader
+		auto scene_bedroom = m_sceneLoader->load({
+			.relPath = sharedInputCWD/"mitsuba/bedroom.zip/scene.xml",
+			.workingDirectory = localOutputCWD
+		});
+#endif
 
 		// Load Custom Shader
 		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>

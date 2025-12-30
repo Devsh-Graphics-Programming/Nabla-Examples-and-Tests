@@ -73,6 +73,8 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 	{
 	}
 
+	// fill out the render classes but don't init yet
+
 	return core::smart_refctd_ptr<CScene>(new CScene(std::move(params)),core::dont_grab);
 }
 
