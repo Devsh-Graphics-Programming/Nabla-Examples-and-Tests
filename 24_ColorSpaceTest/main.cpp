@@ -541,7 +541,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						struct
 						{
 							std::string path;
-							json data;
+							::json data;
 						} current, reference;
 
 						current.path = (localOutputCWD / filename).make_preferred().string() + "_" + modeAsString + extension.string() + ".json";
@@ -552,7 +552,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						m_logger->log("Mode: \"%s\"", ILogger::ELL_INFO, modeAsString.c_str());
 						m_logger->log("Writing \"%ls\"'s image hash to \"%s\"", ILogger::ELL_INFO, filename.c_str(), current.path.c_str());
 
-						current.data["image"] = json::array();
+						current.data["image"] = ::json::array();
 						for (const auto& it : hash)
 							current.data["image"].push_back(it);
 

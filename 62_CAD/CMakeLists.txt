@@ -14,8 +14,7 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/SingleLineText.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SingleLineText.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/GeoTexture.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/GeoTexture.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Images.cpp"
   "../../src/nbl/ext/TextRendering/TextRendering.cpp" # TODO: this one will be a part of dedicated Nabla ext called "TextRendering" later on which uses MSDF + Freetype
 )
 set(EXAMPLE_INCLUDES
@@ -69,11 +68,12 @@ set(DEPENDS
 	shaders/runtimeDeviceConfigCaps.hlsl
 	shaders/main_pipeline/common.hlsl
 	shaders/main_pipeline/dtm.hlsl
-	shaders/main_pipeline/fragment.hlsl
+	shaders/main_pipeline/all_fragment_shaders.hlsl
 	shaders/main_pipeline/fragment_shader.hlsl
 	shaders/main_pipeline/fragment_shader_debug.hlsl
+	shaders/main_pipeline/fragment_shader_georef.hlsl
 	shaders/main_pipeline/line_style.hlsl
-	shaders/main_pipeline/resolve_alphas.hlsl
+	shaders/main_pipeline/fragment_shader_resolve_alphas.hlsl
 	shaders/main_pipeline/vertex_shader.hlsl
 )
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
@@ -97,7 +97,7 @@ set(JSON [=[
 		"CAPS": [${REQUIRED_CAPS}]
     },
     {
-		"INPUT": "shaders/main_pipeline/fragment.hlsl",
+		"INPUT": "shaders/main_pipeline/all_fragment_shaders.hlsl",
 		"KEY": "main_pipeline_fragment_shader",
 		"CAPS": [${REQUIRED_CAPS}]
     }
