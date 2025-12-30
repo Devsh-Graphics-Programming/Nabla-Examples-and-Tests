@@ -88,14 +88,14 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 	const auto type = asset.getAssetType();
 	if (type!=IAsset::E_TYPE::ET_SCENE)
 	{
-		params.logger.log("But did not load an `ICPUScene` type is %S",ILogger::ELL_ERROR,system::to_string(type));
+		m_params.logger.log("But did not load an `ICPUScene` type is %S",ILogger::ELL_ERROR,system::to_string(type));
 		return {};
 	}
 	
 	const auto* const untypedMeta = asset.getMetadata();
 	if (!untypedMeta || strcmpi(untypedMeta->getLoaderName(),CMitsubaMetadata::LoaderName)!=0)
 	{
-		params.logger.log("Loaded an ICPUScene but without `CMistubaMetadata`",ILogger::ELL_ERROR);
+		m_params.logger.log("Loaded an ICPUScene but without `CMistubaMetadata`",ILogger::ELL_ERROR);
 		return {};
 	}
 	const auto* const meta = static_cast<const CMitsubaMetadata*>(untypedMeta);
@@ -105,17 +105,22 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 	auto& _sensors = meta->m_global.m_sensors;
 	if (_sensors.empty())
 	{
-		params.logger.log("The `CMistubaMetadata` contains no sensors",ILogger::ELL_ERROR);
+		m_params.logger.log("The `CMistubaMetadata` contains no sensors",ILogger::ELL_ERROR);
 		return {};
 	}
 	else
 	{
 		sensors.resize(_sensors.size());
+		m_params.logger.log("Total number of Sensors = %d",ILogger::ELL_INFO,sensors.size());
 		//for () // TODO: load the stuff
 	}
 
 	// TODO: any CPU-side touch-ups we need to do, like Material IR options
 
+	
+	// empty out the cache from individual images and meshes taht are not used by the scene
+	assMan->clearAllAssetCache();
+	// return
 	return {
 		.scene = IAsset::castDown<const ICPUScene>(asset.getContents()[0]),
 		.sensors = std::move(sensors)

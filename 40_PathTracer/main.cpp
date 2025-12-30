@@ -9,6 +9,8 @@
 
 #include "renderer/CRenderer.h"
 
+#include "nlohmann/json.hpp"
+
 
 // TODO remove
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -27,6 +29,40 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = BuiltinResourcesApplication;
 
+	// TODO: move to Nabla proper
+	static inline void jsonizeGitInfo(nlohmann::json& target, const gtml::GitInfo& info)
+	{
+		target["isPopulated"] = info.isPopulated;
+		if (info.hasUncommittedChanges.has_value())
+			target["hasUncommittedChanges"] = info.hasUncommittedChanges.value();
+		else
+			target["hasUncommittedChanges"] = "UNKNOWN, BUILT WITHOUT DIRTY-CHANGES CAPTURE";
+
+		target["commitAuthorName"] = info.commitAuthorName;
+		target["commitAuthorEmail"] = info.commitAuthorEmail;
+		target["commitHash"] = info.commitHash;
+		target["commitShortHash"] = info.commitShortHash;
+		target["commitDate"] = info.commitDate;
+		target["commitSubject"] = info.commitSubject;
+		target["commitBody"] = info.commitBody;
+		target["describe"] = info.describe;
+		target["branchName"] = info.branchName;
+		target["latestTag"] = info.latestTag;
+		target["latestTagName"] = info.latestTagName;
+	}
+
+	inline void printGitInfos() const
+	{
+		nlohmann::json j;
+
+		auto& modules = j["modules"];
+		jsonizeGitInfo(modules["nabla"],gtml::nabla_git_info);
+		jsonizeGitInfo(modules["dxc"],gtml::dxc_git_info);
+
+		m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,j.dump(4).c_str());
+	}
+
+	// TODO: remove
 	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720; // TODO: remove
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 	constexpr static inline uint8_t MaxUITextureCount = 1u; // TODO: remove
@@ -103,6 +139,8 @@ public:
 
 		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
+
+		printGitInfos();
 		
 		// TODO: move new members
 		smart_refctd_ptr<CSceneLoader> m_sceneLoader;
