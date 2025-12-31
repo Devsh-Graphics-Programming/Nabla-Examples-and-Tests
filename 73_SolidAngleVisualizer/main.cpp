@@ -420,7 +420,9 @@ public:
 			{
 				PushConstants pc{
 					.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-					.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) }
+					.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
+					.samplingMode = m_samplingMode,
+					.frameIndex = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u
 				};
 				auto pipeline = m_visualizationPipeline;
 				cb->bindGraphicsPipeline(pipeline.get());
@@ -794,6 +796,8 @@ private:
 	// we create the Descriptor Set with a few slots extra to spare, so we don't have to `waitIdle` the device whenever ImGUI virtual window resizes
 	constexpr static inline auto MaxImGUITextures = 2u + MaxFramesInFlight;
 
+	static inline uint32_t m_samplingMode = SAMPLING_MODE_SOLID_ANGLE;
+	static inline bool m_frameSeeding = true;
 	static inline ResultData m_GPUOutResulData;
 	//
 	smart_refctd_ptr<CGeometryCreatorScene> m_scene;
@@ -855,13 +859,20 @@ private:
 			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 			ImGui::Begin("Editor");
 
-			//if (ImGui::RadioButton("Full view", !transformParams.useWindow))
-			//	transformParams.useWindow = false;
+			ImGui::Text("Sampling Mode: ");
+			ImGui::SameLine();
 
-			//ImGui::SameLine();
+			if (ImGui::RadioButton("Solid Angle", m_samplingMode == 0))
+				m_samplingMode = SAMPLING_MODE_SOLID_ANGLE;
 
-			//if (ImGui::RadioButton("Window", transformParams.useWindow))
-			//	transformParams.useWindow = true;
+			ImGui::SameLine();
+
+			if (ImGui::RadioButton("Projected Solid Angle", m_samplingMode == 1))
+				m_samplingMode = SAMPLING_MODE_PROJECTED_SOLID_ANGLE;
+
+			ImGui::Checkbox("Frame seeding", &m_frameSeeding);
+
+			ImGui::Separator();
 
 			ImGui::Text("Camera");
 
@@ -1108,7 +1119,7 @@ private:
 					ImGui::Text("silhouette Vertex Count: %u", m_GPUOutResulData.silhouetteVertexCount);
 					ImGui::Text("silhouette Positive VertexCount: %u", m_GPUOutResulData.positiveVertCount);
 					ImGui::Text("Silhouette Mismatch: %s", m_GPUOutResulData.edgeVisibilityMismatch ? "true" : "false");
-					ImGui::Text("More Than Two Bit Transitions: %s", m_GPUOutResulData.MoreThanTwoBitTransitions ? "true" : "false");
+					ImGui::Text("More Than Two Bit Transitions: %s", m_GPUOutResulData.maxTrianglesExcceded ? "true" : "false");
 
 					{
 						float32_t3 xAxis = m_OBBModelMatrix[0].xyz;
@@ -1136,12 +1147,12 @@ private:
 						lastSilhouetteIndex = m_GPUOutResulData.silhouetteIndex;
 					}
 
-					if (!m_GPUOutResulData.edgeVisibilityMismatch || !m_GPUOutResulData.MoreThanTwoBitTransitions)
+					if (!m_GPUOutResulData.edgeVisibilityMismatch || !m_GPUOutResulData.maxTrianglesExcceded)
 					{
 						// Reset flag when mismatch is cleared
 						modalShown = false;
 					}
-					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.MoreThanTwoBitTransitions) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
+					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.maxTrianglesExcceded) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
 					{
 						// Open modal popup only once per configuration
 						ImGui::OpenPopup("Edge Visibility Mismatch Warning");

@@ -168,18 +168,36 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 		// Decompose original matrix
 		nbl::hlsl::float32_t3 translation, rotation, scale;
 		ImGuizmo::DecomposeMatrixToComponents(matrix, &translation.x, &rotation.x, &scale.x);
-
-		float temp[16];
+		// Create rotation-only matrix
+		nbl::hlsl::float32_t4x4 temp;
 		nbl::hlsl::float32_t3 baseTranslation(0.0f);
 		nbl::hlsl::float32_t3 baseScale(1.0f);
-		ImGuizmo::RecomposeMatrixFromComponents(&baseTranslation.x, &rotation.x, &baseScale.x, temp);
-		// Manipulate rotation only
-		ImGuizmo::ViewManipulate(temp, 1.0f, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+		ImGuizmo::RecomposeMatrixFromComponents(&baseTranslation.x, &rotation.x, &baseScale.x, &temp[0][0]);
+		temp = nbl::hlsl::transpose(temp);
 
-		// Extract rotation from manipulated temp
+		// Invert to make it "view-like"
+		nbl::hlsl::float32_t4x4 tempInv = nbl::hlsl::inverse(temp);
+
+		// Create flip matrix (flip X to fix left/right)
+		nbl::hlsl::float32_t4x4 flip(1.0f);
+		flip[0][0] = -1.0f; // Flip X axis
+
+		// Apply flip to the inverted matrix
+		tempInv = nbl::hlsl::mul(nbl::hlsl::mul(flip, tempInv), flip);
+
+		// Manipulate
+		ImGuizmo::ViewManipulate(&tempInv[0][0], 1.0f, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+
+		// Undo flip (flip is its own inverse, so multiply by flip again)
+		tempInv = nbl::hlsl::mul(nbl::hlsl::mul(flip, tempInv), flip);
+
+		// Invert back to model space
+		temp = nbl::hlsl::inverse(tempInv);
+		temp = nbl::hlsl::transpose(temp);
+
+		// Extract rotation
 		nbl::hlsl::float32_t3 newRot;
-		ImGuizmo::DecomposeMatrixToComponents(temp, &baseTranslation.x, &newRot.x, &baseScale.x);
-
+		ImGuizmo::DecomposeMatrixToComponents(&temp[0][0], &baseTranslation.x, &newRot.x, &baseScale.x);
 		// Recompose original matrix with new rotation but keep translation & scale
 		ImGuizmo::RecomposeMatrixFromComponents(&translation.x, &newRot.x, &scale.x, matrix);
 
