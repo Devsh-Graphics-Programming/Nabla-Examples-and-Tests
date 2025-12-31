@@ -1,5 +1,6 @@
 #include "nbl/examples/examples.hpp"
 #include <chrono>
+#include <thread>
 
 using namespace nbl;
 using namespace nbl::core;
@@ -68,8 +69,9 @@ public:
 		{
 			IGPUImage::SCreationParams imgParams{};
 			imgParams.type = IImage::E_TYPE::ET_2D;
-			imgParams.extent.width = TILE_SIZE * 32;
-			imgParams.extent.height = TILE_SIZE * 32;
+			uint32_t tilePerRow = (uint32_t)std::sqrt(TILES_PER_FRAME);
+			imgParams.extent.width = TILE_SIZE * tilePerRow;
+			imgParams.extent.height = TILE_SIZE * tilePerRow;
 			imgParams.extent.depth = 1u;
 			imgParams.format = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
 			imgParams.mipLevels = 1u;
@@ -111,6 +113,7 @@ public:
 			throughputSystemRAM = runBenchmark(
 				"System RAM",
 				stagingBuffer.get(),
+				stagingAlloc,
 				mappedPtr,
 				destinationImage.get(),
 				TILE_SIZE,
@@ -147,6 +150,7 @@ public:
 				throughputVRAM = runBenchmark(
 					"VRAM",
 					stagingBuffer.get(),
+					stagingAlloc,
 					mappedPtr,
 					destinationImage.get(),
 					TILE_SIZE,
@@ -165,6 +169,9 @@ public:
 			double speedup = throughputVRAM / throughputSystemRAM;
 			m_logger->log("\nVRAM is %.2fx faster than System RAM", ILogger::ELL_PERFORMANCE, speedup);
 		}
+
+		m_logger->log("\nWaiting 5 seconds before exit...", ILogger::ELL_INFO);
+		std::this_thread::sleep_for(std::chrono::seconds(5));
 
 		return true;
 	}
@@ -186,28 +193,6 @@ protected:
 	}
 
 private:
-	void transitionImageLayout(
-		IGPUCommandBuffer* cmdBuf,
-		IGPUImage* image,
-		IImage::LAYOUT oldLayout,
-		IImage::LAYOUT newLayout)
-	{
-		IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> barrier = {};
-		barrier.oldLayout = oldLayout;
-		barrier.newLayout = newLayout;
-		barrier.image = image;
-		barrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-		barrier.subresourceRange.baseMipLevel = 0;
-		barrier.subresourceRange.levelCount = 1;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = 1;
-		barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-		barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-		barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-		barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-		cmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&barrier, 1} });
-	}
-
 	void generateTileCopyRegions(
 		IImage::SBufferCopy* outRegions,
 		uint32_t tilesPerFrame,
@@ -237,6 +222,7 @@ private:
 	double runBenchmark(
 		const char* strategyName,
 		IGPUBuffer* stagingBuffer,
+		IDeviceMemoryAllocator::SAllocation& stagingAlloc,
 		void* mappedPtr,
 		IGPUImage* destinationImage,
 		uint32_t tileSize,
@@ -248,7 +234,16 @@ private:
 	{
 		smart_refctd_ptr<ISemaphore> timelineSemaphore = m_device->createSemaphore(0);
 
-		auto commandPools = new smart_refctd_ptr<IGPUCommandPool>[framesInFlight];
+		smart_refctd_ptr<IQueryPool> queryPool;
+		{
+			IQueryPool::SCreationParams queryPoolParams = {};
+			queryPoolParams.queryType = IQueryPool::TYPE::TIMESTAMP;
+			queryPoolParams.queryCount = framesInFlight * 2;  
+			queryPoolParams.pipelineStatisticsFlags = IQueryPool::PIPELINE_STATISTICS_FLAGS::NONE;
+			queryPool = m_device->createQueryPool(queryPoolParams);
+		}
+		
+		std::vector<smart_refctd_ptr<IGPUCommandPool>> commandPools(framesInFlight);
 		for (uint32_t i = 0; i < framesInFlight; i++)
 		{
 			commandPools[i] = m_device->createCommandPool(
@@ -256,8 +251,7 @@ private:
 				IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT
 			);
 		}
-
-		auto commandBuffers = new smart_refctd_ptr<IGPUCommandBuffer>[framesInFlight];
+		std::vector<smart_refctd_ptr<IGPUCommandBuffer>> commandBuffers(framesInFlight);
 		for (uint32_t i = 0; i < framesInFlight; i++)
 		{
 			commandPools[i]->createCommandBuffers(
@@ -270,12 +264,22 @@ private:
 		uint64_t timelineValue = 0;
 
 		commandBuffers[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-		transitionImageLayout(
-			commandBuffers[0].get(),
-			destinationImage,
-			IImage::LAYOUT::UNDEFINED,
-			IImage::LAYOUT::TRANSFER_DST_OPTIMAL
-		);
+		{
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> initBarrier = {};
+			initBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
+			initBarrier.newLayout = IImage::LAYOUT::GENERAL;
+			initBarrier.image = destinationImage;
+			initBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			initBarrier.subresourceRange.baseMipLevel = 0;
+			initBarrier.subresourceRange.levelCount = 1;
+			initBarrier.subresourceRange.baseArrayLayer = 0;
+			initBarrier.subresourceRange.layerCount = 1;
+			initBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+			initBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			initBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
+			initBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+			commandBuffers[0]->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = {&initBarrier, 1}});
+		}
 		commandBuffers[0]->end();
 
 		IQueue::SSubmitInfo submitInfo = {};
@@ -300,22 +304,20 @@ private:
 		uint32_t imageWidth = destinationImage->getCreationParameters().extent.width;
 		uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
 
-		// CPU source buffer with random data (generated once, reused each frame)
-		auto cpuSourceData = new uint8_t[partitionSize];
+		std::vector<uint8_t> cpuSourceData(partitionSize);
 		{
 			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 			std::mt19937 g(seed);
-			uint32_t* data = reinterpret_cast<uint32_t*>(cpuSourceData);
+			uint32_t* data = reinterpret_cast<uint32_t*>(cpuSourceData.data());
 			for (uint32_t i = 0; i < partitionSize / sizeof(uint32_t); i++)
 				data[i] = g();
 		}
-
-		auto regionsPerFrame = new IImage::SBufferCopy*[framesInFlight];
+		std::vector<std::vector<IImage::SBufferCopy>> regionsPerFrame(framesInFlight);
 		for (uint32_t i = 0; i < framesInFlight; i++)
 		{
-			regionsPerFrame[i] = new IImage::SBufferCopy[tilesPerFrame];
+			regionsPerFrame[i].resize(tilesPerFrame);
 			uint32_t bufferOffset = i * partitionSize;
-			generateTileCopyRegions(regionsPerFrame[i], tilesPerFrame, tileSize, tileSizeBytes, imageWidth, bufferOffset);
+			generateTileCopyRegions(regionsPerFrame[i].data(), tilesPerFrame, tileSize, tileSizeBytes, imageWidth, bufferOffset);
 		}
 
 		double totalWaitTime = 0.0;
@@ -344,17 +346,63 @@ private:
 
 			uint32_t bufferOffset = cmdBufIndex * partitionSize;
 			void* targetPtr = static_cast<uint8_t*>(mappedPtr) + bufferOffset;
-			memcpy(targetPtr, cpuSourceData, partitionSize);
+			memcpy(targetPtr, cpuSourceData.data(), partitionSize);
+
+			if (!stagingAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+			{
+				ILogicalDevice::MappedMemoryRange range(stagingAlloc.memory.get(), bufferOffset, partitionSize);
+				m_device->flushMappedMemoryRanges(1, &range);
+			}
+
 			auto t3 = std::chrono::high_resolution_clock::now();
 
 			commandBuffers[cmdBufIndex]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			uint32_t queryStartIndex = cmdBufIndex * 2;
+			commandBuffers[cmdBufIndex]->resetQueryPool(queryPool.get(), queryStartIndex, 2);
+
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> barrier = {};
+			barrier.oldLayout = IImage::LAYOUT::GENERAL;
+			barrier.newLayout = IImage::LAYOUT::GENERAL;
+			barrier.image = destinationImage;
+			barrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			commandBuffers[cmdBufIndex]->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = {&barrier, 1}});
+
+			commandBuffers[cmdBufIndex]->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 0);
+
 			commandBuffers[cmdBufIndex]->copyBufferToImage(
 				stagingBuffer,
 				destinationImage,
-				IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				IImage::LAYOUT::GENERAL,
 				tilesPerFrame,
-				regionsPerFrame[cmdBufIndex]
+				regionsPerFrame[cmdBufIndex].data()
 			);
+
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> afterBarrier = {};
+			afterBarrier.oldLayout = IImage::LAYOUT::GENERAL;
+			afterBarrier.newLayout = IImage::LAYOUT::GENERAL;
+			afterBarrier.image = destinationImage;
+			afterBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			afterBarrier.subresourceRange.baseMipLevel = 0;
+			afterBarrier.subresourceRange.levelCount = 1;
+			afterBarrier.subresourceRange.baseArrayLayer = 0;
+			afterBarrier.subresourceRange.layerCount = 1;
+			afterBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			afterBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			afterBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			afterBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+			commandBuffers[cmdBufIndex]->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = {&afterBarrier, 1}});
+
+			commandBuffers[cmdBufIndex]->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 1);
+
 			commandBuffers[cmdBufIndex]->end();
 			auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -387,16 +435,29 @@ private:
 
 		auto endTime = std::chrono::high_resolution_clock::now();
 
-		delete[] cpuSourceData;
-		for (uint32_t i = 0; i < framesInFlight; i++)
-			delete[] regionsPerFrame[i];
-		delete[] regionsPerFrame;
-		delete[] commandPools;
-		delete[] commandBuffers;
+		std::vector<uint64_t> timestamps(framesInFlight * 2);
+		const core::bitflag flags = core::bitflag(IQueryPool::RESULTS_FLAGS::_64_BIT) | core::bitflag(IQueryPool::RESULTS_FLAGS::WAIT_BIT);
+		m_device->getQueryPoolResults(queryPool.get(), 0, framesInFlight * 2, timestamps.data(), sizeof(uint64_t), flags);
+		uint64_t totalGpuTicks = 0;
+		for (uint32_t i = 0; i < framesInFlight; i++) {
+			uint64_t startTick = timestamps[i * 2 + 0];
+			uint64_t endTick = timestamps[i * 2 + 1];
+			totalGpuTicks += (endTick - startTick);
+		}
+		float timestampPeriod = m_physicalDevice->getLimits().timestampPeriodInNanoSeconds;
+		double sampledGpuTimeSeconds = (totalGpuTicks * timestampPeriod) / 1e9;
+
+		double avgGpuTimePerFrame = sampledGpuTimeSeconds / framesInFlight;
+		double totalGpuTimeSeconds = avgGpuTimePerFrame * totalFrames;
+
 
 		double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
 		uint64_t totalBytes = (uint64_t)totalFrames * tilesPerFrame * tileSizeBytes;
+
 		double throughputGBps = (totalBytes / (1024.0 * 1024.0 * 1024.0)) / elapsedSeconds;
+
+		m_logger->log("    GPU time: %.3f s", ILogger::ELL_INFO, totalGpuTimeSeconds);
+		m_logger->log("    GPU throughput: %.2f GB/s", ILogger::ELL_INFO, throughputGBps);
 
 		m_logger->log("  Timing breakdown for %s:", ILogger::ELL_INFO, strategyName);
 		m_logger->log("    Wait time:   %.3f s (%.1f%%)", ILogger::ELL_INFO, totalWaitTime, 100.0 * totalWaitTime / elapsedSeconds);
