@@ -17,7 +17,6 @@
 
 #include "CSceneNodeAnimatorCameraModifiedMaya.h"
 #include "Renderer.h"
-#include "SimpleJson.h"
 
 using namespace nbl;
 using namespace core;
@@ -131,138 +130,6 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool overloadCameraKeyPressed;
 };
 
-struct PersistentState
-{
-	bool isBeauty;
-	bool isInteractiveMode;
-	bool isInteractiveViewMatrixLH;
-	bool isDenoiseDeferred;
-	uint32_t startSensorID;
-	std::string zipPath;
-	std::string xmlPath;
-	ProcessSensorsBehaviour processSensorsBehaviour;
-	// It is important to initialize it to all 0s because we use the condition of determinant 0 as an invalid condition for the view matrix.
-	core::matrix3x4SIMD interactiveCameraViewMatrix = core::matrix3x4SIMD(core::vectorSIMDf(), core::vectorSIMDf(), core::vectorSIMDf());
-
-	bool readFromDisk()
-	{
-		bool readSuccess = false;
-		std::ifstream readFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
-		if (readFile.is_open())
-		{
-			auto readSize = readFile.tellg();
-			if (readSize != std::istream::pos_type(-1))
-			{
-				std::unique_ptr<uint8_t[]> readBuffer = std::make_unique<uint8_t[]>(readSize);
-				readFile.seekg(0, std::ios::beg);
-				readFile.read(reinterpret_cast<char*>(readBuffer.get()), readSize);
-				if (readFile.rdstate() == std::ios_base::goodbit)
-				{
-					uint64_t offset = 0;
-
-					memcpy(&isBeauty, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&isInteractiveViewMatrixLH, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
-					offset += sizeof(uint32_t);
-
-					memcpy(&processSensorsBehaviour, readBuffer.get() + offset, sizeof(ProcessSensorsBehaviour));
-					offset += sizeof(ProcessSensorsBehaviour);
-
-					memcpy(&interactiveCameraViewMatrix, readBuffer.get() + offset, sizeof(core::matrix3x4SIMD));
-					offset += sizeof(core::matrix3x4SIMD);
-
-					const char* path = reinterpret_cast<const char*>(readBuffer.get() + offset);
-					zipPath = std::string(path);
-					offset += zipPath.length() + 1;
-
-					path = reinterpret_cast<const char*>(readBuffer.get() + offset);
-					xmlPath = std::string(path);
-					offset += xmlPath.length() + 1;
-
-					readSuccess = (offset == static_cast<uint64_t>(readSize));
-				}
-			}
-
-			readFile.close();
-		}
-
-		return readSuccess;
-	}
-
-	bool writeToDisk() const
-	{
-		bool writeSuccess = false;
-		std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
-		if (outFile.is_open())
-		{
-			const size_t writeSize = getSerializedMemorySize();
-
-			std::unique_ptr<uint8_t[]> writeBuffer = std::make_unique<uint8_t[]>(writeSize);
-
-			uint64_t offset = 0;
-
-			memcpy(writeBuffer.get() + offset, &isBeauty, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &isInteractiveViewMatrixLH, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
-			offset += sizeof(uint32_t);
-
-			memcpy(writeBuffer.get() + offset, &processSensorsBehaviour, sizeof(ProcessSensorsBehaviour));
-			offset += sizeof(ProcessSensorsBehaviour);
-
-			memcpy(writeBuffer.get() + offset, &interactiveCameraViewMatrix, sizeof(core::matrix3x4SIMD));
-			offset += sizeof(core::matrix3x4SIMD);
-
-			memcpy(writeBuffer.get() + offset, zipPath.c_str(), zipPath.length() + 1);
-			offset += zipPath.length() + 1;
-
-			memcpy(writeBuffer.get() + offset, xmlPath.c_str(), xmlPath.length() + 1);
-			offset += xmlPath.length() + 1;
-
-			assert(offset == static_cast<uint32_t>(writeSize));
-
-			outFile.write(reinterpret_cast<char*>(writeBuffer.get()), writeSize);
-			if (outFile.rdstate() == std::ios_base::goodbit)
-				writeSuccess = true;
-
-			outFile.close();
-		}
-
-		if (!writeSuccess)
-			printf("[ERROR]: Failed to write the persistent state cache.\n");
-
-		return writeSuccess;
-	}
-
-private:
-	inline size_t getSerializedMemorySize() const
-	{
-		const size_t result =
-			sizeof(bool)					+ // isBeauty
-			sizeof(bool)					+ // isInteractiveMode
-			sizeof(bool)                    + // isInteractiveViewMatrixLH
-			sizeof(uint32_t)				+ // startSensorID
-			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
-			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
-			(zipPath.length() + 1)			+
-			(xmlPath.length() + 1)			;
-
-		return result;
-	}
-};
 
 int main(int argc, char** argv)
 {
@@ -272,16 +139,7 @@ int main(int argc, char** argv)
 		for (auto i = 1ul; i < argc; ++i)
 			arguments.emplace_back(argv[i]);
 	}
-	std::cout << std::endl;
-	std::cout << "-- Build URL:" << std::endl;
-	std::cout << NBL_BUILD_URL << std::endl;
-	std::cout << std::endl;
-	std::cout << "-- Build log:" << std::endl;
-	std::cout << NBL_GIT_LOG << std::endl;
-	std::cout  << std::endl;
 
-	bool applicationIsReloaded = false;
-	PersistentState applicationState;
 	{
 		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 
@@ -291,8 +149,6 @@ int main(int argc, char** argv)
 		applicationState.isDenoiseDeferred = cmdHandler.getDeferredDenoiseFlag();
 
 		auto sceneDir = cmdHandler.getSceneDirectory();
-		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
-			applicationIsReloaded = true;
 
 		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
 		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
@@ -315,34 +171,14 @@ int main(int argc, char** argv)
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
-	// create device with full flexibility over creation parameters
-	// you can add more parameters if desired, check nbl::SIrrlichtCreationParameters
-	nbl::SIrrlichtCreationParameters params;
-	params.Bits = 24; //may have to set to 32bit for some platforms
-	params.ZBufferBits = 24;
-	params.DriverType = video::EDT_OPENGL;
-	params.Fullscreen = false;
-	params.Vsync = false;
-	params.Doublebuffer = true;
-	params.Stencilbuffer = false; //! This will not even be a choice soon
-	params.WindowSize = dimension2d<uint32_t>(1920, 1080);
-	auto device = createDeviceEx(params);
-	if (!device)
-		return 1; // could not create selected driver.
+// DEVICE CREATION EMITTED
 
 	//
 	asset::SAssetBundle meshes = {};
 	core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> globalMeta;
 	{
-		io::IFileSystem* fs = device->getFileSystem();
-		asset::IAssetManager* am = device->getAssetManager();
 
-		auto serializedLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CSerializedLoader>(am);
-		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am, fs);
-		serializedLoader->initialize();
-		mitsubaLoader->initialize();
-		am->addAssetLoader(std::move(serializedLoader));
-		am->addAssetLoader(std::move(mitsubaLoader));
+// LOADER ADDITION EMITTED
 
 		if (applicationState.zipPath.empty() && applicationState.xmlPath.empty() && !applicationIsReloaded)
 		{
@@ -360,19 +196,9 @@ int main(int argc, char** argv)
 		auto loadScene = [&device, &am, &fs](const std::string& _zipPath, std::string& _xmlPath, std::string& _mainFileName) -> asset::SAssetBundle
 		{
 			asset::SAssetBundle result = {};
-			if (_zipPath.empty() && _xmlPath.empty())
-				return result;
 
-			_mainFileName = "";
-			if (!_zipPath.empty())
-			{
-				_mainFileName = std::filesystem::path(_zipPath).filename().string();
-				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+// ADD ARCHIVE AND VALIDATION EMITTED
 
-				io::IFileArchive* arch = nullptr;
-				device->getFileSystem()->addFileArchive(_zipPath.c_str(), io::EFAT_ZIP, "", &arch);
-				if (!arch)
-					return result;
 
 				auto flist = arch->getFileList();
 				if (!flist)
@@ -449,12 +275,7 @@ int main(int argc, char** argv)
 				}
 
 				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).filename().replace_extension().string();
-			}
-			else if (!_xmlPath.empty())
-			{
-				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
-				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
-			}
+
 
 			printf("[INFO]: Loading XML file: %s\n", _xmlPath.c_str());
 
@@ -471,87 +292,39 @@ int main(int argc, char** argv)
 		};
 
 		meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
-		if (meshes.getContents().empty() || applicationIsReloaded)
-		{
-			if (meshes.getContents().empty() && !applicationState.xmlPath.empty())
-				printf("[ERROR]: Failed to load asset at: %s\n", applicationState.xmlPath.c_str());
 
-			// Restore state to get new values for zipPath and xmlPath and try loading again
-			printf("[INFO]: Trying to restore the application to its previous state.\n");
+// APPLICATION RESTORE OMITTED
 
-			bool restoreSuccess = false;
-			if (applicationState.readFromDisk())
-			{
-				meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
-				if (!meshes.getContents().empty())
-					restoreSuccess = true;
-			}
-
-			if (!restoreSuccess)
-			{
-				pfd::message("ERROR", "Cannot restore application to its previous state.", pfd::choice::ok);
-				return 2;
-			}
-		}
-
-		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
-		if (!globalMeta)
-		{
-			std::cout << "[ERROR] Couldn't get global Meta";
-			return 3;
-		}
-
-		std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
-
-		if (globalMeta->m_global.m_sensors.empty())
-		{
-			std::cout << "[ERROR] No Sensors found." << std::endl;
-			assert(false);
-			return 5; // return code?
-		}
-
-		if (applicationState.startSensorID >= globalMeta->m_global.m_sensors.size())
-		{
-			applicationState.startSensorID = 0;
-			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
-		}
-
-		// empty out the cache from individual images and meshes taht are not used by the scene
-		am->clearAllAssetCache();
 	}
 	
-	constexpr float DefaultRotateSpeed = 300.0f;
-	constexpr float DefaultZoomSpeed = 1.0f;
-	constexpr float DefaultMoveSpeed = 100.0f;
-	constexpr float DefaultSceneDiagonal = 50.0f; // reference for default zoom and move speed;
 
 	struct SensorData
 	{
-		int32_t width = 0u;
-		int32_t height = 0u;
-		int32_t cropWidth = 0u;
-		int32_t cropHeight = 0u;
-		int32_t cropOffsetX = 0u;
-		int32_t cropOffsetY = 0u;
-		bool rightHandedCamera = true;
-		uint32_t samplesNeeded = 0u;
-		float moveSpeed = core::nan<float>();
-		float stepZoomSpeed = core::nan<float>();
-		float rotateSpeed = core::nan<float>();
+int32_t width = 0u;
+int32_t height = 0u;
+int32_t cropWidth = 0u;
+int32_t cropHeight = 0u;
+int32_t cropOffsetX = 0u;
+int32_t cropOffsetY = 0u;
+bool rightHandedCamera = true;
+uint32_t samplesNeeded = 0u;
+float moveSpeed = core::nan<float>();
+float stepZoomSpeed = core::nan<float>();
+float rotateSpeed = core::nan<float>();
 		scene::ICameraSceneNode * staticCamera;
 		scene::ICameraSceneNode * interactiveCamera;
-		std::filesystem::path outputFilePath;
-		ext::MitsubaLoader::CElementSensor::Type type;
+std::filesystem::path outputFilePath;
+ext::MitsubaLoader::CElementSensor::Type type;
 		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
-		Renderer::DenoiserArgs denoiserInfo = {};
-		int32_t cascadeCount = 1;
-		float cascadeLuminanceBase = core::nan<float>();
-		float cascadeLuminanceStart = core::nan<float>();
-		float kappa = 0.f;
-		float Emin = 0.05f;
+Renderer::DenoiserArgs denoiserInfo = {};
+int32_t cascadeCount = 1;
+float cascadeLuminanceBase = core::nan<float>();
+float cascadeLuminanceStart = core::nan<float>();
+float kappa = 0.f;
+float Emin = 0.05f;
 		bool envmap = false;
 		float envmapRegFactor = 0.0f;
-		core::vector<core::vectorSIMDf> clipPlanes;
+core::vector<core::vectorSIMDf> clipPlanes;
 
 		scene::CSceneNodeAnimatorCameraModifiedMaya* getInteractiveCameraAnimator()
 		{
@@ -575,12 +348,12 @@ int main(int argc, char** argv)
 		}
 	};
 	
-	struct CubemapRender
-	{
-		uint32_t sensorIdx = 0u;
-		uint32_t getSensorsBeginIdx() const { return sensorIdx; }
-		uint32_t getSensorsEndIdx() const { return sensorIdx + 5; }
-	};
+struct CubemapRender
+{
+	uint32_t sensorIdx = 0u;
+	uint32_t getSensorsBeginIdx() const { return sensorIdx; }
+	uint32_t getSensorsEndIdx() const { return sensorIdx + 5; }
+};
 
 	auto smgr = device->getSceneManager();
 	
@@ -893,6 +666,7 @@ int main(int argc, char** argv)
 				std::cout << "[WARN] CropOffsets are non-zero. cropping is not supported for non cubemap renders." << std::endl;
 			}
 
+#if 0 // camera setup non spherical
 			mainSensorData.staticCamera = smgr->addCameraSceneNode(nullptr); 
 			auto& staticCamera = mainSensorData.staticCamera;
 
@@ -975,6 +749,7 @@ int main(int argc, char** argv)
 			{
 				assert(false);
 			}
+#endif
 
 			mainSensorData.resetInteractiveCamera();
 			sensors.push_back(mainSensorData);
@@ -983,26 +758,17 @@ int main(int argc, char** argv)
 		return true;
 	};
 
-	// Always add all the sensors because the interactive mode wants all the sensors.
-	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
-	{
-		std::cout << "Sensors[" << s << "] = " << std::endl;
-		const auto& sensor = globalMeta->m_global.m_sensors[s];
-		extractAndAddToSensorData(sensor, s);
-	}
-
 	auto driver = device->getVideoDriver();
 
 	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr,applicationState.isDenoiseDeferred);
 	renderer->initSceneResources(meshes,"LowDiscrepancySequenceCache.bin");
-	// free memory
-	meshes = {};
-	device->getAssetManager()->clearAllGPUObjects();
-	
-	RaytracerExampleEventReceiver receiver;
-	device->setEventReceiver(&receiver);
 
-	// Deduce Move and Zoom Speeds if it is nan
+// free memory
+meshes = {};
+device->getAssetManager()->clearAllGPUObjects();
+
+
+// Deduce Move and Zoom Speeds if it is nan
 	auto sceneBoundsExtent = renderer->getSceneBound().getExtent();
 	auto sceneDiagonal = sceneBoundsExtent.getLength(); 
 

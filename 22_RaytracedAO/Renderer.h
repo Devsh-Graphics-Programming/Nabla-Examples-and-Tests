@@ -24,20 +24,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
     public:
 		#include "rasterizationCommon.h"
 		#include "raytraceCommon.h"
-		#ifdef __cplusplus
-			#undef uint
-			#undef vec4
-			#undef mat4
-			#undef mat4x3
-		#endif
 		
-		struct DenoiserArgs
-		{
-			std::filesystem::path bloomFilePath;
-			float bloomScale = 0.0f;
-			float bloomIntensity = 0.0f;
-			std::string tonemapperArgs = "";
-		};
 
 		Renderer(nbl::video::IVideoDriver* _driver, nbl::asset::IAssetManager* _assetManager, nbl::scene::ISceneManager* _smgr, bool deferDenoise, bool useDenoiser = true);
 

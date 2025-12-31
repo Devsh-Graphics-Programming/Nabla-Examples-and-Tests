@@ -92,6 +92,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 
 					//
 					std::array<hlsl::float32_t4,MaxClipPlanes> clipPlanes = {};
+					//
 					float cascadeLuminanceBase = core::nan<float>();
 					float cascadeLuminanceStart = core::nan<float>();
 				} mutableDefaults = {};
@@ -103,10 +104,29 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					constexpr static inline float DefaultMoveSpeed = 100.0f;
 					constexpr static inline float DefaultSceneDiagonal = 50.0f; // reference for default zoom and move speed;
 
-					uint32_t samplesNeeded = 0u;
+					//
+					union Raygen
+					{
+						hlsl::float32_t4x4 linearProj = {};
+					} raygen;
+					union
+					{
+						struct SOrientable // spherical can't move
+						{
+							hlsl::float32_t3 up = {};
+							float speed = core::nan<float>();
+						} orientable = {};
+					};
+					union
+					{
+						struct SZoomable // spherical can't zoom
+						{
+							float speed = core::nan<float>();
+						} zoomable = {};
+					};
 					float moveSpeed = core::nan<float>();
-					float stepZoomSpeed = core::nan<float>();
-					float rotateSpeed = core::nan<float>();
+					//
+					uint32_t samplesNeeded = 0u;
 					float kappa = 0.f;
 					float Emin = 0.05f;
 				} dynamicDefaults = {};

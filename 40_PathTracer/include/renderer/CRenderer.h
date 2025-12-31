@@ -97,6 +97,20 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		//
 		core::smart_refctd_ptr<CScene> createScene(CScene::SCreationParams&& _params);
 
+		// session object
+		class CSession final : public core::IReferenceCounted, public core::InterfaceUnmovable
+		{
+				// sensor data
+				struct STransients
+				{
+//					core::smart_refctd_ptr<>;
+				} transients = {};
+
+			public:
+				// init
+				// deinit
+		};
+
     protected:
 		struct SConstructorParams : SCachedCreationParams
 		{
