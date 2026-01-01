@@ -33,11 +33,11 @@ public:
 		constexpr uint32_t TILES_PER_FRAME = STAGING_BUFFER_SIZE / (TILE_SIZE_BYTES * FRAMES_IN_FLIGHT);
 		constexpr uint32_t TOTAL_FRAMES = 1000;
 
-		m_logger->log("GPU Memory Transfer Benchmark", ILogger::ELL_INFO);
-		m_logger->log("Tile size: %ux%u (%u KB)", ILogger::ELL_INFO, TILE_SIZE, TILE_SIZE, TILE_SIZE_BYTES / 1024);
-		m_logger->log("Staging buffer: %u MB", ILogger::ELL_INFO, STAGING_BUFFER_SIZE / (1024 * 1024));
-		m_logger->log("Tiles per frame: %u", ILogger::ELL_INFO, TILES_PER_FRAME);
-		m_logger->log("Frames in flight: %u", ILogger::ELL_INFO, FRAMES_IN_FLIGHT);
+		m_logger->log("GPU Memory Transfer Benchmark", ILogger::ELL_PERFORMANCE);
+		m_logger->log("Tile size: %ux%u (%u KB)", ILogger::ELL_PERFORMANCE, TILE_SIZE, TILE_SIZE, TILE_SIZE_BYTES / 1024);
+		m_logger->log("Staging buffer: %u MB", ILogger::ELL_PERFORMANCE, STAGING_BUFFER_SIZE / (1024 * 1024));
+		m_logger->log("Tiles per frame: %u", ILogger::ELL_PERFORMANCE, TILES_PER_FRAME);
+		m_logger->log("Frames in flight: %u", ILogger::ELL_PERFORMANCE, FRAMES_IN_FLIGHT);
 
 		uint32_t hostVisibleBits = m_physicalDevice->getHostVisibleMemoryTypeBits();
 		uint32_t deviceLocalBits = m_physicalDevice->getDeviceLocalMemoryTypeBits();
@@ -48,9 +48,9 @@ public:
 		uint32_t hostVisibleDeviceLocalBits = hostVisibleBits & deviceLocalBits;
 
 		m_logger->log("Memory type bits - HostVisible: 0x%X, DeviceLocal: 0x%X, HostCached: 0x%X",
-			ILogger::ELL_INFO, hostVisibleBits, deviceLocalBits, hostCachedBits);
+			ILogger::ELL_PERFORMANCE, hostVisibleBits, deviceLocalBits, hostCachedBits);
 		m_logger->log("System RAM (non-cached): 0x%X, VRAM: 0x%X",
-			ILogger::ELL_INFO, hostVisibleOnlyBits, hostVisibleDeviceLocalBits);
+			ILogger::ELL_PERFORMANCE, hostVisibleOnlyBits, hostVisibleDeviceLocalBits);
 
 		if (!hostVisibleOnlyBits)
 		{
@@ -96,7 +96,7 @@ public:
 				return logFail("Failed to allocate DEVICE_LOCAL memory for destination image!\n");
 		}
 
-		m_logger->log("\nTesting Strategy 1: System RAM", ILogger::ELL_INFO);
+		m_logger->log("\nStrategy 1: System RAM", ILogger::ELL_PERFORMANCE);
 
 		double throughputSystemRAM = 0.0;
 		{
@@ -133,7 +133,7 @@ public:
 
 		if (hostVisibleDeviceLocalBits)
 		{
-			m_logger->log("\nTesting Strategy 2: VRAM", ILogger::ELL_INFO);
+			m_logger->log("\nStrategy 2: VRAM", ILogger::ELL_PERFORMANCE);
 
 			double throughputVRAM = 0.0;
 			{
@@ -170,7 +170,7 @@ public:
 			m_logger->log("\nVRAM is %.2fx faster than System RAM", ILogger::ELL_PERFORMANCE, speedup);
 		}
 
-		m_logger->log("\nWaiting 5 seconds before exit...", ILogger::ELL_INFO);
+		m_logger->log("\nWaiting 5 seconds before exit...", ILogger::ELL_PERFORMANCE);
 		std::this_thread::sleep_for(std::chrono::seconds(5));
 
 		return true;
@@ -456,15 +456,15 @@ private:
 
 		double throughputGBps = (totalBytes / (1024.0 * 1024.0 * 1024.0)) / elapsedSeconds;
 
-		m_logger->log("    GPU time: %.3f s", ILogger::ELL_INFO, totalGpuTimeSeconds);
-		m_logger->log("    GPU throughput: %.2f GB/s", ILogger::ELL_INFO, throughputGBps);
+		m_logger->log("    GPU time: %.3f s", ILogger::ELL_PERFORMANCE, totalGpuTimeSeconds);
+		m_logger->log("    GPU throughput: %.2f GB/s", ILogger::ELL_PERFORMANCE, throughputGBps);
 
-		m_logger->log("  Timing breakdown for %s:", ILogger::ELL_INFO, strategyName);
-		m_logger->log("    Wait time:   %.3f s (%.1f%%)", ILogger::ELL_INFO, totalWaitTime, 100.0 * totalWaitTime / elapsedSeconds);
-		m_logger->log("    Memcpy time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalMemcpyTime, 100.0 * totalMemcpyTime / elapsedSeconds);
-		m_logger->log("    Record time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalRecordTime, 100.0 * totalRecordTime / elapsedSeconds);
-		m_logger->log("    Submit time: %.3f s (%.1f%%)", ILogger::ELL_INFO, totalSubmitTime, 100.0 * totalSubmitTime / elapsedSeconds);
-		m_logger->log("    Memcpy speed: %.2f GB/s", ILogger::ELL_INFO, (totalBytes / (1024.0 * 1024.0 * 1024.0)) / totalMemcpyTime);
+		m_logger->log("  Timing breakdown for %s:", ILogger::ELL_PERFORMANCE, strategyName);
+		m_logger->log("    Wait time:   %.3f s (%.1f%%)", ILogger::ELL_PERFORMANCE, totalWaitTime, 100.0 * totalWaitTime / elapsedSeconds);
+		m_logger->log("    Memcpy time: %.3f s (%.1f%%)", ILogger::ELL_PERFORMANCE, totalMemcpyTime, 100.0 * totalMemcpyTime / elapsedSeconds);
+		m_logger->log("    Record time: %.3f s (%.1f%%)", ILogger::ELL_PERFORMANCE, totalRecordTime, 100.0 * totalRecordTime / elapsedSeconds);
+		m_logger->log("    Submit time: %.3f s (%.1f%%)", ILogger::ELL_PERFORMANCE, totalSubmitTime, 100.0 * totalSubmitTime / elapsedSeconds);
+		m_logger->log("    Memcpy speed: %.2f GB/s", ILogger::ELL_PERFORMANCE, (totalBytes / (1024.0 * 1024.0 * 1024.0)) / totalMemcpyTime);
 
 		return throughputGBps;
 	}
