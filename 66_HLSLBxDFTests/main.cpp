@@ -29,10 +29,35 @@ using json = nlohmann::json;
 #define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
-#define RUN_TEST_OF_TYPE(TEST_TYPE, INIT_PARAMS, ...) {\
+#define RUN_TEST_OF_TYPE(TEST_TYPE, INIT_PARAMS) {\
     PrintFailureCallback<BOOST_PP_REMOVE_PARENS(TEST_TYPE)> cb;\
     cb.logger = m_logger;\
-    BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb __VA_OPT__(,) __VA_ARGS__);\
+    BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb);\
+}\
+
+#define RUN_CHI2_TEST_WRITE_EXR(TEST_TYPE, INIT_PARAMS) {\
+    PrintFailureCallback<BOOST_PP_REMOVE_PARENS(TEST_TYPE)> cb;\
+    cb.logger = m_logger;\
+    BOOST_PP_REMOVE_PARENS(TEST_TYPE) t;\
+    t.init(initparams.halfSeed);\
+    t.rc.halfSeed = initparams.halfSeed;\
+    t.numSamples = initparams.samples;\
+    t.thetaSplits = initparams.thetaSplits;\
+    t.phiSplits = initparams.phiSplits;\
+    t.write_frequencies = static_cast<BOOST_PP_REMOVE_PARENS(TEST_TYPE)::WriteFrequenciesToEXR>(initparams.writeFrequencies);\
+    t.initBxDF(t.rc);\
+    TestResult e = t.test();\
+    if (e != BTR_INVALID_TEST_CONFIG)\
+    {\
+    if (e != BTR_NONE)\
+    {\
+        if (initparams.writeFrequencies >= BOOST_PP_REMOVE_PARENS(TEST_TYPE)::WFE_WRITE_ERRORS)\
+            writeToEXR<BOOST_PP_REMOVE_PARENS(TEST_TYPE)>(t);\
+        cb.__call(e, t, initparams.logInfo);\
+    }\
+    else if (initparams.writeFrequencies == BOOST_PP_REMOVE_PARENS(TEST_TYPE)::WFE_WRITE_ALL)\
+            writeToEXR<BOOST_PP_REMOVE_PARENS(TEST_TYPE)>(t);\
+    }\
 }\
 
 class HLSLBxDFTests final : public BuiltinResourcesApplication
@@ -287,21 +312,21 @@ private:
             initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
             initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
 
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams, assetManager);
-            RUN_TEST_OF_TYPE((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams, assetManager);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_CHI2_TEST_WRITE_EXR((TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
         FOR_EACH_END
 
         // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
@@ -377,6 +402,87 @@ private:
                     fprintf(stderr, "[ERROR] angle adding (4 angles) failed! expected %f, got %f\n", exABCD, res);
             }
         }
+    }
+
+    template<class Chi2Test>
+    static smart_refctd_ptr<ICPUImage> writeToCPUImage(const Chi2Test& test)
+    {
+        const uint32_t totalWidth = test.phiSplits;
+        const uint32_t totalHeight = 2 * test.thetaSplits;
+        const auto format = E_FORMAT::EF_R32G32B32A32_SFLOAT;
+
+        IImage::SCreationParams imageParams = {};
+        imageParams.type = IImage::E_TYPE::ET_2D;
+        imageParams.format = format;
+        imageParams.extent = { totalWidth, totalHeight, 1 };
+        imageParams.mipLevels = 1;
+        imageParams.arrayLayers = 1;
+        imageParams.samples = ICPUImage::ESCF_1_BIT;
+        imageParams.usage = IImage::EUF_SAMPLED_BIT;
+
+        smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
+        assert(image);
+
+        const size_t bufferSize = totalWidth * totalHeight * getTexelOrBlockBytesize(format);
+        {
+            auto imageRegions = make_refctd_dynamic_array<smart_refctd_dynamic_array<IImage::SBufferCopy>>(1ull);
+            auto& region = imageRegions->front();
+            region.bufferImageHeight = 0u;
+            region.bufferOffset = 0ull;
+            region.bufferRowLength = totalWidth;
+            region.imageExtent = { totalWidth, totalHeight, 1 };
+            region.imageOffset = { 0u, 0u, 0u };
+            region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+            region.imageSubresource.baseArrayLayer = 0u;
+            region.imageSubresource.layerCount = 1;
+            region.imageSubresource.mipLevel = 0;
+
+            image->setBufferAndRegions(ICPUBuffer::create({ bufferSize }), std::move(imageRegions));
+        }
+
+        uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
+
+        // write sample count from generate, top half
+        for (uint64_t j = 0u; j < test.thetaSplits; ++j)
+            for (uint64_t i = 0u; i < test.phiSplits; ++i)
+            {
+                float32_t3 pixelColor = hlsl::visualization::Turbo::map(test.countFreq[j * test.phiSplits + i] / test.maxCountFreq);
+                double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
+
+                const uint64_t pixelIndex = j * test.phiSplits + i;
+                asset::encodePixelsRuntime(format, bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+            }
+
+        // write values of pdf, bottom half
+        for (uint64_t j = 0u; j < test.thetaSplits; ++j)
+            for (uint64_t i = 0u; i < test.phiSplits; ++i)
+            {
+                float32_t3 pixelColor = hlsl::visualization::Turbo::map(test.integrateFreq[j * test.phiSplits + i] / test.maxIntFreq);
+                double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
+
+                const uint64_t pixelIndex = (test.thetaSplits + j) * test.phiSplits + i;
+                asset::encodePixelsRuntime(format, bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+            }
+
+        return image;
+    }
+
+    template<class Chi2Test>
+    void writeToEXR(const Chi2Test& test)
+    {
+        std::string filename = std::format("chi2test_{}_{}.exr", test.rc.halfSeed, test.name);
+
+        auto cpuImage = writeToCPUImage<Chi2Test>(test);
+        ICPUImageView::SCreationParams imgViewParams;
+        imgViewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+        imgViewParams.format = cpuImage->getCreationParameters().format;
+        imgViewParams.image = smart_refctd_ptr(cpuImage);
+        imgViewParams.viewType = ICPUImageView::ET_2D;
+        imgViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
+        smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(imgViewParams));
+
+        IAssetWriter::SAssetWriteParams wp(imageView.get());
+        m_assetMgr->writeAsset(filename, wp);
     }
 
     json testconfigs;
