@@ -12,6 +12,7 @@
 
 #include "app_resources/tests_common.hlsl"
 #include "nbl/builtin/hlsl/visualization/turbo.hlsl"
+#include "nbl/builtin/hlsl/math/quadrature/adaptive_simpson.hlsl"
 
 // because unordered_map -- next time, do fixed size array of atomic offsets and linked lists (for readback and verification on cpu)
 template<class BxDF, bool aniso = false>
@@ -213,6 +214,83 @@ inline float adaptiveSimpson2D(const std::function<float(float, float)>& f, floa
     return adaptiveSimpson(integrate, x0.y, x1.y, eps, depth);
 }
 
+template<class BxDF, bool aniso>
+struct CalculatePdfSinTheta
+{
+    using traits_t = bxdf::traits<BxDF>;
+
+    float __call(float theta, float phi)
+    {
+        float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
+        float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
+
+        ray_dir_info_t L;
+        L.direction = hlsl::normalize(float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta));
+        float32_t3 N = anisointer.getN();
+        float NdotL = hlsl::dot(N, L.direction);
+
+        const float32_t3 T = anisointer.getT();
+        const float32_t3 B = anisointer.getB();
+        sample_t s = sample_t::create(L, T, B, NdotL);
+
+        float tmpeta = 1.f;
+        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+        {
+            const float NdotV = anisointer.getNdotV();
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF)
+                if (NdotV < 0.f) return 0.f;
+
+            const float NdotL = s.getNdotL();
+            if (NdotV * NdotL < 0.f)
+                tmpeta = NdotV < 0.f ? 1.f / eta : eta;
+            float32_t3 H = hlsl::normalize(V.getDirection() + L.getDirection() * tmpeta);
+            float VdotH = hlsl::dot(V.getDirection(), H);
+            if (NdotV * VdotH < 0.f)
+            {
+                H = -H;
+                VdotH = -VdotH;
+            }
+
+            cache.iso_cache.VdotH = VdotH;
+            cache.iso_cache.LdotH = hlsl::dot(L.getDirection(), H);
+            cache.iso_cache.VdotL = hlsl::dot(V.getDirection(), L.getDirection());
+            cache.iso_cache.absNdotH = hlsl::abs(hlsl::dot(N, H));
+            cache.iso_cache.NdotH2 = cache.iso_cache.absNdotH * cache.iso_cache.absNdotH;
+
+            if (!cache.isValid(bxdf::fresnel::OrientedEtas<hlsl::vector<float, 1> >::create(1.f, hlsl::promote<hlsl::vector<float, 1> >(tmpeta))))
+                return 0.f;
+
+            cache.fillTangents(T, B, H);
+        }
+
+        float pdf;
+        NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
+        {
+            pdf = bxdf.pdf(s, isointer);
+        }
+        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+        {
+            NBL_IF_CONSTEXPR(aniso)
+            {
+                pdf = bxdf.pdf(s, anisointer, cache);
+            }
+            else
+            {
+                pdf = bxdf.pdf(s, isointer, cache.iso_cache);
+            }
+        }
+
+        return pdf * sinTheta;
+    }
+
+    BxDF bxdf;
+    ray_dir_info_t V;
+    iso_interaction isointer;
+    aniso_interaction anisointer;
+    aniso_cache cache;
+    float eta;
+};
+
 // adapted from pbrt chi2 test: https://github.com/mmp/pbrt-v4/blob/792aaaa08d97dbedf11a3bb23e246b6443d847b4/src/pbrt/bsdfs_test.cpp#L280
 template<class BxDF, bool aniso = false>
 struct TestChi2 : TestBxDF<BxDF>
@@ -289,7 +367,6 @@ struct TestChi2 : TestBxDF<BxDF>
         for (uint64_t j = 0u; j < thetaSplits; ++j)
             for (uint64_t i = 0; i < phiSplits; ++i)
             {
-                //float32_t3 pixelColor = mapColor(countFreq[j * phiSplits + i], 0.f, maxCountFreq);
                 float32_t3 pixelColor = hlsl::visualization::Turbo::map(countFreq[j * phiSplits + i] / maxCountFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
@@ -301,7 +378,6 @@ struct TestChi2 : TestBxDF<BxDF>
         for (uint64_t j = 0u; j < thetaSplits; ++j)
             for (uint64_t i = 0; i < phiSplits; ++i)
             {
-                //float32_t3 pixelColor = mapColor(integrateFreq[j * phiSplits + i], 0.f, maxIntFreq);
                 float32_t3 pixelColor = hlsl::visualization::Turbo::map(integrateFreq[j * phiSplits + i] / maxIntFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
@@ -373,7 +449,6 @@ struct TestChi2 : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
-            // TODO: might want to distinguish between invalid H and sample produced below hemisphere?
             if (!s.isValid())
                 continue;
 
@@ -403,72 +478,14 @@ struct TestChi2 : TestBxDF<BxDF>
             for (int j = 0; j < phiSplits; j++)
             {
                 uint32_t lastidx = intidx;
-                integrateFreq[intidx++] = numSamples * adaptiveSimpson2D([&](float theta, float phi) -> float
-                    {
-                        float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
-                        float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
-
-                        ray_dir_info_t V = base_t::rc.V;
-                        ray_dir_info_t L;
-                        L.direction = hlsl::normalize(float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta));
-                        float32_t3 N = base_t::anisointer.getN();
-                        float NdotL = hlsl::dot(N, L.direction);
-
-                        float32_t3 T = base_t::anisointer.getT();
-                        float32_t3 B = base_t::anisointer.getB();
-                        sample_t s = sample_t::create(L, T, B, NdotL);
-
-                        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
-                        {
-                            const float NdotV = base_t::anisointer.getNdotV();
-                            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF)
-                                if (NdotV < 0.f) return 0.f;
-
-                            float eta = 1.f;
-                            const float NdotL = s.getNdotL();
-                            if (NdotV * NdotL < 0.f)
-                                eta = NdotV < 0.f ? 1.f/base_t::rc.eta.x : base_t::rc.eta.x;
-                            float32_t3 H = hlsl::normalize(V.getDirection() + L.getDirection() * eta);
-                            float VdotH = hlsl::dot(V.getDirection(), H);
-                            if (NdotV * VdotH < 0.f)
-                            {
-                                H = -H;
-                                VdotH = -VdotH;
-                            }
-
-                            cache.iso_cache.VdotH = VdotH;
-                            cache.iso_cache.LdotH = hlsl::dot(L.getDirection(), H);
-                            cache.iso_cache.VdotL = hlsl::dot(V.getDirection(), L.getDirection());
-                            cache.iso_cache.absNdotH = hlsl::abs(hlsl::dot(N, H));
-                            cache.iso_cache.NdotH2 = cache.iso_cache.absNdotH * cache.iso_cache.absNdotH;
-
-                            if (!cache.isValid(bxdf::fresnel::OrientedEtas<hlsl::vector<float,1> >::create(1.f, hlsl::promote<hlsl::vector<float,1> >(eta))))
-                                return 0.f;
-
-                            const float32_t3 T = base_t::anisointer.getT();
-                            const float32_t3 B = base_t::anisointer.getB();
-                            cache.fillTangents(T, B, H);
-                        }
-
-                        float pdf;
-                        NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
-                        {
-                            pdf = base_t::bxdf.pdf(s, base_t::isointer);
-                        }
-                        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
-                        {
-                            NBL_IF_CONSTEXPR(aniso)
-                            {
-                                pdf = base_t::bxdf.pdf(s, base_t::anisointer, cache);
-                            }
-                            else
-                            {
-                                pdf = base_t::bxdf.pdf(s, base_t::isointer, cache.iso_cache);
-                            }
-                        }
-                        return pdf * sinTheta;
-                    },
-                    float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
+                CalculatePdfSinTheta<BxDF, aniso> pdfSinTheta;
+                pdfSinTheta.bxdf = base_t::bxdf;
+                pdfSinTheta.V = base_t::rc.V;
+                pdfSinTheta.isointer = base_t::isointer;
+                pdfSinTheta.anisointer = base_t::anisointer;
+                pdfSinTheta.eta = base_t::rc.eta.x;
+                integrateFreq[intidx++] = numSamples * math::quadrature::AdaptiveSimpson2D<CalculatePdfSinTheta<BxDF, aniso>, float>::__call(
+                    pdfSinTheta, float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
 
                 if (write_frequencies && maxIntFreq < integrateFreq[lastidx])
                     maxIntFreq = integrateFreq[lastidx];
