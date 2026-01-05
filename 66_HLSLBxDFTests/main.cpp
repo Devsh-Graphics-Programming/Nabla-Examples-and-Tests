@@ -5,6 +5,7 @@
 #include <execution>
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -60,15 +61,21 @@ using json = nlohmann::json;
     }\
 }\
 
-class HLSLBxDFTests final : public BuiltinResourcesApplication
+class HLSLBxDFTests final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
-    using base_t = BuiltinResourcesApplication;
+    using device_base_t = application_templates::MonoDeviceApplication;
+    using asset_base_t = BuiltinResourcesApplication;
+
 public:
-    using base_t::base_t;
+    HLSLBxDFTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+        system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
     inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        if (!base_t::onAppInitialized(std::move(system)))
+        if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+            return false;
+
+        if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
 
         std::ifstream f("../app_resources/config.json");
@@ -89,38 +96,24 @@ public:
 
         // test compile with dxc
         {
-            constexpr uint32_t WorkgroupSize = 256;
-            const std::string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
-            const std::string filePath = "app_resources/test_compile.comp.hlsl";
-
-            IAssetLoader::SAssetLoadParams lparams = {};
-            lparams.logger = m_logger.get();
-            lparams.workingDirectory = "";
-            auto bundle = m_assetMgr->getAsset(filePath, lparams);
-            if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
-            {
-                m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
-                return false;
-            }
+            IAssetLoader::SAssetLoadParams lp = {};
+            lp.logger = m_logger.get();
+            lp.workingDirectory = "app_resources"; // virtual root
+            auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+            auto bundle = m_assetMgr->getAsset(key.c_str(), lp);
 
             const auto assets = bundle.getContents();
-            assert(assets.size() == 1);
-            auto shaderSrc = smart_refctd_ptr_static_cast<IShader>(assets[0]);
+            if (assets.empty())
+                m_logger->log("Could not load shader!", ILogger::ELL_ERROR);
 
-            auto shader = shaderSrc;
-            auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-            CHLSLCompiler::SOptions options = {};
-            options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
-            options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-            options.spirvOptimizer = nullptr;
-            // if you don't set the logger and source identifier you'll have no meaningful errors
-            options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
-            options.preprocessorOptions.logger = m_logger.get();
-            options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-            if (!(shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options)))
-                m_logger->log("compile shader test failed!\n", ILogger::ELL_ERROR);
+            // Cast down the asset to its proper type
+            auto shader = IAsset::castDown<IShader>(assets[0]);
+
+            if (!shader)
+                m_logger->log("compile shader test failed!", ILogger::ELL_ERROR);
         }
 
+        // test concepts, not comprehensive
         static_assert(bxdf::surface_interactions::Isotropic<iso_interaction>);
         static_assert(bxdf::surface_interactions::Isotropic<aniso_interaction>);
         static_assert(bxdf::surface_interactions::Anisotropic<aniso_interaction>);
@@ -146,7 +139,7 @@ public:
         static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>);
         static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>);
 
-        runTests(m_assetMgr.get());
+        runTests();
 
         return true;
     }
@@ -154,6 +147,11 @@ public:
     void workLoopBody() override {}
 
     bool keepRunning() override { return false; }
+
+    bool onAppTerminated() override
+    {
+        return device_base_t::onAppTerminated();
+    }
 
 private:
     template<class TestT>
@@ -211,7 +209,7 @@ private:
         smart_refctd_ptr<ILogger> logger;
     };
 
-    void runTests(IAssetManager* assetManager)
+    void runTests()
     {
         const bool logInfo = testconfigs["logInfo"];
 

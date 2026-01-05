@@ -26,3 +26,29 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
     LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
+
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+
+set(JSON [=[
+[
+  {
+    "INPUT": "app_resources/test_compile.comp.hlsl",
+    "KEY": "shader",
+    "COMPILE_OPTIONS": ["-T", "cs_6_8"],
+    "DEPENDS": [],
+    "CAPS": []
+  }
+]
+]=])
+
+NBL_CREATE_NSC_COMPILE_RULES(
+  TARGET ${EXECUTABLE_NAME}SPIRV
+  LINK_TO ${EXECUTABLE_NAME}
+  BINARY_DIR ${OUTPUT_DIRECTORY}
+  MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR}
+  OUTPUT_VAR KEYS
+  INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+  NAMESPACE nbl::this_example::builtin::build
+  INPUTS ${JSON}
+)
