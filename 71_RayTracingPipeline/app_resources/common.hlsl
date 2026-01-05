@@ -4,6 +4,7 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat/basic.h"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
+#include "nbl/builtin/hlsl/type_traits.hlsl"
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 NBL_CONSTEXPR uint32_t MAX_UNORM_10 = 1023;
@@ -78,6 +79,9 @@ struct MaterialPacked
         return (xi>>22) > alpha;
     }
 };
+#ifdef __HLSL_VERSION
+NBL_REGISTER_OBJ_TYPE(MaterialPacked, 4)
+#endif
 
 struct SProceduralGeomInfo
 {
@@ -103,6 +107,9 @@ struct STriangleGeomInfo
     uint32_t indexType : 1; // 16 bit, 32 bit
 
 };
+#ifdef __HLSL_VERSION
+NBL_REGISTER_OBJ_TYPE(STriangleGeomInfo, 8)
+#endif
 
 enum E_GEOM_TYPE : uint16_t
 {

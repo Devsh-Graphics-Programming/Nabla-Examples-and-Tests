@@ -6,6 +6,7 @@
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
 using namespace nbl;
@@ -95,15 +96,15 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
+				lp.workingDirectory = "app_resources"; // virtual root
+
+				auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
 					return logFail("Could not load shader!");
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				const auto shaderSource = IAsset::castDown<IShader>(assets[0]);
-				shader = m_device->compileShader({shaderSource.get()});
+				shader = IAsset::castDown<IShader>(assets[0]);
 				// The down-cast should not fail!
 				assert(shader);
 			}
