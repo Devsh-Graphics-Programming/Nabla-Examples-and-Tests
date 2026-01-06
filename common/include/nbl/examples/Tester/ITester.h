@@ -368,7 +368,7 @@ private:
         for (int i = 0; i < m_testIterationCount; ++i)
         {
             verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU);
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::GPU);
+            verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU);
         }
     }
 
