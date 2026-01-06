@@ -20,7 +20,8 @@ NBL_CONCEPT_BEGIN(1)
 #define rand NBL_CONCEPT_PARAM_T NBL_CONCEPT_PARAM_0
 NBL_CONCEPT_END(
     ((NBL_CONCEPT_REQ_TYPE)(T::rng_type))
-    ((NBL_CONCEPT_REQ_EXPR_RET_TYPE)((rand()), ::nbl::hlsl::is_same_v, uint32_t3))
+    ((NBL_CONCEPT_REQ_TYPE)(T::return_type))
+    ((NBL_CONCEPT_REQ_EXPR_RET_TYPE)((rand()), ::nbl::hlsl::is_same_v, typename T::return_type))
 );
 #undef rand
 #include <nbl/builtin/hlsl/concepts/__end.hlsl>

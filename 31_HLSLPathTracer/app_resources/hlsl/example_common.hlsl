@@ -114,6 +114,7 @@ struct SBxDFCreationParams
     vector<Scalar, 2> A;    // roughness
     Spectrum ior0;          // source ior
     Spectrum ior1;          // destination ior
+    Spectrum iork;          // destination iork (for iridescent only)
     Scalar eta;             // in most cases, eta will be calculated from ior0 and ior1; see monochromeEta in pathtracer.hlsl
 };
 
@@ -134,7 +135,7 @@ struct BxDFNode
         retval.albedo = albedo;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-3));
         retval.params.ior0 = hlsl::promote<spectral_type>(1.0);
         retval.params.ior1 = hlsl::promote<spectral_type>(1.0);
         return retval;
@@ -148,9 +149,23 @@ struct BxDFNode
         retval.albedo = hlsl::promote<spectral_type>(1.0);
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-3));
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
+        return retval;
+    }
+
+    // for iridescent bxdfs, ior0 = thin film ior, ior1+iork1 = base mat ior (k for conductor base)
+    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, scalar_type A, scalar_type Dinc, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1, NBL_CONST_REF_ARG(spectral_type) iork1)
+    {
+        BxDFNode<Spectrum> retval;
+        retval.albedo = hlsl::promote<spectral_type>(1.0);
+        retval.materialType = materialType;
+        retval.params.is_aniso = isAniso;
+        retval.params.A = vector2_type(hlsl::max(A, 1e-3), Dinc);
+        retval.params.ior0 = ior0;
+        retval.params.ior1 = ior1;
+        retval.params.iork = iork1;
         return retval;
     }
 

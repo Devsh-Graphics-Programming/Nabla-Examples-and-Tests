@@ -6,6 +6,7 @@
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
+#include <nbl/builtin/hlsl/sampling/quantized_sequence.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 #include "concepts.hlsl"
 
@@ -54,19 +55,15 @@ struct Unidirectional
 
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
+        using sequence_type = sampling::QuantizedSequence<uint32_t2,3>;
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-        QuantizedSequence tmpSeq = vk::RawBufferLoad<QuantizedSequence>(pSampleBuffer + (address + i) * sizeof(QuantizedSequence));
-        uint32_t3 seqVal;
-        seqVal.x = tmpSeq.getX();
-        seqVal.y = tmpSeq.getY();
-        seqVal.z = tmpSeq.getZ();
-	    seqVal ^= randGen();
-        return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
+        sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + (address + i) * sizeof(sequence_type));
+        return sampling::decode<uint32_t2,3>(tmpSeq, randGen());
     }
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
     {
-        return hlsl::dot<vector3_type>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
+        return hlsl::dot<vector3_type>(colorspace::scRGBtoXYZ[1], col);
     }
 
     // TODO: probably will only work with isotropic surfaces, need to do aniso
@@ -81,6 +78,7 @@ struct Unidirectional
         ray_dir_info_type V;
         V.setDirection(-ray.direction);
         isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+        iso_interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1];
         anisotropic_interaction_type interaction = anisotropic_interaction_type::create(iso_interaction);
 
         vector3_type throughput = ray.payload.throughput;
@@ -109,7 +107,7 @@ struct Unidirectional
         // thresholds
         const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
-        const vector3_type throughputCIE_Y = hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;    // TODO: this only works if spectral_type is dim 3
+        const vector3_type throughputCIE_Y = colorspace::sRGBtoXYZ[1] * throughput;    // TODO: this only works if spectral_type is dim 3
         const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
         const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
@@ -117,9 +115,10 @@ struct Unidirectional
         const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
         scalar_type rcpChoiceProb;
         sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
-        if (!partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
+        partitionRandVariable.leftProb = neeProbability;
+        if (!partitionRandVariable(eps0.z, rcpChoiceProb) && depth < 2u)
         {
-            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * nee.lightCount;
+            uint32_t randLightID = uint32_t(float32_t(randGen.rng()) / numeric_limits<uint32_t>::max) * nee.lightCount;
             quotient_pdf_type neeContrib_pdf;
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(

@@ -9,6 +9,7 @@
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -826,7 +827,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
 				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
-				std::array<QuantizedSequence, bufferSize> data = {};
+				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
+				std::array<sequence_type, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
 				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
@@ -835,18 +837,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = quantizedDimensions * MaxBufferSamples * sizeof(QuantizedSequence);
+					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sequence_type);
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
-					auto out = reinterpret_cast<QuantizedSequence*>(sampleSeq->getPointer());
-					for (auto dim = 0u; dim < quantizedDimensions; dim++)
-					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
-					    {
-						    auto& seq = out[i * quantizedDimensions + dim];
-						    seq.setX(sampler.sample(dim * 3 + 0, i));
-						    seq.setY(sampler.sample(dim * 3 + 1, i));
-						    seq.setZ(sampler.sample(dim * 3 + 2, i));
-					    }
+					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
+					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						{
+							const uint32_t quant_dim = dim / 3u;
+							const uint32_t offset = dim % 3u;
+							auto& seq = out[i * quantizedDimensions + quant_dim];
+							const uint32_t sample = sampler.sample(dim, i);
+							seq.set(offset, sample);
+						}
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
 				}
@@ -861,6 +864,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					std::move(params),
 					sampleSeq->getPointer()
 				).move_into(m_sequenceBuffer);
+
+				m_sequenceBuffer->setObjectDebugName("Sequence buffer");
 			}
 
 			// Update Descriptors
@@ -1566,10 +1571,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-				//rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
-				//rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
-				float32_t2 packLogs = float32_t2(std::log2(rwmcStart), std::log2(rwmcBase));
-				rwmcPushConstants.splattingParameters.packedLog2 = hlsl::packHalf2x16(packLogs);
+				float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
+				rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
 			}
 			else
 			{
