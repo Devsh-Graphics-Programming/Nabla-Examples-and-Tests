@@ -33,19 +33,20 @@ private:
         testInput.axis = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.angle = realDistribution(getRandomEngine());
         testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
-        testInput.quat0 = hlsl::normalize(testInput.quat0);
         testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
-        testInput.quat1 = hlsl::normalize(testInput.quat1);
         testInput.pitch = realDistribution(getRandomEngine());
         testInput.yaw = realDistribution(getRandomEngine());
         testInput.roll = realDistribution(getRandomEngine());
+        testInput.factor = realDistribution(getRandomEngine());
 
         return testInput;
     }
 
     QuaternionTestValues determineExpectedResults(const QuaternionInputTestValues& testInput) override
     {
-        // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
+        const auto glmquat0 = glm::quat(testInput.quat0.data.w, testInput.quat0.data.x, testInput.quat0.data.y, testInput.quat0.data.z);
+        const auto glmquat1 = glm::quat(testInput.quat1.data.w, testInput.quat1.data.x, testInput.quat1.data.y, testInput.quat1.data.z);
+
         QuaternionTestValues expected;
         {
             const auto glmquat = glm::angleAxis(testInput.angle, testInput.axis);
@@ -63,20 +64,24 @@ private:
             expected.quatFromEulerAngles.data.w = glmquat.data.data[3];
         }
         {
-            const auto glmquat = glm::quat(testInput.quat0.data.w, testInput.quat0.data.x, testInput.quat0.data.y, testInput.quat0.data.z);
-            const auto rotmat = glm::mat3_cast(glmquat);
+            const auto rotmat = glm::mat3_cast(glmquat0);
             expected.rotationMat[0] = rotmat[0];
             expected.rotationMat[1] = rotmat[1];
             expected.rotationMat[2] = rotmat[2];
         }
         {
-            const auto glmquat0 = glm::quat(testInput.quat0.data.w, testInput.quat0.data.x, testInput.quat0.data.y, testInput.quat0.data.z);
-            const auto glmquat1 = glm::quat(testInput.quat1.data.w, testInput.quat1.data.x, testInput.quat1.data.y, testInput.quat1.data.z);
             const auto mult = glmquat0 * glmquat1;
             expected.quatMult.data.x = mult.data.data[0];
             expected.quatMult.data.y = mult.data.data[1];
             expected.quatMult.data.z = mult.data.data[2];
             expected.quatMult.data.w = mult.data.data[3];
+        }
+        {
+            const auto lerped = glm::lerp(glmquat0, glmquat1, testInput.factor);
+            expected.quatLerp.data.x = lerped.data.data[0];
+            expected.quatLerp.data.y = lerped.data.data[1];
+            expected.quatLerp.data.z = lerped.data.data[2];
+            expected.quatLerp.data.w = lerped.data.data[3];
         }
 
         return expected;
@@ -86,9 +91,11 @@ private:
     {
         verifyTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2);
         verifyTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2);
+
+        verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
+        verifyTestValue("lerp quat", expectedTestValues.quatLerp.data, testValues.quatLerp.data, testIteration, seed, testType, 1e-2);
     }
 };
 

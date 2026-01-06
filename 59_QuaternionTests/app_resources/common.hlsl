@@ -50,6 +50,7 @@ struct QuaternionInputTestValues
     float yaw;
     float roll;
     float32_t3x3 rotationMat;
+    float factor;
 };
 
 struct QuaternionTestValues
@@ -58,6 +59,7 @@ struct QuaternionTestValues
     math::quaternion<float> quatFromEulerAngles;
     float32_t3x3 rotationMat;
     math::quaternion<float> quatMult;
+    math::quaternion<float> quatLerp;
 };
 
 struct QuaternionTestExecutor
@@ -68,6 +70,7 @@ struct QuaternionTestExecutor
         output.quatFromEulerAngles = math::quaternion<float>::create(input.pitch, input.yaw, input.roll);
         output.rotationMat = input.quat0.constructMatrix();
         output.quatMult = input.quat0 * input.quat1;
+        output.quatLerp = math::quaternion<float>::unnormLerp(input.quat0, input.quat1, input.factor);
     }
 };
 
