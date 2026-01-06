@@ -2,8 +2,10 @@
 #define _SAMPLING_HLSL_
 
 // Include the spherical triangle utilities
+#include <gpu_common.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
+#include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
@@ -13,16 +15,19 @@ using namespace nbl::hlsl;
 #define SAMPLING_MODE_PROJECTED_SOLID_ANGLE 1
 
 // Maximum number of triangles we can have after clipping
-// Without clipping, max 3 faces can be visible at once
-// With clipping, can be more. 7 - 2 = 5 max triangles because fanning from one vertex
+// Without clipping, max 3 faces can be visible at once so 3 faces * 2 triangles = 6 edges, forming max 4 triangles
+// With clipping, one more edge. 7 - 2 = 5 max triangles because fanning from one vertex
 #define MAX_TRIANGLES 5
 
+// Minimal cached sampling data - only what's needed for selection
 struct SamplingData
 {
-    float32_t triangleWeights[MAX_TRIANGLES];
-    uint32_t triangleIndices[MAX_TRIANGLES]; // Store the 'i' value for each valid triangle
-    uint32_t count;
-    float32_t totalWeight;
+    uint32_t count;                               // Number of valid triangles
+    uint32_t samplingMode;                        // Mode used during build
+    float32_t totalWeight;                        // Sum of all triangle weights
+    float32_t3 faceNormal;                        // Face normal (only used for projected mode)
+    float32_t triangleSolidAngles[MAX_TRIANGLES]; // Weight per triangle (for selection)
+    uint32_t triangleIndices[MAX_TRIANGLES];      // Vertex index i (forms triangle with v0, vi, vi+1)
 };
 
 float32_t2 nextRandomUnorm2(inout nbl::hlsl::Xoroshiro64StarStar rnd)
@@ -69,23 +74,35 @@ float32_t computeProjectedSolidAngleFallback(float32_t3 v0, float32_t3 v1, float
     // 4. Compute projected solid angle
     float32_t Gamma = 0.5f * (a * dot(n0, N) + b * dot(n1, N) + c * dot(n2, N));
 
-    // Return the absolute value of the total (to handle CW/CCW triangles)
+    // Return the absolute value of the total
     return abs(Gamma);
 }
 
-// Build sampling data - store weights and vertex indices
-SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, int32_t samplingMode)
+// Build sampling data once - cache only weights for triangle selection
+SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, uint32_t samplingMode)
 {
     SamplingData data;
     data.count = 0;
-    data.totalWeight = 0;
+    data.totalWeight = 0.0f;
+    data.samplingMode = samplingMode;
+    data.faceNormal = float32_t3(0, 0, 0);
 
     if (silhouette.count < 3)
         return data;
 
-    float32_t3 v0 = silhouette.vertices[0];
-    float32_t3 origin = float32_t3(0, 0, 0);
+    const float32_t3 v0 = silhouette.vertices[0];
+    const float32_t3 origin = float32_t3(0, 0, 0);
 
+    // Compute face normal ONCE before the loop - silhouette is planar!
+    if (samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
+    {
+        float32_t3 v1 = silhouette.vertices[1];
+        float32_t3 v2 = silhouette.vertices[2];
+        data.faceNormal = normalize(cross(v1 - v0, v2 - v0));
+    }
+
+    // Build fan triangulation from v0
+    NBL_UNROLL
     for (uint32_t i = 1; i < silhouette.count - 1; i++)
     {
         float32_t3 v1 = silhouette.vertices[i];
@@ -93,60 +110,84 @@ SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, int32
 
         shapes::SphericalTriangle<float32_t> shapeTri = shapes::SphericalTriangle<float32_t>::create(v0, v1, v2, origin);
 
+        // Skip degenerate triangles
         if (shapeTri.pyramidAngles())
             continue;
 
-        float32_t weight;
+        // Calculate triangle solid angle
+        float32_t solidAngle;
         if (samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
         {
-            float32_t3 faceNormal = normalize(cross(v1 - v0, v2 - v0)); // TODO: precompute?
-            weight = computeProjectedSolidAngleFallback(normalize(v0), normalize(v1), normalize(v2), faceNormal);
+            // scalar_type projectedSolidAngleOfTriangle(const vector3_type receiverNormal, NBL_REF_ARG(vector3_type) cos_sides, NBL_REF_ARG(vector3_type) csc_sides, NBL_REF_ARG(vector3_type) cos_vertices)
+            float32_t3 cos_vertices = clamp(
+                (shapeTri.cos_sides - shapeTri.cos_sides.yzx * shapeTri.cos_sides.zxy) *
+                    shapeTri.csc_sides.yzx * shapeTri.csc_sides.zxy,
+                float32_t3(-1.0f, -1.0f, -1.0f),
+                float32_t3(1.0f, 1.0f, 1.0f));
+            solidAngle = shapeTri.projectedSolidAngleOfTriangle(data.faceNormal, shapeTri.cos_sides, shapeTri.csc_sides, cos_vertices);
         }
         else
         {
-            weight = shapeTri.solidAngleOfTriangle();
+            solidAngle = shapeTri.solidAngleOfTriangle();
         }
 
-        if (weight <= 0.0f)
+        if (solidAngle <= 0.0f)
             continue;
 
-        data.triangleWeights[data.count] = weight;
-        data.triangleIndices[data.count] = i; // Store the original vertex index, we need to account for skipped degenerate triangles.
-        data.totalWeight += weight;
+        // Store only what's needed for weighted selection
+        data.triangleSolidAngles[data.count] = solidAngle;
+        data.triangleIndices[data.count] = i;
+        data.totalWeight += solidAngle;
         data.count++;
     }
 
 #ifdef DEBUG_DATA
-    // Assert no edge has both vertices antipodal (lune case)
+    // Validate no antipodal edges exist (would create spherical lune)
     for (uint32_t i = 0; i < silhouette.count; i++)
     {
         uint32_t j = (i + 1) % silhouette.count;
         float32_t3 n1 = normalize(silhouette.vertices[i]);
         float32_t3 n2 = normalize(silhouette.vertices[j]);
 
-        // Check if vertices are antipodal
-        bool antipodal = dot(n1, n2) < -0.99f;
+        if (dot(n1, n2) < -0.99f)
+        {
+            DebugDataBuffer[0].sphericalLuneDetected = 1;
+            assert(false && "Spherical lune detected: antipodal silhouette edge");
+        }
+    }
+    DebugDataBuffer[0].maxTrianglesExceeded = (data.count > MAX_TRIANGLES);
 
-        assert(false && "Spherical lune detected: antipodal silhouette edge");
+    DebugDataBuffer[0].clippedSilhouetteVertexCount = silhouette.count;
+    for (uint32_t v = 0; v < silhouette.count; v++)
+    {
+        DebugDataBuffer[0].clippedSilhouetteVertices[v] = silhouette.vertices[v];
+    }
+
+    DebugDataBuffer[0].triangleCount = data.count;
+    DebugDataBuffer[0].totalSolidAngles = data.totalWeight;
+    for (uint32_t tri = 0; tri < data.count; tri++)
+    {
+        DebugDataBuffer[0].solidAngles[tri] = data.triangleSolidAngles[tri];
     }
 #endif
 
-    DebugDataBuffer[0].maxTrianglesExcceded = data.count > MAX_TRIANGLES;
     return data;
 }
 
+// Sample using cached selection weights, but recompute geometry on-demand
 float32_t3 sampleFromData(SamplingData data, ClippedSilhouette silhouette, float32_t2 xi, out float32_t pdf, out uint32_t selectedIdx)
 {
+    selectedIdx = 0;
+
+    // Handle empty or invalid data
     if (data.count == 0 || data.totalWeight <= 0.0f)
     {
-        pdf = 0;
-        selectedIdx = 0;
+        pdf = 0.0f;
         return float32_t3(0, 0, 1);
     }
 
-    // Select triangle using uniform random sampling weighted by importance
-    float32_t toFind = xi.x * data.totalWeight;
-    uint32_t triIdx = 0;
+    // Select triangle using cached weighted random selection
+    float32_t targetWeight = xi.x * data.totalWeight;
     float32_t cumulativeWeight = 0.0f;
     float32_t prevCumulativeWeight = 0.0f;
 
@@ -154,57 +195,104 @@ float32_t3 sampleFromData(SamplingData data, ClippedSilhouette silhouette, float
     for (uint32_t i = 0; i < data.count; i++)
     {
         prevCumulativeWeight = cumulativeWeight;
-        cumulativeWeight += data.triangleWeights[i];
-        if (toFind <= cumulativeWeight)
+        cumulativeWeight += data.triangleSolidAngles[i];
+
+        if (targetWeight <= cumulativeWeight)
         {
-            triIdx = i;
+            selectedIdx = i;
             break;
         }
     }
 
-    selectedIdx = triIdx;
+    // Remap xi.x to [0,1] within selected triangle's solidAngle interval
+    float32_t triSolidAngle = data.triangleSolidAngles[selectedIdx];
+    float32_t u = (targetWeight - prevCumulativeWeight) / max(triSolidAngle, 1e-7f);
 
-    // Remap xi.x to [0,1] within the selected triangle's weight range
-    float32_t triMin = prevCumulativeWeight;
-    float32_t triMax = cumulativeWeight;
-    float32_t triWeight = triMax - triMin;
-    float32_t u = (toFind - triMin) / max(triWeight, 1e-7f);
-
-    // Reconstruct the triangle using the stored vertex index
-    uint32_t vertexIdx = data.triangleIndices[triIdx]; // We need to account for skipped degenerate triangles.
+    // Reconstruct the selected triangle geometry
+    uint32_t vertexIdx = data.triangleIndices[selectedIdx];
     float32_t3 v0 = silhouette.vertices[0];
     float32_t3 v1 = silhouette.vertices[vertexIdx];
     float32_t3 v2 = silhouette.vertices[vertexIdx + 1];
+
+	float32_t3 faceNormal = normalize(cross(v1 - v0, v2 - v0));
+
     float32_t3 origin = float32_t3(0, 0, 0);
 
     shapes::SphericalTriangle<float32_t> shapeTri = shapes::SphericalTriangle<float32_t>::create(v0, v1, v2, origin);
-    sampling::SphericalTriangle<float32_t> samplingTri = sampling::SphericalTriangle<float32_t>::create(shapeTri);
 
-    // Sample from the selected triangle using remapped u and original xi.y
+    // Compute vertex angles once
+    float32_t3 cos_vertices = clamp(
+        (shapeTri.cos_sides - shapeTri.cos_sides.yzx * shapeTri.cos_sides.zxy) *
+            shapeTri.csc_sides.yzx * shapeTri.csc_sides.zxy,
+        float32_t3(-1.0f, -1.0f, -1.0f),
+        float32_t3(1.0f, 1.0f, 1.0f));
+    float32_t3 sin_vertices = sqrt(float32_t3(1.0f, 1.0f, 1.0f) - cos_vertices * cos_vertices);
+
+    // Sample based on mode
+    float32_t3 direction;
     float32_t rcpPdf;
-    float32_t3 direction = samplingTri.generate(rcpPdf, float32_t2(u, xi.y));
 
-    float32_t trianglePdf = 1.0f / rcpPdf;
-    pdf = trianglePdf * (data.triangleWeights[triIdx] / data.totalWeight);
+    if (data.samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
+    {
+        sampling::ProjectedSphericalTriangle<float32_t> samplingTri =
+            sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri);
+
+        direction = samplingTri.generate(
+            rcpPdf,
+            triSolidAngle,
+            cos_vertices,
+            sin_vertices,
+            shapeTri.cos_sides[0],
+            shapeTri.cos_sides[2],
+            shapeTri.csc_sides[1],
+            shapeTri.csc_sides[2],
+            faceNormal,
+            false,
+            float32_t2(u, xi.y));
+        triSolidAngle = rcpPdf; // projected solid angle returned as rcpPdf
+    }
+    else
+    {
+        sampling::SphericalTriangle<float32_t> samplingTri =
+            sampling::SphericalTriangle<float32_t>::create(shapeTri);
+
+        direction = samplingTri.generate(
+            triSolidAngle,
+            cos_vertices,
+            sin_vertices,
+            shapeTri.cos_sides[0],
+            shapeTri.cos_sides[2],
+            shapeTri.csc_sides[1],
+            shapeTri.csc_sides[2],
+            float32_t2(u, xi.y));
+    }
+
+    // Calculate PDF
+    float32_t trianglePdf = 1.0f / triSolidAngle;
+    float32_t selectionProb = triSolidAngle / data.totalWeight;
+    pdf = trianglePdf * selectionProb;
 
     return normalize(direction);
 }
 
+#if VISUALIZE_SAMPLES
+
 float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSilhouette silhouette,
-                            int32_t samplingMode, SamplingData samplingData, int32_t numSamples)
+                            uint32_t samplingMode, uint32_t frameIndex, SamplingData samplingData, uint32_t numSamples, inout RWStructuredBuffer<ResultData> DebugDataBuffer)
 {
     float32_t4 accumColor = 0;
 
-    if (samplingData.count == 0)
+    if (silhouette.count == 0)
         return 0;
 
     float32_t2 pssSize = float32_t2(0.3, 0.3);  // 30% of screen
     float32_t2 pssPos = float32_t2(0.01, 0.01); // Offset from corner
     bool isInsidePSS = all(and(screenUV >= pssPos, screenUV <= (pssPos + pssSize)));
 
-    for (int32_t i = 0; i < numSamples; i++)
+    DebugDataBuffer[0].sampleCount = numSamples;
+    for (uint32_t i = 0; i < numSamples; i++)
     {
-        nbl::hlsl::random::PCG32 seedGen = nbl::hlsl::random::PCG32::construct(pc.frameIndex * 65536u + i);
+        nbl::hlsl::random::PCG32 seedGen = nbl::hlsl::random::PCG32::construct(frameIndex * 65536u + i);
         const uint32_t seed1 = seedGen();
         const uint32_t seed2 = seedGen();
         nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
@@ -213,6 +301,8 @@ float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSi
         float32_t pdf;
         uint32_t triIdx;
         float32_t3 sampleDir = sampleFromData(samplingData, silhouette, xi, pdf, triIdx);
+
+        DebugDataBuffer[0].rayData[i] = float32_t4(sampleDir, pdf);
 
         float32_t dist3D = distance(sampleDir, normalize(spherePos));
         float32_t alpha3D = 1.0f - smoothstep(0.0f, 0.02f, dist3D);
@@ -244,4 +334,5 @@ float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSi
 
     return accumColor;
 }
+#endif
 #endif

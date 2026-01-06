@@ -1,10 +1,11 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "common.hpp"
 #include "app_resources/hlsl/common.hlsl"
+#include "app_resources/hlsl/benchmark/common.hlsl"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 /*
@@ -18,6 +19,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
 	using asset_base_t = BuiltinResourcesApplication;
 
 	inline static std::string SolidAngleVisShaderPath = "app_resources/hlsl/SolidAngleVis.frag.hlsl";
+	inline static std::string RayVisShaderPath = "app_resources/hlsl/RayVis.frag.hlsl";
 public:
 	inline SolidAngleVisualizer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
@@ -30,6 +32,8 @@ public:
 			return false;
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
+
+		interface.m_visualizer = this;
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 		if (!m_semaphore)
@@ -162,7 +166,7 @@ public:
 
 		// Create graphics pipeline
 		{
-			auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "") -> smart_refctd_ptr<IShader>
+			auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, IShader::E_SHADER_STAGE stage, const std::string& defineMacro = "") -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -180,7 +184,7 @@ public:
 
 					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 					CHLSLCompiler::SOptions options = {};
-					options.stage = IShader::E_SHADER_STAGE::ESS_FRAGMENT;
+					options.stage = stage;
 					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
@@ -216,21 +220,24 @@ public:
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 			// Load Fragment Shader
-			auto fragmentShader = loadAndCompileHLSLShader(SolidAngleVisShaderPath);
-			if (!fragmentShader)
-				return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
+			auto solidAngleVisFragShader = loadAndCompileHLSLShader(SolidAngleVisShaderPath, ESS_FRAGMENT);
+			if (!solidAngleVisFragShader)
+				return logFail("Failed to Load and Compile Fragment Shader: SolidAngleVis!");
 
-			const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
-				.shader = fragmentShader.get(),
+			const IGPUPipelineBase::SShaderSpecInfo solidAngleFragSpec = {
+				.shader = solidAngleVisFragShader.get(),
 				.entryPoint = "main"
 			};
 
-			const asset::SPushConstantRange ranges[] = { {
-				.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
-				.offset = 0,
-				.size = sizeof(PushConstants)
-			} };
+			auto rayVisFragShader = loadAndCompileHLSLShader(RayVisShaderPath, ESS_FRAGMENT);
+			if (!rayVisFragShader)
+				return logFail("Failed to Load and Compile Fragment Shader: rayVis!");
+			const IGPUPipelineBase::SShaderSpecInfo RayFragSpec = {
+				.shader = rayVisFragShader.get(),
+				.entryPoint = "main"
+			};
 
+			smart_refctd_ptr<IGPUPipelineLayout> solidAngleVisLayout, rayVisLayout;
 			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
 				{
 					.binding = 0,
@@ -241,21 +248,39 @@ public:
 				}
 			};
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+
+			const asset::SPushConstantRange saRanges[] = { {
+				.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
+				.offset = 0,
+				.size = sizeof(PushConstants)
+			} };
+			const asset::SPushConstantRange rayRanges[] = { {
+				.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
+				.offset = 0,
+				.size = sizeof(PushConstantRayVis)
+			} };
+
 			if (!dsLayout)
 				logFail("Failed to create a Descriptor Layout!\n");
 
+			solidAngleVisLayout = m_device->createPipelineLayout(saRanges, dsLayout);
 
-			auto visualizationLayout = m_device->createPipelineLayout(ranges
-#if DEBUG_DATA
-				, dsLayout
-#endif
-			);
-			m_visualizationPipeline = fsTriProtoPPln.createPipeline(fragSpec, visualizationLayout.get(), m_solidAngleRenderpass.get());
-			if (!m_visualizationPipeline)
-				return logFail("Could not create Graphics Pipeline!");
+			rayVisLayout = m_device->createPipelineLayout(rayRanges, dsLayout);
 
+			{
+				m_solidAngleVisPipeline = fsTriProtoPPln.createPipeline(solidAngleFragSpec, solidAngleVisLayout.get(), m_solidAngleRenderpass.get());
+				if (!m_solidAngleVisPipeline)
+					return logFail("Could not create Graphics Pipeline!");
+
+				asset::SRasterizationParams rasterParams = ext::FullScreenTriangle::ProtoPipeline::DefaultRasterParams;
+				rasterParams.depthWriteEnable = true;
+				rasterParams.depthCompareOp = asset::E_COMPARE_OP::ECO_GREATER;
+
+				m_rayVisualizationPipeline = fsTriProtoPPln.createPipeline(RayFragSpec, rayVisLayout.get(), m_mainRenderpass.get(), 0, {}, rasterParams);
+				if (!m_rayVisualizationPipeline)
+					return logFail("Could not create Graphics Pipeline!");
+			}
 			// Allocate the memory
-#if DEBUG_DATA
 			{
 				constexpr size_t BufferSize = sizeof(ResultData);
 
@@ -297,7 +322,6 @@ public:
 			const ILogicalDevice::MappedMemoryRange memoryRange(m_allocation.memory.get(), 0ull, m_allocation.memory->getAllocationSize());
 			if (!m_allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
 				m_device->invalidateMappedMemoryRanges(1, &memoryRange);
-#endif
 		}
 
 		// Create ImGUI
@@ -391,7 +415,6 @@ public:
 		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 		if (m_solidAngleViewFramebuffer)
 		{
-#if DEBUG_DATA
 			asset::SBufferRange<IGPUBuffer> range
 			{
 				.offset = 0,
@@ -399,40 +422,43 @@ public:
 				.buffer = m_outputStorageBuffer
 			};
 			cb->fillBuffer(range, 0u);
-#endif
-			auto creationParams = m_solidAngleViewFramebuffer->getCreationParameters();
-			cb->beginDebugMarker("Draw Circle View Frame");
 			{
-				const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
-				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
-				{
-					.framebuffer = m_solidAngleViewFramebuffer.get(),
-					.colorClearValues = &clearValue,
-					.depthStencilClearValues = &farValue,
-					.renderArea = {
-						.offset = {0,0},
-						.extent = {creationParams.width, creationParams.height}
-					}
-				};
-				beginRenderpass(cb, renderpassInfo);
-			}
-			// draw scene
-			{
-				PushConstants pc{
-					.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-					.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
-					.samplingMode = m_samplingMode,
-					.frameIndex = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u
-				};
-				auto pipeline = m_visualizationPipeline;
-				cb->bindGraphicsPipeline(pipeline.get());
-				cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
-				cb->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, pipeline->getLayout(), 0, 1, &m_ds.get());
-				ext::FullScreenTriangle::recordDrawCall(cb);
-			}
-			cb->endRenderPass();
-			cb->endDebugMarker();
 
+				const auto& creationParams = m_solidAngleViewFramebuffer->getCreationParameters();
+				cb->beginDebugMarker("Draw Circle View Frame");
+				{
+					const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
+					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
+					{
+						.framebuffer = m_solidAngleViewFramebuffer.get(),
+						.colorClearValues = &clearValue,
+						.depthStencilClearValues = &farValue,
+						.renderArea = {
+							.offset = {0,0},
+							.extent = {creationParams.width, creationParams.height}
+						}
+					};
+					beginRenderpass(cb, renderpassInfo);
+				}
+				// draw scene
+				{
+					static uint32_t lastFrameSeed = 0u;
+					lastFrameSeed = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : lastFrameSeed;
+					PushConstants pc{
+						.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
+						.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
+						.samplingMode = m_samplingMode,
+						.frameIndex = lastFrameSeed
+					};
+					auto pipeline = m_solidAngleVisPipeline;
+					cb->bindGraphicsPipeline(pipeline.get());
+					cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
+					cb->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, pipeline->getLayout(), 0, 1, &m_ds.get());
+					ext::FullScreenTriangle::recordDrawCall(cb);
+				}
+				cb->endRenderPass();
+				cb->endDebugMarker();
+			}
 #if DEBUG_DATA
 			m_device->waitIdle();
 			std::memcpy(&m_GPUOutResulData, static_cast<ResultData*>(m_allocation.memory->getMappedPointer()), sizeof(ResultData));
@@ -442,11 +468,11 @@ public:
 		// draw main view
 		if (m_mainViewFramebuffer)
 		{
-			cb->beginDebugMarker("Main Scene Frame");
 			{
 				auto creationParams = m_mainViewFramebuffer->getCreationParameters();
 				const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
 				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
+
 				{
 					.framebuffer = m_mainViewFramebuffer.get(),
 					.colorClearValues = &clearValue,
@@ -457,9 +483,33 @@ public:
 					}
 				};
 				beginRenderpass(cb, renderpassInfo);
+
+			}
+			{ // draw rays visualization
+				auto creationParams = m_mainViewFramebuffer->getCreationParameters();
+
+				cb->beginDebugMarker("Draw Rays visualization");
+				// draw scene
+				{
+					float32_t4x4 viewProj = *reinterpret_cast<const float32_t4x4*>(&interface.camera.getConcatenatedMatrix());
+					PushConstantRayVis pc{
+						.viewProjMatrix = viewProj,
+						.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
+						.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
+						.frameIndex = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u
+					};
+					auto pipeline = m_rayVisualizationPipeline;
+					cb->bindGraphicsPipeline(pipeline.get());
+					cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
+					cb->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, pipeline->getLayout(), 0, 1, &m_ds.get());
+					ext::FullScreenTriangle::recordDrawCall(cb);
+				}
+				cb->endDebugMarker();
 			}
 			// draw scene
 			{
+				cb->beginDebugMarker("Main Scene Frame");
+
 				float32_t3x4 viewMatrix;
 				float32_t4x4 viewProjMatrix;
 				// TODO: get rid of legacy matrices
@@ -472,8 +522,7 @@ public:
 
 				// tear down scene every frame
 				auto& instance = m_renderer->m_instances[0];
-				auto transposed = hlsl::transpose(interface.m_OBBModelMatrix);
-				memcpy(&instance.world, &transposed, sizeof(instance.world));
+				instance.world = float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix));
 				instance.packedGeo = m_renderer->getGeometries().data(); // cube // +interface.gcIndex;
 				m_renderer->render(cb, viewParams); // draw the cube/OBB
 
@@ -481,9 +530,11 @@ public:
 				instance.packedGeo = m_renderer->getGeometries().data() + 2; // disk
 				m_renderer->render(cb, viewParams);
 			}
-			cb->endRenderPass();
+
 			cb->endDebugMarker();
+			cb->endRenderPass();
 		}
+
 		{
 			cb->beginDebugMarker("SolidAngleVisualizer IMGUI Frame");
 			{
@@ -781,12 +832,10 @@ private:
 		cb->setViewport(0u, 1u, &viewport);
 	}
 
-#if DEBUG_DATA
 	~SolidAngleVisualizer() override
 	{
 		m_allocation.memory->unmap();
 	}
-#endif
 
 	// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
@@ -806,7 +855,8 @@ private:
 	smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 	smart_refctd_ptr<IGPUFramebuffer> m_solidAngleViewFramebuffer;
 	smart_refctd_ptr<IGPUFramebuffer> m_mainViewFramebuffer;
-	smart_refctd_ptr<IGPUGraphicsPipeline> m_visualizationPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_solidAngleVisPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_rayVisualizationPipeline;
 	//
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
 	smart_refctd_ptr<IGPUBuffer> m_outputStorageBuffer;
@@ -858,6 +908,15 @@ private:
 			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 			ImGui::Begin("Editor");
+
+			ImGui::Text("Benchmarking Solid Angle Visualizer");
+
+			if (ImGui::Button("Run Benchmark"))
+			{
+				SolidAngleVisualizer::SamplingBenchmark benchmark(*m_visualizer);
+				benchmark.run();
+			}
+			ImGui::Separator();
 
 			ImGui::Text("Sampling Mode: ");
 			ImGui::SameLine();
@@ -1119,7 +1178,8 @@ private:
 					ImGui::Text("silhouette Vertex Count: %u", m_GPUOutResulData.silhouetteVertexCount);
 					ImGui::Text("silhouette Positive VertexCount: %u", m_GPUOutResulData.positiveVertCount);
 					ImGui::Text("Silhouette Mismatch: %s", m_GPUOutResulData.edgeVisibilityMismatch ? "true" : "false");
-					ImGui::Text("More Than Two Bit Transitions: %s", m_GPUOutResulData.maxTrianglesExcceded ? "true" : "false");
+					ImGui::Text("Max triangles exceeded: %s", m_GPUOutResulData.maxTrianglesExceeded ? "true" : "false");
+					ImGui::Text("spherical lune detected: %s", m_GPUOutResulData.sphericalLuneDetected ? "true" : "false");
 
 					{
 						float32_t3 xAxis = m_OBBModelMatrix[0].xyz;
@@ -1138,23 +1198,27 @@ private:
 					}
 
 					static bool modalShown = false;
+					static bool modalDismissed = false;
 					static uint32_t lastSilhouetteIndex = ~0u;
 
-					// Reset modal flag if silhouette configuration changed
+					// Reset modal flags if silhouette configuration changed
 					if (m_GPUOutResulData.silhouetteIndex != lastSilhouetteIndex)
 					{
 						modalShown = false;
+						modalDismissed = false;  // Allow modal to show again for new configuration
 						lastSilhouetteIndex = m_GPUOutResulData.silhouetteIndex;
 					}
 
-					if (!m_GPUOutResulData.edgeVisibilityMismatch || !m_GPUOutResulData.maxTrianglesExcceded)
+					// Reset flags when mismatch is cleared
+					if (!m_GPUOutResulData.edgeVisibilityMismatch && !m_GPUOutResulData.maxTrianglesExceeded && !m_GPUOutResulData.sphericalLuneDetected)
 					{
-						// Reset flag when mismatch is cleared
 						modalShown = false;
+						modalDismissed = false;
 					}
-					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.maxTrianglesExcceded) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown) // 13 means we're inside the cube, so don't care
+
+					// Open modal only if not already shown/dismissed
+					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.maxTrianglesExceeded || m_GPUOutResulData.sphericalLuneDetected) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown && !modalDismissed)  // Don't reopen if user dismissed it
 					{
-						// Open modal popup only once per configuration
 						ImGui::OpenPopup("Edge Visibility Mismatch Warning");
 						modalShown = true;
 					}
@@ -1164,19 +1228,13 @@ private:
 					{
 						ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Warning: Edge Visibility Mismatch Detected!");
 						ImGui::Separator();
-
 						ImGui::Text("The silhouette lookup table (LUT) does not match the computed edge visibility.");
 						ImGui::Text("This indicates the pre-computed silhouette data may be incorrect.");
 						ImGui::Spacing();
-
-						// Show configuration info
 						ImGui::TextWrapped("Configuration Index: %u", m_GPUOutResulData.silhouetteIndex);
 						ImGui::TextWrapped("Region: (%u, %u, %u)", m_GPUOutResulData.region.x, m_GPUOutResulData.region.y, m_GPUOutResulData.region.z);
 						ImGui::Spacing();
-
 						ImGui::Text("Mismatched Vertices (bitmask): 0x%08X", m_GPUOutResulData.edgeVisibilityMismatch);
-
-						// Show which specific vertices are mismatched
 						ImGui::Text("Vertices involved in mismatched edges:");
 						ImGui::Indent();
 						for (int i = 0; i < 8; i++)
@@ -1188,12 +1246,12 @@ private:
 						}
 						ImGui::Unindent();
 						ImGui::Spacing();
-
 						if (ImGui::Button("OK", ImVec2(120, 0)))
 						{
 							ImGui::CloseCurrentPopup();
+							modalShown = false;
+							modalDismissed = true;  // Mark as dismissed to prevent reopening
 						}
-
 						ImGui::EndPopup();
 					}
 
@@ -1202,6 +1260,25 @@ private:
 					// Region (uint32_t3)
 					ImGui::Text("region: (%u, %u, %u)",
 						m_GPUOutResulData.region.x, m_GPUOutResulData.region.y, m_GPUOutResulData.region.z);
+
+					// print solidAngles for each triangle
+					{
+						ImGui::Text("Solid Angles per Triangle:");
+						ImGui::BeginTable("SolidAnglesTable", 2);
+						ImGui::TableSetupColumn("Triangle Index");
+						ImGui::TableSetupColumn("Solid Angle");
+						ImGui::TableHeadersRow();
+						for (uint32_t i = 0; i < m_GPUOutResulData.triangleCount; ++i)
+						{
+							ImGui::TableNextRow();
+							ImGui::TableSetColumnIndex(0);
+							ImGui::Text("%u", i);
+							ImGui::TableSetColumnIndex(1);
+							ImGui::Text("%.6f", m_GPUOutResulData.solidAngles[i]);
+						}
+						ImGui::Text("Total: %.6f", m_GPUOutResulData.totalSolidAngles);
+						ImGui::EndTable();
+					}
 
 					ImGui::Separator();
 
@@ -1255,14 +1332,15 @@ private:
 							ImGui::Separator();
 					};
 
-				static RandomSampler rng(69); // Initialize RNG with seed
+				static RandomSampler rng(0x45); // Initialize RNG with seed
 
 				// Helper function to check if cube intersects unit sphere at origin
-				auto isCubeOutsideUnitSphere = [](const float32_t3& translation, const float32_t3& scale) -> bool {
-					float cubeRadius = glm::length(scale) * 0.5f;
-					float distanceToCenter = glm::length(translation);
-					return (distanceToCenter - cubeRadius) > 1.0f;
-				};
+				auto isCubeOutsideUnitSphere = [](const float32_t3& translation, const float32_t3& scale) -> bool
+					{
+						float cubeRadius = glm::length(scale) * 0.5f;
+						float distanceToCenter = glm::length(translation);
+						return (distanceToCenter - cubeRadius) > 1.0f;
+					};
 
 				static TRS lastTRS = {};
 				if (ImGui::Button("Randomize Translation"))
@@ -1404,7 +1482,7 @@ private:
 		// mutables
 		struct TRS // Source of truth
 		{
-			float32_t3 translation{ 0.0f, 0.0f, 3.0f };
+			float32_t3 translation{ 0.0f, 0.0f, 1.5f };
 			float32_t3 rotation{ 0.0f };  // MUST stay orthonormal
 			float32_t3 scale{ 1.0f };
 		} m_TRS;
@@ -1415,7 +1493,6 @@ private:
 		TransformReturnInfo mainViewTransformReturnInfo;
 		TransformReturnInfo solidAngleViewTransformReturnInfo;
 
-
 		const static inline core::vectorSIMDf cameraIntialPosition{ -3.0f, 6.0f, 3.0f };
 		const static inline core::vectorSIMDf cameraInitialTarget{ 0.f, 0.0f, 3.f };
 		const static inline core::vectorSIMDf cameraInitialUp{ 0.f, 0.f, 1.f };
@@ -1425,7 +1502,289 @@ private:
 		//uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = true;
 		bool firstFrame = true;
+
+		SolidAngleVisualizer* m_visualizer;
 	} interface;
+
+	class SamplingBenchmark final
+	{
+	public:
+		SamplingBenchmark(SolidAngleVisualizer& base)
+			: m_api(base.m_api), m_device(base.m_device), m_logger(base.m_logger), m_visualizer(&base)
+		{
+
+			// setting up pipeline in the constructor
+			m_queueFamily = base.getComputeQueue()->getFamilyIndex();
+			m_cmdpool = base.m_device->createCommandPool(m_queueFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			//core::smart_refctd_ptr<IGPUCommandBuffer>* cmdBuffs[] = { &m_cmdbuf, &m_timestampBeforeCmdBuff, &m_timestampAfterCmdBuff };
+			if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
+				base.logFail("Failed to create Command Buffers!\n");
+			if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampBeforeCmdBuff))
+				base.logFail("Failed to create Command Buffers!\n");
+			if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampAfterCmdBuff))
+				base.logFail("Failed to create Command Buffers!\n");
+
+			// Load shaders, set up pipeline
+			{
+				smart_refctd_ptr<IShader> shader;
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = base.m_logger.get();
+					lp.workingDirectory = "app_resources"; // virtual root
+					// this time we load a shader directly from a file
+					auto key = nbl::this_example::builtin::build::get_spirv_key<"benchmark">(m_device.get());
+					auto assetBundle = base.m_assetMgr->getAsset(key.data(), lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+					{
+						base.logFail("Could not load shader!");
+						assert(0);
+					}
+
+					// It would be super weird if loading a shader from a file produced more than 1 asset
+					assert(assets.size() == 1);
+					shader = IAsset::castDown<IShader>(assets[0]);
+				}
+
+				if (!shader)
+					base.logFail("Failed to load precompiled \"benchmark\" shader!\n");
+
+				nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+					{
+						.binding = 0,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = ShaderStage::ESS_COMPUTE,
+						.count = 1
+					}
+				};
+				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = base.m_device->createDescriptorSetLayout(bindings);
+				if (!dsLayout)
+					base.logFail("Failed to create a Descriptor Layout!\n");
+
+				SPushConstantRange pushConstantRanges[] = {
+					{
+						.stageFlags = ShaderStage::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(BenchmarkPushConstants)
+					}
+				};
+				m_pplnLayout = base.m_device->createPipelineLayout(pushConstantRanges, smart_refctd_ptr(dsLayout));
+				if (!m_pplnLayout)
+					base.logFail("Failed to create a Pipeline Layout!\n");
+
+				{
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = m_pplnLayout.get();
+					params.shader.entryPoint = "main";
+					params.shader.shader = shader.get();
+					if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
+						base.logFail("Failed to create pipelines (compile & link shaders)!\n");
+				}
+
+				// Allocate the memory
+				{
+					constexpr size_t BufferSize = BENCHMARK_WORKGROUP_COUNT * BENCHMARK_WORKGROUP_DIMENSION_SIZE_X *
+						BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y * BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z * sizeof(uint32_t);
+
+					nbl::video::IGPUBuffer::SCreationParams params = {};
+					params.size = BufferSize;
+					params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+					smart_refctd_ptr<IGPUBuffer> dummyBuff = base.m_device->createBuffer(std::move(params));
+					if (!dummyBuff)
+						base.logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+					dummyBuff->setObjectDebugName("benchmark buffer");
+
+					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = dummyBuff->getMemoryReqs();
+
+					m_allocation = base.m_device->allocate(reqs, dummyBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+					if (!m_allocation.isValid())
+						base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+					assert(dummyBuff->getBoundMemory().memory == m_allocation.memory.get());
+					smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+					m_ds = pool->createDescriptorSet(std::move(dsLayout));
+					{
+						IGPUDescriptorSet::SDescriptorInfo info[1];
+						info[0].desc = smart_refctd_ptr(dummyBuff);
+						info[0].info.buffer = { .offset = 0,.size = BufferSize };
+						IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+							{.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+						};
+						base.m_device->updateDescriptorSets(writes, {});
+					}
+				}
+			}
+
+			IQueryPool::SCreationParams queryPoolCreationParams{};
+			queryPoolCreationParams.queryType = IQueryPool::TYPE::TIMESTAMP;
+			queryPoolCreationParams.queryCount = 2;
+			queryPoolCreationParams.pipelineStatisticsFlags = IQueryPool::PIPELINE_STATISTICS_FLAGS::NONE;
+			m_queryPool = m_device->createQueryPool(queryPoolCreationParams);
+
+			m_computeQueue = m_device->getQueue(m_queueFamily, 0);
+		}
+
+		void run()
+		{
+			m_logger->log("\n\nsampling benchmark result:", ILogger::ELL_PERFORMANCE);
+			m_logger->log("sampling benchmark, triangle solid angle result:", ILogger::ELL_PERFORMANCE);
+			performBenchmark(SAMPLING_BENCHMARK_MODE::TRIANGLE_SOLID_ANGLE, SAMPLING_MODE_SOLID_ANGLE);
+
+			m_logger->log("sampling benchmark, triangle projected solid angle result:", ILogger::ELL_PERFORMANCE);
+			performBenchmark(SAMPLING_BENCHMARK_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE, SAMPLING_MODE_PROJECTED_SOLID_ANGLE);
+		}
+
+	private:
+		void performBenchmark(SAMPLING_BENCHMARK_MODE mode, uint32_t solidAngleMode)
+		{
+			m_device->waitIdle();
+
+			recordTimestampQueryCmdBuffers();
+
+			uint64_t semaphoreCounter = 0;
+			smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(semaphoreCounter);
+
+			IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+			IQueue::SSubmitInfo::SSemaphoreInfo waits[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT } };
+
+			IQueue::SSubmitInfo beforeTimestapSubmitInfo[1] = {};
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsBegin[] = { {.cmdbuf = m_timestampBeforeCmdBuff.get()} };
+			beforeTimestapSubmitInfo[0].commandBuffers = cmdbufsBegin;
+			beforeTimestapSubmitInfo[0].signalSemaphores = signals;
+			beforeTimestapSubmitInfo[0].waitSemaphores = waits;
+
+			IQueue::SSubmitInfo afterTimestapSubmitInfo[1] = {};
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsEnd[] = { {.cmdbuf = m_timestampAfterCmdBuff.get()} };
+			afterTimestapSubmitInfo[0].commandBuffers = cmdbufsEnd;
+			afterTimestapSubmitInfo[0].signalSemaphores = signals;
+			afterTimestapSubmitInfo[0].waitSemaphores = waits;
+
+			IQueue::SSubmitInfo benchmarkSubmitInfos[1] = {};
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
+			benchmarkSubmitInfos[0].commandBuffers = cmdbufs;
+			benchmarkSubmitInfos[0].signalSemaphores = signals;
+			benchmarkSubmitInfos[0].waitSemaphores = waits;
+
+
+			m_pushConstants.benchmarkMode = mode;
+			m_pushConstants.samplingMode = solidAngleMode;
+			m_pushConstants.modelMatrix = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
+			recordCmdBuff();
+
+			// warmup runs
+			for (int i = 0; i < WarmupIterations; ++i)
+			{
+				if (i == 0)
+					m_api->startCapture();
+				waits[0].value = semaphoreCounter;
+				signals[0].value = ++semaphoreCounter;
+				m_computeQueue->submit(benchmarkSubmitInfos);
+				if (i == 0)
+					m_api->endCapture();
+			}
+
+			waits[0].value = semaphoreCounter;
+			signals[0].value = ++semaphoreCounter;
+			m_computeQueue->submit(beforeTimestapSubmitInfo);
+
+			// actual benchmark runs
+			for (int i = 0; i < Iterations; ++i)
+			{
+				waits[0].value = semaphoreCounter;
+				signals[0].value = ++semaphoreCounter;
+				m_computeQueue->submit(benchmarkSubmitInfos);
+			}
+
+			waits[0].value = semaphoreCounter;
+			signals[0].value = ++semaphoreCounter;
+			m_computeQueue->submit(afterTimestapSubmitInfo);
+
+			m_device->waitIdle();
+
+			const uint64_t nativeBenchmarkTimeElapsedNanoseconds = calcTimeElapsed();
+			const float nativeBenchmarkTimeElapsedSeconds = double(nativeBenchmarkTimeElapsedNanoseconds) / 1000000000.0;
+
+			m_logger->log("%llu ns, %f s", ILogger::ELL_PERFORMANCE, nativeBenchmarkTimeElapsedNanoseconds, nativeBenchmarkTimeElapsedSeconds);
+		}
+
+		void recordCmdBuff()
+		{
+			m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
+			m_cmdbuf->beginDebugMarker("sampling compute dispatch", vectorSIMDf(0, 1, 0, 1));
+			m_cmdbuf->bindComputePipeline(m_pipeline.get());
+			m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+			m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
+			m_cmdbuf->dispatch(BENCHMARK_WORKGROUP_COUNT, 1, 1);
+			m_cmdbuf->endDebugMarker();
+			m_cmdbuf->end();
+		}
+
+		void recordTimestampQueryCmdBuffers()
+		{
+			static bool firstInvocation = true;
+
+			if (!firstInvocation)
+			{
+				m_timestampBeforeCmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+				m_timestampBeforeCmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+			}
+
+			m_timestampBeforeCmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			m_timestampBeforeCmdBuff->resetQueryPool(m_queryPool.get(), 0, 2);
+			m_timestampBeforeCmdBuff->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_queryPool.get(), 0);
+			m_timestampBeforeCmdBuff->end();
+
+			m_timestampAfterCmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			m_timestampAfterCmdBuff->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_queryPool.get(), 1);
+			m_timestampAfterCmdBuff->end();
+
+			firstInvocation = false;
+		}
+
+		uint64_t calcTimeElapsed()
+		{
+			uint64_t timestamps[2];
+			const core::bitflag flags = core::bitflag(IQueryPool::RESULTS_FLAGS::_64_BIT) | core::bitflag(IQueryPool::RESULTS_FLAGS::WAIT_BIT);
+			m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, &timestamps, sizeof(uint64_t), flags);
+			return timestamps[1] - timestamps[0];
+		}
+
+	private:
+		core::smart_refctd_ptr<video::CVulkanConnection> m_api;
+		smart_refctd_ptr<ILogicalDevice> m_device;
+		smart_refctd_ptr<ILogger> m_logger;
+		SolidAngleVisualizer* m_visualizer;
+
+		nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
+		smart_refctd_ptr<nbl::video::IGPUCommandPool> m_cmdpool = nullptr;
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_cmdbuf = nullptr;
+		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_ds = nullptr;
+		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_pplnLayout = nullptr;
+		BenchmarkPushConstants m_pushConstants;
+		smart_refctd_ptr<nbl::video::IGPUComputePipeline> m_pipeline;
+
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampBeforeCmdBuff = nullptr;
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampAfterCmdBuff = nullptr;
+		smart_refctd_ptr<nbl::video::IQueryPool> m_queryPool = nullptr;
+
+		uint32_t m_queueFamily;
+		IQueue* m_computeQueue;
+		static constexpr int WarmupIterations = 50;
+		static constexpr int Iterations = 1;
+	};
+
+	template<typename... Args>
+	inline bool logFail(const char* msg, Args&&... args)
+	{
+		m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
+		return false;
+	}
+
+	std::ofstream m_logFile;
 };
+
 
 NBL_MAIN_FUNC(SolidAngleVisualizer)

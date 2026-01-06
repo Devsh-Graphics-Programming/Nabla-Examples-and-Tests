@@ -2,6 +2,10 @@
 #define _SOLID_ANGLE_VIS_COMMON_HLSL_
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
+// Sampling mode enum
+#define SAMPLING_MODE_SOLID_ANGLE 0
+#define SAMPLING_MODE_PROJECTED_SOLID_ANGLE 1
+
 #define DEBUG_DATA 1
 #define FAST 1
 
@@ -27,9 +31,21 @@ namespace nbl
 
             uint32_t rotatedClipMask;
             uint32_t rotateAmount;
-            uint32_t maxTrianglesExcceded;
+            uint32_t maxTrianglesExceeded;
+            uint32_t sphericalLuneDetected;
 
             uint32_t vertices[6];
+
+            uint32_t clippedSilhouetteVertexCount;
+            float32_t3 clippedSilhouetteVertices[7];
+
+            uint32_t triangleCount;
+            float32_t solidAngles[5];
+            float32_t totalSolidAngles;
+
+            // Sampling ray visualization data
+            uint32_t sampleCount;
+            float32_t4 rayData[64]; // xyz = direction, w = PDF
         };
 
         struct PushConstants
@@ -39,9 +55,14 @@ namespace nbl
             uint32_t samplingMode;
             uint32_t frameIndex;
         };
-        // Sampling mode enum
-#define SAMPLING_MODE_SOLID_ANGLE 0
-#define SAMPLING_MODE_PROJECTED_SOLID_ANGLE 1
+
+        struct PushConstantRayVis
+        {
+            float32_t4x4 viewProjMatrix;
+            float32_t3x4 modelMatrix;
+            float32_t4 viewport;
+            uint32_t frameIndex;
+        };
 
         static const float32_t3 colorLUT[27] = {
             float32_t3(0, 0, 0), float32_t3(0.5, 0.5, 0.5),
