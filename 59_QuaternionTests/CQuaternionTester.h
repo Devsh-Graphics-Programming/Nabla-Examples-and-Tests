@@ -1,7 +1,7 @@
 #ifndef _NBL_EXAMPLES_TESTS_59_QUATERNION_TESTER_INCLUDED_
 #define _NBL_EXAMPLES_TESTS_59_QUATERNION_TESTER_INCLUDED_
 
-
+#define GLM_FORCE_RADIANS
 #include <glm/detail/type_quat.hpp>
 #include <glm/ext/quaternion_trigonometric.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -26,20 +26,19 @@ private:
     QuaternionInputTestValues generateInputTestValues() override
     {
         std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
-        std::uniform_real_distribution<float> realDistributionSmall(1.0f, 4.0f);
-        std::uniform_int_distribution<int> intDistribution(-100, 100);
-        std::uniform_int_distribution<int> coinFlipDistribution(0, 1);
+        std::uniform_real_distribution<float> realDistribution01(0.0f, 1.0f);
+        std::uniform_real_distribution<float> realDistributionRad(-numbers::pi<float>, numbers::pi<float>);
 
         QuaternionInputTestValues testInput;
-        testInput.axis = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
-        testInput.angle = realDistribution(getRandomEngine());
+        testInput.axis = hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
+        testInput.angle = realDistributionRad(getRandomEngine());
         testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
-        testInput.pitch = realDistribution(getRandomEngine());
-        testInput.yaw = realDistribution(getRandomEngine());
-        testInput.roll = realDistribution(getRandomEngine());
-        testInput.rotationMat = float32_t3x3(glm::rotate(realDistribution(getRandomEngine()), float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()))));
-        testInput.factor = realDistribution(getRandomEngine());
+        testInput.pitch = realDistributionRad(getRandomEngine());
+        testInput.yaw = realDistributionRad(getRandomEngine());
+        testInput.roll = realDistributionRad(getRandomEngine());
+        testInput.rotationMat = float32_t3x3(glm::rotate(realDistributionRad(getRandomEngine()), hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())))));
+        testInput.factor = realDistribution01(getRandomEngine());
         testInput.someVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
 
         return testInput;
