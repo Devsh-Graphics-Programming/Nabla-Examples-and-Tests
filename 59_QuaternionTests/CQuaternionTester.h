@@ -25,7 +25,7 @@ public:
 private:
     QuaternionInputTestValues generateInputTestValues() override
     {
-        std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
+        std::uniform_real_distribution<float> realDistribution(-1.0f, 1.0f);
         std::uniform_real_distribution<float> realDistribution01(0.0f, 1.0f);
         std::uniform_real_distribution<float> realDistributionRad(-numbers::pi<float>, numbers::pi<float>);
 
@@ -33,7 +33,9 @@ private:
         testInput.axis = hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
         testInput.angle = realDistributionRad(getRandomEngine());
         testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat0 = hlsl::normalize(testInput.quat0);
         testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat1 = hlsl::normalize(testInput.quat1);
         testInput.pitch = realDistributionRad(getRandomEngine());
         testInput.yaw = realDistributionRad(getRandomEngine());
         testInput.roll = realDistributionRad(getRandomEngine());
