@@ -33,38 +33,65 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 		};
 		static core::smart_refctd_ptr<CSceneLoader> create(SCreationParams&& params);
 
+		// When outputFilePath isn't set in Film Element in Mitsuba, use this to find the extension string.
+		static inline std::string_view fileExtensionFromFormat(ext::MitsubaLoader::CElementFilm::FileFormat format)
+		{
+			using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
+			switch (format)
+			{
+				case FileFormat::PNG:
+					return ".png";
+				case FileFormat::OPENEXR:
+					return ".exr";
+				case FileFormat::JPEG:
+					return ".jpg";
+				default:
+					break;
+			}
+			return "";
+		}
+
 		struct SLoadResult
 		{
 			struct SSensor
 			{
 				using type_e = ext::MitsubaLoader::CElementSensor::Type;
 
+				inline SSensor() = default;
+				inline SSensor(const SSensor&) = default;
+				inline SSensor(SSensor&&) = default;
+				inline SSensor& operator=(const SSensor&) = default;
+				inline SSensor& operator=(SSensor&&) = default;
+
+				inline operator bool() const
+				{
+					return bool(constants) && mutableDefaults.valid(constants) && bool(dynamicDefaults);
+				}
+
 				struct SConstants
 				{
-					struct DenoiserArgs
-					{
-						// where the FFT bloom kernel is
-						system::path bloomFilePath = {};
-						float bloomScale = 0.0f;
-						float bloomIntensity = 0.0f;
-						std::string tonemapperArgs = "";
-					};
-
 					constexpr static inline uint32_t MaxWidth = 0x1u<<(sizeof(uint16_t)*8-2);
 					constexpr static inline uint32_t MaxHeight = MaxWidth;
 					constexpr static inline uint32_t MaxCascadeCount = 15;
 
-					system::path outputFilePath = {};
-					DenoiserArgs denoiserInfo = {};
+					inline operator bool() const
+					{
+						if (width <= 0 || width >= MaxWidth)
+							return false;
+						if (height <= 0 || height >= MaxHeight)
+							return false;
+						if (type != type_e::INVALID)
+							return false;
+						if (cascadeCount <= 0 || cascadeCount >= MaxCascadeCount)
+							return false;
+						return true;
+					}
+
+					// where the FFT bloom kernel is
+					system::path bloomFilePath = {};
 					//
 					uint32_t width = 0u;
 					uint32_t height = 0u;
-					// do we need to keep the crops?
-					int32_t cropWidth = 0u;
-					int32_t cropHeight = 0u;
-					// could the offsets be dynamic ?
-					int32_t cropOffsetX = 0u;
-					int32_t cropOffsetY = 0u;
 					//
 					type_e type = type_e::INVALID;
 					//
@@ -76,7 +103,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 				{
 					constexpr static inline uint8_t MaxClipPlanes = 6;
 
-					inline uint8_t getClipPlaneCount()
+					inline uint8_t getClipPlaneCount() const
 					{
 						using namespace nbl::hlsl;
 						for (uint8_t i=0; i<MaxClipPlanes; i++)
@@ -90,8 +117,30 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 						return MaxClipPlanes;
 					}
 
+					inline bool valid(const SConstants& cst) const
+					{
+						// TODO more checks
+						return getClipPlaneCount()<MaxClipPlanes;
+					}
+
+					// inverse of view matrix, can include SCALE !
+					hlsl::float32_t3x4 absoluteTransform;
+					// if non-invertible, then spherical
+					struct Raygen
+					{
+						// TODO: thin lens and telecentric support
+						hlsl::float32_t4x4 linearProj = {};
+					} raygen;
 					//
 					std::array<hlsl::float32_t4,MaxClipPlanes> clipPlanes = {};
+					// denoiser and bloom require rendering with a "skirt" this controls the skirt size
+					int32_t cropWidth = 0u;
+					int32_t cropHeight = 0u;
+					int32_t cropOffsetX = 0u;
+					int32_t cropOffsetY = 0u;
+					//
+					float nearClip;
+					float farClip;
 					//
 					float cascadeLuminanceBase = core::nan<float>();
 					float cascadeLuminanceStart = core::nan<float>();
@@ -99,31 +148,55 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 				// these can change without having to reset accumulations, etc.
 				struct SDynamic
 				{
+					// For a legacy `smgr->addCameraSceneNodeModifiedMaya(nullptr, -1.0f * mainSensorData.rotateSpeed, 50.0f, mainSensorData.moveSpeed, -1, 2.0f, defaultZoomSpeedMultiplier, false, true)`
 					constexpr static inline float DefaultRotateSpeed = 300.0f;
 					constexpr static inline float DefaultZoomSpeed = 1.0f;
 					constexpr static inline float DefaultMoveSpeed = 100.0f;
-					constexpr static inline float DefaultSceneDiagonal = 50.0f; // reference for default zoom and move speed;
+					constexpr static inline float DefaultSceneSize = 50.0f; // reference for default zoom and move speed;
+					// no constexpr std::pow
+					//constexpr static inline float DefaultZoomSpeedMultiplier = std::pow(DefaultSceneSize,DefaultZoomSpeed/DefaultSceneSize);
 
-					//
-					union Raygen
+					struct SPostProcess
 					{
-						hlsl::float32_t4x4 linearProj = {};
-					} raygen;
-					union
-					{
-						struct SOrientable // spherical can't move
-						{
-							hlsl::float32_t3 up = {};
-							float speed = core::nan<float>();
-						} orientable = {};
+						float bloomScale = 0.0f;
+						float bloomIntensity = 0.0f;
+						std::string tonemapperArgs = "";
 					};
+					
+					//
+					inline operator bool() const
+					{
+						// TODO more checks
+						return !hlsl::isnan(moveSpeed);
+					}
+
+					// members
+					system::path outputFilePath = {};
+					SPostProcess postProc = {};
+					// even though spherical can't rotate, the preview camera can
+					hlsl::float32_t3 up = {};
+					float rotateSpeed = core::nan<float>();
 					union
 					{
+						/*
+		float linearStepZoomSpeed = sensorData.stepZoomSpeed;
+		if(core::isnan<float>(sensorData.stepZoomSpeed))
+		{
+			linearStepZoomSpeed = sceneDiagonal * (DefaultZoomSpeed / DefaultSceneDiagonal);
+		}
+
+		// Set Zoom Multiplier
+		{
+			float logarithmicZoomSpeed = std::pow(sceneDiagonal, linearStepZoomSpeed / sceneDiagonal);
+			sensorData.stepZoomSpeed =  logarithmicZoomSpeed;
+			sensorData.getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
+						*/
 						struct SZoomable // spherical can't zoom
 						{
 							float speed = core::nan<float>();
 						} zoomable = {};
 					};
+					//
 					float moveSpeed = core::nan<float>();
 					//
 					uint32_t samplesNeeded = 0u;
@@ -165,4 +238,9 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 };
 
 }
+
+#ifndef _NBL_THIS_EXAMPLE_C_SCENE_LOADER_CPP_
+extern template struct nbl::system::impl::to_string_helper<nbl::this_example::CSceneLoader::SLoadResult::SSensor>;
+#endif
+
 #endif
