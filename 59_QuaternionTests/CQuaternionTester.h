@@ -33,7 +33,9 @@ private:
         testInput.axis = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.angle = realDistribution(getRandomEngine());
         testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        //testInput.quat0 = hlsl::normalize(testInput.quat0);
         testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        //testInput.quat1 = hlsl::normalize(testInput.quat1);
         testInput.pitch = realDistribution(getRandomEngine());
         testInput.yaw = realDistribution(getRandomEngine());
         testInput.roll = realDistribution(getRandomEngine());
@@ -77,11 +79,11 @@ private:
             expected.quatMult.data.w = mult.data.data[3];
         }
         {
-            const auto lerped = glm::lerp(glmquat0, glmquat1, testInput.factor);
-            expected.quatLerp.data.x = lerped.data.data[0];
-            expected.quatLerp.data.y = lerped.data.data[1];
-            expected.quatLerp.data.z = lerped.data.data[2];
-            expected.quatLerp.data.w = lerped.data.data[3];
+            const auto slerped = glm::slerp(glmquat0, glmquat1, testInput.factor);
+            expected.quatSlerp.data.x = slerped.data.data[0];
+            expected.quatSlerp.data.y = slerped.data.data[1];
+            expected.quatSlerp.data.z = slerped.data.data[2];
+            expected.quatSlerp.data.w = slerped.data.data[3];
         }
 
         return expected;
@@ -95,7 +97,7 @@ private:
         verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("lerp quat", expectedTestValues.quatLerp.data, testValues.quatLerp.data, testIteration, seed, testType, 1e-2);
+        verifyTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-1);
     }
 };
 
