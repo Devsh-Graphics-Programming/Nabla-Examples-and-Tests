@@ -24,21 +24,23 @@ public:
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
 
-        const std::filesystem::path zipPath = sharedInputCWD / "mitsuba/bedroom.zip";
-        auto archive = m_system->openFileArchive(zipPath);
-
-        auto archiveFiles = IFileArchive::SFileList::span_t(archive->listAssets());
-
-        std::stringstream ss;
-        for (const auto& file : archiveFiles)
         {
-            ss << "ID: " << file.ID;
-            ss << " offset: " << file.offset;
-            ss << " path relative od archive: " << file.pathRelativeToArchive;
-            ss << " size: " << file.size << '\n';
-        }
+            const std::filesystem::path zipPath = sharedInputCWD / "mitsuba/bedroom.zip";
+            auto archive = m_system->openFileArchive(zipPath);
 
-        m_logger->log(ss.str().c_str(), ILogger::ELL_PERFORMANCE);
+            auto archiveFiles = IFileArchive::SFileList::span_t(archive->listAssets());
+
+            std::stringstream ss;
+            for (const auto& file : archiveFiles)
+            {
+                ss << "ID: " << file.ID;
+                ss << " offset: " << file.offset;
+                ss << " path relative od archive: " << file.pathRelativeToArchive;
+                ss << " size: " << file.size << '\n';
+            }
+
+            m_logger->log(ss.str().c_str(), ILogger::ELL_PERFORMANCE);
+        }
 
         // TODO: test GZIP files and ZIP files with AES encryption
 
