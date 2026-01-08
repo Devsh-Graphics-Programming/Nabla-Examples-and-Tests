@@ -95,7 +95,6 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					//
 					type_e type = type_e::INVALID;
 					//
-					uint8_t rightHandedCamera : 1 = true;
 					uint8_t cascadeCount : 4 = 1;
 				} constants = {};
 				// these could theoretically change without recreating session resources
@@ -120,16 +119,55 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					inline bool valid(const SConstants& cst) const
 					{
 						// TODO more checks
-						return getClipPlaneCount()<MaxClipPlanes;
+						return true;
 					}
 
 					// inverse of view matrix, can include SCALE !
 					hlsl::float32_t3x4 absoluteTransform;
-					// if non-invertible, then spherical
+					// TODO: thin lens and telecentric support
 					struct Raygen
 					{
-						// TODO: thin lens and telecentric support
-						hlsl::float32_t4x4 linearProj = {};
+						public:
+							enum class Type : uint8_t
+							{
+								Persp = 0,
+								Ortho = 1,
+								Env = 2
+							};
+						
+							//
+							inline Type getType() const
+							{
+								// note that actual matrix always requires columns to have X+ and Y- directions
+								if (encoded[0][0]>0.f)
+									return Type::Persp;
+								if (encoded[0][0]<0.f)
+									return Type::Ortho;
+								return Type::Env;
+							}
+
+							// for a raygen shader to transform the [0,1]^2 NDC coord into a ray (without tMin/tStart)
+							// PERSP `dir = normalize(float3(pseudo_mul(mat,ndc),rightHanded ? 1:(-1))); origin = dir*nearClip/abs(dir.z);`
+							// ORTHO `origin = float3(pseudo_mul(mat,ndc),rightHanded ? nearClip:(-nearClip)); dir = float32_t(0,0,rightHanded ? 1:(-1))`
+							inline explicit operator hlsl::float32_t2x3() const
+							{
+								auto retval = encoded;
+								for (auto c=0; c<2; c++)
+								{
+									const float flipCol = hlsl::sign(encoded[c][c]);
+									for (auto r=0; r<2; r++)
+										retval[r][c] *= flipCol;
+								}
+								return retval;
+							}
+
+							// Whether Z+ or Z- is forward for the camera
+							inline bool isRightHanded() const {return encoded[1][1]>0.f;}
+
+						private:
+							friend class CSceneLoader;
+
+							hlsl::float32_t2x3 encoded = {};
 					} raygen;
 					//
 					std::array<hlsl::float32_t4,MaxClipPlanes> clipPlanes = {};

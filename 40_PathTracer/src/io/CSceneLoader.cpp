@@ -4,6 +4,8 @@
 #define _NBL_THIS_EXAMPLE_C_SCENE_LOADER_CPP_
 #include "io/CSceneLoader.h"
 
+#include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
+
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 
@@ -26,16 +28,26 @@ struct to_string_helper<nbl::this_example::CSceneLoader::SLoadResult::SSensor>
 			{
 				auto& mutableDefaults = j["mutableDefaults"];
 				const auto& _mutableDefaults = value.mutableDefaults;
-				{
-					auto& clipPlanes = mutableDefaults["clipPlanes"];
-					for (uint8_t i=0,count=_mutableDefaults.getClipPlaneCount(); i<count; i++)
-						clipPlanes.emplace_back(system::to_string(_mutableDefaults.clipPlanes[i]));
-				}
-			}
-			{
-				auto& mutableDefaults = j["mutableDefaults"];
-				const auto& _mutableDefaults = value.mutableDefaults;
 				mutableDefaults["absoluteTransform"] = system::to_string(_mutableDefaults.absoluteTransform);
+				{
+					auto& raygen = mutableDefaults["raygen"];
+					const auto& _raygen = _mutableDefaults.raygen;
+					raygen["virtualPlaneFromNDC"] = system::to_string(hlsl::float32_t2x3(_raygen));
+					{
+						auto& clipPlanes = mutableDefaults["clipPlanes"];
+						for (uint8_t i=0,count=_mutableDefaults.getClipPlaneCount(); i<count; i++)
+							clipPlanes.emplace_back(system::to_string(_mutableDefaults.clipPlanes[i]));
+					}
+					raygen["rightHanded"] = _raygen.isRightHanded();
+				}
+				mutableDefaults["cropWidth"] = _mutableDefaults.cropWidth;
+				mutableDefaults["cropHeight"] = _mutableDefaults.cropHeight;
+				mutableDefaults["cropOffsetX"] = _mutableDefaults.cropOffsetX;
+				mutableDefaults["cropOffsetY"] = _mutableDefaults.cropOffsetY;
+				mutableDefaults["nearClip"] = _mutableDefaults.nearClip;
+				mutableDefaults["farClip"] = _mutableDefaults.farClip;
+				mutableDefaults["cascadeLuminanceBase"] = _mutableDefaults.cascadeLuminanceBase;
+				mutableDefaults["cascadeLuminanceStart"] = _mutableDefaults.cascadeLuminanceStart;
 			}
 			{
 				auto& dynamicDefaults = j["dynamicDefaults"];
@@ -173,7 +185,6 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 			using mts_sensor_t = ext::MitsubaLoader::CElementSensor;
 			const auto& _sensor = _sensors[i];
 			const char* id = _sensor.id.c_str();
-			auto absoluteTransform = float32_t3x4(_sensor.transform.matrix);
 			const bool isSpherical = _sensor.type==mts_sensor_t::SPHERICAL;
 			const auto& base = _sensor.base;
 			const auto& film = _sensor.film;
@@ -191,36 +202,157 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					constants.width = film.width;
 					constants.height = film.height;
 				}
-				{
-					const float det = determinant(float32_t3x3(absoluteTransform));
-					if (hlsl::abs(det)<hlsl::numeric_limits<float32_t>::min)
-					{
-						logger.log("Sensor %s (%d-th in XML) has non invertible singular transformation!",ILogger::ELL_ERROR,id,i);
-						constants = {};
-						continue;
-					}
-					constants.rightHandedCamera = det>0.f;
-				}
 				constants.cascadeCount = hlsl::max(film.cascadeCount,1);
-#if 0 // move to raygen compute
-				const float aspectRatio = float(constants.width) / float(constants.height);
-				auto convertFromXFoV = [=](float xfov) -> float
-				{
-					float aspectX = tan(radians(xfov)*0.5f);
-					return degrees(atan(aspectX/aspectRatio)*2.f);
-				};
-#endif
 			}
+			float32_t3x3 orientationT;
 			{
 				auto& mutableDefaults = sensors[i].mutableDefaults;
-				mutableDefaults.absoluteTransform = absoluteTransform;
+				// absolute transform
+				float32_t3 scaleRcp;
+				bool leftHanded = false;
+				{
+					auto absoluteTransform = float32_t3x4(_sensor.transform.matrix);
+					{
+						orientationT = transpose(float32_t3x3(absoluteTransform));
+						// check orthogonality
+						constexpr float DiffThresh = 0.00001f;
+						if (!testing::relativeApproxCompare(dot(orientationT[0],orientationT[1]),0.f,DiffThresh) || 
+							!testing::relativeApproxCompare(dot(orientationT[0],orientationT[2]),0.f,DiffThresh) || 
+							!testing::relativeApproxCompare(dot(orientationT[1],orientationT[2]),0.f,DiffThresh))
+						{
+							logger.log("Sensor %s (%d-th in XML) has a transformation involving skew!",ILogger::ELL_ERROR,id,i);
+							constants = {};
+							continue;
+						}
+						// check invertibility
+						const float det = determinant(orientationT);
+						if (hlsl::abs(det)<hlsl::numeric_limits<float32_t>::min)
+						{
+							logger.log("Sensor %s (%d-th in XML) has non invertible singular transformation!",ILogger::ELL_ERROR,id,i);
+							constants = {};
+							continue;
+						}
+						leftHanded = det<0.f;
+						// extract and remove scale, also make the transform right-handed
+						{
+							scaleRcp = rsqrt<float32_t3>({
+								dot(orientationT[0],orientationT[0]),
+								dot(orientationT[1],orientationT[1]),
+								dot(orientationT[2],orientationT[2])
+							});
+							//
+							for (auto r=0; r<3; r++)
+							{
+								orientationT[r] *= scaleRcp[r];
+								absoluteTransform[r].xyz *= scaleRcp;
+							}
+						}
+					}
+					mutableDefaults.absoluteTransform = absoluteTransform;
+				}
+				// raygen
+				auto& ndc = mutableDefaults.raygen.encoded;
+				switch (_sensor.type)
+				{
+					case mts_sensor_t::Type::THINLENS:
+						logger.log("Sensor %s (%d-th in XML) is THINLENS, Depth of Field not implemented yet, demoting to PERSPECTIVE!",ILogger::ELL_WARNING,id,i);
+						[[fallthrough]];
+					case mts_sensor_t::Type::PERSPECTIVE:
+						{
+							const auto& persp = _sensor.perspective;
+							// calculations for the projection plane behind the aperture (or in-front if thinking virtual)
+							const float halfFoVRad = hlsl::radians(persp.fov)*0.5f;
+							const auto halfSize = hlsl::tan(halfFoVRad);
+							// by default FoV is y-axis
+							float halfHeight = halfSize;
+							float halfWidth = halfSize;
+							//
+							const float aspectRatio = float(constants.width)/float(constants.height);
+							using fov_axis_e = mts_sensor_t::PerspectivePinhole::FOVAxis;
+							switch (persp.fovAxis)
+							{
+								case fov_axis_e::X:
+									halfHeight /= aspectRatio;
+									break;
+								case fov_axis_e::Y:
+									halfWidth *= aspectRatio;
+									break;
+								case fov_axis_e::DIAGONAL:
+									{
+										// halfSize^2 == halfWidth^2+halfHeight^2 == (1+aspectRatio^2)*halfHeight^2
+										halfHeight /= hlsl::sqrt(1.f+aspectRatio*aspectRatio);
+										halfWidth = halfHeight*aspectRatio;
+									}
+									break;
+								case fov_axis_e::SMALLER:
+									if (aspectRatio<1.f)
+										halfHeight /= aspectRatio;
+									else
+										halfWidth *= aspectRatio;
+									break;
+								case fov_axis_e::LARGER:
+									if (aspectRatio<1.f)
+										halfWidth *= aspectRatio;
+									else
+										halfHeight /= aspectRatio;
+									break;
+								default:
+									break;
+							}
+							// max 1/4 circle
+							if (!(halfWidth>0.f && halfHeight>0.f))
+							{
+								ndc[0][0] = core::nan<float>();
+								logger.log("Sensor %s (%d-th in XML) had a Field of View of %f degrees!",ILogger::ELL_ERROR,id,i,persp.fov);
+								break;
+							}
+							//
+							ndc[0] = float32_t3(1.f,0.f,persp.shiftX)*halfWidth;
+							// column gets negated because in Vulkan NDC.y runs downwards
+							ndc[1] = -float32_t3(0.f,1.f,persp.shiftY)*halfHeight;
+						}
+						break;
+					case mts_sensor_t::Type::TELECENTRIC:
+						logger.log("Sensor %s (%d-th in XML) is TELECENTRIC, Depth of Field not implemented yet, demoting to ORTHOGRAPHIC!",ILogger::ELL_WARNING,id,i);
+						[[fallthrough]];
+					case mts_sensor_t::Type::ORTHOGRAPHIC:
+						{
+							const auto& ortho = _sensor.orthographic;
+							// extract and negate the scale from the 
+						}
+						break;
+					case mts_sensor_t::Type::SPHERICAL:
+						// irrelevant for spherical cameras, we send rays everywhere
+						ndc[0] = promote<float32_t3>(0);
+						ndc[1] = promote<float32_t3>(0);
+						break;
+					default:
+						ndc[0][0] = core::nan<float>();
+						break;
+				}
+				if (hlsl::isnan(ndc[0][0]))
+				{
+					logger.log("Sensor %s (%d-th in XML) has invalid projection, had type %s!",ILogger::ELL_ERROR,id,i,system::to_string(_sensor.type).c_str());
+					constants = {};
+					continue;
+				}
+				if (leftHanded)
+					ndc[1][1] *= -1.f;
+				// clip planes
 				auto outClipPlane = mutableDefaults.clipPlanes.begin();
-				for (auto i=0; i<mutableDefaults.MaxClipPlanes; i++)
+				for (auto i=0; i<CElementSensor::MaxClipPlanes; i++)
 				{
 					const auto& plane = base.clipPlanes[i];
 					const auto rhs = promote<float32_t3>(0.f);
 					if (any(glsl::notEqual<float32_t3>(plane,rhs)))
+					{
+						if (outClipPlane>mutableDefaults.clipPlanes.end())
+						{
+							logger.log("Sensor %s (%d-th in XML) has more than %d clip planes, ignoreing the rest!",ILogger::ELL_ERROR,id,i);
+							break;
+						}
 						*(outClipPlane++) = plane;
+					}
 				}
 				// ignore crops for spherical cameras
 				if (!isSpherical)
@@ -300,10 +432,27 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					dynamicDefaults.postProc.bloomIntensity = film.denoiserBloomIntensity;
 					dynamicDefaults.postProc.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
 				}
-				// rotate
+				// up vector
 				{
-					dynamicDefaults.rotateSpeed = hlsl::isnan(base.rotateSpeed) ? base.rotateSpeed:dyn_t::DefaultRotateSpeed;
+					// true forward may be Z+ or Z- 
+					const auto viewSpaceZ = orientationT[2];
+					// our "right" will only be X+ if forward is Z-
+					const auto reconstructedRight = cross(base.up,viewSpaceZ);
+					const auto actualRight = cross(orientationT[1],viewSpaceZ);
+					// but it doesn't matter here for this check (both will be flipped, dot product identical)
+					const float dp = dot(reconstructedRight,actualRight);
+					const float pb = dot(base.up,viewSpaceZ);
+					// special formulation avoiding multiple sqrt and inversesqrt to preserve precision
+					const auto reconstructedLen = hlsl::length<float64_t3>(reconstructedRight);
+					logger.log("Camera Reconstructed Up Vector match score = %f",system::ILogger::ELL_INFO,dp/reconstructedLen);
+ 					const float64_t threshold = 0.9996*hlsl::length<float64_t3>(base.up);
+					if (testing::relativeApproxCompare<double>(dp,reconstructedLen,0.03f) && hlsl::abs(pb)<threshold)
+						dynamicDefaults.up = base.up;
+					else
+						dynamicDefaults.up = orientationT[1];
 				}
+				// rotate
+				dynamicDefaults.rotateSpeed = hlsl::isnan(base.rotateSpeed) ? base.rotateSpeed:dyn_t::DefaultRotateSpeed;
 				// move speed
 				{
 					if (hlsl::isnan(base.moveSpeed))
