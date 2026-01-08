@@ -39,6 +39,8 @@ public:
 	enum E_CAMERA_MOVE_KEYS : uint8_t
 	{
 		ECMK_MOVE_FORWARD = 0,
+		ECMK_MOVE_UP,
+		ECMK_MOVE_DOWN,
 		ECMK_MOVE_BACKWARD,
 		ECMK_MOVE_LEFT,
 		ECMK_MOVE_RIGHT,
@@ -47,6 +49,8 @@ public:
 
 	inline void mapKeysToWASD()
 	{
+		keysMap[ECMK_MOVE_UP] = nbl::ui::EKC_E;
+		keysMap[ECMK_MOVE_DOWN] = nbl::ui::EKC_Q;
 		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_W;
 		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_S;
 		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_A;
@@ -149,38 +153,36 @@ public:
 			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) 
 			{
 				nbl::core::vectorSIMDf pos = getPosition();
-				nbl::core::vectorSIMDf localTarget = getTarget() - pos;
+				nbl::core::vectorSIMDf upVector = getUpVector();
+				nbl::core::vectorSIMDf forward = nbl::core::normalize(getTarget() - pos);
 
-				// Get Relative Rotation for localTarget in Radians
-				float relativeRotationX, relativeRotationY;
-				relativeRotationY = atan2(localTarget.X, localTarget.Z);
-				const double z1 = nbl::core::sqrt(localTarget.X*localTarget.X + localTarget.Z*localTarget.Z);
-				relativeRotationX = atan2(z1, localTarget.Y) - nbl::core::PI<float>()/2;
-				
-				constexpr float RotateSpeedScale = 0.003f; 
-				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
-				float tmpYRot = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale * -1.0f;
+				nbl::core::vectorSIMDf right = nbl::core::normalize(nbl::core::cross(forward, upVector));
+				nbl::core::vectorSIMDf up = nbl::core::normalize(nbl::core::cross(right, forward));
+
+				constexpr float RotateSpeedScale = 0.003f;
+				float pitchDelta = ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
+				float yawDelta = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale * -1.0f;
 
 				if (leftHanded)
-					relativeRotationY -= tmpYRot;
-				else
-					relativeRotationY += tmpYRot;
+					yawDelta = -yawDelta;
 
-				const double MaxVerticalAngle = nbl::core::radians<float>(88.0f);
+				// Clamp pitch BEFORE applying rotation
+				const float MaxVerticalAngle = nbl::core::radians<float>(88.0f);
+				float currentPitch = asin(nbl::core::dot(forward, upVector).X);
+				float newPitch = nbl::core::clamp(currentPitch + pitchDelta, -MaxVerticalAngle, MaxVerticalAngle);
+				pitchDelta = newPitch - currentPitch;
 
-				if (relativeRotationX > MaxVerticalAngle*2 && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-					relativeRotationX = 2 * nbl::core::PI<float>()-MaxVerticalAngle;
-				else
-					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-						relativeRotationX = MaxVerticalAngle;
+				// Create rotation quaternions using axis-angle method
+				nbl::core::quaternion pitchRot = nbl::core::quaternion::fromAngleAxis(pitchDelta, right);
+				nbl::core::quaternion yawRot = nbl::core::quaternion::fromAngleAxis(yawDelta, upVector); 
+				nbl::core::quaternion combinedRot = yawRot * pitchRot;
 
-				localTarget.set(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]), 1.f);
+				// Apply to forward vector
+				forward = nbl::core::normalize(combinedRot.transformVect(forward));
 
-				nbl::core::matrix3x4SIMD mat;
-				mat.setRotation(nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
-				mat.transformVect(localTarget);
-				
-				setTarget(localTarget + pos);
+				// Set new target
+				float targetDistance = nbl::core::length(getTarget() - pos).X;
+				setTarget(pos + forward * targetDistance);
 			}
 		}
 	}
@@ -213,7 +215,7 @@ public:
 			assert(timeDiff >= 0);
 
 			// handle camera movement
-			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
+			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_UP, ECMK_MOVE_DOWN, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
 			{
 				const auto code = keysMap[logicalKey];
 
@@ -277,6 +279,9 @@ public:
 				up = nbl::core::normalize(backupUpVector);
 			}
 
+			pos += up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_UP] * moveSpeed * MoveSpeedScale;
+			pos -= up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_DOWN] * moveSpeed * MoveSpeedScale;
+
 			nbl::core::vectorSIMDf strafevect = localTarget;
 			if (leftHanded)
 				strafevect = nbl::core::cross(strafevect, up);
@@ -297,6 +302,11 @@ public:
 		lastVirtualUpTimeStamp = nextPresentationTimeStamp;
 	}
 
+	// TODO: temporary but a good fix for the camera events when mouse stops dragging gizmo
+	void mouseKeysUp()
+	{
+		mouseDown = false;
+	}
 private:
 
 	inline void initDefaultKeysMap() { mapKeysToWASD(); }
