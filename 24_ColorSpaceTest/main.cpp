@@ -561,7 +561,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						const std::string prettyJson = current.data.dump(4);
 
 						if (options.verbose)
-							m_logger->log(prettyJson, ILogger::ELL_INFO);
+							m_logger->log("%s", ILogger::ELL_INFO, prettyJson);
 
 						system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
 						m_system->createFile(future, current.path, system::IFileBase::ECF_WRITE);

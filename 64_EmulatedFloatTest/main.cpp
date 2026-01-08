@@ -42,13 +42,11 @@ public:
         // since emulated_float64_t rounds to zero
         std::fesetround(FE_TOWARDZERO);
 
-        // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-       
-        // In contrast to fences, we just need one semaphore to rule all dispatches
+
         return true;
     }
 
@@ -97,10 +95,14 @@ private:
 
         auto printOnFailure = [this](EmulatedFloatTestDevice device)
         {
+            std::string errorMsgPrefix = "";
             if (device == EmulatedFloatTestDevice::CPU)
-                m_logger->log("CPU test fail:", ILogger::ELL_ERROR);
+                errorMsgPrefix = "CPU test fail:";
             else
-                m_logger->log("GPU test fail:", ILogger::ELL_ERROR);
+                errorMsgPrefix = "GPU test fail:";
+
+            m_logger->log("%s", ILogger::ELL_ERROR, errorMsgPrefix.c_str());
+            m_logFile << errorMsgPrefix << '\n';
         };
 
         auto printOnArithmeticFailure = [this](const char* valName, uint64_t expectedValue, uint64_t testValue, uint64_t a, uint64_t b)
@@ -120,9 +122,10 @@ private:
             ss << std::bitset<64>(expectedValue) << " - expectedValue bit pattern\n";
             ss << std::bitset<64>(testValue) << " - testValue bit pattern \n";
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
+            m_logFile << ss.str() << '\n';
 
-            std::cout << "ULP error: " << std::max(expectedValue, testValue) - std::min(expectedValue, testValue) << "\n\n";
+            //std::cout << "ULP error: " << std::max(expectedValue, testValue) - std::min(expectedValue, testValue) << "\n\n";
 
         };
 
@@ -133,14 +136,18 @@ private:
 
         auto printOnComparisonFailure = [this](const char* valName, int expectedValue, int testValue, double a, double b)
         {
-            m_logger->log("for input values: A = %f B = %f", ILogger::ELL_ERROR, a, b);
+            std::string inputValuesStr = std::string("for input values: A = ") + std::to_string(a) + std::string(" B = ") + std::to_string(b);
+
+            m_logger->log("%s", ILogger::ELL_ERROR, inputValuesStr.c_str());
+            m_logFile << inputValuesStr << '\n';
 
             std::stringstream ss;
             ss << valName << " not equal!";
             ss << "\nexpected value: " << std::boolalpha << bool(expectedValue);
             ss << "\ntest value: " << std::boolalpha << bool(testValue);
 
-            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            m_logger->log("%s", ILogger::ELL_ERROR, ss.str().c_str());
+            m_logFile << ss.str() << '\n';
         };
 
         if (calcULPError(expectedValues.int32CreateVal, testValues.int32CreateVal) > 1u)
@@ -438,6 +445,10 @@ private:
                     m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
             };
 
+        m_logFile.open("EmulatedFloatTestLog.txt", std::ios::out | std::ios::trunc);
+        if (!m_logFile.is_open())
+            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
         printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(submitter));
         printTestOutput("emulatedFloat64RandomValuesTestContrastingExponents", emulatedFloat64RandomValuesTestContrastingExponents(submitter));
         printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(submitter));
@@ -450,6 +461,8 @@ private:
             printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
         printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
         printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
+
+        m_logFile.close();
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -1171,6 +1184,8 @@ private:
         m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
         return false;
     }
+
+    std::ofstream m_logFile;
 };
 
 NBL_MAIN_FUNC(CompatibilityTest)
