@@ -499,17 +499,15 @@ private:
 
 					auto& obbInst = m_obbInstances[i];
 					const auto& cpuGeom = geometries[i].get();
-					const auto obb = CPolygonGeometryManipulator::calculateOBB({
-						.fetch = [geo = cpuGeom, &world4x4](size_t vertex_i) {
+					const auto obb = CPolygonGeometryManipulator::calculateOBB(
+						cpuGeom->getPositionView().getElementCount(), 
+						[geo = cpuGeom, &world4x4](size_t vertex_i) {
 							hlsl::float32_t3 pt;
 							geo->getPositionView().decodeElement(vertex_i, pt);
 							return pt;
-						},
-						.size = cpuGeom->getPositionView().getElementCount(),
-					});
+						});
 					obbInst.color = { 0, 0, 1, 1 };
-					const auto obbTransform = ext::debug_draw::DrawAABB::getTransformFromOBB(obb);
-					obbInst.transform = math::linalg::promoted_mul(world4x4, obbTransform);
+					obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
 #endif
 				}
 

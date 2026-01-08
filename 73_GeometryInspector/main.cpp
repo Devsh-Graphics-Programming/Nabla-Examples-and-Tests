@@ -414,8 +414,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				}
 				if (m_shouldDrawOBB)
 				{
-					const auto obbTransform = ext::debug_draw::DrawAABB::getTransformFromOBB(meshInstance.obb);
-					debugDrawInstances.push_back(ext::debug_draw::InstanceData{ .transform = math::linalg::promoted_mul(world4x4, obbTransform), .color = float32_t4(0, 0, 1, 1)});
+					debugDrawInstances.push_back(ext::debug_draw::InstanceData{ .transform = math::linalg::promoted_mul(world4x4, meshInstance.obb.transform), .color = float32_t4(0, 0, 1, 1)});
 				}
 				m_bbRenderer->render({ cb, viewProjMatrix }, drawFinished, debugDrawInstances);
 
@@ -672,14 +671,13 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 					bound = hlsl::shapes::util::union_(transformed,bound);
 
 					const auto& cpuGeom = geometries[i].get();
-					const auto obb = CPolygonGeometryManipulator::calculateOBB({
-						.fetch = [geo = cpuGeom](size_t vertex_i) {
+					const auto obb = CPolygonGeometryManipulator::calculateOBB(
+						cpuGeom->getPositionView().getElementCount(),
+            [geo = cpuGeom](size_t vertex_i) {
 							hlsl::float32_t3 pt;
 							geo->getPositionView().decodeElement(vertex_i, pt);
 							return pt;
-						},
-						.size = cpuGeom->getPositionView().getElementCount(),
-					});
+						});
 
 					m_meshInstances.push_back({ .name = std::format("Mesh {}", i), .aabb = aabb, .obb =  obb });
 				}
