@@ -45,7 +45,13 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(12_MeshLoaders)
 	#
 	add_subdirectory(13_MaterialCompilerTest)
-	add_subdirectory(14_Mortons EXCLUDE_FROM_ALL)
+	#
+	add_subdirectory(14_Mortons)
+	#
+	if (NBL_BUILD_MITSUBA_LOADER)
+		add_subdirectory(15_MitsubaLoader)
+	endif()
+
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -68,6 +74,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(30_ComputeShaderPathTracer)
 
 	add_subdirectory(31_HLSLPathTracer)
+	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
 	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)

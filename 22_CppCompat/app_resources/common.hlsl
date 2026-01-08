@@ -208,82 +208,6 @@ struct TgmathTestValues
 	ModfOutput<float32_t3> modfStructVec;
 	FrexpOutput<float> frexpStruct;
 	FrexpOutput<float32_t3> frexpStructVec;
-
-	void fillTestValues(NBL_CONST_REF_ARG(TgmathIntputTestValues) input)
-	{
-		floor = nbl::hlsl::floor(input.floor);
-		isnan = nbl::hlsl::isnan(input.isnan);
-		isinf = nbl::hlsl::isinf(input.isinf);
-		pow = nbl::hlsl::pow(input.powX, input.powY);
-		exp = nbl::hlsl::exp(input.exp);
-		exp2 = nbl::hlsl::exp2(input.exp2);
-		log = nbl::hlsl::log(input.log);
-		log2 = nbl::hlsl::log2(input.log2);
-		absF = nbl::hlsl::abs(input.absF);
-		absI = nbl::hlsl::abs(input.absI);
-		sqrt = nbl::hlsl::sqrt(input.sqrt);
-		sin = nbl::hlsl::sin(input.sin);
-		cos = nbl::hlsl::cos(input.cos);
-		tan = nbl::hlsl::tan(input.tan);
-		asin = nbl::hlsl::asin(input.asin);
-		atan = nbl::hlsl::atan(input.atan);
-		sinh = nbl::hlsl::sinh(input.sinh);
-		cosh = nbl::hlsl::cosh(input.cosh);
-		tanh = nbl::hlsl::tanh(input.tanh);
-		asinh = nbl::hlsl::asinh(input.asinh);
-		acosh = nbl::hlsl::acosh(input.acosh);
-		atanh = nbl::hlsl::atanh(input.atanh);
-		atan2 = nbl::hlsl::atan2(input.atan2Y, input.atan2X);
-		erf = nbl::hlsl::erf(input.erf);
-		erfInv = nbl::hlsl::erfInv(input.erfInv);
-		acos = nbl::hlsl::acos(input.acos);
-		modf = nbl::hlsl::modf(input.modf);
-		round = nbl::hlsl::round(input.round);
-		roundEven = nbl::hlsl::roundEven(input.roundEven);
-		trunc = nbl::hlsl::trunc(input.trunc);
-		ceil = nbl::hlsl::ceil(input.ceil);
-		fma = nbl::hlsl::fma(input.fmaX, input.fmaY, input.fmaZ);
-		ldexp = nbl::hlsl::ldexp(input.ldexpArg, input.ldexpExp);
-
-		floorVec = nbl::hlsl::floor(input.floorVec);
-		isnanVec = nbl::hlsl::isnan(input.isnanVec);
-		isinfVec = nbl::hlsl::isinf(input.isinfVec);
-		powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
-		expVec = nbl::hlsl::exp(input.expVec);
-		exp2Vec = nbl::hlsl::exp2(input.exp2Vec);
-		logVec = nbl::hlsl::log(input.logVec);
-		log2Vec = nbl::hlsl::log2(input.log2Vec);
-		absFVec = nbl::hlsl::abs(input.absFVec);
-		absIVec = nbl::hlsl::abs(input.absIVec);
-		sqrtVec = nbl::hlsl::sqrt(input.sqrtVec);
-		sinVec = nbl::hlsl::sin(input.sinVec);
-		cosVec = nbl::hlsl::cos(input.cosVec);
-		tanVec = nbl::hlsl::tan(input.tanVec);
-		asinVec = nbl::hlsl::asin(input.asinVec);
-		atanVec = nbl::hlsl::atan(input.atanVec);
-		sinhVec = nbl::hlsl::sinh(input.sinhVec);
-		coshVec = nbl::hlsl::cosh(input.coshVec);
-		tanhVec = nbl::hlsl::tanh(input.tanhVec);
-		asinhVec = nbl::hlsl::asinh(input.asinhVec);
-		acoshVec = nbl::hlsl::acosh(input.acoshVec);
-		atanhVec = nbl::hlsl::atanh(input.atanhVec);
-		atan2Vec = nbl::hlsl::atan2(input.atan2YVec, input.atan2XVec);
-		acosVec = nbl::hlsl::acos(input.acosVec);
-		modfVec = nbl::hlsl::modf(input.modfVec);
-		roundVec = nbl::hlsl::round(input.roundVec);
-		roundEvenVec = nbl::hlsl::roundEven(input.roundEvenVec);
-		truncVec = nbl::hlsl::trunc(input.truncVec);
-		ceilVec = nbl::hlsl::ceil(input.ceilVec);
-		fmaVec = nbl::hlsl::fma(input.fmaXVec, input.fmaYVec, input.fmaZVec);
-		ldexpVec = nbl::hlsl::ldexp(input.ldexpArgVec, input.ldexpExpVec);
-		erfVec = nbl::hlsl::erf(input.erfVec);
-		erfInvVec = nbl::hlsl::erfInv(input.erfInvVec);
-
-		modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
-		modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
-		frexpStruct = nbl::hlsl::frexpStruct(input.frexpStruct);
-		frexpStructVec = nbl::hlsl::frexpStruct(input.frexpStructVec);
-	}
 };
 
 struct IntrinsicsIntputTestValues
@@ -416,58 +340,140 @@ struct IntrinsicsTestValues
 	spirv::SubBorrowOutput<uint32_t> subBorrow;
 	spirv::AddCarryOutput<uint32_t3> addCarryVec;
 	spirv::SubBorrowOutput<uint32_t3> subBorrowVec;
+};
 
-	void fillTestValues(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input)
+struct IntrinsicsTestExecutor
+{
+	void operator()(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input, NBL_REF_ARG(IntrinsicsTestValues) output)
 	{
-		bitCount = nbl::hlsl::bitCount(input.bitCount);
-		cross = nbl::hlsl::cross(input.crossLhs, input.crossRhs);
-		clamp = nbl::hlsl::clamp(input.clampVal, input.clampMin, input.clampMax);
-		length = nbl::hlsl::length(input.length);
-		normalize = nbl::hlsl::normalize(input.normalize);
-		dot = nbl::hlsl::dot(input.dotLhs, input.dotRhs);
-		determinant = nbl::hlsl::determinant(input.determinant);
-		findMSB = nbl::hlsl::findMSB(input.findMSB);
-		findLSB = nbl::hlsl::findLSB(input.findLSB);
-		inverse = nbl::hlsl::inverse(input.inverse);
-		transpose = nbl::hlsl::transpose(input.transpose);
-		mul = nbl::hlsl::mul(input.mulLhs, input.mulRhs);
+		output.bitCount = nbl::hlsl::bitCount(input.bitCount);
+		output.cross = nbl::hlsl::cross(input.crossLhs, input.crossRhs);
+		output.clamp = nbl::hlsl::clamp(input.clampVal, input.clampMin, input.clampMax);
+		output.length = nbl::hlsl::length(input.length);
+		output.normalize = nbl::hlsl::normalize(input.normalize);
+		output.dot = nbl::hlsl::dot(input.dotLhs, input.dotRhs);
+		output.determinant = nbl::hlsl::determinant(input.determinant);
+		output.findMSB = nbl::hlsl::findMSB(input.findMSB);
+		output.findLSB = nbl::hlsl::findLSB(input.findLSB);
+		output.inverse = nbl::hlsl::inverse(input.inverse);
+		output.transpose = nbl::hlsl::transpose(input.transpose);
+		output.mul = nbl::hlsl::mul(input.mulLhs, input.mulRhs);
 		// TODO: fix min and max
-		min = nbl::hlsl::min(input.minA, input.minB);
-		max = nbl::hlsl::max(input.maxA, input.maxB);
-		rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
-		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
-		frac = nbl::hlsl::fract(input.frac);
-		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
-		sign = nbl::hlsl::sign(input.sign);
-		radians = nbl::hlsl::radians(input.radians);
-		degrees = nbl::hlsl::degrees(input.degrees);
-		step = nbl::hlsl::step(input.stepEdge, input.stepX);
-		smoothStep = nbl::hlsl::smoothStep(input.smoothStepEdge0, input.smoothStepEdge1, input.smoothStepX);
+		output.min = nbl::hlsl::min(input.minA, input.minB);
+		output.max = nbl::hlsl::max(input.maxA, input.maxB);
+		output.rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
+		output.bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
+		output.frac = nbl::hlsl::fract(input.frac);
+		output.mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
+		output.sign = nbl::hlsl::sign(input.sign);
+		output.radians = nbl::hlsl::radians(input.radians);
+		output.degrees = nbl::hlsl::degrees(input.degrees);
+		output.step = nbl::hlsl::step(input.stepEdge, input.stepX);
+		output.smoothStep = nbl::hlsl::smoothStep(input.smoothStepEdge0, input.smoothStepEdge1, input.smoothStepX);
 
-		bitCountVec = nbl::hlsl::bitCount(input.bitCountVec);
-		clampVec = nbl::hlsl::clamp(input.clampValVec, input.clampMinVec, input.clampMaxVec);
-		findMSBVec = nbl::hlsl::findMSB(input.findMSBVec);
-		findLSBVec = nbl::hlsl::findLSB(input.findLSBVec);
+		output.bitCountVec = nbl::hlsl::bitCount(input.bitCountVec);
+		output.clampVec = nbl::hlsl::clamp(input.clampValVec, input.clampMinVec, input.clampMaxVec);
+		output.findMSBVec = nbl::hlsl::findMSB(input.findMSBVec);
+		output.findLSBVec = nbl::hlsl::findLSB(input.findLSBVec);
 		// TODO: fix min and max
-		minVec = nbl::hlsl::min(input.minAVec, input.minBVec);
-		maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
-		rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
-		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
-		fracVec = nbl::hlsl::fract(input.fracVec);
-		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
-		
-		signVec = nbl::hlsl::sign(input.signVec);
-		radiansVec = nbl::hlsl::radians(input.radiansVec);
-		degreesVec = nbl::hlsl::degrees(input.degreesVec);
-		stepVec = nbl::hlsl::step(input.stepEdgeVec, input.stepXVec);
-		smoothStepVec = nbl::hlsl::smoothStep(input.smoothStepEdge0Vec, input.smoothStepEdge1Vec, input.smoothStepXVec);
-		faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
-		reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
-		refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
-		addCarry = nbl::hlsl::addCarry(input.addCarryA, input.addCarryB);
-		subBorrow = nbl::hlsl::subBorrow(input.subBorrowA, input.subBorrowB);
-		addCarryVec = nbl::hlsl::addCarry(input.addCarryAVec, input.addCarryBVec);
-		subBorrowVec = nbl::hlsl::subBorrow(input.subBorrowAVec, input.subBorrowBVec);
+		output.minVec = nbl::hlsl::min(input.minAVec, input.minBVec);
+		output.maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
+		output.rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
+		output.bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
+		output.fracVec = nbl::hlsl::fract(input.fracVec);
+		output.mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
+
+		output.signVec = nbl::hlsl::sign(input.signVec);
+		output.radiansVec = nbl::hlsl::radians(input.radiansVec);
+		output.degreesVec = nbl::hlsl::degrees(input.degreesVec);
+		output.stepVec = nbl::hlsl::step(input.stepEdgeVec, input.stepXVec);
+		output.smoothStepVec = nbl::hlsl::smoothStep(input.smoothStepEdge0Vec, input.smoothStepEdge1Vec, input.smoothStepXVec);
+		output.faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
+		output.reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
+		output.refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
+		output.addCarry = nbl::hlsl::addCarry(input.addCarryA, input.addCarryB);
+		output.subBorrow = nbl::hlsl::subBorrow(input.subBorrowA, input.subBorrowB);
+		output.addCarryVec = nbl::hlsl::addCarry(input.addCarryAVec, input.addCarryBVec);
+		output.subBorrowVec = nbl::hlsl::subBorrow(input.subBorrowAVec, input.subBorrowBVec);
+	}
+};
+
+struct TgmathTestExecutor
+{
+	void operator()(NBL_CONST_REF_ARG(TgmathIntputTestValues) input, NBL_REF_ARG(TgmathTestValues) output)
+	{
+		output.floor = nbl::hlsl::floor(input.floor);
+		output.isnan = nbl::hlsl::isnan(input.isnan);
+		output.isinf = nbl::hlsl::isinf(input.isinf);
+		output.pow = nbl::hlsl::pow(input.powX, input.powY);
+		output.exp = nbl::hlsl::exp(input.exp);
+		output.exp2 = nbl::hlsl::exp2(input.exp2);
+		output.log = nbl::hlsl::log(input.log);
+		output.log2 = nbl::hlsl::log2(input.log2);
+		output.absF = nbl::hlsl::abs(input.absF);
+		output.absI = nbl::hlsl::abs(input.absI);
+		output.sqrt = nbl::hlsl::sqrt(input.sqrt);
+		output.sin = nbl::hlsl::sin(input.sin);
+		output.cos = nbl::hlsl::cos(input.cos);
+		output.tan = nbl::hlsl::tan(input.tan);
+		output.asin = nbl::hlsl::asin(input.asin);
+		output.atan = nbl::hlsl::atan(input.atan);
+		output.sinh = nbl::hlsl::sinh(input.sinh);
+		output.cosh = nbl::hlsl::cosh(input.cosh);
+		output.tanh = nbl::hlsl::tanh(input.tanh);
+		output.asinh = nbl::hlsl::asinh(input.asinh);
+		output.acosh = nbl::hlsl::acosh(input.acosh);
+		output.atanh = nbl::hlsl::atanh(input.atanh);
+		output.atan2 = nbl::hlsl::atan2(input.atan2Y, input.atan2X);
+		output.erf = nbl::hlsl::erf(input.erf);
+		output.erfInv = nbl::hlsl::erfInv(input.erfInv);
+		output.acos = nbl::hlsl::acos(input.acos);
+		output.modf = nbl::hlsl::modf(input.modf);
+		output.round = nbl::hlsl::round(input.round);
+		output.roundEven = nbl::hlsl::roundEven(input.roundEven);
+		output.trunc = nbl::hlsl::trunc(input.trunc);
+		output.ceil = nbl::hlsl::ceil(input.ceil);
+		output.fma = nbl::hlsl::fma(input.fmaX, input.fmaY, input.fmaZ);
+		output.ldexp = nbl::hlsl::ldexp(input.ldexpArg, input.ldexpExp);
+
+		output.floorVec = nbl::hlsl::floor(input.floorVec);
+		output.isnanVec = nbl::hlsl::isnan(input.isnanVec);
+		output.isinfVec = nbl::hlsl::isinf(input.isinfVec);
+		output.powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
+		output.expVec = nbl::hlsl::exp(input.expVec);
+		output.exp2Vec = nbl::hlsl::exp2(input.exp2Vec);
+		output.logVec = nbl::hlsl::log(input.logVec);
+		output.log2Vec = nbl::hlsl::log2(input.log2Vec);
+		output.absFVec = nbl::hlsl::abs(input.absFVec);
+		output.absIVec = nbl::hlsl::abs(input.absIVec);
+		output.sqrtVec = nbl::hlsl::sqrt(input.sqrtVec);
+		output.sinVec = nbl::hlsl::sin(input.sinVec);
+		output.cosVec = nbl::hlsl::cos(input.cosVec);
+		output.tanVec = nbl::hlsl::tan(input.tanVec);
+		output.asinVec = nbl::hlsl::asin(input.asinVec);
+		output.atanVec = nbl::hlsl::atan(input.atanVec);
+		output.sinhVec = nbl::hlsl::sinh(input.sinhVec);
+		output.coshVec = nbl::hlsl::cosh(input.coshVec);
+		output.tanhVec = nbl::hlsl::tanh(input.tanhVec);
+		output.asinhVec = nbl::hlsl::asinh(input.asinhVec);
+		output.acoshVec = nbl::hlsl::acosh(input.acoshVec);
+		output.atanhVec = nbl::hlsl::atanh(input.atanhVec);
+		output.atan2Vec = nbl::hlsl::atan2(input.atan2YVec, input.atan2XVec);
+		output.acosVec = nbl::hlsl::acos(input.acosVec);
+		output.modfVec = nbl::hlsl::modf(input.modfVec);
+		output.roundVec = nbl::hlsl::round(input.roundVec);
+		output.roundEvenVec = nbl::hlsl::roundEven(input.roundEvenVec);
+		output.truncVec = nbl::hlsl::trunc(input.truncVec);
+		output.ceilVec = nbl::hlsl::ceil(input.ceilVec);
+		output.fmaVec = nbl::hlsl::fma(input.fmaXVec, input.fmaYVec, input.fmaZVec);
+		output.ldexpVec = nbl::hlsl::ldexp(input.ldexpArgVec, input.ldexpExpVec);
+		output.erfVec = nbl::hlsl::erf(input.erfVec);
+		output.erfInvVec = nbl::hlsl::erfInv(input.erfInvVec);
+
+		output.modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
+		output.modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
+		output.frexpStruct = nbl::hlsl::frexpStruct(input.frexpStruct);
+		output.frexpStructVec = nbl::hlsl::frexpStruct(input.frexpStructVec);
 	}
 };
 
