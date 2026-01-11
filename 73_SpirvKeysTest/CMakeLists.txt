@@ -2,6 +2,8 @@ include(common)
 
 nbl_create_executable_project("" "" "" "")
 
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_SPIRV_CFG="$<CONFIG>")
+
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
 

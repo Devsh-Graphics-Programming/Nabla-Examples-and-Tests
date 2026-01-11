@@ -13,6 +13,12 @@ using namespace nbl::application_templates;
 
 static inline const nbl::video::ILogicalDevice* g_device = nullptr;
 
+#ifndef NBL_SPIRV_CFG
+#error "NBL_SPIRV_CFG must be defined via target_compile_definitions"
+#endif
+
+#define NBL_SPIRV_CFG_PREFIX NBL_SPIRV_CFG "/"
+
 template<nbl::core::StringLiteral Expected, class Buffer>
 constexpr bool buffer_equals(const Buffer& buf)
 {
@@ -109,12 +115,12 @@ public:
 
 		bool ok = true;
 #define SPIRV_KEY_TEST(KEY, EXPECTED, ...) ok &= check_key<KEY, EXPECTED __VA_OPT__(,) __VA_ARGS__>();
-		SPIRV_KEY_TEST("k_plain", "Debug/k_plain.spv")
-		SPIRV_KEY_TEST("k_ints", "Debug/k_ints__i.b1_1.b0_0.u16_65535.u32_123456789.u64_1234567890123.s16_-32768.s32_-123456789.s64_-1234567890123.spv", userI)
-		SPIRV_KEY_TEST("k_two", "Debug/k_two__t.sel_1.spv", userT)
-		SPIRV_KEY_TEST("k_f", "Debug/k_f__f.min_1.17549435e-38.max_3.40282347e+38.neg_-1.00000000e+00.exp_1.25000000e-01.spv", userF)
-		SPIRV_KEY_TEST("k_d", "Debug/k_d__d.min_2.2250738585072010e-308.max_1.7976931348623165e+308.neg_-1.0000000000000000e+00.exp_1.2500000000000000e-01.spv", userD)
-		SPIRV_KEY_TEST("k_mix", "Debug/k_mix__m.md_7.en_1.sc_1.00000000e+00__limits.maxImageDimension2D_16384__features.shaderCullDistance_1.spv", userMix, limits, features)
+		SPIRV_KEY_TEST("k_plain", NBL_SPIRV_CFG_PREFIX "17607079465834866896.spv")
+		SPIRV_KEY_TEST("k_ints", NBL_SPIRV_CFG_PREFIX "14243079605119175996.spv", userI)
+		SPIRV_KEY_TEST("k_two", NBL_SPIRV_CFG_PREFIX "1951476947873668308.spv", userT)
+		SPIRV_KEY_TEST("k_f", NBL_SPIRV_CFG_PREFIX "13139524696082068358.spv", userF)
+		SPIRV_KEY_TEST("k_d", NBL_SPIRV_CFG_PREFIX "6202300474512380728.spv", userD)
+		SPIRV_KEY_TEST("k_mix", NBL_SPIRV_CFG_PREFIX "4015040960322118342.spv", userMix, limits, features)
 #undef SPIRV_KEY_TEST
 
 		if (!ok)
