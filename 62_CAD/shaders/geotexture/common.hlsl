@@ -4,7 +4,7 @@
 #include "../globals.hlsl"
 
 // Handle multiple geo textures, separate set, array of texture? index allocator? or multiple sets?
-NBL_CONSTEXPR uint32_t MaxGeoTextures = 256; 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxGeoTextures = 256; 
 
 // GeoTexture Oriented Bounding Box
 struct GeoTextureOBB
