@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/builtin/hlsl/luma_meter/luma_meter.hlsl"
+#include "nbl/builtin/hlsl/luma_meter/geom_mean.hlsl"
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "app_resources/common.hlsl"

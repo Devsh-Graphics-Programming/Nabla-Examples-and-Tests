@@ -776,8 +776,6 @@ public:
 				1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
 			};
 
-			m_api->startCapture();
-
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_meterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
@@ -802,6 +800,7 @@ public:
 				};
 				submit_infos[0].signalSemaphores = signals;
 
+				m_api->startCapture();
 				queue->submit(submit_infos);
 				m_api->endCapture();
 			}
@@ -828,8 +827,6 @@ public:
 				1 + ((Dimensions.y) - 1) / SubgroupSize
 			};
 
-			m_api->startCapture();
-
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_tonemapPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 0, 1, &ds1);
@@ -855,6 +852,7 @@ public:
 				};
 				submit_infos[0].signalSemaphores = signals;
 
+				m_api->startCapture();
 				queue->submit(submit_infos);
 				m_api->endCapture();
 			}
@@ -879,8 +877,6 @@ public:
 			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_tonemappedImgSamplerDS.get();
-
-			m_api->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -943,12 +939,13 @@ public:
 					.signalSemaphores = rendered
 				} };
 
+				m_api->startCapture();
 				queue->submit(infos);
+				m_api->endCapture();
 			}
 
 			// Present
 			m_surface->present(acquire.imageIndex, rendered);
-			m_api->endCapture();
 
 			// Wait for completion
 			{
