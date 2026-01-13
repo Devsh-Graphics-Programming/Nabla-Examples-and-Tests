@@ -51,6 +51,7 @@ if(NBL_BUILD_EXAMPLES)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(15_MitsubaLoader)
 	endif()
+	add_subdirectory(16_ZipArchiveLoaderTest)
 
 
 	# Waiting for a refactor
