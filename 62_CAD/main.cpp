@@ -83,7 +83,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	1000.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -1689,7 +1689,7 @@ public:
 	virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 	{
 		video::SPhysicalDeviceLimits retval = base_t::getRequiredDeviceLimits();
-		retval.fragmentShaderBarycentric = true;
+		//retval.fragmentShaderBarycentric = true;
 
 		return retval;
 	}
@@ -2252,11 +2252,11 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
-			constexpr uint32_t CURVE_CNT = 16u;
+			constexpr uint32_t CURVE_CNT = 15000u;
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
 			LineStyleInfo lineStyleInfo = {};
-			lineStyleInfo.screenSpaceLineWidth = 7.0f;
+			lineStyleInfo.screenSpaceLineWidth = 0.0001f;
 			lineStyleInfo.worldSpaceLineWidth = 0.0f;
 			lineStyleInfo.color = float32_t4(0.7f, 0.3f, 0.7f, 0.8f);
 			lineStyleInfo.isRoadStyleFlag = false;
@@ -2273,7 +2273,7 @@ protected:
 					float64_t2 P1(-41, 118);
 					float64_t2 P2(88, 19);
 
-					const float64_t2 translationVector(0, -5);
+					const float64_t2 translationVector(0, -0.01);
 
 					uint32_t curveIdx = 0;
 					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
@@ -2383,10 +2383,10 @@ protected:
 					lineStyleInfos[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
 					polylines[i].addQuadBeziers({ &quadratics[i], &quadratics[i] + 1u });
 
-					float64_t2 linePoints[2u] = {};
+					/*float64_t2 linePoints[2u] = {};
 					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
 					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
-					polylines[i].addLinePoints(linePoints);
+					polylines[i].addLinePoints(linePoints);*/
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())

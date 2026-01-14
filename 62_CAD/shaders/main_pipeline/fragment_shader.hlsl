@@ -1,4 +1,4 @@
-#define FRAGMENT_SHADER_INPUT
+//#define FRAGMENT_SHADER_INPUT
 #include "common.hlsl"
 #include "dtm.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
@@ -169,9 +169,17 @@ float4 fragMain(PSInput input) : SV_TARGET
         DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
         float3 triangleVertices[3];
+
+        // TODO [Przemek]: remove it, it is only needed for llvm-pipe
+#ifdef FRAGMENT_SHADER_INPUT
         triangleVertices[0] = input.getScreenSpaceVertexAttribs(0);
         triangleVertices[1] = input.getScreenSpaceVertexAttribs(1);
         triangleVertices[2] = input.getScreenSpaceVertexAttribs(2);
+#else
+        triangleVertices[0] = float32_t3(0,0,0);
+        triangleVertices[1] = float32_t3(0,0,0);
+        triangleVertices[2] = float32_t3(0,0,0);
+#endif
 
         const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(triangleVertices[0].xy, triangleVertices[1].xy, triangleVertices[2].xy, input.position.xy);
 
