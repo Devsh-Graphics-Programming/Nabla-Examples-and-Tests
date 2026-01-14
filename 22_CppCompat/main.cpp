@@ -97,7 +97,7 @@ public:
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = "app_resources"; // virtual root
-            auto key = nbl::this_example::builtin::build::get_spirv_key<"intrinsicsTest">(m_device.get());
+            auto key = nbl::this_example::builtin::build::get_spirv_key<"test">(m_device.get());
             auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
@@ -140,7 +140,6 @@ public:
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
         }
-
 
         for (int i = 0; i < 2; ++i)
         {
