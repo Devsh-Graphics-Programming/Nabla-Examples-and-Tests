@@ -365,6 +365,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		inline const auto& getGeometries() const {return m_geoms;}
 		inline auto& getGeometry(const uint32_t ix) {return m_geoms[ix];}
 
+		inline const auto& getInstances() const {return m_instances;}
+		inline auto& getInstance(const uint32_t ix) {return m_instances[ix];}
+
 		//
 		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const
 		{
