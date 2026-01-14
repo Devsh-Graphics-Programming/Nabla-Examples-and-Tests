@@ -36,11 +36,22 @@ private:
         testInput.quat0 = hlsl::normalize(testInput.quat0);
         testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat1 = hlsl::normalize(testInput.quat1);
+        testInput.quat2 = testInput.quat0 * realDistribution(getRandomEngine()) * 1000.f;
+        testInput.quat3 = testInput.quat1 * realDistribution(getRandomEngine()) * 1000.f;
         testInput.pitch = realDistributionRad(getRandomEngine());
         testInput.yaw = realDistributionRad(getRandomEngine());
         testInput.roll = realDistributionRad(getRandomEngine());
         testInput.rotationMat = float32_t3x3(glm::rotate(realDistributionRad(getRandomEngine()), hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())))));
-        testInput.factor = realDistribution01(getRandomEngine());
+        testInput.scaleFactor = realDistribution01(getRandomEngine()) * 1000.f;
+
+        glm::mat4 scaleRotationMat = glm::mat4(1);
+        scaleRotationMat[0] = float32_t4(testInput.rotationMat[0], 0);
+        scaleRotationMat[1] = float32_t4(testInput.rotationMat[1], 0);
+        scaleRotationMat[2] = float32_t4(testInput.rotationMat[2], 0);
+        scaleRotationMat = scaleRotationMat * glm::scale(float32_t3(testInput.scaleFactor));
+        testInput.scaleRotationMat = float32_t3x3(scaleRotationMat);
+
+        testInput.interpolationFactor = realDistribution01(getRandomEngine());
         testInput.someVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
 
         return testInput;
@@ -50,6 +61,8 @@ private:
     {
         const auto glmquat0 = glm::quat(testInput.quat0.data.w, testInput.quat0.data.x, testInput.quat0.data.y, testInput.quat0.data.z);
         const auto glmquat1 = glm::quat(testInput.quat1.data.w, testInput.quat1.data.x, testInput.quat1.data.y, testInput.quat1.data.z);
+        const auto glmquat2 = glm::quat(testInput.quat2.data.w, testInput.quat2.data.x, testInput.quat2.data.y, testInput.quat2.data.z);
+        const auto glmquat3 = glm::quat(testInput.quat3.data.w, testInput.quat3.data.x, testInput.quat3.data.y, testInput.quat3.data.z);
 
         QuaternionTestValues expected;
         {
@@ -79,10 +92,29 @@ private:
             expected.quatFromMat.data.w = glmquat.data.data[3];
         }
         {
+            glm::mat3x3 rotmat;
+            rotmat[0] = testInput.scaleRotationMat[0];
+            rotmat[1] = testInput.scaleRotationMat[1];
+            rotmat[2] = testInput.scaleRotationMat[2];
+            const auto glmquat = glm::quat_cast(rotmat);
+            expected.quatFromScaledMat.data.x = glmquat.data.data[0];
+            expected.quatFromScaledMat.data.y = glmquat.data.data[1];
+            expected.quatFromScaledMat.data.z = glmquat.data.data[2];
+            expected.quatFromScaledMat.data.w = glmquat.data.data[3];
+
+            expected.quatFromScaledMat.data = hlsl::normalize(expected.quatFromMat.data) * testInput.scaleFactor;
+        }
+        {
             const auto rotmat = glm::mat3_cast(glmquat0);
             expected.rotationMat[0] = rotmat[0];
             expected.rotationMat[1] = rotmat[1];
             expected.rotationMat[2] = rotmat[2];
+        }
+        {
+            const auto rotmat = glm::mat3_cast(glmquat2);
+            expected.scaleRotationMat[0] = rotmat[0];
+            expected.scaleRotationMat[1] = rotmat[1];
+            expected.scaleRotationMat[2] = rotmat[2];
         }
         {
             const auto mult = glmquat0 * glmquat1;
@@ -92,11 +124,20 @@ private:
             expected.quatMult.data.w = mult.data.data[3];
         }
         {
-            const auto slerped = glm::slerp(glmquat0, glmquat1, testInput.factor);
+            const auto slerped = glm::slerp(glmquat0, glmquat1, testInput.interpolationFactor);
             expected.quatSlerp.data.x = slerped.data.data[0];
             expected.quatSlerp.data.y = slerped.data.data[1];
             expected.quatSlerp.data.z = slerped.data.data[2];
             expected.quatSlerp.data.w = slerped.data.data[3];
+
+            expected.quatFlerp.data = expected.quatSlerp.data;
+        }
+        {
+            const auto mult = glmquat2 * glmquat3;
+            expected.quatScaledMult.data.x = mult.data.data[0];
+            expected.quatScaledMult.data.y = mult.data.data[1];
+            expected.quatScaledMult.data.z = mult.data.data[2];
+            expected.quatScaledMult.data.w = mult.data.data[3];
         }
         expected.transformedVec = glmquat0 * testInput.someVec;
 
@@ -108,12 +149,17 @@ private:
         verifyTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2);
         verifyTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2);
         verifyTestValue("create from rotation matrix", expectedTestValues.quatFromMat.data, testValues.quatFromMat.data, testIteration, seed, testType, 1e-2);
+        verifyTestValue("create from scale rotation matrix", expectedTestValues.quatFromScaledMat.data, testValues.quatFromScaledMat.data, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2);
+        verifyTestValue("construct matrix (scaled)", expectedTestValues.scaleRotationMat, testValues.scaleRotationMat, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
         verifyTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2);
+        verifyTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1);
         verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2);
+
+        verifyTestValue("multiply scaled quat", expectedTestValues.quatScaledMult.data, testValues.quatScaledMult.data, testIteration, seed, testType, 1e-2);
     }
 };
 
