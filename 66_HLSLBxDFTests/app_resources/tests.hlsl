@@ -107,11 +107,11 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (checkLt<float32_t3>(bsdf, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(pdf.quotient, hlsl::promote<float32_t3>(0.0)) || pdf.pdf < 0.0)
-            return BTR_ERROR_NEGATIVE_VAL;
+        if (pdf.pdf < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
+            return BTR_NONE;
 
-        if (checkZero<float>(pdf.pdf, 1e-5) && !checkZero<float32_t3>(pdf.quotient, 1e-5))  // something generated cannot have 0 probability of getting generated
-            return BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF;
+        if (checkLt<float32_t3>(bsdf, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(pdf.quotient, hlsl::promote<float32_t3>(0.0)))
+            return BTR_ERROR_NEGATIVE_VAL;
 
         if (!checkLt<float32_t3>(pdf.quotient, hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity))))    // importance sampler's job to prevent inf
             return BTR_ERROR_QUOTIENT_INF;

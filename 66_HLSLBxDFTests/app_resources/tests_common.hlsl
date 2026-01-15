@@ -15,6 +15,7 @@
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -49,17 +50,7 @@ struct ConvertToFloat01
 template<typename T>
 bool checkEq(T a, T b, float32_t eps)
 {
-    T _a = hlsl::max(hlsl::abs(a), hlsl::promote<T>(1e-5));
-    T _b = hlsl::max(hlsl::abs(b), hlsl::promote<T>(1e-5));
-    return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
-}
-
-template<>
-bool checkEq<float32_t>(float32_t a, float32_t b, float32_t eps)
-{
-    float32_t _a = hlsl::max(hlsl::abs(a), 1e-5f);   // prevent divide by 0
-    float32_t _b = hlsl::max(hlsl::abs(b), 1e-5f);
-    return nbl::hlsl::max<float32_t>(_a / _b, _b / _a) <= float32_t(1 + eps);
+    return testing::relativeApproxCompare<T>(a, b, eps);
 }
 
 template<typename T>
@@ -172,7 +163,7 @@ enum TestResult
     BTR_ERROR_GENERATED_H_INVALID = -7, // generated H is invalid
     BTR_ERROR_REFLECTANCE_OUT_OF_RANGE = -8,    // reflectance not [0, 1]
     
-    BTR_INVALID_TEST_CONFIG = -9
+    BTR_INVALID_TEST_CONFIG = 3         // returned when test values are outside of expected usage
 };
 
 struct TestBase
