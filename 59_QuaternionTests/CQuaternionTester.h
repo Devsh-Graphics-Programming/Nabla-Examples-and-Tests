@@ -140,11 +140,29 @@ private:
         verifyTestValue("construct matrix (scaled)", expectedTestValues.scaleRotationMat, testValues.scaleRotationMat, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1);
+        verifyVectorTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2, true);
+        verifyVectorTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1, true);
         verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("multiply scaled quat", expectedTestValues.quatScaledMult.data, testValues.quatScaledMult.data, testIteration, seed, testType, 1e-2);
+    }
+
+    template<typename T>
+    void verifyVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+        const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference, const bool testOrientation)
+    {
+        if (compareVectorTestValues<T>(expectedVal, testVal, maxAllowedDifference, testOrientation))
+            return;
+
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+    }
+
+    template<typename T> requires concepts::FloatingPointLikeVectorial<T>
+    bool compareVectorTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference, const bool testOrientation)
+    {
+        if (testOrientation)
+            return nbl::hlsl::testing::orientationCompare(lhs, rhs, maxAllowedDifference);
+        return nbl::hlsl::testing::relativeApproxCompare(lhs, rhs, maxAllowedDifference);
     }
 };
 

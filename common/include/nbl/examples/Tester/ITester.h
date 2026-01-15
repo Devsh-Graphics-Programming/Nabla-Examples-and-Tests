@@ -5,6 +5,7 @@
 #include <nbl/system/to_string.h>
 #include <ranges>
 #include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
+#include <nbl/builtin/hlsl/testing/orientation_compare.hlsl>
 
 using namespace nbl;
 
@@ -313,6 +314,13 @@ protected:
         if (compareTestValues<T>(expectedVal, testVal, maxAllowedDifference))
             return;
 
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+    }
+
+    template<typename T>
+    void printTestFail(const std::string& memberName, const T& expectedVal, const T& testVal,
+        const size_t testIteration, const uint32_t seed, const TestType testType)
+    {
         std::stringstream ss;
         switch (testType)
         {
