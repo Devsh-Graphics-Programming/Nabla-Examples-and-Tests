@@ -51,6 +51,7 @@ if(NBL_BUILD_EXAMPLES)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(15_MitsubaLoader)
 	endif()
+	add_subdirectory(16_ZipArchiveLoaderTest)
 
 
 	# Waiting for a refactor
@@ -97,6 +98,10 @@ if(NBL_BUILD_EXAMPLES)
   	add_subdirectory(70_FLIPFluids)
 	add_subdirectory(71_RayTracingPipeline)
 	add_subdirectory(72_CooperativeBinarySearch)
+
+	if (NBL_BUILD_MITSUBA_LOADER)
+		add_subdirectory(73_GeometryInspector)
+	endif()
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
