@@ -6,10 +6,55 @@
 
 
 #include "io/CSceneLoader.h"
+#include "renderer/CSession.h"
 
+// TODO: move to HLSL file
+namespace nbl::this_example
+{
+struct SSceneUniforms
+{
+	struct SIndirectInit
+	{
+		//
+//		bda_t<QuantizedSequence> pQuantizedSequence;
+		// because the PDF is rescaled to log2(luma)/log2(Max)*255
+		// and you get it out as `exp2(texValue)*factor`
+		hlsl::float32_t envmapPDFNormalizationFactor;
+		hlsl::float16_t envmapScale;
+		uint16_t unused;
+	} indirect;
+};
+
+struct SceneDSBindings
+{
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t UBO = 0;
+	// RGB9E5 post multiplied by a max value
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Envmap = 1;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t TLASes = 2;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Samplers = 3;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t SampledImages = 4;
+	// UINT8 log2(luma) meant for stochastic descent or querying the PDF of the Warp Map
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t EnvmapPDF = 5;
+	// R16G16_UNORM or R32G32_SFLOAT (depending on envmap resolution) meant for skipping stochastic descent
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t EnvmapWarpMap = 6;
+};
+
+struct SceneDSBindingCounts
+{
+	// Mostly held back by Intel ARC, important to not have more than this many light geometries, can increase to 
+	// https://vulkan.gpuinfo.org/displayextensionproperty.php?extensionname=VK_KHR_acceleration_structure&extensionproperty=maxDescriptorSetUpdateAfterBindAccelerationStructures&platform=all
+	// https://vulkan.gpuinfo.org/displayextensionproperty.php?extensionname=VK_KHR_acceleration_structure&extensionproperty=maxPerStageDescriptorUpdateAfterBindAccelerationStructures&platform=all
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t TLASes = 65535;
+	// Reasonable combo (esp if we implement a cache over the DS)
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Samplers = 128;
+	// Spec mandated minimum
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t SampledImages = 500000;
+};
+}
 
 namespace nbl::this_example
 {
+class CRenderer;
 
 class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 {
@@ -31,49 +76,44 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			}
 		};
 
-		// TODO: figure out whats constant, and whats state that can be passed around
-		inline std::span<const CSceneLoader::SLoadResult::SSensor> getSensors() const {return m_params.sensors;}
+		//
+		inline CRenderer* getRenderer() const {return m_construction.renderer.get();}
 
-		// TODO: function to initialize per-sensor stuff
+		using sensor_t = CSceneLoader::SLoadResult::SSensor;
+		//
+		inline std::span<const sensor_t> getSensors() const {return m_construction.sensors;}
+
+		//
+		core::smart_refctd_ptr<CSession> createSession(const sensor_t& sensor);
 
     protected:
 		friend class CRenderer;
-		struct SConstructorParams : SCachedCreationParams
+		struct SCachedConstructorParams
 		{
+			//
+			hlsl::shapes::AABB<> sceneBound;
+			//
+			core::vector<sensor_t> sensors;
+			// backward link for reference counting
+			core::smart_refctd_ptr<CRenderer> renderer;
 			// descriptor set for a scene shall contain sampled textures and compiled materials
-			core::smart_refctd_ptr<video::IGPUDescriptorSet> sceneDS;
-
-			core::vector<CSceneLoader::SLoadResult::SSensor> sensors;
-#if 0
-			nbl::core::aabbox3df m_sceneBound;
-			float m_maxAreaLightLuma;
-			StaticViewData_t m_staticViewData;
-			RaytraceShaderCommonData_t m_raytraceCommonData;
-			// Resources used for envmap sampling
-			nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
-#endif
+			core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> sceneDS;
+			// main TLAS
+			core::smart_refctd_ptr<video::IGPUTopLevelAccelerationStructure> TLAS;
 		};
-		inline CScene(SConstructorParams&& _params) : m_params(std::move(_params)) {}
+		struct SConstructorParams : SCachedCreationParams, SCachedConstructorParams
+		{
+			// sensor list can be empty, we can just make one up as we go along
+			inline operator bool() const
+			{
+				return renderer && sceneDS;
+			}
+		};
+		inline CScene(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)) {}
 		virtual inline ~CScene() {}
 
-		SConstructorParams m_params;
-#if 0
-		// TODO: sensor stuff
-		uint16_t hideEnvironment : 1;
-		uint32_t maxSensorSamples;
-
-		uint32_t m_framesDispatched;
-		vec2 m_rcpPixelSize;
-		uint64_t m_totalRaysCast;
-		StaticViewData_t m_staticViewData;
-		RaytraceShaderCommonData_t m_raytraceCommonData;
-
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_accumulation,m_tonemapOutput;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_albedoAcc,m_albedoRslv;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_normalAcc,m_normalRslv;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_maskAcc;
-		
-#endif
+		SCachedCreationParams m_creation;
+		SCachedConstructorParams m_construction;
 };
 
 }

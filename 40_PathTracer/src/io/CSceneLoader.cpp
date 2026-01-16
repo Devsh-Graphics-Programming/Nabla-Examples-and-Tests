@@ -48,6 +48,7 @@ struct to_string_helper<nbl::this_example::CSceneLoader::SLoadResult::SSensor>
 				mutableDefaults["farClip"] = _mutableDefaults.farClip;
 				mutableDefaults["cascadeLuminanceBase"] = _mutableDefaults.cascadeLuminanceBase;
 				mutableDefaults["cascadeLuminanceStart"] = _mutableDefaults.cascadeLuminanceStart;
+				mutableDefaults["hideEnvironment"] = _mutableDefaults.hideEnvironment;
 			}
 			{
 				auto& dynamicDefaults = j["dynamicDefaults"];
@@ -161,6 +162,9 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 		return {};
 	}
 	const auto* const meta = static_cast<const CMitsubaMetadata*>(untypedMeta);
+
+	//
+	auto& integrator = meta->m_global.m_integrator;
 
 	// TODO: compute/get this from minumum extent of scene
 	float sceneSize = 50.f;
@@ -380,6 +384,22 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				//
 				mutableDefaults.cascadeLuminanceBase = film.cascadeLuminanceBase;
 				mutableDefaults.cascadeLuminanceStart = film.cascadeLuminanceStart;
+				//
+				integrator.visit([&mutableDefaults](auto& var)->void
+					{
+						if constexpr (std::is_base_of_v<CElementIntegrator::EmitterHideableBase,std::remove_reference_t<decltype(var)>>)
+							mutableDefaults.hideEnvironment = var.hideEnvironment;
+					}
+				);
+				integrator.visit([&mutableDefaults](auto& var)->void
+					{
+						if constexpr (std::is_base_of_v<CElementIntegrator::MonteCarloTracingBase,std::remove_reference_t<decltype(var)>>)
+						{
+							mutableDefaults.maxPathDepth = var.maxPathDepth;
+							mutableDefaults.russianRouletteDepth = var.russianRouletteDepth;
+						}
+					}
+				);
 			}
 			{
 				using dyn_t = SLoadResult::SSensor::SDynamic;
@@ -440,6 +460,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				}
 				// post process
 				{
+					dynamicDefaults.postProc.bloomFilePath = film.denoiserBloomFilePath;
 					dynamicDefaults.postProc.bloomScale = film.denoiserBloomScale;
 					dynamicDefaults.postProc.bloomIntensity = film.denoiserBloomIntensity;
 					dynamicDefaults.postProc.tonemapperArgs = std::string(film.denoiserTonemapperArgs);

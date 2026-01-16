@@ -46,8 +46,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			const nbl::core::vector<nbl::core::vectorSIMDf>& clipPlanes={}
 		);
 
-		void deinitScreenSizedResources();
-
 		void resetSampleAndFrameCounters();
 
 		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise, const DenoiserArgs& denoiserArgs = {});
@@ -160,7 +158,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<const nbl::video::IGPUDescriptorSetLayout> m_perCameraRasterDSLayout;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> m_rasterInstanceDataDSLayout,m_additionalGlobalDSLayout,m_commonRaytracingDSLayout;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> m_raygenDSLayout,m_closestHitDSLayout,m_resolveDSLayout;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline> m_visibilityBufferFillPipeline;
 
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_cullPipelineLayout;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_raygenPipelineLayout;
@@ -195,14 +192,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			private:
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
-		uint16_t maxPathDepth;
-		uint16_t noRussianRouletteDepth : 15;
-		uint16_t hideEnvironment : 1;
-		uint32_t maxSensorSamples;
-
-		// scene specific data
-		nbl::core::vector<::RadeonRays::Shape*> rrShapes;
-		nbl::core::vector<::RadeonRays::Shape*> rrInstances;
 
 		nbl::core::matrix3x4SIMD m_prevView;
 		nbl::core::matrix4x3 m_prevCamTform;
@@ -232,20 +221,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_commonRaytracingDS[2];
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_rasterInstanceDataDS,m_raygenDS,m_resolveDS;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_closestHitDS[2];
-		uint32_t m_raygenWorkGroups[2];
 
-		struct InteropBuffer
-		{
-			nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> buffer;
-			std::pair<::RadeonRays::Buffer*, cl_mem> asRRBuffer = { nullptr,0u };
-		};
-		InteropBuffer m_rayBuffer[2];
-		InteropBuffer m_intersectionBuffer[2];
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_accumulation,m_tonemapOutput;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_albedoAcc,m_albedoRslv;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_normalAcc,m_normalRslv;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_maskAcc;
-		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
+		nbl::video::IFrameBuffer* m_colorBuffer;
 		
 		// Resources used for envmap sampling
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;		

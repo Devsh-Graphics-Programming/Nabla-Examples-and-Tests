@@ -16,6 +16,8 @@ list(APPEND NBL_LIBRARIES
 )
 list(APPEND NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CRenderer.cpp"
 )
 list(APPEND NBL_

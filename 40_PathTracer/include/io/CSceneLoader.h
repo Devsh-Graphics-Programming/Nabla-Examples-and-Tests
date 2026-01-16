@@ -184,6 +184,10 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					//
 					float cascadeLuminanceBase = core::nan<float>();
 					float cascadeLuminanceStart = core::nan<float>();
+					//
+					uint16_t hideEnvironment : 1 = false;
+					uint16_t russianRouletteDepth : 15 = 0x7fffu;
+					uint16_t maxPathDepth = 0;
 				} mutableDefaults = {};
 				// these can change without having to reset accumulations, etc.
 				struct SDynamic
@@ -198,6 +202,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 
 					struct SPostProcess
 					{
+						std::filesystem::path bloomFilePath;
 						float bloomScale = 0.0f;
 						float bloomIntensity = 0.0f;
 						std::string tonemapperArgs = "";
@@ -218,19 +223,6 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					float rotateSpeed = core::nan<float>();
 					union
 					{
-						/*
-		float linearStepZoomSpeed = sensorData.stepZoomSpeed;
-		if(core::isnan<float>(sensorData.stepZoomSpeed))
-		{
-			linearStepZoomSpeed = sceneDiagonal * (DefaultZoomSpeed / DefaultSceneDiagonal);
-		}
-
-		// Set Zoom Multiplier
-		{
-			float logarithmicZoomSpeed = std::pow(sceneDiagonal, linearStepZoomSpeed / sceneDiagonal);
-			sensorData.stepZoomSpeed =  logarithmicZoomSpeed;
-			sensorData.getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
-						*/
 						struct SZoomable // spherical can't zoom
 						{
 							float speed = core::nan<float>();
@@ -248,7 +240,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 
 			inline operator bool() const
 			{
-				if (!scene || !sensors.empty())
+				if (!scene || sensors.empty())
 					return false;
 				return true;
 			}

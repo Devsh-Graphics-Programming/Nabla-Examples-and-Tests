@@ -161,9 +161,12 @@ public:
 		}});
 
 		// TODO: tmp code
-		auto scene_daily_pt = m_sceneLoader->load({
-			.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
-			.workingDirectory = localOutputCWD 
+		auto scene_daily_pt = m_renderer->createScene({
+				.load = m_sceneLoader->load({
+				.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
+				.workingDirectory = localOutputCWD 
+			}),
+			.converter = nullptr
 		});
 		// the UI would have you load the zip first, then present a dropdown of what to load
 		// but still need to support archive mount for cmdline load
@@ -173,6 +176,18 @@ public:
 			.workingDirectory = localOutputCWD
 		});
 #endif
+
+		auto session = scene_daily_pt->createSession(scene_daily_pt->getSensors().front());
+
+		// temporary test
+		{
+			auto cb = m_renderer->getConstructionParams().commandBuffers[0].get();
+			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			session->init(cb);
+			cb->end();
+		}
+		session->deinit();
+
 
 		// Load Custom Shader
 		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
@@ -260,8 +275,6 @@ public:
 		}
 
 		auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-
-		m_converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
 
 		for (auto i = 0u; i < MaxFramesInFlight; i++)
 		{
@@ -1581,8 +1594,6 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> m_presentDs;
 	smart_refctd_ptr<IDescriptorPool> m_presentDsPool;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
-
-	smart_refctd_ptr<CAssetConverter> m_converter;
 
 
 	core::matrix4SIMD m_cachedModelViewProjectionMatrix;

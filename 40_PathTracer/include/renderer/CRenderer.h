@@ -14,6 +14,32 @@
 #include <filesystem>
 
 
+// TODO: move to HLSL file
+namespace nbl::this_example
+{
+
+struct SPrevisPushConstants : SSensorDynamics
+{
+};
+
+// We do it so weirdly because https://github.com/microsoft/DirectXShaderCompiler/issues/7131
+#define MAX_SPP_PER_DISPATCH_LOG2 5
+struct SBeautyPushConstants : SSensorDynamics
+{
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSppPerDispatchLog2 = MAX_SPP_PER_DISPATCH_LOG2;
+
+	uint32_t maxSppPerDispatch : MAX_SPP_PER_DISPATCH_LOG2;
+	uint32_t unused : 27;
+};
+#undef MAX_SPP_PER_DISPATCH_LOG2
+
+struct SDebugPushConstants : SSensorDynamics
+{
+};
+
+}
+
+
 namespace nbl::this_example
 {
 
@@ -23,18 +49,12 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		enum class RenderMode : uint8_t
 		{
 			Previs,
-			Beauty//,
+			Beauty,
 			//Albedo,
 			//Normal,
-			//Motion
-		};
-		// TODO: move this somewhere else
-		struct DenoiserArgs
-		{
-			std::filesystem::path bloomFilePath;
-			float bloomScale = 0.0f;
-			float bloomIntensity = 0.0f;
-			std::string tonemapperArgs = "";
+			//Motion,
+			DebugIDs,
+			Count
 		};
 
 		//
@@ -85,43 +105,76 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			video::IQueue* uploadQueue = nullptr;
 			//
 			core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
+			// can be null
+			system::logger_opt_smart_ptr logger = nullptr;
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
+			system::path sampleSequenceCache;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
 		//
-		inline video::ILogicalDevice* getDevice() { return m_params.utilities->getLogicalDevice(); }
+		inline const SCachedCreationParams& getCreationParams() const { return m_creation; }
+		
+		//
+		inline video::ILogicalDevice* getDevice() const {return m_creation.utilities->getLogicalDevice();}
 
 		//
 		core::smart_refctd_ptr<CScene> createScene(CScene::SCreationParams&& _params);
-
-		// session object
-		class CSession final : public core::IReferenceCounted, public core::InterfaceUnmovable
+		
+		struct SCachedConstructionParams
 		{
-				// sensor data
-				struct STransients
-				{
-//					core::smart_refctd_ptr<>;
-				} transients = {};
+			constexpr static inline uint8_t FramesInFlight = 3;
 
-			public:
-				// init
-				// deinit
-		};
-
-    protected:
-		struct SConstructorParams : SCachedCreationParams
-		{
-			// per pipeline UBO, with fast updates
+			// per pipeline UBO for other pipelines
 			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> uboDSLayout;
 			// descriptor set for a scene shall contain sampled textures and compiled materials
 			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> sceneDSLayout;
+			// descriptor set for sensors
+			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> sensorDSLayout;
 
-			// rendering pipelines
-			core::smart_refctd_ptr<video::IGPURayTracingPipeline> preVis;
-			core::smart_refctd_ptr<video::IGPURayTracingPipeline> pathTracing;
+			// TODO
+			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(RenderMode::Count)> renderingPipelines;
+
+			//
+			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
+		};
+		//
+		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
+
+    protected:
+		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams
+		{
+
+			// Each Atom of the sample sequence provides 3N dimensions (3 for BxDF, 3 for NEE, etc.)
+			// Then Atoms are ordered by sampleID, then dimension (cache will be fully trashed by tracing TLASes until next bounce) 
+#if 0	
+			// semi persistent data
+			struct SampleSequence
+			{
+				public:
+					static inline constexpr auto QuantizedDimensionsBytesize = sizeof(uint64_t);
+					SampleSequence() : bufferView() {}
+
+					// one less because first path vertex uses a different sequence 
+					static inline uint32_t computeQuantizedDimensions(uint32_t maxPathDepth) {return (maxPathDepth-1)*SAMPLING_STRATEGY_COUNT;}
+					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount);
+
+					// from cache
+					void createBufferView(nbl::video::IVideoDriver* driver, nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer>&& buff);
+					// regenerate
+					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createBufferView(nbl::video::IVideoDriver* driver, uint32_t quantizedDimensions, uint32_t sampleCount);
+
+					auto getBufferView() const {return bufferView;}
+
+				private:
+					nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
+			} sampleSequence;
+		
+			// Resources used for envmap sampling
+			nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
+#endif
 
 			// rwmc resolve, autoexposure first pass
 			core::smart_refctd_ptr<video::IGPUComputePipeline> rwmcResolveAndLumaMeasure; // TODO: autoexposure, and first axis of FFT
@@ -137,41 +190,15 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			core::smart_refctd_ptr<video::IGPUComputePipeline> secondAxisFFTTonemap; // TODO
 
 			// Present
-			core::smart_refctd_ptr<video::IGPURenderpass> presentRenderpass;
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> regularPresent;
+			core::smart_refctd_ptr<video::IGPURenderpass> presentRenderpass; // TODO
+			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> regularPresent; // TODO
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> cubemapPresent; // TODO
 		};
-		inline CRenderer(SConstructorParams&& _params) : m_params(std::move(_params)) {}
+		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)) {}
 		virtual inline ~CRenderer() {}
 
-		SConstructorParams m_params;
-#if 0	
-		// semi persistent data
-		nbl::io::path sampleSequenceCachePath;
-		struct SampleSequence
-		{
-			public:
-				static inline constexpr auto QuantizedDimensionsBytesize = sizeof(uint64_t);
-				SampleSequence() : bufferView() {}
-
-				// one less because first path vertex uses a different sequence 
-				static inline uint32_t computeQuantizedDimensions(uint32_t maxPathDepth) {return (maxPathDepth-1)*SAMPLING_STRATEGY_COUNT;}
-				nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount);
-
-				// from cache
-				void createBufferView(nbl::video::IVideoDriver* driver, nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer>&& buff);
-				// regenerate
-				nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createBufferView(nbl::video::IVideoDriver* driver, uint32_t quantizedDimensions, uint32_t sampleCount);
-
-				auto getBufferView() const {return bufferView;}
-
-			private:
-				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
-		} sampleSequence;
-		
-		// Resources used for envmap sampling
-		nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
-#endif
+		SCachedCreationParams m_creation;
+		SCachedConstructionParams m_construction;
 };
 
 }
@@ -194,6 +221,8 @@ struct to_string_helper<nbl::this_example::CRenderer::RenderMode>
 					return "Beauty";
 				case enum_t::Previs:
 					return "Previs";
+				case enum_t::DebugIDs:
+					return "DebugIDs";
 				default:
 					break;
 			}
