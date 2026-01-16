@@ -7,8 +7,7 @@
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/dim_adaptor_recursive.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
-#include "nbl/builtin/hlsl/math/linalg/transform.hlsl"
-#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
+#include "nbl/builtin/hlsl/math/quaternions.hlsl"
 #include "nbl/builtin/hlsl/math/polar.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
@@ -87,9 +86,9 @@ struct SBxDFTestResources
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 
         const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
-        float32_t4x4 rot = math::linalg::promote_affine<4, 4>(math::linalg::rotation_mat(angle, retval.N));
-        retval.T = mul(rot, float32_t4(tangent,1)).xyz;
-        retval.B = mul(rot, float32_t4(bitangent,1)).xyz;
+        math::quaternion<float> rot = math::quaternion<float>::create(retval.N, angle);
+        retval.T = rot.transformVector(tangent);
+        retval.B = rot.transformVector(bitangent);
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
