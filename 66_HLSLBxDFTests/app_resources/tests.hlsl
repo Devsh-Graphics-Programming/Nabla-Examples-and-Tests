@@ -107,6 +107,9 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
+        if (sampledLi.pdf < 0.f)    // pdf should not be negative
+            return BTR_ERROR_NEGATIVE_VAL;
+
         if (sampledLi.pdf < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
@@ -152,7 +155,7 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         float32_t3 quo_pdf = sampledLi.value();
-        if (!checkEq<float32_t3>(quo_pdf, Li, 1e-4))
+        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li, 1e-4))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
@@ -339,7 +342,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         float32_t3 a = Li / hlsl::abs(s.getNdotL());
         float32_t3 b = recLi / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
-            if (!checkEq<float32_t3>(a, b, 1e-2))
+            if (!testing::relativeApproxCompare<float32_t3>(a, b, 1e-2))
             {
 #ifndef __HLSL_VERSION
                 if (verbose)

@@ -387,7 +387,7 @@ private:
                 angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
                 angle_adder.addAngle(b, Sin(b));
                 float res = angle_adder.getSumofArccos();
-                if (!checkEq<float>(res, exAB, 1e-3))
+                if (!testing::relativeApproxCompare<float>(res, exAB, 1e-3))
                     fprintf(stderr, "[ERROR] angle adding (2 angles) failed! expected %f, got %f\n", exAB, res);
 
                 const float exABCD = exAB + acos(c) + acos(d);
@@ -396,7 +396,7 @@ private:
                 angle_adder.addAngle(c, Sin(c));
                 angle_adder.addAngle(d, Sin(d));
                 res = angle_adder.getSumofArccos();
-                if (!checkEq<float>(res, exABCD, 1e-3))
+                if (!testing::relativeApproxCompare<float>(res, exABCD, 1e-3))
                     fprintf(stderr, "[ERROR] angle adding (4 angles) failed! expected %f, got %f\n", exABCD, res);
             }
         }

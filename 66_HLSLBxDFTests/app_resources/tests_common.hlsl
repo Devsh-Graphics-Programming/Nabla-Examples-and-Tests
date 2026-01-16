@@ -48,12 +48,6 @@ struct ConvertToFloat01
 };
 
 template<typename T>
-bool checkEq(T a, T b, float32_t eps)
-{
-    return testing::relativeApproxCompare<T>(a, b, eps);
-}
-
-template<typename T>
 bool checkLt(T a, T b)
 {
     return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(a < b);
