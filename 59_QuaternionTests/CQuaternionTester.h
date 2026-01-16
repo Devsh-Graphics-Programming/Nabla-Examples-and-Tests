@@ -131,15 +131,15 @@ private:
 
     void verifyTestResults(const QuaternionTestValues& expectedTestValues, const QuaternionTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        verifyTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2);
-        verifyTestValue("create from rotation matrix", expectedTestValues.quatFromMat.data, testValues.quatFromMat.data, testIteration, seed, testType, 1e-2);
+        verifyVectorTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2, true);
+        verifyVectorTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2, true);
+        verifyVectorTestValue("create from rotation matrix", expectedTestValues.quatFromMat.data, testValues.quatFromMat.data, testIteration, seed, testType, 1e-2, true);
         verifyTestValue("create from scale rotation matrix", expectedTestValues.quatFromScaledMat.data, testValues.quatFromScaledMat.data, testIteration, seed, testType, 1e-2);
 
         verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2);
         verifyTestValue("construct matrix (scaled)", expectedTestValues.scaleRotationMat, testValues.scaleRotationMat, testIteration, seed, testType, 1e-2);
 
-        verifyTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2);
+        verifyVectorTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2, true);
         verifyVectorTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2, true);
         verifyVectorTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1, true);
         verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2);
