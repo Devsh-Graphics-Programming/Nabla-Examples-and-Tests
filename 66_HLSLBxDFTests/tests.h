@@ -19,7 +19,7 @@ struct CalculatePdfSinTheta
 {
     using traits_t = bxdf::traits<BxDF>;
 
-    float __call(float theta, float phi)
+    float operator()(float theta, float phi) NBL_CONST_MEMBER_FUNC
     {
         float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
         float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
@@ -32,6 +32,7 @@ struct CalculatePdfSinTheta
         const float32_t3 T = anisointer.getT();
         const float32_t3 B = anisointer.getB();
         sample_t s = sample_t::create(L, T, B, NdotL);
+        aniso_cache cache;
 
         float tmpeta = 1.f;
         NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
@@ -87,7 +88,6 @@ struct CalculatePdfSinTheta
     ray_dir_info_t V;
     iso_interaction isointer;
     aniso_interaction anisointer;
-    aniso_cache cache;
     float eta;
 };
 

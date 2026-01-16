@@ -116,7 +116,7 @@ struct SBxDFTestResources
     }
 
     float eps = 1e-3;   // epsilon
-    uint32_t halfSeed;     // init state seed, for debugging
+    uint32_t halfSeed;     // init state seed, expect each seed to be unique so threads don't clash writing to same filename
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
