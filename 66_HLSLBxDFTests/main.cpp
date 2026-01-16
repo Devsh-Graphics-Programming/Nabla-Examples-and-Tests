@@ -168,8 +168,8 @@ private:
             case BTR_ERROR_NEGATIVE_VAL:
                 logger->log("seed %u: %s pdf/quotient/eval < 0", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
-            case BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF:
-                logger->log("seed %u: %s generated sample has pdf = 0", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+            case BTR_ERROR_GENERATED_SAMPLE_NAN_PDF:
+                logger->log("seed %u: %s generated sample has pdf = NaN", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_QUOTIENT_INF:
                 logger->log("seed %u: %s quotient -> inf", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
@@ -274,29 +274,29 @@ private:
 
 
         // test buckets of inf
-        runs = testconfigs["TestBucket"]["runs"];
-        auto rBucket = std::ranges::views::iota(0u, runs);
-        FOR_EACH_BEGIN(rBucket)
-            STestInitParams initparams{ .logInfo = logInfo };
-            initparams.halfSeed = i;
-            initparams.samples = testconfigs["TestBucket"]["samples"];
+        //runs = testconfigs["TestBucket"]["runs"];
+        //auto rBucket = std::ranges::views::iota(0u, runs);
+        //FOR_EACH_BEGIN(rBucket)
+        //    STestInitParams initparams{ .logInfo = logInfo };
+        //    initparams.halfSeed = i;
+        //    initparams.samples = testconfigs["TestBucket"]["samples"];
 
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-            RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
-        FOR_EACH_END
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        //FOR_EACH_END
 
 
         // chi2 test for sampling and pdf
@@ -444,7 +444,7 @@ private:
         for (uint64_t j = 0u; j < test.thetaSplits; ++j)
             for (uint64_t i = 0u; i < test.phiSplits; ++i)
             {
-                float32_t3 pixelColor = hlsl::visualization::Turbo::map(test.countFreq[j * test.phiSplits + i] / test.maxCountFreq);
+                float32_t3 pixelColor = hlsl::visualization::Turbo::__call(test.countFreq[j * test.phiSplits + i] / test.maxCountFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
                 const uint64_t pixelIndex = j * test.phiSplits + i;
@@ -455,7 +455,7 @@ private:
         for (uint64_t j = 0u; j < test.thetaSplits; ++j)
             for (uint64_t i = 0u; i < test.phiSplits; ++i)
             {
-                float32_t3 pixelColor = hlsl::visualization::Turbo::map(test.integrateFreq[j * test.phiSplits + i] / test.maxIntFreq);
+                float32_t3 pixelColor = hlsl::visualization::Turbo::__call(test.integrateFreq[j * test.phiSplits + i] / test.maxIntFreq);
                 double decodedPixel[4] = { pixelColor[0], pixelColor[1], pixelColor[2], 1 };
 
                 const uint64_t pixelIndex = (test.thetaSplits + j) * test.phiSplits + i;

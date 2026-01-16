@@ -155,7 +155,7 @@ enum TestResult
     BTR_PRINT_MSG = 2,
 
     BTR_ERROR_NEGATIVE_VAL = -1,        // pdf/quotient/eval < 0
-    BTR_ERROR_GENERATED_SAMPLE_NON_POSITIVE_PDF = -2,  // pdf = 0
+    BTR_ERROR_GENERATED_SAMPLE_NAN_PDF = -2,    // pdf = 0
     BTR_ERROR_QUOTIENT_INF = -3,        // quotient -> inf
     BTR_ERROR_JACOBIAN_TEST_FAIL = -4,  // jacobian * pdf != 0
     BTR_ERROR_PDF_EVAL_DIFF = -5,       // quotient * pdf != eval

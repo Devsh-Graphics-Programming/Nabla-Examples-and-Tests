@@ -183,8 +183,6 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
-            u.x = hlsl::clamp(u.x, base_t::rc.eps, 1.f-base_t::rc.eps);
-            u.y = hlsl::clamp(u.y, base_t::rc.eps, 1.f-base_t::rc.eps);
 
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
