@@ -209,7 +209,6 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				auto& mutableDefaults = sensors[i].mutableDefaults;
 				// absolute transform
 				float32_t3 scaleRcp;
-				bool leftHanded = false;
 				{
 					auto absoluteTransform = float32_t3x4(_sensor.transform.matrix);
 					{
@@ -232,7 +231,6 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							constants = {};
 							continue;
 						}
-						leftHanded = det<0.f;
 						// extract and remove scale, also make the transform right-handed
 						{
 							scaleRcp = rsqrt<float32_t3>({
@@ -240,7 +238,21 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 								dot(orientationT[1],orientationT[1]),
 								dot(orientationT[2],orientationT[2])
 							});
-							//
+							// unflip X if left handed
+							if (det<0.f)
+								scaleRcp.x = -scaleRcp.x;
+							// Old Code View Matrix:
+							// LH X+ = Left, Y+ = Up, Z+ = Backward
+							// RH X+ = Right, Y+ = Up, Z+ = Forward
+							// Basically RH view matrix used to make the Forward direction Z-, so LH projection matrix flupped it to have Z+ and W+ (cancel out)
+							// The only thing that stayed was the flipping of the X direction.
+							// ------------------------------------------
+							// If we're using our animators, then we can't have negative scales on odd number of axes
+							// the animators will re-create the camera from forward and up axes with right handed matrix
+							// New Sensor code should take a look at inverse Projection Matrix to determine the dNDC/dView directions
+							//		nearPlaneCenter = mul(invProj,float(0,0,0,1)) = invProj.column[3]
+							//		ndcXDir = normalize(invProj.column[0].xyz*nearPlaneCenter.w-nearPlaneCenter.xyz*invProj.column[3].w) = if regular matrix = normalize(invProj.column[0].xyz)
+							//		ndcYDir = normalize(invProj.column[1].xyz*nearPlaneCenter.w-nearPlaneCenter.xyz*invProj.column[3].w) = if regular matrix = normalize(invProj.column[1].xyz)
 							for (auto r=0; r<3; r++)
 							{
 								orientationT[r] *= scaleRcp[r];
@@ -302,14 +314,14 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							// max 1/4 circle
 							if (!(halfWidth>0.f && halfHeight>0.f))
 							{
-								ndc[0][0] = core::nan<float>();
+								ndc[1][1] = core::nan<float>();
 								logger.log("Sensor %s (%d-th in XML) had a Field of View of %f degrees!",ILogger::ELL_ERROR,id,i,persp.fov);
 								break;
 							}
-							//
-							ndc[0] = float32_t3(1.f,0.f,persp.shiftX)*halfWidth;
+							// elongating camera along Z will shrink the effective FOV
+							ndc[0] = float32_t3(scaleRcp.z/scaleRcp.x,0.f,hlsl::sign(scaleRcp.x)*persp.shiftX);
 							// column gets negated because in Vulkan NDC.y runs downwards
-							ndc[1] = -float32_t3(0.f,1.f,persp.shiftY)*halfHeight;
+							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
 						}
 						break;
 					case mts_sensor_t::Type::TELECENTRIC:
@@ -319,6 +331,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 						{
 							const auto& ortho = _sensor.orthographic;
 							// extract and negate the scale from the 
+							ndc[0] = float32_t3(scaleRcp.x,0.f,0.f);
+							ndc[1] = float32_t3(0.f,scaleRcp.y*float(constants.height)/float(constants.width),0.f);
 						}
 						break;
 					case mts_sensor_t::Type::SPHERICAL:
@@ -336,8 +350,6 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					constants = {};
 					continue;
 				}
-				if (leftHanded)
-					ndc[1][1] *= -1.f;
 				// clip planes
 				auto outClipPlane = mutableDefaults.clipPlanes.begin();
 				for (auto i=0; i<CElementSensor::MaxClipPlanes; i++)

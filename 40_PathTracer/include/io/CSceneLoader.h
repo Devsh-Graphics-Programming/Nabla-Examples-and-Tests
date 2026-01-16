@@ -138,31 +138,33 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 							//
 							inline Type getType() const
 							{
-								// note that actual matrix always requires columns to have X+ and Y- directions
-								if (encoded[0][0]>0.f)
+								// note that actual matrix always requires columns to have Y- directions
+								if (encoded[1][1]<0.f)
 									return Type::Persp;
-								if (encoded[0][0]<0.f)
+								if (encoded[1][1]>0.f)
 									return Type::Ortho;
 								return Type::Env;
 							}
 
 							// for a raygen shader to transform the [0,1]^2 NDC coord into a ray (without tMin/tStart)
-							// PERSP `dir = normalize(float3(pseudo_mul(mat,ndc),rightHanded ? 1:(-1))); origin = dir*nearClip/abs(dir.z);`
-							// ORTHO `origin = float3(pseudo_mul(mat,ndc),rightHanded ? nearClip:(-nearClip)); dir = float32_t(0,0,rightHanded ? 1:(-1))`
+							// PERSP `dir = normalize(float3(pseudo_mul(mat,ndc),-1));
+							// origin = -float32_t3(dir.xy/dir.z,nearClip);`
+							// ORTHO `origin = float32_t3(pseudo_mul(mat,ndc),-nearClip);
+							// dir = float32_t(0,0,-1)`
 							inline explicit operator hlsl::float32_t2x3() const
 							{
 								auto retval = encoded;
-								for (auto c=0; c<2; c++)
+								// y-axis column shall always be negative
+								if (encoded[1][1]>0.f)
 								{
-									const float flipCol = hlsl::sign(encoded[c][c]);
-									for (auto r=0; r<2; r++)
-										retval[r][c] *= flipCol;
+									retval[0][1] = -encoded[0][1];
+									retval[1][1] = -encoded[1][1];
 								}
 								return retval;
 							}
 
-							// Whether Z+ or Z- is forward for the camera
-							inline bool isRightHanded() const {return encoded[1][1]>0.f;}
+							// Whether Z+ or Z- is forward,and X- or X+ is right for the camera
+							inline bool isRightHanded() const {return encoded[0][0]>0.f;}
 
 						private:
 							friend class CSceneLoader;
