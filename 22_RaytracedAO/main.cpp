@@ -405,31 +405,6 @@ meshes = {};
 device->getAssetManager()->clearAllGPUObjects();
 
 
-// Deduce Move and Zoom Speeds if it is nan
-	auto sceneBoundsExtent = renderer->getSceneBound().getExtent();
-	auto sceneDiagonal = sceneBoundsExtent.getLength(); 
-
-	for(uint32_t s = 0u; s < sensors.size(); ++s)
-	{
-		auto& sensorData = sensors[s];
-		
-		float linearStepZoomSpeed = sensorData.stepZoomSpeed;
-		if(core::isnan<float>(sensorData.stepZoomSpeed))
-		{
-			linearStepZoomSpeed = sceneDiagonal * (DefaultZoomSpeed / DefaultSceneDiagonal);
-		}
-
-		// Set Zoom Multiplier
-		{
-			float logarithmicZoomSpeed = std::pow(sceneDiagonal, linearStepZoomSpeed / sceneDiagonal);
-			sensorData.stepZoomSpeed =  logarithmicZoomSpeed;
-			sensorData.getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
-			printf("[INFO] Sensor[%d] Camera Step Zoom Speed deduced from scene bounds = %f [Linear], %f [Logarithmic] \n", s, linearStepZoomSpeed, logarithmicZoomSpeed);
-		}
-
-		
-	}
-
 	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
 	if (!applicationState.isInteractiveMode)
 	{

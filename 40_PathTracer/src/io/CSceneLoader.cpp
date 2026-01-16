@@ -479,15 +479,14 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				// ignore zoom for spherical cameras
 				if (!isSpherical)
 				{
-#if 0 // TODO
-					// Deduce Move and Zoom Speeds if it is nan
-					{
-						float linearStepZoomSpeed = base.zoomSpeed;
-						if (hlsl::isnan(linearStepZoomSpeed))
-							linearStepZoomSpeed = sceneSize * (dyn_t::DefaultZoomSpeed / dyn_t::DefaultSceneSize);
-					}
-					dynamicDefaults.zoomable.speed = ;
-#endif
+					// deduce the Zoom Speed if it is nan
+					float linearStepZoomSpeed = base.zoomSpeed/sceneSize;
+					if (hlsl::isnan(linearStepZoomSpeed))
+						linearStepZoomSpeed = dyn_t::DefaultZoomSpeed/dyn_t::DefaultSceneSize;
+					// set Zoom Multiplier
+					const float logarithmicZoomSpeed = hlsl::pow(sceneSize,linearStepZoomSpeed);
+					dynamicDefaults.zoomable.speed = logarithmicZoomSpeed;
+					// .getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
 				}
 				else if (!hlsl::isnan(base.zoomSpeed))
 					logger.log("Sensor %s (%d-th in XML) is SPHERICAL, zoom speed gets ignored!",ILogger::ELL_WARNING,id,i);
