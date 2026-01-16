@@ -5,7 +5,6 @@
 #include <nbl/system/to_string.h>
 #include <ranges>
 #include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
-#include <nbl/builtin/hlsl/testing/orientation_compare.hlsl>
 
 using namespace nbl;
 
