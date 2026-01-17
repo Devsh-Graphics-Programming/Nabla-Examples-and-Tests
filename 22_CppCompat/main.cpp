@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "app_resources/common.hlsl"
 
@@ -59,25 +59,33 @@ public:
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
 
-        ITester::PipelineSetupData pplnSetupData;
-        pplnSetupData.device = m_device;
-        pplnSetupData.api = m_api;
-        pplnSetupData.assetMgr = m_assetMgr;
-        pplnSetupData.logger = m_logger;
-        pplnSetupData.physicalDevice = m_physicalDevice;
-        pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-
         {
-            CTgmathTester tgmathTester;
-            pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
-            tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
-            tgmathTester.performTests();
+            CTgmathTester::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"tgmathTest">(m_device.get());
+
+            CTgmathTester tgmathTester(8);
+            tgmathTester.setupPipeline(pplnSetupData);
+            tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
-            CIntrinsicsTester intrinsicsTester;
-            pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
-            intrinsicsTester.setupPipeline<IntrinsicsIntputTestValues, IntrinsicsTestValues>(pplnSetupData);
-            intrinsicsTester.performTests();
+            CIntrinsicsTester::PipelineSetupData pplnSetupData;
+            pplnSetupData.device = m_device;
+            pplnSetupData.api = m_api;
+            pplnSetupData.assetMgr = m_assetMgr;
+            pplnSetupData.logger = m_logger;
+            pplnSetupData.physicalDevice = m_physicalDevice;
+            pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"intrinsicsTest">(m_device.get());
+
+            CIntrinsicsTester intrinsicsTester(8);
+            intrinsicsTester.setupPipeline(pplnSetupData);
+            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
         }
 
         m_queue = m_device->getQueue(0, 0);
@@ -88,8 +96,9 @@ public:
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("app_resources/test.comp.hlsl", lp);
+            lp.workingDirectory = "app_resources"; // virtual root
+            auto key = nbl::this_example::builtin::build::get_spirv_key<"test">(m_device.get());
+            auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -131,7 +140,6 @@ public:
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
         }
-
 
         for (int i = 0; i < 2; ++i)
         {

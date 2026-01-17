@@ -180,8 +180,9 @@ public:
 				pos.w = 0;
 				localTarget = nbl::hlsl::float32_t4(0, 0, nbl::core::max(1.f, nbl::hlsl::length(pos)), 1.0f);
 
-				const nbl::hlsl::math::quaternion<float> quat = nbl::hlsl::math::quaternion<float>::create(relativeRotationX, relativeRotationY, 0);
-				nbl::hlsl::float32_t3x4 mat = nbl::hlsl::math::linalg::promote_affine<3, 4, 3, 3>(quat.constructMatrix());
+				const nbl::hlsl::math::quaternion<float> quat = nbl::hlsl::math::quaternion<float>::create(relativeRotationX, relativeRotationY, 0.0f);
+				nbl::hlsl::float32_t3x4 mat = nbl::hlsl::math::linalg::promote_affine<3, 4, 3, 3>(quat.__constructMatrix());
+
 
 				localTarget = nbl::hlsl::float32_t4(nbl::hlsl::mul(mat, localTarget), 1.0f);
 
