@@ -38,6 +38,12 @@ set(REQUIRED_CAPS [=[
 	  "name": "maxComputeSharedMemorySize",
 	  "type": "uint32_t",
 	  "values": [16384, 32768, 65536]
+	},
+	{
+	  "kind": "limits",
+	  "name": "maxSubgroupSize",
+	  "type": "uint32_t",
+	  "values": [4, 8, 16, 32, 64, 128]
 	}
 ]=])
 

@@ -47,6 +47,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 
 			limits.maxComputeSharedMemorySize = *(upperBoundSharedMemSize - 1);
 
+			limits.maxComputeWorkGroupInvocations = hlsl::min<uint16_t>(limits.maxSubgroupSize*limits.maxComputeWorkgroupSubgroups,limits.maxComputeWorkGroupInvocations);
 			const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 			const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
 			constexpr uint32_t element_count = 100000;
@@ -105,7 +106,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				params.shader.shader = prefixSumShader.get();
 				params.shader.entryPoint = "main";
 				params.shader.entries = nullptr;
-				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(m_device->getPhysicalDevice()->getLimits().maxSubgroupSize));
 				params.cached.requireFullSubgroups = true;
 				if (!m_device->createComputePipelines(nullptr, { &params,1 }, &prefixSumPipeline))
 					return logFail("Failed to create compute pipeline!\n");
