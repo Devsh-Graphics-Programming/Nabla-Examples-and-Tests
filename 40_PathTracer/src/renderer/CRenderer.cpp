@@ -46,7 +46,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	const auto samplerDefaultRepeat = device->createSampler({});
 
 	// create the layouts
-	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(RenderMode::Count)];
+	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(CSession::RenderMode::Count)];
 	{
 		constexpr auto RTStages = hlsl::ShaderStage::ESS_ALL_RAY_TRACING | hlsl::ShaderStage::ESS_COMPUTE;
 		// descriptor
@@ -162,6 +162,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 					UBOBinding,
 					singleStorageImage(SensorDSBindings::ScrambleKey),
 					singleStorageImage(SensorDSBindings::SampleCount),
+					singleStorageImage(SensorDSBindings::Beauty),
 					singleStorageImage(SensorDSBindings::RWMCCascades),
 					singleStorageImage(SensorDSBindings::Albedo),
 					singleStorageImage(SensorDSBindings::Normal),
@@ -175,18 +176,19 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		}
 
 		// but many push constant ranges
-		SPushConstantRange pcRanges[uint8_t(RenderMode::Count)];
-		auto setPCRange = [&pcRanges]<typename T>(const RenderMode mode)->void
+		using render_mode_e = CSession::RenderMode;
+		SPushConstantRange pcRanges[uint8_t(render_mode_e::Count)];
+		auto setPCRange = [&pcRanges]<typename T>(const render_mode_e mode)->void
 		{
 			pcRanges[uint8_t(mode)] = {.stageFlags=RTStages,.offset=0,.size=sizeof(T)};
 		};
-		setPCRange.operator()<SPrevisPushConstants>(RenderMode::Previs);
-		setPCRange.operator()<SBeautyPushConstants>(RenderMode::Beauty);
-		setPCRange.operator()<SDebugPushConstants>(RenderMode::DebugIDs);
-		for (uint8_t t=0; t<uint8_t(RenderMode::Count); t++)
+		setPCRange.operator()<SPrevisPushConstants>(render_mode_e::Previs);
+		setPCRange.operator()<SBeautyPushConstants>(render_mode_e::Beauty);
+		setPCRange.operator()<SDebugPushConstants>(render_mode_e::DebugIDs);
+		for (uint8_t t=0; t<uint8_t(render_mode_e::Count); t++)
 		{
 			renderingLayouts[t] = device->createPipelineLayout({pcRanges+t,1},params.sceneDSLayout,params.sensorDSLayout);
-			string debugName = to_string(static_cast<RenderMode>(t))+"Rendering Pipeline Layout";
+			string debugName = to_string(static_cast<render_mode_e>(t))+"Rendering Pipeline Layout";
 			if (checkNullObject(renderingLayouts[t],debugName))
 				return nullptr;
 		}

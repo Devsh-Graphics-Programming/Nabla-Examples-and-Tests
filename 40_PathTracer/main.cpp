@@ -62,7 +62,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,j.dump(4).c_str());
 	}
 
-	// TODO: remove
+// TODO: remove
 	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720; // TODO: remove
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 	constexpr static inline uint8_t MaxUITextureCount = 1u; // TODO: remove
@@ -187,6 +187,7 @@ public:
 			cb->end();
 		}
 		session->deinit();
+		scene_daily_pt = nullptr;
 
 
 		// Load Custom Shader

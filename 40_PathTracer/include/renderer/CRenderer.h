@@ -6,6 +6,7 @@
 
 
 #include "renderer/CScene.h"
+#include "renderer/CSession.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
@@ -46,17 +47,6 @@ namespace nbl::this_example
 class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovable
 {
     public:
-		enum class RenderMode : uint8_t
-		{
-			Previs,
-			Beauty,
-			//Albedo,
-			//Normal,
-			//Motion,
-			DebugIDs,
-			Count
-		};
-
 		//
 		constexpr static video::SPhysicalDeviceFeatures RequiredDeviceFeatures()
 		{
@@ -135,7 +125,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> sensorDSLayout;
 
 			// TODO
-			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(RenderMode::Count)> renderingPipelines;
+			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(CSession::RenderMode::Count)> renderingPipelines;
 
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
@@ -176,20 +166,21 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 #endif
 
-			// rwmc resolve, autoexposure first pass
-			core::smart_refctd_ptr<video::IGPUComputePipeline> rwmcResolveAndLumaMeasure; // TODO: autoexposure, and first axis of FFT
+// Denoiser
+			// TODO: autoexposure
+			core::smart_refctd_ptr<video::IGPUComputePipeline> lumaMeasure;
 			// TODO: motion vector stuff
-			// compute and apply exposure, interleave into OptiX input formats, etc.
-			core::smart_refctd_ptr<video::IGPUComputePipeline> preOptiXDenoise; // TODO
+			// rwmc resolve, apply exposure, interleave into OptiX input formats
+			core::smart_refctd_ptr<video::IGPUComputePipeline> rwmcResolve;
 			// TODO: OIDN denoise
 			// deinterlave from OptiX output format, perform first axis of FFT
-			core::smart_refctd_ptr<video::IGPUComputePipeline> postOptiXDenoise; // TODO
+			core::smart_refctd_ptr<video::IGPUComputePipeline> postDenoise; // TODO
 			// second axis FFT, spectrum multiply and iFFT
 			core::smart_refctd_ptr<video::IGPUComputePipeline> secondAxisBloom; // TODO
 			// first axis iFFT, tonemap, encode into final EXR format
 			core::smart_refctd_ptr<video::IGPUComputePipeline> secondAxisFFTTonemap; // TODO
 
-			// Present
+// Presenter (invokes denoiser)
 			core::smart_refctd_ptr<video::IGPURenderpass> presentRenderpass; // TODO
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> regularPresent; // TODO
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> cubemapPresent; // TODO
@@ -201,33 +192,5 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		SCachedConstructionParams m_construction;
 };
 
-}
-
-//
-namespace nbl::system::impl
-{
-template<>
-struct to_string_helper<nbl::this_example::CRenderer::RenderMode>
-{
-	private:
-		using enum_t = nbl::this_example::CRenderer::RenderMode;
-
-	public:
-		static inline std::string __call(const enum_t value)
-		{
-			switch (value)
-			{
-				case enum_t::Beauty:
-					return "Beauty";
-				case enum_t::Previs:
-					return "Previs";
-				case enum_t::DebugIDs:
-					return "DebugIDs";
-				default:
-					break;
-			}
-			return "";
-		}
-};
 }
 #endif

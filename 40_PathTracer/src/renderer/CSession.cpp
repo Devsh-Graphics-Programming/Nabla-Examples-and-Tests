@@ -66,6 +66,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			addWrite(SensorDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(m_params.uniforms),.buffer=ubo});
 		}
 
+		const auto allowedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling();
 		auto createImage = [&](
 			const std::string_view debugName, const E_FORMAT format, const uint16_t2 resolution, const uint16_t layers, std::bitset<E_FORMAT::EF_COUNT> viewFormats={},
 			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
@@ -73,38 +74,43 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		{
 			SActiveResources::SImageWithViews retval = {};
 			{
-				IGPUImage::SCreationParams params = {};
-				params.type = IGPUImage::E_TYPE::ET_2D;
-				params.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-				params.format = format;
-				params.extent.width = resolution[0];
-				params.extent.height = resolution[1];
-				params.extent.depth = 1;
-				params.mipLevels = 1;
-				params.arrayLayers = layers;
-				using image_usage_e = IGPUImage::E_USAGE_FLAGS;
-				params.usage = image_usage_e::EUF_STORAGE_BIT|image_usage_e::EUF_TRANSFER_DST_BIT|extraUsages;
-				if (m_params.type==sensor_type_e::Env)
 				{
-					params.arrayLayers *= 6;
-					params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_CUBE_COMPATIBLE_BIT;
+					IGPUImage::SCreationParams params = {};
+					params.type = IGPUImage::E_TYPE::ET_2D;
+					params.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+					params.format = format;
+					params.extent.width = resolution[0];
+					params.extent.height = resolution[1];
+					params.extent.depth = 1;
+					params.mipLevels = 1;
+					params.arrayLayers = layers;
+					using image_usage_e = IGPUImage::E_USAGE_FLAGS;
+					params.usage = image_usage_e::EUF_TRANSFER_DST_BIT|extraUsages;
+					if (m_params.type==sensor_type_e::Env)
+					{
+						params.arrayLayers *= 6;
+						params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_CUBE_COMPATIBLE_BIT;
+					}
+					viewFormats.set(format);
+					if (viewFormats.count()>1)
+					{
+						params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
+						params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_EXTENDED_USAGE_BIT;
+					}
+					params.viewFormats = viewFormats;
+					retval.image = device->createImage(std::move(params));
+					if (!dedicatedAllocate(retval.image.get(),debugName))
+						return {};
 				}
-				viewFormats.set(format);
-				if (viewFormats.count()>1)
-				{
-					params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
-					params.flags |= IGPUImage::E_CREATE_FLAGS::ECF_EXTENDED_USAGE_BIT;
-				}
-				params.viewFormats = viewFormats;
-				auto image = device->createImage(std::move(params));
-				if (!dedicatedAllocate(image.get(),debugName))
-					return retval;
+				const auto& params = retval.image->getCreationParameters();
 				for (uint8_t f=0; f<viewFormats.size(); f++)
 				if (viewFormats.test(f))
 				{
 					const auto viewFormat = static_cast<E_FORMAT>(f);
+					const auto thisFormatUsages = static_cast<core::bitflag<IGPUImage::E_USAGE_FLAGS>>(allowedFormatUsages[viewFormat]);
 					auto view = device->createImageView({
-						.image = image,
+						.subUsages = retval.image->getCreationParameters().usage,
+						.image = retval.image,
 						.viewType = IGPUImageView::E_TYPE::ET_2D_ARRAY,
 						.format = viewFormat
 					});
@@ -117,7 +123,6 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 					view->setObjectDebugName(viewDebugName.c_str());
 					retval.views[viewFormat] = std::move(view);
 				}
-				retval.image = std::move(image);
 			}
 			return retval;
 		};
@@ -138,6 +143,8 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		};
 		immutables.sampleCount = createScreenSizedImage("Current Sample Count",E_FORMAT::EF_R16_UINT,1);
 		addImageWrite(SensorDSBindings::SampleCount,immutables.sampleCount.views[E_FORMAT::EF_R16_UINT]);
+		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
+		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
 		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1);
 		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
 		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32,1);
@@ -216,6 +223,7 @@ bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 		success = success && cb->clearColorImage(img.image.get(),IGPUImage::LAYOUT::GENERAL,&color,1,&subresRng);
 	};
 	clearImage(immutables.sampleCount);
+	clearImage(immutables.beauty);
 	clearImage(immutables.rwmcCascades);
 	clearImage(immutables.albedo);
 	clearImage(immutables.normal);

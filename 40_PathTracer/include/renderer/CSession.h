@@ -82,14 +82,16 @@ struct SensorDSBindings
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t SampleCount = 2;
 	// R64_UINT with packing RGB14E6 or RGB14E7 and using rest for spp in the cascade
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t RWMCCascades = 3;
+	// RGB5E9
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Beauty = 4;
 	// R10G10B10_UNORM
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t Albedo = 4;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Albedo = 5;
 	// R10G10B10_SNORM
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t Normal = 5;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Normal = 6;
 	// R10G10B10_SNORM
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t Motion = 6;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Motion = 7;
 	// R16_UNORM
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t Mask = 7;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Mask = 8;
 };
 }
 
@@ -101,6 +103,16 @@ class CScene;
 class CSession final : public core::IReferenceCounted, public core::InterfaceUnmovable
 {
 	public:
+		enum class RenderMode : uint8_t
+		{
+			Previs,
+			Beauty,
+			//Albedo,
+			//Normal,
+			//Motion,
+			DebugIDs,
+			Count
+		};
 		using sensor_t = CSceneLoader::SLoadResult::SSensor;
 		using sensor_type_e = sensor_t::SMutable::Raygen::Type;
 
@@ -148,14 +160,47 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 					return bool(scrambleKey) && sampleCount && rwmcCascades && albedo && normal && motion && mask && ds;
 				}
 
-				SImageWithViews scrambleKey = {}, sampleCount = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
+				// QUESTION: No idea how to marry RWMC with Temporal Denoise, do we denoise separately per cascade?
+				// ANSWER: RWMC relies on many spp, can use denoised/reprojected to confidence measures from other cascades.
+				// Shouldn't touch the previous frame, denoiser needs to know what was on screen last frame, only touch current.
+				// QUESTION: with temporal denoise do we turn the `sampleCount` into a `sequenceOffset` texutre?
+				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
 				// stores all the sensor data required
 				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
+				//
 			};
 			SImmutables immutables = {};
 			SSensorDynamics prevSensorState = {};
 		} m_active = {};
 };
 
+}
+
+//
+namespace nbl::system::impl
+{
+template<>
+struct to_string_helper<nbl::this_example::CSession::RenderMode>
+{
+	private:
+		using enum_t = nbl::this_example::CSession::RenderMode;
+
+	public:
+		static inline std::string __call(const enum_t value)
+		{
+			switch (value)
+			{
+				case enum_t::Beauty:
+					return "Beauty";
+				case enum_t::Previs:
+					return "Previs";
+				case enum_t::DebugIDs:
+					return "DebugIDs";
+				default:
+					break;
+			}
+			return "";
+		}
+};
 }
 #endif
