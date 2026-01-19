@@ -15,20 +15,21 @@ struct TestNDF : TestBxDF<BxDF>
         aniso_cache dummy;
         iso_cache dummy_iso;
 
-        float32_t3 ux = base_t::rc.u + float32_t3(eps,0,0);
-        float32_t3 uy = base_t::rc.u + float32_t3(0,eps,0);
+        float32_t3 u = hlsl::min(base_t::rc.u, hlsl::promote<float32_t3>(1.0-2.0*eps));
+        float32_t3 ux = u + float32_t3(eps,0,0);
+        float32_t3 uy = u + float32_t3(0,eps,0);
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux.xy, dummy);
                 sy = base_t::bxdf.generate(base_t::anisointer, uy.xy, dummy);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, isocache);
+                s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
                 sx = base_t::bxdf.generate(base_t::isointer, ux.xy, dummy_iso);
                 sy = base_t::bxdf.generate(base_t::isointer, uy.xy, dummy_iso);
             }
@@ -37,13 +38,13 @@ struct TestNDF : TestBxDF<BxDF>
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+                s = base_t::bxdf.generate(base_t::anisointer, u, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
                 sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u, isocache);
+                s = base_t::bxdf.generate(base_t::isointer, u, isocache);
                 sx = base_t::bxdf.generate(base_t::isointer, ux, dummy_iso);
                 sy = base_t::bxdf.generate(base_t::isointer, uy, dummy_iso);
             }

@@ -15,12 +15,13 @@ struct TestJacobian : TestBxDF<BxDF>
         aniso_cache cache, dummy;
         iso_cache isocache, dummy_iso;
 
-        float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.eps,0,0);
-        float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.eps,0);
+        float32_t3 u = hlsl::min(base_t::rc.u, hlsl::promote<float32_t3>(1.0-2.0*base_t::rc.eps));
+        float32_t3 ux = u + float32_t3(base_t::rc.eps,0,0);
+        float32_t3 uy = u + float32_t3(0,base_t::rc.eps,0);
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy);
+            s = base_t::bxdf.generate(base_t::isointer, u.xy);
             sx = base_t::bxdf.generate(base_t::isointer, ux.xy);
             sy = base_t::bxdf.generate(base_t::isointer, uy.xy);
         }
@@ -28,20 +29,20 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux.xy, dummy);
                 sy = base_t::bxdf.generate(base_t::anisointer, uy.xy, dummy);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, isocache);
+                s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
                 sx = base_t::bxdf.generate(base_t::isointer, ux.xy, dummy_iso);
                 sy = base_t::bxdf.generate(base_t::isointer, uy.xy, dummy_iso);
             }
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+            s = base_t::bxdf.generate(base_t::anisointer, u);
             sx = base_t::bxdf.generate(base_t::anisointer, ux);
             sy = base_t::bxdf.generate(base_t::anisointer, uy);
         }
@@ -49,13 +50,13 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+                s = base_t::bxdf.generate(base_t::anisointer, u, cache);
                 sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
                 sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u, isocache);
+                s = base_t::bxdf.generate(base_t::isointer, u, isocache);
                 sx = base_t::bxdf.generate(base_t::isointer, ux, dummy_iso);
                 sy = base_t::bxdf.generate(base_t::isointer, uy, dummy_iso);
             }
@@ -140,12 +141,12 @@ struct TestJacobian : TestBxDF<BxDF>
         if (hlsl::isinf(sampledLi.pdf))
         {
             // if pdf is infinite then density is infinite and no differential area inbetween samples
-            if (!checkZero<float>(det, numeric_limits<float>::min))
+            if (!checkZero<float>(det, numeric_limits<float>::min * base_t::rc.eps * base_t::rc.eps))
                 return BTR_ERROR_JACOBIAN_TEST_FAIL;
             // valid behaviour, but obviously can't check eval = quotient*pdf
             return BTR_NONE;
         }
-        else if (checkZero<float>(det, numeric_limits<float>::min))
+        else if (checkZero<float>(det, numeric_limits<float>::min * base_t::rc.eps * base_t::rc.eps))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
