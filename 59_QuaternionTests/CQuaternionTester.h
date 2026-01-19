@@ -83,7 +83,7 @@ private:
             rotmat[0] = testInput.rotationMat[0];
             rotmat[1] = testInput.rotationMat[1];
             rotmat[2] = testInput.rotationMat[2];
-            const auto glmquat = glm::quat_cast(rotmat);
+            const auto glmquat = glm::quat_cast(glm::transpose(rotmat));
             expected.quatFromMat.data.x = glmquat.data.data[0];
             expected.quatFromMat.data.y = glmquat.data.data[1];
             expected.quatFromMat.data.z = glmquat.data.data[2];

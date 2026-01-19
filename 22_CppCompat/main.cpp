@@ -455,12 +455,15 @@ void cpu_tests()
         float32_t3x4 b;
         float32_t3 v;
         float32_t4 u;
+        float32_t x;
         mul(a, b);
         mul(b, a);
         mul(a, v);
         mul(v, b);
         mul(u, a);
         mul(b, u);
+        mul(a, x);
+        mul(b, x);
 
         float32_t4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         a - a;
