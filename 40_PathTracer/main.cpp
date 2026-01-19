@@ -185,6 +185,8 @@ public:
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			session->init(cb);
 			cb->end();
+
+			// TODO: stuff
 		}
 		session->deinit();
 		scene_daily_pt = nullptr;
