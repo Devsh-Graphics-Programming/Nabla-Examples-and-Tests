@@ -8,9 +8,9 @@
         "runs": 10,
         "verbose": true
     },
-    "TestBucket": {
+    "TestModifiedWhiteFurnace": {
         "runs": 10,
-        "samples": 500
+        "samples": 100000
     },
     "TestChi2": {
         "runs": 10,

@@ -192,6 +192,9 @@ private:
             case BTR_ERROR_GENERATED_H_INVALID:
                 logger->log("seed %u: %s failed invalid H configuration generated    %s", ILogger::ELL_WARNING, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
+            case BTR_ERROR_QUOTIENT_SUM_TOO_LARGE:
+                logger->log("seed %u: %s accumulated quotient > 1.0    %s", ILogger::ELL_WARNING, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                break;
             default:
                 logger->log("seed %u: %s unknown error", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
             }
@@ -273,30 +276,30 @@ private:
         FOR_EACH_END
 
 
-        // test buckets of inf
-        //runs = testconfigs["TestBucket"]["runs"];
-        //auto rBucket = std::ranges::views::iota(0u, runs);
-        //FOR_EACH_BEGIN(rBucket)
-        //    STestInitParams initparams{ .logInfo = logInfo };
-        //    initparams.halfSeed = i;
-        //    initparams.samples = testconfigs["TestBucket"]["samples"];
+        // test modified white furnace, where accumulated quotient <= 1.f for non-energy conserving bxdfs
+        runs = testconfigs["TestModifiedWhiteFurnace"]["runs"];
+        auto rBucket = std::ranges::views::iota(0u, runs);
+        FOR_EACH_BEGIN(rBucket)
+            STestInitParams initparams{ .logInfo = logInfo };
+            initparams.halfSeed = i;
+            initparams.samples = testconfigs["TestModifiedWhiteFurnace"]["samples"];
 
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
 
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
-        //    RUN_TEST_OF_TYPE((TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
-        //FOR_EACH_END
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+        FOR_EACH_END
 
 
         // chi2 test for sampling and pdf

@@ -14,6 +14,127 @@
 #include "nbl/builtin/hlsl/visualization/turbo.hlsl"
 #include "nbl/builtin/hlsl/math/quadrature/adaptive_simpson.hlsl"
 
+template<class BxDF, bool aniso = false>
+struct TestModifiedWhiteFurnace : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestModifiedWhiteFurnace<BxDF, aniso>;
+    using traits_t = bxdf::traits<BxDF>;
+
+    TestResult compute()
+    {
+        accumulatedQuotient = float32_t3(0.f, 0.f, 0.f);
+
+        aniso_cache cache;
+        iso_cache isocache;
+
+        sample_t s;
+        quotient_pdf_t sampledLi;
+
+        for (uint32_t i = 0; i < numSamples; i++)
+        {
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
+
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+            }
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+            {
+                NBL_IF_CONSTEXPR(aniso)
+                {
+                    s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
+                }
+                else
+                {
+                    s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
+                }
+            }
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u);
+            }
+            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+            {
+                NBL_IF_CONSTEXPR(aniso)
+                {
+                    s = base_t::bxdf.generate(base_t::anisointer, u, cache);
+                }
+                else
+                {
+                    s = base_t::bxdf.generate(base_t::isointer, u, isocache);
+                }
+            }
+
+            if (!s.isValid())
+                continue;
+
+            NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
+            {
+                sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
+            }
+            NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+            {
+                NBL_IF_CONSTEXPR(aniso)
+                {
+                    sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                }
+                else
+                {
+                    sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
+                }
+            }
+
+            if (hlsl::isinf(sampledLi.pdf))
+                accumulatedQuotient += sampledLi.quotient;
+        }
+
+        return BTR_NONE;
+    }
+
+    TestResult test()
+    {
+        if (traits_t::type == bxdf::BT_BRDF)
+        {
+            if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
+                return BTR_INVALID_TEST_CONFIG;
+        }
+        else if (traits_t::type == bxdf::BT_BSDF)
+        {
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
+                return BTR_INVALID_TEST_CONFIG;
+        }
+
+        TestResult res = compute();
+        if (res != BTR_NONE)
+            return res;
+
+        if (nbl::hlsl::any<hlsl::vector<bool, 3> >(accumulatedQuotient > hlsl::promote<float32_t3>(1.f)))
+        {
+            base_t::errMsg += std::format("({}, {}, {})", accumulatedQuotient.x, accumulatedQuotient.y, accumulatedQuotient.z);
+            return BTR_ERROR_QUOTIENT_SUM_TOO_LARGE;
+        }
+
+        return BTR_NONE;
+    }
+
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    {
+        this_t t;
+        t.init(initparams.halfSeed);
+        t.rc.halfSeed = initparams.halfSeed;
+        t.numSamples = initparams.samples;
+        t.initBxDF(t.rc);
+
+        TestResult e = t.test();
+        if (e != BTR_NONE)
+            cb.__call(e, t, initparams.logInfo);
+    }
+
+    uint32_t numSamples;
+    float32_t3 accumulatedQuotient;
+};
+
 template<class BxDF, bool aniso>
 struct CalculatePdfSinTheta
 {
