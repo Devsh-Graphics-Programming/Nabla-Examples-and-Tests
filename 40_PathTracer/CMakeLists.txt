@@ -24,24 +24,6 @@ list(APPEND NBL_
 )
 nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "${}" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
-if(NBL_EMBED_BUILTIN_RESOURCES)
-	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-	set(RESOURCE_DIR "app_resources")
-
-	get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-	get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
-	get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
-
-	file(GLOB_RECURSE BUILTIN_RESOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}/*")
-	foreach(RES_FILE ${BUILTIN_RESOURCE_FILES})
-		LIST_BUILTIN_RESOURCE(RESOURCES_TO_EMBED "${RES_FILE}")
-	endforeach()
-
-	ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
-
-	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
-endif()
-
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 # TODO: why not use GLOB_RECURSE from above ?
 set(DEPENDS
@@ -65,6 +47,14 @@ set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 set(SM 6_8)
 set(JSON [=[
 [
+    {
+        "INPUT": "app_resources/pathtrace/debugIDs.hlsl",
+        "KEY": "pathtrace_debugIDs",
+    },
+	{
+        "INPUT": "app_resources/present/default.hlsl",
+        "KEY": "present_default",
+    },
     {
         "INPUT": "app_resources/raytrace.rgen.hlsl",
         "KEY": "raytrace_rgen",
@@ -119,6 +109,8 @@ string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
     -I "${CMAKE_CURRENT_SOURCE_DIR}"
+#    -I "${CMAKE_CURRENT_SOURCE_DIR}/../include" # TODO: Arek for some reason, the `-I` are relative to each `.hlsl` file getting compiled, and not this CMAke file
+    -I "D:\\work\\Nabla-master\\examples_tests\\40_PathTracer\\include"
     -T lib_${SM}
 )
 

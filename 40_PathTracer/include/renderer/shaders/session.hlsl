@@ -5,7 +5,9 @@
 #include "renderer/shaders/rwmc.hlsl"
 
 
-namespace nbl::this_example
+namespace nbl
+{
+namespace this_example
 {
 #define MAX_SPP_LOG2 15
 NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSPPLog2 = MAX_SPP_LOG2;
@@ -34,18 +36,6 @@ struct SSensorUniforms
 };
 #undef MAX_PATH_DEPTH_LOG2
 
-// no uint16_t to be used because its going to be a push constant
-struct SSensorDynamics
-{
-	// assuming input will be ndc = [-1,1]^2 x {-1}
-	hlsl::float32_t3x4 ndcToRay;
-	hlsl::float32_t tMax;
-	// we can adaptively sample per-pixel, but 
-	uint32_t minSPP : MAX_SPP_LOG2;
-	uint32_t maxSPP : MAX_SPP_LOG2;
-	uint32_t unused : BOOST_PP_SUB(32,BOOST_PP_MUL(MAX_SPP_LOG2,2));
-};
-#undef MAX_SPP_LOG2
 
 
 struct SensorDSBindings
@@ -61,13 +51,35 @@ struct SensorDSBindings
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Beauty = 4;
 	// R10G10B10_UNORM
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Albedo = 5;
-	// R10G10B10_SNORM
+	// modified R10G10B10_UNORM
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Normal = 6;
-	// R10G10B10_SNORM
+	// modified R10G10B10_UNORM
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Motion = 7;
 	// R16_UNORM
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Mask = 8;
 };
-}
 
+
+#ifdef __HLSL_VERSION
+[[vk::binding(SensorDSBindings::UBO,SessionDSIndex)]] ConstantBuffer<SSensorUniforms> gSensor;
+// could be uint32_t2
+[[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gScrambleKey;
+// could be uint32_t or even uint16_t
+[[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gSampleCount;
+// could be uint32_t2
+[[vk::binding(SensorDSBindings::RWMCCascades,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gRWMCCascades;
+// could be uint32_t
+[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gBeauty;
+[[vk::binding(SensorDSBindings::Albedo,SessionDSIndex)]] RWTexture2DArray<float32_t4> gAlbedo;
+// thse two are snorm but stored as unorm, care needs to be taken to map:
+// [-1,1] <-> [0,1] but with 0 being exactly representable, so really [-1,1] <-> [1/1023,1]
+// Requires x*1022.f/2046.f+1024.f/2046.f shift/adjust for accumulation and storage
+// Then to decode back into [-1,1] need max(y*2046.f/1022.f-1024.f/1022.f,-1) = x
+[[vk::binding(SensorDSBindings::Normal,SessionDSIndex)]] RWTexture2DArray<float32_t4> gNormal;
+[[vk::binding(SensorDSBindings::Motion,SessionDSIndex)]] RWTexture2DArray<float32_t4> gMotion;
+// could be float32_t
+[[vk::binding(SensorDSBindings::Mask,SessionDSIndex)]] RWTexture2DArray<float32_t4> gMask;
+#endif
+}
+}
 #endif  // _NBL_THIS_EXAMPLE_SESSION_HLSL_INCLUDED_

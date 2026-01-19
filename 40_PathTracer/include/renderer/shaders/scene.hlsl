@@ -4,8 +4,9 @@
 
 #include "renderer/shaders/common.hlsl"
 
-
-namespace nbl::this_example
+namespace nbl
+{
+namespace this_example
 {
 struct SSceneUniforms
 {
@@ -46,6 +47,22 @@ struct SceneDSBindingCounts
 	// Spec mandated minimum
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t SampledImages = 500000;
 };
-}
 
+#ifdef __HLSL_VERSION
+[[vk::binding(SceneDSBindings::UBO,SceneDSIndex)]] ConstantBuffer<SSceneUniforms> gScene;
+// could be float32_t3
+[[vk::binding(SceneDSBindings::Envmap,SceneDSIndex)]] [[vk::combinedImageSampler]] Texture2D<float32_t4> gEnvmap;
+[[vk::binding(SceneDSBindings::Envmap,SceneDSIndex)]] [[vk::combinedImageSampler]] SamplerState gEnvmapSampler;
+[[vk::binding(SceneDSBindings::TLASes,SceneDSIndex)]] RaytracingAccelerationStructure gTLASes[SceneDSBindingCounts::TLASes];
+[[vk::binding(SceneDSBindings::Samplers,SceneDSIndex)]] SamplerState gSamplers[SceneDSBindingCounts::Samplers];
+[[vk::binding(SceneDSBindings::SampledImages,SceneDSIndex)]] Texture2DArray<float32_t4> gSampledImages[SceneDSBindingCounts::SampledImages];
+// could be float32_t
+[[vk::binding(SceneDSBindings::EnvmapPDF,SceneDSIndex)]] [[vk::combinedImageSampler]] Texture2D<float32_t4> gEnvmapPDF;
+[[vk::binding(SceneDSBindings::EnvmapPDF,SceneDSIndex)]] [[vk::combinedImageSampler]] SamplerState gEnvmapPDFSampler;
+// could be float32_t2
+[[vk::binding(SceneDSBindings::EnvmapWarpMap,SceneDSIndex)]] [[vk::combinedImageSampler]] Texture2D<float32_t4> gEnvmapWarpMap;
+[[vk::binding(SceneDSBindings::EnvmapWarpMap,SceneDSIndex)]] [[vk::combinedImageSampler]] SamplerState gEnvmapWarpMapSampler;
+#endif
+}
+}
 #endif  // _NBL_THIS_EXAMPLE_SCENE_HLSL_INCLUDED_

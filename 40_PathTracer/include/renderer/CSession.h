@@ -8,6 +8,7 @@
 #include "io/CSceneLoader.h"
 
 #include "renderer/shaders/session.hlsl"
+#include "renderer/shaders/pathtrace/push_constants.hlsl"
 
 
 namespace nbl::this_example

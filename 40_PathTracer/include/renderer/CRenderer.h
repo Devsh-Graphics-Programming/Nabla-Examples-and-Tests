@@ -14,31 +14,7 @@
 #include <future>
 #include <filesystem>
 
-
-// TODO: move to HLSL file
-namespace nbl::this_example
-{
-
-struct SPrevisPushConstants : SSensorDynamics
-{
-};
-
-// We do it so weirdly because https://github.com/microsoft/DirectXShaderCompiler/issues/7131
-#define MAX_SPP_PER_DISPATCH_LOG2 5
-struct SBeautyPushConstants : SSensorDynamics
-{
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSppPerDispatchLog2 = MAX_SPP_PER_DISPATCH_LOG2;
-
-	uint32_t maxSppPerDispatch : MAX_SPP_PER_DISPATCH_LOG2;
-	uint32_t unused : 27;
-};
-#undef MAX_SPP_PER_DISPATCH_LOG2
-
-struct SDebugPushConstants : SSensorDynamics
-{
-};
-
-}
+#include "renderer/shaders/pathtrace/push_constants.hlsl"
 
 
 namespace nbl::this_example
@@ -62,6 +38,14 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			retval.accelerationStructureHostCommands = true;
 			return retval;
 		}
+#if 0 // see TODO in main.cpp
+		constexpr static video::SPhysicalDeviceLimits RequiredDeviceLimits()
+		{
+			video::SPhysicalDeviceLimits retval = {};
+			retval.shaderStorageImageReadWithoutFormat = true;
+			return retval;
+		}
+#endif
 
 		struct SCachedCreationParams
 		{

@@ -102,6 +102,14 @@ public:
 		return retval.unionWith(CRenderer::PreferredDeviceFeatures());
 	}
 
+	inline SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		auto retval = device_base_t::getRequiredDeviceLimits();
+		// TODO: need union/superset
+		retval.shaderStorageImageReadWithoutFormat = true;
+		return retval;
+	}
+
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
 		if (!m_surface)
