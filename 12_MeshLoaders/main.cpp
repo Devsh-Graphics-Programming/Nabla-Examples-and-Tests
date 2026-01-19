@@ -19,12 +19,18 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 	using device_base_t = MonoWindowApplication;
 	using asset_base_t = BuiltinResourcesApplication;
 
-public:
-	inline MeshLoadersApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-		device_base_t({ 1280,720 }, EF_D32_SFLOAT, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
-	{
-	}
+  enum DrawBoundingBoxMode
+  {
+    DBBM_NONE,
+    DBBM_AABB,
+    DBBM_OBB,
+    DBBM_COUNT
+  };
+
+	public:
+		inline MeshLoadersApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
+			device_base_t({1280,720}, EF_D32_SFLOAT, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -171,7 +177,9 @@ public:
 								if (event.keyCode == E_KEY_CODE::EKC_R && event.action == SKeyboardEvent::ECA_RELEASED)
 									reload = true;
 								if (event.keyCode == E_KEY_CODE::EKC_B && event.action == SKeyboardEvent::ECA_RELEASED)
-									m_drawBBs = !m_drawBBs;
+								{
+									m_drawBBMode = DrawBoundingBoxMode((m_drawBBMode + 1) % DBBM_COUNT);
+								}
 							}
 							camera.keyboardProcess(events);
 						},
@@ -193,13 +201,13 @@ public:
  					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 				}
 #ifdef NBL_BUILD_DEBUG_DRAW
-				if (m_drawBBs)
+				if (m_drawBBMode != DBBM_NONE)
 				{
 					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
 					ext::debug_draw::DrawAABB::DrawParameters drawParams;
 					drawParams.commandBuffer = cb;
 					drawParams.cameraMat = viewProjMatrix;
-					m_drawAABB->render(drawParams, drawFinished, m_aabbInstances);
+					m_drawAABB->render(drawParams, drawFinished, m_drawBBMode == DBBM_OBB ? m_obbInstances : m_aabbInstances);
 				}
 #endif
 				cb->endRenderPass();
@@ -460,6 +468,7 @@ private:
 				core::vector<hlsl::float32_t3x4> worldTforms;
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
 				m_aabbInstances.resize(converted.size());
+				m_obbInstances.resize(converted.size());
 				for (uint32_t i = 0; i < converted.size(); i++)
 				{
 					const auto& geom = converted[i];
@@ -472,18 +481,36 @@ private:
 					bound = hlsl::shapes::util::union_(transformed,bound);
 
 #ifdef NBL_BUILD_DEBUG_DRAW
-					auto& inst = m_aabbInstances[i];
+
+					auto& aabbInst = m_aabbInstances[i];
 					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
-					hlsl::float32_t3x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
+
+					hlsl::float32_t3x4 aabbTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
 					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-					inst.color = { 1,1,1,1 };
-					inst.transform[0] = tmpWorld[0];
-					inst.transform[1] = tmpWorld[1];
-					inst.transform[2] = tmpWorld[2];
-					inst.transform[3] = float32_t4(0, 0, 0, 1);
-					inst.transform = math::linalg::promoted_mul(inst.transform, instanceTransform);
+					const auto world4x4 = float32_t4x4{
+						tmpWorld[0],
+						tmpWorld[1],
+						tmpWorld[2],
+						float32_t4(0, 0, 0, 1)
+					};
+
+					aabbInst.color = { 1,1,1,1 };
+					aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
+
+					auto& obbInst = m_obbInstances[i];
+					const auto& cpuGeom = geometries[i].get();
+					const auto obb = CPolygonGeometryManipulator::calculateOBB(
+						cpuGeom->getPositionView().getElementCount(), 
+						[geo = cpuGeom, &world4x4](size_t vertex_i) {
+							hlsl::float32_t3 pt;
+							geo->getPositionView().decodeElement(vertex_i, pt);
+							return pt;
+						});
+					obbInst.color = { 0, 0, 1, 1 };
+					obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
 #endif
 				}
+
 				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
 					return false;
@@ -543,10 +570,12 @@ private:
 	// mutables
 	std::string m_modelPath;
 
-		bool m_drawBBs = true;
+		DrawBoundingBoxMode m_drawBBMode;
 #ifdef NBL_BUILD_DEBUG_DRAW
 		smart_refctd_ptr<ext::debug_draw::DrawAABB> m_drawAABB;
 		std::vector<ext::debug_draw::InstanceData> m_aabbInstances;
+		std::vector<ext::debug_draw::InstanceData> m_obbInstances;
+
 #endif
 
 	bool m_saveGeom = false;
