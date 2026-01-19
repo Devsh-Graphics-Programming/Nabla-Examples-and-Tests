@@ -5,7 +5,7 @@ using namespace nbl::this_example;
 [[vk::push_constant]] SDebugPushConstants pc;
 
 [shader("raygeneration")]
-void pathtrace_debugIDs()
+void pathtrace_debug()
 {
     const uint32_t3 launchID = spirv::LaunchIdKHR;
     const uint32_t3 launchSize = spirv::LaunchSizeKHR;

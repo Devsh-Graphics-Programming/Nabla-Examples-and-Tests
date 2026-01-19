@@ -48,8 +48,16 @@ set(SM 6_8)
 set(JSON [=[
 [
     {
-        "INPUT": "app_resources/pathtrace/debugIDs.hlsl",
-        "KEY": "pathtrace_debugIDs",
+        "INPUT": "app_resources/pathtrace/previs.hlsl",
+        "KEY": "pathtrace_previs",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/debug.hlsl",
+        "KEY": "pathtrace_debug",
     },
 	{
         "INPUT": "app_resources/present/default.hlsl",

@@ -22,10 +22,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		{
 			Previs,
 			Beauty,
-			//Albedo,
-			//Normal,
-			//Motion,
-			DebugIDs,
+			Debug,
 			Count
 		};
 		using sensor_t = CSceneLoader::SLoadResult::SSensor;
@@ -109,8 +106,8 @@ struct to_string_helper<nbl::this_example::CSession::RenderMode>
 					return "Beauty";
 				case enum_t::Previs:
 					return "Previs";
-				case enum_t::DebugIDs:
-					return "DebugIDs";
+				case enum_t::Debug:
+					return "Debug";
 				default:
 					break;
 			}

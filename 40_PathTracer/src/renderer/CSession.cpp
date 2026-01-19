@@ -59,10 +59,13 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(m_params.uniforms);
-			params.usage = IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::E_USAGE_FLAGS::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT |usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
 			auto ubo = device->createBuffer(std::move(params));
 			if (!dedicatedAllocate(ubo.get(),"Sensor UBO"))
 				return false;
+			// pipeline barrier in `reset` will take care of sync for this
+			cb->updateBuffer({.buffer=ubo},&m_params.uniforms);
 			addWrite(SensorDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(m_params.uniforms),.buffer=ubo});
 		}
 

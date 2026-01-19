@@ -40,6 +40,7 @@ struct SBeautyPushConstants : SSensorDynamics
 
 struct SDebugPushConstants : SSensorDynamics
 {
+	// some enum/choice of what to debug
 };
 
 }

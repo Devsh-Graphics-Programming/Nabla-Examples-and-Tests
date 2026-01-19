@@ -184,7 +184,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		};
 		setPCRange.operator()<SPrevisPushConstants>(render_mode_e::Previs);
 		setPCRange.operator()<SBeautyPushConstants>(render_mode_e::Beauty);
-		setPCRange.operator()<SDebugPushConstants>(render_mode_e::DebugIDs);
+		setPCRange.operator()<SDebugPushConstants>(render_mode_e::Debug);
 		for (uint8_t t=0; t<uint8_t(render_mode_e::Count); t++)
 		{
 			renderingLayouts[t] = device->createPipelineLayout({pcRanges+t,1},params.sceneDSLayout,params.sensorDSLayout);
