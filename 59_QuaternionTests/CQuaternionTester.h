@@ -83,7 +83,7 @@ private:
             rotmat[0] = testInput.rotationMat[0];
             rotmat[1] = testInput.rotationMat[1];
             rotmat[2] = testInput.rotationMat[2];
-            const auto glmquat = glm::quat_cast(rotmat);
+            const auto glmquat = glm::quat_cast(glm::transpose(rotmat));
             expected.quatFromMat.data.x = glmquat.data.data[0];
             expected.quatFromMat.data.y = glmquat.data.data[1];
             expected.quatFromMat.data.z = glmquat.data.data[2];
@@ -92,13 +92,13 @@ private:
             expected.quatFromScaledMat.data = hlsl::normalize(expected.quatFromMat.data) * testInput.scaleFactor;
         }
         {
-            const auto rotmat = glm::mat3_cast(glmquat0);
+            const auto rotmat = glm::transpose(glm::mat3_cast(glmquat0));
             expected.rotationMat[0] = rotmat[0];
             expected.rotationMat[1] = rotmat[1];
             expected.rotationMat[2] = rotmat[2];
         }
         {
-            const auto rotmat = glm::mat3_cast(glmquat2);
+            const auto rotmat = transpose(glm::mat3_cast(glmquat2));
             expected.scaleRotationMat[0] = rotmat[0];
             expected.scaleRotationMat[1] = rotmat[1];
             expected.scaleRotationMat[2] = rotmat[2];
