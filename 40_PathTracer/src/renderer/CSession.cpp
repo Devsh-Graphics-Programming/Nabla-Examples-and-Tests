@@ -109,7 +109,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 					const auto viewFormat = static_cast<E_FORMAT>(f);
 					const auto thisFormatUsages = static_cast<core::bitflag<IGPUImage::E_USAGE_FLAGS>>(allowedFormatUsages[viewFormat]);
 					auto view = device->createImageView({
-						.subUsages = retval.image->getCreationParameters().usage,
+						.subUsages = retval.image->getCreationParameters().usage & thisFormatUsages,
 						.image = retval.image,
 						.viewType = IGPUImageView::E_TYPE::ET_2D_ARRAY,
 						.format = viewFormat
