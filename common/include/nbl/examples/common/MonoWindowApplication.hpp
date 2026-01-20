@@ -41,7 +41,7 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 					params.height = m_initialResolution[1];
 					params.x = 32;
 					params.y = 32;
-					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
+					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE | IWindow::ECF_CAN_MINIMIZE;
 					params.windowCaption = "MonoWindowApplication";
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));

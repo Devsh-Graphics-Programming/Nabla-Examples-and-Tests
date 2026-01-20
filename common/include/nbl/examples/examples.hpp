@@ -20,4 +20,15 @@
 // cannot be in PCH because depens on definition of `this_example` for Example's builtins
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
+#define NBL_EXPOSE_NAMESPACES \
+using namespace nbl; \
+using namespace core; \
+using namespace hlsl; \
+using namespace system; \
+using namespace asset; \
+using namespace ui; \
+using namespace video; \
+using namespace scene; \
+using namespace nbl::examples;
+
 #endif // _NBL_EXAMPLES_HPP_
