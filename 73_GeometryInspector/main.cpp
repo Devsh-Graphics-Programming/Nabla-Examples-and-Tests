@@ -4,6 +4,7 @@
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -26,35 +27,6 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 		};
 
 	public:
-		static float32_t4x4 intofloat32_t4x4(const matrix4SIMD& mat)
-		{
-			return float32_t4x4{
-				mat.rows[0].x, mat.rows[0].y, mat.rows[0].z, mat.rows[0].w,
-				mat.rows[1].x, mat.rows[1].y, mat.rows[1].z, mat.rows[1].w,
-				mat.rows[2].x, mat.rows[2].y, mat.rows[2].z, mat.rows[2].w,
-				mat.rows[3].x, mat.rows[3].y, mat.rows[3].z, mat.rows[3].w,
-			};
-		}
-
-		static float32_t4x4 intofloat32_t4x4(const matrix3x4SIMD& mat)
-		{
-			return float32_t4x4{
-				mat.rows[0].x, mat.rows[0].y, mat.rows[0].z, mat.rows[0].w,
-				mat.rows[1].x, mat.rows[1].y, mat.rows[1].z, mat.rows[1].w,
-				mat.rows[2].x, mat.rows[2].y, mat.rows[2].z, mat.rows[2].w,
-				0.0f, 0.0f, 0.0f, 1.0f,
-			};
-		}
-
-		static float32_t4x4 intofloat32_t4x4(const float32_t3x4& mat)
-		{
-			return float32_t4x4{
-				mat[0],
-				mat[1],
-				mat[2],
-				float32_t4(0.0f, 0.0f, 0.0f, 1.0f),
-			};
-		}
 		inline GeometryInspectorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
 			device_base_t({1280,720}, EF_D32_SFLOAT, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
@@ -159,9 +131,9 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
 				m_camera.setProjectionMatrix([&]()
 					{
-						static matrix4SIMD projection;
+						static hlsl::float32_t4x4 projection;
 
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 							core::radians(m_cameraSetting.fov),
 							io.DisplaySize.x / io.DisplaySize.y,
 							m_cameraSetting.zNear,
@@ -225,10 +197,10 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
 				auto& selectedInstance = m_renderer->getInstance(m_selectedMesh);
 
-				imguizmoM16InOut.view = hlsl::transpose(intofloat32_t4x4(m_camera.getViewMatrix()));
-				imguizmoM16InOut.projection = hlsl::transpose(intofloat32_t4x4(m_camera.getProjectionMatrix()));
+				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(m_camera.getViewMatrix()));
+				imguizmoM16InOut.projection = hlsl::transpose(m_camera.getProjectionMatrix());
 				imguizmoM16InOut.projection[1][1] *= -1.f; // Flip y coordinates. https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
-				imguizmoM16InOut.model = hlsl::transpose(intofloat32_t4x4(selectedInstance.world));
+				imguizmoM16InOut.model = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(selectedInstance.world));
 				{
 					m_transformParams.enableViewManipulate = true;
 					EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], m_transformParams);
@@ -385,16 +357,10 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				}
 
 				// draw scene
-				float32_t3x4 viewMatrix;
-				float32_t4x4 viewProjMatrix;
-				{
-					// TODO: get rid of legacy matrices
-					{
-						memcpy(&viewMatrix,m_camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,m_camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
- 					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
-				}
+				float32_t3x4 viewMatrix = m_camera.getViewMatrix();
+				float32_t4x4 viewProjMatrix = m_camera.getConcatenatedMatrix();
+
+ 				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 
         const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
 				const auto& renderInstance = m_renderer->getInstance(m_selectedMesh);
@@ -700,7 +666,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				{
 					const auto measure = hlsl::length(diagonal);
 					const auto aspectRatio = float(m_window->getWidth())/float(m_window->getHeight());
-					m_camera.setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(1.2f,aspectRatio,distance*measure*0.1,measure*4.0));
+					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix(1.2f,aspectRatio,distance*measure*0.1f,measure*4.0f));
 					m_camera.setMoveSpeed(measure*0.04);
 				}
 				const auto pos = bound.maxVx+diagonal*distance;
@@ -748,7 +714,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
       float camXAngle = 32.f / 180.f * 3.14159f;
 
     } m_cameraSetting;
-		Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera m_camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), hlsl::float32_t4x4());
 		// mutables
 		std::string m_modelPath;
 

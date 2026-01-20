@@ -5,6 +5,7 @@
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -190,16 +191,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						reloadModel();
 				}
 				// draw scene
-				float32_t3x4 viewMatrix;
-				float32_t4x4 viewProjMatrix;
-				{
-					// TODO: get rid of legacy matrices
-					{
-						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
- 					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
-				}
+				float32_t3x4 viewMatrix = camera.getViewMatrix();
+				float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
+				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 #ifdef NBL_BUILD_DEBUG_DRAW
 				if (m_drawBBMode != DBBM_NONE)
 				{
@@ -530,7 +524,7 @@ private:
 			{
 				const auto measure = hlsl::length(diagonal);
 				const auto aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
-				camera.setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(1.2f, aspectRatio, distance * measure * 0.1, measure * 4.0));
+				camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, distance * measure * 0.1, measure * 4.0));
 				camera.setMoveSpeed(measure * 0.04);
 			}
 			const auto pos = bound.maxVx + diagonal * distance;
@@ -566,7 +560,7 @@ private:
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	//
-	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 	// mutables
 	std::string m_modelPath;
 
