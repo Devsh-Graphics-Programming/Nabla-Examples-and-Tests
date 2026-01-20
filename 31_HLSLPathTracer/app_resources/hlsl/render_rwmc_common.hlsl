@@ -4,10 +4,6 @@
 #include "nbl/builtin/hlsl/rwmc/SplattingParameters.hlsl"
 #include "render_common.hlsl"
 
-#ifndef __HLSL_VERSION
-#include "matrix4SIMD.h"
-#endif
-
 struct RenderRWMCPushConstants
 {
 	RenderPushConstants renderPushConstants;

@@ -5,7 +5,7 @@
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-#include "nbl/builtin/hlsl/surface_transform.h"
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
@@ -35,8 +35,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
+			//ELG_TRIANGLE,
+			//ELG_RECTANGLE,
 			ELG_COUNT
 		};
 
@@ -56,22 +56,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
 		    "app_resources/glsl/litBySphere.comp",
-		    "app_resources/glsl/litByTriangle.comp",
-		    "app_resources/glsl/litByRectangle.comp"
+		    //"app_resources/glsl/litByTriangle.comp",
+		    //"app_resources/glsl/litByRectangle.comp"
 		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
+		    //"TRIANGLE_LIGHT",
+		    //"RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
+			//"ELG_TRIANGLE",
+			//"ELG_RECTANGLE"
 		};
 
 		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
@@ -1011,14 +1011,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
 
-					m_camera.setProjectionMatrix([&]()
-					{
-						static matrix4SIMD projection;
-
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-
-						return projection;
-					}());
+					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
+					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, zNear, zFar));
 
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -1068,13 +1062,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGuizmo::SetID(0u);
 
-					// TODO: camera will return hlsl::float32_tMxN 
-					auto view = *reinterpret_cast<const float32_t3x4*>(m_camera.getViewMatrix().pointer());
-					imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
-
-					// TODO: camera will return hlsl::float32_tMxN 
-					imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(m_camera.getProjectionMatrix().pointer()));
-					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+					imguizmoM16InOut.view = math::linalg::promoted_mul(float32_t4x4(), m_camera.getViewMatrix());
+					imguizmoM16InOut.projection = m_camera.getProjectionMatrix();
 
 					m_transformParams.editTransformDecomposition = true;
 					m_transformParams.sceneTexDescIx = 1u;
@@ -1116,13 +1105,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// Set Camera
 			{
 				core::vectorSIMDf cameraPosition(0, 5, -10);
-				matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
-					core::radians(60.0f),
-					WindowDimensions.x / WindowDimensions.y,
-					0.01f,
-					500.0f
-				);
-				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
+				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 			}
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
@@ -1560,13 +1543,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		void updatePathtracerPushConstants()
 		{
 			// disregard surface/swapchain transformation for now
-			const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-			// TODO: rewrite the `Camera` class so it uses hlsl::float32_t4x4 instead of core::matrix4SIMD
-			core::matrix4SIMD invMVP;
-			viewProjectionMatrix.getInverseTransform(invMVP);
+			const float32_t4x4 viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+			const float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
+
+			const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
+			const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
+
 			if (useRWMC)
 			{
-				memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
+				rwmcPushConstants.renderPushConstants.invMVP = invMVP;
 				rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
@@ -1576,7 +1561,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 			else
 			{
-				memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
+				pc.invMVP = invMVP;
 				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				pc.sampleCount = spp;
 				pc.depth = depth;
