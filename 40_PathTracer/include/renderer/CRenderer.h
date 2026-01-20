@@ -10,11 +10,8 @@
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-#include <thread>
-#include <future>
-#include <filesystem>
-
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
 namespace nbl::this_example
@@ -85,6 +82,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		struct SCreationParams : SCachedCreationParams
 		{
 			system::path sampleSequenceCache;
+			asset::IAssetManager* assMan;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -100,6 +98,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		struct SCachedConstructionParams
 		{
 			constexpr static inline uint8_t FramesInFlight = 3;
+			core::smart_refctd_ptr<video::ISemaphore> semaphore;
 
 			// per pipeline UBO for other pipelines
 			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> uboDSLayout;
@@ -116,6 +115,15 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
+
+		//
+		template<core::StringLiteral ShaderKey>
+		static inline core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader(
+			asset::IAssetManager* assMan, video::ILogicalDevice* device, system::logger_opt_ptr logger={}
+		)
+		{
+			return loadPrecompiledShader_impl(assMan,builtin::build::get_spirv_key<ShaderKey>(device),logger);
+		}
 
     protected:
 		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams
@@ -169,11 +177,15 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> regularPresent; // TODO
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> cubemapPresent; // TODO
 		};
-		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)) {}
+		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)),
+			m_frameIx(m_construction.semaphore->getCounterValue()) {}
 		virtual inline ~CRenderer() {}
+
+		static core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader_impl(asset::IAssetManager* assMan, const core::string& key, system::logger_opt_ptr logger);
 
 		SCachedCreationParams m_creation;
 		SCachedConstructionParams m_construction;
+		uint64_t m_frameIx;
 };
 
 }

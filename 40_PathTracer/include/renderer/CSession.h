@@ -79,7 +79,6 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
 				// stores all the sensor data required
 				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
-				//
 			};
 			SImmutables immutables = {};
 			SSensorDynamics prevSensorState = {};

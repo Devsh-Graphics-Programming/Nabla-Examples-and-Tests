@@ -65,7 +65,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			if (!dedicatedAllocate(ubo.get(),"Sensor UBO"))
 				return false;
 			// pipeline barrier in `reset` will take care of sync for this
-			cb->updateBuffer({.buffer=ubo},&m_params.uniforms);
+			cb->updateBuffer({.size=sizeof(m_params.uniforms),.buffer=ubo},&m_params.uniforms);
 			addWrite(SensorDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(m_params.uniforms),.buffer=ubo});
 		}
 

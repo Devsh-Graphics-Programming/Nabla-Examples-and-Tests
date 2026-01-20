@@ -6,9 +6,11 @@
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
-
 #include <array>
+#include <thread>
+#include <future>
+#include <filesystem>
+
 
 namespace nbl::this_example
 {
@@ -16,6 +18,22 @@ using namespace nbl::core;
 using namespace nbl::asset;
 using namespace nbl::system;
 using namespace nbl::video;
+
+
+smart_refctd_ptr<IShader> CRenderer::loadPrecompiledShader_impl(IAssetManager* assMan, const core::string& key, logger_opt_ptr logger)
+{
+	IAssetLoader::SAssetLoadParams lp = {};
+	lp.logger = logger;
+	lp.workingDirectory = "app_resources"; // virtual root
+	auto assetBundle = assMan->getAsset(key,lp);
+	const auto assets = assetBundle.getContents();
+	if (!assets.empty())
+	if (auto shader = IAsset::castDown<IShader>(*assets.begin()); shader)
+		return shader;
+
+	logger.log("Failed to load precompiled shader %s", ILogger::ELL_ERROR, key.c_str());
+	return nullptr;
+}
 
 //
 smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
@@ -27,11 +45,14 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	//
 	if (!params.logger.get())
 		params.logger = smart_refctd_ptr<ILogger>(params.utilities->getLogger());
-	auto checkNullObject = [&params](auto& obj, const std::string_view debugName)->bool
+	logger_opt_ptr logger = params.logger.get().get();
+
+	//
+	auto checkNullObject = [&params,logger](auto& obj, const std::string_view debugName)->bool
 	{
 		if (!obj)
 		{
-			params.logger.log("Failed to Create %s Object!",ILogger::ELL_ERROR,debugName.data());
+			logger.log("Failed to Create %s Object!",ILogger::ELL_ERROR,debugName.data());
 			return true;
 		}
 		obj->setObjectDebugName(debugName.data());
@@ -42,9 +63,15 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	ILogicalDevice* device = params.utilities->getLogicalDevice();
 	// limits
 
+	//
+	params.semaphore = device->createSemaphore(0);
+	if (checkNullObject(params.semaphore,"CRenderer Semaphore"))
+		return nullptr;
+
 	// basic samplers
 	const auto samplerDefaultRepeat = device->createSampler({});
 
+	using render_mode_e = CSession::RenderMode;
 	// create the layouts
 	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(CSession::RenderMode::Count)];
 	{
@@ -176,7 +203,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		}
 
 		// but many push constant ranges
-		using render_mode_e = CSession::RenderMode;
 		SPushConstantRange pcRanges[uint8_t(render_mode_e::Count)];
 		auto setPCRange = [&pcRanges]<typename T>(const render_mode_e mode)->void
 		{
@@ -196,9 +222,39 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 
 	// create the pipelines
 	{
-		// TODO
+
+		IGPURayTracingPipeline::SCreationParams creationParams[uint8_t(render_mode_e::Count)] = {};
+		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
+		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
+		{
+			smart_refctd_ptr<IShader> raygenShaders[uint8_t(render_mode_e::Count)] = {};
+			raygenShaders[uint8_t(render_mode_e::Previs)] = loadPrecompiledShader<"pathtrace_previs">(_params.assMan,device,logger);
+			raygenShaders[uint8_t(render_mode_e::Beauty)] = loadPrecompiledShader<"pathtrace_beauty">(_params.assMan,device,logger);
+			raygenShaders[uint8_t(render_mode_e::Debug)] = loadPrecompiledShader<"pathtrace_debug">(_params.assMan,device,logger);
+			IGPURayTracingPipeline::SShaderSpecInfo missShaders[uint8_t(render_mode_e::Count)] = {};
+			for (uint8_t m=0; m<uint8_t(render_mode_e::Count); m++)
+			{
+				missShaders[m] = {.shader=raygenShaders[m].get(),.entryPoint="miss"};
+				creationParams[m] = {
+					.layout = renderingLayouts[m].get(),
+					.shaderGroups = {
+						.raygen = {.shader=raygenShaders[m].get(),.entryPoint="raygen"},
+						.misses = {missShaders+m,1}
+					},
+					.cached = {
+						.flags = flags
+					}
+				};
+			}
+		}
+		if (!device->createRayTracingPipelines(nullptr,creationParams,params.renderingPipelines.data()))
+		{
+			logger.log("Failed to create Path Tracing Pipelines",ILogger::ELL_ERROR);
+			return nullptr;
+		}
 	}
 
+// TODO: move to CBasicPresenter
 	// the renderpass: custom dependencies, but everything else fixed from outside (format, and number of subpasses)
 	{
 //		params.presentRenderpass = device->createRenderpass();

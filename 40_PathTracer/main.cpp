@@ -14,7 +14,6 @@
 
 // TODO remove
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "common.hpp"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
@@ -161,12 +160,16 @@ public:
 		}});
 
 		//
-		m_renderer = CRenderer::create({{
-			.graphicsQueue = getGraphicsQueue(),
-			.computeQueue = getComputeQueue(),
-			.uploadQueue = getTransferUpQueue(),
-			.utilities = smart_refctd_ptr(m_utils)
-		}});
+		m_renderer = CRenderer::create({
+			{
+				.graphicsQueue = getGraphicsQueue(),
+				.computeQueue = getComputeQueue(),
+				.uploadQueue = getTransferUpQueue(),
+				.utilities = smart_refctd_ptr(m_utils)
+			},
+			"TODO Sample sequence cache",
+			m_assetMgr.get()
+		});
 
 		// TODO: tmp code
 		auto scene_daily_pt = m_renderer->createScene({
@@ -200,48 +203,7 @@ public:
 		scene_daily_pt = nullptr;
 
 
-		// Load Custom Shader
-		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
-			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = "app_resources"; // virtual root
-				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
-				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto shader = IAsset::castDown<IShader>(assets[0]);
-				if (!shader)
-				{
-					m_logger->log("Failed to load a precompiled shader.", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				return shader;
-			};
-
-		// load shaders
-		const auto raygenShader = loadPrecompiledShader.operator()<"raytrace_rgen">(); // "app_resources/raytrace.rgen.hlsl"
-		const auto closestHitShader = loadPrecompiledShader.operator()<"raytrace_rchit">(); // "app_resources/raytrace.rchit.hlsl"
-		const auto proceduralClosestHitShader = loadPrecompiledShader.operator()<"raytrace_procedural_rchit">(); // "app_resources/raytrace_procedural.rchit.hlsl"
-		const auto intersectionHitShader = loadPrecompiledShader.operator()<"raytrace_rint">(); // "app_resources/raytrace.rint.hlsl"
-		const auto anyHitShaderColorPayload = loadPrecompiledShader.operator()<"raytrace_rahit">(); // "app_resources/raytrace.rahit.hlsl"
-		const auto anyHitShaderShadowPayload = loadPrecompiledShader.operator()<"raytrace_shadow_rahit">(); // "app_resources/raytrace_shadow.rahit.hlsl"
-		const auto missShader = loadPrecompiledShader.operator()<"raytrace_rmiss">(); // "app_resources/raytrace.rmiss.hlsl"
-		const auto missShadowShader = loadPrecompiledShader.operator()<"raytrace_shadow_rmiss">(); // "app_resources/raytrace_shadow.rmiss.hlsl"
-		const auto directionalLightCallShader = loadPrecompiledShader.operator()<"light_directional_rcall">(); // "app_resources/light_directional.rcall.hlsl"
-		const auto pointLightCallShader = loadPrecompiledShader.operator()<"light_point_rcall">(); // "app_resources/light_point.rcall.hlsl"
-		const auto spotLightCallShader = loadPrecompiledShader.operator()<"light_spot_rcall">(); // "app_resources/light_spot.rcall.hlsl"
-		const auto fragmentShader = loadPrecompiledShader.operator()<"present_frag">(); // "app_resources/present.frag.hlsl"
-
-		m_semaphore = m_device->createSemaphore(m_realFrameIx);
-		if (!m_semaphore)
-			return logFail("Failed to Create a Semaphore!");
-
-		auto gQueue = getGraphicsQueue();
 
 		// Create renderpass and init surface
 		nbl::video::IGPURenderpass* renderpass;
@@ -281,169 +243,18 @@ public:
 			if (!renderpass)
 				return logFail("Failed to create Renderpass!");
 
-			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
+			if (!m_surface || !m_surface->init(getGraphicsQueue(), std::move(scResources), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 		}
 
-		auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
-		for (auto i = 0u; i < MaxFramesInFlight; i++)
-		{
-			if (!pool)
-				return logFail("Couldn't create Command Pool!");
-			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
-				return logFail("Couldn't create Command Buffer!");
-		}
 
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 
 
-		// create output images
-		m_hdrImage = m_device->createImage({
-			{
-			  .type = IGPUImage::ET_2D,
-			  .samples = ICPUImage::ESCF_1_BIT,
-			  .format = EF_R16G16B16A16_SFLOAT,
-			  .extent = {WIN_W, WIN_H, 1},
-			  .mipLevels = 1,
-			  .arrayLayers = 1,
-			  .flags = IImage::ECF_NONE,
-			  .usage = bitflag(IImage::EUF_STORAGE_BIT) | IImage::EUF_TRANSFER_SRC_BIT | IImage::EUF_SAMPLED_BIT
-			}
-			});
 
-		if (!m_hdrImage || !m_device->allocate(m_hdrImage->getMemoryReqs(), m_hdrImage.get()).isValid())
-			return logFail("Could not create HDR Image");
-
-		m_hdrImageView = m_device->createImageView({
-		  .flags = IGPUImageView::ECF_NONE,
-		  .subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT | IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT,
-		  .image = m_hdrImage,
-		  .viewType = IGPUImageView::E_TYPE::ET_2D,
-		  .format = asset::EF_R16G16B16A16_SFLOAT
-			});
-
-
-
-		// ray trace pipeline and descriptor set layout setup
-		{
-			const auto bindings = std::array<const ICPUDescriptorSetLayout::SBinding, 2>{
-			  ICPUDescriptorSetLayout::SBinding{
-          .binding = 0,
-          .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
-			  },
-			  {
-          .binding = 1,
-          .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
-			  }
-			};
-			auto cpuDescriptorSetLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
-
-			const SPushConstantRange pcRange = {
-			  .stageFlags = IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING,
-			  .offset = 0u,
-			  .size = sizeof(SPushConstants),
-			};
-			const auto cpuPipelineLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>({ pcRange }), std::move(cpuDescriptorSetLayout), nullptr, nullptr, nullptr);
-
-			const auto pipeline = ICPURayTracingPipeline::create(cpuPipelineLayout.get());
-			pipeline->getCachedCreationParams() = {
-				.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS,
-				.maxRecursionDepth = 1,
-				.dynamicStackSize = true,
-			};
-
-			pipeline->getSpecInfos(ESS_RAYGEN)[0] = {
-				.shader = raygenShader,
-				.entryPoint = "main",
-			};
-
-			pipeline->getSpecInfoVector(ESS_MISS)->resize(EMT_COUNT);
-			const auto missGroups = pipeline->getSpecInfos(ESS_MISS);
-			missGroups[EMT_PRIMARY] = { .shader = missShader, .entryPoint = "main" };
-			missGroups[EMT_OCCLUSION] = { .shader = missShadowShader, .entryPoint = "main" };
-
-			auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
-				{
-					return geomType * ERT_COUNT + rayType;
-				};
-
-			const auto hitGroupCount = ERT_COUNT * EGT_COUNT;
-			pipeline->getSpecInfoVector(ESS_CLOSEST_HIT)->resize(hitGroupCount);
-			pipeline->getSpecInfoVector(ESS_ANY_HIT)->resize(hitGroupCount);
-			pipeline->getSpecInfoVector(ESS_INTERSECTION)->resize(hitGroupCount);
-
-			const auto closestHitSpecs = pipeline->getSpecInfos(ESS_CLOSEST_HIT);
-			const auto anyHitSpecs = pipeline->getSpecInfos(ESS_ANY_HIT);
-			const auto intersectionSpecs = pipeline->getSpecInfos(ESS_INTERSECTION);
-
-			closestHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = closestHitShader, .entryPoint = "main" };
-			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {.shader = anyHitShaderColorPayload, .entryPoint = "main"};
-
-			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
-
-			closestHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = proceduralClosestHitShader, .entryPoint = "main" };
-			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
-			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = intersectionHitShader, .entryPoint = "main" };
-
-			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {.shader = anyHitShaderShadowPayload, .entryPoint = "main" };
-			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = intersectionHitShader, .entryPoint = "main" };
-
-			pipeline->getSpecInfoVector(ESS_CALLABLE)->resize(ELT_COUNT);
-			const auto callableGroups = pipeline->getSpecInfos(ESS_CALLABLE);
-			callableGroups[ELT_DIRECTIONAL] = { .shader = directionalLightCallShader, .entryPoint = "main" };
-			callableGroups[ELT_POINT] = { .shader = pointLightCallShader, .entryPoint = "main" };
-			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader, .entryPoint = "main" };
-
-      smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-		  CAssetConverter::SInputs inputs = {};
-      inputs.logger = m_logger.get();
-
-			const std::array cpuPipelines = { pipeline.get() };
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPURayTracingPipeline>>(inputs.assets) = cpuPipelines;
-
-			CAssetConverter::SConvertParams params = {};
-			params.utilities = m_utils.get();
-
-      auto reservation = converter->reserve(inputs);
-			auto future = reservation.convert(params);
-			if (future.copy() != IQueue::RESULT::SUCCESS)
-			{
-				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-				return false;
-			}
-
-			// assign gpu objects to output
-			auto&& pipelines = reservation.getGPUObjects<ICPURayTracingPipeline>();
-			m_rayTracingPipeline = pipelines[0].value;
-			const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
-
-			const std::array<const IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { gpuDsLayout };
-      m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
-			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
-
-			calculateRayTracingStackSize(m_rayTracingPipeline);
-
-			if (!createShaderBindingTable(m_rayTracingPipeline))
-				return logFail("Could not create shader binding table");
-
-		}
-
-		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-
-		if (!createIndirectBuffer())
-			return logFail("Could not create indirect buffer");
-
-		if (!createAccelerationStructuresFromGeometry())
-			return logFail("Could not create acceleration structures from geometry creator");
-
+#if 0 // presenter
 		ISampler::SParams samplerParams = {
 		  .AnisotropicFilter = 0
 		};
@@ -628,24 +439,10 @@ public:
 				ImGui::End();
 			}
 		);
-
-		// Set Camera
-		{
-			core::vectorSIMDf cameraPosition(0, 5, -10);
-			matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
-				core::radians(60.0f),
-				WIN_W / WIN_H,
-				0.01f,
-				500.0f
-			);
-			m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
-		}
-
+#endif
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 		m_winMgr->show(m_window.get());
-		m_oracle.reportBeginFrameRecord();
-		m_camera.mapKeysToWASD();
 
 		return true;
 	}
@@ -673,6 +470,7 @@ public:
 
 	inline void workLoopBody() override
 	{
+#if 0
 		// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
 		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 		// We block for semaphores for 2 reasons here:
@@ -901,30 +699,17 @@ public:
 		}
 		m_api->endCapture();
 		m_frameAccumulationCounter++;
+#endif
 	}
 
 	inline void update()
 	{
-		m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
-		m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
-
 		static std::chrono::microseconds previousEventTimestamp{};
 
 		m_inputSystem->getDefaultMouse(&m_mouse);
 		m_inputSystem->getDefaultKeyboard(&m_keyboard);
 
-		auto updatePresentationTimestamp = [&]()
-			{
-				m_currentImageAcquire = m_surface->acquireNextImage();
-
-				m_oracle.reportEndFrameRecord();
-				const auto timestamp = m_oracle.getNextPresentationTimeStamp();
-				m_oracle.reportBeginFrameRecord();
-
-				return timestamp;
-			};
-
-		const auto nextPresentationTimestamp = updatePresentationTimestamp();
+		m_currentImageAcquire = m_surface->acquireNextImage();
 
 		struct
 		{
@@ -932,14 +717,10 @@ public:
 			std::vector<SKeyboardEvent> keyboard{};
 		} capturedEvents;
 
-		m_camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			const auto& io = ImGui::GetIO();
 			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureMouse)
-						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
-
 					for (const auto& e : events) // here capture
 					{
 						if (e.timeStamp < previousEventTimestamp)
@@ -953,9 +734,6 @@ public:
 
 			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureKeyboard)
-						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
-
 					for (const auto& e : events) // here capture
 					{
 						if (e.timeStamp < previousEventTimestamp)
@@ -967,7 +745,6 @@ public:
 				}, m_logger.get());
 
 		}
-		m_camera.endInputProcessing(nextPresentationTimestamp);
 
 		const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 		const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -999,572 +776,15 @@ public:
 	}
 
 private:
-	uint32_t getWorkgroupCount(uint32_t dim, uint32_t size)
-	{
-		return (dim + size - 1) / size;
-	}
-
-	bool createIndirectBuffer()
-	{
-		const auto getBufferRangeAddress = [](const SBufferRange<IGPUBuffer>& range)
-			{
-				return range.buffer->getDeviceAddress() + range.offset;
-			};
-		const auto command = TraceRaysIndirectCommand_t{
-		  .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygenGroupRange),
-		  .raygenShaderRecordSize = m_shaderBindingTable.raygenGroupRange.size,
-		  .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.missGroupsRange),
-		  .missShaderBindingTableSize = m_shaderBindingTable.missGroupsRange.size,
-		  .missShaderBindingTableStride = m_shaderBindingTable.missGroupsStride,
-		  .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hitGroupsRange),
-		  .hitShaderBindingTableSize = m_shaderBindingTable.hitGroupsRange.size,
-		  .hitShaderBindingTableStride = m_shaderBindingTable.hitGroupsStride,
-		  .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callableGroupsRange),
-		  .callableShaderBindingTableSize = m_shaderBindingTable.callableGroupsRange.size,
-		  .callableShaderBindingTableStride = m_shaderBindingTable.callableGroupsStride,
-		  .width = WIN_W,
-		  .height = WIN_H,
-		  .depth = 1,
-		};
-		IGPUBuffer::SCreationParams params;
-		params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDIRECT_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-		params.size = sizeof(TraceRaysIndirectCommand_t);
-		m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), &command).move_into(m_indirectBuffer);
-		return true;
-	}
-
-	void calculateRayTracingStackSize(const smart_refctd_ptr<video::IGPURayTracingPipeline>& pipeline)
-	{
-		const auto raygenStackSize = pipeline->getRaygenStackSize();
-		auto getMaxSize = [&](auto ranges, auto valProj) -> uint16_t
-			{
-				auto maxValue = 0;
-				for (const auto& val : ranges)
-				{
-					maxValue = std::max<uint16_t>(maxValue, std::invoke(valProj, val));
-				}
-				return maxValue;
-			};
-
-		const auto closestHitStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::closestHit);
-		const auto anyHitStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::anyHit);
-		const auto intersectionStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::intersection);
-		const auto missStackMax = getMaxSize(pipeline->getMissStackSizes(), std::identity{});
-		const auto callableStackMax = getMaxSize(pipeline->getCallableStackSizes(), std::identity{});
-		auto firstDepthStackSizeMax = std::max(closestHitStackMax, missStackMax);
-		firstDepthStackSizeMax = std::max<uint16_t>(firstDepthStackSizeMax, intersectionStackMax + anyHitStackMax);
-		m_rayTracingStackSize = raygenStackSize + std::max(firstDepthStackSizeMax, callableStackMax);
-	}
-
-	bool createShaderBindingTable(const smart_refctd_ptr<video::IGPURayTracingPipeline>& pipeline)
-	{
-		const auto& limits = m_device->getPhysicalDevice()->getLimits();
-		const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
-		const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
-
-		auto& raygenRange = m_shaderBindingTable.raygenGroupRange;
-
-		auto& hitRange = m_shaderBindingTable.hitGroupsRange;
-		const auto hitHandles = pipeline->getHitHandles();
-
-		auto& missRange = m_shaderBindingTable.missGroupsRange;
-		const auto missHandles = pipeline->getMissHandles();
-
-		auto& callableRange = m_shaderBindingTable.callableGroupsRange;
-		const auto callableHandles = pipeline->getCallableHandles();
-
-		raygenRange = {
-		  .offset = 0,
-		  .size = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment)
-		};
-
-		missRange = {
-		  .offset = raygenRange.size,
-		  .size = core::alignUp(missHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
-		};
-		m_shaderBindingTable.missGroupsStride = handleSizeAligned;
-
-		hitRange = {
-		  .offset = missRange.offset + missRange.size,
-		  .size = core::alignUp(hitHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
-		};
-		m_shaderBindingTable.hitGroupsStride = handleSizeAligned;
-
-		callableRange = {
-		  .offset = hitRange.offset + hitRange.size,
-		  .size = core::alignUp(callableHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
-		};
-		m_shaderBindingTable.callableGroupsStride = handleSizeAligned;
-
-		const auto bufferSize = raygenRange.size + missRange.size + hitRange.size + callableRange.size;
-
-		ICPUBuffer::SCreationParams cpuBufferParams;
-		cpuBufferParams.size = bufferSize;
-		auto cpuBuffer = ICPUBuffer::create(std::move(cpuBufferParams));
-		uint8_t* pData = reinterpret_cast<uint8_t*>(cpuBuffer->getPointer());
-
-		// copy raygen region
-		memcpy(pData, &pipeline->getRaygen(), handleSize);
-
-		// copy miss region
-		uint8_t* pMissData = pData + missRange.offset;
-		for (const auto& handle : missHandles)
-		{
-			memcpy(pMissData, &handle, handleSize);
-			pMissData += m_shaderBindingTable.missGroupsStride;
-		}
-
-		// copy hit region
-		uint8_t* pHitData = pData + hitRange.offset;
-		for (const auto& handle : hitHandles)
-		{
-			memcpy(pHitData, &handle, handleSize);
-			pHitData += m_shaderBindingTable.hitGroupsStride;
-		}
-
-		// copy callable region
-		uint8_t* pCallableData = pData + callableRange.offset;
-		for (const auto& handle : callableHandles)
-		{
-			memcpy(pCallableData, &handle, handleSize);
-			pCallableData += m_shaderBindingTable.callableGroupsStride;
-		}
-
-		{
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
-			params.size = bufferSize;
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), pData).move_into(raygenRange.buffer);
-			missRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			hitRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			callableRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-		}
-
-		return true;
-	}
-
-	bool createAccelerationStructuresFromGeometry()
-	{
-		auto queue = getGraphicsQueue();
-		// get geometries into ICPUBuffers
-		auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-		if (!pool)
-			return logFail("Couldn't create Command Pool for geometry creation!");
-
-		const auto defaultMaterial = Material{
-		  .ambient = {0.2, 0.1, 0.1},
-		  .diffuse = {0.8, 0.3, 0.3},
-		  .specular = {0.8, 0.8, 0.8},
-		  .shininess = 1.0f,
-		  .alpha = 1.0f,
-		};
-
-		auto getTranslationMatrix = [](float32_t x, float32_t y, float32_t z)
-			{
-				core::matrix3x4SIMD transform;
-				transform.setTranslation(nbl::core::vectorSIMDf(x, y, z, 0));
-				return transform;
-			};
-
-		core::matrix3x4SIMD planeTransform;
-		planeTransform.setRotation(quaternion::fromAngleAxis(core::radians(-90.0f), vector3df_SIMD{ 1, 0, 0 }));
-
-		// triangles geometries
-		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
-
-		const auto cpuObjects = std::array{
-			scene::ReferenceObjectCpu {
-				.data = geometryCreator->createRectangle({10, 10}),
-				.material = defaultMaterial,
-				.transform = planeTransform,
-			},
-			scene::ReferenceObjectCpu {
-				.data = geometryCreator->createCube({1, 1, 1}),
-				.material = defaultMaterial,
-				.transform = getTranslationMatrix(0, 0.5f, 0),
-			},
-			scene::ReferenceObjectCpu {
-				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
-				.material = Material{
-					.ambient = {0.1, 0.1, 0.2},
-					.diffuse = {0.2, 0.2, 0.8},
-					.specular = {0.8, 0.8, 0.8},
-					.shininess = 1.0f,
-					.alpha = 1.0f,
-				},
-				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
-			},
-			scene::ReferenceObjectCpu {
-				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
-				.material = Material{
-					.ambient = {0.1, 0.2, 0.1},
-					.diffuse = {0.2, 0.8, 0.2},
-					.specular = {0.8, 0.8, 0.8},
-					.shininess = 1.0f,
-					.alpha = 0.2,
-				},
-				.transform = getTranslationMatrix(5.0f, 1.0f, 0),
-			},
-		};
-
-		// procedural geometries
-		using Aabb = IGPUBottomLevelAccelerationStructure::AABB_t;
-
-		smart_refctd_ptr<ICPUBuffer> cpuProcBuffer;
-		{
-			ICPUBuffer::SCreationParams params;
-			params.size = NumberOfProceduralGeometries * sizeof(Aabb);
-			cpuProcBuffer = ICPUBuffer::create(std::move(params));
-		}
-
-		core::vector<SProceduralGeomInfo> proceduralGeoms;
-		proceduralGeoms.reserve(NumberOfProceduralGeometries);
-		auto proceduralGeometries = reinterpret_cast<Aabb*>(cpuProcBuffer->getPointer());
-		for (int32_t i = 0; i < NumberOfProceduralGeometries; i++)
-		{
-			const auto middle_i = NumberOfProceduralGeometries / 2.0;
-			SProceduralGeomInfo sphere = {
-					.material = hlsl::_static_cast<MaterialPacked>(Material{
-					.ambient = {0.1, 0.05 * i, 0.1},
-					.diffuse = {0.3, 0.2 * i, 0.3},
-					.specular = {0.8, 0.8, 0.8},
-					.shininess = 1.0f,
-				}),
-				.center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
-				.radius = 1,
-			};
-
-			proceduralGeoms.push_back(sphere);
-			const auto sphereMin = sphere.center - sphere.radius;
-			const auto sphereMax = sphere.center + sphere.radius;
-			proceduralGeometries[i] = {
-				vector3d(sphereMin.x, sphereMin.y, sphereMin.z),
-				vector3d(sphereMax.x, sphereMax.y, sphereMax.z)
-			};
-		}
-
-		{
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			params.size = proceduralGeoms.size() * sizeof(SProceduralGeomInfo);
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), proceduralGeoms.data()).move_into(m_proceduralGeomInfoBuffer);
-		}
-
-		// get ICPUBuffers into ICPUBLAS
-		// TODO use one BLAS and multiple triangles/aabbs in one
-		const auto blasCount = std::size(cpuObjects) + 1;
-		const auto proceduralBlasIdx = std::size(cpuObjects);
-
-		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlasList;
-		for (uint32_t i = 0; i < blasCount; i++)
-		{
-			auto& blas = cpuBlasList[i];
-			blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
-
-			if (i == proceduralBlasIdx)
-			{
-				auto aabbs = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::AABBs<ICPUBuffer>>>(1u);
-				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
-
-				auto& aabb = aabbs->front();
-				auto& primCount = primitiveCounts->front();
-				
-				primCount = NumberOfProceduralGeometries;
-				aabb.data = { .offset = 0, .buffer = cpuProcBuffer };
-				aabb.stride = sizeof(IGPUBottomLevelAccelerationStructure::AABB_t);
-				aabb.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT; // only allow opaque for now
-
-				blas->setGeometries(std::move(aabbs), std::move(primitiveCounts));
-			}
-			else
-			{
-				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
-				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
-
-				auto& tri = triangles->front();
-
-				auto& primCount = primitiveCounts->front();
-				primCount = cpuObjects[i].data->getPrimitiveCount();
-
-				tri = cpuObjects[i].data->exportForBLAS();
-				tri.geometryFlags = cpuObjects[i].material.isTransparent() ?
-					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
-					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
-
-				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
-			}
-
-			auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
-			if (i == proceduralBlasIdx)
-				blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::GEOMETRY_TYPE_IS_AABB_BIT;
-
-			blas->setBuildFlags(blasFlags);
-			blas->setContentHash(blas->computeContentHash());
-		}
-
-		auto geomInfoBuffer = ICPUBuffer::create({ std::size(cpuObjects) * sizeof(STriangleGeomInfo) });
-		STriangleGeomInfo* geomInfos = reinterpret_cast<STriangleGeomInfo*>(geomInfoBuffer->getPointer());
-
-		// get ICPUBLAS into ICPUTLAS
-		auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(blasCount);
-		{
-			uint32_t i = 0;
-			for (auto instance = geomInstances->begin(); instance != geomInstances->end(); instance++, i++)
-			{
-				const auto isProceduralInstance = i == proceduralBlasIdx;
-				ICPUTopLevelAccelerationStructure::StaticInstance inst;
-				inst.base.blas = cpuBlasList[i];
-				inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
-				inst.base.instanceCustomIndex = i;
-				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;
-				inst.base.mask = 0xFF;
-				inst.transform = isProceduralInstance ? matrix3x4SIMD() : cpuObjects[i].transform;
-
-				instance->instance = inst;
-			}
-		}
-
-		auto cpuTlas = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
-		cpuTlas->setInstances(std::move(geomInstances));
-		cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
-
-		// convert with asset converter
-		smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-		struct MyInputs : CAssetConverter::SInputs
-		{
-			// For the GPU Buffers to be directly writeable and so that we don't need a Transfer Queue submit at all
-			inline uint32_t constrainMemoryTypeBits(const size_t groupCopyID, const IAsset* canonicalAsset, const blake3_hash_t& contentHash, const IDeviceMemoryBacked* memoryBacked) const override
-			{
-				assert(memoryBacked);
-				return memoryBacked->getObjectType() != IDeviceMemoryBacked::EOT_BUFFER ? (~0u) : rebarMemoryTypes;
-			}
-
-			uint32_t rebarMemoryTypes;
-		} inputs = {};
-		inputs.logger = m_logger.get();
-		inputs.rebarMemoryTypes = m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
-		// the allocator needs to be overriden to hand out memory ranges which have already been mapped so that the ReBAR fast-path can kick in
-		// (multiple buffers can be bound to same memory, but memory can only be mapped once at one place, so Asset Converter can't do it)
-		struct MyAllocator final : public IDeviceMemoryAllocator
-		{
-			ILogicalDevice* getDeviceForAllocations() const override { return device; }
-
-			SAllocation allocate(const SAllocateInfo& info) override
-			{
-				auto retval = device->allocate(info);
-				// map what is mappable by default so ReBAR checks succeed
-				if (retval.isValid() && retval.memory->isMappable())
-					retval.memory->map({ .offset = 0,.length = info.size });
-				return retval;
-			}
-
-			ILogicalDevice* device;
-		} myalloc;
-		myalloc.device = m_device.get();
-		inputs.allocator = &myalloc;
-
-		std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
-		std::array<ICPUBuffer*, 1> tmpBuffers;
-		std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
-		std::array<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>, std::size(cpuObjects)> tmpGeometryPatches;
-		{
-			tmpTlas[0] = cpuTlas.get();
-			tmpBuffers[0] = cpuProcBuffer.get();
-			for (uint32_t i = 0; i < cpuObjects.size(); i++)
-			{
-				tmpGeometries[i] = cpuObjects[i].data.get();
-				tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			}
-
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = tmpGeometries;
-			std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = tmpGeometryPatches;
-		}
-
-		auto reservation = converter->reserve(inputs);
-		{
-			auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
-			{
-				auto objects = reservation.getGPUObjects<asset_type_t>();
-				uint32_t counter = {};
-				for (auto& object : objects)
-				{
-					auto gpu = object.value;
-					auto* reference = references[counter];
-
-					if (reference)
-					{
-						if (!gpu)
-						{
-							m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
-							return false;
-						}
-					}
-					counter++;
-				}
-				return true;
-			};
-
-			prepass.template operator() < ICPUTopLevelAccelerationStructure > (tmpTlas);
-			prepass.template operator() < ICPUBuffer > (tmpBuffers);
-			prepass.template operator() < ICPUPolygonGeometry > (tmpGeometries);
-		}
-
-		constexpr auto CompBufferCount = 2;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>, CompBufferCount> compBufs = {};
-		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, CompBufferCount> compBufInfos = {};
-		{
-			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-			pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, compBufs);
-			compBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			for (auto i = 0; i < CompBufferCount; i++)
-				compBufInfos[i].cmdbuf = compBufs[i].get();
-		}
-		auto compSema = m_device->createSemaphore(0u);
-		SIntendedSubmitInfo compute = {};
-		compute.queue = queue;
-		compute.scratchCommandBuffers = compBufInfos;
-		compute.scratchSemaphore = {
-			.semaphore = compSema.get(),
-			.value = 0u,
-			.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT | PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
-		};
-		// convert
-		{
-			smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
-			{
-				constexpr auto MaxAlignment = 256;
-				constexpr auto MinAllocationSize = 1024;
-				const auto scratchSize = core::alignUp(reservation.getMaxASBuildScratchSize(false), MaxAlignment);
-
-
-				IGPUBuffer::SCreationParams creationParams = {};
-				creationParams.size = scratchSize;
-				creationParams.usage = IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				auto scratchBuffer = m_device->createBuffer(std::move(creationParams));
-
-				auto reqs = scratchBuffer->getMemoryReqs();
-				reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
-
-				auto allocation = m_device->allocate(reqs, scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-				allocation.memory->map({ .offset = 0,.length = reqs.size });
-
-				scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
-					SBufferRange<video::IGPUBuffer>{0ull, scratchSize, std::move(scratchBuffer)},
-					core::allocator<uint8_t>(), MaxAlignment, MinAllocationSize
-				);
-			}
-
-			struct MyParams final : CAssetConverter::SConvertParams
-			{
-				inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom) override
-				{
-					return finalUser;
-				}
-				inline uint32_t getFinalOwnerQueueFamily(const IGPUAccelerationStructure* image, const core::blake3_hash_t& createdFrom) override
-				{
-					return finalUser;
-				}
-
-				uint8_t finalUser;
-			} params = {};
-			params.utilities = m_utils.get();
-			params.compute = &compute;
-			params.scratchForDeviceASBuild = scratchAlloc.get();
-			params.finalUser = queue->getFamilyIndex();
-
-			auto future = reservation.convert(params);
-			if (future.copy() != IQueue::RESULT::SUCCESS)
-			{
-				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-				return false;
-			}
-			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!
-			if (compute.getFutureScratchSemaphore().value>3)
-				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!",system::ILogger::ELL_ERROR);
-
-			// assign gpu objects to output
-			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
-			m_gpuTlas = tlases[0].value;
-			auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
-			m_proceduralAabbBuffer = buffers[0].value;
-
-			auto&& gpuPolygonGeometries = reservation.getGPUObjects<ICPUPolygonGeometry>();
-			m_gpuPolygons.resize(gpuPolygonGeometries.size());
-
-			for (uint32_t i = 0; i < gpuPolygonGeometries.size(); i++)
-			{
-				const auto& cpuObject = cpuObjects[i];
-				const auto& gpuPolygon = gpuPolygonGeometries[i].value;
-				const auto gpuTriangles = gpuPolygon->exportForBLAS();
-
-				const auto& vertexBufferBinding = gpuTriangles.vertexData[0];
-				const uint64_t vertexBufferAddress = vertexBufferBinding.buffer->getDeviceAddress() + vertexBufferBinding.offset;
-
-				const auto& normalView = gpuPolygon->getNormalView();
-				const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
-        auto normalType = NT_R32G32B32_SFLOAT;
-        if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
-          normalType = NT_R8G8B8A8_SNORM;
-
-				const auto& indexBufferBinding = gpuTriangles.indexData;
-				auto& geomInfo = geomInfos[i];
-				geomInfo = {
-				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
-				  .vertexBufferAddress = vertexBufferAddress,
-				  .indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
-					.normalBufferAddress = normalBufferAddress,
-					.normalType = normalType,
-				  .indexType = gpuTriangles.indexType,
-				};
-
-				m_gpuPolygons[i] = gpuPolygon;
-			}
-		}
-
-		{
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			params.size = geomInfoBuffer->getSize();
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_triangleGeomInfoBuffer);
-		}
-
-		return true;
-	}
-
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-	smart_refctd_ptr<ISemaphore> m_semaphore;
 	uint64_t m_realFrameIx = 0;
 	uint32_t m_frameAccumulationCounter = 0;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	core::smart_refctd_ptr<InputSystem> m_inputSystem;
 	InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
 	InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
-
-	struct CameraSetting
-	{
-		float fov = 60.f;
-		float zNear = 0.1f;
-		float zFar = 10000.f;
-		float moveSpeed = 1.f;
-		float rotateSpeed = 1.f;
-		float viewWidth = 10.f;
-		float camYAngle = 165.f / 180.f * 3.14159f;
-		float camXAngle = 32.f / 180.f * 3.14159f;
-
-	} m_cameraSetting;
-	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
-
-	Light m_light = {
-	  .direction = {-1.0f, -1.0f, -0.4f},
-	  .position = {10.0f, 15.0f, 8.0f},
-	  .outerCutoff = 0.866025404f, // {cos(radians(30.0f))}, 
-	  .type = ELT_DIRECTIONAL
-	};
 
 	video::CDumbPresentationOracle m_oracle;
 
@@ -1581,24 +801,6 @@ private:
 	} m_ui;
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
-	core::vector<SProceduralGeomInfo> m_gpuIntersectionSpheres;
-	uint32_t m_intersectionHitGroupIdx;
-
-	core::vector<smart_refctd_ptr<IGPUPolygonGeometry>> m_gpuPolygons;
-	smart_refctd_ptr<IGPUTopLevelAccelerationStructure> m_gpuTlas;
-	smart_refctd_ptr<IGPUBuffer> m_instanceBuffer;
-
-	smart_refctd_ptr<IGPUBuffer> m_triangleGeomInfoBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_proceduralGeomInfoBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_proceduralAabbBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_indirectBuffer;
-
-	smart_refctd_ptr<IGPUImage> m_hdrImage;
-	smart_refctd_ptr<IGPUImageView> m_hdrImageView;
-
-	smart_refctd_ptr<IDescriptorPool> m_rayTracingDsPool;
-	smart_refctd_ptr<IGPUDescriptorSet> m_rayTracingDs;
-	smart_refctd_ptr<IGPURayTracingPipeline> m_rayTracingPipeline;
 	uint64_t m_rayTracingStackSize;
 	ShaderBindingTable m_shaderBindingTable;
 
