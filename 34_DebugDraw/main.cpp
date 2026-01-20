@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -56,7 +57,7 @@ public:
 			constexpr float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 	        core::vectorSIMDf cameraPosition(14, 8, 12);
 		    core::vectorSIMDf cameraTarget(0, 0, 0);
-		    matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
+		    hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
 		    camera = Camera(cameraPosition, cameraTarget, projectionMatrix, moveSpeed, rotateSpeed);
 	    }
 
@@ -195,9 +196,6 @@ public:
 			camera.endInputProcessing(nextPresentationTimestamp);
 		}
 
-		float32_t4x4 viewProjectionMatrix;
-		memcpy(&viewProjectionMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjectionMatrix));	// TODO: get rid of legacy transform
-
 		auto* queue = getGraphicsQueue();
 
 		asset::SViewport viewport;
@@ -238,7 +236,7 @@ public:
 
 			ext::debug_draw::DrawAABB::DrawParameters drawParams;
 			drawParams.commandBuffer = cmdbuf;
-			drawParams.cameraMat = viewProjectionMatrix;
+			drawParams.cameraMat = camera.getConcatenatedMatrix();
 			
 			if (!drawAABB->renderSingle(drawParams, testAABB, float32_t4{ 1, 0, 0, 1 }))
 				m_logger->log("Unable to draw AABB with single draw pipeline!", ILogger::ELL_ERROR);

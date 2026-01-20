@@ -7,6 +7,7 @@
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 #include "nbl/this_example/common.hpp"
 
@@ -22,7 +23,7 @@ using namespace nbl::examples;
 
 // TODO: share push constants
 struct PTPushConstant {
-	matrix4SIMD invMVP;
+	hlsl::float32_t4x4 invMVP;
 	int sampleCount;
 	int depth;
 };
@@ -841,9 +842,9 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 
 					m_camera.setProjectionMatrix([&]()
 					{
-						static matrix4SIMD projection;
+						static hlsl::float32_t4x4 projection;
 
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 
 						return projection;
 					}());
@@ -878,9 +879,9 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 			// Set Camera
 			{
 				core::vectorSIMDf cameraPosition(0, 5, -10);
-				matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+				hlsl::float32_t4x4 proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 					core::radians(60.0f),
-					WindowDimensions.x / WindowDimensions.y,
+					float(WindowDimensions.x / WindowDimensions.y),
 					0.01f,
 					500.0f
 				);
@@ -955,7 +956,7 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 				PTPushConstant pc;
-				viewProjectionMatrix.getInverseTransform(pc.invMVP);
+				pc.invMVP = hlsl::inverse(viewProjectionMatrix);
 				pc.sampleCount = spp;
 				pc.depth = depth;
 

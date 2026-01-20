@@ -313,6 +313,13 @@ protected:
         if (compareTestValues<T>(expectedVal, testVal, maxAllowedDifference))
             return;
 
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+    }
+
+    template<typename T>
+    void printTestFail(const std::string& memberName, const T& expectedVal, const T& testVal,
+        const size_t testIteration, const uint32_t seed, const TestType testType)
+    {
         std::stringstream ss;
         switch (testType)
         {
@@ -368,7 +375,7 @@ private:
         for (int i = 0; i < m_testIterationCount; ++i)
         {
             verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU);
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::GPU);
+            verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU);
         }
     }
 
