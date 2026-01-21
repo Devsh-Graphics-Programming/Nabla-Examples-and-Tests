@@ -3,7 +3,7 @@
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #ifdef PERSISTENT_WORKGROUPS
-#include "nbl/builtin/hlsl/math/morton.hlsl"
+#include "nbl/builtin/hlsl/morton.hlsl"
 #endif
 
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
@@ -175,7 +175,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * RenderWorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * RenderWorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
     {
         virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
-        const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);
+        morton::code<true, 32, 2> mc;
+        mc.value = virtualThreadIndex;
+        const int32_t2 coords = _static_cast<int32_t2>(mc);
 #else
     const int32_t2 coords = getCoordinates();
 #endif
