@@ -122,8 +122,9 @@ struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_SOLID_ANGLE>
     template<typename Ray>
     scalar_type deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
     {
-        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri.vertex0, tri.vertex1, tri.vertex2, ray.origin);
-        const scalar_type rcpProb = st.solidAngleOfTriangle();
+        const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
+        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
+        const scalar_type rcpProb = st.solidAngle();
         // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0
         return rcpProb > numeric_limits<scalar_type>::min ? (1.0 / rcpProb) : numeric_limits<scalar_type>::max;
     }
@@ -132,7 +133,8 @@ struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_SOLID_ANGLE>
     vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         scalar_type rcpPdf;
-        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri.vertex0, tri.vertex1, tri.vertex2, origin);
+        const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
+        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
         sampling::SphericalTriangle<scalar_type> sst = sampling::SphericalTriangle<scalar_type>::create(st);
 
         const vector3_type L = sst.generate(rcpPdf, xi.xy);
@@ -164,7 +166,8 @@ struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_APPROX_PROJECTED_SOLID_A
     scalar_type deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
     {
         const vector3_type L = ray.direction;
-        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri.vertex0, tri.vertex1, tri.vertex2, ray.origin);
+        const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
+        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
         sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st);
         const scalar_type pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
         // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
@@ -175,7 +178,8 @@ struct ShapeSampling<T, PST_TRIANGLE, path_tracing::PPM_APPROX_PROJECTED_SOLID_A
     vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         scalar_type rcpPdf;
-        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri.vertex0, tri.vertex1, tri.vertex2, origin);
+        const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
+        shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
         sampling::ProjectedSphericalTriangle<scalar_type> sst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st);
 
         const vector3_type L = sst.generate(rcpPdf, interaction.getN(), isBSDF, xi.xy);
@@ -250,7 +254,7 @@ struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE>
         vector<T, 2> rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
         shapes::SphericalRectangle<scalar_type> sphR0 = shapes::SphericalRectangle<scalar_type>::create(ray.origin, rect.offset, rectNormalBasis);
-        scalar_type solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+        scalar_type solidAngle = sphR0.solidAngle(rectExtents);
         if (solidAngle > numeric_limits<scalar_type>::min)
             pdf = 1.f / solidAngle;
         else
@@ -269,7 +273,7 @@ struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE>
         rect.getNormalBasis(rectNormalBasis, rectExtents);
         shapes::SphericalRectangle<scalar_type> sphR0 = shapes::SphericalRectangle<scalar_type>::create(origin, rect.offset, rectNormalBasis);
         vector3_type L = hlsl::promote<vector3_type>(0.0);
-        scalar_type solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+        scalar_type solidAngle = sphR0.solidAngle(rectExtents);
 
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0);
         vector<T, 2> sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
