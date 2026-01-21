@@ -43,9 +43,9 @@ if(NBL_BUILD_IMGUI)
 		app_resources/hlsl/gpu_common.hlsl
 		app_resources/hlsl/Drawing.hlsl
 		app_resources/hlsl/Sampling.hlsl
-		app_resources/hlsl/Sampling.hlsl
 		app_resources/hlsl/silhouette.hlsl
 		app_resources/hlsl/utils.hlsl
+		app_resources/hlsl/parallelogram_sampling.hlsl
 
 		# app_resources/hlsl/test.comp.hlsl
 		app_resources/hlsl/benchmark/benchmark.comp.hlsl

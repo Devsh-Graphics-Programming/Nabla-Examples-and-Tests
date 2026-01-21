@@ -1,21 +1,40 @@
 #ifndef _SOLID_ANGLE_VIS_COMMON_HLSL_
 #define _SOLID_ANGLE_VIS_COMMON_HLSL_
+
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#define DEBUG_DATA 01
+#define VISUALIZE_SAMPLES 01
 
-// Sampling mode enum
-#define SAMPLING_MODE_SOLID_ANGLE 0
-#define SAMPLING_MODE_PROJECTED_SOLID_ANGLE 1
-
-#define DEBUG_DATA 1
 #define FAST 1
 
 namespace nbl
 {
     namespace hlsl
     {
+        // Sampling mode enum
+        enum SAMPLING_MODE : uint32_t
+        {
+            TRIANGLE_SOLID_ANGLE,
+            TRIANGLE_PROJECTED_SOLID_ANGLE,
+            PROJECTED_PARALLELOGRAM_SOLID_ANGLE
+        };
 
         struct ResultData
         {
+            uint32_t parallelogramDoesNotBound;
+            float32_t parallelogramArea;
+            uint32_t failedVertexIndex;
+            uint32_t edgeIsConvex[4];
+
+            uint32_t parallelogramVerticesInside;
+            uint32_t parallelogramEdgesInside;
+            uint32_t failedEdgeIndex;
+            float32_t2 failedVertexUV;
+            float32_t3 failedPoint;
+            uint32_t failedEdgeSample;
+            float32_t2 failedEdgeUV;
+            float32_t2 parallelogramCorners[4];
+
             uint32_t3 region;
             uint32_t silhouetteIndex;
 
@@ -38,10 +57,13 @@ namespace nbl
 
             uint32_t clippedSilhouetteVertexCount;
             float32_t3 clippedSilhouetteVertices[7];
+            uint32_t clippedSilhouetteVerticesIndices[7];
 
             uint32_t triangleCount;
             float32_t solidAngles[5];
             float32_t totalSolidAngles;
+
+            uint32_t sampleOutsideSilhouette;
 
             // Sampling ray visualization data
             uint32_t sampleCount;
@@ -52,16 +74,24 @@ namespace nbl
         {
             float32_t3x4 modelMatrix;
             float32_t4 viewport;
-            uint32_t samplingMode;
+            SAMPLING_MODE samplingMode;
+            uint32_t sampleCount;
             uint32_t frameIndex;
         };
 
         struct PushConstantRayVis
         {
             float32_t4x4 viewProjMatrix;
+            float32_t3x4 viewMatrix;
             float32_t3x4 modelMatrix;
             float32_t4 viewport;
             uint32_t frameIndex;
+        };
+
+        struct BenchmarkPushConstants
+        {
+            float32_t3x4 modelMatrix;
+            SAMPLING_MODE benchmarkMode;
         };
 
         static const float32_t3 colorLUT[27] = {

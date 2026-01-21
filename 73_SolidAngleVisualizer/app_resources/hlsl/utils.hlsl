@@ -39,4 +39,11 @@ uint32_t packSilhouette(const uint32_t s[7])
     return packed;
 }
 
+float32_t2 hammersleySample(uint32_t i, uint32_t numSamples)
+{
+    return float32_t2(
+        float32_t(i) / float32_t(numSamples),
+        float32_t(reversebits(i)) / 4294967295.0f);
+}
+
 #endif // _UTILS_HLSL_

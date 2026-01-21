@@ -4,16 +4,12 @@
 #include "common.hlsl"
 #include "gpu_common.hlsl"
 
-#if DEBUG_DATA
 // Check if a face on the hemisphere is visible from camera at origin
 bool isFaceVisible(float32_t3 faceCenter, float32_t3 faceNormal)
 {
     float32_t3 viewVec = normalize(-faceCenter); // Vector from camera to face
     return dot(faceNormal, viewVec) > 0.0f;
 }
-#endif // DEBUG_DATA
-
-#if VISUALIZE_SAMPLES
 
 // doesn't change Z coordinate
 float32_t3 sphereToCircle(float32_t3 spherePoint)
@@ -29,6 +25,8 @@ float32_t3 sphereToCircle(float32_t3 spherePoint)
         return float32_t3((spherePoint.xy * uv2Plus1 / 2.0f) * CIRCLE_RADIUS, spherePoint.z);
     }
 }
+
+#if VISUALIZE_SAMPLES
 
 float32_t drawGreatCircleArc(float32_t3 fragPos, float32_t3 points[2], float32_t aaWidth, float32_t width = 0.01f)
 {
@@ -103,8 +101,8 @@ float32_t4 drawHiddenEdges(float32_t3x4 modelMatrix, float32_t3 spherePos, uint3
         }
 
         float32_t3 pts[2] = {p0, p1};
-        float32_t4 c = drawGreatCircleArc(spherePos, pts, aaWidth, 0.005f);
-        color += float32_t4(hiddenEdgeColor * c.a, c.a);
+        float32_t c = drawGreatCircleArc(spherePos, pts, aaWidth, 0.003f);
+        color += float32_t4(hiddenEdgeColor * c, c);
     }
 
     return color;
@@ -128,7 +126,7 @@ float32_t4 drawCorner(float32_t3 cornerNDCPos, float32_t2 ndc, float32_t aaWidth
     // -------------------------------------------------
     // inner black dot for hidden corners
     // -------------------------------------------------
-    if (cornerNDCPos.z < 0.0f)
+    if (cornerNDCPos.z < 0.0f && innerDotSize > 0.0)
     {
         float32_t innerAlpha = 1.0f - smoothstep(innerDotSize - aaWidth,
                                                  innerDotSize + aaWidth,
@@ -191,23 +189,22 @@ float32_t arrowHead(float32_t2 ndc, float32_t2 tip, float32_t2 direction, float3
 }
 
 // Helper to draw an edge with proper color mapping
-float32_t4 drawEdge(uint32_t originalEdgeIdx, float32_t3 pts[2], float32_t3 spherePos, float32_t aaWidth, float32_t width = 0.01f)
+float32_t4 drawEdge(uint32_t originalEdgeIdx, float32_t3 pts[2], float32_t3 spherePos, float32_t aaWidth, float32_t width = 0.003f)
 {
     float32_t4 edgeContribution = drawGreatCircleArc(spherePos, pts, aaWidth, width);
     return float32_t4(colorLUT[originalEdgeIdx] * edgeContribution.a, edgeContribution.a);
 };
 
-float32_t4 drawCorners(float32_t3x4 modelMatrix, float32_t2 ndc, float32_t aaWidth)
+float32_t4 drawCorners(float32_t3x4 modelMatrix, float32_t2 ndc, float32_t aaWidth, float32_t dotSize)
 {
     float32_t4 color = float32_t4(0, 0, 0, 0);
 
-    float32_t dotSize = 0.02f;
     float32_t innerDotSize = dotSize * 0.5f;
 
     for (uint32_t i = 0; i < 8; i++)
     {
         float32_t3 cornerCirclePos = sphereToCircle(normalize(getVertex(modelMatrix, i)));
-        color += drawCorner(cornerCirclePos, ndc, aaWidth, dotSize, innerDotSize, colorLUT[i]);
+        color += drawCorner(cornerCirclePos, ndc, aaWidth, dotSize, 0.0, colorLUT[i]);
     }
 
     return color;

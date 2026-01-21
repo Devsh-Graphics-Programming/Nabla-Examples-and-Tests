@@ -1,7 +1,8 @@
 #ifndef GPU_COMMON_HLSL
 #define GPU_COMMON_HLSL
 
-static const float32_t CIRCLE_RADIUS = 0.5f;
+static const float32_t CIRCLE_RADIUS = 1.0f;
+static const float32_t INV_CIRCLE_RADIUS = 1.0f / CIRCLE_RADIUS;
 
 // --- Geometry Utils ---
 struct ClippedSilhouette
@@ -136,7 +137,7 @@ bool getVertexZNeg(float32_t3x4 modelMatrix, uint32_t vertexIdx)
         (vertexIdx & 2) ? 0.5f : -0.5f,
         (vertexIdx & 4) ? 0.5f : -0.5f);
 
-    float32_t transformedZ = dot(modelMatrix[2].xyz, localPos) + modelMatrix[2].w;
+    float32_t transformedZ = nbl::hlsl::dot(modelMatrix[2].xyz, localPos) + modelMatrix[2].w;
     return transformedZ < 0.0f;
 #else
     return corners[vertexIdx].z < 0.0f;

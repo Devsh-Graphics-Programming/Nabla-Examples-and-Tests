@@ -6,9 +6,9 @@
 using namespace nbl::hlsl;
 using namespace ext::FullScreenTriangle;
 
+#if DEBUG_DATA
 [[vk::binding(0, 0)]] RWStructuredBuffer<ResultData> DebugDataBuffer; // TODO: move below other includes
-
-#define VISUALIZE_SAMPLES 1
+#endif
 
 #include "utils.hlsl"
 #include "Drawing.hlsl"
@@ -120,10 +120,25 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
 #else
         computeSilhouette(pc.modelMatrix, vertexCount, sil, silhouette);
 #endif
-        // Draw clipped silhouette vertices
-        // color += drawClippedSilhouetteVertices(ndc, silhouette, aaWidth);
 
-        SamplingData samplingData = buildSamplingDataFromSilhouette(silhouette, pc.samplingMode);
+        SamplingData samplingData;
+        ParallelogramSilhouette paraSilhouette;
+        if (pc.samplingMode == SAMPLING_MODE::TRIANGLE_SOLID_ANGLE ||
+            pc.samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
+        {
+            samplingData = buildSamplingDataFromSilhouette(silhouette, pc.samplingMode);
+        }
+        else
+        {
+
+            paraSilhouette = buildParallelogram(silhouette
+#if VISUALIZE_SAMPLES
+                                                ,
+                                                ndc, spherePos, aaWidth, color
+#endif
+            );
+        }
+
 #if VISUALIZE_SAMPLES
 
         // For debugging: Draw a small indicator of which faces are found
@@ -131,27 +146,50 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
 
         // color += drawFaces(pc.modelMatrix, spherePos, aaWidth);
 
-        // Draw samples on sphere
-        color += visualizeSamples(vx.uv, spherePos, silhouette, pc.samplingMode, pc.frameIndex, samplingData, 64, DebugDataBuffer);
-
+        // Draw clipped silhouette vertices
+        // color += drawClippedSilhouetteVertices(ndc, silhouette, aaWidth);
         color += drawHiddenEdges(pc.modelMatrix, spherePos, silEdgeMask, aaWidth);
-        color += drawCorners(pc.modelMatrix, ndc, aaWidth);
+        // color += drawCorners(pc.modelMatrix, ndc, aaWidth, 0.05f);
         color += drawRing(ndc, aaWidth);
 
-        if (all(vx.uv >= float32_t2(0.49f, 0.49f)) && all(vx.uv <= float32_t2(0.51f, 0.51f)))
+        // Draw samples on sphere
+        color += visualizeSamples(vx.uv, spherePos, ndc, aaWidth, silhouette, pc.samplingMode, pc.frameIndex, samplingData, pc.sampleCount
+#if DEBUG_DATA
+                                  ,
+                                  DebugDataBuffer
+#endif
+        );
+
+        if (all(vx.uv >= float32_t2(0.f, 0.97f)) && all(vx.uv <= float32_t2(0.03f, 1.0f)))
         {
             return float32_t4(colorLUT[configIndex], 1.0f);
         }
 #else
-        nbl::hlsl::random::PCG32 seedGen = nbl::hlsl::random::PCG32::construct(65536u + i);
-        const uint32_t2 seeds = uint32_t2(seedGen(), seedGen());
-        nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(seeds);
-        float32_t2 xi = nextRandomUnorm2(rnd);
+        // Hash the invocation to offset the grid
+        uint32_t offset = 747796405u + 2891336453u;
+        uint32_t idx = (offset) & 63u; // Keep within 64 samples
+        float32_t2 xi = float32_t2(
+            (float32_t(idx & 7u) + 0.5) / 8.0f,
+            (float32_t(idx >> 3u) + 0.5) / 8.0f);
 
         float32_t pdf;
-        uint32_t triIdx;
-        float32_t3 sampleDir = sampleFromData(samplingData, silhouette, xi, pdf, triIdx);
-
+        uint32_t index = 0;
+        float32_t3 sampleDir;
+        if (pc.samplingMode == SAMPLING_MODE::TRIANGLE_SOLID_ANGLE ||
+            pc.samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
+        {
+            sampleDir = sampleFromData(samplingData, silhouette, xi, pdf, index);
+        }
+        else if (pc.samplingMode == SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE)
+        {
+            bool valid;
+            sampleDir = sampleFromParallelogram(paraSilhouette, xi, pdf, valid);
+            if (!valid)
+            {
+                pdf = 0.0f;
+                sampleDir = float32_t3(0, 0, 1);
+            }
+        }
         color += float4(sampleDir * 0.02f / pdf, 1.0f);
 #endif // VISUALIZE_SAMPLES
         setDebugData(sil, region, configIndex);

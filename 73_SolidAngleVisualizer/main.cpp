@@ -20,10 +20,12 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
 
 	inline static std::string SolidAngleVisShaderPath = "app_resources/hlsl/SolidAngleVis.frag.hlsl";
 	inline static std::string RayVisShaderPath = "app_resources/hlsl/RayVis.frag.hlsl";
+
 public:
 	inline SolidAngleVisualizer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-		device_base_t({ 2048,1024 }, EF_UNKNOWN, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
+		device_base_t({ 2048, 1024 }, EF_UNKNOWN, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
+	{
 	}
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -44,60 +46,48 @@ public:
 		{
 			if (!pool)
 				return logFail("Couldn't create Command Pool!");
-			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i,1 }))
+			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
 				return logFail("Couldn't create Command Buffer!");
 		}
 
 		const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
 		m_scene = CGeometryCreatorScene::create(
-			{
-				.transferQueue = getTransferUpQueue(),
-				.utilities = m_utils.get(),
-				.logger = m_logger.get(),
-				.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-			},
-			CSimpleDebugRenderer::DefaultPolygonGeometryPatch
-		);
+			{ .transferQueue = getTransferUpQueue(),
+			 .utilities = m_utils.get(),
+			 .logger = m_logger.get(),
+			 .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies },
+			CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
 
 		// for the scene drawing pass
 		{
 			IGPURenderpass::SCreationParams params = {};
 			const IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
-				{{
-					{
-						.format = sceneRenderDepthFormat,
-						.samples = IGPUImage::ESCF_1_BIT,
-						.mayAlias = false
-					},
-				/*.loadOp =*/ {IGPURenderpass::LOAD_OP::CLEAR},
-				/*.storeOp =*/ {IGPURenderpass::STORE_OP::STORE},
-				/*.initialLayout =*/ {IGPUImage::LAYOUT::UNDEFINED},
-				/*.finalLayout =*/ {IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
-			}},
-			IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
-			};
+				{{{.format = sceneRenderDepthFormat,
+				   .samples = IGPUImage::ESCF_1_BIT,
+				   .mayAlias = false},
+				   /*.loadOp =*/{IGPURenderpass::LOAD_OP::CLEAR},
+				   /*.storeOp =*/{IGPURenderpass::STORE_OP::STORE},
+				   /*.initialLayout =*/{IGPUImage::LAYOUT::UNDEFINED},
+				   /*.finalLayout =*/{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}},
+				 IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd };
 			params.depthStencilAttachments = depthAttachments;
 			const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
 				{{
-					{
-						.format = finalSceneRenderFormat,
-						.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
-						.mayAlias = false
-					},
-				/*.loadOp =*/ IGPURenderpass::LOAD_OP::CLEAR,
-				/*.storeOp =*/ IGPURenderpass::STORE_OP::STORE,
-				/*.initialLayout =*/ IGPUImage::LAYOUT::UNDEFINED,
-				/*.finalLayout =*/ IGPUImage::LAYOUT::READ_ONLY_OPTIMAL // ImGUI shall read
-			}},
-			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-			};
+					{.format = finalSceneRenderFormat,
+					 .samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+					 .mayAlias = false},
+					 /*.loadOp =*/IGPURenderpass::LOAD_OP::CLEAR,
+					 /*.storeOp =*/IGPURenderpass::STORE_OP::STORE,
+					 /*.initialLayout =*/IGPUImage::LAYOUT::UNDEFINED,
+					 /*.finalLayout =*/IGPUImage::LAYOUT::READ_ONLY_OPTIMAL // ImGUI shall read
+				 }},
+				 IGPURenderpass::SCreationParams::ColorAttachmentsEnd };
 			params.colorAttachments = colorAttachments;
 			IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
 				{},
-				IGPURenderpass::SCreationParams::SubpassesEnd
-			};
-			subpasses[0].depthStencilAttachment = { {.render = {.attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}} };
-			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} };
+				IGPURenderpass::SCreationParams::SubpassesEnd };
+			subpasses[0].depthStencilAttachment = { {.render = {.attachmentIndex = 0, .layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}} };
+			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0, .layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} };
 			params.subpasses = subpasses;
 
 			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
@@ -115,27 +105,21 @@ public:
 					// TODO: `COLOR_ATTACHMENT_OUTPUT_BIT` shouldn't be needed, because its a logically later stage, see TODO in `ECommonEnums.h`
 					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 					// because depth and color get cleared first no read mask
-					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-				// leave view offsets and flags default
-			},
-			{
-				.srcSubpass = 0,
-				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier = {
-					// last place where the color can get modified, depth is implicitly earlier
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// only write ops, reads can't be made available, also won't be using depth so don't care about it being visible to anyone else
-					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-					// the ImGUI will sample the color, then next frame we overwrite both attachments
-					.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT | PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-					// but we only care about the availability-visibility chain between renderpass and imgui 
-					.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
-				}
-				// leave view offsets and flags default
-			},
-			IGPURenderpass::SCreationParams::DependenciesEnd
-			};
+					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT}
+					// leave view offsets and flags default
+				},
+				{
+					.srcSubpass = 0, .dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External, .memoryBarrier = {// last place where the color can get modified, depth is implicitly earlier
+																																	.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+																																	// only write ops, reads can't be made available, also won't be using depth so don't care about it being visible to anyone else
+																																	.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+																																	// the ImGUI will sample the color, then next frame we overwrite both attachments
+																																	.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT | PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+																																	// but we only care about the availability-visibility chain between renderpass and imgui
+																																	.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT}
+																																	// leave view offsets and flags default
+																																},
+																																IGPURenderpass::SCreationParams::DependenciesEnd };
 			params.dependencies = dependencies;
 			auto solidAngleRenderpassParams = params;
 			m_mainRenderpass = m_device->createRenderpass(std::move(params));
@@ -145,11 +129,10 @@ public:
 			m_solidAngleRenderpass = m_device->createRenderpass(std::move(solidAngleRenderpassParams));
 			if (!m_solidAngleRenderpass)
 				return logFail("Failed to create Solid Angle Renderpass!");
-
 		}
 
 		const auto& geometries = m_scene->getInitParams().geometries;
-		m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), m_solidAngleRenderpass.get(), 0, { &geometries.front().get(),geometries.size() });
+		m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), m_solidAngleRenderpass.get(), 0, { &geometries.front().get(), geometries.size() });
 		// special case
 		{
 			const auto& pipelines = m_renderer->getInitParams().pipelines;
@@ -192,7 +175,7 @@ public:
 					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
 					options.spirvOptimizer = opt.get();
 #endif
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;// | IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_FILE_BIT | IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
 					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
@@ -226,39 +209,30 @@ public:
 
 			const IGPUPipelineBase::SShaderSpecInfo solidAngleFragSpec = {
 				.shader = solidAngleVisFragShader.get(),
-				.entryPoint = "main"
-			};
+				.entryPoint = "main" };
 
 			auto rayVisFragShader = loadAndCompileHLSLShader(RayVisShaderPath, ESS_FRAGMENT);
 			if (!rayVisFragShader)
 				return logFail("Failed to Load and Compile Fragment Shader: rayVis!");
 			const IGPUPipelineBase::SShaderSpecInfo RayFragSpec = {
 				.shader = rayVisFragShader.get(),
-				.entryPoint = "main"
-			};
+				.entryPoint = "main" };
 
 			smart_refctd_ptr<IGPUPipelineLayout> solidAngleVisLayout, rayVisLayout;
 			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
-				{
-					.binding = 0,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = ShaderStage::ESS_FRAGMENT,
-					.count = 1
-				}
-			};
+				{.binding = 0,
+				 .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+				 .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				 .stageFlags = ShaderStage::ESS_FRAGMENT,
+				 .count = 1} };
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
 
-			const asset::SPushConstantRange saRanges[] = { {
-				.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
-				.offset = 0,
-				.size = sizeof(PushConstants)
-			} };
-			const asset::SPushConstantRange rayRanges[] = { {
-				.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
-				.offset = 0,
-				.size = sizeof(PushConstantRayVis)
-			} };
+			const asset::SPushConstantRange saRanges[] = { {.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
+														   .offset = 0,
+														   .size = sizeof(PushConstants)} };
+			const asset::SPushConstantRange rayRanges[] = { {.stageFlags = hlsl::ShaderStage::ESS_FRAGMENT,
+															.offset = 0,
+															.size = sizeof(PushConstantRayVis)} };
 
 			if (!dsLayout)
 				logFail("Failed to create a Descriptor Layout!\n");
@@ -301,21 +275,20 @@ public:
 					logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
 				assert(m_outputStorageBuffer->getBoundMemory().memory == m_allocation.memory.get());
-				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(), 1 });
 
 				m_ds = pool->createDescriptorSet(std::move(dsLayout));
 				{
 					IGPUDescriptorSet::SDescriptorInfo info[1];
 					info[0].desc = smart_refctd_ptr(m_outputStorageBuffer);
-					info[0].info.buffer = { .offset = 0,.size = BufferSize };
+					info[0].info.buffer = { .offset = 0, .size = BufferSize };
 					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-						{.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
-					};
+						{.dstSet = m_ds.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = info} };
 					m_device->updateDescriptorSets(writes, {});
 				}
 			}
 
-			if (!m_allocation.memory->map({ 0ull,m_allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+			if (!m_allocation.memory->map({ 0ull, m_allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
 				logFail("Failed to map the Device Memory!\n");
 
 			// if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
@@ -328,8 +301,8 @@ public:
 		{
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			ext::imgui::UI::SCreationParameters params = {};
-			params.resources.texturesInfo = { .setIx = 0u,.bindingIx = TexturesImGUIBindingIndex };
-			params.resources.samplersInfo = { .setIx = 0u,.bindingIx = 1u };
+			params.resources.texturesInfo = { .setIx = 0u, .bindingIx = TexturesImGUIBindingIndex };
+			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 			params.utilities = m_utils;
 			params.transfer = getTransferUpQueue();
 			params.pipelineLayout = ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, MaxImGUITextures);
@@ -349,7 +322,7 @@ public:
 			{
 				// note that we use default layout provided by our extension, but you are free to create your own by filling ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* layout = interface.imGUI->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, { &layout,1 });
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, { &layout, 1 });
 				auto ds = pool->createDescriptorSet(smart_refctd_ptr<const IGPUDescriptorSetLayout>(layout));
 				interface.subAllocDS = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
 				if (!interface.subAllocDS)
@@ -369,12 +342,12 @@ public:
 					.binding = TexturesImGUIBindingIndex,
 					.arrayElement = ext::imgui::UI::FontAtlasTexId,
 					.count = 1,
-					.info = &info
-				};
-				if (!m_device->updateDescriptorSets({ &write,1 }, {}))
+					.info = &info };
+				if (!m_device->updateDescriptorSets({ &write, 1 }, {}))
 					return logFail("Failed to write the descriptor set");
 			}
-			imgui->registerListener([this]() {interface(); });
+			imgui->registerListener([this]()
+				{ interface(); });
 		}
 
 		interface.camera.mapKeysToWASD();
@@ -411,16 +384,13 @@ public:
 		auto* const cb = m_cmdBufs.data()[resourceIx].get();
 		cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-		// clear to black for both things
-		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+
 		if (m_solidAngleViewFramebuffer)
 		{
-			asset::SBufferRange<IGPUBuffer> range
-			{
+			asset::SBufferRange<IGPUBuffer> range{
 				.offset = 0,
 				.size = m_outputStorageBuffer->getSize(),
-				.buffer = m_outputStorageBuffer
-			};
+				.buffer = m_outputStorageBuffer };
 			cb->fillBuffer(range, 0u);
 			{
 
@@ -428,16 +398,15 @@ public:
 				cb->beginDebugMarker("Draw Circle View Frame");
 				{
 					const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f, 0.f, 0.f, 1.f} };
 					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
 					{
 						.framebuffer = m_solidAngleViewFramebuffer.get(),
 						.colorClearValues = &clearValue,
 						.depthStencilClearValues = &farValue,
 						.renderArea = {
-							.offset = {0,0},
-							.extent = {creationParams.width, creationParams.height}
-						}
-					};
+							.offset = {0, 0},
+							.extent = {creationParams.width, creationParams.height}} };
 					beginRenderpass(cb, renderpassInfo);
 				}
 				// draw scene
@@ -446,10 +415,10 @@ public:
 					lastFrameSeed = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : lastFrameSeed;
 					PushConstants pc{
 						.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-						.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
+						.viewport = {0.f, 0.f, static_cast<float>(creationParams.width), static_cast<float>(creationParams.height)},
 						.samplingMode = m_samplingMode,
-						.frameIndex = lastFrameSeed
-					};
+						.sampleCount = static_cast<uint32_t>(m_SampleCount),
+						.frameIndex = lastFrameSeed };
 					auto pipeline = m_solidAngleVisPipeline;
 					cb->bindGraphicsPipeline(pipeline.get());
 					cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
@@ -471,19 +440,16 @@ public:
 			{
 				auto creationParams = m_mainViewFramebuffer->getCreationParameters();
 				const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
+				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.1f, 0.1f, 0.1f, 1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
-
 				{
 					.framebuffer = m_mainViewFramebuffer.get(),
 					.colorClearValues = &clearValue,
 					.depthStencilClearValues = &farValue,
 					.renderArea = {
-						.offset = {0,0},
-						.extent = {creationParams.width, creationParams.height}
-					}
-				};
+						.offset = {0, 0},
+						.extent = {creationParams.width, creationParams.height}} };
 				beginRenderpass(cb, renderpassInfo);
-
 			}
 			{ // draw rays visualization
 				auto creationParams = m_mainViewFramebuffer->getCreationParameters();
@@ -492,12 +458,13 @@ public:
 				// draw scene
 				{
 					float32_t4x4 viewProj = *reinterpret_cast<const float32_t4x4*>(&interface.camera.getConcatenatedMatrix());
+					float32_t3x4 view = *reinterpret_cast<const float32_t3x4*>(&interface.camera.getViewMatrix());
 					PushConstantRayVis pc{
 						.viewProjMatrix = viewProj,
+						.viewMatrix = view,
 						.modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-						.viewport = { 0.f,0.f,static_cast<float>(creationParams.width),static_cast<float>(creationParams.height) },
-						.frameIndex = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u
-					};
+						.viewport = {0.f, 0.f, static_cast<float>(creationParams.width), static_cast<float>(creationParams.height)},
+						.frameIndex = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u };
 					auto pipeline = m_rayVisualizationPipeline;
 					cb->bindGraphicsPipeline(pipeline.get());
 					cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_FRAGMENT, 0, sizeof(pc), &pc);
@@ -524,7 +491,7 @@ public:
 				auto& instance = m_renderer->m_instances[0];
 				instance.world = float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix));
 				instance.packedGeo = m_renderer->getGeometries().data(); // cube // +interface.gcIndex;
-				m_renderer->render(cb, viewParams); // draw the cube/OBB
+				m_renderer->render(cb, viewParams);						 // draw the cube/OBB
 
 				instance.world = float32_t3x4(1.0f);
 				instance.packedGeo = m_renderer->getGeometries().data() + 2; // disk
@@ -539,16 +506,15 @@ public:
 			cb->beginDebugMarker("SolidAngleVisualizer IMGUI Frame");
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f, 0.f, 0.f, 1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
 				{
 					.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
 					.colorClearValues = &clearValue,
 					.depthStencilClearValues = nullptr,
 					.renderArea = {
-						.offset = {0,0},
-						.extent = {m_window->getWidth(),m_window->getHeight()}
-					}
-				};
+						.offset = {0, 0},
+						.extent = {m_window->getWidth(), m_window->getHeight()}} };
 				beginRenderpass(cb, renderpassInfo);
 			}
 			// draw ImGUI
@@ -560,7 +526,7 @@ public:
 				const auto* ds = interface.subAllocDS->getDescriptorSet();
 				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), imgui->getCreationParameters().resources.texturesInfo.setIx, 1u, &ds);
 				// a timepoint in the future to release streaming resources for geometry
-				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 				if (!imgui->render(cb, drawFinished))
 				{
 					m_logger->log("TODO: need to present acquired image before bailing because its already acquired.", ILogger::ELL_ERROR);
@@ -576,34 +542,25 @@ public:
 		{
 			.semaphore = m_semaphore.get(),
 			.value = ++m_realFrameIx,
-			.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
-		};
+			.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS };
 		const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
 		{
-			{.cmdbuf = cb }
-		};
+			{.cmdbuf = cb} };
 		const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = {
-			{
-				.semaphore = device_base_t::getCurrentAcquire().semaphore,
-				.value = device_base_t::getCurrentAcquire().acquireCount,
-				.stageMask = PIPELINE_STAGE_FLAGS::NONE
-			}
-		};
+			{.semaphore = device_base_t::getCurrentAcquire().semaphore,
+			 .value = device_base_t::getCurrentAcquire().acquireCount,
+			 .stageMask = PIPELINE_STAGE_FLAGS::NONE} };
 		const IQueue::SSubmitInfo infos[] =
 		{
-			{
-				.waitSemaphores = acquired,
-				.commandBuffers = commandBuffers,
-				.signalSemaphores = {&retval,1}
-			}
-		};
+			{.waitSemaphores = acquired,
+			 .commandBuffers = commandBuffers,
+			 .signalSemaphores = {&retval, 1}} };
 
 		if (getGraphicsQueue()->submit(infos) != IQueue::RESULT::SUCCESS)
 		{
 			retval.semaphore = nullptr; // so that we don't wait on semaphore that will never signal
 			m_realFrameIx--;
 		}
-
 
 		m_window->setCaption("[Nabla Engine] UI App Test Demo");
 		return retval;
@@ -619,19 +576,16 @@ protected:
 				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 				.dstSubpass = 0,
 				.memoryBarrier = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // should sync against the semaphore wait anyway 
+					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // should sync against the semaphore wait anyway
 					.srcAccessMask = ACCESS_FLAGS::NONE,
 					// layout transition needs to finish before the color write
 					.dstStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					.dstAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-			// leave view offsets and flags default
-			},
+					.dstAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT}
+					// leave view offsets and flags default
+				},
 			// want layout transition to begin after all color output is done
 			{
-				.srcSubpass = 0,
-				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier = {
+				.srcSubpass = 0, .dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External, .memoryBarrier = {
 				// last place where the color can get modified, depth is implicitly earlier
 				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 				// only write ops, reads can't be made available
@@ -640,8 +594,7 @@ protected:
 			}
 			// leave view offsets and flags default
 		},
-		IGPURenderpass::SCreationParams::DependenciesEnd
-		};
+		IGPURenderpass::SCreationParams::DependenciesEnd };
 		return dependencies;
 	}
 
@@ -667,7 +620,7 @@ private:
 		// I think begin/end should always be called on camera, just events shouldn't be fed, why?
 		// If you stop begin/end, whatever keys were up/down get their up/down values frozen leading to
 		// `perActionDt` becoming obnoxiously large the first time the even processing resumes due to
-		// `timeDiff` being computed since `lastVirtualUpTimeStamp` 
+		// `timeDiff` being computed since `lastVirtualUpTimeStamp`
 		camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
@@ -690,10 +643,8 @@ private:
 						//	interface.gcIndex += int16_t(core::sign(e.scrollEvent.verticalScroll));
 						//	interface.gcIndex = core::clamp(interface.gcIndex, 0ull, m_renderer->getGeometries().size() - 1);
 						//}
-					}
-				},
-				m_logger.get()
-			);
+					} },
+				m_logger.get());
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
 					if (interface.move)
@@ -706,10 +657,8 @@ private:
 
 						previousEventTimestamp = e.timeStamp;
 						uiEvents.keyboard.emplace_back(e);
-					}
-				},
-				m_logger.get()
-			);
+					} },
+				m_logger.get());
 		}
 		camera.endInputProcessing(nextPresentationTimestamp);
 
@@ -717,37 +666,33 @@ private:
 
 		ext::imgui::UI::SUpdateParameters params =
 		{
-			.mousePosition = float32_t2(cursorPosition.x,cursorPosition.y) - float32_t2(m_window->getX(),m_window->getY()),
-			.displaySize = {m_window->getWidth(),m_window->getHeight()},
+			.mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY()),
+			.displaySize = {m_window->getWidth(), m_window->getHeight()},
 			.mouseEvents = uiEvents.mouse,
-			.keyboardEvents = uiEvents.keyboard
-		};
+			.keyboardEvents = uiEvents.keyboard };
 
-		//interface.objectName = m_scene->getInitParams().geometryNames[interface.gcIndex];
+		// interface.objectName = m_scene->getInitParams().geometryNames[interface.gcIndex];
 		interface.imGUI->update(params);
 	}
 
 	void recreateFramebuffers()
 	{
 
-		auto createImageAndView = [&](const uint16_t2 resolution, E_FORMAT format)->smart_refctd_ptr<IGPUImageView>
+		auto createImageAndView = [&](const uint16_t2 resolution, E_FORMAT format) -> smart_refctd_ptr<IGPUImageView>
 			{
-				auto image = m_device->createImage({ {
-					.type = IGPUImage::ET_2D,
-					.samples = IGPUImage::ESCF_1_BIT,
-					.format = format,
-					.extent = {resolution.x,resolution.y,1},
-					.mipLevels = 1,
-					.arrayLayers = 1,
-					.usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT
-				} });
+				auto image = m_device->createImage({ {.type = IGPUImage::ET_2D,
+													 .samples = IGPUImage::ESCF_1_BIT,
+													 .format = format,
+													 .extent = {resolution.x, resolution.y, 1},
+													 .mipLevels = 1,
+													 .arrayLayers = 1,
+													 .usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT} });
 				if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
 					return nullptr;
 				IGPUImageView::SCreationParams params = {
 					.image = std::move(image),
 					.viewType = IGPUImageView::ET_2D,
-					.format = format
-				};
+					.format = format };
 				params.subresourceRange.aspectMask = isDepthOrStencilFormat(format) ? IGPUImage::EAF_DEPTH_BIT : IGPUImage::EAF_COLOR_BIT;
 				return m_device->createImageView(std::move(params));
 			};
@@ -763,23 +708,19 @@ private:
 		{
 			solidAngleView = createImageAndView(solidAngleViewRes, finalSceneRenderFormat);
 			auto solidAngleDepthView = createImageAndView(solidAngleViewRes, sceneRenderDepthFormat);
-			m_solidAngleViewFramebuffer = m_device->createFramebuffer({ {
-				.renderpass = m_solidAngleRenderpass,
-				.depthStencilAttachments = &solidAngleDepthView.get(),
-				.colorAttachments = &solidAngleView.get(),
-				.width = solidAngleViewRes.x,
-				.height = solidAngleViewRes.y
-			} });
+			m_solidAngleViewFramebuffer = m_device->createFramebuffer({ {.renderpass = m_solidAngleRenderpass,
+																		.depthStencilAttachments = &solidAngleDepthView.get(),
+																		.colorAttachments = &solidAngleView.get(),
+																		.width = solidAngleViewRes.x,
+																		.height = solidAngleViewRes.y} });
 
 			mainView = createImageAndView(mainViewRes, finalSceneRenderFormat);
 			auto mainDepthView = createImageAndView(mainViewRes, sceneRenderDepthFormat);
-			m_mainViewFramebuffer = m_device->createFramebuffer({ {
-					.renderpass = m_mainRenderpass,
-					.depthStencilAttachments = &mainDepthView.get(),
-					.colorAttachments = &mainView.get(),
-					.width = mainViewRes.x,
-					.height = mainViewRes.y
-				} });
+			m_mainViewFramebuffer = m_device->createFramebuffer({ {.renderpass = m_mainRenderpass,
+																  .depthStencilAttachments = &mainDepthView.get(),
+																  .colorAttachments = &mainView.get(),
+																  .width = mainViewRes.x,
+																  .height = mainViewRes.y} });
 		}
 		else
 		{
@@ -788,7 +729,7 @@ private:
 		}
 
 		// release previous slot and its image
-		interface.subAllocDS->multi_deallocate(0, static_cast<int>(CInterface::Count), interface.renderColorViewDescIndices, { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1 });
+		interface.subAllocDS->multi_deallocate(0, static_cast<int>(CInterface::Count), interface.renderColorViewDescIndices, { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1 });
 		//
 		if (solidAngleView && mainView)
 		{
@@ -801,19 +742,15 @@ private:
 			infos[1].info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
 			const IGPUDescriptorSet::SWriteDescriptorSet write[static_cast<int>(CInterface::Count)] = {
 				{.dstSet = interface.subAllocDS->getDescriptorSet(),
-				.binding = TexturesImGUIBindingIndex,
-				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_MAIN_VIEW)],
-				.count = 1,
-				.info = &infos[static_cast<int>(CInterface::ERV_MAIN_VIEW)]
-				},
-				{
-				.dstSet = interface.subAllocDS->getDescriptorSet(),
-				.binding = TexturesImGUIBindingIndex,
-				.arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)],
-				.count = 1,
-				.info = &infos[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)]
-				}
-			};
+				 .binding = TexturesImGUIBindingIndex,
+				 .arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_MAIN_VIEW)],
+				 .count = 1,
+				 .info = &infos[static_cast<int>(CInterface::ERV_MAIN_VIEW)]},
+				{.dstSet = interface.subAllocDS->getDescriptorSet(),
+				 .binding = TexturesImGUIBindingIndex,
+				 .arrayElement = interface.renderColorViewDescIndices[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)],
+				 .count = 1,
+				 .info = &infos[static_cast<int>(CInterface::ERV_SOLID_ANGLE_VIEW)]} };
 			m_device->updateDescriptorSets({ write, static_cast<int>(CInterface::Count) }, {});
 		}
 		interface.transformParams.sceneTexDescIx = interface.renderColorViewDescIndices[CInterface::ERV_MAIN_VIEW];
@@ -827,8 +764,7 @@ private:
 			.x = 0,
 			.y = 0,
 			.width = static_cast<float>(info.renderArea.extent.width),
-			.height = static_cast<float>(info.renderArea.extent.height)
-		};
+			.height = static_cast<float>(info.renderArea.extent.height) };
 		cb->setViewport(0u, 1u, &viewport);
 	}
 
@@ -845,7 +781,8 @@ private:
 	// we create the Descriptor Set with a few slots extra to spare, so we don't have to `waitIdle` the device whenever ImGUI virtual window resizes
 	constexpr static inline auto MaxImGUITextures = 2u + MaxFramesInFlight;
 
-	static inline uint32_t m_samplingMode = SAMPLING_MODE_SOLID_ANGLE;
+	static inline SAMPLING_MODE m_samplingMode = SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE;
+	static inline int m_SampleCount = 64;
 	static inline bool m_frameSeeding = true;
 	static inline ResultData m_GPUOutResulData;
 	//
@@ -895,8 +832,7 @@ private:
 							projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
 					}
 
-					return projection;
-				}());
+					return projection; }());
 
 			ImGuizmo::SetOrthographic(!isPerspective);
 			ImGuizmo::BeginFrame();
@@ -918,18 +854,28 @@ private:
 			}
 			ImGui::Separator();
 
-			ImGui::Text("Sampling Mode: ");
+			ImGui::Text("Sampling Mode:");
 			ImGui::SameLine();
 
-			if (ImGui::RadioButton("Solid Angle", m_samplingMode == 0))
-				m_samplingMode = SAMPLING_MODE_SOLID_ANGLE;
+			const char* samplingModes[] =
+			{
+				"Triangle Solid Angle",
+				"Triangle Projected Solid Angle",
+				"Parallelogram Projected Solid Angle"
+			};
 
-			ImGui::SameLine();
+			int currentMode = static_cast<int>(m_samplingMode);
 
-			if (ImGui::RadioButton("Projected Solid Angle", m_samplingMode == 1))
-				m_samplingMode = SAMPLING_MODE_PROJECTED_SOLID_ANGLE;
+			if (ImGui::Combo("##SamplingMode", &currentMode, samplingModes, IM_ARRAYSIZE(samplingModes)))
+			{
+				m_samplingMode = static_cast<SAMPLING_MODE>(currentMode);
+			}
+
+
 
 			ImGui::Checkbox("Frame seeding", &m_frameSeeding);
+
+			ImGui::SliderInt("Sample Count", &m_SampleCount, 0, 512);
 
 			ImGui::Separator();
 
@@ -952,7 +898,7 @@ private:
 				isPerspective = false;
 
 			ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
-			//ImGui::Checkbox("Enable camera movement", &move);
+			// ImGui::Checkbox("Enable camera movement", &move);
 			ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 			ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 
@@ -965,7 +911,6 @@ private:
 
 			ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 			ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-
 
 			if (firstFrame)
 			{
@@ -1057,16 +1002,16 @@ private:
 
 				ImGuizmo::SetID(0u);
 
-				// TODO: camera will return hlsl::float32_tMxN 
+				// TODO: camera will return hlsl::float32_tMxN
 				auto view = *reinterpret_cast<const float32_t3x4*>(camera.getViewMatrix().pointer());
 				imguizmoM16InOut.view = hlsl::transpose(getMatrix3x4As4x4(view));
 
-				// TODO: camera will return hlsl::float32_tMxN 
+				// TODO: camera will return hlsl::float32_tMxN
 				imguizmoM16InOut.projection = hlsl::transpose(*reinterpret_cast<const float32_t4x4*>(camera.getProjectionMatrix().pointer()));
 				ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
 
-				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
-					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+				if (flipGizmoY)								   // note we allow to flip gizmo just to match our coordinates
+					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 
 				transformParams.editTransformDecomposition = true;
 				mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
@@ -1121,8 +1066,7 @@ private:
 								fieldName,
 								ImVec4(c.r, c.g, c.b, 1.0f),
 								0,
-								ImVec2(20, 20)
-							);
+								ImVec2(20, 20));
 
 							ImGui::SameLine();
 							ImGui::Text("%s", colorNames[index]);
@@ -1140,9 +1084,8 @@ private:
 								drawColorField(":", m_GPUOutResulData.vertices[i]);
 								ImGui::SameLine();
 								static const float32_t3 constCorners[8] = {
-									float32_t3(-1, -1, -1), float32_t3(1, -1, -1), float32_t3(-1,  1, -1), float32_t3(1,  1, -1),
-									float32_t3(-1, -1,  1), float32_t3(1, -1,  1), float32_t3(-1,  1,  1), float32_t3(1,  1,  1)
-								};
+									float32_t3(-1, -1, -1), float32_t3(1, -1, -1), float32_t3(-1, 1, -1), float32_t3(1, 1, -1),
+									float32_t3(-1, -1, 1), float32_t3(1, -1, 1), float32_t3(-1, 1, 1), float32_t3(1, 1, 1) };
 								float32_t3 vertexLocation = constCorners[m_GPUOutResulData.vertices[i]];
 								ImGui::Text(" : (%.3f, %.3f, %.3f", vertexLocation.x, vertexLocation.y, vertexLocation.z);
 							}
@@ -1154,13 +1097,10 @@ private:
 									"<unused>",
 									ImVec4(0.0f, 0.0f, 0.0f, 0.0f),
 									0,
-									ImVec2(20, 20)
-								);
+									ImVec2(20, 20));
 								ImGui::SameLine();
 								ImGui::Text("<unused>");
-
 							}
-
 						}
 					}
 
@@ -1178,8 +1118,24 @@ private:
 					ImGui::Text("silhouette Vertex Count: %u", m_GPUOutResulData.silhouetteVertexCount);
 					ImGui::Text("silhouette Positive VertexCount: %u", m_GPUOutResulData.positiveVertCount);
 					ImGui::Text("Silhouette Mismatch: %s", m_GPUOutResulData.edgeVisibilityMismatch ? "true" : "false");
+					ImGui::Separator();
 					ImGui::Text("Max triangles exceeded: %s", m_GPUOutResulData.maxTrianglesExceeded ? "true" : "false");
 					ImGui::Text("spherical lune detected: %s", m_GPUOutResulData.sphericalLuneDetected ? "true" : "false");
+					ImGui::Separator();
+					//ImGui::Text("Sampling outside the silhouette: %s", m_GPUOutResulData.sampleOutsideSilhouette ? "true" : "false");
+					ImGui::Text("Parallelogram does not bound: %s", m_GPUOutResulData.parallelogramDoesNotBound ? "true" : "false");
+					ImGui::Text("Parallelogram vertices inside: %s", m_GPUOutResulData.parallelogramVerticesInside ? "true" : "false");
+					ImGui::Text("Parallelogram edges inside: %s", m_GPUOutResulData.parallelogramEdgesInside ? "true" : "false");
+					ImGui::Text("Parallelogram area: %.3f", m_GPUOutResulData.parallelogramArea);
+					ImGui::Text("Failed vertex index: %u", m_GPUOutResulData.failedVertexIndex);
+					ImGui::Text("Failed vertex UV: (%.3f, %.3f)", m_GPUOutResulData.failedVertexUV.x, m_GPUOutResulData.failedVertexUV.y);
+					ImGui::Text("Failed edge index: %u", m_GPUOutResulData.failedEdgeIndex);
+					ImGui::Text("Failed edge sample: %u", m_GPUOutResulData.failedEdgeSample);
+					ImGui::Text("Failed edge UV: (%.3f, %.3f)", m_GPUOutResulData.failedEdgeUV.x, m_GPUOutResulData.failedEdgeUV.y);
+					ImGui::Text("Failed point 3D: (%.3f, %.3f, %.3f)", m_GPUOutResulData.failedPoint.x, m_GPUOutResulData.failedPoint.y, m_GPUOutResulData.failedPoint.z);
+					for (uint32_t i = 0; i < 8; i++)
+						ImGui::Text("edge is convex: %s", m_GPUOutResulData.edgeIsConvex[i] ? "true" : "false");
+					ImGui::Separator();
 
 					{
 						float32_t3 xAxis = m_OBBModelMatrix[0].xyz;
@@ -1205,7 +1161,7 @@ private:
 					if (m_GPUOutResulData.silhouetteIndex != lastSilhouetteIndex)
 					{
 						modalShown = false;
-						modalDismissed = false;  // Allow modal to show again for new configuration
+						modalDismissed = false; // Allow modal to show again for new configuration
 						lastSilhouetteIndex = m_GPUOutResulData.silhouetteIndex;
 					}
 
@@ -1217,7 +1173,7 @@ private:
 					}
 
 					// Open modal only if not already shown/dismissed
-					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.maxTrianglesExceeded || m_GPUOutResulData.sphericalLuneDetected) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown && !modalDismissed)  // Don't reopen if user dismissed it
+					if ((m_GPUOutResulData.edgeVisibilityMismatch || m_GPUOutResulData.maxTrianglesExceeded || m_GPUOutResulData.sphericalLuneDetected) && m_GPUOutResulData.silhouetteIndex != 13 && !modalShown && !modalDismissed) // Don't reopen if user dismissed it
 					{
 						ImGui::OpenPopup("Edge Visibility Mismatch Warning");
 						modalShown = true;
@@ -1250,7 +1206,7 @@ private:
 						{
 							ImGui::CloseCurrentPopup();
 							modalShown = false;
-							modalDismissed = true;  // Mark as dismissed to prevent reopening
+							modalDismissed = true; // Mark as dismissed to prevent reopening
 						}
 						ImGui::EndPopup();
 					}
@@ -1283,7 +1239,6 @@ private:
 					ImGui::Separator();
 
 					// Silhouette mask printed in binary
-
 
 					auto printBin = [](uint32_t bin, const char* name)
 						{
@@ -1347,7 +1302,8 @@ private:
 				{
 					lastTRS = m_TRS; // Backup before randomizing
 					int attempts = 0;
-					do {
+					do
+					{
 						m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
 						attempts++;
 					} while (!isCubeOutsideUnitSphere(m_TRS.translation, m_TRS.scale) && attempts < 100);
@@ -1363,17 +1319,19 @@ private:
 				{
 					lastTRS = m_TRS; // Backup before randomizing
 					int attempts = 0;
-					do {
+					do
+					{
 						m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
 						attempts++;
 					} while (!isCubeOutsideUnitSphere(m_TRS.translation, m_TRS.scale) && attempts < 100);
 				}
-				//ImGui::SameLine();
+				// ImGui::SameLine();
 				if (ImGui::Button("Randomize All"))
 				{
 					lastTRS = m_TRS; // Backup before randomizing
 					int attempts = 0;
-					do {
+					do
+					{
 						m_TRS.translation = float32_t3(rng.nextFloat(-3.f, 3.f), rng.nextFloat(-3.f, 3.f), rng.nextFloat(-1.f, 3.f));
 						m_TRS.rotation = float32_t3(rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f), rng.nextFloat(-180.f, 180.f));
 						m_TRS.scale = float32_t3(rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f), rng.nextFloat(0.5f, 2.0f));
@@ -1399,9 +1357,9 @@ private:
 			{
 				auto* streaminingBuffer = imGUI->getStreamingBuffer();
 
-				const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-				const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
-				const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
+				const size_t total = streaminingBuffer->get_total_size();						  // total memory range size for which allocation can be requested
+				const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size(); // max total free bloock memory size we can still allocate from total memory available
+				const size_t consumedMemory = total - freeSize;									  // memory currently consumed by streaming buffer
 
 				float freePercentage = 100.0f * (float)(freeSize) / (float)total;
 				float allocatedPercentage = (float)(consumedMemory) / (float)total;
@@ -1420,11 +1378,11 @@ private:
 				ImGui::SetCursorPosX(windowPadding);
 
 				if (freePercentage > 70.0f)
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
+					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f)); // Green
 				else if (freePercentage > 30.0f)
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
+					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f)); // Yellow
 				else
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
+					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f)); // Red
 
 				ImGui::ProgressBar(allocatedPercentage, barSize, "");
 
@@ -1440,19 +1398,15 @@ private:
 				snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
 
 				ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
-				ImVec2 textPos = ImVec2
-				(
+				ImVec2 textPos = ImVec2(
 					progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
-					progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
-				);
+					progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f);
 
 				ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-				drawList->AddRectFilled
-				(
+				drawList->AddRectFilled(
 					ImVec2(textPos.x - 5, textPos.y - 2),
 					ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
-					ImGui::GetColorU32(bgColor)
-				);
+					ImGui::GetColorU32(bgColor));
 
 				ImGui::SetCursorScreenPos(textPos);
 				ImGui::Text("%s", textBuffer);
@@ -1483,12 +1437,12 @@ private:
 		struct TRS // Source of truth
 		{
 			float32_t3 translation{ 0.0f, 0.0f, 1.5f };
-			float32_t3 rotation{ 0.0f };  // MUST stay orthonormal
+			float32_t3 rotation{ 0.0f }; // MUST stay orthonormal
 			float32_t3 scale{ 1.0f };
 		} m_TRS;
 		float32_t4x4 m_OBBModelMatrix; // always overwritten from TRS
 
-		//std::string_view objectName;
+		// std::string_view objectName;
 		TransformRequestParams transformParams;
 		TransformReturnInfo mainViewTransformReturnInfo;
 		TransformReturnInfo solidAngleViewTransformReturnInfo;
@@ -1499,7 +1453,7 @@ private:
 
 		float fov = 90.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
-		//uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+		// uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = true;
 		bool firstFrame = true;
 
@@ -1516,7 +1470,7 @@ private:
 			// setting up pipeline in the constructor
 			m_queueFamily = base.getComputeQueue()->getFamilyIndex();
 			m_cmdpool = base.m_device->createCommandPool(m_queueFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			//core::smart_refctd_ptr<IGPUCommandBuffer>* cmdBuffs[] = { &m_cmdbuf, &m_timestampBeforeCmdBuff, &m_timestampAfterCmdBuff };
+			// core::smart_refctd_ptr<IGPUCommandBuffer>* cmdBuffs[] = { &m_cmdbuf, &m_timestampBeforeCmdBuff, &m_timestampAfterCmdBuff };
 			if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
 				base.logFail("Failed to create Command Buffers!\n");
 			if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampBeforeCmdBuff))
@@ -1550,25 +1504,19 @@ private:
 					base.logFail("Failed to load precompiled \"benchmark\" shader!\n");
 
 				nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
-					{
-						.binding = 0,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = ShaderStage::ESS_COMPUTE,
-						.count = 1
-					}
-				};
+					{.binding = 0,
+					 .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					 .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					 .stageFlags = ShaderStage::ESS_COMPUTE,
+					 .count = 1} };
 				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = base.m_device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
 					base.logFail("Failed to create a Descriptor Layout!\n");
 
 				SPushConstantRange pushConstantRanges[] = {
-					{
-						.stageFlags = ShaderStage::ESS_COMPUTE,
-						.offset = 0,
-						.size = sizeof(BenchmarkPushConstants)
-					}
-				};
+					{.stageFlags = ShaderStage::ESS_COMPUTE,
+					 .offset = 0,
+					 .size = sizeof(BenchmarkPushConstants)} };
 				m_pplnLayout = base.m_device->createPipelineLayout(pushConstantRanges, smart_refctd_ptr(dsLayout));
 				if (!m_pplnLayout)
 					base.logFail("Failed to create a Pipeline Layout!\n");
@@ -1578,7 +1526,7 @@ private:
 					params.layout = m_pplnLayout.get();
 					params.shader.entryPoint = "main";
 					params.shader.shader = shader.get();
-					if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
+					if (!base.m_device->createComputePipelines(nullptr, { &params, 1 }, &m_pipeline))
 						base.logFail("Failed to create pipelines (compile & link shaders)!\n");
 				}
 
@@ -1603,16 +1551,15 @@ private:
 						base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
 					assert(dummyBuff->getBoundMemory().memory == m_allocation.memory.get());
-					smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+					smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(), 1 });
 
 					m_ds = pool->createDescriptorSet(std::move(dsLayout));
 					{
 						IGPUDescriptorSet::SDescriptorInfo info[1];
 						info[0].desc = smart_refctd_ptr(dummyBuff);
-						info[0].info.buffer = { .offset = 0,.size = BufferSize };
+						info[0].info.buffer = { .offset = 0, .size = BufferSize };
 						IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-							{.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
-						};
+							{.dstSet = m_ds.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = info} };
 						base.m_device->updateDescriptorSets(writes, {});
 					}
 				}
@@ -1630,15 +1577,20 @@ private:
 		void run()
 		{
 			m_logger->log("\n\nsampling benchmark result:", ILogger::ELL_PERFORMANCE);
-			m_logger->log("sampling benchmark, triangle solid angle result:", ILogger::ELL_PERFORMANCE);
-			performBenchmark(SAMPLING_BENCHMARK_MODE::TRIANGLE_SOLID_ANGLE, SAMPLING_MODE_SOLID_ANGLE);
 
-			m_logger->log("sampling benchmark, triangle projected solid angle result:", ILogger::ELL_PERFORMANCE);
-			performBenchmark(SAMPLING_BENCHMARK_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE, SAMPLING_MODE_PROJECTED_SOLID_ANGLE);
+			m_logger->log("sampling benchmark, parallelogram projected solid angle result:", ILogger::ELL_PERFORMANCE);
+			performBenchmark(SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE);
+
+			m_logger->log("sampling benchmark, triangle solid angle result:", ILogger::ELL_PERFORMANCE);
+			performBenchmark(SAMPLING_MODE::TRIANGLE_SOLID_ANGLE);
+
+			//m_logger->log("sampling benchmark, triangle projected solid angle result:", ILogger::ELL_PERFORMANCE);
+			//performBenchmark(SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE);
+
 		}
 
 	private:
-		void performBenchmark(SAMPLING_BENCHMARK_MODE mode, uint32_t solidAngleMode)
+		void performBenchmark(SAMPLING_MODE mode)
 		{
 			m_device->waitIdle();
 
@@ -1648,7 +1600,7 @@ private:
 			smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(semaphoreCounter);
 
 			IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
-			IQueue::SSubmitInfo::SSemaphoreInfo waits[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT } };
+			IQueue::SSubmitInfo::SSemaphoreInfo waits[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
 
 			IQueue::SSubmitInfo beforeTimestapSubmitInfo[1] = {};
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsBegin[] = { {.cmdbuf = m_timestampBeforeCmdBuff.get()} };
@@ -1668,15 +1620,14 @@ private:
 			benchmarkSubmitInfos[0].signalSemaphores = signals;
 			benchmarkSubmitInfos[0].waitSemaphores = waits;
 
-
 			m_pushConstants.benchmarkMode = mode;
-			m_pushConstants.samplingMode = solidAngleMode;
 			m_pushConstants.modelMatrix = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
 			recordCmdBuff();
 
 			// warmup runs
 			for (int i = 0; i < WarmupIterations; ++i)
 			{
+
 				if (i == 0)
 					m_api->startCapture();
 				waits[0].value = semaphoreCounter;
@@ -1776,8 +1727,8 @@ private:
 		static constexpr int Iterations = 1;
 	};
 
-	template<typename... Args>
-	inline bool logFail(const char* msg, Args&&... args)
+	template <typename... Args>
+	inline bool logFail(const char* msg, Args &&...args)
 	{
 		m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
 		return false;
@@ -1785,6 +1736,5 @@ private:
 
 	std::ofstream m_logFile;
 };
-
 
 NBL_MAIN_FUNC(SolidAngleVisualizer)

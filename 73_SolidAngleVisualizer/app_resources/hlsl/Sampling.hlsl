@@ -2,17 +2,15 @@
 #define _SAMPLING_HLSL_
 
 // Include the spherical triangle utilities
-#include <gpu_common.hlsl>
+#include "gpu_common.hlsl"
+#include "parallelogram_sampling.hlsl"
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
-#include "nbl/builtin/hlsl/random/pcg.hlsl"
-#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include <nbl/builtin/hlsl/random/pcg.hlsl>
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 
 using namespace nbl::hlsl;
-// Sampling mode enum
-#define SAMPLING_MODE_SOLID_ANGLE 0
-#define SAMPLING_MODE_PROJECTED_SOLID_ANGLE 1
 
 // Maximum number of triangles we can have after clipping
 // Without clipping, max 3 faces can be visible at once so 3 faces * 2 triangles = 6 edges, forming max 4 triangles
@@ -59,9 +57,9 @@ float32_t computeProjectedSolidAngleFallback(float32_t3 v0, float32_t3 v1, float
     n2 /= l2;
 
     // 3. Get arc lengths (angles in radians)
-    float32_t a = asin(clamp(l0, -1.0, 1.0)); // side v0-v1
-    float32_t b = asin(clamp(l1, -1.0, 1.0)); // side v1-v2
-    float32_t c = asin(clamp(l2, -1.0, 1.0)); // side v2-v0
+    float32_t a = asin(clamp(l0, -1.0f, 1.0f)); // side v0-v1
+    float32_t b = asin(clamp(l1, -1.0f, 1.0f)); // side v1-v2
+    float32_t c = asin(clamp(l2, -1.0f, 1.0f)); // side v2-v0
 
     // Handle acos/asin quadrant if dot product is negative
     if (dot(v0, v1) < 0)
@@ -94,7 +92,7 @@ SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, uint3
     const float32_t3 origin = float32_t3(0, 0, 0);
 
     // Compute face normal ONCE before the loop - silhouette is planar!
-    if (samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
+    if (samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
     {
         float32_t3 v1 = silhouette.vertices[1];
         float32_t3 v2 = silhouette.vertices[2];
@@ -116,7 +114,7 @@ SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, uint3
 
         // Calculate triangle solid angle
         float32_t solidAngle;
-        if (samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
+        if (samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
         {
             // scalar_type projectedSolidAngleOfTriangle(const vector3_type receiverNormal, NBL_REF_ARG(vector3_type) cos_sides, NBL_REF_ARG(vector3_type) csc_sides, NBL_REF_ARG(vector3_type) cos_vertices)
             float32_t3 cos_vertices = clamp(
@@ -141,7 +139,7 @@ SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, uint3
         data.count++;
     }
 
-#ifdef DEBUG_DATA
+#if DEBUG_DATA
     // Validate no antipodal edges exist (would create spherical lune)
     for (uint32_t i = 0; i < silhouette.count; i++)
     {
@@ -156,13 +154,6 @@ SamplingData buildSamplingDataFromSilhouette(ClippedSilhouette silhouette, uint3
         }
     }
     DebugDataBuffer[0].maxTrianglesExceeded = (data.count > MAX_TRIANGLES);
-
-    DebugDataBuffer[0].clippedSilhouetteVertexCount = silhouette.count;
-    for (uint32_t v = 0; v < silhouette.count; v++)
-    {
-        DebugDataBuffer[0].clippedSilhouetteVertices[v] = silhouette.vertices[v];
-    }
-
     DebugDataBuffer[0].triangleCount = data.count;
     DebugDataBuffer[0].totalSolidAngles = data.totalWeight;
     for (uint32_t tri = 0; tri < data.count; tri++)
@@ -214,7 +205,7 @@ float32_t3 sampleFromData(SamplingData data, ClippedSilhouette silhouette, float
     float32_t3 v1 = silhouette.vertices[vertexIdx];
     float32_t3 v2 = silhouette.vertices[vertexIdx + 1];
 
-	float32_t3 faceNormal = normalize(cross(v1 - v0, v2 - v0));
+    float32_t3 faceNormal = normalize(cross(v1 - v0, v2 - v0));
 
     float32_t3 origin = float32_t3(0, 0, 0);
 
@@ -232,7 +223,7 @@ float32_t3 sampleFromData(SamplingData data, ClippedSilhouette silhouette, float
     float32_t3 direction;
     float32_t rcpPdf;
 
-    if (data.samplingMode == SAMPLING_MODE_PROJECTED_SOLID_ANGLE)
+    if (data.samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
     {
         sampling::ProjectedSphericalTriangle<float32_t> samplingTri =
             sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri);
@@ -277,8 +268,12 @@ float32_t3 sampleFromData(SamplingData data, ClippedSilhouette silhouette, float
 
 #if VISUALIZE_SAMPLES
 
-float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSilhouette silhouette,
-                            uint32_t samplingMode, uint32_t frameIndex, SamplingData samplingData, uint32_t numSamples, inout RWStructuredBuffer<ResultData> DebugDataBuffer)
+float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, float32_t2 ndc, float32_t aaWidth, ClippedSilhouette silhouette, SAMPLING_MODE samplingMode, uint32_t frameIndex, SamplingData samplingData, uint32_t numSamples
+#if DEBUG_DATA
+                            ,
+                            inout RWStructuredBuffer<ResultData> DebugDataBuffer
+#endif
+)
 {
     float32_t4 accumColor = 0;
 
@@ -289,27 +284,49 @@ float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSi
     float32_t2 pssPos = float32_t2(0.01, 0.01); // Offset from corner
     bool isInsidePSS = all(and(screenUV >= pssPos, screenUV <= (pssPos + pssSize)));
 
+    ParallelogramSilhouette paraSilhouette = buildParallelogram(silhouette, ndc, spherePos, aaWidth, accumColor);
+
+#if DEBUG_DATA
     DebugDataBuffer[0].sampleCount = numSamples;
+#endif
     for (uint32_t i = 0; i < numSamples; i++)
     {
-        nbl::hlsl::random::PCG32 seedGen = nbl::hlsl::random::PCG32::construct(frameIndex * 65536u + i);
-        const uint32_t seed1 = seedGen();
-        const uint32_t seed2 = seedGen();
-        nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
-        float32_t2 xi = nextRandomUnorm2(rnd);
+
+        // Hash the invocation to offset the grid
+        uint32_t offset = i * 747796405u + 2891336453u;
+        uint32_t idx = (offset) & 63u; // Keep within 64 samples
+        float32_t2 xi = float32_t2(
+            (float32_t(idx & 7u) + 0.5) / 8.0f,
+            (float32_t(idx >> 3u) + 0.5) / 8.0f);
 
         float32_t pdf;
-        uint32_t triIdx;
-        float32_t3 sampleDir = sampleFromData(samplingData, silhouette, xi, pdf, triIdx);
-
+        uint32_t index = 0;
+        float32_t3 sampleDir;
+        if (samplingMode == SAMPLING_MODE::TRIANGLE_SOLID_ANGLE ||
+            samplingMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
+        {
+            sampleDir = sampleFromData(samplingData, silhouette, xi, pdf, index);
+        }
+        else if (samplingMode == SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE)
+        {
+            bool valid;
+            sampleDir = sampleFromParallelogram(paraSilhouette, xi, pdf, valid);
+            if (!valid)
+            {
+                pdf = 0.0f;
+                sampleDir = float32_t3(0, 0, 1);
+            }
+        }
+#if DEBUG_DATA
         DebugDataBuffer[0].rayData[i] = float32_t4(sampleDir, pdf);
+#endif
 
         float32_t dist3D = distance(sampleDir, normalize(spherePos));
         float32_t alpha3D = 1.0f - smoothstep(0.0f, 0.02f, dist3D);
 
         if (alpha3D > 0.0f && !isInsidePSS)
         {
-            float32_t3 sampleColor = colorLUT[triIdx].rgb;
+            float32_t3 sampleColor = colorLUT[index].rgb;
             accumColor += float32_t4(sampleColor * alpha3D, alpha3D);
         }
 
@@ -322,7 +339,7 @@ float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSi
             float32_t alpha2D = drawCross2D(screenUV, xiPixelPos, 0.005f, 0.001f);
             if (alpha2D > 0.0f)
             {
-                float32_t3 sampleColor = colorLUT[triIdx].rgb;
+                float32_t3 sampleColor = colorLUT[index].rgb;
                 accumColor += float32_t4(sampleColor * alpha2D, alpha2D);
             }
         }
@@ -334,5 +351,5 @@ float32_t4 visualizeSamples(float32_t2 screenUV, float32_t3 spherePos, ClippedSi
 
     return accumColor;
 }
-#endif
-#endif
+#endif // VISUALIZE_SAMPLES
+#endif // _SAMPLING_HLSL_
