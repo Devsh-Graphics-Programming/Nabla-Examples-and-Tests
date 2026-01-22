@@ -1,9 +1,5 @@
 #include <nbl/builtin/hlsl/rwmc/resolve.hlsl>
 #include "resolve_common.hlsl"
-#include "rwmc_global_settings_common.hlsl"
-#ifdef PERSISTENT_WORKGROUPS
-#include "nbl/builtin/hlsl/morton.hlsl"
-#endif
 
 [[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;

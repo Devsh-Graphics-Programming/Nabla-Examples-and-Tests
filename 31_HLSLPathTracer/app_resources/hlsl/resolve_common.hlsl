@@ -11,5 +11,6 @@ struct ResolvePushConstants
 
 NBL_CONSTEXPR uint32_t ResolveWorkgroupSizeX = 32u;
 NBL_CONSTEXPR uint32_t ResolveWorkgroupSizeY = 16u;
+NBL_CONSTEXPR uint32_t CascadeCount = 6u;
 
 #endif

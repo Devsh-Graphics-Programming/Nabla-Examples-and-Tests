@@ -14,8 +14,8 @@
 // #define TRIANGLE_LIGHT
 // #define RECTANGLE_LIGHT
 
-#include <render_common.hlsl>
-#include <rwmc_global_settings_common.hlsl>
+#include "render_common.hlsl"
+#include "resolve_common.hlsl"
 
 #ifdef RWMC_ENABLED
 #include <nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl>
@@ -99,7 +99,7 @@ using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
 using bxdfnode_type = BxDFNode<spectral_t>;
 using scene_type = Scene<LIGHT_TYPE>;
-using randgen_type = RandGen::Uniform3D<Xoroshiro64Star>;
+using randgen_type = RandGen::UniformND<Xoroshiro64Star,3>;
 using raygen_type = RayGen::Basic<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
@@ -219,7 +219,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up path tracer
     pathtracer_type pathtracer;
-    pathtracer.randGen = randgen_type::construct(scramblebuf[coords].rg);     // TODO concept this create
+    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg);
 
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);

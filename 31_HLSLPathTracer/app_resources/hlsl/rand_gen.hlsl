@@ -4,36 +4,15 @@
 namespace RandGen
 {
 
-template<typename RNG>
-struct Uniform1D
+template<typename RNG, uint16_t N>
+struct UniformND
 {
     using rng_type = RNG;
-    using return_type = uint32_t;
+    using return_type = vector<uint32_t, N>;
 
-    static Uniform1D<RNG> construct(uint32_t2 seed)
+    static UniformND<RNG,N> create(uint32_t2 seed)
     {
-        Uniform1D<RNG> retval;
-        retval.rng = rng_type::construct(seed);
-        return retval;
-    }
-
-    return_type operator()()
-    {
-        return rng();
-    }
-
-    rng_type rng;
-};
-
-template<typename RNG>
-struct Uniform3D
-{
-    using rng_type = RNG;
-    using return_type = uint32_t3;
-
-    static Uniform3D<RNG> construct(uint32_t2 seed)
-    {
-        Uniform3D<RNG> retval;
+        UniformND<RNG,N> retval;
         retval.rng = rng_type::construct(seed);
         return retval;
     }
