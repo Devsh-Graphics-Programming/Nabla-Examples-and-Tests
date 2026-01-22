@@ -8,7 +8,6 @@
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
@@ -35,17 +34,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			//ELG_TRIANGLE,
-			//ELG_RECTANGLE,
+			ELG_TRIANGLE,
+			ELG_RECTANGLE,
 			ELG_COUNT
-		};
-
-		enum E_RENDER_MODE : uint8_t
-		{
-			ERM_GLSL,
-			ERM_HLSL,
-			// ERM_CHECKERED,
-			ERM_COUNT
 		};
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
@@ -54,29 +45,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
-		    "app_resources/glsl/litBySphere.comp",
-		    //"app_resources/glsl/litByTriangle.comp",
-		    //"app_resources/glsl/litByRectangle.comp"
-		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    //"TRIANGLE_LIGHT",
-		    //"RECTANGLE_LIGHT"
+		    "TRIANGLE_LIGHT",
+		    "RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			//"ELG_TRIANGLE",
-			//"ELG_RECTANGLE"
-		};
-
-		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
-			"ERM_GLSL",
-			"ERM_HLSL"
+			"ELG_TRIANGLE",
+			"ELG_RECTANGLE"
 		};
 
 	public:
@@ -312,54 +293,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
-				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.workingDirectory = localInputCWD;
-					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-					{
-						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
-					// The down-cast should not fail!
-					assert(source);
-
-					auto compiler = make_smart_refctd_ptr<asset::CGLSLCompiler>(smart_refctd_ptr(m_system));
-					CGLSLCompiler::SOptions options = {};
-					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
-					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-					options.preprocessorOptions.logger = m_logger.get();
-					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-
-					const IShaderCompiler::SMacroDefinition persistentDefine = { "PERSISTENT_WORKGROUPS", "1" };
-					if (persistentWorkGroups)
-						options.preprocessorOptions.extraDefines = { &persistentDefine, &persistentDefine + 1 };
-
-					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
-
-					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
-					if (!shader)
-					{
-						m_logger->log("GLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					return shader;
-				};
-
 				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
@@ -1010,6 +943,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGuiIO& io = ImGui::GetIO();
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
+					ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
 
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
 					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, zNear, zFar));
@@ -1035,7 +969,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::Combo("Render Mode", &renderMode, shaderTypes, E_RENDER_MODE::ERM_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
 					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
 					ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
@@ -1062,8 +995,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGuizmo::SetID(0u);
 
-					imguizmoM16InOut.view = math::linalg::promoted_mul(float32_t4x4(), m_camera.getViewMatrix());
-					imguizmoM16InOut.projection = m_camera.getProjectionMatrix();
+					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(), m_camera.getViewMatrix()));
+					imguizmoM16InOut.projection = hlsl::transpose(m_camera.getProjectionMatrix());
+					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 					m_transformParams.editTransformDecomposition = true;
 					m_transformParams.sceneTexDescIx = 1u;
@@ -1176,12 +1110,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!keepRunning())
 				return;
 
-			if (renderMode != E_RENDER_MODE::ERM_HLSL)
-			{
-				m_logger->log("Only HLSL render mode is supported.", ILogger::ELL_ERROR);
-				std::exit(-1);
-			}
-
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 
 			// safe to proceed
@@ -1189,6 +1117,33 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
+			auto updatePathtracerPushConstants = [&]() -> void {
+				// disregard surface/swapchain transformation for now
+				const float32_t4x4 viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+				const float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
+
+				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
+				const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
+
+				if (useRWMC)
+				{
+					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
+					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+					rwmcPushConstants.renderPushConstants.depth = depth;
+					rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
+					rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
+				}
+				else
+				{
+					pc.invMVP = invMVP;
+					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+					pc.sampleCount = spp;
+					pc.depth = depth;
+					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				}
+			};
 			updatePathtracerPushConstants();
 
 			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1295,12 +1250,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// resolve
 			if(useRWMC)
 			{
-				if (renderMode != E_RENDER_MODE::ERM_HLSL)
-				{
-					m_logger->log("RWMC is only supported with HLSL.", ILogger::ELL_ERROR);
-					std::exit(-1);
-				}
-
 				// TODO: shouldn't it be computed only at initialization stage and on window resize?
 				// Round up division
 				const uint32_t2 dispatchSize = uint32_t2(
@@ -1540,55 +1489,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		}
 	
 	private:
-		void updatePathtracerPushConstants()
-		{
-			// disregard surface/swapchain transformation for now
-			const float32_t4x4 viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-			const float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
-
-			const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
-			const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
-
-			if (useRWMC)
-			{
-				rwmcPushConstants.renderPushConstants.invMVP = invMVP;
-				rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-				rwmcPushConstants.renderPushConstants.depth = depth;
-				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
-				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-				float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
-				rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
-			}
-			else
-			{
-				pc.invMVP = invMVP;
-				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-				pc.sampleCount = spp;
-				pc.depth = depth;
-				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-			}
-		}
-
 		IGPUComputePipeline* pickPTPipeline()
 		{
 			IGPUComputePipeline* pipeline;
 			if (useRWMC)
-			{
-				if (renderMode != E_RENDER_MODE::ERM_HLSL)
-				{
-					m_logger->log("RWMC is only supported with HLSL.", ILogger::ELL_ERROR);
-					std::exit(-1);
-				}
-
 				pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[PTPipeline].get() : m_PTHLSLPipelinesRWMC[PTPipeline].get();
-			}
 			else
-			{
-				if (usePersistentWorkGroups)
-					pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPersistentWGPipelines[PTPipeline].get() : m_PTGLSLPersistentWGPipelines[PTPipeline].get();
-				else
-					pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
-			}
+				pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelines[PTPipeline].get() : m_PTHLSLPipelines[PTPipeline].get();
 
 			return pipeline;
 		}
@@ -1599,9 +1506,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelines;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPersistentWGPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelinesRWMC;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelinesRWMC;
@@ -1655,7 +1560,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;
 		float rwmcMinReliableLuma;
