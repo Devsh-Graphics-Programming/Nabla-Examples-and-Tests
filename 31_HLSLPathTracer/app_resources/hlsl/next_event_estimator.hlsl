@@ -253,8 +253,11 @@ struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE>
         matrix<scalar_type, 3, 3> rectNormalBasis;
         vector<T, 2> rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
-        shapes::SphericalRectangle<scalar_type> sphR0 = shapes::SphericalRectangle<scalar_type>::create(ray.origin, rect.offset, rectNormalBasis);
-        scalar_type solidAngle = sphR0.solidAngle(rectExtents);
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
+        scalar_type solidAngle = sphR0.solidAngle(ray.origin);
         if (solidAngle > numeric_limits<scalar_type>::min)
             pdf = 1.f / solidAngle;
         else
@@ -271,12 +274,15 @@ struct ShapeSampling<T, PST_RECTANGLE, path_tracing::PPM_SOLID_ANGLE>
         matrix<scalar_type, 3, 3> rectNormalBasis;
         vector<T, 2> rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
-        shapes::SphericalRectangle<scalar_type> sphR0 = shapes::SphericalRectangle<scalar_type>::create(origin, rect.offset, rectNormalBasis);
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
         vector3_type L = hlsl::promote<vector3_type>(0.0);
-        scalar_type solidAngle = sphR0.solidAngle(rectExtents);
+        scalar_type solidAngle = sphR0.solidAngle(origin);
 
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0);
-        vector<T, 2> sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
+        vector<T, 2> sphUv = ssph.generate(origin, xi.xy, solidAngle);
         if (solidAngle > numeric_limits<scalar_type>::min)
         {
             vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
