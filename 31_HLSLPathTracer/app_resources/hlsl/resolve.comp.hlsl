@@ -56,7 +56,5 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
 
-    //float32_t3 color = rwmc::reweight<ResolveAccessorAdaptor<float> >(pc.resolveParameters, cascade, coords);
-
     outImage[uint3(coords.x, coords.y, 0)] = float32_t4(color, 1.0f);
 }

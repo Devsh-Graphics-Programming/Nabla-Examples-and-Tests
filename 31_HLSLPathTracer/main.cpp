@@ -12,7 +12,6 @@
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
-#include "app_resources/hlsl/rwmc_global_settings_common.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -1099,8 +1098,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
-			//m_api->startCapture();
-
 			// CPU events
 			update();
 
@@ -1117,6 +1114,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
+			RenderRWMCPushConstants rwmcPushConstants;
+			RenderPushConstants pc;
 			auto updatePathtracerPushConstants = [&]() -> void {
 				// disregard surface/swapchain transformation for now
 				const float32_t4x4 viewProjectionMatrix = m_camera.getConcatenatedMatrix();
@@ -1130,10 +1129,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+					rwmcPushConstants.renderPushConstants.sampleCount = spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-					float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
-					rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
+					rwmcPushConstants.setSplattingParams(rwmcBase, rwmcStart);
 				}
 				else
 				{
@@ -1259,6 +1257,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
+				ResolvePushConstants resolvePushConstants;
 				resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
 
 				cmdbuf->bindComputePipeline(pipeline);
@@ -1381,8 +1380,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						updateGUIDescriptorSet();
 
+						m_api->startCapture();
 						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
 							m_realFrameIx--;
+						m_api->endCapture();
 					}
 				}
 
@@ -1568,9 +1569,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		float rwmcBase;
 		bool usePersistentWorkGroups = false;
 		bool useRWMC = false;
-		RenderRWMCPushConstants rwmcPushConstants;
-		RenderPushConstants pc;
-		ResolvePushConstants resolvePushConstants;
 
 		hlsl::float32_t4x4 m_lightModelMatrix = {
 			0.3f, 0.0f, 0.0f, 0.0f,
