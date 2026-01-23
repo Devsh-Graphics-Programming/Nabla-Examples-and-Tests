@@ -1,5 +1,5 @@
-#ifndef _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
-#define _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
+#ifndef _PATHTRACER_EXAMPLE_INTERSECTOR_INCLUDED_
+#define _PATHTRACER_EXAMPLE_INTERSECTOR_INCLUDED_
 
 #include "example_common.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>

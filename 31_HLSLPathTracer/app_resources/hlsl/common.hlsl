@@ -36,13 +36,6 @@ struct Tolerance
     }
 };
 
-enum PTPolygonMethod : uint16_t
-{
-    PPM_AREA,
-    PPM_SOLID_ANGLE,
-    PPM_APPROX_PROJECTED_SOLID_ANGLE
-};
-
 }
 }
 }

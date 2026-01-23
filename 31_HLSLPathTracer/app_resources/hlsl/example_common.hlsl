@@ -1,5 +1,5 @@
-#ifndef _NBL_HLSL_PATHTRACING_EXAMPLE_COMMON_INCLUDED_
-#define _NBL_HLSL_PATHTRACING_EXAMPLE_COMMON_INCLUDED_
+#ifndef _PATHTRACER_EXAMPLE_EXAMPLE_COMMON_INCLUDED_
+#define _PATHTRACER_EXAMPLE_EXAMPLE_COMMON_INCLUDED_
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/shapes/spherical_triangle.hlsl"
@@ -40,6 +40,13 @@ struct Payload
     // #ifdef KILL_DIFFUSE_SPECULAR_PATHS
     // bool hasDiffuse;
     // #endif
+};
+
+enum PTPolygonMethod : uint16_t
+{
+    PPM_AREA,
+    PPM_SOLID_ANGLE,
+    PPM_APPROX_PROJECTED_SOLID_ANGLE
 };
 
 struct ObjectID

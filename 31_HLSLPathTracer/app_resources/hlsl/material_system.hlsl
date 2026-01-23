@@ -1,5 +1,5 @@
-#ifndef _NBL_HLSL_EXT_MATERIAL_SYSTEM_INCLUDED_
-#define _NBL_HLSL_EXT_MATERIAL_SYSTEM_INCLUDED_
+#ifndef _PATHTRACER_EXAMPLE_MATERIAL_SYSTEM_INCLUDED_
+#define _PATHTRACER_EXAMPLE_MATERIAL_SYSTEM_INCLUDED_
 
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>

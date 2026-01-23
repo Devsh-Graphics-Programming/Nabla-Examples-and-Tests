@@ -1,5 +1,5 @@
-#ifndef _NBL_HLSL_EXT_RAYGEN_INCLUDED_
-#define _NBL_HLSL_EXT_RAYGEN_INCLUDED_
+#ifndef _PATHTRACER_EXAMPLE_RAYGEN_INCLUDED_
+#define _PATHTRACER_EXAMPLE_RAYGEN_INCLUDED_
 
 #include <nbl/builtin/hlsl/sampling/box_muller_transform.hlsl>
 

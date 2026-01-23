@@ -59,6 +59,7 @@ struct Unidirectional
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
         sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + (address + i) * sizeof(sequence_type));
         return tmpSeq.template decode<float32_t>(randGen());
+        // return sampling::decode<uint32_t2,3>(tmpSeq,randGen());
     }
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
@@ -194,7 +195,7 @@ struct Unidirectional
             // trace new ray
             ray.origin = intersection + bxdfSample * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
             ray.direction = bxdfSample;
-            if ((PTPolygonMethod)nee_type::PolygonMethod == PPM_APPROX_PROJECTED_SOLID_ANGLE)
+            if (nee_type::IsPolygonMethodProjectedSolidAngle)
             {
                 ray.normalAtOrigin = interaction.getN();
                 ray.wasBSDFAtOrigin = isBSDF;
