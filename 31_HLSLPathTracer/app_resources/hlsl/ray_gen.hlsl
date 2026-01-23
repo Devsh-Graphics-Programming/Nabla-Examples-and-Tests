@@ -3,7 +3,7 @@
 
 #include <nbl/builtin/hlsl/sampling/box_muller_transform.hlsl>
 
-#include "common.hlsl"
+#include "example_common.hlsl"
 
 namespace RayGen
 {

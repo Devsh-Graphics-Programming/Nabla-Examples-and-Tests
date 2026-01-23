@@ -378,7 +378,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         rayL.setDirection(sampleL);
         sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
-        newRayMaxT *= path_tracing::Tolerance<scalar_type>::getEnd(depth);
+        newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(lightCount);
         spectral_type quo = light.radiance / pdf;
         quotient_pdf = quotient_pdf_type::create(quo, pdf);

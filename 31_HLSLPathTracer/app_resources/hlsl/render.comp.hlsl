@@ -9,6 +9,8 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 
+#include "nbl/builtin/hlsl/path_tracing/unidirectional.hlsl"
+
 // add these defines (one at a time) using -D argument to dxc
 // #define SPHERE_LIGHT
 // #define TRIANGLE_LIGHT
@@ -44,8 +46,6 @@
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"
-#include "accumulator.hlsl"
-#include "pathtracer.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -108,7 +108,8 @@ using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, 
 #ifdef RWMC_ENABLED
 using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
 #else
-using accumulator_type = Accumulator::DefaultAccumulator<float32_t3>;
+#include "nbl/builtin/hlsl/path_tracing/default_accumulator.hlsl"
+using accumulator_type = path_tracing::DefaultAccumulator<float32_t3>;
 #endif
 
 using pathtracer_type = path_tracing::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;

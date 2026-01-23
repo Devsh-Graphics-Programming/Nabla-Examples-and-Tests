@@ -1,7 +1,7 @@
 #ifndef _PATHTRACER_EXAMPLE_SCENE_INCLUDED_
 #define _PATHTRACER_EXAMPLE_SCENE_INCLUDED_
 
-#include "common.hlsl"
+// #include "common.hlsl"
 #include "example_common.hlsl"
 
 using namespace nbl;

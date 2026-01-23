@@ -7,7 +7,6 @@
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
-#include "common.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -114,6 +113,28 @@ struct Light
     ObjectID objectID;
 };
 
+template<typename T>
+struct Tolerance
+{
+    NBL_CONSTEXPR_STATIC_INLINE T INTERSECTION_ERROR_BOUND_LOG2 = -8.0;
+
+    static T __common(uint32_t depth)
+    {
+        T depthRcp = 1.0 / T(depth);
+        return INTERSECTION_ERROR_BOUND_LOG2;
+    }
+
+    static T getStart(uint32_t depth)
+    {
+        return nbl::hlsl::exp2(__common(depth));
+    }
+
+    static T getEnd(uint32_t depth)
+    {
+        return 1.0 - nbl::hlsl::exp2(__common(depth) + 1.0);
+    }
+};
+
 template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)
 struct SBxDFCreationParams
 {
@@ -122,7 +143,7 @@ struct SBxDFCreationParams
     Spectrum ior0;          // source ior
     Spectrum ior1;          // destination ior
     Spectrum iork;          // destination iork (for iridescent only)
-    Scalar eta;             // in most cases, eta will be calculated from ior0 and ior1; see monochromeEta in pathtracer.hlsl
+    Scalar eta;             // in most cases, eta will be calculated from ior0 and ior1; see monochromeEta in path_tracing/unidirectional.hlsl
 };
 
 template<class Spectrum>
