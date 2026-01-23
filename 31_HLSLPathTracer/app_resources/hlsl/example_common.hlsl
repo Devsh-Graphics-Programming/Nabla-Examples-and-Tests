@@ -84,6 +84,16 @@ struct Ray
     ObjectID objectID;
 
     Payload<T> payload;
+
+    void initPayload()
+    {
+        payload.accumulation = hlsl::promote<vector3_type>(0.0);
+        payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
+        payload.throughput = hlsl::promote<vector3_type>(1.0);
+        // #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+        // hasDiffuse = false;
+        // #endif
+    }
 };
 
 template<class Spectrum>

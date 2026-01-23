@@ -9,6 +9,7 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 
+#include "nbl/builtin/hlsl/path_tracing/basic_ray_gen.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/unidirectional.hlsl"
 
 // add these defines (one at a time) using -D argument to dxc
@@ -42,7 +43,6 @@
 #include "example_common.hlsl"
 #include "scene.hlsl"
 #include "rand_gen.hlsl"
-#include "ray_gen.hlsl"
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"
@@ -100,7 +100,7 @@ using light_type = Light<spectral_t>;
 using bxdfnode_type = BxDFNode<spectral_t>;
 using scene_type = Scene<LIGHT_TYPE>;
 using randgen_type = RandGen::UniformND<Xoroshiro64Star,3>;
-using raygen_type = RayGen::Basic<ray_type>;
+using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
@@ -235,7 +235,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     }
     
     scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
-    pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, renderPushConstants.invMVP);
+    pathtracer.rayGen.pixOffsetParam = pixOffsetParam; 
+    pathtracer.rayGen.camPos = camPos;
+    pathtracer.rayGen.NDC = NDC;
+    pathtracer.rayGen.invMVP = renderPushConstants.invMVP;
     pathtracer.nee.lights = lights;
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
