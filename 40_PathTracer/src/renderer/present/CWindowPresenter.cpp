@@ -139,16 +139,45 @@ bool CWindowPresenter::init(CRenderer* renderer)
 		}
 	}
 
+	//
+	ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_creation.assMan.get(),device,logger.get().get());
+	if (!fsTriProtoPPln)
+	{
+		logger.log("`CWindowPresenter::create` failed to create Full Screen Triangle protopipeline or load its vertex shader!",ILogger::ELL_ERROR);
+		return false;
+	}
+
 	// present pipeline layout
+	smart_refctd_ptr<IGPUPipelineLayout> layout;
 	{
-		//
+		const SPushConstantRange pcRange[] = {
+			{.stageFlags=ShaderStage::ESS_FRAGMENT,.offset=0,.size=sizeof(m_pushConstants)}
+		};
+		if (!(layout=device->createPipelineLayout(pcRange,renderer->getConstructionParams().sensorDSLayout)))
+		{
+			logger.log("`CWindowPresenter::create` failed to create Pipeline Layout!",ILogger::ELL_ERROR);
+			return false;
+		}
 	}
 
-	// present pipelines
+	// present pipeline
+	if (auto shader=renderer->loadPrecompiledShader<"present_default">(m_creation.assMan.get(),device,logger.get().get()); shader)
 	{
+		const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+			.shader = shader.get(),
+			.entryPoint = "present_default",
+		};
+		m_present = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),getRenderpass());
+		if (!m_present)
+			logger.log("`CWindowPresenter::create` failed to create Graphics Pipeline!",ILogger::ELL_ERROR);
+	}
+	else
+	{
+		logger.log("`CWindowPresenter::create` failed to load shader!",ILogger::ELL_ERROR);
+		return false;
 	}
 
-	return true;
+	return bool(m_present);
 }
 
 auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSession* session) -> clock_t::time_point
@@ -160,7 +189,7 @@ auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSess
 	m_pushConstants.isCubemap = sessionParams.type==CSession::sensor_type_e::Env;
 
 	const auto maxResolution = m_construction.maxResolution;
-	uint16_t2 targetResolution = m_pushConstants.isCubemap ? sessionParams.cropResolution:maxResolution;
+	uint16_t2 targetResolution = m_pushConstants.isCubemap ? maxResolution:sessionParams.cropResolution;
 	const auto aspectRatio = double(targetResolution.x)/double(targetResolution.y);
 	if (m_pushConstants.isCubemap)
 	{

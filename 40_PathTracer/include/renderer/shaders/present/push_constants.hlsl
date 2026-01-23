@@ -12,7 +12,7 @@ namespace this_example
 {
 using namespace nbl::hlsl;
 	
-struct DefaultResolvePushConstants
+struct SDefaultResolvePushConstants
 {
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ImageCount = 16;
 

@@ -101,6 +101,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			{
 				const_cast<std::remove_reference_t<decltype(m_presenter)>&>(m_presenter) = CWindowPresenter::create({
 					{
+						.assMan = m_assetMgr,
 						.winMgr = m_winMgr,
 						.logger = smart_refctd_ptr(m_logger)
 					},
@@ -127,10 +128,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			if (!m_args.headless)
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
-			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
 			printGitInfos();
@@ -211,14 +212,13 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				m_api->startCapture();
 
 				const auto* const session = m_resolver->getActiveSession();
-				m_presenter->acquire({},session);
 				{
 					auto cb = m_renderer->getConstructionParams().commandBuffers[0].get();
 					cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 	//				renderer->render(cb);
 					m_resolver->resolve(cb,nullptr);
-	//				m_presenter->acquire({},session);
-	//				m_presenter->beginRenderpass(cb);
+					m_presenter->acquire({},session);
+					m_presenter->beginRenderpass(cb);
 	//				m_presenter->endRenderpassAndPresent(cb);
 
 					// TODO: submit

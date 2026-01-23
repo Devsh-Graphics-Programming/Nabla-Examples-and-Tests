@@ -24,6 +24,7 @@ class CWindowPresenter : public IPresenter
 
 		struct SCachedCreationParams
 		{
+			core::smart_refctd_ptr<asset::IAssetManager> assMan = nullptr;
 			core::smart_refctd_ptr<ui::IWindowManager> winMgr = nullptr;
 			system::logger_opt_smart_ptr logger = nullptr;
 			// for the UI, 1080p with 50% scaling
@@ -31,7 +32,7 @@ class CWindowPresenter : public IPresenter
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
-			inline operator bool() const {return winMgr && api && callback;}
+			inline operator bool() const {return assMan && winMgr && api && callback;}
 			
 			core::smart_refctd_ptr<video::CVulkanConnection> api = {};
 			core::smart_refctd_ptr<ui::IWindow::IEventCallback> callback = {};
@@ -88,7 +89,7 @@ class CWindowPresenter : public IPresenter
 		SCachedConstructionParams m_construction;
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> m_present;
 		video::ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-		DefaultResolvePushConstants m_pushConstants;
+		SDefaultResolvePushConstants m_pushConstants;
 };
 
 }

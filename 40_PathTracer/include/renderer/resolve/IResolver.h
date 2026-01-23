@@ -26,7 +26,7 @@ class IResolver : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		inline bool changeSession(core::smart_refctd_ptr<CSession>&& session)
 		{
 			m_activeSession = std::move(session);
-			if (!session || !session->isInitialized() || !changeSession_impl())
+			if (!m_activeSession || !m_activeSession->isInitialized() || !changeSession_impl())
 			{
 				m_activeSession = {};
 				return false;
