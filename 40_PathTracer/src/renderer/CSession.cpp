@@ -72,10 +72,10 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		const auto allowedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling();
 		auto createImage = [&](
 			const std::string_view debugName, const E_FORMAT format, const uint16_t2 resolution, const uint16_t layers, std::bitset<E_FORMAT::EF_COUNT> viewFormats={},
-			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
-		) -> SActiveResources::SImageWithViews
+			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT|IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
+		) -> SImmutables::SImageWithViews
 		{
-			SActiveResources::SImageWithViews retval = {};
+				SImmutables::SImageWithViews retval = {};
 			{
 				{
 					IGPUImage::SCreationParams params = {};
@@ -137,28 +137,52 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			addWrite(binding,std::move(info));
 		};
 		immutables.scrambleKey = createImage("Scramble Key",E_FORMAT::EF_R32G32_UINT,promote<uint16_t2>(SSensorUniforms::ScrambleKeyTextureSize),1);
-		addImageWrite(SensorDSBindings::ScrambleKey,immutables.scrambleKey.views[E_FORMAT::EF_R32G32_UINT]);
+		auto scrambleKeyView = immutables.scrambleKey.views[E_FORMAT::EF_R32G32_UINT];
+		addImageWrite(SensorDSBindings::ScrambleKey,scrambleKeyView);
 
 		// create the render-sized images
-		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SActiveResources::SImageWithViews
+		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImmutables::SImageWithViews
 		{
 			return createImage(debugName,format,m_params.uniforms.renderSize,std::forward<Args>(args)...);
 		};
 		immutables.sampleCount = createScreenSizedImage("Current Sample Count",E_FORMAT::EF_R16_UINT,1);
-		addImageWrite(SensorDSBindings::SampleCount,immutables.sampleCount.views[E_FORMAT::EF_R16_UINT]);
+		auto sampleCountView = immutables.sampleCount.views[E_FORMAT::EF_R16_UINT];
+		addImageWrite(SensorDSBindings::SampleCount,sampleCountView);
+		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1);
+		auto rwmcCascadesView = immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT];
+		addImageWrite(SensorDSBindings::RWMCCascades,rwmcCascadesView);
 		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
 		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
-		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1);
-		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
 		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32,1);
-		addImageWrite(SensorDSBindings::Albedo,immutables.albedo.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32]);
+		auto albedoView = immutables.albedo.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
+		addImageWrite(SensorDSBindings::Albedo,albedoView);
 		// Normal and Albedo should have used `EF_A2B10G10R10_SNORM_PACK32` but Nvidia doesn't support
 		immutables.normal = createScreenSizedImage("Normal",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32,1);
-		addImageWrite(SensorDSBindings::Normal,immutables.normal.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32]);
+		auto normalView = immutables.normal.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
+		addImageWrite(SensorDSBindings::Normal,normalView);
 		immutables.motion = createScreenSizedImage("Motion",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32,1);
-		addImageWrite(SensorDSBindings::Motion,immutables.motion.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32]);
+		auto motionView = immutables.motion.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
+		addImageWrite(SensorDSBindings::Motion,motionView);
 		immutables.mask = createScreenSizedImage("Mask",E_FORMAT::EF_R16_UNORM,1);
-		addImageWrite(SensorDSBindings::Mask,immutables.mask.views[E_FORMAT::EF_R16_UNORM]);
+		auto maskView = immutables.mask.views[E_FORMAT::EF_R16_UNORM];
+		addImageWrite(SensorDSBindings::Mask,maskView);
+		// shorthand a little bit
+		addImageWrite(SensorDSBindings::AsSampledImages,scrambleKeyView);
+		writes.back().count = SensorDSBindingCounts::AsSampledImages;
+		{
+			const auto lastInfoIx = infos.size()-1;
+			infos.resize(lastInfoIx+SensorDSBindingCounts::AsSampledImages,infos.back());
+			const auto viewInfos = infos.data()+lastInfoIx;
+			using index_e = SensorDSBindings::SampledImageIndex;
+			viewInfos[uint8_t(index_e::ScrambleKey)].desc = scrambleKeyView;
+			viewInfos[uint8_t(index_e::SampleCount)].desc = sampleCountView;
+			viewInfos[uint8_t(index_e::RWMCCascades)].desc = rwmcCascadesView;
+			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32];
+			viewInfos[uint8_t(index_e::Albedo)].desc = albedoView;
+			viewInfos[uint8_t(index_e::Normal)].desc = normalView;
+			viewInfos[uint8_t(index_e::Motion)].desc = motionView;
+			viewInfos[uint8_t(index_e::Mask)].desc = maskView;
+		}
 	}
 
 	// create descriptor set
@@ -203,35 +227,54 @@ bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 	auto* const device = renderer->getDevice();
 	const auto& immutables = m_active.immutables;
 
-	// slam the barriers as big as possible, it wont happen frequently
 	bool success = true;
-	const SMemoryBarrier before[] = {
-		{
-			.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-			.srcAccessMask = ACCESS_FLAGS::NONE, // because we don't care about reading previously written values
-			.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
-			.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS
-		}
-	};
-	success = success && cb->pipelineBarrier(asset::EDF_NONE,{.memBarriers=before});
-	auto clearImage = [cb,&success](const SActiveResources::SImageWithViews& img)->void
+	// slam the barriers as big as possible, it wont happen frequently
+	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+	core::vector<image_barrier_t> before;
 	{
-		const IGPUImage::SSubresourceRange subresRng = {
-			.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-			.levelCount = 1,
-			.layerCount = img.image->getCreationParameters().arrayLayers
+		constexpr image_barrier_t beforeBase = {
+			.barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+					.srcAccessMask = ACCESS_FLAGS::NONE, // because we don't care about reading previously written values
+					.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+					.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS
+				}
+			},
+			.subresourceRange = {},
+			.newLayout = IGPUImage::LAYOUT::GENERAL
 		};
+		before.reserve(SensorDSBindingCounts::AsSampledImages);
+
+		auto enqueueClear = [&before,beforeBase](const SImmutables::SImageWithViews& img)->void
+		{
+			auto& out = before.emplace_back(beforeBase);
+			out.image = img.image.get();
+			out.subresourceRange = {
+				.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+				.levelCount = 1,
+				.layerCount = out.image->getCreationParameters().arrayLayers
+			};
+		};
+		enqueueClear(immutables.sampleCount);
+		enqueueClear(immutables.beauty);
+		enqueueClear(immutables.rwmcCascades);
+		enqueueClear(immutables.albedo);
+		enqueueClear(immutables.normal);
+		enqueueClear(immutables.motion);
+		enqueueClear(immutables.mask);
+		success = success && cb->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=before});
+	}
+
+	{
 		IGPUCommandBuffer::SClearColorValue color;
 		memset(&color,0,sizeof(color));
-		success = success && cb->clearColorImage(img.image.get(),IGPUImage::LAYOUT::GENERAL,&color,1,&subresRng);
-	};
-	clearImage(immutables.sampleCount);
-	clearImage(immutables.beauty);
-	clearImage(immutables.rwmcCascades);
-	clearImage(immutables.albedo);
-	clearImage(immutables.normal);
-	clearImage(immutables.motion);
-	clearImage(immutables.mask);
+		for (const auto& entry : before)
+		{
+			success = success && cb->clearColorImage(const_cast<IGPUImage*>(entry.image),IGPUImage::LAYOUT::GENERAL,&color,1,&entry.subresourceRange);
+		}
+	}
+
 	const SMemoryBarrier after[] = {
 		{
 			.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,

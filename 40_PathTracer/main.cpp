@@ -174,43 +174,58 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			});
 
 			// TODO: tmp code
-			auto scene_daily_pt = m_renderer->createScene({
-					.load = m_sceneLoader->load({
-					.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
-					.workingDirectory = localOutputCWD 
-				}),
-				.converter = nullptr
-			});
-			// the UI would have you load the zip first, then present a dropdown of what to load
-			// but still need to support archive mount for cmdline load
-	#if 0 // this particular zip goes down an unsupported path in our zip loader
-			auto scene_bedroom = m_sceneLoader->load({
-				.relPath = sharedInputCWD/"mitsuba/bedroom.zip/scene.xml",
-				.workingDirectory = localOutputCWD
-			});
-	#endif
+			{
+				m_api->startCapture();
+				auto scene_daily_pt = m_renderer->createScene({
+						.load = m_sceneLoader->load({
+						.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
+						.workingDirectory = localOutputCWD 
+					}),
+					.converter = nullptr
+				});
+				// the UI would have you load the zip first, then present a dropdown of what to load
+				// but still need to support archive mount for cmdline load
+		#if 0 // this particular zip goes down an unsupported path in our zip loader
+				auto scene_bedroom = m_sceneLoader->load({
+					.relPath = sharedInputCWD/"mitsuba/bedroom.zip/scene.xml",
+					.workingDirectory = localOutputCWD
+				});
+		#endif
 
-			auto session = scene_daily_pt->createSession({
-				{.mode=CSession::RenderMode::Debug},
-				scene_daily_pt->getSensors().data()
-			});
+				auto session = scene_daily_pt->createSession({
+					{.mode=CSession::RenderMode::Debug},
+					scene_daily_pt->getSensors().data()
+				});
+				// init
+				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [&session](SIntendedSubmitInfo& info)->bool
+					{
+						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+					}
+				);
+				m_resolver->changeSession(std::move(session));
+				m_api->endCapture();
+			}
 
 			// temporary test
-			m_presenter->acquire({},session.get());
 			{
-				auto cb = m_renderer->getConstructionParams().commandBuffers[0].get();
-				cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				session->init(cb);
-//				renderer->render(cb);
-				m_resolver->resolve(cb,nullptr);
-//				m_presenter->acquire({},session);
-//				m_presenter->beginRenderpass(cb);
-//				m_presenter->endRenderpassAndPresent(cb);
+				m_api->startCapture();
 
-				// TODO: submit
+				const auto* const session = m_resolver->getActiveSession();
+				m_presenter->acquire({},session);
+				{
+					auto cb = m_renderer->getConstructionParams().commandBuffers[0].get();
+					cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+	//				renderer->render(cb);
+					m_resolver->resolve(cb,nullptr);
+	//				m_presenter->acquire({},session);
+	//				m_presenter->beginRenderpass(cb);
+	//				m_presenter->endRenderpassAndPresent(cb);
+
+					// TODO: submit
+				}
+				m_api->endCapture();
 			}
-			session->deinit();
-			scene_daily_pt = nullptr;
+			m_resolver->getActiveSession()->deinit();
 
 			return true;
 

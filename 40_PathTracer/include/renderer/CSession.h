@@ -45,40 +45,40 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		inline bool isInitialized() const {return bool(m_active.immutables);}
 
 		//
-		inline video::IGPUImageView* getBeauty(const asset::E_FORMAT format) const
+		struct SImmutables
 		{
-			return m_active.immutables.beauty.getView(format);
-		}
+			struct SImageWithViews
+			{
+				inline operator bool() const
+				{
+					return image && !views.empty() && views.begin()->second;
+				}
 
-		//
-		inline video::IGPUImageView* getRWMCCascades() const
-		{
-			return m_active.immutables.rwmcCascades.getView(asset::E_FORMAT::EF_R32G32_UINT);
-		}
+				inline video::IGPUImageView* getView(const asset::E_FORMAT format) const
+				{
+					if (const auto found=views.find(format); found!=views.end())
+						return found->second.get();
+					return nullptr;
+				}
 
-		//
-		inline video::IGPUImageView* getAlbedo() const
-		{
-			return m_active.immutables.albedo.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
-		}
+				core::smart_refctd_ptr<video::IGPUImage> image = {};
+				core::unordered_map<asset::E_FORMAT,core::smart_refctd_ptr<video::IGPUImageView>> views = {};
+			};
 
-		//
-		inline video::IGPUImageView* getNormal() const
-		{
-			return m_active.immutables.normal.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
-		}
+			inline operator bool() const
+			{
+				return bool(scrambleKey) && sampleCount && rwmcCascades && albedo && normal && motion && mask && ds;
+			}
 
-		//
-		inline video::IGPUImageView* getMotion() const
-		{
-			return m_active.immutables.motion.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
-		}
-
-		//
-		inline video::IGPUImageView* getMask() const
-		{
-			return m_active.immutables.mask.getView(asset::E_FORMAT::EF_R16_UNORM);
-		}
+			// QUESTION: No idea how to marry RWMC with Temporal Denoise, do we denoise separately per cascade?
+			// ANSWER: RWMC relies on many spp, can use denoised/reprojected to confidence measures from other cascades.
+			// Shouldn't touch the previous frame, denoiser needs to know what was on screen last frame, only touch current.
+			// QUESTION: with temporal denoise do we turn the `sampleCount` into a `sequenceOffset` texutre?
+			SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
+			// stores all the sensor data required
+			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
+		};
+		inline const SImmutables& getImmutables() const {return m_active.immutables;}
 
 		//
 		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
@@ -108,38 +108,6 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		// heavy VRAM data and data only needed during an active session
 		struct SActiveResources
 		{
-			struct SImageWithViews
-			{
-				inline operator bool() const
-				{
-					return image && !views.empty() && views.begin()->second;
-				}
-
-				inline video::IGPUImageView* getView(const asset::E_FORMAT format) const
-				{
-					if (const auto found=views.find(format); found!=views.end())
-						return found->second.get();
-					return nullptr;
-				}
-
-				core::smart_refctd_ptr<video::IGPUImage> image = {};
-				core::unordered_map<asset::E_FORMAT,core::smart_refctd_ptr<video::IGPUImageView>> views = {};
-			};
-			struct SImmutables
-			{
-				inline operator bool() const
-				{
-					return bool(scrambleKey) && sampleCount && rwmcCascades && albedo && normal && motion && mask && ds;
-				}
-
-				// QUESTION: No idea how to marry RWMC with Temporal Denoise, do we denoise separately per cascade?
-				// ANSWER: RWMC relies on many spp, can use denoised/reprojected to confidence measures from other cascades.
-				// Shouldn't touch the previous frame, denoiser needs to know what was on screen last frame, only touch current.
-				// QUESTION: with temporal denoise do we turn the `sampleCount` into a `sequenceOffset` texutre?
-				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
-				// stores all the sensor data required
-				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
-			};
 			SImmutables immutables = {};
 			SSensorDynamics prevSensorState = {};
 		} m_active = {};

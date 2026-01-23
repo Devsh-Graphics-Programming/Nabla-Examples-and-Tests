@@ -36,8 +36,6 @@ struct SSensorUniforms
 };
 #undef MAX_PATH_DEPTH_LOG2
 
-
-
 struct SensorDSBindings
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t UBO = 0;
@@ -57,6 +55,30 @@ struct SensorDSBindings
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Motion = 7;
 	// R16_UNORM
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Mask = 8;
+	//
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Samplers = 9;
+	//
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t AsSampledImages = 10;
+
+	enum class SampledImageIndex : uint16_t
+	{
+		ScrambleKey = ScrambleKey-ScrambleKey,
+		SampleCount = SampleCount-ScrambleKey,
+		RWMCCascades = RWMCCascades-ScrambleKey,
+		Beauty = Beauty-ScrambleKey,
+		Albedo = Albedo-ScrambleKey,
+		Normal = Normal-ScrambleKey,
+		Motion = Motion-ScrambleKey,
+		Mask = Mask-ScrambleKey,
+		Count
+	};
+};
+
+struct SensorDSBindingCounts
+{
+	//
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t Samplers = 1;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t AsSampledImages = hlsl::_static_cast<uint32_t>(SensorDSBindings::SampledImageIndex::Count);
 };
 
 
@@ -79,6 +101,10 @@ struct SensorDSBindings
 [[vk::binding(SensorDSBindings::Motion,SessionDSIndex)]] RWTexture2DArray<float32_t4> gMotion;
 // could be float32_t
 [[vk::binding(SensorDSBindings::Mask,SessionDSIndex)]] RWTexture2DArray<float32_t4> gMask;
+//
+[[vk::binding(SensorDSBindings::Samplers,SessionDSIndex)]] SamplerState gSensorSamplers[SensorDSBindingCounts::Samplers];
+//
+[[vk::binding(SensorDSBindings::AsSampledImages,SessionDSIndex)]] Texture2DArray<float32_t4> gSensorTextures[SensorDSBindingCounts::AsSampledImages];
 #endif
 }
 }

@@ -46,6 +46,7 @@ class CBasicRWMCResolver : public IResolver
 		
 		struct SCachedConstructionParams
 		{
+			core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
 			// TODO: autoexposure
 			core::smart_refctd_ptr<video::IGPUComputePipeline> lumaMeasure;
 			// TODO: motion vector stuff

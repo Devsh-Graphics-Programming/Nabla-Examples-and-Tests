@@ -9,11 +9,8 @@ using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
 
-#include "nbl/ui/ICursorControl.h"
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
-
-#include "app_resources/common.hlsl"
 
 namespace nbl::scene
 {

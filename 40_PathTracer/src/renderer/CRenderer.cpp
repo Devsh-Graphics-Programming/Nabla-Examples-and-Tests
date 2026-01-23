@@ -76,6 +76,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(CSession::RenderMode::Count)];
 	{
 		constexpr auto RTStages = hlsl::ShaderStage::ESS_ALL_RAY_TRACING | hlsl::ShaderStage::ESS_COMPUTE;
+		constexpr auto RenderingStages = RTStages | hlsl::ShaderStage::ESS_COMPUTE;
 		// descriptor
 		{
 			using binding_create_flags_t = IDescriptorSetLayoutBase::SBindingBase::E_CREATE_FLAGS;
@@ -83,7 +84,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 				.binding = SensorDSBindings::UBO,
 				.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
 				.createFlags = binding_create_flags_t::ECF_NONE,
-				.stageFlags = hlsl::ShaderStage::ESS_ALL_OR_LIBRARY,
+				.stageFlags = RenderingStages,
 				.count = 1
 			};
 			// the generic single-UBO
@@ -99,8 +100,8 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 				return {
 					.binding = binding,
 					.type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-					.createFlags = binding_create_flags_t::ECF_NONE,
-					.stageFlags = RTStages,
+					.createFlags = binding_create_flags_t::ECF_PARTIALLY_BOUND_BIT,
+					.stageFlags = RenderingStages,
 					.count = 1
 				};
 			};
@@ -185,6 +186,15 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 			}
 			// the sensor layout
 			{
+				constexpr auto ResolveAndPresentStages = hlsl::ShaderStage::ESS_COMPUTE | hlsl::ShaderStage::ESS_FRAGMENT;
+				const auto defaultSampler = device->createSampler({
+					{
+						.AnisotropicFilter = 0
+					},
+					0.f,
+					0.f,
+					0.f
+				});
 				std::initializer_list<const IGPUDescriptorSetLayout::SBinding> bindings = {
 					UBOBinding,
 					singleStorageImage(SensorDSBindings::ScrambleKey),
@@ -194,7 +204,22 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 					singleStorageImage(SensorDSBindings::Albedo),
 					singleStorageImage(SensorDSBindings::Normal),
 					singleStorageImage(SensorDSBindings::Motion),
-					singleStorageImage(SensorDSBindings::Mask)
+					singleStorageImage(SensorDSBindings::Mask),
+					{
+						.binding = SensorDSBindings::Samplers,
+						.type = IDescriptor::E_TYPE::ET_SAMPLER,
+						.createFlags = binding_create_flags_t::ECF_NONE,
+						.stageFlags = ResolveAndPresentStages,
+						.count = SensorDSBindingCounts::Samplers,
+						.immutableSamplers = &defaultSampler
+					},
+					{
+						.binding = SensorDSBindings::AsSampledImages,
+						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+						.createFlags = binding_create_flags_t::ECF_PARTIALLY_BOUND_BIT,
+						.stageFlags = ResolveAndPresentStages,
+						.count = SensorDSBindingCounts::AsSampledImages
+					}
 				};
 				params.sensorDSLayout = device->createDescriptorSetLayout(bindings);
 				if (checkNullObject(params.sensorDSLayout,"Sensor Descriptor Layout"))

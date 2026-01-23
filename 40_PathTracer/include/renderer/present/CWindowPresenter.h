@@ -58,7 +58,7 @@ class CWindowPresenter : public IPresenter
 		bool irrecoverable() const {return m_construction.surface->irrecoverable();}
 
 		// returns expected presentation time for frame pacing
-		clock_t::time_point acquire(const video::ISwapchain::SAcquireInfo& info, CSession* session) override;
+		clock_t::time_point acquire(const video::ISwapchain::SAcquireInfo& info, const CSession* session) override;
 		//
 		bool beginRenderpass(video::IGPUCommandBuffer* cb) override;
 		//

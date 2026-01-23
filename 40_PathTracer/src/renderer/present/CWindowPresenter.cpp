@@ -141,6 +141,7 @@ bool CWindowPresenter::init(CRenderer* renderer)
 
 	// present pipeline layout
 	{
+		//
 	}
 
 	// present pipelines
@@ -150,7 +151,7 @@ bool CWindowPresenter::init(CRenderer* renderer)
 	return true;
 }
 
-auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, CSession* session) -> clock_t::time_point
+auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSession* session) -> clock_t::time_point
 {
 	auto expectedPresent = clock_t::time_point::min(); // invalid value
 	if (!session)
@@ -298,11 +299,6 @@ bool CWindowPresenter::endRenderpassAndPresent(IGPUCommandBuffer* cb, ISemaphore
 }
 
 #if 0
-		ISampler::SParams samplerParams = {
-		  .AnisotropicFilter = 0
-		};
-		auto defaultSampler = m_device->createSampler(samplerParams);
-
 		{
 			const IGPUDescriptorSetLayout::SBinding bindings[] = {
 			  {

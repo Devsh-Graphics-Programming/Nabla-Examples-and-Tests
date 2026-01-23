@@ -15,14 +15,27 @@ using namespace nbl::video;
 //
 smart_refctd_ptr<CBasicRWMCResolver> CBasicRWMCResolver::create(SCreationParams&& _params)
 {
+	auto logger = _params.renderer->getLogger();
 	if (!_params)
 	{
-		_params.renderer->getLogger().log("`CBasicRWMCResolver::SCreationParams` are invalidl!", ILogger::ELL_ERROR);
+		logger.log("`CBasicRWMCResolver::SCreationParams` are invalid!",ILogger::ELL_ERROR);
 		return nullptr;
 	}
 	CBasicRWMCResolver::SConstructorParams params = {std::move(_params)};
 
-	// TODO: all the pipelines!
+	auto* const device = _params.renderer->getDevice();
+	{
+		const SPushConstantRange pcRange[] = {
+			{.stageFlags=ShaderStage::ESS_COMPUTE,.offset=0,.size=sizeof(SResolveConstants)}
+		};
+		if (!(params.layout=device->createPipelineLayout(pcRange,_params.renderer->getConstructionParams().sensorDSLayout)))
+		{
+			logger.log("`CBasicRWMCResolver::create` failed to create Pipeline Layout!",ILogger::ELL_ERROR);
+			return nullptr;
+		}
+	}
+
+	// TODO: create all the pipelines!
 
 	return smart_refctd_ptr<CBasicRWMCResolver>(new CBasicRWMCResolver(std::move(params)),dont_grab);
 }
@@ -48,12 +61,15 @@ bool CBasicRWMCResolver::resolve(video::IGPUCommandBuffer* cb, video::IGPUBuffer
 			return false;
 	}
 
-	constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
-	constexpr auto firstResolveStage = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-	// TODO: pipeline barrier from raytracing pipeline to first resolve pass
+	const auto* const layout = m_construction.layout.get();
+	{
+		constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+		constexpr auto firstResolveStage = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		// TODO: pipeline barrier from raytracing pipeline to first resolve pass
+	}
 
-	auto* const cascades = m_activeSession->getRWMCCascades();
-	auto* const beauty = m_activeSession->getBeauty(E_FORMAT::EF_R32_UINT);
+	// compute passes
+
 	return false; // TODO: uimplemented yet
 }
 

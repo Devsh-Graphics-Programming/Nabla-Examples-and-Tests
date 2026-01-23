@@ -15,6 +15,14 @@ class IResolver : public core::IReferenceCounted, public core::InterfaceUnmovabl
 {
     public:
 		//
+		inline CSession* getActiveSession() {return m_activeSession.get();}
+		inline const CSession* getActiveSession() const {return m_activeSession.get();}
+
+		//
+		virtual uint64_t computeScratchSize(const CSession* session) const = 0;
+		inline uint64_t computeScratchSize() const {return computeScratchSize(m_activeSession.get());}
+
+		//
 		inline bool changeSession(core::smart_refctd_ptr<CSession>&& session)
 		{
 			m_activeSession = std::move(session);
@@ -25,9 +33,7 @@ class IResolver : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			}
 			return true;
 		}
-		//
-		virtual uint64_t computeScratchSize(const CSession* session) const = 0;
-		inline uint64_t computeScratchSize() const {return computeScratchSize(m_activeSession.get());}
+
 		//
 		virtual bool resolve(video::IGPUCommandBuffer* cv, video::IGPUBuffer* scratch) = 0;
 

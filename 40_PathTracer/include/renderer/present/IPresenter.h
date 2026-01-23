@@ -21,7 +21,7 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 		virtual bool irrecoverable() const {return false;}
 		// returns expected presentation time for frame pacing
 		using clock_t = std::chrono::steady_clock;
-		virtual clock_t::time_point acquire(const video::ISwapchain::SAcquireInfo& info, CSession* background) = 0;
+		virtual clock_t::time_point acquire(const video::ISwapchain::SAcquireInfo& info, const CSession* background) = 0;
 		//
 		virtual bool beginRenderpass(video::IGPUCommandBuffer* cb) = 0;
 		//
