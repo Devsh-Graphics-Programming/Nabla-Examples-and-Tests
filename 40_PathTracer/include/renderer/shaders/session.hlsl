@@ -2,7 +2,7 @@
 #define _NBL_THIS_EXAMPLE_SESSION_HLSL_INCLUDED_
 
 
-#include "renderer/shaders/rwmc.hlsl"
+#include "renderer/shaders/resolve/rwmc.hlsl"
 
 
 namespace nbl

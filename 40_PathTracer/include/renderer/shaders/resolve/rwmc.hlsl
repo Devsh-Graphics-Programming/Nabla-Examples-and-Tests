@@ -26,8 +26,8 @@ struct SResolveConstants // TODO: move somewhere
 		hlsl::float32_t reciprocalKappa;
 		hlsl::float32_t colorReliabilityFactor;
 	} rwmc;
-	uint32_t cascadeCount : BOOST_PP_ADD(MAX_CASCADE_COUNT_LOG2,1);
-	uint32_t unused : BOOST_PP_SUB(31,MAX_CASCADE_COUNT_LOG2);
+	uint64_t cascadeCount : BOOST_PP_ADD(MAX_CASCADE_COUNT_LOG2,1);
+	uint64_t scratchBDA : BOOST_PP_SUB(63,MAX_CASCADE_COUNT_LOG2);
 };
 
 }

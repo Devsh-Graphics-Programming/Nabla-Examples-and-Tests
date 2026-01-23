@@ -8,8 +8,6 @@
 #include "renderer/CScene.h"
 #include "renderer/CSession.h"
 
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
@@ -71,9 +69,9 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 				return true;
 			}
 
-			video::IQueue* graphicsQueue = nullptr;
-			video::IQueue* computeQueue = nullptr;
-			video::IQueue* uploadQueue = nullptr;
+			video::CThreadSafeQueueAdapter* graphicsQueue = nullptr;
+			video::CThreadSafeQueueAdapter* computeQueue = nullptr;
+			video::CThreadSafeQueueAdapter* uploadQueue = nullptr;
 			//
 			core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
 			// can be null
@@ -157,25 +155,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			// Resources used for envmap sampling
 			nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 #endif
-
-// Denoiser
-			// TODO: autoexposure
-			core::smart_refctd_ptr<video::IGPUComputePipeline> lumaMeasure;
-			// TODO: motion vector stuff
-			// rwmc resolve, apply exposure, interleave into OptiX input formats
-			core::smart_refctd_ptr<video::IGPUComputePipeline> rwmcResolve;
-			// TODO: OIDN denoise
-			// deinterlave from OptiX output format, perform first axis of FFT
-			core::smart_refctd_ptr<video::IGPUComputePipeline> postDenoise; // TODO
-			// second axis FFT, spectrum multiply and iFFT
-			core::smart_refctd_ptr<video::IGPUComputePipeline> secondAxisBloom; // TODO
-			// first axis iFFT, tonemap, encode into final EXR format
-			core::smart_refctd_ptr<video::IGPUComputePipeline> secondAxisFFTTonemap; // TODO
-
-// Presenter (invokes denoiser)
-			core::smart_refctd_ptr<video::IGPURenderpass> presentRenderpass; // TODO
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> regularPresent; // TODO
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> cubemapPresent; // TODO
 		};
 		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)),
 			m_frameIx(m_construction.semaphore->getCounterValue()) {}

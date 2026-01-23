@@ -23,12 +23,18 @@ smart_refctd_ptr<CSession> CScene::createSession(const sensor_t& sensor)
 
 	CSession::SConstructionParams params = {
 		.scene = smart_refctd_ptr<const CScene>(this),
+		.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY},
+		.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight},
 		.type = raygen.getType()
 	};
+	
+	const uint16_t2 renderSize(constants.width,constants.height);
+	assert(all(params.cropOffsets<renderSize));
+	assert(all(params.cropOffsets+params.cropResolution<=renderSize));
+	assert(params.type!=CSession::sensor_type_e::Env || all(params.cropResolution==renderSize));
 
 	// fill uniforms
 	{
-		const uint16_t2 renderSize(constants.width,constants.height);
 		const uint16_t maxPathDepth = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth,1,0x1u<<SSensorUniforms::MaxPathDepthLog2);
 		const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth,1,maxPathDepth);
 		params.uniforms = {

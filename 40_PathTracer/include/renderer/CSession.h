@@ -32,23 +32,30 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		bool init(video::IGPUCommandBuffer* cb);
 
 		//
+		inline bool isInitialized() const {return bool(m_active.immutables);}
+
+		//
 		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
 
 		//
 		inline void deinit() {m_active = {};}
 
-	private:
-		friend class CScene;
-
+		//
 		struct SConstructionParams
 		{
 			core::string name = "TODO from `sensor`";
 			core::smart_refctd_ptr<const CScene> scene;
+			SResolveConstants initResolveConstants;
 			SSensorUniforms uniforms;
 			SSensorDynamics initDynamics;
-			SResolveConstants initResolveConstants;
+			hlsl::uint16_t2 cropOffsets;
+			hlsl::uint16_t2 cropResolution;
 			sensor_type_e type;
 		};
+		inline const SConstructionParams& getConstructionParams() const {return m_params;}
+
+	private:
+		friend class CScene;
 		inline CSession(SConstructionParams&& _params) : m_params(std::move(_params)) {}
 
 		const SConstructionParams m_params;
