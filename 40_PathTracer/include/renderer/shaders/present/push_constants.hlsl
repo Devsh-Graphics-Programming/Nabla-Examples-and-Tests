@@ -10,6 +10,7 @@ namespace nbl
 {
 namespace this_example
 {
+using namespace nbl::hlsl;
 	
 struct DefaultResolvePushConstants
 {
@@ -17,22 +18,43 @@ struct DefaultResolvePushConstants
 
     struct Regular
     {
-        float32_t2 cropOffset;
+        //
         float32_t2 scale;
+        // post-scale addition to uv coordinate to get to beginning
+        float32_t2 crop;
+        // Because `scale*uv+cropOffsets!=1.0` where the image is supposed to end 
+        float32_t2 limit;
     };
     struct Cubemap
     {
-        // TODO
+        // theoretically we only need inverse of product of 3x3 view with very sparse 4x4
+        float32_t4x4 invProjView;
     };
+#ifndef __HLSL_VERSION
     union
     {
         Regular regular;
         Cubemap cubemap;
     };
+#else
+    // note how this is a conversion to a copy, and not handing out of a reference
+    // Ergo, its not a true "union"
+    inline Regular regular()
+    {
+        Regular retval;
+        retval.scale = __union.invProjView[0].xy;
+        retval.crop = __union.invProjView[0].zw;
+        retval.limit = __union.invProjView[1].xy;
+        return retval;
+    }
+    inline Cubemap cubemap() {return __union;}
+
+    Cubemap __union;
+#endif
     // 3 extra bits for cube layer
     uint32_t isCubemap : 1;
-    uint32_t layer : BOOST_PP_ADD(MAX_CASCADE_COUNT_LOG2,3);
-    uint32_t imageIndex : BOOST_PP_SUB(28,MAX_CASCADE_COUNT_LOG2);
+    uint32_t layer : MAX_CASCADE_COUNT_LOG2;
+    uint32_t imageIndex : BOOST_PP_SUB(31,MAX_CASCADE_COUNT_LOG2);
 };
 
 }

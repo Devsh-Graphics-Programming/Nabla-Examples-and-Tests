@@ -14,24 +14,26 @@ using namespace nbl::hlsl;
 using namespace nbl::video;
 
 //
-smart_refctd_ptr<CSession> CScene::createSession(const sensor_t& sensor)
+smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams& _params)
 {
-	const auto& constants = sensor.constants;
-	const auto& dynDefaults = sensor.dynamicDefaults;
-	const auto& mutDefaults = sensor.mutableDefaults;
+	if (!_params)
+		return nullptr;
+
+	const auto& constants = _params.sensor->constants;
+	const auto& dynDefaults = _params.sensor->dynamicDefaults;
+	const auto& mutDefaults = _params.sensor->mutableDefaults;
 	const auto& raygen = mutDefaults.raygen;
 
-	CSession::SConstructionParams params = {
-		.scene = smart_refctd_ptr<const CScene>(this),
-		.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY},
-		.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight},
-		.type = raygen.getType()
-	};
+	CSession::SConstructionParams params = {std::move(_params)};
+	params.scene = smart_refctd_ptr<const CScene>(this);
+	params.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY};
+	params.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight};
+	params.type = raygen.getType();
 	
 	const uint16_t2 renderSize(constants.width,constants.height);
 	assert(all(params.cropOffsets<renderSize));
 	assert(all(params.cropOffsets+params.cropResolution<=renderSize));
-	assert(params.type!=CSession::sensor_type_e::Env || all(params.cropResolution==renderSize));
+	assert(params.type!=CSession::sensor_type_e::Env || params.cropResolution==renderSize);
 
 	// fill uniforms
 	{

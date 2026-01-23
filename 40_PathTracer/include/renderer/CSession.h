@@ -18,6 +18,8 @@ class CScene;
 class CSession final : public core::IReferenceCounted, public core::InterfaceUnmovable
 {
 	public:
+		using sensor_t = CSceneLoader::SLoadResult::SSensor;
+		using sensor_type_e = sensor_t::SMutable::Raygen::Type;
 		enum class RenderMode : uint8_t
 		{
 			Previs,
@@ -25,8 +27,16 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 			Debug,
 			Count
 		};
-		using sensor_t = CSceneLoader::SLoadResult::SSensor;
-		using sensor_type_e = sensor_t::SMutable::Raygen::Type;
+		struct SCachedCreationParams
+		{
+			RenderMode mode = RenderMode::Beauty;
+		};
+		struct SCreationParams : SCachedCreationParams
+		{
+			inline operator bool() const {return sensor;}
+
+			const sensor_t* sensor;
+		};
 
 		//
 		bool init(video::IGPUCommandBuffer* cb);
@@ -35,13 +45,49 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		inline bool isInitialized() const {return bool(m_active.immutables);}
 
 		//
+		inline video::IGPUImageView* getBeauty(const asset::E_FORMAT format) const
+		{
+			return m_active.immutables.beauty.getView(format);
+		}
+
+		//
+		inline video::IGPUImageView* getRWMCCascades() const
+		{
+			return m_active.immutables.rwmcCascades.getView(asset::E_FORMAT::EF_R32G32_UINT);
+		}
+
+		//
+		inline video::IGPUImageView* getAlbedo() const
+		{
+			return m_active.immutables.albedo.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
+		}
+
+		//
+		inline video::IGPUImageView* getNormal() const
+		{
+			return m_active.immutables.normal.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
+		}
+
+		//
+		inline video::IGPUImageView* getMotion() const
+		{
+			return m_active.immutables.motion.getView(asset::E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
+		}
+
+		//
+		inline video::IGPUImageView* getMask() const
+		{
+			return m_active.immutables.mask.getView(asset::E_FORMAT::EF_R16_UNORM);
+		}
+
+		//
 		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
 
 		//
 		inline void deinit() {m_active = {};}
 
 		//
-		struct SConstructionParams
+		struct SConstructionParams : SCachedCreationParams
 		{
 			core::string name = "TODO from `sensor`";
 			core::smart_refctd_ptr<const CScene> scene;
@@ -69,8 +115,15 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 					return image && !views.empty() && views.begin()->second;
 				}
 
+				inline video::IGPUImageView* getView(const asset::E_FORMAT format) const
+				{
+					if (const auto found=views.find(format); found!=views.end())
+						return found->second.get();
+					return nullptr;
+				}
+
 				core::smart_refctd_ptr<video::IGPUImage> image = {};
-				core::unordered_map<asset::E_FORMAT, core::smart_refctd_ptr<video::IGPUImageView>> views = {};
+				core::unordered_map<asset::E_FORMAT,core::smart_refctd_ptr<video::IGPUImageView>> views = {};
 			};
 			struct SImmutables
 			{

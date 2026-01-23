@@ -19,6 +19,8 @@ list(APPEND NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CRenderer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/resolve/CBasicRWMCResolver.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/present/CWindowPresenter.cpp"
 )
 list(APPEND NBL_
 )

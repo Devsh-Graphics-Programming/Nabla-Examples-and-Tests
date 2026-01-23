@@ -86,7 +86,10 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 		//
 		inline const SCachedCreationParams& getCreationParams() const { return m_creation; }
-		
+	
+		//
+		inline system::logger_opt_ptr getLogger() const {return m_creation.logger.get().get();}
+
 		//
 		inline video::ILogicalDevice* getDevice() const {return m_creation.utilities->getLogicalDevice();}
 

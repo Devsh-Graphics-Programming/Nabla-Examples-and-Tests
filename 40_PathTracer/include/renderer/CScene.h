@@ -42,7 +42,7 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		inline std::span<const sensor_t> getSensors() const {return m_construction.sensors;}
 
 		//
-		core::smart_refctd_ptr<CSession> createSession(const sensor_t& sensor);
+		core::smart_refctd_ptr<CSession> createSession(const CSession::SCreationParams& sensor);
 
     protected:
 		friend class CRenderer;
