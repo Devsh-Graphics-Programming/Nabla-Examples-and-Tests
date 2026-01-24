@@ -519,7 +519,7 @@ public:
 			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 
 			// Set up swapchain creation parameters
-			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_ALL_BITS} };
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 

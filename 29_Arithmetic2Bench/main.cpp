@@ -222,7 +222,7 @@ public:
 			return logFail("Failed to Create a Semaphore!");
 
 		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
-		asset::E_FORMAT preferredFormats[] = { asset::EF_R8G8B8A8_UNORM };
+		asset::E_FORMAT preferredFormats[] = { asset::EF_B8G8R8A8_UNORM };
 		if (!swapchainParams.deduceFormat(m_physicalDevice, preferredFormats))
 			return logFail("Could not choose a Surface Format for the Swapchain!");
 
