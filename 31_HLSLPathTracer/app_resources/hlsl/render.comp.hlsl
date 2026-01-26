@@ -171,14 +171,16 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     uint32_t width, height, imageArraySize;
     outImage.GetDimensions(width, height, imageArraySize);
 #ifdef PERSISTENT_WORKGROUPS
-    uint32_t virtualThreadIndex;
+    const uint32_t NumWorkgroupsX = width / RenderWorkgroupSizeSqrt;
+    const uint32_t NumWorkgroupsY = height / RenderWorkgroupSizeSqrt;
     [loop]
-    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * RenderWorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * RenderWorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
+    for (uint32_t wgBase = glsl::gl_WorkGroupID().x; wgBase < NumWorkgroupsX*NumWorkgroupsY; wgBase += glsl::gl_NumWorkGroups().x)
     {
-        virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
+        const int32_t2 wgCoords = int32_t2(wgBase % NumWorkgroupsX, wgBase / NumWorkgroupsX);
         morton::code<true, 32, 2> mc;
-        mc.value = virtualThreadIndex;
-        const int32_t2 coords = _static_cast<int32_t2>(mc);
+        mc.value = glsl::gl_LocalInvocationIndex().x;
+        const int32_t2 localCoords = _static_cast<int32_t2>(mc);
+        const int32_t2 coords = wgCoords * int32_t2(RenderWorkgroupSizeSqrt,RenderWorkgroupSizeSqrt) + localCoords;
 #else
     const int32_t2 coords = getCoordinates();
 #endif
@@ -204,7 +206,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
+    // int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
 
     // set up scene
     scene_type scene;
