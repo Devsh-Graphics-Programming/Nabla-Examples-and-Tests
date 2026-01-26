@@ -126,6 +126,10 @@ struct TestNDF : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
+        const float absNdotL = hlsl::abs(s.getNdotL());
+        if (absNdotL <= bit_cast<float>(numeric_limits<float>::min))
+            return BTR_INVALID_TEST_CONFIG;
+
         // get jacobian
         float32_t2x2 m = float32_t2x2(
             sx.getTdotL() - s.getTdotL(), sy.getTdotL() - s.getTdotL(),
@@ -133,14 +137,14 @@ struct TestNDF : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
-        float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
+        float jacobi_dg1_ndoth = det * dg1 / absNdotL;
         if (!checkZero<float>(det, 1e-3) && !testing::relativeApproxCompare<float>(jacobi_dg1_ndoth, 1.0, 0.1))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
-                base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, NdotH={}, eta={}, alpha=[{},{}] Jacobian={}, DG1={}, Jacobian*DG1={}",
+                base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, eta={}, alpha=[{},{}] Jacobian={}, DG1={}, Jacobian*DG1={}",
                                         aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? base_t::anisointer.getNdotV() : base_t::isointer.getNdotV(),
-                                        aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), NdotH, base_t::rc.eta.x, base_t::rc.alpha.x, base_t::rc.alpha.y,
+                                        aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), base_t::rc.eta.x, base_t::rc.alpha.x, base_t::rc.alpha.y,
                                         det, dg1, jacobi_dg1_ndoth);
 #endif
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
@@ -166,7 +170,7 @@ struct TestNDF : TestBxDF<BxDF>
     sample_t s, sx, sy;
     aniso_cache cache;
     iso_cache isocache;
-    float dg1, NdotH;
+    float dg1;
     bool verbose;
 };
 

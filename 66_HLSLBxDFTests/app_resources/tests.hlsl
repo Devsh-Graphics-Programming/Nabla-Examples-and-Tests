@@ -337,13 +337,17 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (checkZero<float32_t3>(Li, 1e-5))
-            return BTR_NONE;    // produces an "impossible" sample
+        const float absNdotL = hlsl::abs(s.getNdotL());
+        if (absNdotL <= bit_cast<float>(numeric_limits<float>::min))
+            return BTR_INVALID_TEST_CONFIG;
 
-        if (checkLt<float32_t3>(Li, (float32_t3)0.0))
+        if (checkLt<float32_t3>(Li, hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
-        float32_t3 a = Li / hlsl::abs(s.getNdotL());
+        if (checkZero<float32_t3>(Li, 1e-5))    // we don't have a pdf to check like in the one above but
+            return BTR_NONE;
+
+        float32_t3 a = Li / absNdotL;
         float32_t3 b = recLi / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
             if (!testing::relativeApproxCompare<float32_t3>(a, b, 1e-2))
