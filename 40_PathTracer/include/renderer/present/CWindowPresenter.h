@@ -20,17 +20,15 @@ class CWindowPresenter : public IPresenter
 {
     public:
 		using swapchain_resources_t = video::CDefaultSwapchainFramebuffers;
-		static const video::IGPURenderpass::SCreationParams::SSubpassDependency dependencies[3];
+		static const video::IGPURenderpass::SCreationParams::SSubpassDependency Dependencies[3];
 
 		struct SCachedCreationParams
 		{
-			core::smart_refctd_ptr<asset::IAssetManager> assMan = nullptr;
 			core::smart_refctd_ptr<ui::IWindowManager> winMgr = nullptr;
-			system::logger_opt_smart_ptr logger = nullptr;
 			// for the UI, 1080p with 50% scaling
 			hlsl::uint16_t2 minResolution = {1264,698};
 		};
-		struct SCreationParams : SCachedCreationParams
+		struct SCreationParams : IPresenter::SCachedCreationParams, SCachedCreationParams
 		{
 			inline operator bool() const {return assMan && winMgr && api && callback;}
 			
@@ -44,9 +42,6 @@ class CWindowPresenter : public IPresenter
 		inline const video::ISurface* getSurface() const {return m_construction.surface->getSurface();}
 
 		//
-		bool init(CRenderer* renderer);
-
-		//
 		inline const SCachedCreationParams& getCreationParams() const {return m_creation;}
 
 		//
@@ -58,13 +53,6 @@ class CWindowPresenter : public IPresenter
 		//
 		bool irrecoverable() const {return m_construction.surface->irrecoverable();}
 
-		// returns expected presentation time for frame pacing
-		clock_t::time_point acquire(const video::ISwapchain::SAcquireInfo& info, const CSession* session) override;
-		//
-		bool beginRenderpass(video::IGPUCommandBuffer* cb) override;
-		//
-		bool endRenderpassAndPresent(video::IGPUCommandBuffer* cb, video::ISemaphore* presentBeginSignal) override;
-
     protected:		
 		using surface_t = video::CSimpleResizeSurface<swapchain_resources_t>;
 		struct SCachedConstructionParams
@@ -75,10 +63,20 @@ class CWindowPresenter : public IPresenter
 			hlsl::float64_t2 aspectRatioRange;
 			hlsl::uint16_t2 maxResolution;
 		};
-		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams
+		struct SConstructorParams : IPresenter::SCachedCreationParams, SCachedCreationParams, SCachedConstructionParams
 		{
 		};
-		inline CWindowPresenter(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)), m_pushConstants({}) {}
+		inline CWindowPresenter(SConstructorParams&& _params) : IPresenter(std::move(_params)), m_creation(std::move(_params)), m_construction(std::move(_params)), m_pushConstants({}) {}
+		//
+		bool init_impl(CRenderer* renderer) override;
+
+		//
+		clock_t::time_point acquire_impl(const CSession* session, video::ISemaphore::SWaitInfo* p_currentImageAcquire) override;
+		bool beginRenderpass_impl() override;
+		inline bool present(const video::IQueue::SSubmitInfo::SSemaphoreInfo& readyToPresent) override
+		{
+			return m_construction.surface->present(m_currentImageIndex,{&readyToPresent,1});
+		}
 		
 		inline video::ISurface* getSurface() {return m_construction.surface->getSurface();}
 
@@ -88,8 +86,8 @@ class CWindowPresenter : public IPresenter
 		SCachedCreationParams m_creation;
 		SCachedConstructionParams m_construction;
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> m_present;
-		video::ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 		SDefaultResolvePushConstants m_pushConstants;
+		uint8_t m_currentImageIndex = ~0u;
 };
 
 }

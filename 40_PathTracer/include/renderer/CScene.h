@@ -37,6 +37,9 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		//
 		inline CRenderer* getRenderer() const {return m_construction.renderer.get();}
 
+		//
+		inline const video::IGPUDescriptorSet* getDescriptorSet() const {return m_construction.sceneDS->getDescriptorSet();}
+
 		using sensor_t = CSceneLoader::SLoadResult::SSensor;
 		//
 		inline std::span<const sensor_t> getSensors() const {return m_construction.sensors;}

@@ -44,47 +44,65 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
 
-		//
-		struct SImmutables
+		// heavy VRAM data and data only needed during an active session
+		struct SImageWithViews
 		{
-			struct SImageWithViews
+			inline operator bool() const
+			{
+				return image && !views.empty() && views.begin()->second;
+			}
+
+			inline video::IGPUImageView* getView(const asset::E_FORMAT format) const
+			{
+				if (const auto found=views.find(format); found!=views.end())
+					return found->second.get();
+				return nullptr;
+			}
+
+			core::smart_refctd_ptr<video::IGPUImage> image = {};
+			core::unordered_map<asset::E_FORMAT,core::smart_refctd_ptr<video::IGPUImageView>> views = {};
+		};
+		struct SActiveResources
+		{
+			struct SImmutables
 			{
 				inline operator bool() const
 				{
-					return image && !views.empty() && views.begin()->second;
+					return bool(scrambleKey) && sampleCount && rwmcCascades && albedo && normal && motion && mask && ds;
 				}
 
-				inline video::IGPUImageView* getView(const asset::E_FORMAT format) const
-				{
-					if (const auto found=views.find(format); found!=views.end())
-						return found->second.get();
-					return nullptr;
-				}
-
-				core::smart_refctd_ptr<video::IGPUImage> image = {};
-				core::unordered_map<asset::E_FORMAT,core::smart_refctd_ptr<video::IGPUImageView>> views = {};
+				// QUESTION: No idea how to marry RWMC with Temporal Denoise, do we denoise separately per cascade?
+				// ANSWER: RWMC relies on many spp, can use denoised/reprojected to confidence measures from other cascades.
+				// Shouldn't touch the previous frame, denoiser needs to know what was on screen last frame, only touch current.
+				// QUESTION: with temporal denoise do we turn the `sampleCount` into a `sequenceOffset` texutre?
+				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
+				// stores all the sensor data required
+				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
 			};
-
-			inline operator bool() const
-			{
-				return bool(scrambleKey) && sampleCount && rwmcCascades && albedo && normal && motion && mask && ds;
-			}
-
-			// QUESTION: No idea how to marry RWMC with Temporal Denoise, do we denoise separately per cascade?
-			// ANSWER: RWMC relies on many spp, can use denoised/reprojected to confidence measures from other cascades.
-			// Shouldn't touch the previous frame, denoiser needs to know what was on screen last frame, only touch current.
-			// QUESTION: with temporal denoise do we turn the `sampleCount` into a `sequenceOffset` texutre?
-			SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
-			// stores all the sensor data required
-			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
+			SImmutables immutables = {};
+			SSensorDynamics currentSensorState = {}, prevSensorState = {};
 		};
-		inline const SImmutables& getImmutables() const {return m_active.immutables;}
+
+		//
+		inline const SActiveResources& getActiveResources() const {return m_active;}
 
 		//
 		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
 
 		//
-		inline void deinit() {m_active = {};}
+		bool update(const SSensorDynamics& newVal);
+
+		// TODO: figure this out
+		inline float getProgress() const
+		{
+			return std::numeric_limits<float>::quiet_NaN();
+		}
+
+		//
+		inline void deinit()
+		{
+			m_active = {};
+		}
 
 		//
 		struct SConstructionParams : SCachedCreationParams
@@ -105,12 +123,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		inline CSession(SConstructionParams&& _params) : m_params(std::move(_params)) {}
 
 		const SConstructionParams m_params;
-		// heavy VRAM data and data only needed during an active session
-		struct SActiveResources
-		{
-			SImmutables immutables = {};
-			SSensorDynamics prevSensorState = {};
-		} m_active = {};
+		SActiveResources m_active = {};
 };
 
 }

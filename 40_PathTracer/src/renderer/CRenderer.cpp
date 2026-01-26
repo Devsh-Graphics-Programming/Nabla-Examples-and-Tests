@@ -75,7 +75,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	// create the layouts
 	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(CSession::RenderMode::Count)];
 	{
-		constexpr auto RTStages = hlsl::ShaderStage::ESS_ALL_RAY_TRACING | hlsl::ShaderStage::ESS_COMPUTE;
+		constexpr auto RTStages = hlsl::ShaderStage::ESS_ALL_RAY_TRACING;// | hlsl::ShaderStage::ESS_COMPUTE;
 		constexpr auto RenderingStages = RTStages | hlsl::ShaderStage::ESS_COMPUTE;
 		// descriptor
 		{
@@ -279,17 +279,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		}
 	}
 
-// TODO: move to CBasicPresenter
-	// the renderpass: custom dependencies, but everything else fixed from outside (format, and number of subpasses)
-	{
-//		params.presentRenderpass = device->createRenderpass();
-	}
-
-	// present pipelines
-	{
-		// TODO
-	}
-
 	// command buffers
 	for (uint8_t i=0; i<SConstructorParams::FramesInFlight; i++)
 	{
@@ -379,6 +368,99 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		return nullptr;
 	}
 	return core::smart_refctd_ptr<CScene>(new CScene(std::move(params)),core::dont_grab);
+}
+
+
+auto CRenderer::render(CSession* session) -> SSubmit
+{
+	if (!session || !session->isInitialized())
+		return {};
+	const auto& sessionParams = session->getConstructionParams();
+	auto* const device = getDevice();
+
+	if (m_frameIx>=SCachedConstructionParams::FramesInFlight)
+	{
+		const ISemaphore::SWaitInfo cbDonePending[] =
+		{
+			{
+				.semaphore = m_construction.semaphore.get(),
+				.value = m_frameIx+1-SCachedConstructionParams::FramesInFlight
+			}
+		};
+		if (device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+			return {};
+	}
+	const auto resourceIx = m_frameIx % SCachedConstructionParams::FramesInFlight;
+
+	auto* const cb = m_construction.commandBuffers[resourceIx].get();
+	cb->getPool()->reset();
+	if (!cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
+		return {};
+
+	const auto mode = sessionParams.mode;
+	const auto& sessionResources = session->getActiveResources();
+	const auto* const pipeline = m_construction.renderingPipelines[static_cast<uint8_t>(mode)].get();
+	
+	bool success;
+	// push constants
+	{
+		switch (mode)
+		{
+			case CSession::RenderMode::Debug:
+			{
+				SDebugPushConstants pc = {sessionResources.currentSensorState};
+				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
+				break;
+			}
+			default:
+				getLogger().log("Unimplemented RenderMode::%s !",ILogger::ELL_ERROR,system::to_string(mode).c_str());
+				return {};
+		}
+	}
+	// bind pipelines
+	success = success && cb->bindRayTracingPipeline(pipeline);
+	{
+		const IGPUDescriptorSet* sets[2] = {sessionParams.scene->getDescriptorSet(),sessionResources.immutables.ds.get()};
+		success = success && cb->bindDescriptorSets(EPBP_RAY_TRACING,pipeline->getLayout(),0,2,sets);
+	}
+
+	const auto renderSize = sessionParams.uniforms.renderSize;
+	success = success && cb->traceRays({},{},0,{},0,{},0,renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
+
+	if (success)
+		return SSubmit(this,cb);
+	else
+		return {};
+}
+
+IQueue::SSubmitInfo::SSemaphoreInfo CRenderer::SSubmit::operator()(std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> extraWaits)
+{
+	if (cb)
+		return {};
+
+	const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+	{
+		{
+			.semaphore = renderer->m_construction.semaphore.get(),
+			.value = ++renderer->m_frameIx,
+			.stageMask = stageMask
+		}
+	};
+	const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = {{.cmdbuf=cb}};
+	const IQueue::SSubmitInfo infos[] =
+	{
+		{
+			.waitSemaphores = extraWaits,
+			.commandBuffers = commandBuffers,
+			.signalSemaphores = rendered
+		}
+	};
+	if (renderer->getCreationParams().graphicsQueue->submit(infos)!=IQueue::RESULT::SUCCESS)
+	{
+		renderer->m_frameIx--;
+		return {};
+	}
+	return rendered[0];
 }
 
 }

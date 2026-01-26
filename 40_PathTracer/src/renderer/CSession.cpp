@@ -73,9 +73,9 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		auto createImage = [&](
 			const std::string_view debugName, const E_FORMAT format, const uint16_t2 resolution, const uint16_t layers, std::bitset<E_FORMAT::EF_COUNT> viewFormats={},
 			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT|IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
-		) -> SImmutables::SImageWithViews
+		) -> SImageWithViews
 		{
-				SImmutables::SImageWithViews retval = {};
+				SImageWithViews retval = {};
 			{
 				{
 					IGPUImage::SCreationParams params = {};
@@ -141,7 +141,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		addImageWrite(SensorDSBindings::ScrambleKey,scrambleKeyView);
 
 		// create the render-sized images
-		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImmutables::SImageWithViews
+		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImageWithViews
 		{
 			return createImage(debugName,format,m_params.uniforms.renderSize,std::forward<Args>(args)...);
 		};
@@ -223,6 +223,9 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 
 bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 {
+	if (!isInitialized())
+		return false;
+
 	auto* const renderer = m_params.scene->getRenderer();
 	auto* const device = renderer->getDevice();
 	const auto& immutables = m_active.immutables;
@@ -246,7 +249,7 @@ bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 		};
 		before.reserve(SensorDSBindingCounts::AsSampledImages);
 
-		auto enqueueClear = [&before,beforeBase](const SImmutables::SImageWithViews& img)->void
+		auto enqueueClear = [&before,beforeBase](const SImageWithViews& img)->void
 		{
 			auto& out = before.emplace_back(beforeBase);
 			out.image = img.image.get();
@@ -286,8 +289,18 @@ bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 	success = success && cb->pipelineBarrier(asset::EDF_NONE,{.memBarriers=after});
 
 	if (success)
-		m_active.prevSensorState = newVal;
+		m_active.prevSensorState = m_active.currentSensorState = newVal;
 	return success;
+}
+
+bool CSession::update(const SSensorDynamics& newVal)
+{
+	if (!isInitialized())
+		return false;
+
+	m_active.prevSensorState = m_active.currentSensorState;
+	m_active.currentSensorState = newVal;
+	return true;
 }
 
 }

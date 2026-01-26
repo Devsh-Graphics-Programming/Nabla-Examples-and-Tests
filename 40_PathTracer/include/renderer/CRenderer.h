@@ -17,6 +17,7 @@ namespace nbl::this_example
 
 class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovable
 {
+		friend struct SSubmitInfo;
     public:
 		//
 		constexpr static video::SPhysicalDeviceFeatures RequiredDeviceFeatures()
@@ -41,6 +42,14 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			return retval;
 		}
 #endif
+		//
+		template<core::StringLiteral ShaderKey>
+		static inline core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader(
+			asset::IAssetManager* assMan, video::ILogicalDevice* device, system::logger_opt_ptr logger={}
+		)
+		{
+			return loadPrecompiledShader_impl(assMan,builtin::build::get_spirv_key<ShaderKey>(device),logger);
+		}
 
 		struct SCachedCreationParams
 		{
@@ -92,9 +101,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 		//
 		inline video::ILogicalDevice* getDevice() const {return m_creation.utilities->getLogicalDevice();}
-
-		//
-		core::smart_refctd_ptr<CScene> createScene(CScene::SCreationParams&& _params);
 		
 		struct SCachedConstructionParams
 		{
@@ -116,15 +122,29 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
+		
+		//
+		core::smart_refctd_ptr<CScene> createScene(CScene::SCreationParams&& _params);
 
 		//
-		template<core::StringLiteral ShaderKey>
-		static inline core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader(
-			asset::IAssetManager* assMan, video::ILogicalDevice* device, system::logger_opt_ptr logger={}
-		)
+		struct SSubmit final : core::Uncopyable
 		{
-			return loadPrecompiledShader_impl(assMan,builtin::build::get_spirv_key<ShaderKey>(device),logger);
-		}
+			public:
+				inline SSubmit() {}
+				inline SSubmit(CRenderer* _renderer, video::IGPUCommandBuffer* _cb) : renderer(_renderer), cb(_cb) {assert(operator bool());}
+
+				inline operator bool() const {return cb;}
+				inline operator video::IGPUCommandBuffer*() const {return cb;}
+
+				// returns semaphore signalled by submit
+				video::IQueue::SSubmitInfo::SSemaphoreInfo operator()(std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> extraWaits);
+
+				asset::PIPELINE_STAGE_FLAGS stageMask = asset::PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+			private:
+				CRenderer* renderer = nullptr;
+				video::IGPUCommandBuffer* cb = nullptr;
+		};
+		SSubmit render(CSession* session);
 
     protected:
 		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams

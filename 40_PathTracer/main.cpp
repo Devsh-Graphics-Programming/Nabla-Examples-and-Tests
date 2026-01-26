@@ -102,8 +102,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				const_cast<std::remove_reference_t<decltype(m_presenter)>&>(m_presenter) = CWindowPresenter::create({
 					{
 						.assMan = m_assetMgr,
-						.winMgr = m_winMgr,
 						.logger = smart_refctd_ptr(m_logger)
+					},
+					{
+						.winMgr = m_winMgr
 					},
 					m_api,
 					make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem),smart_refctd_ptr(m_logger)),
@@ -123,7 +125,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// TODO: parse the arguments
-			m_args = {};
+			m_args.headless = true;
 
 			if (!m_args.headless)
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -197,35 +199,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					{.mode=CSession::RenderMode::Debug},
 					scene_daily_pt->getSensors().data()
 				});
-				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [&session](SIntendedSubmitInfo& info)->bool
-					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
-					}
-				);
-				m_resolver->changeSession(std::move(session));
 				m_api->endCapture();
+
+				m_sessionQueue.push(std::move(session));
 			}
-
-			// temporary test
-			{
-				m_api->startCapture();
-
-				const auto* const session = m_resolver->getActiveSession();
-				{
-					auto cb = m_renderer->getConstructionParams().commandBuffers[0].get();
-					cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-	//				renderer->render(cb);
-					m_resolver->resolve(cb,nullptr);
-					m_presenter->acquire({},session);
-					m_presenter->beginRenderpass(cb);
-	//				m_presenter->endRenderpassAndPresent(cb);
-
-					// TODO: submit
-				}
-				m_api->endCapture();
-			}
-			m_resolver->getActiveSession()->deinit();
 
 			return true;
 
@@ -379,137 +356,51 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 
 		inline void workLoopBody() override
 		{
-#if 0
-		// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
-		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
-		// We block for semaphores for 2 reasons here:
-		  // A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
-		  // B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
-		if (m_realFrameIx >= framesInFlight)
-		{
-			const ISemaphore::SWaitInfo cbDonePending[] =
+			CSession* session;
+			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f;)
 			{
-			  {
-				.semaphore = m_semaphore.get(),
-				.value = m_realFrameIx + 1 - framesInFlight
-			  }
-			};
-			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				if (m_sessionQueue.empty())
+					return;
+				session = m_sessionQueue.front().get();
+				// init
+				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
+					{
+						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+					}
+				);
+				m_resolver->changeSession(std::move(m_sessionQueue.front()));
+				m_sessionQueue.pop();
+			}
+
+			m_api->startCapture();
+			IQueue::SSubmitInfo::SSemaphoreInfo rendered = {};
+			{
+				auto deferredSubmit = m_renderer->render(session);
+				if (deferredSubmit)
+				{
+					IGPUCommandBuffer* const cb = deferredSubmit;
+					if (!m_args.headless || session->getProgress()>=1.f)
+					{
+						m_resolver->resolve(cb,nullptr);
+					}
+					rendered = deferredSubmit({});
+				}
+			}
+			m_api->endCapture();
+
+			if (m_args.headless)
 				return;
-		}
-		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
+			handleInputs();
+			if (!keepRunning())
+				return;
 
-		m_api->startCapture();
-
-		update();
-
-		auto queue = getGraphicsQueue();
-		auto cmdbuf = m_cmdBufs[resourceIx].get();
-
-		if (!keepRunning())
-			return;
-
-		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-		const auto viewMatrix = m_camera.getViewMatrix();
-		const auto projectionMatrix = m_camera.getProjectionMatrix();
-		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-
-		core::matrix3x4SIMD modelMatrix;
-		modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-		modelMatrix.setRotation(quaternion(0, 0, 0));
-
-		core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-		if (m_cachedModelViewProjectionMatrix != modelViewProjectionMatrix)
-		{
-			m_frameAccumulationCounter = 0;
-			m_cachedModelViewProjectionMatrix = modelViewProjectionMatrix;
-		}
-		core::matrix4SIMD invModelViewProjectionMatrix;
-		modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
-
-		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
-			imageBarriers[0].barrier = {
-			   .dep = {
-				 .srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // previous frame read from framgent shader
-				 .srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-				 .dstStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
-				 .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-			  }
-			};
-			imageBarriers[0].image = m_hdrImage.get();
-			imageBarriers[0].subresourceRange = {
-			  .aspectMask = IImage::EAF_COLOR_BIT,
-			  .baseMipLevel = 0u,
-			  .levelCount = 1u,
-			  .baseArrayLayer = 0u,
-			  .layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = m_frameAccumulationCounter == 0 ? IImage::LAYOUT::UNDEFINED : IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
-		}
-
-		// Trace Rays Pass
-		{
-			SPushConstants pc;
-			pc.light = m_light;
-			pc.proceduralGeomInfoBuffer = m_proceduralGeomInfoBuffer->getDeviceAddress();
-			pc.triangleGeomInfoBuffer = m_triangleGeomInfoBuffer->getDeviceAddress();
-			pc.frameCounter = m_frameAccumulationCounter;
-			const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
-			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
-			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
-
-			cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
-			cmdbuf->setRayTracingPipelineStackSize(m_rayTracingStackSize);
-			cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
-			cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
-			if (m_useIndirectCommand)
+			m_presenter->acquire(session);
+			auto* const cb = m_presenter->beginRenderpass();
 			{
-				cmdbuf->traceRaysIndirect(
-					SBufferBinding<const IGPUBuffer>{
-					.offset = 0,
-						.buffer = m_indirectBuffer,
-				});
+				// can do additional stuff like ImGUI work here
 			}
-			else
-			{
-				cmdbuf->traceRays(
-					m_shaderBindingTable.raygenGroupRange,
-					m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
-					m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
-					m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
-					WIN_W, WIN_H, 1);
-			}
-		}
-
-		// pipeline barrier
-		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
-			imageBarriers[0].barrier = {
-			  .dep = {
-				.srcStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
-				.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-				.dstStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-				.dstAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-			  }
-			};
-			imageBarriers[0].image = m_hdrImage.get();
-			imageBarriers[0].subresourceRange = {
-			  .aspectMask = IImage::EAF_COLOR_BIT,
-			  .baseMipLevel = 0u,
-			  .levelCount = 1u,
-			  .baseArrayLayer = 0u,
-			  .layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
-			imageBarriers[0].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
-		}
+			m_presenter->endRenderpassAndPresent(rendered);
+#if 0 // gui
 
 // ...
 		const auto uiParams = m_ui.manager->getCreationParameters();
@@ -518,16 +409,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, uiPipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get());
 		ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 		m_ui.manager->render(cmdbuf, waitInfo);
-// ...
 
-
-			{
-			  {
-				.semaphore = m_semaphore.get(),
-				.value = ++m_realFrameIx,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			  }
-			};
 			{
 				{
 
@@ -535,10 +417,6 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 
 				}
 			}
-			=
-		}
-		m_api->endCapture();
-		m_frameAccumulationCounter++;
 #endif
 		}
 
@@ -603,7 +481,11 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline bool keepRunning() override
 		{
 			if (m_args.headless)
-				return true; //  TODO: till renders are complete
+			{
+				if (auto* const currentSession=m_resolver->getActiveSession(); m_sessionQueue.empty() && (!currentSession || currentSession->getProgress()>=1.f))
+					return false;
+				return true;
+			}
 			else 
 				return !m_presenter->irrecoverable();
 		}
@@ -626,9 +508,9 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		smart_refctd_ptr<CBasicRWMCResolver> m_resolver;
 		//
 		smart_refctd_ptr<CSceneLoader> m_sceneLoader;
+		//
+		nbl::core::queue<smart_refctd_ptr<CSession>> m_sessionQueue;
 
-	uint64_t m_realFrameIx = 0;
-	uint32_t m_frameAccumulationCounter = 0;
 #if 0 // gui
 	struct C_UI
 	{
@@ -643,7 +525,6 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 	} m_ui;
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 #endif
-	uint64_t m_rayTracingStackSize;
 
 };
 NBL_MAIN_FUNC(PathTracingApp)

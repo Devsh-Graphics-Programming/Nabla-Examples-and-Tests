@@ -14,7 +14,7 @@ using namespace nbl::video;
 
 constexpr auto SessionImageWritingStages = PIPELINE_STAGE_FLAGS::CLEAR_BIT|PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
 
-constexpr IGPURenderpass::SCreationParams::SSubpassDependency CWindowPresenter::dependencies[3] =
+constexpr IGPURenderpass::SCreationParams::SSubpassDependency CWindowPresenter::Dependencies[3] =
 {
 	{
 		.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
@@ -110,9 +110,9 @@ smart_refctd_ptr<CWindowPresenter> CWindowPresenter::create(SCreationParams&& _p
 	return smart_refctd_ptr<CWindowPresenter>(new CWindowPresenter(std::move(params)),dont_grab);
 }
 
-bool CWindowPresenter::init(CRenderer* renderer)
+bool CWindowPresenter::init_impl(CRenderer* renderer)
 {
-	auto& logger = m_creation.logger;
+	auto& logger = IPresenter::getCreationParams().logger;
 	auto* device = renderer->getDevice();
 
 	// create swapchain and its resources (renderpass, etc.)
@@ -125,7 +125,7 @@ bool CWindowPresenter::init(CRenderer* renderer)
 			return false;
 		}
 
-		auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(device,swapchainParams.surfaceFormat.format,dependencies,IGPURenderpass::LOAD_OP::DONT_CARE);
+		auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(device,swapchainParams.surfaceFormat.format,Dependencies,IGPURenderpass::LOAD_OP::DONT_CARE);
 		if (!scResources || !scResources->getRenderpass())
 		{
 			logger.log("Failed to create Renderpass!",ILogger::ELL_ERROR);
@@ -140,7 +140,8 @@ bool CWindowPresenter::init(CRenderer* renderer)
 	}
 
 	//
-	ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_creation.assMan.get(),device,logger.get().get());
+	auto* const assMan = IPresenter::getCreationParams().assMan.get();
+	ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(assMan,device,logger.get().get());
 	if (!fsTriProtoPPln)
 	{
 		logger.log("`CWindowPresenter::create` failed to create Full Screen Triangle protopipeline or load its vertex shader!",ILogger::ELL_ERROR);
@@ -161,7 +162,7 @@ bool CWindowPresenter::init(CRenderer* renderer)
 	}
 
 	// present pipeline
-	if (auto shader=renderer->loadPrecompiledShader<"present_default">(m_creation.assMan.get(),device,logger.get().get()); shader)
+	if (auto shader=renderer->loadPrecompiledShader<"present_default">(assMan,device,logger.get().get()); shader)
 	{
 		const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
 			.shader = shader.get(),
@@ -180,7 +181,7 @@ bool CWindowPresenter::init(CRenderer* renderer)
 	return bool(m_present);
 }
 
-auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSession* session) -> clock_t::time_point
+auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitInfo* p_currentImageAcquire) -> clock_t::time_point
 {
 	auto expectedPresent = clock_t::time_point::min(); // invalid value
 	if (!session)
@@ -235,14 +236,14 @@ auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSess
 	if (window->isHidden())
 		winMgr->show(window);
 
-
 	m_pushConstants.layer = 0; // TODO: cubemaps and RWMC debug
 	m_pushConstants.imageIndex = 0;
 
-	if (!(m_currentImageAcquire=m_construction.surface->acquireNextImage()))
-	{
+	auto acquireResult = m_construction.surface->acquireNextImage();
+	*p_currentImageAcquire = {.semaphore=acquireResult.semaphore,.value=acquireResult.acquireCount};
+	m_currentImageIndex = acquireResult.imageIndex;
+	if (!acquireResult)
 		return expectedPresent;
-	}
 
 	// TODO: Do this properly with present timing extension and a better oracle
 	expectedPresent = clock_t::now() + std::chrono::microseconds(16666);
@@ -250,12 +251,13 @@ auto CWindowPresenter::acquire(const ISwapchain::SAcquireInfo& info, const CSess
 	return expectedPresent;
 }
 
-bool CWindowPresenter::beginRenderpass(IGPUCommandBuffer* cb)
+bool CWindowPresenter::beginRenderpass_impl()
 {
 	auto* const scRes = getSwapchainResources();
-	auto* const framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex);
+	auto* const framebuffer = scRes->getFramebuffer(m_currentImageIndex);
 	const uint16_t2 resolution = { framebuffer->getCreationParameters().width,framebuffer->getCreationParameters().height};
 
+	auto* const cb = getCurrentCmdBuffer();
 	bool success = cb->beginDebugMarker("Present");
 	const SViewport viewport[] = {{
 		.x = 0u, .y = 0u,
@@ -273,7 +275,7 @@ bool CWindowPresenter::beginRenderpass(IGPUCommandBuffer* cb)
 		const VkRect2D currentRenderArea = {.offset = {0,0}, .extent = defaultScisors->extent};
 		const IGPUCommandBuffer::SRenderpassBeginInfo info =
 		{
-			.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+			.framebuffer = framebuffer,
 			.colorClearValues = nullptr,
 			.depthStencilClearValues = nullptr,
 			.renderArea = currentRenderArea
@@ -284,105 +286,15 @@ bool CWindowPresenter::beginRenderpass(IGPUCommandBuffer* cb)
 	success = success && cb->bindGraphicsPipeline(m_present.get());
 
 	const auto* layout = m_present->getLayout();
-//	success = success && cb->bindDescriptorSets(EPBP_GRAPHICS,layout,0,1u,&m_presentDs.get());
+	{
+		const auto* ds = getCurrentSessionDS();
+		success = success && cb->bindDescriptorSets(EPBP_GRAPHICS,layout,0,1u,&ds);
+	}
 	success = success && cb->pushConstants(layout,ShaderStage::ESS_FRAGMENT,0,sizeof(m_pushConstants),&m_pushConstants);
 	ext::FullScreenTriangle::recordDrawCall(cb);
 
 	success = success && cb->endDebugMarker();
 	return success;
 }
-bool CWindowPresenter::endRenderpassAndPresent(IGPUCommandBuffer* cb, ISemaphore* presentBeginSignal)
-{
-	bool success = cb->endRenderPass();
-	success = success && cb->end();
-/*
-	const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
-	{
-		{.cmdbuf = cb}
-	};
-	const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
-	{
-		{
-			.semaphore = m_currentImageAcquire.semaphore,
-			.value = m_currentImageAcquire.acquireCount,
-			.stageMask = PIPELINE_STAGE_FLAGS::NONE
-		}
-	};
-	const IQueue::SSubmitInfo infos[] =
-	{
-		{
-			.waitSemaphores = acquired,
-			.commandBuffers = commandBuffers,
-			.signalSemaphores = rendered
-		}
-	};
-	
-	if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
-		m_realFrameIx--;
-*/
-
-//	m_construction.surface->present(m_currentImageAcquire.imageIndex,rendered);
-	return false;
-}
 
 }
-
-#if 0
-		{
-			const IGPUDescriptorSetLayout::SBinding bindings[] = {
-			  {
-				.binding = 0u,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.count = 1u,
-				.immutableSamplers = &defaultSampler
-			  }
-			};
-			auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-			const video::IGPUDescriptorSetLayout* const layouts[] = { gpuPresentDescriptorSetLayout.get() };
-			const uint32_t setCounts[] = { 1u };
-			m_presentDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-			m_presentDs = m_presentDsPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
-
-			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
-			if (!fsTriProtoPPln)
-				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
-
-			const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
-			  .shader = fragmentShader.get(),
-			  .entryPoint = "main",
-			};
-
-			auto presentLayout = m_device->createPipelineLayout(
-				{},
-				core::smart_refctd_ptr(gpuPresentDescriptorSetLayout),
-				nullptr,
-				nullptr,
-				nullptr
-			);
-			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
-			if (!m_presentPipeline)
-				return logFail("Could not create Graphics Pipeline!");
-		}
-
-		// write descriptors
-		IGPUDescriptorSet::SDescriptorInfo infos[3];
-		infos[0].desc = m_gpuTlas;
-
-		infos[1].desc = m_hdrImageView;
-		if (!infos[1].desc)
-			return logFail("Failed to create image view");
-		infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-
-		infos[2].desc = m_hdrImageView;
-		infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-		IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
-			{.dstSet = m_rayTracingDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-			{.dstSet = m_rayTracingDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-			{.dstSet = m_presentDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[2] },
-		};
-		m_device->updateDescriptorSets(std::span(writes), {});
-#endif
