@@ -1,7 +1,6 @@
 #ifndef _PATHTRACER_EXAMPLE_SCENE_INCLUDED_
 #define _PATHTRACER_EXAMPLE_SCENE_INCLUDED_
 
-// #include "common.hlsl"
 #include "example_common.hlsl"
 
 using namespace nbl;
@@ -50,8 +49,6 @@ struct Scene<PST_SPHERE> : SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
     Shape<scalar_type, PST_SPHERE> light_spheres[1];
-    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
-    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
 
     Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
     {
@@ -65,13 +62,15 @@ struct Scene<PST_SPHERE> : SceneBase
     Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
     {
         assert(false);
-        return light_triangles[0];
+        Shape<scalar_type, PST_TRIANGLE> dummy;
+        return dummy;
     }
 
     Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
     {
         assert(false);
-        return light_rectangles[0];
+        Shape<scalar_type, PST_RECTANGLE> dummy;
+        return dummy;
     }
 
      void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
@@ -105,9 +104,7 @@ struct Scene<PST_TRIANGLE> : SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
-    Shape<scalar_type, PST_SPHERE> light_spheres[1];
     Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
-    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
 
     Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
     {
@@ -122,7 +119,8 @@ struct Scene<PST_TRIANGLE> : SceneBase
     Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
     {
         assert(false);
-        return light_rectangles[0];
+        Shape<scalar_type, PST_RECTANGLE> dummy;
+        return dummy;
     }
     
     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
@@ -156,8 +154,6 @@ struct Scene<PST_RECTANGLE> : SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = base_t::SCENE_LIGHT_COUNT;
 
-    Shape<scalar_type, PST_SPHERE> light_spheres[1];
-    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
     Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
 
     Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
@@ -168,7 +164,8 @@ struct Scene<PST_RECTANGLE> : SceneBase
     Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
     {
         assert(false);
-        return light_triangles[0];
+        Shape<scalar_type, PST_TRIANGLE> dummy;
+        return dummy;
     }
     Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
     {
