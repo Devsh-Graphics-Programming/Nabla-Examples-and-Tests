@@ -261,6 +261,7 @@ struct TestChi2 : TestBxDF<BxDF>
         float thetaFactor = thetaSplits * numbers::inv_pi<float>;
         float phiFactor = phiSplits * 0.5f * numbers::inv_pi<float>;
 
+        uint32_t numObservedSamples = 0u;
         sample_t s;
         iso_cache isocache;
         aniso_cache cache;
@@ -306,6 +307,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
             uint32_t freqidx = thetaBin * phiSplits + phiBin;
             countFreq[freqidx] += 1;
+            numObservedSamples++;
 
             if (write_frequencies && maxCountFreq < countFreq[freqidx])
                 maxCountFreq = countFreq[freqidx];
@@ -326,7 +328,7 @@ struct TestChi2 : TestBxDF<BxDF>
                 pdfSinTheta.isointer = base_t::isointer;
                 pdfSinTheta.anisointer = base_t::anisointer;
                 pdfSinTheta.eta = base_t::rc.eta.x;
-                integrateFreq[intidx++] = numSamples * math::quadrature::AdaptiveSimpson2D<CalculatePdfSinTheta<BxDF, aniso>, float>::__call(
+                integrateFreq[intidx++] = numObservedSamples * math::quadrature::AdaptiveSimpson2D<CalculatePdfSinTheta<BxDF, aniso>, float>::__call(
                     pdfSinTheta, float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
 
                 if (write_frequencies && maxIntFreq < integrateFreq[lastidx])
