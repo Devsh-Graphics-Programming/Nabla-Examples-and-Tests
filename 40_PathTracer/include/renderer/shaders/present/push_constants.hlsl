@@ -18,8 +18,8 @@ struct SDefaultResolvePushConstants
 
     struct Regular
     {
-        // if positive then we multiply X, otherwise Y
-        float32_t scale;
+        // if more than 1.f
+        float32_t2 scale;
         // to visualize what will get cropped out
         float32_t2 _min,_max;
     };

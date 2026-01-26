@@ -26,7 +26,7 @@ class CWindowPresenter : public IPresenter
 		{
 			core::smart_refctd_ptr<ui::IWindowManager> winMgr = nullptr;
 			// for the UI, 1080p with 50% scaling
-			hlsl::uint16_t2 minResolution = {1264,698};
+			hlsl::uint16_t2 minResolution = {1248,688};
 		};
 		struct SCreationParams : IPresenter::SCachedCreationParams, SCachedCreationParams
 		{

@@ -60,7 +60,7 @@ smart_refctd_ptr<CWindowPresenter> CWindowPresenter::create(SCreationParams&& _p
 	{
 		const auto& primDpyInfo = params.winMgr->getPrimaryDisplayInfo();
 		// subtract window border/decoration elements
-		params.maxResolution = hlsl::max<int32_t2>(int32_t2(primDpyInfo.resX,primDpyInfo.resY)-int32_t2(32,16),int32_t2(0,0));
+		params.maxResolution = hlsl::max<int32_t2>(int32_t2(primDpyInfo.resX,primDpyInfo.resY)-int32_t2(32,32),int32_t2(0,0));
 		// we add an additional constraint that any dimension of maxResolution cannot be less than any dimension of minResolution
 		// e.g. max resolution Height cannot be less than min resolution width 
 		if (hlsl::any(hlsl::less<uint16_t4>()(params.maxResolution.xxyy,params.minResolution.xyxy)))
@@ -191,7 +191,6 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 
 	const auto maxResolution = m_construction.maxResolution;
 	uint16_t2 targetResolution = m_pushConstants.isCubemap ? maxResolution:sessionParams.uniforms.renderSize;
-	const auto aspectRatio = double(targetResolution.x)/double(targetResolution.y);
 	if (m_pushConstants.isCubemap)
 	{
 		// TODO: build default perspective projection matrix given aspect ratio and smaller axis (or diagonal) FOV of the viewer
@@ -202,21 +201,21 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		m_pushConstants.regular._min = float32_t2(sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
 		m_pushConstants.regular._max = float32_t2(sessionParams.cropResolution+sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
 		// prevent extreme window size
-		const auto clampedAspectRatio = hlsl::clamp(aspectRatio,m_construction.aspectRatioRange[0],m_construction.aspectRatioRange[1]);
-		const float64_t asConv = core::min(1.0/clampedAspectRatio,clampedAspectRatio);
-		const uint8_t largeDim = targetResolution.x<targetResolution.y ? 1:0;
-		const uint8_t smallDim = largeDim^0x1u;
 		const auto minResolution = m_creation.minResolution;
-		targetResolution[largeDim] = hlsl::clamp(targetResolution[largeDim],minResolution[largeDim],maxResolution[largeDim]);
-		// and aspect ratios
-		targetResolution[smallDim] = hlsl::ceil(targetResolution[largeDim]*asConv);
+		double scaleDown = 1.0;
+		for (uint8_t i=0; i<2; i++)
+			scaleDown = hlsl::min(float64_t(maxResolution[i])/float64_t(targetResolution[i]),scaleDown);
+		targetResolution = float64_t2(targetResolution)*scaleDown;
+		// pad artificially
+		m_pushConstants.regular.scale = { 1,1 };
+		for (uint8_t i=0; i<2; i++)
 		{
-			const auto aspectChange = clampedAspectRatio/aspectRatio;
-			// >1.0 makes us wider (adds width), <1.0 makes us narrower (adds height)
-			if (aspectChange<1.0)
-				m_pushConstants.regular.scale = -1.f/aspectChange;
-			else
-				m_pushConstants.regular.scale = aspectChange;
+			const auto tmp = float64_t(minResolution[i])/float64_t(targetResolution[i]);
+			if (tmp>1.0)
+			{
+				targetResolution[i] = minResolution[i];
+				m_pushConstants.regular.scale[i] = tmp;
+			}
 		}
 		// `CWindowPresenter::create` aspect ratio ranges and min/max relationships help us stay valid
 		assert(all(minResolution<=targetResolution)&&all(targetResolution<=maxResolution));
@@ -289,7 +288,7 @@ bool CWindowPresenter::beginRenderpass_impl()
 		success = success && cb->bindDescriptorSets(EPBP_GRAPHICS,layout,0,1u,&ds);
 	}
 	success = success && cb->pushConstants(layout,ShaderStage::ESS_FRAGMENT,0,sizeof(m_pushConstants),&m_pushConstants);
-	ext::FullScreenTriangle::recordDrawCall(cb);
+//	ext::FullScreenTriangle::recordDrawCall(cb);
 
 	success = success && cb->endDebugMarker();
 	return success;
