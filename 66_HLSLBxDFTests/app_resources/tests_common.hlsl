@@ -76,6 +76,7 @@ struct SBxDFTestResources
         retval.u = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>());
         retval.u.x = hlsl::clamp(retval.u.x, retval.eps, 1.f-retval.eps);
         retval.u.y = hlsl::clamp(retval.u.y, retval.eps, 1.f-retval.eps);
+        retval.u.z = hlsl::mix(0.0, 1.0, retval.u.z > 0.5);
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>())));
