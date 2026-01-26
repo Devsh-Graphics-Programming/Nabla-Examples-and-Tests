@@ -18,12 +18,10 @@ struct SDefaultResolvePushConstants
 
     struct Regular
     {
-        //
-        float32_t2 scale;
-        // post-scale addition to uv coordinate to get to beginning
-        float32_t2 crop;
-        // Because `scale*uv+cropOffsets!=1.0` where the image is supposed to end 
-        float32_t2 limit;
+        // if positive then we multiply X, otherwise Y
+        float32_t scale;
+        // to visualize what will get cropped out
+        float32_t2 _min,_max;
     };
     struct Cubemap
     {

@@ -55,7 +55,7 @@ smart_refctd_ptr<CWindowPresenter> CWindowPresenter::create(SCreationParams&& _p
 		_params.logger.log("`CWindowPresenter::SCreationParams` are invalidl!",ILogger::ELL_ERROR);
 		return nullptr;
 	}
-	CWindowPresenter::SConstructorParams params = {std::move(_params)};
+	CWindowPresenter::SConstructorParams params = {std::move(_params),std::move(_params)};
 
 	{
 		const auto& primDpyInfo = params.winMgr->getPrimaryDisplayInfo();
@@ -190,7 +190,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 	m_pushConstants.isCubemap = sessionParams.type==CSession::sensor_type_e::Env;
 
 	const auto maxResolution = m_construction.maxResolution;
-	uint16_t2 targetResolution = m_pushConstants.isCubemap ? maxResolution:sessionParams.cropResolution;
+	uint16_t2 targetResolution = m_pushConstants.isCubemap ? maxResolution:sessionParams.uniforms.renderSize;
 	const auto aspectRatio = double(targetResolution.x)/double(targetResolution.y);
 	if (m_pushConstants.isCubemap)
 	{
@@ -199,10 +199,8 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 	}
 	else
 	{
-		m_pushConstants.regular.crop = float32_t2(sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
-		// this we shall adjust to take care of aspect ratio mismatch
-		m_pushConstants.regular.scale = float32_t2(sessionParams.cropResolution)*sessionParams.uniforms.rcpPixelSize;
-		m_pushConstants.regular.limit = m_pushConstants.regular.scale+m_pushConstants.regular.crop;
+		m_pushConstants.regular._min = float32_t2(sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
+		m_pushConstants.regular._max = float32_t2(sessionParams.cropResolution+sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
 		// prevent extreme window size
 		const auto clampedAspectRatio = hlsl::clamp(aspectRatio,m_construction.aspectRatioRange[0],m_construction.aspectRatioRange[1]);
 		const float64_t asConv = core::min(1.0/clampedAspectRatio,clampedAspectRatio);
@@ -215,10 +213,10 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		{
 			const auto aspectChange = clampedAspectRatio/aspectRatio;
 			// >1.0 makes us wider (adds width), <1.0 makes us narrower (adds height)
-			if (aspectChange>1.0)
-				m_pushConstants.regular.scale[0] *= aspectChange;
+			if (aspectChange<1.0)
+				m_pushConstants.regular.scale = -1.f/aspectChange;
 			else
-				m_pushConstants.regular.scale[1] /= aspectChange;
+				m_pushConstants.regular.scale = aspectChange;
 		}
 		// `CWindowPresenter::create` aspect ratio ranges and min/max relationships help us stay valid
 		assert(all(minResolution<=targetResolution)&&all(targetResolution<=maxResolution));
@@ -271,7 +269,7 @@ bool CWindowPresenter::beginRenderpass_impl()
 			.offset = {static_cast<int32_t>(viewport->x), static_cast<int32_t>(viewport->y)},
 			.extent = {resolution.x,resolution.y}
 		}};
-		cb->setScissor(defaultScisors);
+		success = success && cb->setScissor(defaultScisors);
 		const VkRect2D currentRenderArea = {.offset = {0,0}, .extent = defaultScisors->extent};
 		const IGPUCommandBuffer::SRenderpassBeginInfo info =
 		{

@@ -75,7 +75,7 @@ class CBasicRWMCResolver : public IResolver
 			switch (session->getConstructionParams().mode)
 			{
 				case CSession::RenderMode::Previs: [[fallthrough]];
-				case CSession::RenderMode::Debug: [[fallthrough]];
+				case CSession::RenderMode::Debug:
 					return 0ull;
 				case CSession::RenderMode::Beauty:
 					return 0ull; // for now, as long as we blit

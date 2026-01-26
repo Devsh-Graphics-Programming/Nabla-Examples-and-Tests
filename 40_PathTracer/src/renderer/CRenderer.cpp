@@ -425,7 +425,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	}
 
 	const auto renderSize = sessionParams.uniforms.renderSize;
-	success = success && cb->traceRays({},{},0,{},0,{},0,renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
+//	success = success && cb->traceRays({},{},0,{},0,{},0,renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
 
 	if (success)
 		return SSubmit(this,cb);

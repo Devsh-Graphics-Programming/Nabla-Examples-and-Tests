@@ -125,7 +125,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// TODO: parse the arguments
-			m_args.headless = true;
+			m_args.headless = false;
 
 			if (!m_args.headless)
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -194,14 +194,32 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.workingDirectory = localOutputCWD
 				});
 		#endif
-
-				auto session = scene_daily_pt->createSession({
-					{.mode=CSession::RenderMode::Debug},
-					scene_daily_pt->getSensors().data()
-				});
 				m_api->endCapture();
 
-				m_sessionQueue.push(std::move(session));
+				// quick test code
+				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
+				{
+					sensors[1].constants.width = 640;
+					sensors[1].constants.height = 360;
+					sensors[1].mutableDefaults.cropOffsetX = 0;
+					sensors[1].mutableDefaults.cropOffsetY = 0;
+					sensors[1].mutableDefaults.cropWidth = 0;
+					sensors[1].mutableDefaults.cropHeight = 0;
+				}
+				{
+					sensors[2].mutableDefaults.cropWidth = 5120;
+					sensors[2].mutableDefaults.cropHeight = 2880;
+					sensors[2].mutableDefaults.cropOffsetX = 128;
+					sensors[2].mutableDefaults.cropOffsetY = 128;
+					sensors[2].constants.width = sensors[2].mutableDefaults.cropWidth+2*sensors[2].mutableDefaults.cropOffsetX;
+					sensors[2].constants.height = sensors[2].mutableDefaults.cropHeight+2*sensors[2].mutableDefaults.cropOffsetY;
+				}
+				for (const auto& sensor : sensors)
+					m_sessionQueue.push(
+						scene_daily_pt->createSession({
+							{.mode=CSession::RenderMode::Debug},&sensor
+						})
+					);
 			}
 
 			return true;
@@ -357,8 +375,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline void workLoopBody() override
 		{
 			CSession* session;
-			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f;)
+			volatile bool skip = true; // skip using the debugger
+			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 			{
+				skip = false;
 				if (m_sessionQueue.empty())
 					return;
 				session = m_sessionQueue.front().get();

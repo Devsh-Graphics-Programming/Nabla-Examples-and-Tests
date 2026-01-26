@@ -165,7 +165,7 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 				}
 			};
 			if (!extraSubmitWait.semaphore)
-				infos->waitSemaphores;
+				infos->waitSemaphores = {wait,1};
 	
 			if (m_queue->submit(infos)!=IQueue::RESULT::SUCCESS)
 			{
