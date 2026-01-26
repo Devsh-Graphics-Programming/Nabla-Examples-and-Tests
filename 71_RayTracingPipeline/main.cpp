@@ -9,7 +9,10 @@
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
-
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
+#include <nbl/builtin/hlsl/math/quaternions.hlsl>
+#include <nbl/system/to_string.h>
 
 class RaytracingPipelineApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -476,9 +479,9 @@ public:
 
 				m_camera.setProjectionMatrix([&]()
 					{
-						static matrix4SIMD projection;
+						static hlsl::float32_t4x4 projection;
 
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 							core::radians(m_cameraSetting.fov),
 							io.DisplaySize.x / io.DisplaySize.y,
 							m_cameraSetting.zNear,
@@ -542,9 +545,9 @@ public:
 		// Set Camera
 		{
 			core::vectorSIMDf cameraPosition(0, 5, -10);
-			matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+			hlsl::float32_t4x4 proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 				core::radians(60.0f),
-				WIN_W / WIN_H,
+				float(WIN_W / WIN_H),
 				0.01f,
 				500.0f
 			);
@@ -620,18 +623,15 @@ public:
 		const auto projectionMatrix = m_camera.getProjectionMatrix();
 		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 
-		core::matrix3x4SIMD modelMatrix;
-		modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-		modelMatrix.setRotation(quaternion(0, 0, 0));
+		//hlsl::float32_t3x4 modelMatrix;
 
-		core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+		hlsl::float32_t4x4 modelViewProjectionMatrix = viewProjectionMatrix;
 		if (m_cachedModelViewProjectionMatrix != modelViewProjectionMatrix)
 		{
 			m_frameAccumulationCounter = 0;
 			m_cachedModelViewProjectionMatrix = modelViewProjectionMatrix;
 		}
-		core::matrix4SIMD invModelViewProjectionMatrix;
-		modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
+		hlsl::float32_t4x4 invModelViewProjectionMatrix = hlsl::inverse(modelViewProjectionMatrix);
 
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
@@ -665,7 +665,7 @@ public:
 			pc.frameCounter = m_frameAccumulationCounter;
 			const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
-			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
+			pc.invMVP = invModelViewProjectionMatrix;
 
 			cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
 			cmdbuf->setRayTracingPipelineStackSize(m_rayTracingStackSize);
@@ -1071,13 +1071,13 @@ private:
 
 		auto getTranslationMatrix = [](float32_t x, float32_t y, float32_t z)
 			{
-				core::matrix3x4SIMD transform;
-				transform.setTranslation(nbl::core::vectorSIMDf(x, y, z, 0));
+				hlsl::float32_t3x4 transform = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
+				hlsl::math::linalg::setTranslation(transform, float32_t3(x, y, z));
+
 				return transform;
 			};
 
-		core::matrix3x4SIMD planeTransform;
-		planeTransform.setRotation(quaternion::fromAngleAxis(core::radians(-90.0f), vector3df_SIMD{ 1, 0, 0 }));
+		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3,4,3,3>(hlsl::math::linalg::rotation_mat(core::radians(-90.0f), { 1,0,0 }));
 
 		// triangles geometries
 		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
@@ -1228,7 +1228,7 @@ private:
 				inst.base.instanceCustomIndex = i;
 				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;
 				inst.base.mask = 0xFF;
-				inst.transform = isProceduralInstance ? matrix3x4SIMD() : cpuObjects[i].transform;
+				inst.transform = isProceduralInstance ? hlsl::float32_t3x4() : cpuObjects[i].transform;
 
 				instance->instance = inst;
 			}
@@ -1467,7 +1467,7 @@ private:
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 	} m_cameraSetting;
-	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 
 	Light m_light = {
 	  .direction = {-1.0f, -1.0f, -0.4f},
@@ -1519,7 +1519,7 @@ private:
 	smart_refctd_ptr<CAssetConverter> m_converter;
 
 
-	core::matrix4SIMD m_cachedModelViewProjectionMatrix;
+	hlsl::float32_t4x4 m_cachedModelViewProjectionMatrix;
 	bool m_useIndirectCommand = false;
 
 };
