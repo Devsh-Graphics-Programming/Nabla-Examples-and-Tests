@@ -37,6 +37,8 @@ float32_t4 present_default(SVertexAttributes vxAttr) : SV_Target0
         else
             uv.y *= regular.scale;
         uv.z = pc.layer;
+        if (any(regular._min>uv.xy || regular._max<uv.xy))
+            tint *= 0.33f;
     }
     return float32_t4(gSensorTextures[pc.imageIndex].SampleLevel(gSensorSamplers[0],uv,0.f).rgb*tint,1.0f);
 }

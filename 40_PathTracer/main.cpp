@@ -72,6 +72,14 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline PathTracingApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)	{}
 
+		inline IAPIConnection::SFeatures getAPIFeaturesToEnable() override
+		{
+			auto retval = device_base_t::getAPIFeaturesToEnable();
+			if (m_args.headless)
+				retval.swapchainMode = E_SWAPCHAIN_MODE::ESM_NONE;
+			return retval;
+		}
+
 		inline SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceFeatures();
@@ -81,6 +89,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
 		{
 			auto retval = device_base_t::getPreferredDeviceFeatures();
+			if (m_args.headless)
+				retval.swapchainMode = E_SWAPCHAIN_MODE::ESM_NONE;
 			return retval.unionWith(CRenderer::PreferredDeviceFeatures());
 		}
 
@@ -133,7 +143,12 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			if (m_args.headless)
+			{
+				if (!BasicMultiQueueApplication::onAppInitialized(smart_refctd_ptr(system)))
+					return false;
+			}
+			else if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
 			printGitInfos();
