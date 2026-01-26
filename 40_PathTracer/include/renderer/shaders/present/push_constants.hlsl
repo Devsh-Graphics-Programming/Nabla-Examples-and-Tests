@@ -41,8 +41,8 @@ struct SDefaultResolvePushConstants
     {
         Regular retval;
         retval.scale = __union.invProjView[0].xy;
-        retval.crop = __union.invProjView[0].zw;
-        retval.limit = __union.invProjView[1].xy;
+        retval._min = __union.invProjView[0].zw;
+        retval._max = __union.invProjView[1].xy;
         return retval;
     }
     inline Cubemap cubemap() {return __union;}

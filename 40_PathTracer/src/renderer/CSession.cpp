@@ -170,9 +170,9 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		addImageWrite(SensorDSBindings::AsSampledImages,scrambleKeyView);
 		writes.back().count = SensorDSBindingCounts::AsSampledImages;
 		{
-			const auto lastInfoIx = infos.size()-1;
-			infos.resize(lastInfoIx+SensorDSBindingCounts::AsSampledImages,infos.back());
-			const auto viewInfos = infos.data()+lastInfoIx;
+			const auto oldSize = infos.size();
+			infos.resize(oldSize +SensorDSBindingCounts::AsSampledImages,infos.back());
+			const auto viewInfos = infos.data()+oldSize-1;
 			using index_e = SensorDSBindings::SampledImageIndex;
 			viewInfos[uint8_t(index_e::ScrambleKey)].desc = scrambleKeyView;
 			viewInfos[uint8_t(index_e::SampleCount)].desc = sampleCountView;

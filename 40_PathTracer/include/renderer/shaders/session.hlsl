@@ -78,7 +78,7 @@ struct SensorDSBindingCounts
 {
 	//
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Samplers = 1;
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t AsSampledImages = hlsl::_static_cast<uint32_t>(SensorDSBindings::SampledImageIndex::Count);
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t AsSampledImages = SensorDSBindings::Samplers-SensorDSBindings::ScrambleKey;
 };
 
 
