@@ -206,8 +206,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    // int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
-
     // set up scene
     scene_type scene;
 #ifdef SPHERE_LIGHT

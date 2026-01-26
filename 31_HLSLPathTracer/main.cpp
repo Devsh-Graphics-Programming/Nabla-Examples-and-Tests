@@ -942,7 +942,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGuiIO& io = ImGui::GetIO();
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
-					ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+					ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
 
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
 					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, zNear, zFar));
@@ -994,7 +994,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGuizmo::SetID(0u);
 
-					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(), m_camera.getViewMatrix()));
+					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(1.f), m_camera.getViewMatrix()));
 					imguizmoM16InOut.projection = hlsl::transpose(m_camera.getProjectionMatrix());
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
@@ -1038,7 +1038,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// Set Camera
 			{
 				core::vectorSIMDf cameraPosition(0, 5, -10);
-				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, WindowDimensions.x / WindowDimensions.y, zNear, zFar);
+				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 			}
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
