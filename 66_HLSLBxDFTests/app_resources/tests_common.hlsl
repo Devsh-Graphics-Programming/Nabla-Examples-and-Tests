@@ -91,8 +91,8 @@ struct SBxDFTestResources
         retval.T = rot.transformVector(tangent);
         retval.B = rot.transformVector(bitangent);
 
-        retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
-        retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
+        retval.alpha.x = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
+        retval.alpha.y = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
         retval.eta = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>()) * hlsl::promote<float32_t3>(1.5) + hlsl::promote<float32_t3>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
         retval.etak = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>()) * hlsl::promote<float32_t3>(1.5) + hlsl::promote<float32_t3>(1.1); // same as above
         retval.luma_coeff = colorspace::scRGBtoXYZ[1];

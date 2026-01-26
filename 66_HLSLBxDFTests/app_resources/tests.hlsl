@@ -307,7 +307,10 @@ struct TestReciprocity : TestBxDF<BxDF>
             }
         }
 
-        transmitted = aniso ? cache.isTransmission() : isocache.isTransmission();
+        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+            transmitted = aniso ? cache.isTransmission() : isocache.isTransmission();
+        else
+            transmitted = false;
 
 #ifndef __HLSL_VERSION
         if (verbose)
