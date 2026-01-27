@@ -288,7 +288,7 @@ bool CWindowPresenter::beginRenderpass_impl()
 		success = success && cb->bindDescriptorSets(EPBP_GRAPHICS,layout,0,1u,&ds);
 	}
 	success = success && cb->pushConstants(layout,ShaderStage::ESS_FRAGMENT,0,sizeof(m_pushConstants),&m_pushConstants);
-//	ext::FullScreenTriangle::recordDrawCall(cb);
+	ext::FullScreenTriangle::recordDrawCall(cb);
 
 	success = success && cb->endDebugMarker();
 	return success;

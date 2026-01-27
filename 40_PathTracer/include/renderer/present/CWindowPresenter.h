@@ -51,7 +51,7 @@ class CWindowPresenter : public IPresenter
 		inline const video::IGPURenderpass* getRenderpass() const {return getSwapchainResources()->getRenderpass();}
 
 		//
-		bool irrecoverable() const {return m_construction.surface->irrecoverable();}
+		bool irrecoverable() const {return m_construction.surface->irrecoverable() || !m_construction.surface->isWindowOpen();}
 
     protected:		
 		using surface_t = video::CSimpleResizeSurface<swapchain_resources_t>;
