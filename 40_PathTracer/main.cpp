@@ -239,8 +239,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[1].constants.height = 360;
 					sensors[1].mutableDefaults.cropOffsetX = 0;
 					sensors[1].mutableDefaults.cropOffsetY = 0;
-					sensors[1].mutableDefaults.cropWidth = 0;
-					sensors[1].mutableDefaults.cropHeight = 0;
+					sensors[1].mutableDefaults.cropWidth = sensors[1].mutableDefaults.cropWidth;
+					sensors[1].mutableDefaults.cropHeight = sensors[1].mutableDefaults.cropHeight;
 				}
 				{
 					sensors[2].mutableDefaults.cropWidth = 5120;
@@ -250,6 +250,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[2].constants.width = sensors[2].mutableDefaults.cropWidth+2*sensors[2].mutableDefaults.cropOffsetX;
 					sensors[2].constants.height = sensors[2].mutableDefaults.cropHeight+2*sensors[2].mutableDefaults.cropOffsetY;
 				}
+				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({

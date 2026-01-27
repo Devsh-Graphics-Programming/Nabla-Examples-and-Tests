@@ -201,6 +201,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 	{
 		m_pushConstants.regular._min = float32_t2(sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
 		m_pushConstants.regular._max = float32_t2(sessionParams.cropResolution+sessionParams.cropOffsets)*sessionParams.uniforms.rcpPixelSize;
+		const double originalAspectRatio = float64_t(targetResolution.x)/float64_t(targetResolution.y);
 		// prevent extreme window size
 		const auto minResolution = m_creation.minResolution;
 		double scaleDown = 1.0;
@@ -208,16 +209,19 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 			scaleDown = hlsl::min(float64_t(maxResolution[i])/float64_t(targetResolution[i]),scaleDown);
 		targetResolution = float64_t2(targetResolution)*scaleDown;
 		// pad artificially
-		m_pushConstants.regular.scale = { 1,1 };
+		m_pushConstants.regular.scale = {1,1};
 		for (uint8_t i=0; i<2; i++)
 		{
 			const auto tmp = float64_t(minResolution[i])/float64_t(targetResolution[i]);
 			if (tmp>1.0)
-			{
 				targetResolution[i] = minResolution[i];
-				m_pushConstants.regular.scale[i] = tmp;
-			}
 		}
+		// pad with darkness on the dimension thats too big
+		const double newAspectRatio = float64_t(targetResolution.x)/float64_t(targetResolution.y);
+		if (newAspectRatio>originalAspectRatio)
+			m_pushConstants.regular.scale[1] *= newAspectRatio/originalAspectRatio;
+		else
+			m_pushConstants.regular.scale[0] *= originalAspectRatio/newAspectRatio;
 		// `CWindowPresenter::create` aspect ratio ranges and min/max relationships help us stay valid
 		assert(all(minResolution<=targetResolution)&&all(targetResolution<=maxResolution));
 	}

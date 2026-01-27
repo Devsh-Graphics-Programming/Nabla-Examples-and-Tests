@@ -32,6 +32,8 @@ float32_t4 present_default(SVertexAttributes vxAttr) : SV_Target0
     {
         const SDefaultResolvePushConstants::Regular regular = pc.regular();
         uv.xy = vxAttr.uv*regular.scale;
+        if (any(uv.xy>float32_t2(1,1)))
+            return promote<float32_t4>(0.f);
         uv.z = pc.layer;
         if (any(regular._min>uv.xy) || any(regular._max<uv.xy))
             tint *= 0.33f;

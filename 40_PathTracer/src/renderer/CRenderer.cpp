@@ -296,8 +296,8 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		IGPURayTracingPipeline::SCreationParams creationParams[RenderModeCount] = {};
 		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
 		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
+		IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
 		{
-			IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
 			for (uint8_t m=0; m<RenderModeCount; m++)
 			{
 				const auto* const shader = m_construction.shaders[m].get();

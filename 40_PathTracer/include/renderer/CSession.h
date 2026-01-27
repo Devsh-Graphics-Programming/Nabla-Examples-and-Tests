@@ -95,7 +95,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		// TODO: figure this out
 		inline float getProgress() const
 		{
-			return std::numeric_limits<float>::quiet_NaN();
+			return 0.f;
 		}
 
 		//
