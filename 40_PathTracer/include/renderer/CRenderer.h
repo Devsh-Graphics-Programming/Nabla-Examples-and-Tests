@@ -114,8 +114,11 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			// descriptor set for sensors
 			core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> sensorDSLayout;
 
+			// temporary
+			std::array<core::smart_refctd_ptr<asset::IShader>,uint8_t(CSession::RenderMode::Count)> shaders;
+			std::array<core::smart_refctd_ptr<video::IGPUPipelineLayout>,uint8_t(CSession::RenderMode::Count)> renderingLayouts;
 			// TODO
-			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(CSession::RenderMode::Count)> renderingPipelines;
+//			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(CSession::RenderMode::Count)> genericPipelines;
 
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];

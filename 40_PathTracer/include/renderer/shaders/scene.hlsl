@@ -10,7 +10,7 @@ namespace this_example
 {
 struct SSceneUniforms
 {
-	struct SIndirectInit
+	struct SInit
 	{
 		//
 //		bda_t<QuantizedSequence> pQuantizedSequence;
@@ -19,7 +19,7 @@ struct SSceneUniforms
 		hlsl::float32_t envmapPDFNormalizationFactor;
 		hlsl::float16_t envmapScale;
 		uint16_t unused;
-	} indirect;
+	} init;
 };
 
 struct SceneDSBindings

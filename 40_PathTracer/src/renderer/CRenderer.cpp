@@ -61,7 +61,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 
 	//
 	ILogicalDevice* device = params.utilities->getLogicalDevice();
-	// limits
 
 	//
 	params.semaphore = device->createSemaphore(0);
@@ -73,7 +72,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 
 	using render_mode_e = CSession::RenderMode;
 	// create the layouts
-	smart_refctd_ptr<IGPUPipelineLayout> renderingLayouts[uint8_t(CSession::RenderMode::Count)];
 	{
 		constexpr auto RTStages = hlsl::ShaderStage::ESS_ALL_RAY_TRACING;// | hlsl::ShaderStage::ESS_COMPUTE;
 		constexpr auto RenderingStages = RTStages | hlsl::ShaderStage::ESS_COMPUTE;
@@ -238,45 +236,22 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		setPCRange.operator()<SDebugPushConstants>(render_mode_e::Debug);
 		for (uint8_t t=0; t<uint8_t(render_mode_e::Count); t++)
 		{
-			renderingLayouts[t] = device->createPipelineLayout({pcRanges+t,1},params.sceneDSLayout,params.sensorDSLayout);
+			params.renderingLayouts[t] = device->createPipelineLayout({pcRanges+t,1},params.sceneDSLayout,params.sensorDSLayout);
 			string debugName = to_string(static_cast<render_mode_e>(t))+"Rendering Pipeline Layout";
-			if (checkNullObject(renderingLayouts[t],debugName))
+			if (checkNullObject(params.renderingLayouts[t],debugName))
 				return nullptr;
 		}
 	}
 
-	// create the pipelines
+	// TODO: create the generic pipelines
+	params.shaders[uint8_t(render_mode_e::Previs)] = loadPrecompiledShader<"pathtrace_previs">(_params.assMan,device,logger);
+	params.shaders[uint8_t(render_mode_e::Beauty)] = loadPrecompiledShader<"pathtrace_beauty">(_params.assMan,device,logger);
+	params.shaders[uint8_t(render_mode_e::Debug)] = loadPrecompiledShader<"pathtrace_debug">(_params.assMan,device,logger);
+	for (auto i=0; i<params.shaders.size(); i++)
+	if (!params.shaders[i])
 	{
-
-		IGPURayTracingPipeline::SCreationParams creationParams[uint8_t(render_mode_e::Count)] = {};
-		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
-		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
-		{
-			smart_refctd_ptr<IShader> raygenShaders[uint8_t(render_mode_e::Count)] = {};
-			raygenShaders[uint8_t(render_mode_e::Previs)] = loadPrecompiledShader<"pathtrace_previs">(_params.assMan,device,logger);
-			raygenShaders[uint8_t(render_mode_e::Beauty)] = loadPrecompiledShader<"pathtrace_beauty">(_params.assMan,device,logger);
-			raygenShaders[uint8_t(render_mode_e::Debug)] = loadPrecompiledShader<"pathtrace_debug">(_params.assMan,device,logger);
-			IGPURayTracingPipeline::SShaderSpecInfo missShaders[uint8_t(render_mode_e::Count)] = {};
-			for (uint8_t m=0; m<uint8_t(render_mode_e::Count); m++)
-			{
-				missShaders[m] = {.shader=raygenShaders[m].get(),.entryPoint="miss"};
-				creationParams[m] = {
-					.layout = renderingLayouts[m].get(),
-					.shaderGroups = {
-						.raygen = {.shader=raygenShaders[m].get(),.entryPoint="raygen"},
-						.misses = {missShaders+m,1}
-					},
-					.cached = {
-						.flags = flags
-					}
-				};
-			}
-		}
-		if (!device->createRayTracingPipelines(nullptr,creationParams,params.renderingPipelines.data()))
-		{
-			logger.log("Failed to create Path Tracing Pipelines",ILogger::ELL_ERROR);
-			return nullptr;
-		}
+		logger.log("Failed to Load %s Shader!",ILogger::ELL_ERROR,system::to_string(static_cast<render_mode_e>(i)));
+		return nullptr;
 	}
 
 	// command buffers
@@ -292,7 +267,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	return core::smart_refctd_ptr<CRenderer>(new CRenderer(std::move(params)),core::dont_grab);
 }
 
-
 core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& _params)
 {
 	if (!_params)
@@ -302,6 +276,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 	auto converter = core::smart_refctd_ptr<CAssetConverter>(_params.converter);
 
 	CScene::SConstructorParams params = {std::move(_params)};
+//	params.sceneBound = ;
 	params.sensors = std::move(_params.load.sensors);
 	params.renderer = smart_refctd_ptr<CRenderer>(this);
 	{
@@ -314,18 +289,286 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		}
 		params.sceneDS = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
 	}
+
+	constexpr auto RenderModeCount = uint8_t(CSession::RenderMode::Count);
+	// create the pipelines
+	{
+		IGPURayTracingPipeline::SCreationParams creationParams[RenderModeCount] = {};
+		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
+		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
+		{
+			IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
+			for (uint8_t m=0; m<RenderModeCount; m++)
+			{
+				const auto* const shader = m_construction.shaders[m].get();
+				missShaders[m] = {.shader=shader,.entryPoint="miss"};
+				creationParams[m] = {
+					.layout = m_construction.renderingLayouts[m].get(),
+					.shaderGroups = {
+						.raygen = {.shader=shader,.entryPoint="raygen"},
+						.misses = {missShaders+m,1}
+					},
+					.cached = {
+						.flags = flags
+					}
+				};
+			}
+		}
+		if (!device->createRayTracingPipelines(nullptr,creationParams,params.pipelines))
+		{
+			m_creation.logger.log("Failed to create Path Tracing Pipelines",ILogger::ELL_ERROR);
+			return nullptr;
+		}
+	}
 	
 	// new cache if none provided
 	if (!converter)
 		converter = CAssetConverter::create({.device=device,.optimizer={}});
-	
-	//
-//	converter->reserve();
-	// build the BLAS and TLAS
+
+	smart_refctd_ptr<IGPUBuffer> ubo;
 	{
-		// TODO
+		struct Buffers final
+		{
+			using render_mode_e = CSession::RenderMode;
+			inline operator std::span<const ICPUBuffer* const>() const {return {&ubo.get(),1+RenderModeCount};}
+
+			smart_refctd_ptr<ICPUBuffer> ubo;
+			smart_refctd_ptr<ICPUBuffer> sbts[RenderModeCount];
+		} tmpBuffers;
+		//
+		using buffer_usage_e = IGPUBuffer::E_USAGE_FLAGS;
+		constexpr auto BasicBufferUsages = buffer_usage_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+		{
+			tmpBuffers.ubo = ICPUBuffer::create({{.size=sizeof(SSceneUniforms),.usage=BasicBufferUsages|buffer_usage_e::EUF_UNIFORM_BUFFER_BIT},nullptr});
+			auto& uniforms = *reinterpret_cast<SSceneUniforms*>(tmpBuffers.ubo->getPointer());
+			uniforms.init = {}; // TODO: fill with stuff
+			tmpBuffers.ubo->setContentHash(tmpBuffers.ubo->computeContentHash());
+		}
+		// SBT
+		const auto& limits = device->getPhysicalDevice()->getLimits();
+		assert(limits.shaderGroupBaseAlignment>=limits.shaderGroupHandleAlignment);
+		constexpr auto HandleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
+		const auto handleSizeAligned = nbl::core::alignUp(HandleSize,limits.shaderGroupHandleAlignment);
+		for (uint8_t i=0; i<RenderModeCount; i++)
+		{
+			auto* const pipeline = params.pipelines[i].get();
+			const auto hitHandles = pipeline->getHitHandles();
+			const auto missHandles = pipeline->getMissHandles();
+			const auto callableHandles = pipeline->getCallableHandles();
+			//
+			{
+				class CVectorBacked final : public core::refctd_memory_resource
+				{
+					public:
+						inline CVectorBacked(const size_t reservation)
+						{
+							storage.reserve(reservation*HandleSize);
+						}
+
+						inline void* allocate(size_t bytes, size_t alignment) override
+						{
+							assert(bytes==storage.size());
+							return storage.data();
+						}
+						inline void deallocate(void* p, size_t bytes, size_t alignment) override {storage = {};}
+
+						core::vector<uint8_t> storage;
+				};
+				auto memRsc = core::make_smart_refctd_ptr<CVectorBacked>(hitHandles.size()+missHandles.size()+callableHandles.size()+1);
+				{
+					// TODO: move to material compiler
+					core::LinearAddressAllocatorST<uint32_t> allocator(nullptr,0,0,limits.shaderGroupBaseAlignment,0x7fff0000u);
+					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles)->SBufferRange<const IGPUBuffer>
+					{
+						SBufferRange<const IGPUBuffer> range = {.size=handles.size()*handleSizeAligned};
+						range.offset = allocator.alloc_addr(range.size,limits.shaderGroupBaseAlignment);
+						memRsc->storage.resize(allocator.get_allocated_size());
+						uint8_t* out = memRsc->storage.data()+range.offset;
+						for (const auto& handle : handles)
+						{
+							memcpy(out,&handle,HandleSize);
+							out += handleSizeAligned;
+						}
+						return range;
+					};
+					auto& sbt = params.sbts[i];
+					sbt.raygen = copyShaderHandles({&pipeline->getRaygen(),1});
+					sbt.miss.range = copyShaderHandles(pipeline->getMissHandles());
+					sbt.hit.range = copyShaderHandles(pipeline->getHitHandles());
+					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles());
+					sbt.miss.stride = sbt.hit.stride = sbt.callable.stride = handleSizeAligned;
+				}
+				auto& sbtBuff = tmpBuffers.sbts[i];
+				sbtBuff = ICPUBuffer::create({
+					{
+						.size=memRsc->storage.size(),.usage=BasicBufferUsages|buffer_usage_e::EUF_SHADER_BINDING_TABLE_BIT
+					},
+					/*.data = */memRsc->storage.data(),
+					/*.memoryResource = */memRsc
+				},core::adopt_memory);
+				sbtBuff->setContentHash(sbtBuff->computeContentHash());
+			}
+		}
+
+		// customized setup
+		struct MyInputs : CAssetConverter::SInputs
+		{
+			// For the GPU Buffers to be directly writeable and so that we don't need a Transfer Queue submit at all
+			inline uint32_t constrainMemoryTypeBits(const size_t groupCopyID, const IAsset* canonicalAsset, const blake3_hash_t& contentHash, const IDeviceMemoryBacked* memoryBacked) const override
+			{
+				assert(memoryBacked);
+				return memoryBacked->getObjectType()!=IDeviceMemoryBacked::EOT_BUFFER ? (~0u):rebarMemoryTypes;
+			}
+
+			uint32_t rebarMemoryTypes;
+		} inputs = {};
+		inputs.logger = m_creation.logger.get().get();
+		inputs.rebarMemoryTypes = device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
+		// the allocator needs to be overriden to hand out memory ranges which have already been mapped so that the ReBAR fast-path can kick in
+		// (multiple buffers can be bound to same memory, but memory can only be mapped once at one place, so Asset Converter can't do it)
+		struct MyAllocator final : public IDeviceMemoryAllocator
+		{
+			ILogicalDevice* getDeviceForAllocations() const override {return device;}
+
+			SAllocation allocate(const SAllocateInfo& info) override
+			{
+				auto retval = device->allocate(info);
+				// map what is mappable by default so ReBAR checks succeed
+				if (retval.isValid() && retval.memory->isMappable())
+					retval.memory->map({.offset=0,.length=info.size});
+				return retval;
+			}
+
+			ILogicalDevice* device;
+		} myalloc;
+		myalloc.device = device;
+		inputs.allocator = &myalloc;
+	
+		// TODO: construct the TLASes
+		core::vector<ICPUTopLevelAccelerationStructure*> tmpTLASes;
+		{
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTLASes;
+		}
+		
+		CAssetConverter::SReserveResult reservation = converter->reserve(inputs);
+		{
+			bool success = true;
+			auto check = [&]<typename asset_type_t>(const CAssetConverter::SInputs::asset_span_t<asset_type_t> references)->void
+			{
+				auto objects = reservation.getGPUObjects<asset_type_t>();
+				auto referenceIt = references.begin();
+				for (auto& object : objects)
+				{
+					auto* reference = *(referenceIt++);
+					if (!reference)
+						continue;
+
+					success = bool(object.value);
+					if (!success)
+					{
+						inputs.logger.log("Failed to convert a CPU object to GPU of type %s!",ILogger::ELL_ERROR,system::to_string(reference->getAssetType()));
+						return;
+					}
+				}
+			};
+			check.template operator()<ICPUBuffer>(tmpBuffers);
+			if (!success)
+				return nullptr;
+		}
+
+		// convert
+		{
+			smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
+			{
+				constexpr auto scratchUsages = IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT|IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+
+				constexpr uint16_t MaxAlignment = 256;
+				constexpr uint64_t MinAllocationSize = 1024;
+				const auto scratchSize = core::alignUp(hlsl::max(reservation.getMaxASBuildScratchSize(false),MinAllocationSize),MaxAlignment);
+
+				auto scratchBuffer = device->createBuffer({{.size=scratchSize,.usage=scratchUsages}});
+
+				auto reqs = scratchBuffer->getMemoryReqs();
+				reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
+
+				auto allocation = device->allocate(reqs,scratchBuffer.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+				allocation.memory->map({.offset=0,.length=reqs.size});
+
+				scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
+					SBufferRange<video::IGPUBuffer>{0ull,scratchSize,std::move(scratchBuffer)},
+					core::allocator<uint8_t>(), MaxAlignment, MinAllocationSize
+				);
+			}
+
+			constexpr auto CompBufferCount = 2;
+
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>,CompBufferCount> compBufs = {};
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo,CompBufferCount> compBufInfos = {};
+			{
+				constexpr auto RequiredFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT;
+				auto pool = device->createCommandPool(m_creation.computeQueue->getFamilyIndex(),RequiredFlags);
+				if (!pool || !pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, compBufs))
+				{
+					inputs.logger.log("Failed to create Command Buffers for the Compute Queue!",ILogger::ELL_ERROR);
+					return nullptr;
+				}
+				compBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				for (auto i=0; i<CompBufferCount; i++)
+					compBufInfos[i].cmdbuf = compBufs[i].get();
+			}
+			auto compSema = device->createSemaphore(0u);
+
+			// TODO: `SIntendedSubmitInfo transfer` as well, because of images
+			SIntendedSubmitInfo compute = {};
+			compute.queue = m_creation.computeQueue;
+			compute.scratchCommandBuffers = compBufInfos;
+			compute.scratchSemaphore = {
+				.semaphore = compSema.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT|PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT|PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+			};
+			struct MyParams final : CAssetConverter::SConvertParams
+			{
+				inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom) override
+				{
+					return finalUser;
+				}
+				inline uint32_t getFinalOwnerQueueFamily(const IGPUAccelerationStructure* image, const core::blake3_hash_t& createdFrom) override
+				{
+					return finalUser;
+				}
+
+				uint8_t finalUser;
+			} cvtParam = {};
+			cvtParam.utilities = m_creation.utilities.get();
+			cvtParam.compute = &compute;
+			cvtParam.scratchForDeviceASBuild = scratchAlloc.get();
+			cvtParam.finalUser = m_creation.graphicsQueue->getFamilyIndex();
+			
+			auto future = reservation.convert(cvtParam);
+			if (future.copy()!=IQueue::RESULT::SUCCESS)
+			{
+				inputs.logger.log("Failed to await `CAssetConverter::SReserveResult::convert(...)` submission semaphore!",ILogger::ELL_ERROR);
+				return nullptr;
+			}
+
+			const auto buffers = reservation.getGPUObjects<ICPUBuffer>();
+			ubo = buffers[0].value;
+			for (uint8_t i=0; i<RenderModeCount; i++)
+			{
+				const auto& buffer = buffers[i+1].value;
+				auto setSBTBuffer = [&buffer](SStridedRange<const IGPUBuffer>& stRange)->void
+				{
+					stRange.range.buffer = stRange.range.size ? buffer:nullptr;
+				};
+				params.sbts[i].raygen.buffer = buffer;
+				setSBTBuffer(params.sbts[i].miss);
+				setSBTBuffer(params.sbts[i].hit);
+				setSBTBuffer(params.sbts[i].callable);
+			}
+		}
 	}
-	core::smart_refctd_ptr<IGPUBuffer> ubo;
 
 	// write into DS
 	{
@@ -343,7 +586,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 			};
 			infos.push_back(std::move(info));
 		};
-		addWrite(SceneDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(SSceneUniforms),.buffer=ubo});
+		addWrite(SceneDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(SSceneUniforms),.buffer=std::move(ubo)});
 		// TODO: Envmap
 		// TODO: TLASes
 		// TODO: Samplers
@@ -352,7 +595,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		// TODO: Envmap Warp Map
 		for (auto& write : writes)
 			write.info = infos.data()+reinterpret_cast<const uint64_t&>(write.info);
-//		device->updateDescriptorSets(writes,{});
+		device->updateDescriptorSets(writes,{});
 	}
 
 #if 0
@@ -397,9 +640,10 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	if (!cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
 		return {};
 
+	const auto* const scene = session->getConstructionParams().scene.get();
 	const auto mode = sessionParams.mode;
 	const auto& sessionResources = session->getActiveResources();
-	const auto* const pipeline = m_construction.renderingPipelines[static_cast<uint8_t>(mode)].get();
+	const auto* const pipeline = scene->getPipeline(mode);
 	
 	bool success;
 	// push constants
@@ -425,7 +669,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	}
 
 	const auto renderSize = sessionParams.uniforms.renderSize;
-//	success = success && cb->traceRays({},{},0,{},0,{},0,renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
+	success = success && cb->traceRays(scene->getSBT(mode),renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
 
 	if (success)
 		return SSubmit(this,cb);
