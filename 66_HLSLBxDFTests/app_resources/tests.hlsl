@@ -276,14 +276,6 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_isocache = isocache;
         rec_isocache.VdotH = isocache.getLdotH();
         rec_isocache.LdotH = isocache.getVdotH();
-
-        if (transmitted)
-        {
-            float32_t3 H = base_t::rc.N * cache.getAbsNdotH() + base_t::rc.T * cache.getTdotH() + base_t::rc.B * cache.getBdotH();
-            float32_t3 rcp_H = hlsl::normalize(-H);
-            rec_cache.TdotH = hlsl::dot(base_t::rc.T, rcp_H);
-            rec_cache.BdotH = hlsl::dot(base_t::rc.B, rcp_H);
-        }
         
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
