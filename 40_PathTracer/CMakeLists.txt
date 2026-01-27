@@ -50,9 +50,9 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
+    -I "${NBL_ROOT_PATH}/include"
     -I "${CMAKE_CURRENT_SOURCE_DIR}"
-#    -I "${CMAKE_CURRENT_SOURCE_DIR}/../include" # TODO: Arek for some reason, the `-I` are relative to each `.hlsl` file getting compiled, and not this CMAke file
-    -I "D:\\work\\Nabla-master\\examples_tests\\40_PathTracer\\include"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
     -T lib_${SM}
 )
 

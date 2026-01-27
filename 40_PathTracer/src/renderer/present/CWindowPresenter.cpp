@@ -141,12 +141,6 @@ bool CWindowPresenter::init_impl(CRenderer* renderer)
 
 	//
 	auto* const assMan = IPresenter::getCreationParams().assMan.get();
-	ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(assMan,device,logger.get().get());
-	if (!fsTriProtoPPln)
-	{
-		logger.log("`CWindowPresenter::create` failed to create Full Screen Triangle protopipeline or load its vertex shader!",ILogger::ELL_ERROR);
-		return false;
-	}
 
 	// present pipeline layout
 	smart_refctd_ptr<IGPUPipelineLayout> layout;
@@ -166,9 +160,13 @@ bool CWindowPresenter::init_impl(CRenderer* renderer)
 	{
 		const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
 			.shader = shader.get(),
-			.entryPoint = "present_default",
+			.entryPoint = "present_default"
 		};
-		m_present = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),getRenderpass());
+
+		ext::FullScreenTriangle::ProtoPipeline fsTriProtoPln(shader, "present_fri_ext");
+		if (!fsTriProtoPln) { logger.log("`CWindowPresenter::create` failed to create Full Screen Triangle protopipeline or load its vertex shader!",ILogger::ELL_ERROR); return false; }
+		m_present = fsTriProtoPln.createPipeline(fragSpec, layout.get(), getRenderpass());
+
 		if (!m_present)
 			logger.log("`CWindowPresenter::create` failed to create Graphics Pipeline!",ILogger::ELL_ERROR);
 	}
