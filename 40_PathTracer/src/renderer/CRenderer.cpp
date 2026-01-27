@@ -679,7 +679,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 
 IQueue::SSubmitInfo::SSemaphoreInfo CRenderer::SSubmit::operator()(std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> extraWaits)
 {
-	if (cb)
+	if (!cb || !cb->end())
 		return {};
 
 	const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =

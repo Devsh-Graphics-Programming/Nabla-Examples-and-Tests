@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "renderer/present/CWindowPresenter.h"
+#include "renderer/shaders/session.hlsl"
 
 namespace nbl::this_example
 {
@@ -234,7 +235,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		winMgr->show(window);
 
 	m_pushConstants.layer = 0; // TODO: cubemaps and RWMC debug
-	m_pushConstants.imageIndex = 0;
+	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::Albedo);
 
 	auto acquireResult = m_construction.surface->acquireNextImage();
 	*p_currentImageAcquire = {.semaphore=acquireResult.semaphore,.value=acquireResult.acquireCount};
