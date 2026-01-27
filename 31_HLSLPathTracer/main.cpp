@@ -33,8 +33,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
+			//ELG_TRIANGLE,
+			//ELG_RECTANGLE,
 			ELG_COUNT
 		};
 
@@ -47,16 +47,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
+		    //"TRIANGLE_LIGHT",
+		    //"RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
+			//"ELG_TRIANGLE",
+			//"ELG_RECTANGLE"
 		};
 
 	public:
@@ -1041,6 +1041,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, WindowDimensions.x / WindowDimensions.y, zNear, zFar);
 				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 			}
+			m_showUI = true;
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
@@ -1336,11 +1337,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
 				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 
-				const auto uiParams = m_ui.manager->getCreationParameters();
-				auto* uiPipeline = m_ui.manager->getPipeline();
-				cmdbuf->bindGraphicsPipeline(uiPipeline);
-				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, uiPipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get());
-				m_ui.manager->render(cmdbuf, waitInfo);
+				if (m_showUI)
+				{
+					const auto uiParams = m_ui.manager->getCreationParameters();
+					auto* uiPipeline = m_ui.manager->getPipeline();
+					cmdbuf->bindGraphicsPipeline(uiPipeline);
+					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, uiPipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get());
+					m_ui.manager->render(cmdbuf, waitInfo);
+				}
 
 				cmdbuf->endRenderPass();
 			}
@@ -1467,6 +1471,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (e.timeStamp < previousEventTimestamp)
 								continue;
 
+							if (e.keyCode == ui::EKC_H)
+								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
+									m_showUI = !m_showUI;
+
 							previousEventTimestamp = e.timeStamp;
 							capturedEvents.keyboard.emplace_back(e);
 						}
@@ -1487,7 +1495,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				.keyboardEvents = keyboardEvents
 			};
 
-			m_ui.manager->update(params);
+			if (m_showUI)
+			    m_ui.manager->update(params);
 		}
 	
 	private:
@@ -1552,6 +1561,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		} m_ui;
 
 		Camera m_camera;
+		bool m_showUI;
 
 		video::CDumbPresentationOracle m_oracle;
 
