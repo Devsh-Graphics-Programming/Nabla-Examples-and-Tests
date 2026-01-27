@@ -50,8 +50,6 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
-    -I "${NBL_ROOT_PATH}/include"
-    -I "${CMAKE_CURRENT_SOURCE_DIR}"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
     -T lib_${SM}
 )
