@@ -395,7 +395,11 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			{
 				skip = false;
 				if (m_sessionQueue.empty())
+				{
+					if (!m_args.headless)
+						handleInputs();
 					return;
+				}
 				session = m_sessionQueue.front().get();
 				// init
 				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
