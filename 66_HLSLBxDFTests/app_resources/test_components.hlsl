@@ -19,6 +19,7 @@ struct TestNDF : TestBxDF<BxDF>
         if (!checkLt<float32_t3>(base_t::rc.u, hlsl::promote<float32_t3>(1.0-base_t::rc.eps)))
             return BTR_INVALID_TEST_CONFIG;
 
+        base_t::rc.u.z = hlsl::mix(0.0, 1.0, base_t::rc.u.z > 0.5);
         float32_t3 ux = base_t::rc.u + float32_t3(eps,0,0);
         float32_t3 uy = base_t::rc.u + float32_t3(0,eps,0);
 
