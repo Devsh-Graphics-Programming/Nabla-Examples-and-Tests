@@ -261,6 +261,11 @@ struct TestReciprocity : TestBxDF<BxDF>
         ray_dir_info_t rec_localL = base_t::rc.V.transform(toTangentSpace);
         rec_s = sample_t::createFromTangentSpace(rec_localL, anisointer.getFromTangentSpace());
 
+        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+            transmitted = aniso ? cache.isTransmission() : isocache.isTransmission();
+        else
+            transmitted = false;
+
         rec_isointer = iso_interaction_t::create(rec_V, base_t::rc.N);
         rec_isointer.luminosityContributionHint = isointer.luminosityContributionHint;
         rec_anisointer = aniso_interaction_t::create(rec_isointer, base_t::rc.T, base_t::rc.B);
@@ -270,6 +275,14 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_isocache = isocache;
         rec_isocache.VdotH = isocache.getLdotH();
         rec_isocache.LdotH = isocache.getVdotH();
+
+        if (transmitted)
+        {
+            float32_t3 H = base_t::rc.N * cache.getAbsNdotH() + base_t::rc.T * cache.getTdotH() + base_t::rc.B * cache.getBdotH();
+            float32_t3 rcp_H = hlsl::normalize(-H);
+            rec_cache.TdotH = hlsl::dot(base_t::rc.T, rcp_H);
+            rec_cache.BdotH = hlsl::dot(base_t::rc.B, rcp_H);
+        }
         
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
@@ -306,11 +319,6 @@ struct TestReciprocity : TestBxDF<BxDF>
                 recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
-
-        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
-            transmitted = aniso ? cache.isTransmission() : isocache.isTransmission();
-        else
-            transmitted = false;
 
 #ifndef __HLSL_VERSION
         if (verbose)
