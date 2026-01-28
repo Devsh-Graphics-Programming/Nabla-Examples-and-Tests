@@ -32,7 +32,10 @@ private:
         std::uniform_int_distribution<uint32_t> uint32Distribution(0, std::numeric_limits<uint32_t>::max());
 
         QuantizedSequenceInputTestValues testInput;
-        testInput.uintVec3 = uint32_t3(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
+        testInput.scalar = uint32Distribution(getRandomEngine());
+        testInput.uvec2 = uint32_t2(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
+        testInput.uvec3 = uint32_t3(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
+        testInput.uvec4 = uint32_t4(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
 
         return testInput;
     }
@@ -40,18 +43,35 @@ private:
     QuantizedSequenceTestValues determineExpectedResults(const QuantizedSequenceInputTestValues& testInput) override
     {
         QuantizedSequenceTestValues expected;
-
+        expected.uintDim1 = testInput.scalar;
+        {
+            for (uint32_t i = 0; i < 2; i++)
+                expected.uintDim2[i] = testInput.uvec2[i] >> 16u;
+        }
         {
             for (uint32_t i = 0; i < 3; i++)
-                expected.uintVec3[i] = testInput.uintVec3[i] >> 11u;
+                expected.uintDim3[i] = testInput.uvec3[i] >> 22u;
         }
+        {
+            for (uint32_t i = 0; i < 4; i++)
+                expected.uintDim4[i] = testInput.uvec4[i] >> 24u;
+        }
+
+        expected.uintVec2_Dim2 = testInput.uvec2;
+        {
+            for (uint32_t i = 0; i < 3; i++)
+                expected.uintVec2_Dim3[i] = testInput.uvec3[i] >> 11u;
+        }
+
+        expected.uintVec3_Dim3 = testInput.uvec3;
+        expected.uintVec4_Dim4 = testInput.uvec4;
 
         return expected;
     }
 
     void verifyTestResults(const QuantizedSequenceTestValues& expectedTestValues, const QuantizedSequenceTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        verifyTestValue("get uint3", expectedTestValues.uintVec3, testValues.uintVec3, testIteration, seed, testType);
+        verifyTestValue("get uint3", expectedTestValues.uintVec2_Dim3, testValues.uintVec2_Dim3, testIteration, seed, testType);
     }
 
 };
