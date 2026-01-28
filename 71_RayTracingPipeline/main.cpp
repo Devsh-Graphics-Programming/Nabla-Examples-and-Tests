@@ -31,17 +31,6 @@ class RaytracingPipelineApp final : public SimpleWindowedApplication, public Bui
 	  "Spot"
 	};
 
-	struct ShaderBindingTable
-	{
-		SBufferRange<IGPUBuffer> raygenGroupRange;
-		SBufferRange<IGPUBuffer> hitGroupsRange;
-		uint32_t hitGroupsStride;
-		SBufferRange<IGPUBuffer> missGroupsRange;
-		uint32_t missGroupsStride;
-		SBufferRange<IGPUBuffer> callableGroupsRange;
-		uint32_t callableGroupsStride;
-	};
-
 
 public:
 	inline RaytracingPipelineApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -672,22 +661,9 @@ public:
 			cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
 			cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
 			if (m_useIndirectCommand)
-			{
-				cmdbuf->traceRaysIndirect(
-					SBufferBinding<const IGPUBuffer>{
-					.offset = 0,
-						.buffer = m_indirectBuffer,
-				});
-			}
+				cmdbuf->traceRaysIndirect({.offset=0,.buffer=m_indirectBuffer});
 			else
-			{
-				cmdbuf->traceRays(
-					m_shaderBindingTable.raygenGroupRange,
-					m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
-					m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
-					m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
-					WIN_W, WIN_H, 1);
-			}
+				cmdbuf->traceRays(m_shaderBindingTable,WIN_W,WIN_H,1);
 		}
 
 		// pipeline barrier
@@ -916,22 +892,22 @@ private:
 
 	bool createIndirectBuffer()
 	{
-		const auto getBufferRangeAddress = [](const SBufferRange<IGPUBuffer>& range)
+		const auto getBufferRangeAddress = [](const SBufferRange<const IGPUBuffer>& range)
 			{
 				return range.buffer->getDeviceAddress() + range.offset;
 			};
 		const auto command = TraceRaysIndirectCommand_t{
-		  .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygenGroupRange),
-		  .raygenShaderRecordSize = m_shaderBindingTable.raygenGroupRange.size,
-		  .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.missGroupsRange),
-		  .missShaderBindingTableSize = m_shaderBindingTable.missGroupsRange.size,
-		  .missShaderBindingTableStride = m_shaderBindingTable.missGroupsStride,
-		  .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hitGroupsRange),
-		  .hitShaderBindingTableSize = m_shaderBindingTable.hitGroupsRange.size,
-		  .hitShaderBindingTableStride = m_shaderBindingTable.hitGroupsStride,
-		  .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callableGroupsRange),
-		  .callableShaderBindingTableSize = m_shaderBindingTable.callableGroupsRange.size,
-		  .callableShaderBindingTableStride = m_shaderBindingTable.callableGroupsStride,
+		  .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygen),
+		  .raygenShaderRecordSize = m_shaderBindingTable.raygen.size,
+		  .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.miss.range),
+		  .missShaderBindingTableSize = m_shaderBindingTable.miss.range.size,
+		  .missShaderBindingTableStride = m_shaderBindingTable.miss.stride,
+		  .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hit.range),
+		  .hitShaderBindingTableSize = m_shaderBindingTable.hit.range.size,
+		  .hitShaderBindingTableStride = m_shaderBindingTable.hit.stride,
+		  .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callable.range),
+		  .callableShaderBindingTableSize = m_shaderBindingTable.callable.range.size,
+		  .callableShaderBindingTableStride = m_shaderBindingTable.callable.stride,
 		  .width = WIN_W,
 		  .height = WIN_H,
 		  .depth = 1,
@@ -972,15 +948,15 @@ private:
 		const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
 		const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
-		auto& raygenRange = m_shaderBindingTable.raygenGroupRange;
+		auto& raygenRange = m_shaderBindingTable.raygen;
 
-		auto& hitRange = m_shaderBindingTable.hitGroupsRange;
+		auto& hitRange = m_shaderBindingTable.hit.range;
 		const auto hitHandles = pipeline->getHitHandles();
 
-		auto& missRange = m_shaderBindingTable.missGroupsRange;
+		auto& missRange = m_shaderBindingTable.miss.range;
 		const auto missHandles = pipeline->getMissHandles();
 
-		auto& callableRange = m_shaderBindingTable.callableGroupsRange;
+		auto& callableRange = m_shaderBindingTable.callable.range;
 		const auto callableHandles = pipeline->getCallableHandles();
 
 		raygenRange = {
@@ -992,19 +968,19 @@ private:
 		  .offset = raygenRange.size,
 		  .size = core::alignUp(missHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.missGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.miss.stride = handleSizeAligned;
 
 		hitRange = {
 		  .offset = missRange.offset + missRange.size,
 		  .size = core::alignUp(hitHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.hitGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.hit.stride = handleSizeAligned;
 
 		callableRange = {
 		  .offset = hitRange.offset + hitRange.size,
 		  .size = core::alignUp(callableHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.callableGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.callable.stride = handleSizeAligned;
 
 		const auto bufferSize = raygenRange.size + missRange.size + hitRange.size + callableRange.size;
 
@@ -1021,7 +997,7 @@ private:
 		for (const auto& handle : missHandles)
 		{
 			memcpy(pMissData, &handle, handleSize);
-			pMissData += m_shaderBindingTable.missGroupsStride;
+			pMissData += m_shaderBindingTable.miss.stride;
 		}
 
 		// copy hit region
@@ -1029,7 +1005,7 @@ private:
 		for (const auto& handle : hitHandles)
 		{
 			memcpy(pHitData, &handle, handleSize);
-			pHitData += m_shaderBindingTable.hitGroupsStride;
+			pHitData += m_shaderBindingTable.miss.stride;
 		}
 
 		// copy callable region
@@ -1037,17 +1013,21 @@ private:
 		for (const auto& handle : callableHandles)
 		{
 			memcpy(pCallableData, &handle, handleSize);
-			pCallableData += m_shaderBindingTable.callableGroupsStride;
+			pCallableData += m_shaderBindingTable.callable.stride;
 		}
 
 		{
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
-			params.size = bufferSize;
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), pData).move_into(raygenRange.buffer);
-			missRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			hitRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			callableRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
+			smart_refctd_ptr<IGPUBuffer> buffer;
+			{
+				IGPUBuffer::SCreationParams params;
+				params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
+				params.size = bufferSize;
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), pData).move_into(buffer);
+			}
+			raygenRange.buffer = smart_refctd_ptr(buffer);
+			missRange.buffer = smart_refctd_ptr(raygenRange.buffer);
+			hitRange.buffer = smart_refctd_ptr(raygenRange.buffer);
+			callableRange.buffer = smart_refctd_ptr(raygenRange.buffer);
 		}
 
 		return true;
@@ -1387,7 +1367,7 @@ private:
 			auto future = reservation.convert(params);
 			if (future.copy() != IQueue::RESULT::SUCCESS)
 			{
-				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+				m_logger->log("Failed to await submission future!", ILogger::ELL_ERROR);
 				return false;
 			}
 			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!
@@ -1510,7 +1490,7 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> m_rayTracingDs;
 	smart_refctd_ptr<IGPURayTracingPipeline> m_rayTracingPipeline;
 	uint64_t m_rayTracingStackSize;
-	ShaderBindingTable m_shaderBindingTable;
+	IGPURayTracingPipeline::SShaderBindingTable m_shaderBindingTable;
 
 	smart_refctd_ptr<IGPUDescriptorSet> m_presentDs;
 	smart_refctd_ptr<IDescriptorPool> m_presentDsPool;
