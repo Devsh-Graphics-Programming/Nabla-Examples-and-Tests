@@ -15,7 +15,9 @@ struct QuantizedSequenceInputTestValues
     uint32_t3 uvec3;
     uint32_t4 uvec4;
 
-    uint32_t4 scrambleKey;
+    float32_t3 unorm3;
+
+    uint32_t3 scrambleKey3;
 };
 
 struct QuantizedSequenceTestValues
@@ -32,16 +34,17 @@ struct QuantizedSequenceTestValues
     uint32_t4 uintVec4_Dim4;
 
     // pre decode scramble
-    float32_t3 vec3_predecode;
+    float32_t3 unorm3_predecode;
 
     // post decode scramble
-    uint32_t3 uintVec3_postdecode;
+    float32_t3 unorm3_postdecode;
 };
 
 struct QuantizedSequenceTestExecutor
 {
     void operator()(NBL_CONST_REF_ARG(QuantizedSequenceInputTestValues) input, NBL_REF_ARG(QuantizedSequenceTestValues) output)
     {
+        // test get/set/create
         {
             sampling::QuantizedSequence<uint32_t, 1> qs = sampling::QuantizedSequence<uint32_t, 1>::create(input.scalar);
             output.uintDim1 = qs.get(0);
@@ -82,6 +85,17 @@ struct QuantizedSequenceTestExecutor
             sampling::QuantizedSequence<uint32_t4, 4> qs = sampling::QuantizedSequence<uint32_t4, 4>::create(input.uvec4);
             for (uint32_t i = 0; i < 4; i++)
                 output.uintVec4_Dim4[i] = qs.get(i);
+        }
+
+        // test encode/decode
+        {
+            sampling::QuantizedSequence<uint32_t2, 3> qs = sampling::QuantizedSequence<uint32_t2, 3>::template encode<float, true>(input.unorm3);
+            output.unorm3_predecode = qs.template decode<float>(input.scrambleKey3);
+        }
+        {
+            sampling::QuantizedSequence<uint32_t2, 3> qs = sampling::QuantizedSequence<uint32_t2, 3>::template encode<float, false>(input.unorm3);
+            sampling::QuantizedSequence<uint32_t2, 3> key = sampling::QuantizedSequence<uint32_t2, 3>::create(input.scrambleKey3);
+            output.unorm3_postdecode = qs.template decode<float>(key);
         }
     }
 };
