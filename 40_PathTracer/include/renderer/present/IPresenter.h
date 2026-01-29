@@ -30,7 +30,7 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 		//
 		inline bool init(CRenderer* renderer)
 		{
-			if (!m_queue)
+			if (m_queue)
 				return isInitialized();
 
 			auto& logger = m_creation.logger;
@@ -192,11 +192,11 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 
 	private:
 		SCachedCreationParams m_creation;
-		video::CThreadSafeQueueAdapter* m_queue;
-		core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
-		std::array<core::smart_refctd_ptr<video::IGPUCommandBuffer>,CircularBufferSize> m_cmdbufs;
+		video::CThreadSafeQueueAdapter* m_queue = nullptr;
+		core::smart_refctd_ptr<video::ISemaphore> m_semaphore = {};
+		std::array<core::smart_refctd_ptr<video::IGPUCommandBuffer>, CircularBufferSize> m_cmdbufs = {};
 		video::ISemaphore::SWaitInfo m_currentImageAcquire = {};
-		core::smart_refctd_ptr<video::IGPUDescriptorSet> m_currentSessionDS;
+		core::smart_refctd_ptr<video::IGPUDescriptorSet> m_currentSessionDS = {};
 		uint64_t m_presentCount = 0;
 };
 

@@ -102,6 +102,27 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			return retval;
 		}
 
+		inline void filterDevices(nbl::core::set<IPhysicalDevice*>& physicalDevices) const override
+		{
+			device_base_t::filterDevices(physicalDevices);
+            std::erase_if(physicalDevices,[&](const IPhysicalDevice* device)->bool
+				{
+					const auto& props = device->getMemoryProperties();
+					uint64_t largestVRAMHeap = 0;
+					using heap_flags_e = IDeviceMemoryAllocation::E_MEMORY_HEAP_FLAGS;
+					for (uint32_t h=0; h<props.memoryHeapCount; h++)
+					if (const auto& heap=props.memoryHeaps[h]; heap.flags.hasFlags(heap_flags_e::EMHF_DEVICE_LOCAL_BIT))
+						largestVRAMHeap = nbl::hlsl::max(largestVRAMHeap,heap.size);
+					const auto typeBits = device->getDirectVRAMAccessMemoryTypeBits();
+					for (uint32_t t=0; t<props.memoryTypeCount; t++)
+					if (((typeBits>>t)&0x1u) && props.memoryHeaps[props.memoryTypes[t].heapIndex].size==largestVRAMHeap)
+						return false;
+					m_logger->log("Filtering out Device %p (%s) due to lack of ReBAR",ILogger::ELL_WARNING,device,device->getProperties().deviceName);
+					return true;
+				}
+			);
+		}
+
 		inline nbl::core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (m_args.headless)
@@ -218,8 +239,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[1].constants.height = 360;
 					sensors[1].mutableDefaults.cropOffsetX = 0;
 					sensors[1].mutableDefaults.cropOffsetY = 0;
-					sensors[1].mutableDefaults.cropWidth = 0;
-					sensors[1].mutableDefaults.cropHeight = 0;
+					sensors[1].mutableDefaults.cropWidth = sensors[1].mutableDefaults.cropWidth;
+					sensors[1].mutableDefaults.cropHeight = sensors[1].mutableDefaults.cropHeight;
 				}
 				{
 					sensors[2].mutableDefaults.cropWidth = 5120;
@@ -229,6 +250,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[2].constants.width = sensors[2].mutableDefaults.cropWidth+2*sensors[2].mutableDefaults.cropOffsetX;
 					sensors[2].constants.height = sensors[2].mutableDefaults.cropHeight+2*sensors[2].mutableDefaults.cropOffsetY;
 				}
+				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
@@ -390,7 +412,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline void workLoopBody() override
 		{
 			CSession* session;
-			volatile bool skip = true; // skip using the debugger
+			volatile bool skip = false; // skip using the debugger
 			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 			{
 				skip = false;

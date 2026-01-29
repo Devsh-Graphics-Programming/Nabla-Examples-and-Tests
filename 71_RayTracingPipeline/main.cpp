@@ -1367,7 +1367,7 @@ private:
 			auto future = reservation.convert(params);
 			if (future.copy() != IQueue::RESULT::SUCCESS)
 			{
-				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+				m_logger->log("Failed to await submission future!", ILogger::ELL_ERROR);
 				return false;
 			}
 			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!

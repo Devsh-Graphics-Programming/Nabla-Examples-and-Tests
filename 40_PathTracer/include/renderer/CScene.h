@@ -38,6 +38,15 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		inline CRenderer* getRenderer() const {return m_construction.renderer.get();}
 
 		//
+		inline video::IGPURayTracingPipeline* getPipeline(const CSession::RenderMode mode) const
+		{
+			return m_construction.pipelines[static_cast<uint8_t>(mode)].get();
+		}
+
+		//
+		inline const auto& getSBT(const CSession::RenderMode mode) const {return m_construction.sbts[static_cast<uint8_t>(mode)];}
+
+		//
 		inline const video::IGPUDescriptorSet* getDescriptorSet() const {return m_construction.sceneDS->getDescriptorSet();}
 
 		using sensor_t = CSceneLoader::SLoadResult::SSensor;
@@ -57,6 +66,10 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			core::vector<sensor_t> sensors;
 			// backward link for reference counting
 			core::smart_refctd_ptr<CRenderer> renderer;
+			// specialized per-scene pipelines
+			core::smart_refctd_ptr<video::IGPURayTracingPipeline> pipelines[uint8_t(CSession::RenderMode::Count)];
+			//
+			video::IGPURayTracingPipeline::SShaderBindingTable sbts[uint8_t(CSession::RenderMode::Count)];
 			// descriptor set for a scene shall contain sampled textures and compiled materials
 			core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> sceneDS;
 			// main TLAS
@@ -67,6 +80,9 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			// sensor list can be empty, we can just make one up as we go along
 			inline operator bool() const
 			{
+				for (uint8_t i=0; i<static_cast<uint8_t>(CSession::RenderMode::Count); i++)
+				if (const auto* pipeline=pipelines[i].get(); !pipeline || !sbts[i].valid(pipeline->getCreationFlags()))
+					return false;
 				return renderer && sceneDS;
 			}
 		};
