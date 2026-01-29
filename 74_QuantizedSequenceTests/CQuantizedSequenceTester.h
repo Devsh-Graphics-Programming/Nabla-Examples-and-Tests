@@ -29,9 +29,15 @@ private:
     {
         std::uniform_real_distribution<float> realDistribution(0.0f, 1.0f);
         std::uniform_int_distribution<uint32_t> uint32Distribution(0, std::numeric_limits<uint32_t>::max());
+        std::uniform_int_distribution<uint16_t> uint16Distribution(0, std::numeric_limits<uint16_t>::max());
 
         QuantizedSequenceInputTestValues testInput;
-        testInput.scalar = uint32Distribution(getRandomEngine());
+        testInput.scalar = uint16Distribution(getRandomEngine());
+        testInput.u16vec2 = uint32_t2(uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()));
+        testInput.u16vec3 = uint32_t3(uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()));
+        testInput.u16vec4 = uint32_t4(uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()), uint16Distribution(getRandomEngine()));
+
+        testInput.scalar16 = uint32Distribution(getRandomEngine());
         testInput.uvec2 = uint32_t2(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
         testInput.uvec3 = uint32_t3(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
         testInput.uvec4 = uint32_t4(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
@@ -46,6 +52,7 @@ private:
     QuantizedSequenceTestValues determineExpectedResults(const QuantizedSequenceInputTestValues& testInput) override
     {
         QuantizedSequenceTestValues expected;
+        // test create/set/get
         expected.uintDim1 = testInput.scalar;
         {
             for (uint32_t i = 0; i < 2; i++)
@@ -69,6 +76,30 @@ private:
         expected.uintVec3_Dim3 = testInput.uvec3;
         expected.uintVec4_Dim4 = testInput.uvec4;
 
+        expected.u16Dim1 = testInput.scalar16;
+        {
+            for (uint32_t i = 0; i < 2; i++)
+                expected.u16Dim2[i] = testInput.u16vec2[i] >> 8u;
+        }
+        {
+            for (uint32_t i = 0; i < 3; i++)
+                expected.u16Dim3[i] = testInput.u16vec3[i] >> 11u;
+        }
+        {
+            for (uint32_t i = 0; i < 4; i++)
+                expected.u16Dim4[i] = testInput.u16vec4[i] >> 12u;
+        }
+
+        expected.u16Vec2_Dim2 = testInput.u16vec2;
+        {
+            for (uint32_t i = 0; i < 4; i++)
+                expected.u16Vec2_Dim4[i] = testInput.u16vec4[i] >> 8u;
+        }
+
+        expected.u16Vec3_Dim3 = testInput.u16vec3;
+        expected.u16Vec4_Dim4 = testInput.u16vec4;
+
+        // test encode/decode
         {
             const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
             uint32_t3 stored;
@@ -92,19 +123,30 @@ private:
 
     void verifyTestResults(const QuantizedSequenceTestValues& expectedTestValues, const QuantizedSequenceTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        verifyTestValue("get uint from dim 1", expectedTestValues.uintDim1, testValues.uintDim1, testIteration, seed, testType);
-        verifyTestValue("get uint2 from dim 1", expectedTestValues.uintDim2, testValues.uintDim2, testIteration, seed, testType);
-        verifyTestValue("get uint3 from dim 1", expectedTestValues.uintDim3, testValues.uintDim3, testIteration, seed, testType);
-        verifyTestValue("get uint4 from dim 1", expectedTestValues.uintDim4, testValues.uintDim4, testIteration, seed, testType);
+        verifyTestValue("get uint from u32", expectedTestValues.uintDim1, testValues.uintDim1, testIteration, seed, testType);
+        verifyTestValue("get uint2 from u32", expectedTestValues.uintDim2, testValues.uintDim2, testIteration, seed, testType);
+        verifyTestValue("get uint3 from u32", expectedTestValues.uintDim3, testValues.uintDim3, testIteration, seed, testType);
+        verifyTestValue("get uint4 from u32", expectedTestValues.uintDim4, testValues.uintDim4, testIteration, seed, testType);
 
-        verifyTestValue("get uint2 from dim 2", expectedTestValues.uintVec2_Dim2, testValues.uintVec2_Dim2, testIteration, seed, testType);
-        verifyTestValue("get uint3 from dim 2", expectedTestValues.uintVec2_Dim3, testValues.uintVec2_Dim3, testIteration, seed, testType);
+        verifyTestValue("get uint2 from u32 vec2", expectedTestValues.uintVec2_Dim2, testValues.uintVec2_Dim2, testIteration, seed, testType);
+        verifyTestValue("get uint3 from u32 vec2", expectedTestValues.uintVec2_Dim3, testValues.uintVec2_Dim3, testIteration, seed, testType);
 
-        verifyTestValue("get uint3 from dim 3", expectedTestValues.uintVec3_Dim3, testValues.uintVec3_Dim3, testIteration, seed, testType);
-        verifyTestValue("get uint4 from dim 4", expectedTestValues.uintVec4_Dim4, testValues.uintVec4_Dim4, testIteration, seed, testType);
+        verifyTestValue("get uint3 from u32 vec3", expectedTestValues.uintVec3_Dim3, testValues.uintVec3_Dim3, testIteration, seed, testType);
+        verifyTestValue("get uint4 from u32 vec4", expectedTestValues.uintVec4_Dim4, testValues.uintVec4_Dim4, testIteration, seed, testType);
 
-        verifyTestValue("encode/decode unorm3 from uint2 (fullwidth)", expectedTestValues.unorm3_predecode, testValues.unorm3_predecode, testIteration, seed, testType);
-        verifyTestValue("encode/decode unorm3 from uint2", expectedTestValues.unorm3_postdecode, testValues.unorm3_postdecode, testIteration, seed, testType);
+        verifyTestValue("get uint from u16", expectedTestValues.u16Dim1, testValues.u16Dim1, testIteration, seed, testType);
+        verifyTestValue("get uint2 from u16", expectedTestValues.u16Dim2, testValues.u16Dim2, testIteration, seed, testType);
+        verifyTestValue("get uint3 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType);
+        verifyTestValue("get uint4 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType);
+
+        verifyTestValue("get uint2 from u16 vec2", expectedTestValues.u16Vec2_Dim2, testValues.u16Vec2_Dim2, testIteration, seed, testType);
+        verifyTestValue("get uint4 from u16 vec2", expectedTestValues.u16Vec2_Dim4, testValues.u16Vec2_Dim4, testIteration, seed, testType);
+
+        verifyTestValue("get uint3 from u16 vec3", expectedTestValues.u16Vec3_Dim3, testValues.u16Vec3_Dim3, testIteration, seed, testType);
+        verifyTestValue("get uint4 from u16 vec4", expectedTestValues.u16Vec4_Dim4, testValues.u16Vec4_Dim4, testIteration, seed, testType);
+
+        verifyTestValue("encode/decode unorm3 from u32 vec2 (fullwidth)", expectedTestValues.unorm3_predecode, testValues.unorm3_predecode, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32 vec2", expectedTestValues.unorm3_postdecode, testValues.unorm3_postdecode, testIteration, seed, testType);
     }
 
 };
