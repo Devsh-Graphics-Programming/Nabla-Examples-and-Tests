@@ -42,9 +42,15 @@ private:
         testInput.uvec3 = uint32_t3(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
         testInput.uvec4 = uint32_t4(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
 
+        testInput.unorm1 = float32_t1(realDistribution(getRandomEngine()));
+        testInput.unorm2 = float32_t2(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.unorm3 = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.unorm4 = float32_t4(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
 
+        testInput.scrambleKey1 = uint32_t1(uint32Distribution(getRandomEngine()));
+        testInput.scrambleKey2 = uint32_t2(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
         testInput.scrambleKey3 = uint32_t3(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
+        testInput.scrambleKey4 = uint32_t4(uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()), uint32Distribution(getRandomEngine()));
 
         return testInput;
     }
@@ -99,23 +105,148 @@ private:
         expected.u16Vec3_Dim3 = testInput.u16vec3;
         expected.u16Vec4_Dim4 = testInput.u16vec4;
 
-        // test encode/decode
+        // test encode/decode uint32, dim 1..4
+        {
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t1 stored;
+            stored[0] = uint32_t(testInput.unorm1[0] * fullWidthMultiplier);
+            expected.unorm1_pre_u32 = float32_t1(stored ^ testInput.scrambleKey1) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t multiplier = (1u << 31u) - 1u;
+            uint32_t1 stored;
+            stored[0] = uint32_t(testInput.unorm1[0] * multiplier);
+            expected.unorm1_post_u32 = float32_t1(stored ^ testInput.scrambleKey1) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t bitsPerComponent = 16u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t2 stored;
+            for (uint32_t i = 0; i < 2; i++)
+                stored[i] = uint32_t(testInput.unorm2[i] * fullWidthMultiplier) >> discardBits;
+            expected.unorm2_pre_u32 = float32_t2(stored ^ testInput.scrambleKey2) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t bitsPerComponent = 16u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t multiplier = (1u << bitsPerComponent) - 1u;
+            uint32_t2 stored, scrambleKey;
+            for (uint32_t i = 0; i < 2; i++)
+            {
+                stored[i] = uint32_t(testInput.unorm2[i] * multiplier) >> discardBits;
+                scrambleKey[i] = testInput.scrambleKey2[i] >> discardBits;
+            }
+            expected.unorm2_post_u32 = float32_t2(stored ^ scrambleKey) * bit_cast<float>(0x37800080u);
+        }
+        {
+            const uint32_t bitsPerComponent = 10u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t3 stored;
+            for (uint32_t i = 0; i < 3; i++)
+                stored[i] = uint32_t(testInput.unorm3[i] * fullWidthMultiplier) >> discardBits;
+            expected.unorm3_pre_u32 = float32_t3(stored ^ testInput.scrambleKey3) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t bitsPerComponent = 10u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t multiplier = (1u << bitsPerComponent) - 1u;
+            uint32_t3 stored, scrambleKey;
+            for (uint32_t i = 0; i < 3; i++)
+            {
+                stored[i] = uint32_t(testInput.unorm3[i] * multiplier) >> discardBits;
+                scrambleKey[i] = testInput.scrambleKey3[i] >> discardBits;
+            }
+            expected.unorm3_post_u32 = float32_t3(stored ^ scrambleKey) * bit_cast<float>(0x3a802008u);
+        }
+        {
+            const uint32_t bitsPerComponent = 8u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t4 stored;
+            for (uint32_t i = 0; i < 4; i++)
+                stored[i] = uint32_t(testInput.unorm4[i] * fullWidthMultiplier) >> discardBits;
+            expected.unorm4_pre_u32 = float32_t4(stored ^ testInput.scrambleKey4) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t bitsPerComponent = 8u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t multiplier = (1u << bitsPerComponent) - 1u;
+            uint32_t4 stored, scrambleKey;
+            for (uint32_t i = 0; i < 4; i++)
+            {
+                stored[i] = uint32_t(testInput.unorm4[i] * multiplier) >> discardBits;
+                scrambleKey[i] = testInput.scrambleKey4[i] >> discardBits;
+            }
+            expected.unorm4_post_u32 = float32_t4(stored ^ scrambleKey) * bit_cast<float>(0x3b808081u);
+        }
+
+        // test encode/decode uint32_tN storage, dim == N
+        {
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t2 stored;
+            for (uint32_t i = 0; i < 2; i++)
+                stored[i] = uint32_t(testInput.unorm2[i] * fullWidthMultiplier);
+            expected.unorm2_pre_u32t2 = float32_t2(stored ^ testInput.scrambleKey2) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t multiplier = (1u << 31u) - 1u;
+            uint32_t2 stored;
+            for (uint32_t i = 0; i < 2; i++)
+                stored[i] = uint32_t(testInput.unorm2[i] * multiplier);
+            expected.unorm2_post_u32t2 = float32_t2(stored ^ testInput.scrambleKey2) * bit_cast<float>(0x2f800004u);
+        }
         {
             const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
             uint32_t3 stored;
             for (uint32_t i = 0; i < 3; i++)
-                stored[i] = uint32_t(testInput.unorm3[i] * fullWidthMultiplier) >> 11u;
-            expected.unorm3_predecode = float32_t3(stored ^ testInput.scrambleKey3) * bit_cast<float>(0x2f800004u);
+                stored[i] = uint32_t(testInput.unorm3[i] * fullWidthMultiplier);
+            expected.unorm3_pre_u32t3 = float32_t3(stored ^ testInput.scrambleKey3) * bit_cast<float>(0x2f800004u);
         }
         {
-            const uint32_t multiplier = (1u << 21u) - 1u;
+            const uint32_t multiplier = (1u << 31u) - 1u;
+            uint32_t3 stored;
+            for (uint32_t i = 0; i < 3; i++)
+                stored[i] = uint32_t(testInput.unorm3[i] * multiplier);
+            expected.unorm3_post_u32t3 = float32_t3(stored ^ testInput.scrambleKey3) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t4 stored;
+            for (uint32_t i = 0; i < 4; i++)
+                stored[i] = uint32_t(testInput.unorm4[i] * fullWidthMultiplier);
+            expected.unorm4_pre_u32t4 = float32_t4(stored ^ testInput.scrambleKey4) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t multiplier = (1u << 31u) - 1u;
+            uint32_t4 stored;
+            for (uint32_t i = 0; i < 4; i++)
+                stored[i] = uint32_t(testInput.unorm4[i] * multiplier);
+            expected.unorm4_post_u32t4 = float32_t4(stored ^ testInput.scrambleKey4) * bit_cast<float>(0x2f800004u);
+        }
+
+        // test encode/decode uint32_t2 storage, dim 3
+        {
+            const uint32_t bitsPerComponent = 21u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t fullWidthMultiplier = (1u << 31u) - 1u;
+            uint32_t3 stored;
+            for (uint32_t i = 0; i < 3; i++)
+                stored[i] = uint32_t(testInput.unorm3[i] * fullWidthMultiplier) >> discardBits;
+            expected.unorm3_pre_u32t2 = float32_t3(stored ^ testInput.scrambleKey3) * bit_cast<float>(0x2f800004u);
+        }
+        {
+            const uint32_t bitsPerComponent = 21u;
+            const uint32_t discardBits = 32u - bitsPerComponent;
+            const uint32_t multiplier = (1u << bitsPerComponent) - 1u;
             uint32_t3 stored, scrambleKey;
             for (uint32_t i = 0; i < 3; i++)
             {
-                stored[i] = uint32_t(testInput.unorm3[i] * multiplier) >> 11u;
-                scrambleKey[i] = testInput.scrambleKey3[i] >> 11u;
+                stored[i] = uint32_t(testInput.unorm3[i] * multiplier) >> discardBits;
+                scrambleKey[i] = testInput.scrambleKey3[i] >> discardBits;
             }
-            expected.unorm3_postdecode = float32_t3(stored ^ scrambleKey) * bit_cast<float>(0x35000004u);
+            expected.unorm3_post_u32t2 = float32_t3(stored ^ scrambleKey) * bit_cast<float>(0x35000004u);
         }
 
         return expected;
@@ -145,8 +276,24 @@ private:
         verifyTestValue("get uint3 from u16 vec3", expectedTestValues.u16Vec3_Dim3, testValues.u16Vec3_Dim3, testIteration, seed, testType);
         verifyTestValue("get uint4 from u16 vec4", expectedTestValues.u16Vec4_Dim4, testValues.u16Vec4_Dim4, testIteration, seed, testType);
 
-        verifyTestValue("encode/decode unorm3 from u32 vec2 (fullwidth)", expectedTestValues.unorm3_predecode, testValues.unorm3_predecode, testIteration, seed, testType);
-        verifyTestValue("encode/decode unorm3 from u32 vec2", expectedTestValues.unorm3_postdecode, testValues.unorm3_postdecode, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm from u32 (fullwidth)", expectedTestValues.unorm1_pre_u32, testValues.unorm1_pre_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm from u32", expectedTestValues.unorm1_post_u32, testValues.unorm1_post_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm2 from u32 (fullwidth)", expectedTestValues.unorm2_pre_u32, testValues.unorm2_pre_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm2 from u32", expectedTestValues.unorm2_post_u32, testValues.unorm2_post_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32 (fullwidth)", expectedTestValues.unorm3_pre_u32, testValues.unorm3_pre_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32", expectedTestValues.unorm3_post_u32, testValues.unorm3_post_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm4 from u32 (fullwidth)", expectedTestValues.unorm4_pre_u32, testValues.unorm4_pre_u32, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm4 from u32", expectedTestValues.unorm4_post_u32, testValues.unorm4_post_u32, testIteration, seed, testType);
+
+        verifyTestValue("encode/decode unorm2 from u32 vec2 (fullwidth)", expectedTestValues.unorm2_pre_u32t2, testValues.unorm2_pre_u32t2, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm2 from u32 vec2", expectedTestValues.unorm2_post_u32t2, testValues.unorm2_post_u32t2, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32 vec3 (fullwidth)", expectedTestValues.unorm3_pre_u32t3, testValues.unorm3_pre_u32t3, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32 vec3", expectedTestValues.unorm3_post_u32t3, testValues.unorm3_post_u32t3, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm4 from u32 vec4 (fullwidth)", expectedTestValues.unorm4_pre_u32t4, testValues.unorm4_pre_u32t4, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm4 from u32 vec4", expectedTestValues.unorm4_post_u32t4, testValues.unorm4_post_u32t4, testIteration, seed, testType);
+
+        verifyTestValue("encode/decode unorm3 from u32 vec2 (fullwidth)", expectedTestValues.unorm3_pre_u32t2, testValues.unorm3_pre_u32t2, testIteration, seed, testType);
+        verifyTestValue("encode/decode unorm3 from u32 vec2", expectedTestValues.unorm3_post_u32t2, testValues.unorm3_post_u32t2, testIteration, seed, testType);
     }
 
 };
