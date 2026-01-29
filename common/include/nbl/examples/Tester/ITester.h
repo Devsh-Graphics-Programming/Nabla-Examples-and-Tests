@@ -174,7 +174,7 @@ public:
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
-    void performTestsAndVerifyResults(const std::string& logFileName)
+    bool performTestsAndVerifyResults(const std::string& logFileName)
     {
         m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
         if (!m_logFile.is_open())
@@ -201,12 +201,13 @@ public:
         core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
         core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
 
-        verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+        bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
 
         m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
         reloadSeed();
 
         m_logFile.close();
+        return pass;
     }
 
     virtual ~ITester()
@@ -230,7 +231,7 @@ protected:
         reloadSeed();
     };
 
-    virtual void verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
+    virtual bool verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
 
     virtual InputTestValues generateInputTestValues() = 0;
 
@@ -307,13 +308,14 @@ protected:
     }
 
     template<typename T>
-    void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+    bool verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
         const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference = 0.0)
     {
         if (compareTestValues<T>(expectedVal, testVal, maxAllowedDifference))
-            return;
+            return true;
 
         printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        return false;
     }
 
     template<typename T>
@@ -370,13 +372,15 @@ private:
         return output;
     }
 
-    void verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
+    bool verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
     {
+        bool pass = true;
         for (int i = 0; i < m_testIterationCount; ++i)
         {
-            verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU);
-            verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU);
+            pass = verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU) && pass;
+            pass = verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU) && pass;
         }
+        return pass;
     }
 
     void reloadSeed()
