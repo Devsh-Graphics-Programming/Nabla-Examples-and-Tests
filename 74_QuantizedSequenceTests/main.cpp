@@ -51,7 +51,9 @@ public:
 
             CQuantizedSequenceTester quantizedSequenceTester(8);
             quantizedSequenceTester.setupPipeline(pplnSetupData);
-            quantizedSequenceTester.performTestsAndVerifyResults("QuantizedSequenceTestLog.txt");
+            bool pass = quantizedSequenceTester.performTestsAndVerifyResults("QuantizedSequenceTestLog.txt");
+            if (!pass)
+                return false;
         }
        
         // In contrast to fences, we just need one semaphore to rule all dispatches
