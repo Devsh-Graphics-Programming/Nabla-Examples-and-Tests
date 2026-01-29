@@ -38,7 +38,3 @@ float32_t4 present_default(SVertexAttributes vxAttr) : SV_Target0
     }
     return float32_t4(gSensorTextures[pc.imageIndex].SampleLevel(gSensorSamplers[0],uv,0.f).rgb*tint,1.0f);
 }
-
-// Precompile the FullScreenTriangle vertex shader along with this fragment shader.
-#define NBL_EXT_FULLSCREEN_TRIANGLE_VS_ENTRYPOINT present_fri_ext
-#include <nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl>

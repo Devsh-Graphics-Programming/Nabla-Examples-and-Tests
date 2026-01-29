@@ -163,7 +163,7 @@ bool CWindowPresenter::init_impl(CRenderer* renderer)
 			.entryPoint = "present_default"
 		};
 
-		ext::FullScreenTriangle::ProtoPipeline fsTriProtoPln(shader, "present_fri_ext");
+		ext::FullScreenTriangle::ProtoPipeline fsTriProtoPln(assMan, device, logger.get().get());
 		if (!fsTriProtoPln) { logger.log("`CWindowPresenter::create` failed to create Full Screen Triangle protopipeline or load its vertex shader!",ILogger::ELL_ERROR); return false; }
 		m_present = fsTriProtoPln.createPipeline(fragSpec, layout.get(), getRenderpass());
 
