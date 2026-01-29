@@ -51,8 +51,7 @@ public:
 
             CQuantizedSequenceTester quantizedSequenceTester(8);
             quantizedSequenceTester.setupPipeline(pplnSetupData);
-            bool pass = quantizedSequenceTester.performTestsAndVerifyResults("QuantizedSequenceTestLog.txt");
-            if (!pass)
+            if (!quantizedSequenceTester.performTestsAndVerifyResults("QuantizedSequenceTestLog.txt"))
                 return false;
         }
        

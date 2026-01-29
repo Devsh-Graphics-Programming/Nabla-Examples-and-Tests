@@ -131,43 +131,46 @@ private:
         return expected;
     }
 
-    void verifyTestResults(const QuaternionTestValues& expectedTestValues, const QuaternionTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
+    bool verifyTestResults(const QuaternionTestValues& expectedTestValues, const QuaternionTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        verifyVectorTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2, true);
-        verifyVectorTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2, true);
-        verifyVectorTestValue("create from rotation matrix", expectedTestValues.quatFromMat.data, testValues.quatFromMat.data, testIteration, seed, testType, 1e-2, true);
-        verifyScaledVectorTestValue("create from scale rotation matrix", expectedTestValues.quatFromScaledMat.data, testValues.quatFromScaledMat.data, testIteration, seed, testType, 1e-4, 1e-2);
+        bool pass = true;
+        pass = verifyVectorTestValue("create from axis angle", expectedTestValues.quatFromAngleAxis.data, testValues.quatFromAngleAxis.data, testIteration, seed, testType, 1e-2, true) && pass;
+        pass = verifyVectorTestValue("create from Euler angles", expectedTestValues.quatFromEulerAngles.data, testValues.quatFromEulerAngles.data, testIteration, seed, testType, 1e-2, true) && pass;
+        pass = verifyVectorTestValue("create from rotation matrix", expectedTestValues.quatFromMat.data, testValues.quatFromMat.data, testIteration, seed, testType, 1e-2, true) && pass;
+        pass = verifyScaledVectorTestValue("create from scale rotation matrix", expectedTestValues.quatFromScaledMat.data, testValues.quatFromScaledMat.data, testIteration, seed, testType, 1e-4, 1e-2) && pass;
 
-        verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2);
-        verifyTestValue("construct matrix (scaled)", expectedTestValues.scaleRotationMat, testValues.scaleRotationMat, testIteration, seed, testType, 1e-2);
+        pass = verifyTestValue("construct matrix", expectedTestValues.rotationMat, testValues.rotationMat, testIteration, seed, testType, 1e-2) && pass;
+        pass = verifyTestValue("construct matrix (scaled)", expectedTestValues.scaleRotationMat, testValues.scaleRotationMat, testIteration, seed, testType, 1e-2) && pass;
 
-        verifyVectorTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2, true);
-        verifyVectorTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2, true);
-        verifyVectorTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1, true);
-        verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2);
+        pass = verifyVectorTestValue("multiply quat", expectedTestValues.quatMult.data, testValues.quatMult.data, testIteration, seed, testType, 1e-2, true) && pass;
+        pass = verifyVectorTestValue("slerp quat", expectedTestValues.quatSlerp.data, testValues.quatSlerp.data, testIteration, seed, testType, 1e-2, true) && pass;
+        pass = verifyVectorTestValue("flerp quat", expectedTestValues.quatFlerp.data, testValues.quatFlerp.data, testIteration, seed, testType, 1e-1, true) && pass;
+        pass = verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2) && pass;
 
-        verifyScaledVectorTestValue("multiply scaled quat", expectedTestValues.quatScaledMult.data, testValues.quatScaledMult.data, testIteration, seed, testType, 1e-4, 1e-2);
+        pass = verifyScaledVectorTestValue("multiply scaled quat", expectedTestValues.quatScaledMult.data, testValues.quatScaledMult.data, testIteration, seed, testType, 1e-4, 1e-2) && pass;
     }
 
     template<typename T>
-    void verifyScaledVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+    bool verifyScaledVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
         const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAbsoluteDifference, const float64_t maxRelativeDifference)
     {
         if (nbl::hlsl::testing::orientationCompare(expectedVal, testVal, maxRelativeDifference) &&
             nbl::hlsl::testing::vectorLengthCompare(expectedVal, testVal, maxAbsoluteDifference, maxRelativeDifference))
-            return;
+            return true;
 
         printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        return false;
     }
 
     template<typename T>
-    void verifyVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
+    bool verifyVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
         const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference, const bool testOrientation)
     {
         if (compareVectorTestValues<T>(expectedVal, testVal, maxAllowedDifference, testOrientation))
-            return;
+            return true;
 
         printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        return false;
     }
 
     template<typename T> requires concepts::FloatingPointLikeVectorial<T>
