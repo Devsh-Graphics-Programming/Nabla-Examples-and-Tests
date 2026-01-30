@@ -73,7 +73,9 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     float32_t EV = meter.gatherLuma(val_accessor);
 
     uint32_t tid = workgroup::SubgroupContiguousIndex();
-    uint32_t2 coord = math::Morton<uint32_t>::decode2d(tid);
+    morton::code<false, 32, 2> mc;
+    mc.value = tid;
+    uint32_t2 coord = _static_cast<uint32_t2>(mc);
 
     uint32_t2 pos = (glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()).xy + coord;
     float32_t2 uv = (float32_t2)(pos) / pushData.viewportSize;
