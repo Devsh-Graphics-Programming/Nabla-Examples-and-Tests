@@ -1,20 +1,17 @@
-include(common RESULT_VARIABLE RES)
-if(NOT RES)
-        message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
-endif()
-
+include(common)
 
 set(NBL_INCLUDE_SERACH_DIRECTORIES
 	"${NBL_EXT_MITSUBA_LOADER_INCLUDE_DIRS}"
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
-list(APPEND NBL_LIBRARIES
+set(NBL_LIBRARIES
 	"${NBL_EXT_MITSUBA_LOADER_LIB}"
+	Nabla::ext::FullScreenTriangle
     imguizmo
 	"${NBL_EXT_IMGUI_UI_LIB}"
 )
-list(APPEND NBL_EXAMPLE_SOURCES
+set(NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
@@ -22,7 +19,7 @@ list(APPEND NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/resolve/CBasicRWMCResolver.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/present/CWindowPresenter.cpp"
 )
-nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "${}" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
@@ -50,9 +47,7 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
-    -I "${CMAKE_CURRENT_SOURCE_DIR}"
-#    -I "${CMAKE_CURRENT_SOURCE_DIR}/../include" # TODO: Arek for some reason, the `-I` are relative to each `.hlsl` file getting compiled, and not this CMAke file
-    -I "D:\\work\\Nabla-master\\examples_tests\\40_PathTracer\\include"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
     -T lib_${SM}
 )
 
