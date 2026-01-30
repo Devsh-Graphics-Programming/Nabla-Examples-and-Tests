@@ -257,147 +257,147 @@ private:
     {
         bool pass = true;
         // Some verification is commented out and moved to CTester2 due to bug in dxc. Uncomment them when the bug is fixed.
-        pass = verifyTestValue("emulatedAnd", expectedTestValues.emulatedAnd, testValues.emulatedAnd, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedOr", expectedTestValues.emulatedOr, testValues.emulatedOr, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedXor", expectedTestValues.emulatedXor, testValues.emulatedXor, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedNot", expectedTestValues.emulatedNot, testValues.emulatedNot, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedPlus", expectedTestValues.emulatedPlus, testValues.emulatedPlus, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedMinus", expectedTestValues.emulatedMinus, testValues.emulatedMinus, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedLess", expectedTestValues.emulatedLess, testValues.emulatedLess, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedLessEqual", expectedTestValues.emulatedLessEqual, testValues.emulatedLessEqual, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedGreater", expectedTestValues.emulatedGreater, testValues.emulatedGreater, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedGreaterEqual", expectedTestValues.emulatedGreaterEqual, testValues.emulatedGreaterEqual, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedLeftShifted", expectedTestValues.emulatedLeftShifted, testValues.emulatedLeftShifted, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedUnsignedRightShifted", expectedTestValues.emulatedUnsignedRightShifted, testValues.emulatedUnsignedRightShifted, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedSignedRightShifted", expectedTestValues.emulatedSignedRightShifted, testValues.emulatedSignedRightShifted, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("emulatedUnaryMinus", expectedTestValues.emulatedUnaryMinus, testValues.emulatedUnaryMinus, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("emulatedAnd", expectedTestValues.emulatedAnd, testValues.emulatedAnd, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedOr", expectedTestValues.emulatedOr, testValues.emulatedOr, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedXor", expectedTestValues.emulatedXor, testValues.emulatedXor, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedNot", expectedTestValues.emulatedNot, testValues.emulatedNot, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedPlus", expectedTestValues.emulatedPlus, testValues.emulatedPlus, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedMinus", expectedTestValues.emulatedMinus, testValues.emulatedMinus, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedLess", expectedTestValues.emulatedLess, testValues.emulatedLess, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedLessEqual", expectedTestValues.emulatedLessEqual, testValues.emulatedLessEqual, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedGreater", expectedTestValues.emulatedGreater, testValues.emulatedGreater, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedGreaterEqual", expectedTestValues.emulatedGreaterEqual, testValues.emulatedGreaterEqual, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedLeftShifted", expectedTestValues.emulatedLeftShifted, testValues.emulatedLeftShifted, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedUnsignedRightShifted", expectedTestValues.emulatedUnsignedRightShifted, testValues.emulatedUnsignedRightShifted, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedSignedRightShifted", expectedTestValues.emulatedSignedRightShifted, testValues.emulatedSignedRightShifted, testIteration, seed, testType);
+        pass &= verifyTestValue("emulatedUnaryMinus", expectedTestValues.emulatedUnaryMinus, testValues.emulatedUnaryMinus, testIteration, seed, testType);
 
         // Morton Plus
-        pass = verifyTestValue("mortonPlus_small_2", expectedTestValues.mortonPlus_small_2, testValues.mortonPlus_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_medium_2", expectedTestValues.mortonPlus_medium_2, testValues.mortonPlus_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_full_2", expectedTestValues.mortonPlus_full_2, testValues.mortonPlus_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_emulated_2", expectedTestValues.mortonPlus_emulated_2, testValues.mortonPlus_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonPlus_small_2", expectedTestValues.mortonPlus_small_2, testValues.mortonPlus_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_medium_2", expectedTestValues.mortonPlus_medium_2, testValues.mortonPlus_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_full_2", expectedTestValues.mortonPlus_full_2, testValues.mortonPlus_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_emulated_2", expectedTestValues.mortonPlus_emulated_2, testValues.mortonPlus_emulated_2, testIteration, seed, testType);
         
-        pass = verifyTestValue("mortonPlus_small_3", expectedTestValues.mortonPlus_small_3, testValues.mortonPlus_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_medium_3", expectedTestValues.mortonPlus_medium_3, testValues.mortonPlus_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_full_3", expectedTestValues.mortonPlus_full_3, testValues.mortonPlus_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_emulated_3", expectedTestValues.mortonPlus_emulated_3, testValues.mortonPlus_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonPlus_small_3", expectedTestValues.mortonPlus_small_3, testValues.mortonPlus_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_medium_3", expectedTestValues.mortonPlus_medium_3, testValues.mortonPlus_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_full_3", expectedTestValues.mortonPlus_full_3, testValues.mortonPlus_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_emulated_3", expectedTestValues.mortonPlus_emulated_3, testValues.mortonPlus_emulated_3, testIteration, seed, testType);
         
-        pass = verifyTestValue("mortonPlus_small_4", expectedTestValues.mortonPlus_small_4, testValues.mortonPlus_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_medium_4", expectedTestValues.mortonPlus_medium_4, testValues.mortonPlus_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_full_4", expectedTestValues.mortonPlus_full_4, testValues.mortonPlus_full_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonPlus_emulated_4", expectedTestValues.mortonPlus_emulated_4, testValues.mortonPlus_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonPlus_small_4", expectedTestValues.mortonPlus_small_4, testValues.mortonPlus_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_medium_4", expectedTestValues.mortonPlus_medium_4, testValues.mortonPlus_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_full_4", expectedTestValues.mortonPlus_full_4, testValues.mortonPlus_full_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonPlus_emulated_4", expectedTestValues.mortonPlus_emulated_4, testValues.mortonPlus_emulated_4, testIteration, seed, testType);
 
         // Morton Minus
-        pass = verifyTestValue("mortonMinus_small_2", expectedTestValues.mortonMinus_small_2, testValues.mortonMinus_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_medium_2", expectedTestValues.mortonMinus_medium_2, testValues.mortonMinus_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_full_2", expectedTestValues.mortonMinus_full_2, testValues.mortonMinus_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_emulated_2", expectedTestValues.mortonMinus_emulated_2, testValues.mortonMinus_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonMinus_small_2", expectedTestValues.mortonMinus_small_2, testValues.mortonMinus_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_medium_2", expectedTestValues.mortonMinus_medium_2, testValues.mortonMinus_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_full_2", expectedTestValues.mortonMinus_full_2, testValues.mortonMinus_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_emulated_2", expectedTestValues.mortonMinus_emulated_2, testValues.mortonMinus_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonMinus_small_3", expectedTestValues.mortonMinus_small_3, testValues.mortonMinus_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_medium_3", expectedTestValues.mortonMinus_medium_3, testValues.mortonMinus_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_full_3", expectedTestValues.mortonMinus_full_3, testValues.mortonMinus_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_emulated_3", expectedTestValues.mortonMinus_emulated_3, testValues.mortonMinus_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonMinus_small_3", expectedTestValues.mortonMinus_small_3, testValues.mortonMinus_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_medium_3", expectedTestValues.mortonMinus_medium_3, testValues.mortonMinus_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_full_3", expectedTestValues.mortonMinus_full_3, testValues.mortonMinus_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_emulated_3", expectedTestValues.mortonMinus_emulated_3, testValues.mortonMinus_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonMinus_small_4", expectedTestValues.mortonMinus_small_4, testValues.mortonMinus_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_medium_4", expectedTestValues.mortonMinus_medium_4, testValues.mortonMinus_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_full_4", expectedTestValues.mortonMinus_full_4, testValues.mortonMinus_full_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonMinus_emulated_4", expectedTestValues.mortonMinus_emulated_4, testValues.mortonMinus_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonMinus_small_4", expectedTestValues.mortonMinus_small_4, testValues.mortonMinus_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_medium_4", expectedTestValues.mortonMinus_medium_4, testValues.mortonMinus_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_full_4", expectedTestValues.mortonMinus_full_4, testValues.mortonMinus_full_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonMinus_emulated_4", expectedTestValues.mortonMinus_emulated_4, testValues.mortonMinus_emulated_4, testIteration, seed, testType);
 
         // Morton coordinate-wise equality
-        pass = verifyTestValue("mortonEqual_small_2", expectedTestValues.mortonEqual_small_2, testValues.mortonEqual_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_medium_2", expectedTestValues.mortonEqual_medium_2, testValues.mortonEqual_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_full_2", expectedTestValues.mortonEqual_full_2, testValues.mortonEqual_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_emulated_2", expectedTestValues.mortonEqual_emulated_2, testValues.mortonEqual_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonEqual_small_2", expectedTestValues.mortonEqual_small_2, testValues.mortonEqual_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_medium_2", expectedTestValues.mortonEqual_medium_2, testValues.mortonEqual_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_full_2", expectedTestValues.mortonEqual_full_2, testValues.mortonEqual_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_emulated_2", expectedTestValues.mortonEqual_emulated_2, testValues.mortonEqual_emulated_2, testIteration, seed, testType);
        
-        pass = verifyTestValue("mortonEqual_small_3", expectedTestValues.mortonEqual_small_3, testValues.mortonEqual_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_medium_3", expectedTestValues.mortonEqual_medium_3, testValues.mortonEqual_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_full_3", expectedTestValues.mortonEqual_full_3, testValues.mortonEqual_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_emulated_3", expectedTestValues.mortonEqual_emulated_3, testValues.mortonEqual_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonEqual_small_3", expectedTestValues.mortonEqual_small_3, testValues.mortonEqual_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_medium_3", expectedTestValues.mortonEqual_medium_3, testValues.mortonEqual_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_full_3", expectedTestValues.mortonEqual_full_3, testValues.mortonEqual_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_emulated_3", expectedTestValues.mortonEqual_emulated_3, testValues.mortonEqual_emulated_3, testIteration, seed, testType);
         
-        pass = verifyTestValue("mortonEqual_small_4", expectedTestValues.mortonEqual_small_4, testValues.mortonEqual_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_medium_4", expectedTestValues.mortonEqual_medium_4, testValues.mortonEqual_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_full_4", expectedTestValues.mortonEqual_full_4, testValues.mortonEqual_full_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonEqual_emulated_4", expectedTestValues.mortonEqual_emulated_4, testValues.mortonEqual_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonEqual_small_4", expectedTestValues.mortonEqual_small_4, testValues.mortonEqual_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_medium_4", expectedTestValues.mortonEqual_medium_4, testValues.mortonEqual_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_full_4", expectedTestValues.mortonEqual_full_4, testValues.mortonEqual_full_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonEqual_emulated_4", expectedTestValues.mortonEqual_emulated_4, testValues.mortonEqual_emulated_4, testIteration, seed, testType);
 
         // Morton coordinate-wise unsigned inequality
-        pass = verifyTestValue("mortonUnsignedLess_small_2", expectedTestValues.mortonUnsignedLess_small_2, testValues.mortonUnsignedLess_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_medium_2", expectedTestValues.mortonUnsignedLess_medium_2, testValues.mortonUnsignedLess_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_full_2", expectedTestValues.mortonUnsignedLess_full_2, testValues.mortonUnsignedLess_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_emulated_2", expectedTestValues.mortonUnsignedLess_emulated_2, testValues.mortonUnsignedLess_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedLess_small_2", expectedTestValues.mortonUnsignedLess_small_2, testValues.mortonUnsignedLess_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_medium_2", expectedTestValues.mortonUnsignedLess_medium_2, testValues.mortonUnsignedLess_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_full_2", expectedTestValues.mortonUnsignedLess_full_2, testValues.mortonUnsignedLess_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_emulated_2", expectedTestValues.mortonUnsignedLess_emulated_2, testValues.mortonUnsignedLess_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonUnsignedLess_small_3", expectedTestValues.mortonUnsignedLess_small_3, testValues.mortonUnsignedLess_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_medium_3", expectedTestValues.mortonUnsignedLess_medium_3, testValues.mortonUnsignedLess_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_full_3", expectedTestValues.mortonUnsignedLess_full_3, testValues.mortonUnsignedLess_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_emulated_3", expectedTestValues.mortonUnsignedLess_emulated_3, testValues.mortonUnsignedLess_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedLess_small_3", expectedTestValues.mortonUnsignedLess_small_3, testValues.mortonUnsignedLess_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_medium_3", expectedTestValues.mortonUnsignedLess_medium_3, testValues.mortonUnsignedLess_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_full_3", expectedTestValues.mortonUnsignedLess_full_3, testValues.mortonUnsignedLess_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_emulated_3", expectedTestValues.mortonUnsignedLess_emulated_3, testValues.mortonUnsignedLess_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonUnsignedLess_small_4", expectedTestValues.mortonUnsignedLess_small_4, testValues.mortonUnsignedLess_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_medium_4", expectedTestValues.mortonUnsignedLess_medium_4, testValues.mortonUnsignedLess_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedLess_full_4", expectedTestValues.mortonUnsignedLess_full_4, testValues.mortonUnsignedLess_full_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedLess_small_4", expectedTestValues.mortonUnsignedLess_small_4, testValues.mortonUnsignedLess_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_medium_4", expectedTestValues.mortonUnsignedLess_medium_4, testValues.mortonUnsignedLess_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedLess_full_4", expectedTestValues.mortonUnsignedLess_full_4, testValues.mortonUnsignedLess_full_4, testIteration, seed, testType);
         // verifyTestValue("mortonUnsignedLess_emulated_4", expectedTestValues.mortonUnsignedLess_emulated_4, testValues.mortonUnsignedLess_emulated_4, testIteration, seed, testType);
 
         // Morton coordinate-wise signed inequality
-        pass = verifyTestValue("mortonSignedLess_small_2", expectedTestValues.mortonSignedLess_small_2, testValues.mortonSignedLess_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_medium_2", expectedTestValues.mortonSignedLess_medium_2, testValues.mortonSignedLess_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_full_2", expectedTestValues.mortonSignedLess_full_2, testValues.mortonSignedLess_full_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedLess_small_2", expectedTestValues.mortonSignedLess_small_2, testValues.mortonSignedLess_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_medium_2", expectedTestValues.mortonSignedLess_medium_2, testValues.mortonSignedLess_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_full_2", expectedTestValues.mortonSignedLess_full_2, testValues.mortonSignedLess_full_2, testIteration, seed, testType);
         // verifyTestValue("mortonSignedLess_emulated_2", expectedTestValues.mortonSignedLess_emulated_2, testValues.mortonSignedLess_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedLess_small_3", expectedTestValues.mortonSignedLess_small_3, testValues.mortonSignedLess_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_medium_3", expectedTestValues.mortonSignedLess_medium_3, testValues.mortonSignedLess_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_full_3", expectedTestValues.mortonSignedLess_full_3, testValues.mortonSignedLess_full_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedLess_small_3", expectedTestValues.mortonSignedLess_small_3, testValues.mortonSignedLess_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_medium_3", expectedTestValues.mortonSignedLess_medium_3, testValues.mortonSignedLess_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_full_3", expectedTestValues.mortonSignedLess_full_3, testValues.mortonSignedLess_full_3, testIteration, seed, testType);
         // verifyTestValue("mortonSignedLess_emulated_3", expectedTestValues.mortonSignedLess_emulated_3, testValues.mortonSignedLess_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedLess_small_4", expectedTestValues.mortonSignedLess_small_4, testValues.mortonSignedLess_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_medium_4", expectedTestValues.mortonSignedLess_medium_4, testValues.mortonSignedLess_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_full_4", expectedTestValues.mortonSignedLess_full_4, testValues.mortonSignedLess_full_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedLess_small_4", expectedTestValues.mortonSignedLess_small_4, testValues.mortonSignedLess_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_medium_4", expectedTestValues.mortonSignedLess_medium_4, testValues.mortonSignedLess_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_full_4", expectedTestValues.mortonSignedLess_full_4, testValues.mortonSignedLess_full_4, testIteration, seed, testType);
         // verifyTestValue("mortonSignedLess_emulated_4", expectedTestValues.mortonSignedLess_emulated_4, testValues.mortonSignedLess_emulated_4, testIteration, seed, testType);
 
         // Morton left-shift
-        pass = verifyTestValue("mortonLeftShift_small_2", expectedTestValues.mortonLeftShift_small_2, testValues.mortonLeftShift_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_medium_2", expectedTestValues.mortonLeftShift_medium_2, testValues.mortonLeftShift_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_full_2", expectedTestValues.mortonLeftShift_full_2, testValues.mortonLeftShift_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_emulated_2", expectedTestValues.mortonLeftShift_emulated_2, testValues.mortonLeftShift_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonLeftShift_small_2", expectedTestValues.mortonLeftShift_small_2, testValues.mortonLeftShift_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_medium_2", expectedTestValues.mortonLeftShift_medium_2, testValues.mortonLeftShift_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_full_2", expectedTestValues.mortonLeftShift_full_2, testValues.mortonLeftShift_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_emulated_2", expectedTestValues.mortonLeftShift_emulated_2, testValues.mortonLeftShift_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonLeftShift_small_3", expectedTestValues.mortonLeftShift_small_3, testValues.mortonLeftShift_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_medium_3", expectedTestValues.mortonLeftShift_medium_3, testValues.mortonLeftShift_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_full_3", expectedTestValues.mortonLeftShift_full_3, testValues.mortonLeftShift_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_emulated_3", expectedTestValues.mortonLeftShift_emulated_3, testValues.mortonLeftShift_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonLeftShift_small_3", expectedTestValues.mortonLeftShift_small_3, testValues.mortonLeftShift_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_medium_3", expectedTestValues.mortonLeftShift_medium_3, testValues.mortonLeftShift_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_full_3", expectedTestValues.mortonLeftShift_full_3, testValues.mortonLeftShift_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_emulated_3", expectedTestValues.mortonLeftShift_emulated_3, testValues.mortonLeftShift_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonLeftShift_small_4", expectedTestValues.mortonLeftShift_small_4, testValues.mortonLeftShift_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_medium_4", expectedTestValues.mortonLeftShift_medium_4, testValues.mortonLeftShift_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_full_4", expectedTestValues.mortonLeftShift_full_4, testValues.mortonLeftShift_full_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonLeftShift_emulated_4", expectedTestValues.mortonLeftShift_emulated_4, testValues.mortonLeftShift_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonLeftShift_small_4", expectedTestValues.mortonLeftShift_small_4, testValues.mortonLeftShift_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_medium_4", expectedTestValues.mortonLeftShift_medium_4, testValues.mortonLeftShift_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_full_4", expectedTestValues.mortonLeftShift_full_4, testValues.mortonLeftShift_full_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonLeftShift_emulated_4", expectedTestValues.mortonLeftShift_emulated_4, testValues.mortonLeftShift_emulated_4, testIteration, seed, testType);
 
         // Morton unsigned right-shift
-        pass = verifyTestValue("mortonUnsignedRightShift_small_2", expectedTestValues.mortonUnsignedRightShift_small_2, testValues.mortonUnsignedRightShift_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_medium_2", expectedTestValues.mortonUnsignedRightShift_medium_2, testValues.mortonUnsignedRightShift_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_full_2", expectedTestValues.mortonUnsignedRightShift_full_2, testValues.mortonUnsignedRightShift_full_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_emulated_2", expectedTestValues.mortonUnsignedRightShift_emulated_2, testValues.mortonUnsignedRightShift_emulated_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedRightShift_small_2", expectedTestValues.mortonUnsignedRightShift_small_2, testValues.mortonUnsignedRightShift_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_medium_2", expectedTestValues.mortonUnsignedRightShift_medium_2, testValues.mortonUnsignedRightShift_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_full_2", expectedTestValues.mortonUnsignedRightShift_full_2, testValues.mortonUnsignedRightShift_full_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_emulated_2", expectedTestValues.mortonUnsignedRightShift_emulated_2, testValues.mortonUnsignedRightShift_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonUnsignedRightShift_small_3", expectedTestValues.mortonUnsignedRightShift_small_3, testValues.mortonUnsignedRightShift_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_medium_3", expectedTestValues.mortonUnsignedRightShift_medium_3, testValues.mortonUnsignedRightShift_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_full_3", expectedTestValues.mortonUnsignedRightShift_full_3, testValues.mortonUnsignedRightShift_full_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_emulated_3", expectedTestValues.mortonUnsignedRightShift_emulated_3, testValues.mortonUnsignedRightShift_emulated_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedRightShift_small_3", expectedTestValues.mortonUnsignedRightShift_small_3, testValues.mortonUnsignedRightShift_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_medium_3", expectedTestValues.mortonUnsignedRightShift_medium_3, testValues.mortonUnsignedRightShift_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_full_3", expectedTestValues.mortonUnsignedRightShift_full_3, testValues.mortonUnsignedRightShift_full_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_emulated_3", expectedTestValues.mortonUnsignedRightShift_emulated_3, testValues.mortonUnsignedRightShift_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonUnsignedRightShift_small_4", expectedTestValues.mortonUnsignedRightShift_small_4, testValues.mortonUnsignedRightShift_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_medium_4", expectedTestValues.mortonUnsignedRightShift_medium_4, testValues.mortonUnsignedRightShift_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_full_4", expectedTestValues.mortonUnsignedRightShift_full_4, testValues.mortonUnsignedRightShift_full_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonUnsignedRightShift_emulated_4", expectedTestValues.mortonUnsignedRightShift_emulated_4, testValues.mortonUnsignedRightShift_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedRightShift_small_4", expectedTestValues.mortonUnsignedRightShift_small_4, testValues.mortonUnsignedRightShift_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_medium_4", expectedTestValues.mortonUnsignedRightShift_medium_4, testValues.mortonUnsignedRightShift_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_full_4", expectedTestValues.mortonUnsignedRightShift_full_4, testValues.mortonUnsignedRightShift_full_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonUnsignedRightShift_emulated_4", expectedTestValues.mortonUnsignedRightShift_emulated_4, testValues.mortonUnsignedRightShift_emulated_4, testIteration, seed, testType);
 
         // Morton signed right-shift
-        pass = verifyTestValue("mortonSignedRightShift_small_2", expectedTestValues.mortonSignedRightShift_small_2, testValues.mortonSignedRightShift_small_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_medium_2", expectedTestValues.mortonSignedRightShift_medium_2, testValues.mortonSignedRightShift_medium_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_full_2", expectedTestValues.mortonSignedRightShift_full_2, testValues.mortonSignedRightShift_full_2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedRightShift_small_2", expectedTestValues.mortonSignedRightShift_small_2, testValues.mortonSignedRightShift_small_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_medium_2", expectedTestValues.mortonSignedRightShift_medium_2, testValues.mortonSignedRightShift_medium_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_full_2", expectedTestValues.mortonSignedRightShift_full_2, testValues.mortonSignedRightShift_full_2, testIteration, seed, testType);
         // verifyTestValue("mortonSignedRightShift_emulated_2", expectedTestValues.mortonSignedRightShift_emulated_2, testValues.mortonSignedRightShift_emulated_2, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedRightShift_small_3", expectedTestValues.mortonSignedRightShift_small_3, testValues.mortonSignedRightShift_small_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_medium_3", expectedTestValues.mortonSignedRightShift_medium_3, testValues.mortonSignedRightShift_medium_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_full_3", expectedTestValues.mortonSignedRightShift_full_3, testValues.mortonSignedRightShift_full_3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedRightShift_small_3", expectedTestValues.mortonSignedRightShift_small_3, testValues.mortonSignedRightShift_small_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_medium_3", expectedTestValues.mortonSignedRightShift_medium_3, testValues.mortonSignedRightShift_medium_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_full_3", expectedTestValues.mortonSignedRightShift_full_3, testValues.mortonSignedRightShift_full_3, testIteration, seed, testType);
         //verifyTestValue("mortonSignedRightShift_emulated_3", expectedTestValues.mortonSignedRightShift_emulated_3, testValues.mortonSignedRightShift_emulated_3, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedRightShift_small_4", expectedTestValues.mortonSignedRightShift_small_4, testValues.mortonSignedRightShift_small_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_medium_4", expectedTestValues.mortonSignedRightShift_medium_4, testValues.mortonSignedRightShift_medium_4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_full_4", expectedTestValues.mortonSignedRightShift_full_4, testValues.mortonSignedRightShift_full_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedRightShift_small_4", expectedTestValues.mortonSignedRightShift_small_4, testValues.mortonSignedRightShift_small_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_medium_4", expectedTestValues.mortonSignedRightShift_medium_4, testValues.mortonSignedRightShift_medium_4, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_full_4", expectedTestValues.mortonSignedRightShift_full_4, testValues.mortonSignedRightShift_full_4, testIteration, seed, testType);
         // verifyTestValue("mortonSignedRightShift_emulated_4", expectedTestValues.mortonSignedRightShift_emulated_4, testValues.mortonSignedRightShift_emulated_4, testIteration, seed, testType);
         return pass;
     }
@@ -478,15 +478,15 @@ private:
     bool verifyTestResults(const TestValues& expectedTestValues, const TestValues& testValues, const size_t testIteration, const uint32_t seed, ITester::TestType testType) override
     {
         bool pass = true;
-        pass = verifyTestValue("mortonUnsignedLess_emulated_4", expectedTestValues.mortonUnsignedLess_emulated_4, testValues.mortonUnsignedLess_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonUnsignedLess_emulated_4", expectedTestValues.mortonUnsignedLess_emulated_4, testValues.mortonUnsignedLess_emulated_4, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedLess_emulated_2", expectedTestValues.mortonSignedLess_emulated_2, testValues.mortonSignedLess_emulated_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_emulated_3", expectedTestValues.mortonSignedLess_emulated_3, testValues.mortonSignedLess_emulated_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedLess_emulated_4", expectedTestValues.mortonSignedLess_emulated_4, testValues.mortonSignedLess_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedLess_emulated_2", expectedTestValues.mortonSignedLess_emulated_2, testValues.mortonSignedLess_emulated_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_emulated_3", expectedTestValues.mortonSignedLess_emulated_3, testValues.mortonSignedLess_emulated_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedLess_emulated_4", expectedTestValues.mortonSignedLess_emulated_4, testValues.mortonSignedLess_emulated_4, testIteration, seed, testType);
 
-        pass = verifyTestValue("mortonSignedRightShift_emulated_2", expectedTestValues.mortonSignedRightShift_emulated_2, testValues.mortonSignedRightShift_emulated_2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_emulated_3", expectedTestValues.mortonSignedRightShift_emulated_3, testValues.mortonSignedRightShift_emulated_3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("mortonSignedRightShift_emulated_4", expectedTestValues.mortonSignedRightShift_emulated_4, testValues.mortonSignedRightShift_emulated_4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("mortonSignedRightShift_emulated_2", expectedTestValues.mortonSignedRightShift_emulated_2, testValues.mortonSignedRightShift_emulated_2, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_emulated_3", expectedTestValues.mortonSignedRightShift_emulated_3, testValues.mortonSignedRightShift_emulated_3, testIteration, seed, testType);
+        pass &= verifyTestValue("mortonSignedRightShift_emulated_4", expectedTestValues.mortonSignedRightShift_emulated_4, testValues.mortonSignedRightShift_emulated_4, testIteration, seed, testType);
         return pass;
     }
 };

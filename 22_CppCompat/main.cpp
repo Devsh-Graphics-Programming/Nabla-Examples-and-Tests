@@ -72,7 +72,7 @@ public:
 
             CTgmathTester tgmathTester(8);
             tgmathTester.setupPipeline(pplnSetupData);
-            pass = tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt") && pass;
+            pass &= tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
             CIntrinsicsTester::PipelineSetupData pplnSetupData;
@@ -86,7 +86,7 @@ public:
 
             CIntrinsicsTester intrinsicsTester(8);
             intrinsicsTester.setupPipeline(pplnSetupData);
-            pass = intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt") && pass;
+            pass &= intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
         }
         if (!pass)
             return false;

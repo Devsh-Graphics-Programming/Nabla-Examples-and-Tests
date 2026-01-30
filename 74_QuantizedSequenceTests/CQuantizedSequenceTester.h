@@ -255,46 +255,46 @@ private:
     bool verifyTestResults(const QuantizedSequenceTestValues& expectedTestValues, const QuantizedSequenceTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
         bool pass = true;
-        pass = verifyTestValue("get uint from u32", expectedTestValues.uintDim1, testValues.uintDim1, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint2 from u32", expectedTestValues.uintDim2, testValues.uintDim2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint3 from u32", expectedTestValues.uintDim3, testValues.uintDim3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint4 from u32", expectedTestValues.uintDim4, testValues.uintDim4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint from u32", expectedTestValues.uintDim1, testValues.uintDim1, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint2 from u32", expectedTestValues.uintDim2, testValues.uintDim2, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint3 from u32", expectedTestValues.uintDim3, testValues.uintDim3, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint4 from u32", expectedTestValues.uintDim4, testValues.uintDim4, testIteration, seed, testType);
 
-        pass = verifyTestValue("get uint2 from u32 vec2", expectedTestValues.uintVec2_Dim2, testValues.uintVec2_Dim2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint3 from u32 vec2", expectedTestValues.uintVec2_Dim3, testValues.uintVec2_Dim3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint2 from u32 vec2", expectedTestValues.uintVec2_Dim2, testValues.uintVec2_Dim2, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint3 from u32 vec2", expectedTestValues.uintVec2_Dim3, testValues.uintVec2_Dim3, testIteration, seed, testType);
 
-        pass = verifyTestValue("get uint3 from u32 vec3", expectedTestValues.uintVec3_Dim3, testValues.uintVec3_Dim3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint4 from u32 vec4", expectedTestValues.uintVec4_Dim4, testValues.uintVec4_Dim4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint3 from u32 vec3", expectedTestValues.uintVec3_Dim3, testValues.uintVec3_Dim3, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint4 from u32 vec4", expectedTestValues.uintVec4_Dim4, testValues.uintVec4_Dim4, testIteration, seed, testType);
 
-        pass = verifyTestValue("get uint from u16", expectedTestValues.u16Dim1, testValues.u16Dim1, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint2 from u16", expectedTestValues.u16Dim2, testValues.u16Dim2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint3 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint4 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint from u16", expectedTestValues.u16Dim1, testValues.u16Dim1, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint2 from u16", expectedTestValues.u16Dim2, testValues.u16Dim2, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint3 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint4 from u16", expectedTestValues.u16Dim3, testValues.u16Dim3, testIteration, seed, testType);
 
-        pass = verifyTestValue("get uint2 from u16 vec2", expectedTestValues.u16Vec2_Dim2, testValues.u16Vec2_Dim2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint4 from u16 vec2", expectedTestValues.u16Vec2_Dim4, testValues.u16Vec2_Dim4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint2 from u16 vec2", expectedTestValues.u16Vec2_Dim2, testValues.u16Vec2_Dim2, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint4 from u16 vec2", expectedTestValues.u16Vec2_Dim4, testValues.u16Vec2_Dim4, testIteration, seed, testType);
 
-        pass = verifyTestValue("get uint3 from u16 vec3", expectedTestValues.u16Vec3_Dim3, testValues.u16Vec3_Dim3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("get uint4 from u16 vec4", expectedTestValues.u16Vec4_Dim4, testValues.u16Vec4_Dim4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("get uint3 from u16 vec3", expectedTestValues.u16Vec3_Dim3, testValues.u16Vec3_Dim3, testIteration, seed, testType);
+        pass &= verifyTestValue("get uint4 from u16 vec4", expectedTestValues.u16Vec4_Dim4, testValues.u16Vec4_Dim4, testIteration, seed, testType);
 
-        pass = verifyTestValue("encode/decode unorm from u32 (fullwidth)", expectedTestValues.unorm1_pre_u32, testValues.unorm1_pre_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm from u32", expectedTestValues.unorm1_post_u32, testValues.unorm1_post_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm2 from u32 (fullwidth)", expectedTestValues.unorm2_pre_u32, testValues.unorm2_pre_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm2 from u32", expectedTestValues.unorm2_post_u32, testValues.unorm2_post_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm3 from u32 (fullwidth)", expectedTestValues.unorm3_pre_u32, testValues.unorm3_pre_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm3 from u32", expectedTestValues.unorm3_post_u32, testValues.unorm3_post_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm4 from u32 (fullwidth)", expectedTestValues.unorm4_pre_u32, testValues.unorm4_pre_u32, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm4 from u32", expectedTestValues.unorm4_post_u32, testValues.unorm4_post_u32, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("encode/decode unorm from u32 (fullwidth)", expectedTestValues.unorm1_pre_u32, testValues.unorm1_pre_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm from u32", expectedTestValues.unorm1_post_u32, testValues.unorm1_post_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm2 from u32 (fullwidth)", expectedTestValues.unorm2_pre_u32, testValues.unorm2_pre_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm2 from u32", expectedTestValues.unorm2_post_u32, testValues.unorm2_post_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm3 from u32 (fullwidth)", expectedTestValues.unorm3_pre_u32, testValues.unorm3_pre_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm3 from u32", expectedTestValues.unorm3_post_u32, testValues.unorm3_post_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm4 from u32 (fullwidth)", expectedTestValues.unorm4_pre_u32, testValues.unorm4_pre_u32, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm4 from u32", expectedTestValues.unorm4_post_u32, testValues.unorm4_post_u32, testIteration, seed, testType);
 
-        pass = verifyTestValue("encode/decode unorm2 from u32 vec2 (fullwidth)", expectedTestValues.unorm2_pre_u32t2, testValues.unorm2_pre_u32t2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm2 from u32 vec2", expectedTestValues.unorm2_post_u32t2, testValues.unorm2_post_u32t2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm3 from u32 vec3 (fullwidth)", expectedTestValues.unorm3_pre_u32t3, testValues.unorm3_pre_u32t3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm3 from u32 vec3", expectedTestValues.unorm3_post_u32t3, testValues.unorm3_post_u32t3, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm4 from u32 vec4 (fullwidth)", expectedTestValues.unorm4_pre_u32t4, testValues.unorm4_pre_u32t4, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm4 from u32 vec4", expectedTestValues.unorm4_post_u32t4, testValues.unorm4_post_u32t4, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("encode/decode unorm2 from u32 vec2 (fullwidth)", expectedTestValues.unorm2_pre_u32t2, testValues.unorm2_pre_u32t2, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm2 from u32 vec2", expectedTestValues.unorm2_post_u32t2, testValues.unorm2_post_u32t2, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm3 from u32 vec3 (fullwidth)", expectedTestValues.unorm3_pre_u32t3, testValues.unorm3_pre_u32t3, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm3 from u32 vec3", expectedTestValues.unorm3_post_u32t3, testValues.unorm3_post_u32t3, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm4 from u32 vec4 (fullwidth)", expectedTestValues.unorm4_pre_u32t4, testValues.unorm4_pre_u32t4, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm4 from u32 vec4", expectedTestValues.unorm4_post_u32t4, testValues.unorm4_post_u32t4, testIteration, seed, testType);
 
-        pass = verifyTestValue("encode/decode unorm3 from u32 vec2 (fullwidth)", expectedTestValues.unorm3_pre_u32t2, testValues.unorm3_pre_u32t2, testIteration, seed, testType) && pass;
-        pass = verifyTestValue("encode/decode unorm3 from u32 vec2", expectedTestValues.unorm3_post_u32t2, testValues.unorm3_post_u32t2, testIteration, seed, testType) && pass;
+        pass &= verifyTestValue("encode/decode unorm3 from u32 vec2 (fullwidth)", expectedTestValues.unorm3_pre_u32t2, testValues.unorm3_pre_u32t2, testIteration, seed, testType);
+        pass &= verifyTestValue("encode/decode unorm3 from u32 vec2", expectedTestValues.unorm3_post_u32t2, testValues.unorm3_post_u32t2, testIteration, seed, testType);
 
         return pass;
     }

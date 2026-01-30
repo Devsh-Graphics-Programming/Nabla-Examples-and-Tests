@@ -51,7 +51,7 @@ public:
 
             CTester mortonTester(4); // 4 * 128 = 512 tests
             mortonTester.setupPipeline(pplnSetupData);
-            pass = mortonTester.performTestsAndVerifyResults("MortonTestLog.txt") && pass;
+            pass &= mortonTester.performTestsAndVerifyResults("MortonTestLog.txt");
         }
         {
             CTester2::PipelineSetupData pplnSetupData;
@@ -65,7 +65,7 @@ public:
 
             CTester2 mortonTester2(4);
             mortonTester2.setupPipeline(reinterpret_cast<CTester2::PipelineSetupData&>(pplnSetupData));
-            pass = mortonTester2.performTestsAndVerifyResults("MortonTestLog2.txt") && pass;
+            pass &= mortonTester2.performTestsAndVerifyResults("MortonTestLog2.txt");
         }
 
         return pass;
