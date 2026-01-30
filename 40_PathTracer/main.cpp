@@ -235,20 +235,21 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				// quick test code
 				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
 				{
-					sensors[1].constants.width = 640;
-					sensors[1].constants.height = 360;
+					sensors[1].mutableDefaults.cropWidth = 640;
+					sensors[1].mutableDefaults.cropHeight = 360;
 					sensors[1].mutableDefaults.cropOffsetX = 0;
 					sensors[1].mutableDefaults.cropOffsetY = 0;
-					sensors[1].mutableDefaults.cropWidth = sensors[1].mutableDefaults.cropWidth;
-					sensors[1].mutableDefaults.cropHeight = sensors[1].mutableDefaults.cropHeight;
 				}
 				{
 					sensors[2].mutableDefaults.cropWidth = 5120;
 					sensors[2].mutableDefaults.cropHeight = 2880;
 					sensors[2].mutableDefaults.cropOffsetX = 128;
 					sensors[2].mutableDefaults.cropOffsetY = 128;
-					sensors[2].constants.width = sensors[2].mutableDefaults.cropWidth+2*sensors[2].mutableDefaults.cropOffsetX;
-					sensors[2].constants.height = sensors[2].mutableDefaults.cropHeight+2*sensors[2].mutableDefaults.cropOffsetY;
+				}
+				for (auto i=1; i<3; i++)
+				{
+					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
+					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
 				}
 				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
