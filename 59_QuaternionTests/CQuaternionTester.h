@@ -148,6 +148,7 @@ private:
         pass = verifyTestValue("transform vector", expectedTestValues.transformedVec, testValues.transformedVec, testIteration, seed, testType, 1e-2) && pass;
 
         pass = verifyScaledVectorTestValue("multiply scaled quat", expectedTestValues.quatScaledMult.data, testValues.quatScaledMult.data, testIteration, seed, testType, 1e-4, 1e-2) && pass;
+        return pass;
     }
 
     template<typename T>

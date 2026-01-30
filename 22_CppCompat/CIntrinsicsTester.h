@@ -255,6 +255,7 @@ private:
         pass = verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType) && pass;
         pass = verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType) && pass;
         pass = verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType) && pass;
+        return pass;
     }
 };
 

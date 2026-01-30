@@ -335,6 +335,7 @@ private:
         pass = verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.exponent, testValues.frexpStruct.exponent, testIteration, seed, testType) && pass;
         pass = verifyTestValue("frexpStructVec", expectedTestValues.frexpStructVec.significand, testValues.frexpStructVec.significand, testIteration, seed, testType) && pass;
         pass = verifyTestValue("frexpStructVec", expectedTestValues.frexpStructVec.exponent, testValues.frexpStructVec.exponent, testIteration, seed, testType) && pass;
+        return pass;
     }
 };
 
