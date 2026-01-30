@@ -39,7 +39,7 @@ struct SharedAccessor
 struct TexAccessor
 {
     static float32_t3 toXYZ(float32_t3 srgbColor) {
-        return mul(colorspace::sRGBtoXYZ, srgbColor);
+        return dot(colorspace::sRGBtoXYZ[1], srgbColor);
     }
 
     float32_t3 get(float32_t2 uv) {

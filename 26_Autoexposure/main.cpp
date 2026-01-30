@@ -568,7 +568,7 @@ public:
 			gpuImg->setObjectDebugName("GPU Img");
 			m_gpuImgView = createHDRIImageView(gpuImg);
 			m_gpuImgView->setObjectDebugName("GPU Img View");
-			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, Dimensions.x, Dimensions.y);
+			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R32G32B32A32_SFLOAT, Dimensions.x, Dimensions.y);
 			outImg->setObjectDebugName("Tonemapped Image");
 			m_tonemappedImgView = createHDRIImageView(outImg);
 			m_tonemappedImgView->setObjectDebugName("Tonemapped Image View");
