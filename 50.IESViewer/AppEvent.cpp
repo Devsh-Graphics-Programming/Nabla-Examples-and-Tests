@@ -13,16 +13,16 @@ void IESViewer::processMouse(const nbl::ui::IMouseEventChannel::range_t& events)
         if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
         {
             auto* cursorControl = m_window ? m_window->getCursorControl() : nullptr;
-            if (!cursorControl || !m_plot2DRectValid)
+            if (!cursorControl || !uiState.plot2DRectValid)
                 continue;
             const auto cursor = cursorControl->getPosition();
             const float cursorX = static_cast<float>(cursor.x);
             const float cursorY = static_cast<float>(cursor.y);
-            if (cursorX < m_plot2DRectMin.x || cursorX > m_plot2DRectMax.x ||
-                cursorY < m_plot2DRectMin.y || cursorY > m_plot2DRectMax.y)
+            if (cursorX < uiState.plot2DRectMin.x || cursorX > uiState.plot2DRectMax.x ||
+                cursorY < uiState.plot2DRectMin.y || cursorY > uiState.plot2DRectMax.y)
                 continue;
 
-            auto& ies = m_assets[m_activeAssetIx];
+            auto& ies = m_assets[uiState.activeAssetIx];
             const auto& accessor = ies.getProfile()->getAccessor();
 
             auto impulse = ev.scrollEvent.verticalScroll * 0.02f;
@@ -37,26 +37,26 @@ void IESViewer::processKeyboard(const nbl::ui::IKeyboardEventChannel::range_t& e
     {
         const auto ev = *it;
 
-        if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-        {
+            if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+            {
             if (ev.keyCode == nbl::ui::EKC_UP_ARROW)
-                m_activeAssetIx = std::clamp<size_t>(m_activeAssetIx + 1, 0, m_assets.size() - 1u);
+                uiState.activeAssetIx = std::clamp<size_t>(uiState.activeAssetIx + 1, 0, m_assets.size() - 1u);
             else if (ev.keyCode == nbl::ui::EKC_DOWN_ARROW)
-                m_activeAssetIx = std::clamp<size_t>(m_activeAssetIx - 1, 0, m_assets.size() - 1u);
+                uiState.activeAssetIx = std::clamp<size_t>(uiState.activeAssetIx - 1, 0, m_assets.size() - 1u);
 
-            auto& ies = m_assets[m_activeAssetIx];
+            auto& ies = m_assets[uiState.activeAssetIx];
 
             if (ev.keyCode == nbl::ui::EKC_C)
-                mode.view = IES::EM_CDC;
+                uiState.mode.view = IES::EM_CDC;
             else if (ev.keyCode == nbl::ui::EKC_V)
-                mode.view = IES::EM_OCTAHEDRAL_MAP;
-            else if (ev.keyCode == nbl::ui::EKC_ESCAPE && m_cameraControlEnabled)
-                m_cameraControlEnabled = false;
+                uiState.mode.view = IES::EM_OCTAHEDRAL_MAP;
+            else if (ev.keyCode == nbl::ui::EKC_ESCAPE && uiState.cameraControlEnabled)
+                uiState.cameraControlEnabled = false;
             else if (ev.keyCode == nbl::ui::EKC_SPACE)
-                m_cameraControlEnabled = !m_cameraControlEnabled;
+                uiState.cameraControlEnabled = !uiState.cameraControlEnabled;
 
             if (ev.keyCode == nbl::ui::EKC_Q)
-                m_running = false;
+                requestExit();
         }
     }
 }

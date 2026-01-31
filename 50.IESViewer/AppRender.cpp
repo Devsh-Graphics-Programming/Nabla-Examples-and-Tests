@@ -6,6 +6,7 @@
 #include <cstring>
 #include <type_traits>
 #include "nbl/ext/ImGui/ImGui.h"
+#include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
@@ -80,11 +81,8 @@ bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
     }
 
     const float aspect = float(width) / float(height);
-    const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
-    using core_mat_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getConcatenatedMatrix())>>;
-    core_mat_t coreProjection;
-    std::memcpy(coreProjection.pointer(), &projectionMatrix, sizeof(projectionMatrix));
-    camera.setProjectionMatrix(coreProjection);
+    const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
+    camera.setProjectionMatrix(projectionMatrix);
 
     return true;
 }
@@ -98,9 +96,9 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     auto* imgui = static_cast<ext::imgui::UI*>(ui.it.get());
 
     const bool windowFocused = m_window->hasInputFocus() || m_window->hasMouseFocus();
-    if (!windowFocused && m_cameraControlEnabled)
-        m_cameraControlEnabled = false;
-    const bool wantCameraControl = m_cameraControlEnabled && windowFocused;
+    if (!windowFocused && uiState.cameraControlEnabled)
+        uiState.cameraControlEnabled = false;
+    const bool wantCameraControl = uiState.cameraControlEnabled && windowFocused;
 
     uint32_t renderWidth = m_window->getWidth();
     uint32_t renderHeight = m_window->getHeight();
@@ -116,11 +114,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     if (renderWidth == 0u || renderHeight == 0u || m_window->isMinimized())
         return {};
 
-    if (m_cameraControlApplied != wantCameraControl)
+    if (uiState.cameraControlApplied != wantCameraControl)
     {
-        m_cameraControlApplied = wantCameraControl;
-        const float moveSpeed = wantCameraControl ? m_cameraMoveSpeed : 0.0f;
-        const float rotateSpeed = wantCameraControl ? m_cameraRotateSpeed : 0.0f;
+        uiState.cameraControlApplied = wantCameraControl;
+        const float moveSpeed = wantCameraControl ? uiState.cameraMoveSpeed : 0.0f;
+        const float rotateSpeed = wantCameraControl ? uiState.cameraRotateSpeed : 0.0f;
         camera.setMoveSpeed(moveSpeed);
         camera.setRotateSpeed(rotateSpeed);
     }
@@ -205,7 +203,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         const bool cursorInsideWindow =
             cursorPosition.x >= windowX && cursorPosition.x < windowX + windowW &&
             cursorPosition.y >= windowY && cursorPosition.y < windowY + windowH;
-        cursorControl->setVisible(!(cursorInsideWindow || m_cameraControlApplied));
+        cursorControl->setVisible(!(cursorInsideWindow || uiState.cameraControlApplied));
         ext::imgui::UI::SUpdateParameters params =
         {
             .mousePosition = float32_t2(cursorPosition.x,cursorPosition.y) - float32_t2(m_window->getX(),m_window->getY()),
@@ -218,25 +216,27 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             imgui->update(params);
     }
 
-    if (m_cameraControlApplied)
+    if (uiState.cameraControlApplied)
     {
         if (auto* cursor = m_window->getCursorControl())
             cursor->setRelativePosition(m_window.get(), {0.5f, 0.5f});
     }
 
-    auto& ies = m_assets[m_activeAssetIx];
+    auto& ies = m_assets[uiState.activeAssetIx];
     const auto* profile = ies.getProfile();
 	const auto& accessor = profile->getAccessor();
+    const auto hCount = accessor.hAnglesCount();
+    const auto vCount = accessor.vAnglesCount();
     const auto pc = hlsl::this_example::ies::CdcPC
 	{
         .hAnglesBDA = ies.buffers.hAngles->getDeviceAddress(),
         .vAnglesBDA = ies.buffers.vAngles->getDeviceAddress(),
         .dataBDA = ies.buffers.data->getDeviceAddress(),
 		.txtInfoBDA = ies.buffers.textureInfo.buffer->getDeviceAddress(),
-		.mode = mode.view,
-		.texIx = (uint32_t)m_activeAssetIx,
-        .hAnglesCount = accessor.hAnglesCount(),
-        .vAnglesCount = accessor.vAnglesCount(),
+		.mode = uiState.mode.view,
+		.texIx = static_cast<uint32_t>(uiState.activeAssetIx),
+        .hAnglesCount = hCount,
+        .vAnglesCount = vCount,
         .zAngleDegreeRotation = ies.zDegree,
 		.properties = accessor.getProperties()
 	};
@@ -255,8 +255,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     auto* image = ies.getActiveImage(IES::EM_OCTAHEDRAL_MAP);
 
     bool needCompute = true;
-    if (m_activeAssetIx < m_candelaDirty.size())
-        needCompute = m_candelaDirty[m_activeAssetIx];
+    if (uiState.activeAssetIx < m_candelaDirty.size())
+        needCompute = m_candelaDirty[uiState.activeAssetIx];
 
     if (needCompute)
     {
@@ -266,12 +266,12 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->bindComputePipeline(m_computePipeline.get());
         cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
         cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, offsetof(hlsl::this_example::ies::PushConstants, cdc), sizeof(pc), &pc);
-        const auto xGroups = (ies.getProfile()->getAccessor().properties.optimalIESResolution.x - 1u) / WORKGROUP_DIMENSION + 1u;
+        const auto xGroups = (ies.getProfile()->getAccessor().properties.optimalIESResolution.x - 1u) / hlsl::this_example::WorkgroupDimension + 1u;
         cb->dispatch(xGroups, xGroups, 1);
         IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
         cb->endDebugMarker();
-        if (m_activeAssetIx < m_candelaDirty.size())
-            m_candelaDirty[m_activeAssetIx] = false;
+        if (uiState.activeAssetIx < m_candelaDirty.size())
+            m_candelaDirty[uiState.activeAssetIx] = false;
     }
 
     // Graphics
@@ -326,13 +326,13 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             scissor2D.extent = { extent.width, plotHeight };
 
             auto pc2D = pc;
-            pc2D.mode = mode.view;
+            pc2D.mode = uiState.mode.view;
             cb->setViewport(0u, 1u, &viewport2D);
             cb->setScissor(0u, 1u, &scissor2D);
             cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc2D), &pc2D);
             ext::FullScreenTriangle::recordDrawCall(cb);
 
-            if (m_showOctaMapPreview)
+            if (uiState.showOctaMapPreview)
             {
                 viewport2D.y = static_cast<float>(plotHeight);
                 scissor2D.offset.y = static_cast<int32_t>(plotHeight);
@@ -366,14 +366,14 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             float32_t4x4 viewProjMatrix;
             // TODO: get rid of legacy matrices
             {
-                memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
-                memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
+                viewMatrix = camera.getViewMatrix();
+                viewProjMatrix = camera.getConcatenatedMatrix();
             }
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
-            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = m_plotRadius, .ds = m_descriptors[0u].get(), .texID = (uint16_t)m_activeAssetIx, .mode = mode.sphere.value, .wireframe = m_wireframeEnabled });
+            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = m_plotRadius, .ds = m_descriptors[0u].get(), .texID = static_cast<uint16_t>(uiState.activeAssetIx), .mode = uiState.mode.sphere.value, .wireframe = uiState.wireframeEnabled });
 
             // tear down scene every frame
-            m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + m_activeAssetIx;
+            m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + uiState.activeAssetIx;
             m_renderer->render(cb, viewParams, iesParams);
         }
         cb->endRenderPass();
@@ -448,6 +448,71 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         m_window->setCaption(caption);
     }
     return retval;
+}
+
+void IESViewer::onPostRenderFrame(const video::IQueue::SSubmitInfo::SSemaphoreInfo& rendered)
+{
+    if (!m_ciMode || m_ciScreenshotDone)
+        return;
+
+    ++m_ciFrameCounter;
+    if (m_ciFrameCounter < CiFramesBeforeCapture)
+        return;
+
+    m_ciScreenshotDone = true;
+
+    if (!m_device || !m_surface || !m_assetMgr)
+    {
+        requestExit();
+        return;
+    }
+
+    // Ensure the last submitted frame is finished before we read back.
+    m_device->waitIdle();
+
+    auto* scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+    auto* fb = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
+    if (!fb)
+    {
+        m_logger->log("CI screenshot failed: missing swapchain framebuffer.", system::ILogger::ELL_ERROR);
+        requestExit();
+        return;
+    }
+
+    auto colorView = fb->getCreationParameters().colorAttachments[0u];
+    if (!colorView)
+    {
+        m_logger->log("CI screenshot failed: missing swapchain color attachment.", system::ILogger::ELL_ERROR);
+        requestExit();
+        return;
+    }
+
+    {
+        const auto usage = colorView->getCreationParameters().image->getCreationParameters().usage;
+        const bool hasTransferSrc = usage.hasFlags(asset::IImage::EUF_TRANSFER_SRC_BIT);
+        m_logger->log(
+            "CI screenshot source usage: 0x%llx (transfer_src=%s).",
+            system::ILogger::ELL_INFO,
+            static_cast<unsigned long long>(usage.value),
+            hasTransferSrc ? "yes" : "no");
+    }
+
+    const bool ok = ext::ScreenShot::createScreenShot(
+        m_device.get(),
+        getGraphicsQueue(),
+        nullptr,
+        colorView.get(),
+        m_assetMgr.get(),
+        m_ciScreenshotPath,
+        asset::IImage::LAYOUT::PRESENT_SRC,
+        asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT);
+
+    if (ok)
+        m_logger->log("CI screenshot saved to \"%s\".", system::ILogger::ELL_INFO, m_ciScreenshotPath.string().c_str());
+    else
+        m_logger->log("CI screenshot failed to save.", system::ILogger::ELL_ERROR);
+
+    requestExit();
 }
 
 const video::IGPURenderpass::SCreationParams::SSubpassDependency* IESViewer::getDefaultSubpassDependencies() const

@@ -36,7 +36,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			inline auto computeForInstance(hlsl::float32_t3x4 world) const
 			{
 				using namespace nbl::hlsl;
-				hlsl::this_example::ies::SInstanceMatrices retval = {
+				hlsl::this_example::SInstanceMatrices retval = {
 					.worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj),float64_t3x4(world)))
 				};
 				const auto sub3x3 = mul(float64_t3x3(viewProj),float64_t3x3(world));

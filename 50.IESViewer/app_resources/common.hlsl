@@ -4,25 +4,26 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/ies/profile.hlsl"
 
-#define QUANT_ERROR_ADMISSIBLE 1/1024
-#define WORKGROUP_SIZE 256u
-#define WORKGROUP_DIMENSION 16u
-#define MAX_IES_IMAGES 6969
-
 namespace nbl
 {
 namespace hlsl
 {
 namespace this_example
 {
-namespace ies
-{
+
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float QuantErrorAdmissible = 1.0f / 1024.0f;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupSize = 256u;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t WorkgroupDimension = 16u;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIesImages = 6969u;
 
 struct SInstanceMatrices
 {
     float32_t4x4 worldViewProj;
     float32_t3x3 normal;
 };
+
+namespace ies
+{
 
 struct CdcPC
 {
@@ -51,7 +52,7 @@ enum E_SPHERE_MODE : uint16_t
 struct SpherePC
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
-	SInstanceMatrices matrices;
+	this_example::SInstanceMatrices matrices;
     uint32_t positionView : 16;
     uint32_t normalView : 16;
 	float32_t radius;

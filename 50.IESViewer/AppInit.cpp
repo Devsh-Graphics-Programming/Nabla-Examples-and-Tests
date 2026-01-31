@@ -2,8 +2,10 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "argparse/argparse.hpp"
 #include "App.hpp"
 #include <cstring>
+#include <set>
 #include <type_traits>
 #include <vector>
 #include "AppInputParser.hpp"
@@ -12,21 +14,46 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
-#define MEDIA_ENTRY "../../media"
-#define INPUT_JSON_FILE "../inputs.json"
+
+bool IESViewer::parseCommandLine()
+{
+    argparse::ArgumentParser parser("IESViewer");
+    parser.add_argument("--ci")
+        .help("Run in CI mode: capture a screenshot after a few frames and exit.")
+        .default_value(false)
+        .implicit_value(true);
+
+    try
+    {
+        parser.parse_args({ argv.data(), argv.data() + argv.size() });
+    }
+    catch (const std::exception& e)
+    {
+        if (m_logger)
+            m_logger->log("Failed to parse arguments: %s", system::ILogger::ELL_ERROR, e.what());
+        return false;
+    }
+
+    m_ciMode = parser.get<bool>("--ci");
+    if (m_ciMode)
+        m_ciScreenshotPath = localOutputCWD / "iesviewer_ci.png";
+    return true;
+}
 
 bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 {
+    if (!parseCommandLine())
+        return false;
     if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
         return false;
     if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
         return false;
 
-    const auto media = absolute(path(MEDIA_ENTRY));
+    const auto media = absolute(path(MediaEntry));
 
     AppInputParser::Output out;
     AppInputParser parser(system::logger_opt_ptr(m_logger.get()));
-    if (!parser.parse(out, INPUT_JSON_FILE, media.string()))
+    if (!parser.parse(out, InputJsonFile, media.string()))
         return false;
 
     m_logger->log("Loading IES m_assets..", system::ILogger::ELL_INFO);
@@ -77,9 +104,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     {
         auto start = std::chrono::high_resolution_clock::now();
 
-		auto textureInfos = createBuffer(m_assets.size() * sizeof(IESTextureInfo), "IES Textures Info", false);
+		auto textureInfos = createBuffer(m_assets.size() * sizeof(hlsl::ies::IESTextureInfo), "IES Textures Info", false);
 		if(!textureInfos) return false;
-		auto* textureInfosMapped = static_cast<IESTextureInfo*>(textureInfos->getBoundMemory().memory->getMappedPointer());
+		auto* textureInfosMapped = static_cast<hlsl::ies::IESTextureInfo*>(textureInfos->getBoundMemory().memory->getMappedPointer());
 
         for (size_t i = 0u; i < m_assets.size(); ++i)
         {
@@ -87,13 +114,14 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             const auto* profile = ies.getProfile();
 			const auto& accessor = profile->getAccessor();
             const auto& resolution = accessor.properties.optimalIESResolution;
-			textureInfosMapped[i] = CIESProfile::texture_t::createInfo(accessor, resolution, ies.flatten, true);
+			textureInfosMapped[i] = CIESProfile::texture_t::create(accessor.properties.maxCandelaValue, resolution).info;
 			ies.buffers.textureInfo.buffer = textureInfos;
-			ies.buffers.textureInfo.offset = i * sizeof(IESTextureInfo);
+			ies.buffers.textureInfo.offset = i * sizeof(hlsl::ies::IESTextureInfo);
 
             #define CREATE_VIEW(VIEW, FORMAT, NAME) \
 		    if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT, NAME + ies.key) )) return false;
 
+            // Filled later by the compute pass (CdcCS) when candela data is marked dirty.
             CREATE_VIEW(ies.views.candelaOctahedralMap, asset::EF_R16_UNORM, "IES Candela Octahedral Map Image: ")
 
             #define CREATE_BUFFER(BUFFER, DATA, NAME) \
@@ -161,7 +189,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         static constexpr auto StageFlags = core::bitflag(stage_flags_t::ESS_FRAGMENT) | stage_flags_t::ESS_VERTEX | stage_flags_t::ESS_COMPUTE;
 
         //! single descriptor for both compute & graphics, we will only need to trasition images' layout with a barrier
-        #define BINDING_TEXTURE(IX, TYPE) { .binding = IX, .type = TYPE, .createFlags = TexturesCreateFlags, .stageFlags = StageFlags, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr }
+        #define BINDING_TEXTURE(IX, TYPE) { .binding = IX, .type = TYPE, .createFlags = TexturesCreateFlags, .stageFlags = StageFlags, .count = hlsl::this_example::MaxIesImages, .immutableSamplers = nullptr }
         #define BINDING_SAMPLER(IX) { .binding = IX, .type = IDescriptor::E_TYPE::ET_SAMPLER, .createFlags = SamplersCreateFlags, .stageFlags = StageFlags, .count = 1u, .immutableSamplers = nullptr }
         static constexpr auto bindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
         ({
@@ -356,32 +384,46 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
     // geometries for 3D scene
     {
-        CGeometryCreatorScene::f_geometry_override_t injector = [&](auto* creator, auto addGeometry)
+        struct IESGeometryScene final : public CGeometryCreatorScene
         {
-			std::set<std::pair<uint32_t, uint32_t>> seen;
-			for (auto i = 0u; i < m_assets.size(); ++i)
-			{
-				auto& ies = m_assets[i];
-				const auto& resolution = ies.getProfile()->getAccessor().properties.optimalIESResolution;
-				std::pair<uint32_t, uint32_t> key{resolution.x, resolution.y};
-				if (!seen.insert(key).second)
-					continue;
+            explicit IESGeometryScene(const std::vector<IES>& assets) : m_assets(&assets) {}
 
-				auto name = "Grid (" + std::to_string(resolution.x) + " x " + std::to_string(resolution.y) + ")"; // (**) used to assing polygons!
-				addGeometry(name.c_str(), creator->createGrid({ resolution.x, resolution.y }));
-			}
+        protected:
+            core::vector<SGeometryEntry> addGeometries(asset::CGeometryCreator* creator) const override
+            {
+                core::vector<SGeometryEntry> entries;
+                if (!m_assets)
+                    return entries;
+
+                std::set<std::pair<uint32_t, uint32_t>> seen;
+                for (const auto& ies : *m_assets)
+                {
+                    const auto& resolution = ies.getProfile()->getAccessor().properties.optimalIESResolution;
+                    std::pair<uint32_t, uint32_t> key{ resolution.x, resolution.y };
+                    if (!seen.insert(key).second)
+                        continue;
+
+                    std::string name = "Grid (" + std::to_string(resolution.x) + " x " + std::to_string(resolution.y) + ")"; // (**) used to assign polygons!
+                    entries.push_back({ std::move(name), creator->createGrid({ resolution.x, resolution.y }) });
+                }
+
+                return entries;
+            }
+
+        private:
+            const std::vector<IES>* m_assets = nullptr;
         };
 
         const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
-        m_scene = CGeometryCreatorScene::create(
+        m_scene = CGeometryCreatorScene::create<IESGeometryScene>(
             {
                 .transferQueue = getTransferUpQueue(),
                 .utilities = m_utils.get(),
                 .logger = m_logger.get(),
-                .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies,
-                .geometryOverride = injector
+                .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
             },
-            CSimpleIESRenderer::DefaultPolygonGeometryPatch
+            CSimpleIESRenderer::DefaultPolygonGeometryPatch,
+            m_assets
         );
 
 		const auto& geoParams = m_scene->getInitParams();
@@ -416,7 +458,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         );
 
         using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
-        using core_mat_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getConcatenatedMatrix())>>;
         const auto toCoreVec3 = [](const float32_t3& v) -> core_vec_t
         {
             return core_vec_t(v.x, v.y, v.z);
@@ -429,13 +470,11 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
         const float aspect = float(params.width) / float(params.height);
-        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(m_cameraFovDeg), aspect, 0.1f, 10000.0f);
-        core_mat_t coreProjection;
-        std::memcpy(coreProjection.pointer(), &projectionMatrix, sizeof(projectionMatrix));
-        camera = Camera(toCoreVec3(cameraPosition), toCoreVec3(cameraTarget), coreProjection, 1.069f, 0.4f);
-        m_cameraMoveSpeed = camera.getMoveSpeed();
-        m_cameraRotateSpeed = camera.getRotateSpeed();
-        m_cameraControlApplied = !m_cameraControlEnabled;
+        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
+        camera = Camera(toCoreVec3(cameraPosition), toCoreVec3(cameraTarget), projectionMatrix, 1.069f, 0.4f);
+        uiState.cameraMoveSpeed = camera.getMoveSpeed();
+        uiState.cameraRotateSpeed = camera.getRotateSpeed();
+        uiState.cameraControlApplied = !uiState.cameraControlEnabled;
     }
 
     // imGUI

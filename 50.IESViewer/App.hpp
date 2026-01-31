@@ -31,8 +31,8 @@ concept AppIESByteCount = std::unsigned_integral<T>;
 template<typename T>
 concept AppIESContainer = std::ranges::sized_range<T> &&
     (std::same_as<std::ranges::range_value_t<T>, float> ||
-     std::same_as<std::ranges::range_value_t<T>, IESTextureInfo>);
-static_assert(alignof(IESTextureInfo) == 4u, "IESTextureInfo must be 4 byte aligned");
+     std::same_as<std::ranges::range_value_t<T>, hlsl::ies::IESTextureInfo>);
+static_assert(alignof(hlsl::ies::IESTextureInfo) == 4u, "IESTextureInfo must be 4 byte aligned");
 
 template<typename T>
 concept AppIESBufferCreationAllowed = AppIESByteCount<T> || AppIESContainer<T>;
@@ -88,6 +88,7 @@ public:
             return false;
 
         ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
+        swapchainParams.sharedParams.imageUsage |= IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
         if (!swapchainParams.deduceFormat(m_physicalDevice))
             return logFail("Could not choose a Surface Format for the Swapchain!");
 
@@ -156,6 +157,7 @@ public:
             return;
 
         const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] = { renderFrame(nextPresentationTimestamp) };
+        onPostRenderFrame(rendered[0]);
         m_surface->present(m_currentImageAcquire.imageIndex, rendered);
         if (rendered->semaphore)
             m_framesInFlight.emplace_back(smart_refctd_ptr<ISemaphore>(rendered->semaphore), rendered->value);
@@ -163,6 +165,8 @@ public:
 
     inline bool keepRunning() override final
     {
+        if (m_exitRequested)
+            return false;
         if (m_surface->irrecoverable())
             return false;
 
@@ -186,9 +190,11 @@ protected:
         oracle.reportBeginFrameRecord();
     }
     inline const auto& getCurrentAcquire() const { return m_currentImageAcquire; }
+    inline void requestExit() { m_exitRequested = true; }
 
     virtual const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const = 0;
     virtual video::IQueue::SSubmitInfo::SSemaphoreInfo renderFrame(const std::chrono::microseconds nextPresentationTimestamp) = 0;
+    virtual void onPostRenderFrame(const video::IQueue::SSubmitInfo::SSemaphoreInfo& rendered) {}
 
     const hlsl::uint16_t2 m_initialResolution;
     const asset::E_FORMAT m_depthFormat;
@@ -205,6 +211,7 @@ private:
     core::deque<SSubmittedFrame> m_framesInFlight;
     video::ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
     video::CDumbPresentationOracle oracle;
+    bool m_exitRequested = false;
 };
 
 class IESViewer final : public IESWindowedApplication, public BuiltinResourcesApplication
@@ -213,6 +220,12 @@ class IESViewer final : public IESWindowedApplication, public BuiltinResourcesAp
     using asset_base_t = BuiltinResourcesApplication;
 
 public:
+    static constexpr inline uint32_t AppWindowWidth = 669u * 2u;
+    static constexpr inline uint32_t AppWindowHeight = AppWindowWidth;
+    static constexpr inline asset::E_FORMAT AppDepthBufferFormat = asset::EF_UNKNOWN;
+    static constexpr inline const char* MediaEntry = "../../media";
+    static constexpr inline const char* InputJsonFile = "../inputs.json";
+
     IESViewer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD);
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override;
@@ -220,6 +233,7 @@ public:
 
 protected:
     const IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;
+    void onPostRenderFrame(const video::IQueue::SSubmitInfo::SSemaphoreInfo& rendered) override;
 
 private:
     smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
@@ -228,7 +242,6 @@ private:
 
     bool m_running = true;
     std::vector<IES> m_assets;
-    size_t m_activeAssetIx = 0;
 
     size_t m_realFrameIx = 0;
     smart_refctd_ptr<ISemaphore> m_semaphore;
@@ -242,18 +255,11 @@ private:
     uint32_t m_plot3DWidth = 640u;
     uint32_t m_plot3DHeight = 640u;
     float m_plotRadius = 100.0f;
-    float m_cameraMoveSpeed = 1.0f;
-    float m_cameraRotateSpeed = 1.0f;
-    float m_cameraFovDeg = 60.0f;
-    bool m_cameraControlEnabled = false;
-    bool m_cameraControlApplied = false;
-    bool m_fullscreen3D = false;
-    bool m_wireframeEnabled = false;
-    bool m_showOctaMapPreview = true;
-    bool m_showHints = true;
-    bool m_plot2DRectValid = false;
-    hlsl::float32_t2 m_plot2DRectMin = hlsl::float32_t2(0.f, 0.f);
-    hlsl::float32_t2 m_plot2DRectMax = hlsl::float32_t2(0.f, 0.f);
+    bool m_ciMode = false;
+    bool m_ciScreenshotDone = false;
+    uint32_t m_ciFrameCounter = 0u;
+    static constexpr uint32_t CiFramesBeforeCapture = 10u;
+    system::path m_ciScreenshotPath;
     std::vector<std::string> m_assetLabels;
     std::vector<bool> m_candelaDirty;
 
@@ -265,11 +271,28 @@ private:
         smart_refctd_ptr<SubAllocatedDescriptorSet> descriptor;
     } ui;
 
-	struct {
-		IES::E_MODE view = IES::EM_CDC;
-		bitflag<hlsl::this_example::ies::E_SPHERE_MODE> sphere =
-			bitflag<hlsl::this_example::ies::E_SPHERE_MODE>(hlsl::this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE) | hlsl::this_example::ies::ESM_FALSE_COLOR;
-	} mode;
+    struct UIState
+    {
+        size_t activeAssetIx = 0;
+        float cameraMoveSpeed = 1.0f;
+        float cameraRotateSpeed = 1.0f;
+        float cameraFovDeg = 60.0f;
+        bool cameraControlEnabled = false;
+        bool cameraControlApplied = false;
+        bool wireframeEnabled = false;
+        bool showOctaMapPreview = true;
+        bool showHints = true;
+        bool plot2DRectValid = false;
+        hlsl::float32_t2 plot2DRectMin = hlsl::float32_t2(0.f, 0.f);
+        hlsl::float32_t2 plot2DRectMax = hlsl::float32_t2(0.f, 0.f);
+
+        struct
+        {
+            IES::E_MODE view = IES::EM_CDC;
+            bitflag<hlsl::this_example::ies::E_SPHERE_MODE> sphere =
+                bitflag<hlsl::this_example::ies::E_SPHERE_MODE>(hlsl::this_example::ies::ESM_OCTAHEDRAL_UV_INTERPOLATE) | hlsl::this_example::ies::ESM_FALSE_COLOR;
+        } mode;
+    } uiState;
 
     void processMouse(const IMouseEventChannel::range_t& events);
     void processKeyboard(const IKeyboardEventChannel::range_t& events);
@@ -279,6 +302,7 @@ private:
         bitflag<IImage::E_ASPECT_FLAGS> aspectFlags = bitflag(IImage::EAF_COLOR_BIT));
     bool recreate3DPlotFramebuffers(uint32_t width, uint32_t height);
     void applyWindowMode();
+    bool parseCommandLine();
 
 	template<typename T>
 	requires AppIESBufferCreationAllowed<T>

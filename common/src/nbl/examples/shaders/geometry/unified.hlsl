@@ -47,6 +47,8 @@ float32_t4 BasicFS(SInterpolants input) : SV_Target0
     return float32_t4(normalize(normal)*0.5f+promote<float32_t3>(0.5f),1.f);
 }
 
+// Debug fragment shader for grid triangle-strips ("snake" order). It alternates
+// triangle shading to visualize strip winding and connectivity.
 [shader("pixel")]
 float32_t4 BasicFSSnake(SInterpolants input, uint primID : SV_PrimitiveID) : SV_Target0
 {

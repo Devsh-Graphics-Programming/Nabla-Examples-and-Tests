@@ -4,15 +4,9 @@
 
 #include "App.hpp"
 
-// TODO
-#define APP_WINDOW_WIDTH 669*2u
-#define APP_WINDOW_HEIGHT APP_WINDOW_WIDTH
-
-#define APP_DEPTH_BUFFER_FORMAT EF_UNKNOWN
-
 IESViewer::IESViewer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
     : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-    device_base_t({ APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT }, APP_DEPTH_BUFFER_FORMAT, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
+    device_base_t({ AppWindowWidth, AppWindowHeight }, AppDepthBufferFormat, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
 {
 
 }

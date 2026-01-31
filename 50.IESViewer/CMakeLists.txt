@@ -15,6 +15,8 @@ set(LIBs
 	
 nbl_create_executable_project("${SRCs}" "" "" "${LIBs}")
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
+add_dependencies(${EXECUTABLE_NAME} argparse)
+target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 set(DEPENDS

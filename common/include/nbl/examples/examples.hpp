@@ -22,13 +22,13 @@
 
 #define NBL_EXPOSE_NAMESPACES \
 using namespace nbl; \
-using namespace core; \
-using namespace hlsl; \
-using namespace system; \
-using namespace asset; \
-using namespace ui; \
-using namespace video; \
-using namespace scene; \
+using namespace nbl::core; \
+using namespace nbl::hlsl; \
+using namespace nbl::system; \
+using namespace nbl::asset; \
+using namespace nbl::ui; \
+using namespace nbl::video; \
+using namespace nbl::scene; \
 using namespace nbl::examples;
 
 #endif // _NBL_EXAMPLES_HPP_
