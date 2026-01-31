@@ -5,7 +5,7 @@
 
 #include "app_resources/common.hlsl"
 
-#include "CQuaternionTester.h"
+#include "CQuantizedSequenceTester.h"
 
 #include <iostream>
 #include <cstdio>
@@ -23,12 +23,12 @@ using namespace nbl::examples;
 
 //using namespace glm;
 
-class QuaternionTest final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
+class QuantizedSequenceTest final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
     using device_base_t = application_templates::MonoDeviceApplication;
     using asset_base_t = BuiltinResourcesApplication;
 public:
-    QuaternionTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+    QuantizedSequenceTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -40,18 +40,18 @@ public:
             return false;
 
         {
-            CQuaternionTester::PipelineSetupData pplnSetupData;
+            CQuantizedSequenceTester::PipelineSetupData pplnSetupData;
             pplnSetupData.device = m_device;
             pplnSetupData.api = m_api;
             pplnSetupData.assetMgr = m_assetMgr;
             pplnSetupData.logger = m_logger;
             pplnSetupData.physicalDevice = m_physicalDevice;
             pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"quaternionTest">(m_device.get());
+            pplnSetupData.shaderKey = nbl::this_example::builtin::build::get_spirv_key<"quantizedSequenceTest">(m_device.get());
 
-            CQuaternionTester quaternionTester(8);
-            quaternionTester.setupPipeline(pplnSetupData);
-            if (!quaternionTester.performTestsAndVerifyResults("QuaternionTestLog.txt"))
+            CQuantizedSequenceTester quantizedSequenceTester(8);
+            quantizedSequenceTester.setupPipeline(pplnSetupData);
+            if (!quantizedSequenceTester.performTestsAndVerifyResults("QuantizedSequenceTestLog.txt"))
                 return false;
         }
        
@@ -69,4 +69,4 @@ public:
     bool keepRunning() override { return false; }
 };
 
-NBL_MAIN_FUNC(QuaternionTest)
+NBL_MAIN_FUNC(QuantizedSequenceTest)
