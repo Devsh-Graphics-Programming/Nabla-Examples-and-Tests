@@ -78,9 +78,14 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
-	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
-	#	add_subdirectory(39_DenoiserTonemapper)
-	# endif()
+	if (NBL_BUILD_MITSUBA_LOADER)
+		# if (NBL_BUILD_OPTIX)
+		#	add_subdirectory(39_DenoiserTonemapper)
+		# endif()
+		if(NBL_BUILD_IMGUI)
+			add_subdirectory(40_PathTracer)
+		endif()
+	endif()
 
 	#add_subdirectory(43_SumAndCDFFilters)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
@@ -104,6 +109,8 @@ if(NBL_BUILD_EXAMPLES)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(73_GeometryInspector)
 	endif()
+
+	add_subdirectory(74_QuantizedSequenceTests)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
