@@ -169,12 +169,15 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 	struct
 	{
-		smart_refctd_ptr<IShader> ies, imgui;
+		smart_refctd_ptr<IShader> ies, imgui, fullScreenTriangleVS;
 	} shaders;
     {
         auto start = std::chrono::high_resolution_clock::now();
         CREATE_SHADER(shaders.ies, "ies.unified")
         CREATE_SHADER(shaders.imgui, "imgui.unified")
+        shaders.fullScreenTriangleVS = ext::FullScreenTriangle::ProtoPipeline::createDefaultVertexShader(m_assetMgr.get(), m_device.get(), m_logger.get());
+        if (!shaders.fullScreenTriangleVS)
+            return logFail("Failed to create FullScreenTriangle vertex shader!");
         auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
         auto took = std::to_string(elapsed.count());
         m_logger->log("Finished loading GPU shaders, took %s seconds!", system::ILogger::ELL_PERFORMANCE, took.c_str());
@@ -257,7 +260,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
                 video::IGPUPipelineBase::SShaderSpecInfo specInfo[] =
                 {
-                    {.shader = shaders.ies.get(), .entryPoint = "__nbl__hlsl__ext__FullScreenTriangle__vertex_main", .entries = &specConstants },
+                    {.shader = shaders.fullScreenTriangleVS.get(), .entryPoint = "__nbl__hlsl__ext__FullScreenTriangle__vertex_main", .entries = &specConstants },
                     {.shader = shaders.ies.get(), .entryPoint = "CdcPS" }
                 };
 

@@ -139,8 +139,6 @@ float32_t f(float32_t2 uv)
     return inIESCandelaImage[pc.cdc.texIx].SampleLevel(generalSampler, uvOcta, 0u).x;
 }
 
-#include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
-
 [shader("pixel")]
 float32_t4 CdcPS(SVertexAttributes input) : SV_Target0
 {
