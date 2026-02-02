@@ -73,7 +73,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     TexAccessor tex;
 
     using LumaMeter = luma_meter::median_meter< WorkgroupSize, 8000, PtrAccessor, SharedAccessor, TexAccessor>;
-    LumaMeter meter = LumaMeter::create(pushData.lumaMinMax, pushData.sampleCount);
+    LumaMeter meter = LumaMeter::create(pushData.lumaMinMax);
 
     float32_t EV = meter.gatherLuma(histo_accessor, sdata);
 

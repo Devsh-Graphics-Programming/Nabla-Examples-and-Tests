@@ -4,7 +4,15 @@ if(NOT RES)
 	message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
 endif()
 
-nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+set(NBL_INCLUDE_SERACH_DIRECTORIES
+	"${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+list(APPEND NBL_LIBRARIES
+	Nabla::ext::FullScreenTriangle
+)
+
+nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)

@@ -42,7 +42,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/present.frag.hlsl"
 	};
 	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
-	constexpr static inline uint32_t BinCount = 8000;
+	constexpr static inline uint32_t BinCount = 8000;	// TODO: it's 8000 here why? gonna set it to workgroup size (1024) for now
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
 	constexpr static inline float32_t2 MeteringWindowOffset = { 0.1f, 0.1f };
@@ -314,16 +314,26 @@ public:
 
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-				const IShaderCompiler::SMacroDefinition defines[2] = {
+
+				struct MacroDefines
+				{
+					std::string identifier;
+					std::string definition;
+				};
+				const MacroDefines definesBuf[2] = {
 					{ "WorkgroupSize", std::to_string(workgroupSize) },
 					{ "DeviceSubgroupSize", std::to_string(subgroupSize) }
 				};
-			    options.preprocessorOptions.extraDefines = { defines, defines + 2 };
+
+				std::vector<IShaderCompiler::SMacroDefinition> defines;
+				for (uint32_t i = 0; i < 2; i++)
+					defines.emplace_back(definesBuf[i].identifier, definesBuf[i].definition);
+			    options.preprocessorOptions.extraDefines = defines;
 
 				auto overriddenSource = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 				if (!overriddenSource)
 				{
-					m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+					m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader.c_str());
 					std::exit(-1);
 				}
 
