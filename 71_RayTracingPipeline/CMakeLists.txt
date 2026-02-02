@@ -11,6 +11,7 @@ if(NBL_BUILD_IMGUI)
 	list(APPEND NBL_LIBRARIES 
 		imtestengine
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::FullScreenTriangle
 	)
 
 	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

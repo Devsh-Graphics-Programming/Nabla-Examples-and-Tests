@@ -38,6 +38,7 @@ public:
             return false;
         // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         // Blocked by https://github.com/KhronosGroup/SPIRV-Tools/issues/6104
+        bool pass = true;
         {
             CTester::PipelineSetupData pplnSetupData;
             pplnSetupData.device = m_device;
@@ -50,7 +51,7 @@ public:
 
             CTester mortonTester(4); // 4 * 128 = 512 tests
             mortonTester.setupPipeline(pplnSetupData);
-            mortonTester.performTestsAndVerifyResults("MortonTestLog.txt");
+            pass &= mortonTester.performTestsAndVerifyResults("MortonTestLog.txt");
         }
         {
             CTester2::PipelineSetupData pplnSetupData;
@@ -64,10 +65,10 @@ public:
 
             CTester2 mortonTester2(4);
             mortonTester2.setupPipeline(reinterpret_cast<CTester2::PipelineSetupData&>(pplnSetupData));
-            mortonTester2.performTestsAndVerifyResults("MortonTestLog2.txt");
+            pass &= mortonTester2.performTestsAndVerifyResults("MortonTestLog2.txt");
         }
 
-        return true;
+        return pass;
     }
 
     void onAppTerminated_impl() override
