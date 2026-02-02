@@ -11,6 +11,7 @@ set(LIBs
 	imtestengine
 	imguizmo
 	"${NBL_EXT_IMGUI_UI_LIB}"
+	Nabla::ext::FullScreenTriangle
 )
 	
 nbl_create_executable_project("${SRCs}" "" "" "${LIBs}")

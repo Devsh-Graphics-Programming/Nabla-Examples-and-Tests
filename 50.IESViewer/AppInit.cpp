@@ -257,7 +257,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
                 video::IGPUPipelineBase::SShaderSpecInfo specInfo[] =
                 {
-                    {.shader = shaders.ies.get(), .entryPoint = "main", .entries = &specConstants },
+                    {.shader = shaders.ies.get(), .entryPoint = "__nbl__hlsl__ext__FullScreenTriangle__vertex_main", .entries = &specConstants },
                     {.shader = shaders.ies.get(), .entryPoint = "CdcPS" }
                 };
 
