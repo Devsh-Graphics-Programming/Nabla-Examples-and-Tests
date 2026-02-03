@@ -41,12 +41,13 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
-	constexpr static inline uint32_t BinCount = 8000;	// TODO: it's 8000 here why? gonna set it to workgroup size (1024) for now
+	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
+	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
 	constexpr static inline float32_t2 MeteringWindowOffset = { 0.1f, 0.1f };
-	constexpr static inline float32_t2 LumaMinMax = { 1.0f / 2048.0f, 65536.f };
+	constexpr static inline float32_t2 LumaRange = { 1.0f / 2048.0f, 65536.f };
+	constexpr static inline float32_t2 PercentileRange = { 0.45f, 0.55f };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -768,10 +769,13 @@ public:
 		auto pc = AutoexposurePushData
 		{
 			.window = hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
-			.lumaMinMax = LumaMinMax,
-			.sampleCount = sampleCount,
+			.lumaMin = LumaRange.x,
+		    .lumaMax = LumaRange.y,
 			.viewportSize = Dimensions,
-			.lumaMeterBDA = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBDA : m_histoBDA
+			.lumaMeterBDA = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBDA : m_histoBDA,
+			.sampleCount = sampleCount,
+			.lowerBoundPercentile = PercentileRange.x,
+			.upperBoundPercentile = PercentileRange.y
 		};
 
 		// Luma Meter
@@ -785,6 +789,8 @@ public:
 				1 + ((gpuImgExtent.width / 2) - 1) / SubgroupSize,
 				1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
 			};
+
+			pc.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());

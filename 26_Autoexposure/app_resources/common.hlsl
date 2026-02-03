@@ -16,10 +16,18 @@ namespace hlsl
 struct AutoexposurePushData
 {
     luma_meter::MeteringWindow window;
-    float32_t2 lumaMinMax;
-    float32_t sampleCount;
+    float32_t lumaMin;
+    float32_t lumaMax;
     uint32_t2 viewportSize;
     uint64_t lumaMeterBDA;
+
+    // mean only
+    float32_t sampleCount;
+    float32_t rcpFirstPassWGCount;
+
+    // histogram only
+    float32_t lowerBoundPercentile;
+    float32_t upperBoundPercentile;
 };
 
 #ifdef __HLSL_VERSION
