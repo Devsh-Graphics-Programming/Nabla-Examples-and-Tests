@@ -22,6 +22,10 @@ using namespace nbl::hlsl;
 #ifdef __HLSL_VERSION
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 
+static const uint32_t WorkgroupSize = DeviceConfigCaps::maxComputeWorkGroupInvocations;
+static const uint32_t MaxBucketCount = (DeviceConfigCaps::maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
+static const uint32_t BucketCount = (MaxBucketCount > 3000) ? 3000 : MaxBucketCount;
+
 using Ptr = bda::__ptr<uint32_t>;
 using PtrAccessor = BdaAccessor<uint32_t>;
 
@@ -54,6 +58,8 @@ uint32_t3 glsl::gl_WorkGroupSize()
 {
     return uint32_t3(WorkgroupSize, 1, 1);
 }
+
+
 #endif
 
 #endif

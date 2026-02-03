@@ -1,20 +1,22 @@
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "CommonPCH/PCH.hpp"
+#include "nbl/examples/examples.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 
-class CountingSortApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class CountingSortApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -31,19 +33,34 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				return false;
 
 			auto limits = m_physicalDevice->getLimits();
+			constexpr std::array<uint32_t, 3u> AllowedMaxComputeSharedMemorySizes = {
+				16384, 32768, 65536
+			};
+
+			auto upperBoundSharedMemSize = std::upper_bound(AllowedMaxComputeSharedMemorySizes.begin(), AllowedMaxComputeSharedMemorySizes.end(), limits.maxComputeSharedMemorySize);
+			// devices which support less than 16KB of max compute shared memory size are not supported
+			if (upperBoundSharedMemSize == AllowedMaxComputeSharedMemorySizes.begin())
+			{
+				m_logger->log("maxComputeSharedMemorySize is too low (%u)", ILogger::E_LOG_LEVEL::ELL_ERROR, limits.maxComputeSharedMemorySize);
+				exit(0);
+			}
+
+			limits.maxComputeSharedMemorySize = *(upperBoundSharedMemSize - 1);
+
 			const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 			const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
 			constexpr uint32_t element_count = 100000;
 			const uint32_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
 			const uint32_t elements_per_thread = ceil((float)ceil((float)element_count / limits.computeUnits) / WorkgroupSize);
 
-			auto prepShader = [&](const core::string& path) -> smart_refctd_ptr<IGPUShader>
+			auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
 			{
 				// this time we load a shader directly from a file
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset(path,lp);
+				lp.workingDirectory = "app_resources"; // virtual root
+				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(limits, m_physicalDevice->getFeatures());
+				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
 				{
@@ -51,29 +68,24 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 					return nullptr;
 				}
 
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				auto shader = IAsset::castDown<IShader>(assets[0]);
 				// The down-cast should not fail!
-				assert(source);
+				assert(shader);
 			
 				// There's two ways of doing stuff like this:
 				// 1. this - modifying the asset after load
 				// 2. creating a short shader source file that includes the asset you would have wanted to load
-				auto overrideSource = CHLSLCompiler::createOverridenCopy(
-					source.get(), "#define WorkgroupSize %d\n#define BucketCount %d\n",
-					WorkgroupSize, bucket_count
-				);
+				// 
+				//auto overrideSource = CHLSLCompiler::createOverridenCopy(
+				//	source.get(), "#define WorkgroupSize %d\n#define BucketCount %d\n",
+				//	WorkgroupSize, bucket_count
+				//);
 
-				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-				auto shader = m_device->createShader(overrideSource.get());
-				if (!shader)
-				{
-					logFail("Creation of Prefix Sum Shader from CPU Shader source failed!");
-					return nullptr;
-				}
+				// this time we skip the use of the asset converter since the IShader->IGPUShader path is quick and simple
 				return shader;
 			};
-			auto prefixSumShader = prepShader("app_resources/prefix_sum_shader.comp.hlsl");
-			auto scatterShader = prepShader("app_resources/scatter_shader.comp.hlsl");
+			auto prefixSumShader = loadPrecompiledShader.operator()<"prefix_sum_shader">(); // "app_resources/prefix_sum_shader.comp.hlsl"
+			auto scatterShader = loadPrecompiledShader.operator()<"scatter_shader">(); // "app_resources/scatter_shader.comp.hlsl"
 
 			// People love Reflection but I prefer Shader Sources instead!
 			const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(CountingPushData) };
@@ -93,8 +105,8 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				params.shader.shader = prefixSumShader.get();
 				params.shader.entryPoint = "main";
 				params.shader.entries = nullptr;
-				params.shader.requireFullSubgroups = true;
-				params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+				params.cached.requireFullSubgroups = true;
 				if (!m_device->createComputePipelines(nullptr, { &params,1 }, &prefixSumPipeline))
 					return logFail("Failed to create compute pipeline!\n");
 				params.shader.shader = scatterShader.get();

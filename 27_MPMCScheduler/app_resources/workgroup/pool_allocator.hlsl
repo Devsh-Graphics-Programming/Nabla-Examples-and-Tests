@@ -1,7 +1,7 @@
 #ifndef _NBL_HLSL_WORKGROUP_POOL_ALLOCATOR_HLSL_
 #define _NBL_HLSL_WORKGROUP_POOL_ALLOCATOR_HLSL_
 
-#include "workgroup/stack.hlsl"
+#include "app_resources/workgroup/stack.hlsl"
 
 namespace nbl
 {

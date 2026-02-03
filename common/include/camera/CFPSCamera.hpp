@@ -22,14 +22,13 @@ public:
         m_gimbal.begin();
         {
             const auto& gForward = m_gimbal.getZAxis();
-            const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
-
-
-
-
+            const float gForwardX = static_cast<float>(gForward.x);
+            const float gForwardY = static_cast<float>(gForward.y);
+            const float gForwardZ = static_cast<float>(gForward.z);
+            const float gPitch = glm::atan(glm::length(glm::vec2(gForwardX, gForwardZ)), gForwardY) - glm::half_pi<float>();
+            const float gYaw = glm::atan(gForwardX, gForwardZ);
             auto test = glm::quat(glm::vec3(gPitch, gYaw, 0.0f));
 
-            glm::vec3 euler = glm::eulerAngles(test);
 
             m_gimbal.setOrientation(test);
         }
@@ -64,12 +63,18 @@ public:
         {
             if (referenceFrame)
             {
-                // invalidate roll
-                auto euler = glm::eulerAngles(reference.orientation) * 180.f / core::PI<float>();
-                auto roll = std::abs(euler.z);
+                const auto& q = reference.orientation;
+                const float w = static_cast<float>(q.w);
+                const float x = static_cast<float>(q.x);
+                const float y = static_cast<float>(q.y);
+                const float z = static_cast<float>(q.z);
+                const float sinr_cosp = 2.f * (w * z + x * y);
+                const float cosr_cosp = 1.f - 2.f * (y * y + z * z);
+                const float roll = glm::degrees(glm::atan(sinr_cosp, cosr_cosp));
+                const float absRoll = glm::abs(roll);
                 constexpr float epsilon = 1.e-4f;
 
-                if (not (glm::epsilonEqual(roll, 0.f, epsilon) || glm::epsilonEqual(roll, 180.f, epsilon)))
+                if (not (glm::epsilonEqual(absRoll, 0.f, epsilon) || glm::epsilonEqual(absRoll, 180.f, epsilon)))
                     return false;
             }
 
@@ -83,7 +88,8 @@ public:
         m_gimbal.begin();
         {
             const auto rForward = glm::vec3(reference.frame[2]);
-            const float rPitch = atan2(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>(), gYaw = atan2(rForward.x, rForward.z);
+            const float rPitch = glm::atan(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>();
+            const float gYaw = glm::atan(rForward.x, rForward.z);
             const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
 
             if(validateReference()) m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));

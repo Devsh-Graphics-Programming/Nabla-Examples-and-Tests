@@ -9,6 +9,7 @@ cbuffer CameraData // TODO: BDA instead of UBO, one less thing in DSLayout
     SMVPParams camParams;
 };
 
+[shader("pixel")]
 float4 main(PSInput input, out float depthTest : SV_DEPTHGREATEREQUAL) : SV_TARGET
 {
     float3 N;

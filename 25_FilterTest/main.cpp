@@ -868,7 +868,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 									logger->log("Failed to fit the preload region in shared memory even for 1x1x1 workgroup!",ILogger::ELL_ERROR);
 									return false;
 								}
-								cmdbuf->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(params),&params);
+								cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_COMPUTE,0,sizeof(params),&params);
 								cmdbuf->dispatch(params.perWG.getWorkgroupCount(outExtent16));
 								if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 								{

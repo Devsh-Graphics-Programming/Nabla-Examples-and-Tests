@@ -1,12 +1,9 @@
 #ifndef _RAYTRACE_COMMON_H_INCLUDED_
 #define _RAYTRACE_COMMON_H_INCLUDED_
 
+
 #include "common.h"
 
-#if WORKGROUP_SIZE!=256
-	#error "Hardcoded 16 should be NBL_SQRT(WORKGROUP_SIZE)"
-#endif
-#define WORKGROUP_DIM 16
 
 /**
 Plan for lighting:
@@ -60,15 +57,20 @@ struct SLight
 	}
 
 	// also known as an upper bound on lumens put into the scene
-	inline float computeFluxBound(const nbl::core::vectorSIMDf& radiance) const
+	inline float computeLuma(const nbl::core::vectorSIMDf& radiance) const
 	{
 		const nbl::core::vectorSIMDf rec709LumaCoeffs(0.2126f, 0.7152f, 0.0722f, 0.f);
+		return nbl::core::dot(radiance, rec709LumaCoeffs).x;
+	}
+	// also known as an upper bound on lumens put into the scene
+	inline float computeFluxBound(const float luma) const
+	{
 		const auto unitHemisphereArea = 2.f * nbl::core::PI<float>();
 
 		const auto unitBoxScale = obb.getScale();
 		const float obbArea = 2.f * (unitBoxScale.x * unitBoxScale.y + unitBoxScale.x * unitBoxScale.z + unitBoxScale.y * unitBoxScale.z);
 
-		return nbl::core::dot(radiance, rec709LumaCoeffs).x * unitHemisphereArea * obbArea;
+		return luma * unitHemisphereArea * obbArea;
 	}
 #endif
 
@@ -81,31 +83,5 @@ struct SLight
 	**/
 };
 
-
-
-//
-struct StaticViewData_t
-{
-	uvec2   imageDimensions;
-#ifdef __cplusplus
-	uint8_t pathDepth;
-	uint8_t noRussianRouletteDepth;
-	uint16_t samplesPerPixelPerDispatch;
-#else
-	uint    pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
-#endif
-	uint	lightCount;
-};
-
-struct RaytraceShaderCommonData_t
-{
-	mat4 	viewProjMatrixInverse;
-	vec3	camPos;
-	float   rcpFramesDispatched;
-	uint	samplesComputed;
-	uint	depth; // 0 if path tracing disabled
-	uint	rayCountWriteIx;
-	float	textureFootprintFactor;
-};
-
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 #endif

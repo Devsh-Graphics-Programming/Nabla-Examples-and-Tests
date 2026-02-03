@@ -1,8 +1,7 @@
 #include "SingleLineText.h"
 
-SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text)
+SingleLineText::SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::wstring& text)
 {
-	m_face = std::move(face);
 	m_glyphBoxes.reserve(text.length());
 
 	m_boundingBox.min = float64_t2(0.0, 0.0);
@@ -12,14 +11,14 @@ SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::F
 	float64_t2 currentPos = float32_t2(0.0, 0.0);
 	for (uint32_t i = 0; i < text.length(); i++)
 	{
-		const auto glyphIndex = m_face->getGlyphIndex(wchar_t(text.at(i)));
-		const auto glyphMetrics = m_face->getGlyphMetrics(glyphIndex);
+		const auto glyphIndex = face->getGlyphIndex(text.at(i));
+		const auto glyphMetrics = face->getGlyphMetrics(glyphIndex);
 		const bool skipGenerateGlyph = (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0));
 
 		if (!skipGenerateGlyph)
 		{
 #ifdef VERIFY_DEBUG
-			msdfgen::Shape shape = m_face->generateGlyphShape(glyphIndex);
+			msdfgen::Shape shape = face->generateGlyphShape(glyphIndex);
 			_NBL_BREAK_IF(shape.contours.empty());
 #endif
 			GlyphBox glyphBbox = 
@@ -43,6 +42,7 @@ SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::F
 void SingleLineText::Draw(
 	DrawResourcesFiller& drawResourcesFiller,
 	SIntendedSubmitInfo& intendedNextSubmit,
+	nbl::ext::TextRendering::FontFace* face,
 	const float64_t2& baselineStart,
 	const float32_t2& scale,
 	const float32_t& rotateAngle,
@@ -63,8 +63,8 @@ void SingleLineText::Draw(
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = tan(tiltTiltAngle);
 	lineStyle.worldSpaceLineWidth = boldInPixels;
-	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+	drawResourcesFiller.setActiveLineStyle(lineStyle);
+	drawResourcesFiller.beginMainObject(MainObjectType::TEXT);
 
 	for (const auto& glyphBox : m_glyphBoxes)
 	{
@@ -74,8 +74,9 @@ void SingleLineText::Draw(
 
 		// float32_t3 xx = float64_t3(0.0, -glyphBox.size.y, 0.0);
 		const float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
-		const float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
-		drawResourcesFiller.drawFontGlyph(m_face.get(), glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, glyphObjectIdx, intendedNextSubmit);
+		const float32_t2 minUV = face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
+		drawResourcesFiller.drawFontGlyph(face, glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, intendedNextSubmit);
 	}
 
+	drawResourcesFiller.endMainObject();
 }

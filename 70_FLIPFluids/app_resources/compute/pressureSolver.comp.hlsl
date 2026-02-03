@@ -36,6 +36,7 @@ groupshared float sDivergence[14][14][14];
 groupshared float sPressure[14][14][14];
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
@@ -88,6 +89,7 @@ float calculatePressureStep(int3 idx)
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint3 gid = nbl::hlsl::glsl::gl_WorkGroupID();
@@ -167,6 +169,7 @@ void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 
 // TODO: why doesn't the last invocation of `iteratePressureSystem` have this step fused into it!? It would be just a simple push constant `isLastIteration` that would decide whether to run this dispatch
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;

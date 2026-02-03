@@ -131,6 +131,7 @@ struct ScanSharedMemoryProxy
 };
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
+[shader("compute")]
 void main()
 {
     ScanSharedMemoryProxy scanSmemAccessor;

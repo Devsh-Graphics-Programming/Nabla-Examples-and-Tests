@@ -1,5 +1,6 @@
 #ifndef _FLIP_EXAMPLE_RENDER_COMMON_HLSL
 #define _FLIP_EXAMPLE_RENDER_COMMON_HLSL
+#include "nbl/builtin/hlsl/bda/struct_declare.hlsl"
 
 struct SParticleRenderParams
 {
@@ -9,16 +10,15 @@ struct SParticleRenderParams
 };
 
 // TODO: This struct shouldn't exist if there's no "vertex generation" shader
-struct VertexInfo
-{
-    // TODO: don't use 4D vectors for 3D quantities
-    float32_t4 position;
-	float32_t4 vsSpherePos;
-    float32_t radius;
-
-    float32_t4 color;
-    float32_t2 uv;
-};
+struct VertexInfo;
+// TODO: don't use 4D vectors for 3D quantities
+NBL_HLSL_DEFINE_STRUCT((VertexInfo),
+    ((position, float32_t4))
+    ((vsSpherePos, float32_t4))
+    ((radius, float32_t))
+    ((color, float32_t4))
+    ((uv, float32_t2))
+);
 
 #ifdef __HLSL_VERSION
 struct PSInput

@@ -1,27 +1,28 @@
-#include <nabla.h>
+// Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "CCamera.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
-#include "glm/glm/glm.hpp"
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include "nbl/examples/examples.hpp"
+// TODO: why is it not in nabla.h ?
+#include "nbl/asset/metadata/CHLSLMetadata.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
-using namespace nbl::hlsl;
 using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "app_resources/gridUtils.hlsl"
 #include "app_resources/render_common.hlsl"
 #include "app_resources/descriptor_bindings.hlsl"
+
 
 enum SimPresets
 {
@@ -165,10 +166,10 @@ private:
     nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 
-class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FLIPFluidsApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-    using device_base_t = examples::SimpleWindowedApplication;
-    using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = SimpleWindowedApplication;
+    using asset_base_t = BuiltinResourcesApplication;
     using clock_t = std::chrono::steady_clock;
 
     constexpr static inline uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720;
@@ -232,7 +233,7 @@ public:
             float zNear = 0.1f, zFar = 10000.f;
             core::vectorSIMDf cameraPosition(14, 8, 12);
             core::vectorSIMDf cameraTarget(0, 0, 0);
-            matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+            hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
             camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 
             m_pRenderParams.zNear = zNear;
@@ -345,11 +346,12 @@ public:
         if (!initGraphicsPipeline())
             return logFail("Failed to initialize render pipeline!\n");
 
-        auto createComputePipeline = [&](smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IDescriptorPool>& pool,
-            smart_refctd_ptr<IGPUDescriptorSet>& set, const std::string& shaderPath, const std::string& entryPoint,
+        
+        auto createComputePipeline = [&]<core::StringLiteral ShaderKey>(smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IDescriptorPool>& pool,
+            smart_refctd_ptr<IGPUDescriptorSet>& set, const std::string& entryPoint,
             const std::span<const IGPUDescriptorSetLayout::SBinding> bindings, const asset::SPushConstantRange& pcRange = {}) -> void
             {
-                auto shader = compileShader(shaderPath, entryPoint);
+                auto shader = loadPrecompiledShader<ShaderKey>();
 
                 auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(bindings);
 
@@ -379,8 +381,8 @@ public:
         {
             // init particles pipeline
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
-            createComputePipeline(m_initParticlePipeline, m_initParticlePool, m_initParticleDs,
-                "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1, pcRange);
+            createComputePipeline.operator()<"particlesInit">(m_initParticlePipeline, m_initParticlePool, m_initParticleDs,
+                 "main", piParticlesInit_bs1, pcRange);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[1];
@@ -396,8 +398,8 @@ public:
         {
             // generate particle vertex pipeline
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 3 * sizeof(uint64_t) };
-            createComputePipeline(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs,
-                "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1, pcRange);
+            createComputePipeline.operator()<"genParticleVertices">(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs,
+                "main", gpvGenVertices_bs1, pcRange);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[2];
@@ -415,8 +417,8 @@ public:
         // update fluid cells pipelines
         {
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
-            createComputePipeline(m_accumulateWeightsPipeline, m_accumulateWeightsPool, m_accumulateWeightsDs,
-                "app_resources/compute/prepareCellUpdate.comp.hlsl", "main", ufcAccWeights_bs1, pcRange);
+            createComputePipeline.operator()<"prepareCellUpdate">(m_accumulateWeightsPipeline, m_accumulateWeightsPool, m_accumulateWeightsDs,
+                "main", ufcAccWeights_bs1, pcRange);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[2];
@@ -458,8 +460,8 @@ public:
             }
         }
         {
-            createComputePipeline(m_updateFluidCellsPipeline, m_updateFluidCellsPool, m_updateFluidCellsDs,
-                "app_resources/compute/updateFluidCells.comp.hlsl", "updateFluidCells", ufcFluidCell_bs1);
+            createComputePipeline.operator()<"updateFluidCells">(m_updateFluidCellsPipeline, m_updateFluidCellsPool, m_updateFluidCellsDs,
+                "updateFluidCells", ufcFluidCell_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -480,8 +482,8 @@ public:
             }
         }
         {
-            createComputePipeline(m_updateNeighborCellsPipeline, m_updateNeighborCellsPool, m_updateNeighborCellsDs,
-                "app_resources/compute/updateFluidCells.comp.hlsl", "updateNeighborFluidCells", ufcNeighborCell_bs1);
+            createComputePipeline.operator()<"updateFluidCells">(m_updateNeighborCellsPipeline, m_updateNeighborCellsPool, m_updateNeighborCellsDs,
+                "updateNeighborFluidCells", ufcNeighborCell_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -528,8 +530,8 @@ public:
         }
         {
             // apply forces pipeline
-            createComputePipeline(m_applyBodyForcesPipeline, m_applyForcesPool, m_applyForcesDs, 
-                "app_resources/compute/applyBodyForces.comp.hlsl", "main", abfApplyForces_bs1);
+            createComputePipeline.operator()<"applyBodyForces">(m_applyBodyForcesPipeline, m_applyForcesPool, m_applyForcesDs, 
+                "main", abfApplyForces_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[2];
@@ -560,8 +562,8 @@ public:
         }
         // apply diffusion pipelines
         {
-            createComputePipeline(m_axisCellsPipeline, m_axisCellsPool, m_axisCellsDs, 
-                "app_resources/compute/diffusion.comp.hlsl", "setAxisCellMaterial", dAxisCM_bs1);
+            createComputePipeline.operator()<"diffusion">(m_axisCellsPipeline, m_axisCellsPool, m_axisCellsDs, 
+                "setAxisCellMaterial", dAxisCM_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -582,8 +584,8 @@ public:
             }
         }
         {
-            createComputePipeline(m_neighborAxisCellsPipeline, m_neighborAxisCellsPool, m_neighborAxisCellsDs, 
-                "app_resources/compute/diffusion.comp.hlsl", "setNeighborAxisCellMaterial", dNeighborAxisCM_bs1);
+            createComputePipeline.operator()<"diffusion">(m_neighborAxisCellsPipeline, m_neighborAxisCellsPool, m_neighborAxisCellsDs, 
+                "setNeighborAxisCellMaterial", dNeighborAxisCM_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -604,10 +606,7 @@ public:
             }
         }
         {
-            const std::string iterateKernel = "iterateDiffusion";
-            const std::string applyKernel = "applyDiffusion";
-            auto iterateShader = compileShader("app_resources/compute/diffusion.comp.hlsl", iterateKernel);
-            auto applyShader = compileShader("app_resources/compute/diffusion.comp.hlsl", applyKernel);
+            smart_refctd_ptr<IShader> diffusion = loadPrecompiledShader<"diffusion">(); // "app_resources/compute/diffusion.comp.hlsl"
 
             auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(dDiffuse_bs1);
 
@@ -626,16 +625,16 @@ public:
             {
                 IGPUComputePipeline::SCreationParams params = {};
                 params.layout = pipelineLayout.get();
-                params.shader.entryPoint = iterateKernel;
-                params.shader.shader = iterateShader.get();
+                params.shader.entryPoint = "iterateDiffusion";
+                params.shader.shader = diffusion.get();
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
             }
             {
                 IGPUComputePipeline::SCreationParams params = {};
                 params.layout = pipelineLayout.get();
-                params.shader.entryPoint = applyKernel;
-                params.shader.shader = applyShader.get();
+                params.shader.entryPoint = "applyDiffusion";
+                params.shader.shader = diffusion.get();
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
             }
@@ -677,8 +676,8 @@ public:
         }
         // solve pressure system pipelines
         {
-            createComputePipeline(m_calcDivergencePipeline, m_calcDivergencePool, m_calcDivergenceDs, 
-                "app_resources/compute/pressureSolver.comp.hlsl", "calculateNegativeDivergence", psDivergence_bs1);
+            createComputePipeline.operator()<"pressureSolver">(m_calcDivergencePipeline, m_calcDivergencePool, m_calcDivergenceDs, 
+                "calculateNegativeDivergence", psDivergence_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -712,8 +711,8 @@ public:
             }
         }
         {
-            createComputePipeline(m_iteratePressurePipeline, m_iteratePressurePool, m_iteratePressureDs,
-                "app_resources/compute/pressureSolver.comp.hlsl", "iteratePressureSystem", psIteratePressure_bs1);
+            createComputePipeline.operator()<"pressureSolver">(m_iteratePressurePipeline, m_iteratePressurePool, m_iteratePressureDs,
+                "iteratePressureSystem", psIteratePressure_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[5];
@@ -741,8 +740,8 @@ public:
             }
         }
         {
-            createComputePipeline(m_updateVelPsPipeline, m_updateVelPsPool, m_updateVelPsDs, 
-                "app_resources/compute/pressureSolver.comp.hlsl", "updateVelocities", psUpdateVelPs_bs1);
+            createComputePipeline.operator()<"pressureSolver">(m_updateVelPsPipeline, m_updateVelPsPool, m_updateVelPsDs, 
+                "updateVelocities", psUpdateVelPs_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[4];
@@ -781,8 +780,8 @@ public:
         {
             // advect particles pipeline
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
-            createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs,
-                "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1, pcRange);
+            createComputePipeline.operator()<"advectParticles">(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs,
+                "main", apAdvectParticles_bs1, pcRange);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[2];
@@ -885,22 +884,20 @@ public:
             const auto projectionMatrix = camera.getProjectionMatrix();
             const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-            core::matrix3x4SIMD modelMatrix;
-            modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-            modelMatrix.setRotation(quaternion(0, 0, 0));
+            hlsl::float32_t3x4 modelMatrix = hlsl::math::linalg::identity<float32_t3x4>();
 
-            core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
-            core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+            hlsl::float32_t3x4 modelViewMatrix = viewMatrix;
+            hlsl::float32_t4x4 modelViewProjectionMatrix = viewProjectionMatrix;
 
-            auto modelMat = core::concatenateBFollowedByA(core::matrix4SIMD(), modelMatrix);
+            auto modelMat = hlsl::math::linalg::promote_affine<4, 4, 3, 4>(modelMatrix);
 
             const core::vector3df camPos = camera.getPosition().getAsVector3df();
 
             camPos.getAs4Values(camData.cameraPosition);
-            memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
-            memcpy(camData.M, modelMat.pointer(), sizeof(camData.M));
-            memcpy(camData.V, viewMatrix.pointer(), sizeof(camData.V));
-            memcpy(camData.P, projectionMatrix.pointer(), sizeof(camData.P));
+            memcpy(camData.MVP, &modelViewProjectionMatrix[0][0], sizeof(camData.MVP));
+            memcpy(camData.M, &modelMat[0][0], sizeof(camData.M));
+            memcpy(camData.V, &viewMatrix[0][0], sizeof(camData.V));
+            memcpy(camData.P, &projectionMatrix[0][0], sizeof(camData.P));
             {
                 camDataRange.buffer = cameraBuffer;
                 camDataRange.size = cameraBuffer->getSize();
@@ -1401,49 +1398,25 @@ private:
         numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
     }
 
-    smart_refctd_ptr<IGPUShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
+    template<core::StringLiteral ShaderKey>
+    smart_refctd_ptr<IShader> loadPrecompiledShader()
     {
         IAssetLoader::SAssetLoadParams lparams = {};
         lparams.logger = m_logger.get();
-        lparams.workingDirectory = "";
-        auto bundle = m_assetMgr->getAsset(filePath, lparams);
+        lparams.workingDirectory = "app_resources";
+        auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+        auto bundle = m_assetMgr->getAsset(key.data(), lparams);
         if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
         {
-            m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
+            m_logger->log("Failed to find shader with key '%s'.", ILogger::ELL_ERROR, ShaderKey);
             exit(-1);
         }
         
         const auto assets = bundle.getContents();
         assert(assets.size() == 1);
-        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+        smart_refctd_ptr<IShader> shader = IAsset::castDown<IShader>(assets[0]);
 
-        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
-        if (entryPoint != "main")
-        {
-            auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-            CHLSLCompiler::SOptions options = {};
-            options.stage = shaderSrc->getStage();
-            if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
-                options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
-            options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-            options.spirvOptimizer = nullptr;
-        #ifndef _NBL_DEBUG
-            ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-            auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-            options.spirvOptimizer = opt.get();
-        #endif
-            options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-            options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
-            options.preprocessorOptions.logger = m_logger.get();
-            options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-
-            std::string dxcOptionStr[] = {"-E " + entryPoint};
-            options.dxcOptions = std::span(dxcOptionStr);
-
-            shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options);
-        }
-
-        return m_device->createShader(shader.get());
+        return shader;
     }
 
     // TODO: there's a method in IUtilities for this
@@ -1562,29 +1535,27 @@ private:
 
         // init shaders and pipeline
 
-        auto compileShader = [&](const std::string& filePath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+        auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+        {
+            IAssetLoader::SAssetLoadParams lparams = {};
+            lparams.logger = m_logger.get();
+            lparams.workingDirectory = "app_resources";
+            auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+            auto bundle = m_assetMgr->getAsset(key.data(), lparams);
+            if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
             {
-                IAssetLoader::SAssetLoadParams lparams = {};
-                lparams.logger = m_logger.get();
-                lparams.workingDirectory = "";
-                auto bundle = m_assetMgr->getAsset(filePath, lparams);
-                if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
-                {
-                    m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
-                    exit(-1);
-                }
+                m_logger->log("Failed to find shader with key '%s'.", ILogger::ELL_ERROR, ShaderKey);
+                exit(-1);
+            }
         
-                const auto assets = bundle.getContents();
-                assert(assets.size() == 1);
-                smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
-                shaderSrc->setShaderStage(stage);
-                if (!shaderSrc)
-                    return nullptr;
+            const auto assets = bundle.getContents();
+            assert(assets.size() == 1);
+            smart_refctd_ptr<IShader> shader = IAsset::castDown<IShader>(assets[0]);
 
-                return m_device->createShader(shaderSrc.get());
-            };
-        auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-        auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+            return shader;
+        };
+        auto vs = loadPrecompiledShader.operator()<"fluidParticles_vertex">(); // "app_resources/fluidParticles.vertex.hlsl"
+        auto fs = loadPrecompiledShader.operator()<"fluidParticles_fragment">(); // "app_resources/fluidParticles.fragment.hlsl"
 
         smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1;
         {
@@ -1629,11 +1600,6 @@ private:
         blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
         {
-            IGPUShader::SSpecInfo specInfo[3] = {
-                {.shader = vs.get()},
-                {.shader = fs.get()},
-            };
-
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(uint64_t) };
             const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
@@ -1643,7 +1609,8 @@ private:
 
             IGPUGraphicsPipeline::SCreationParams params[1] = {};
             params[0].layout = pipelineLayout.get();
-            params[0].shaders = specInfo;
+            params[0].vertexShader = { .shader = vs.get(), .entryPoint = "main", };
+            params[0].fragmentShader = { .shader = fs.get(), .entryPoint = "main", };
             params[0].cached = {
                 .vertexInput = {
                 },
@@ -1821,7 +1788,7 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-    Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
+    Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), hlsl::float32_t4x4());
     video::CDumbPresentationOracle oracle;
 
     bool m_shouldInitParticles = true;

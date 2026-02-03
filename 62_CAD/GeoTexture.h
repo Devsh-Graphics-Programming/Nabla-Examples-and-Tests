@@ -29,8 +29,8 @@ public:
 	{}
 
 	bool initialize(
-		IGPUShader* vertexShader,
-		IGPUShader* fragmentShader,
+		IShader* vertexShader,
+		IShader* fragmentShader,
 		IGPURenderpass* compatibleRenderPass,
 		const smart_refctd_ptr<IGPUBuffer>& globalsBuffer);
 

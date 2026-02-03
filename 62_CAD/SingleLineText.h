@@ -7,11 +7,12 @@ using namespace nbl::core;
 using namespace nbl::asset;
 using namespace nbl::ext::TextRendering;
 
+/// This is basically a Text Layout in Font Unit Space + a Draw method with transformations, color and additional parameters
 class SingleLineText
 {
 public:
 	// constructs and fills the `glyphBoxes`
-	SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text);
+	SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::wstring& text);
 	
 	struct BoundingBox
 	{
@@ -30,6 +31,7 @@ public:
 	void Draw(
 		DrawResourcesFiller& drawResourcesFiller,
 		SIntendedSubmitInfo& intendedNextSubmit,
+		nbl::ext::TextRendering::FontFace* face,
 		const float64_t2& baselineStart = float64_t2(0.0,0.0),
 		const float32_t2& scale = float64_t2(1.0f, 1.0f),
 		const float32_t& rotateAngle = 0.0f,
@@ -49,5 +51,4 @@ protected:
 	
 	BoundingBox m_boundingBox = {};
 	std::vector<GlyphBox> m_glyphBoxes;
-	core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace> m_face;
 };

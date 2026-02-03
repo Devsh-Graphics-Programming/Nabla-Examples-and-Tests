@@ -12,6 +12,7 @@
 PushConstants pc;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
+[shader("compute")]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     const nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::bit_cast<emulated_float64_t<false, true> >(pc.a);

@@ -1,19 +1,9 @@
 //// Copyright (C) 2023-2024 - DevSH Graphics Programming Sp. z O.O.
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
+#pragma shader_stage(compute)
+
 #include "app_resources/common.hlsl"
-
-#define SHADER_CRASHING_ASSERT(expr) \
-{ \
-    bool con = (expr); \
-    do { \
-        [branch] if (!con) \
-          vk::RawBufferStore<uint32_t>(0xdeadbeefBADC0FFbull,0x45u,4u); \
-    } while(!con); \
-} 
-
-template<typename L, typename R>
-const static bool is_same_v = nbl::hlsl::is_same_v<L,R>;
 
 
 struct PushConstants
@@ -97,6 +87,7 @@ struct device_capabilities2
 };
 
 [numthreads(8, 8, 1)]
+[shader("compute")]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     fill(invocationID, 1);
@@ -155,10 +146,10 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     // uint32_t rotrResult0 = nbl::hlsl::mpl::rotr<uint32_t, 2u, 1>::value;
     // uint32_t rotrResult1 = nbl::hlsl::mpl::rotr<uint32_t, 2u, -1>::value;
     
-    // SHADER_CRASHING_ASSERT(rotlResult0 == mplRotlResult0);
-    // SHADER_CRASHING_ASSERT(rotlResult1 == mplRotlResult1);
-    // SHADER_CRASHING_ASSERT(rotrResult0 == mplRotrResult0);
-    // SHADER_CRASHING_ASSERT(rotrResult1 == mplRotrResult1);
+    // assert(rotlResult0 == mplRotlResult0);
+    // assert(rotlResult1 == mplRotlResult1);
+    // assert(rotrResult0 == mplRotrResult0);
+    // assert(rotrResult1 == mplRotrResult1);
 
     // TODO: more tests and compare with cpp version as well
     fill(invocationID, 5);
@@ -166,36 +157,36 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         static const uint16_t TEST_VALUE_0 = 5;
         static const uint32_t TEST_VALUE_1 = 0x80000000u;
-        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u;
+        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
         static const uint32_t TEST_VALUE_3 = 0x00000001u;
-        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u;
+        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
         
 
         fill(invocationID, 5.01);
         uint16_t compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint16_t, TEST_VALUE_0>::value;
         uint16_t runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_0);
         fill(invocationID, float4(5.1, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_1>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_1);
         fill(invocationID, float4(5.2, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_2>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_2);
         fill(invocationID, float4(5.3, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_3>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_3);
         fill(invocationID, float4(5.4, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_4>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_4);
         fill(invocationID, float4(5.5, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
     }
 
     {
@@ -211,7 +202,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         float4 v;
         fill(invocationID, float4(alignof(v.x), alignof(v), 0, 0));
-        SHADER_CRASHING_ASSERT(alignof(v.x) == alignof(v));
+        assert(alignof(v.x) == alignof(v));
     }
     
     {

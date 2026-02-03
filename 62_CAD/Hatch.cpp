@@ -16,7 +16,7 @@ bool Hatch::Segment::isStraightLineConstantMajor() const
 		p1 = originalBezier->P1[major], 
 		p2 = originalBezier->P2[major];
 	//assert(p0 <= p1 && p1 <= p2); (PRECISION ISSUES ARISE ONCE MORE)
-	return abs(p1 - p0) <= core::exp2(-24.0) && abs(p2 - p0) <= exp(-24);
+	return abs(p1 - p0) <= core::exp2(-24.0) && abs(p2 - p0) <= hlsl::exp(-24.0f);
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
@@ -1156,12 +1156,13 @@ void lightShaded(std::vector<CPolyline>& polylines, const float64_t2& offset)
 
 void shaded(std::vector<CPolyline>& polylines, const float64_t2& offset)
 {
+	float64_t2 size = float64_t2(1.0, 1.0)/8.0 * FillPatternShapeExtent;
 	for (uint32_t x = 0; x < 8; x++)
 	{
 		for (uint32_t y = 0; y < 8; y++)
 		{
 			if (x % 2 != y % 2)
-				square(polylines, float64_t2((double)x, (double)y)/8.0 * FillPatternShapeExtent + offset);
+				square(polylines, float64_t2((double)x, (double)y)/8.0 * FillPatternShapeExtent + offset, size);
 		}
 	}
 

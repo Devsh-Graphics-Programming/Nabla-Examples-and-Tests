@@ -309,6 +309,40 @@ class AllocatorTestApp final : public nbl::application_templates::MonoSystemMono
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
 
+			// Special Test (repro by Erfan)
+			{
+				using AddressAllocator = nbl::core::GeneralpurposeAddressAllocator<uint64_t>;
+				using ReservedAllocator = nbl::core::allocator<uint8_t>;
+
+				static constexpr uint64_t TotalSize = 14280 * 1024u; // safe choice based on hardware reports
+				static constexpr uint64_t MaxMemoryAlignment = 4096u; // safe choice based on hardware reports
+				static constexpr uint64_t MinAllocSize = 128 * 1024u; // 128KB, the larger this is the better
+
+				auto m_reservedAllocSize = AddressAllocator::reserved_size(MaxMemoryAlignment, TotalSize, MinAllocSize);
+				auto m_reservedAllocator = std::unique_ptr<ReservedAllocator>(new ReservedAllocator());
+				auto m_reservedAlloc = m_reservedAllocator->allocate(m_reservedAllocSize, _NBL_SIMD_ALIGNMENT);
+				auto m_addressAllocator = std::unique_ptr<AddressAllocator>(new AddressAllocator(
+					m_reservedAlloc, 0u, 0u, MaxMemoryAlignment, TotalSize, MinAllocSize
+				));
+
+				// 1. Allocate with `14622720` successful, Free Size = 0
+				auto offset1 = m_addressAllocator->alloc_addr(TotalSize, 1024u); assert(offset1 != AddressAllocator::invalid_address);
+				// 2. Allocate with `9240576` fails (as expected), Free Size = 0
+				auto offset2 = m_addressAllocator->alloc_addr(9240576, 1024u); assert(offset2 == AddressAllocator::invalid_address);
+				// 3. Free Initial Allocation (size=14622720, offset=0) ==>  Allocator Free Size=14622720
+				m_addressAllocator->free_addr(offset1, TotalSize);
+
+				// 4. Allocate with `9240576` successful (as expected), Free Size = 5382144
+				auto offset3 = m_addressAllocator->alloc_addr(9240576, 1024u); assert(offset3 != AddressAllocator::invalid_address);
+				// 5. Allocate with `14622720` fails (as expected), Free Size = 5382144
+				auto offset4 = m_addressAllocator->alloc_addr(TotalSize, 1024u); assert(offset4 == AddressAllocator::invalid_address);
+				// 6. Free Second Allocation (size=9240576, offset=0) ==>  Allocator Free Size=14622720
+				m_addressAllocator->free_addr(offset3, 9240576);
+
+				// 7. Allocate with `14622720` fails (UNEXPECTED), Free Size = 0
+				auto offset5 = m_addressAllocator->alloc_addr(TotalSize, 1024u); assert(offset5 != AddressAllocator::invalid_address);
+			}
+
 			// Allocator test
 			{
 				{

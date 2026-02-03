@@ -16,21 +16,27 @@ cbuffer GridData
     SGridData gridData;
 };
 
+
 [[vk::binding(b_apVelField, s_ap)]] Texture3D<float> velocityField[3];
 [[vk::binding(b_apPrevVelField, s_ap)]] Texture3D<float> prevVelocityField[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
-// TODO: delta time push constant? (but then for CI need a commandline `-fixed-timestep=MS` and `-frames=N` option too)
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+using namespace nbl::hlsl;
 
+// TODO: delta time push constant? (but then for CI need a commandline `-fixed-timestep=MS` and `-frames=N` option too)
 [numthreads(WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;
     Particle p;
 
-    int offset = sizeof(float32_t3) * pid;
-    p.position = vk::RawBufferLoad<float32_t3>(pc.particlePosAddress + offset);
-    p.velocity = vk::RawBufferLoad<float32_t3>(pc.particleVelAddress + offset);
+    // use a restrict reference for speed
+    bda::__ref<float32_t3,4,true> rPosition = (bda::__ptr<float32_t3>::create(pc.particlePosAddress)+pid).deref<4,true>();
+    bda::__ref<float32_t3,4,true> rVelocity = (bda::__ptr<float32_t3>::create(pc.particleVelAddress)+pid).deref<4,true>();
+    p.position = rPosition.load();
+    p.velocity = rVelocity.load();
 
     // advect velocity
     float3 gridPrevVel = sampleVelocityAt(p.position, prevVelocityField, velocityFieldSampler, gridData);
@@ -52,6 +58,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     p.position = clampPosition(p.position, gridData.worldMin, gridData.worldMax);
 
-    vk::RawBufferStore<float32_t3>(pc.particlePosAddress + offset, p.position);
-    vk::RawBufferStore<float32_t3>(pc.particleVelAddress + offset, p.velocity);
+    rPosition.store(p.position);
+    rVelocity.store(p.velocity);
 }

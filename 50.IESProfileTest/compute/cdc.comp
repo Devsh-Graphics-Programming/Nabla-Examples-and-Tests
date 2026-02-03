@@ -1,0 +1,260 @@
+#version 430 core
+
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+
+#include "common.h"
+
+layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) in;
+
+layout(set = 0, binding = 0, r16) restrict uniform image2D outIESCandelaImage;
+layout(set = 0, binding = 1, rg32f) restrict uniform image2D outSphericalCoordinatesImage;
+layout(set = 0, binding = 2, rgba32f) restrict uniform image2D outOUVProjectionDirectionImage;
+layout(set = 0, binding = 3, rg8) restrict uniform image2D outPassTMask;
+
+layout(std430, set = 0, binding = 4) readonly buffer HorizontalAngles
+{
+	double hAngles[];
+};
+
+layout(std430, set = 0, binding = 5) readonly buffer VerticalAngles
+{
+	double vAngles[];
+};
+
+layout(std430, set = 0, binding = 6) readonly buffer Data
+{
+	double data[];
+};
+
+layout(push_constant) uniform PushConstants
+{
+    float maxIValue;
+	float zAngleDegreeRotation;
+	uint mode;
+	uint dummy;
+} pc;
+
+vec3 octahedronUVToDir(vec2 uv) 
+{
+    vec3 position = vec3((uv * 2.0 - 1.0).xy, 0.0);
+	vec2 absP = vec2(abs(position.x), abs(position.y));
+	
+	position.z = 1.0 - absP.x - absP.y; 
+	
+	if (position.z < 0.0) 
+	{
+		position.x = sign(position.x) * (1.0 - absP.y);
+		position.y = sign(position.y) * (1.0 - absP.x);
+	}
+
+	// rotate position vector around Z-axis with "pc.zAngleDegreeRotation"
+	if(pc.zAngleDegreeRotation != 0.0)
+	{
+		float rDegree = pc.zAngleDegreeRotation;
+		
+		const float zAngleRadians = float(rDegree * M_PI / 180.0);
+		const float cosineV = cos(zAngleRadians);
+		const float sineV = sin(zAngleRadians);
+
+		position = vec3(cosineV * position.x - cosineV * position.y, sineV * position.x + sineV * position.y, position.z);
+		//position = vec3((cosineV * position.x) - (sineV * position.y), (cosineV * position.x) + (sineV * position.y), position.z);
+	}
+	
+	return normalize(position);
+}
+
+//! Returns spherical coordinates with physics convention in radians
+/*
+	https://en.wikipedia.org/wiki/Spherical_coordinate_system#/media/File:3D_Spherical.svg
+	Retval.x is "theta" polar angle in range [0, PI] & Retval.y "phi" is azimuthal angle
+	in range [-PI, PI] range
+*/
+
+vec2 sphericalDirToRadians(vec3 direction)
+{
+	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
+	double phi = atan(direction.y, direction.x);
+	
+	return vec2(theta, phi);
+}
+
+uint implGetVUB(const float angle)
+{
+    const uint len = vAngles.length();
+	
+    for(uint i = 0; i < len; ++i)
+        if(vAngles[i] > angle)
+            return i;
+
+    return len;
+}
+
+uint implGetHUB(const float angle)
+{
+    const uint len = hAngles.length();
+	
+    for(uint i = 0; i < len; ++i)
+        if(hAngles[i] > angle)
+            return i;
+
+    return len;
+}
+
+uint getVLB(const float angle)
+{
+	return uint(max(int(implGetVUB(angle)) - 1, 0));
+}
+
+uint getHLB(const float angle)
+{
+	return uint(max(int(implGetHUB(angle)) - 1, 0));
+}
+
+uint getVUB(const float angle)
+{
+	return uint(min(int(implGetVUB(angle)), int(vAngles.length()) - 1));
+}
+
+uint getHUB(const float angle)
+{
+	return uint(min(int(implGetHUB(angle)), int(hAngles.length()) - 1));
+}
+
+double getValue(uint i, uint j)
+{
+	return data[vAngles.length() * i + j];
+}
+
+// symmetry
+#define ISOTROPIC 0u
+#define QUAD_SYMETRIC 1u
+#define HALF_SYMETRIC 2u
+#define NO_LATERAL_SYMMET 3u
+
+uint getSymmetry() // TODO: to reduce check time we could pass it with PCs
+{
+	const uint hALength = hAngles.length();
+	if(hALength < 2) // careful here, somebody can break it by feeding us with too much data by mistake
+		return ISOTROPIC;
+	
+	const double hABack = hAngles[hALength - 1];
+	
+	if(hABack == 90)
+		return QUAD_SYMETRIC;
+	else if(hABack == 180) // note that OTHER_HALF_SYMMETRIC = HALF_SYMETRIC here
+		return HALF_SYMETRIC;
+	else
+		return NO_LATERAL_SYMMET;
+}
+
+float wrapPhi(const float phi, const uint symmetry) //! wrap phi spherical coordinate compoment to range defined by symmetry
+{
+	switch (symmetry)
+	{
+		case ISOTROPIC:
+			return 0.0;
+		case QUAD_SYMETRIC: //! phi MIRROR_REPEAT wrap onto [0, 90] degrees range
+		{
+			float wrapPhi = abs(phi); //! first MIRROR
+			
+			if(wrapPhi > M_HALF_PI) //! then REPEAT
+				wrapPhi = clamp(M_HALF_PI - (wrapPhi - M_HALF_PI), 0, M_HALF_PI);
+			
+			return wrapPhi; //! eg. maps (in degrees) 91,269,271 -> 89 and 179,181,359 -> 1
+		}
+		case HALF_SYMETRIC: //! phi MIRROR wrap onto [0, 180] degrees range
+			return abs(phi); //! eg. maps (in degress) 181 -> 179 or 359 -> 1
+		case NO_LATERAL_SYMMET:
+		{
+			if(phi < 0)
+				return phi + 2.0 * M_PI;
+			else
+				return phi;
+		}
+	}
+	
+	return 69;
+}
+
+double sampleI(const vec2 sphericalCoordinates, const uint symmetry)
+{
+	const float vAngle = degrees(sphericalCoordinates.x), hAngle = degrees(wrapPhi(sphericalCoordinates.y, symmetry));
+	
+	double vABack = vAngles[vAngles.length() - 1];
+	double hABack = hAngles[hAngles.length() - 1];
+
+	if (vAngle > vABack)
+		return 0.0;
+	
+	// bilinear interpolation
+	uint j0 = getVLB(vAngle);
+	uint j1 = getVUB(vAngle);
+	uint i0 = symmetry == ISOTROPIC ? 0 : getHLB(hAngle); 
+	uint i1 = symmetry == ISOTROPIC ? 0 : getHUB(hAngle);
+	
+	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
+	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
+	
+	double u = (hAngle - hAngles[i0]) * uReciprocal;
+	double v = (vAngle - vAngles[j0]) * vReciprocal;
+	
+	double s0 = getValue(i0, j0) * (1.0 - v) + getValue(i0, j1) * (v);
+	double s1 = getValue(i1, j0) * (1.0 - v) + getValue(i1, j1) * (v);
+	
+	return s0 * (1.0 - u) + s1 * u;
+}
+
+//! Checks if (x,y) /in [0,PI] x [-PI,PI] product
+/*
+	IES vertical range is [0, 180] degrees
+	and horizontal range is [0, 360] degrees 
+	but for easier computations (MIRROR & MIRROW_REPEAT operations) 
+	we represent horizontal range as [-180, 180] given spherical coordinates
+*/
+
+bool isWithinSCDomain(vec2 point)
+{
+    const vec2 lb = vec2(0, -M_PI);
+    const vec2 ub = vec2(M_PI, M_PI);
+
+    return all(lessThanEqual(lb, point)) && all(lessThanEqual(point, ub));
+}
+
+void main()
+{
+	const ivec2 destinationSize = imageSize(outIESCandelaImage);
+	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
+	
+	const float VERTICAL_INVERSE = 1.0f / float(destinationSize.x);
+	const float HORIZONTAL_INVERSE = 1.0f / float(destinationSize.y);
+	
+	if (all(lessThan(pixelCoordinates, destinationSize)))
+	{
+		const vec2 uv = vec2((float(pixelCoordinates.x) + 0.5) * VERTICAL_INVERSE, (float(pixelCoordinates.y) + 0.5) * HORIZONTAL_INVERSE);
+		const vec3 direction = octahedronUVToDir(uv);
+		const vec2 sphericalCoordinates = sphericalDirToRadians(direction); // third radius spherical compoment is normalized and skipped
+		
+		const double intensity = sampleI(sphericalCoordinates, getSymmetry());
+		const vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
+		
+		const double normD = length(direction);
+		vec2 mask;
+		
+		if(1.0 - QUANT_ERROR_ADMISSIBLE <= normD && normD <= 1.0 + QUANT_ERROR_ADMISSIBLE)
+			mask.x = 1.0; // pass
+		else
+			mask.x = 0;
+			
+		if(isWithinSCDomain(sphericalCoordinates))
+			mask.y = 1.0; // pass
+		else
+			mask.y = 0;
+		
+		imageStore(outIESCandelaImage, pixelCoordinates, value);
+		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates, 0, 1));
+		imageStore(outOUVProjectionDirectionImage, pixelCoordinates, vec4(direction.xyz, 1));
+		imageStore(outPassTMask, pixelCoordinates, vec4(mask.xy, 1, 1));
+	}
+}

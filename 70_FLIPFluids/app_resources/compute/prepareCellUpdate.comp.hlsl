@@ -42,6 +42,7 @@ float getWeight(float3 pPos, float3 cPos, float invSpacing)
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint pid = ID.x;

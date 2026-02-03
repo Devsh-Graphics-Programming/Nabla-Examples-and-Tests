@@ -1,6 +1,5 @@
 #include "fft_mirror_common.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
@@ -47,8 +46,6 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
 
-		ternary_operator<complex_t<scalar_t> > ternaryOp;
-
 		if (glsl::gl_WorkGroupID().x)
 		{
 			// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
@@ -73,10 +70,10 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 					const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
 					const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-					complex_t<scalar_t> lo = ternaryOp(oddThread, otherThreadLoOrHi, loOrHi);
-					complex_t<scalar_t> hi = ternaryOp(oddThread, loOrHi, otherThreadLoOrHi);
+					complex_t<scalar_t> lo = nbl::hlsl::select(oddThread, otherThreadLoOrHi, loOrHi);
+					complex_t<scalar_t> hi = nbl::hlsl::select(oddThread, loOrHi, otherThreadLoOrHi);
 					fft::unpack<scalar_t>(lo, hi);
-					preloaded[channel][localElementIndex] = ternaryOp(oddThread, hi, lo);
+					preloaded[channel][localElementIndex] = nbl::hlsl::select(oddThread, hi, lo);
 
 					packedColumnIndex += WorkgroupSize / 2;
 				}
@@ -113,7 +110,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 					// Odd thread writes `hi = Z1 + iN1`
 					const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-					preloaded[channel][localElementIndex] = ternaryOp(oddThread, oddThreadHi, evenThreadLo);
+					preloaded[channel][localElementIndex] = nbl::hlsl::select(oddThread, oddThreadHi, evenThreadLo);
 
 					packedColumnIndex += WorkgroupSize / 2;
 				}
@@ -133,7 +130,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = bitReverseAs<uint32_t>(glsl::gl_WorkGroupID().x, NumWorkgroupsLog2);
 			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
@@ -201,6 +198,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 };
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;

@@ -12,3 +12,4 @@ compiled.spv
 *.pyc
 */.vscode/*
 */__main__.py
+/tmp/rtSamples.bin

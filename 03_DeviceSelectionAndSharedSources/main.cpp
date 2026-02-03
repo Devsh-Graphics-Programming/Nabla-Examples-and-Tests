@@ -2,15 +2,20 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "CommonPCH/PCH.hpp"
+
+#include "nbl/examples/examples.hpp"
+// TODO: why isn't this in `nabla.h` ?
+#include "nbl/asset/metadata/CHLSLMetadata.h"
+
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 // TODO[Przemek]: update comments
 
@@ -21,10 +26,10 @@ using namespace video;
 constexpr bool ENABLE_TESTS = false;
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
-class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -60,9 +65,9 @@ public:
 		//shaderIntrospection->debugPrint(m_logger.get());
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
-		ICPUShader::SSpecInfo specInfo;
+		ICPUPipelineBase::SShaderSpecInfo specInfo;
 		specInfo.entryPoint = "main";
-		specInfo.shader = source.get();
+		specInfo.shader = source;
 
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 
@@ -236,7 +241,7 @@ public:
 	// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
 	bool keepRunning() override { return false; }
 
-	std::pair<smart_refctd_ptr<ICPUShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileShaderAndTestIntrospection(
+	std::pair<smart_refctd_ptr<IShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileShaderAndTestIntrospection(
 		const std::string& shaderPath, CSPIRVIntrospector& introspector)
 	{
 		IAssetLoader::SAssetLoadParams lp = {};
@@ -245,15 +250,19 @@ public:
 		// this time we load a shader directly from a file
 		auto assetBundle = m_assetMgr->getAsset(shaderPath, lp);
 		const auto assets = assetBundle.getContents();
-		if (assets.empty())
+		if (assets.empty() || assetBundle.getAssetType() != IAsset::ET_SHADER)
 		{
 			logFail("Could not load shader!");
 			assert(0);
 		}
 
+		const auto* metadata = assetBundle.getMetadata();
+		const auto hlslMetadata = static_cast<const CHLSLMetadata*>(metadata);
+		const auto shaderStage = hlslMetadata->shaderStages->front();
+
 		// It would be super weird if loading a shader from a file produced more than 1 asset
 		assert(assets.size() == 1);
-		smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+		smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 		
 		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
@@ -265,8 +274,8 @@ public:
 			// The Shader Asset Loaders deduce the stage from the file extension,
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 			// But it can still be overriden from within the source with a `#pragma shader_stage` 
-			options.stage = source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE ? source->getStage() : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
-			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+			options.stage = shaderStage == IShader::E_SHADER_STAGE::ESS_COMPUTE ? shaderStage : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
+			options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -277,7 +286,7 @@ public:
 			options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
 
 			auto spirvUnspecialized = compilerSet->compileToSPIRV(source.get(), options);
-			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized };
+			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized, .stage = shaderStage };
 
 			introspection = introspector.introspect(inspctParams);
 			introspection->debugPrint(m_logger.get());

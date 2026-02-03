@@ -1,4 +1,8 @@
 #version 430 core
+#extension GL_EXT_shader_integer_mix : require
+
+#define NBL_GLSL_RWMC_LUMA_DEFINED
+#define NBL_GLSL_RWMC_SAMPLE_CASCADE_TEXEL_DEFINED
 #include "raytraceCommon.h"
 layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
 
@@ -9,47 +13,90 @@ layout(set = 0, binding = 0, row_major) uniform StaticViewData
 layout(set = 0, binding = 1) uniform usampler2DArray colorSamples;
 layout(set = 0, binding = 2) uniform sampler2DArray albedoSamples;
 layout(set = 0, binding = 3) uniform usampler2DArray normalSamples;
-layout(set = 0, binding = 4, rgba16f) restrict uniform image2D framebuffer;
-layout(set = 0, binding = 5, r32ui) restrict uniform uimage2D albedo;
-layout(set = 0, binding = 6, rgba16f) restrict uniform image2D normals;
+layout(set = 0, binding = 4) uniform sampler2DArray maskSamples;
+layout(set = 0, binding = 5, rgba16f) restrict uniform image2D framebuffer;
+layout(set = 0, binding = 6, r32ui) restrict uniform uimage2D albedo;
+layout(set = 0, binding = 7, rgba16f) restrict uniform image2D normals;
 
 layout(push_constant, row_major) uniform PushConstants
 {
 	mat4x3 viewMatrix;
+	nbl_glsl_RWMC_ReweightingParameters rwmcReweightingParams;
 } pc;
 
 #include <nbl/builtin/glsl/format/decode.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
-vec3 fetchAccumulation(in uvec2 coord, in uint subsample)
+vec3 fetchAccumulation(in uvec3 coord)
 {
-	const uvec2 data = texelFetch(colorSamples,ivec3(coord,subsample),0).rg;
+	const uvec2 data = texelFetch(colorSamples,ivec3(coord),0).rg;
 	return nbl_glsl_decodeRGB19E7(data);
+}
+
+
+#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
+float nbl_glsl_RWMC_luma(in vec3 val)
+{
+	return dot(val,transpose(nbl_glsl_sRGBtoXYZ)[1]);
+}
+
+
+uint samplesPerPixelPerDispatch;
+
+
+vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint cascadeIndex)
+{
+	coord += offset;
+	// weird mirror-like wraps but not quite exactly
+	coord = mix(coord,-coord,greaterThan(ivec2(0,0),coord));
+	const ivec2 imgSz = ivec2(getImageDimensions(staticViewData));
+	coord = mix(imgSz*2-ivec2(1),coord,lessThan(coord,imgSz));
+
+	uvec3 sampleCoord = uvec3(coord,cascadeIndex*samplesPerPixelPerDispatch+samplesPerPixelPerDispatch);
+	vec3 value = fetchAccumulation(sampleCoord);
+	for (uint i=1u; i<samplesPerPixelPerDispatch; i++)
+	{
+		sampleCoord.z++;
+		value += fetchAccumulation(sampleCoord);
+	}
+	return value/float(samplesPerPixelPerDispatch);
+}
+
+bool isRWMCEnabled()
+{
+	return staticViewData.cascadeParams.penultimateCascadeIx!=uint(-2);
 }
 
 void main()
 {
 	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
-	if (all(lessThan(pixelCoord,staticViewData.imageDimensions)))
+	if (all(lessThan(pixelCoord,getImageDimensions(staticViewData))))
 	{
-		vec3 acc = fetchAccumulation(gl_GlobalInvocationID.xy,0u);
+		samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
+
+		vec3 acc;
+		if (isRWMCEnabled())
+			acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
+		else // its a pretty ok function, reusing it
+			acc = nbl_glsl_RWMC_sampleCascadeTexel(pixelCoord,ivec2(0,0),-1);
+
 		vec3 alb = texelFetch(albedoSamples,ivec3(pixelCoord,0),0).rgb;
 		vec3 nml = nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,0),0).r).xyz;
+		float msk = texelFetch(maskSamples,ivec3(pixelCoord,0),0).r;
 
-		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		for (uint i=1u; i<samplesPerPixelPerDispatch; i++)
 		{
-			acc += fetchAccumulation(gl_GlobalInvocationID.xy,i);
 			alb += texelFetch(albedoSamples,ivec3(pixelCoord,i),0).rgb;
 			nml += nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,i),0).r).xyz;
+			msk += texelFetch(maskSamples,ivec3(pixelCoord,i),0).r;
 		}
-		acc /= float(samplesPerPixelPerDispatch);
 		alb /= float(samplesPerPixelPerDispatch);
 		nml /= float(samplesPerPixelPerDispatch);
+		msk /= float(samplesPerPixelPerDispatch);
 
 		// transform normal
 		nml = mat3(pc.viewMatrix)*nml;
 
-		imageStore(framebuffer,pixelCoord,vec4(acc,1.f));
+		imageStore(framebuffer,pixelCoord,vec4(acc,1.f-msk));
 		imageStore(albedo,pixelCoord,uvec4(nbl_glsl_encodeRGB10A2_UNORM(vec4(alb,1.0)),0u,0u,0u));
 		imageStore(normals,pixelCoord,vec4(nml,1.f));
 	}

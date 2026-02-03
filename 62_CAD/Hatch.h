@@ -76,6 +76,8 @@ public:
 		bool isStraightLineConstantMajor() const;
 	};
 
+	Hatch() = default;
+
 	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, nbl::system::logger_opt_smart_ptr logger = nullptr, int32_t* debugStep = nullptr, const std::function<void(CPolyline, LineStyleInfo)>& debugOutput = {});
 	
 	// (temporary)
@@ -91,6 +93,6 @@ public:
 	static core::smart_refctd_ptr<asset::ICPUImage> generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents);
 
 private:
-	std::vector<CurveHatchBox> hatchBoxes;
+	std::vector<CurveHatchBox> hatchBoxes = {};
 };
 

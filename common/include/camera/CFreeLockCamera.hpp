@@ -6,7 +6,6 @@
 #define _C_FREE_CAMERA_HPP_
 
 #include "ICamera.hpp"
-#include <glm/gtx/euler_angles.hpp>
 
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"

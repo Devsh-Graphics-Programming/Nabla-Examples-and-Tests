@@ -1,8 +1,8 @@
 #ifndef _NBL_HLSL_SCHEDULERS_MPMC_HLSL_
 #define _NBL_HLSL_SCHEDULERS_MPMC_HLSL_
 
-//#include "../workgroup/stack.hlsl"
-//#include "mpmc_queue.hlsl"
+//#include "app_resources/workgroup/stack.hlsl"
+//#include "app_resources/mpmc_queue.hlsl"
 
 #include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"

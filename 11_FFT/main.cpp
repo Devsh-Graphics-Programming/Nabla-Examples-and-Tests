@@ -2,18 +2,18 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
-// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
-
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
@@ -21,10 +21,10 @@ using namespace video;
 
 
 // Simple showcase of how to run FFT on a 1D array
-class FFT_Test final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFT_Test final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
 
@@ -46,15 +46,6 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
 
-	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
-		const char* includeMainName)
-	{
-		std::string prelude = "#include \"";
-		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>((prelude + includeMainName + "\"\n").c_str(), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
-		assert(CPUShader);
-		return m_device->createShader(CPUShader.get());
-	}
-
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -69,34 +60,29 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// this time we load a shader directly from a file
-		smart_refctd_ptr<IGPUShader> shader;
-		/* {
+		smart_refctd_ptr<IShader> shader;
+		{
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
-			lp.workingDirectory = ""; // virtual root
-			auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
+			lp.workingDirectory = "app_resources"; // virtual root
+			auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 			const auto assets = assetBundle.getContents();
 			if (assets.empty())
 				return logFail("Could not load shader!");
 
 			// Cast down the asset to its proper type
-			auto source = IAsset::castDown<ICPUShader>(assets[0]);
-			// The down-cast should not fail!
-			assert(source);
-
-			// Compile directly to IGPUShader
-			shader = m_device->createShader(source.get());
+			shader = IAsset::castDown<IShader>(assets[0]);
+			
 			if (!shader)
-				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
-		}*/
-		shader = createShader("app_resources/shader.comp.hlsl");
+				return logFail("Invalid shader!");
+		}
 
 		// Create massive upload/download buffers
 		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
 		constexpr uint32_t UpstreamBufferSize = sizeof(scalar_t) << 23;
 
-		m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
+		m_utils = IUtilities::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
 		if (!m_utils)
 			return logFail("Failed to create Utilities!");
 		m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
@@ -132,8 +118,9 @@ public:
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
-			params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
-			params.shader.requireFullSubgroups = true;
+			params.shader.entryPoint = "main";
+			params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
+			params.cached.requireFullSubgroups = true;
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
 				return logFail("Failed to create compute pipeline!\n");
 		}
