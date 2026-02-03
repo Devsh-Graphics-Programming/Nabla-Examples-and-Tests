@@ -16,7 +16,9 @@ using PtrAccessor = BdaAccessor < uint32_t >;
 
 [[vk::push_constant]] AutoexposurePushData pushData;
 
-groupshared uint32_t sdata[WorkgroupSize];
+#define BIN_COUNT 1024
+
+groupshared uint32_t sdata[BIN_COUNT];
 struct SharedAccessor
 {
     using type = uint32_t;
@@ -43,7 +45,7 @@ struct SharedAccessor
 struct TexAccessor
 {
     static float32_t3 toXYZ(float32_t3 srgbColor) {
-        return mul(colorspace::sRGBtoXYZ, srgbColor);
+        return dot(colorspace::sRGBtoXYZ[1], srgbColor);
     }
 
     float32_t3 get(float32_t2 uv) {
@@ -66,7 +68,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = luma_meter::median_meter< WorkgroupSize, 8000, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::median_meter< WorkgroupSize, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMinMax);
 
     meter.sampleLuma(pushData.window, histo_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()), pushData.viewportSize);

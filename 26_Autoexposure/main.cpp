@@ -41,7 +41,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
 	constexpr static inline uint32_t BinCount = 8000;	// TODO: it's 8000 here why? gonna set it to workgroup size (1024) for now
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
