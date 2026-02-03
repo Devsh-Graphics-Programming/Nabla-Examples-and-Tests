@@ -33,6 +33,50 @@ if(NBL_BUILD_IMGUI)
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 	endif()
 
+	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+
+	set(JSON [=[
+[
+	{
+		"INPUT": "app_resources/imgui_vertex.hlsl",
+		"KEY": "imgui_vertex",
+		"COMPILE_OPTIONS": ["-T", "vs_6_7", "-E", "VSMain", "-O3"]
+	},
+	{
+		"INPUT": "app_resources/imgui_fragment.hlsl",
+		"KEY": "imgui_fragment",
+		"COMPILE_OPTIONS": ["-T", "ps_6_7", "-E", "PSMain", "-O3"]
+	}
+]
+]=])
+	string(CONFIGURE "${JSON}" JSON)
+
+	set(COMPILE_OPTIONS
+		-I "${CMAKE_CURRENT_SOURCE_DIR}"
+		-I "${NBL_ROOT_PATH}/include"
+		-I "${NBL_ROOT_PATH}/include/nbl/ext/ImGui/builtin/hlsl"
+	)
+
+	NBL_CREATE_NSC_COMPILE_RULES(
+		TARGET ${EXECUTABLE_NAME}SPIRV
+		LINK_TO ${EXECUTABLE_NAME}
+		BINARY_DIR ${OUTPUT_DIRECTORY}
+		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+		COMMON_OPTIONS ${COMPILE_OPTIONS}
+		OUTPUT_VAR KEYS
+		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+		NAMESPACE nbl::this_example::builtin::build
+		INPUTS ${JSON}
+	)
+
+	NBL_CREATE_RESOURCE_ARCHIVE(
+		NAMESPACE nbl::this_example::builtin::build
+		TARGET ${EXECUTABLE_NAME}_builtinsBuild
+		LINK_TO ${EXECUTABLE_NAME}
+		BIND ${OUTPUT_DIRECTORY}
+		BUILTINS ${KEYS}
+	)
+
 	add_dependencies(${EXECUTABLE_NAME} argparse)
 	target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 endif()

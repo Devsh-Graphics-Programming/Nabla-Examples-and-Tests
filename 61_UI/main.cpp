@@ -11,6 +11,7 @@ using json = nlohmann::json;
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #if __has_include("nbl/this_example/builtin/CArchive.h")
 #include "nbl/this_example/builtin/CArchive.h"
 #endif
@@ -882,6 +883,30 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					params.subpassIx = 0u;
 					params.transfer = getTransferUpQueue();
 					params.utilities = m_utils;
+
+					auto loadPrecompiledShader = [&](const std::string_view key) -> smart_refctd_ptr<IShader>
+					{
+						IAssetLoader::SAssetLoadParams loadParams = {};
+						loadParams.logger = m_logger.get();
+						loadParams.workingDirectory = "app_resources";
+						auto bundle = m_assetManager->getAsset(key.data(), loadParams);
+						const auto& contents = bundle.getContents();
+						if (contents.empty())
+							return nullptr;
+						return IAsset::castDown<IShader>(contents[0]);
+					};
+
+					const auto vertexKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_vertex">(m_device.get());
+					const auto fragmentKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_fragment">(m_device.get());
+					auto vertexShader = loadPrecompiledShader(vertexKey.data());
+					auto fragmentShader = loadPrecompiledShader(fragmentKey.data());
+					if (!vertexShader || !fragmentShader)
+						return logFail("Failed to load precompiled ImGui shaders.");
+
+					params.spirv = nbl::ext::imgui::UI::SCreationParameters::PrecompiledShaders{
+						.vertex = std::move(vertexShader),
+						.fragment = std::move(fragmentShader)
+					};
 
 					m_ui.manager = nbl::ext::imgui::UI::create(std::move(params));
 				}
