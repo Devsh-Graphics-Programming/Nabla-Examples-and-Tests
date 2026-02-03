@@ -32,12 +32,12 @@ struct AutoexposurePushData
 
 #ifdef __HLSL_VERSION
 
-#ifndef WorkgroupSize
-#error "Define WorkgroupSize!"
+#ifndef WORKGROUP_SIZE
+#error "Define WORKGROUP_SIZE!"
 #endif
 
-#ifndef DeviceSubgroupSize
-#error "Define DeviceSubgroupSize!"
+#ifndef SUBGROUP_SIZE
+#error "Define SUBGROUP_SIZE!"
 #endif
 
 #endif

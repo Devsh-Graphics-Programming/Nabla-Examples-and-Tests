@@ -322,8 +322,8 @@ public:
 					std::string definition;
 				};
 				const MacroDefines definesBuf[2] = {
-					{ "WorkgroupSize", std::to_string(workgroupSize) },
-					{ "DeviceSubgroupSize", std::to_string(subgroupSize) }
+					{ "WORKGROUP_SIZE", std::to_string(workgroupSize) },
+					{ "SUBGROUP_SIZE", std::to_string(subgroupSize) }
 				};
 
 				std::vector<IShaderCompiler::SMacroDefinition> defines;

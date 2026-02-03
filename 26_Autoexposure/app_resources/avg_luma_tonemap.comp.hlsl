@@ -21,7 +21,7 @@ using PtrAccessor = BdaAccessor < uint32_t >;
 
 [[vk::push_constant]] AutoexposurePushData pushData;
 
-groupshared float32_t sdata[WorkgroupSize];
+groupshared float32_t sdata[WORKGROUP_SIZE];
 struct SharedAccessor
 {
     using type = float32_t;
@@ -54,10 +54,10 @@ struct TexAccessor
 
 uint32_t3 glsl::gl_WorkGroupSize()
 {
-    return uint32_t3(DeviceSubgroupSize, DeviceSubgroupSize, 1);
+    return uint32_t3(SUBGROUP_SIZE, SUBGROUP_SIZE, 1);
 }
 
-[numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]
+[numthreads(SUBGROUP_SIZE, SUBGROUP_SIZE, 1)]
 [shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
@@ -67,7 +67,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::geom_meter< WORKGROUP_SIZE, SUBGROUP_SIZE, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.sampleCount, pushData.rcpFirstPassWGCount);
 
     float32_t EV = meter.gatherLuma(val_accessor);

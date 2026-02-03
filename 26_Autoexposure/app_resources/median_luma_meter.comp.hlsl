@@ -55,10 +55,10 @@ struct TexAccessor
 
 uint32_t3 glsl::gl_WorkGroupSize()
 {
-    return uint32_t3(DeviceSubgroupSize, DeviceSubgroupSize, 1);
+    return uint32_t3(SUBGROUP_SIZE, SUBGROUP_SIZE, 1);
 }
 
-[numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]
+[numthreads(SUBGROUP_SIZE, SUBGROUP_SIZE, 1)]
 [shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
@@ -68,7 +68,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = luma_meter::median_meter< WorkgroupSize, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::median_meter< WORKGROUP_SIZE, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.lowerBoundPercentile, pushData.upperBoundPercentile);
 
     uint32_t texWidth, texHeight;
