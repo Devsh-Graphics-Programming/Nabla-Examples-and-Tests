@@ -285,7 +285,7 @@ namespace nbl::hlsl
 
         inline void transform(const CReferenceTransform& reference, const VirtualImpulse& impulse)
         {
-            setOrientation(reference.orientation * glm::quat(glm::radians(impulse.dVirtualRotation)));
+            setOrientation(reference.orientation * glm::quat(impulse.dVirtualRotation));
             setPosition(mul(float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
         }
 

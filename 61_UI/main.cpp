@@ -2,6 +2,10 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <utility>
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
 using json = nlohmann::json;
@@ -331,6 +335,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.help("Run in CI mode: capture a screenshot after a few frames and exit.")
 				.default_value(false)
 				.implicit_value(true);
+			program.add_argument<std::string>("--script")
+				.help("Path to json file with scripted input events");
+			program.add_argument("--script-log")
+				.help("Log scripted input and virtual events.")
+				.default_value(false)
+				.implicit_value(true);
 
 			try
 			{
@@ -345,6 +355,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_ciMode = program.get<bool>("--ci");
 			if (m_ciMode)
 				m_ciScreenshotPath = localOutputCWD / "cameraz_ci.png";
+			m_scriptedInput.log = program.get<bool>("--script-log");
 
 			// Create imput system
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -427,6 +438,395 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				else
 				{
 					file >> j;
+				}
+
+				auto loadScriptJson = [&](const std::string& path, json& out) -> bool
+				{
+					std::ifstream sfile(path);
+					if (!sfile.is_open())
+					{
+						m_logger->log("Cannot open scripted input file \"%s\".", ILogger::ELL_ERROR, path.c_str());
+						return false;
+					}
+					sfile >> out;
+					return true;
+				};
+
+				auto parseScriptedInput = [&](const json& script) -> void
+				{
+					m_scriptedInput.events.clear();
+					m_scriptedInput.checks.clear();
+					m_scriptedInput.nextEventIndex = 0;
+					m_scriptedInput.nextCheckIndex = 0;
+					m_scriptedInput.failed = false;
+					m_scriptedInput.summaryReported = false;
+					m_scriptedInput.baselineValid = false;
+					m_scriptedInput.exclusive = false;
+					m_scriptedInput.hardFail = false;
+
+					if (script.contains("enabled"))
+						m_scriptedInput.enabled = script["enabled"].get<bool>();
+					else
+						m_scriptedInput.enabled = true;
+
+					if (script.contains("log"))
+						m_scriptedInput.log = script["log"].get<bool>() || m_scriptedInput.log;
+
+					if (script.contains("hard_fail"))
+						m_scriptedInput.hardFail = script["hard_fail"].get<bool>();
+
+					if (script.contains("enableActiveCameraMovement"))
+						enableActiveCameraMovement = script["enableActiveCameraMovement"].get<bool>();
+					else if (m_scriptedInput.enabled)
+						enableActiveCameraMovement = true;
+
+					if (script.contains("exclusive_input"))
+						m_scriptedInput.exclusive = script["exclusive_input"].get<bool>() || m_scriptedInput.exclusive;
+					if (script.contains("exclusive"))
+						m_scriptedInput.exclusive = script["exclusive"].get<bool>() || m_scriptedInput.exclusive;
+
+					if (script.contains("events"))
+						for (const auto& ev : script["events"])
+						{
+						if (!ev.contains("frame") || !ev.contains("type"))
+						{
+							m_logger->log("Scripted input event missing \"frame\" or \"type\".", ILogger::ELL_WARNING);
+							continue;
+						}
+
+						const auto frame = ev["frame"].get<uint64_t>();
+						const auto type = ev["type"].get<std::string>();
+
+						if (type == "keyboard")
+						{
+							if (!ev.contains("key") || !ev.contains("action"))
+							{
+								m_logger->log("Scripted keyboard event missing \"key\" or \"action\".", ILogger::ELL_WARNING);
+								continue;
+							}
+
+							const auto keyStr = ev["key"].get<std::string>();
+							const auto actionStr = ev["action"].get<std::string>();
+							const auto key = ui::stringToKeyCode(keyStr);
+							if (key == ui::EKC_NONE)
+							{
+								m_logger->log("Scripted keyboard event has invalid key \"%s\".", ILogger::ELL_WARNING, keyStr.c_str());
+								continue;
+							}
+
+							ui::SKeyboardEvent::E_KEY_ACTION action = ui::SKeyboardEvent::ECA_UNITIALIZED;
+							if (actionStr == "pressed" || actionStr == "press")
+								action = ui::SKeyboardEvent::ECA_PRESSED;
+							else if (actionStr == "released" || actionStr == "release")
+								action = ui::SKeyboardEvent::ECA_RELEASED;
+
+							if (action == ui::SKeyboardEvent::ECA_UNITIALIZED)
+							{
+								m_logger->log("Scripted keyboard event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
+								continue;
+							}
+
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Keyboard;
+							entry.keyboard.key = key;
+							entry.keyboard.action = action;
+							m_scriptedInput.events.emplace_back(entry);
+						}
+						else if (type == "mouse")
+						{
+							if (!ev.contains("kind"))
+							{
+								m_logger->log("Scripted mouse event missing \"kind\".", ILogger::ELL_WARNING);
+								continue;
+							}
+
+							const auto kind = ev["kind"].get<std::string>();
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Mouse;
+
+							if (kind == "move")
+							{
+								entry.mouse.type = ui::SMouseEvent::EET_MOVEMENT;
+								entry.mouse.dx = ev.value("dx", 0);
+								entry.mouse.dy = ev.value("dy", 0);
+							}
+							else if (kind == "scroll")
+							{
+								entry.mouse.type = ui::SMouseEvent::EET_SCROLL;
+								entry.mouse.v = ev.value("v", 0);
+								entry.mouse.h = ev.value("h", 0);
+							}
+							else if (kind == "click")
+							{
+								if (!ev.contains("button") || !ev.contains("action"))
+								{
+									m_logger->log("Scripted click event missing \"button\" or \"action\".", ILogger::ELL_WARNING);
+									continue;
+								}
+
+								const auto buttonStr = ev["button"].get<std::string>();
+								const auto actionStr = ev["action"].get<std::string>();
+
+								ui::E_MOUSE_BUTTON button = ui::EMB_LEFT_BUTTON;
+								if (buttonStr == "LEFT_BUTTON") button = ui::EMB_LEFT_BUTTON;
+								else if (buttonStr == "RIGHT_BUTTON") button = ui::EMB_RIGHT_BUTTON;
+								else if (buttonStr == "MIDDLE_BUTTON") button = ui::EMB_MIDDLE_BUTTON;
+								else if (buttonStr == "BUTTON_4") button = ui::EMB_BUTTON_4;
+								else if (buttonStr == "BUTTON_5") button = ui::EMB_BUTTON_5;
+								else
+								{
+									m_logger->log("Scripted click event has invalid button \"%s\".", ILogger::ELL_WARNING, buttonStr.c_str());
+									continue;
+								}
+
+								ui::SMouseEvent::SClickEvent::E_ACTION action = ui::SMouseEvent::SClickEvent::EA_UNITIALIZED;
+								if (actionStr == "pressed" || actionStr == "press")
+									action = ui::SMouseEvent::SClickEvent::EA_PRESSED;
+								else if (actionStr == "released" || actionStr == "release")
+									action = ui::SMouseEvent::SClickEvent::EA_RELEASED;
+
+								if (action == ui::SMouseEvent::SClickEvent::EA_UNITIALIZED)
+								{
+									m_logger->log("Scripted click event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
+									continue;
+								}
+
+								entry.mouse.type = ui::SMouseEvent::EET_CLICK;
+								entry.mouse.button = button;
+								entry.mouse.action = action;
+								entry.mouse.x = ev.value("x", 0);
+								entry.mouse.y = ev.value("y", 0);
+							}
+							else
+							{
+								m_logger->log("Scripted mouse event has invalid kind \"%s\".", ILogger::ELL_WARNING, kind.c_str());
+								continue;
+							}
+
+							m_scriptedInput.events.emplace_back(entry);
+						}
+						else if (type == "imguizmo")
+						{
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Imguizmo;
+
+							if (ev.contains("delta_trs"))
+							{
+								const auto arr = ev["delta_trs"].get<std::array<float, 16>>();
+								float m16[16];
+								for (size_t i = 0u; i < 16u; ++i)
+									m16[i] = arr[i];
+								entry.imguizmo = *reinterpret_cast<float32_t4x4*>(m16);
+							}
+							else
+							{
+								const auto t = ev.contains("translation") ? ev["translation"].get<std::array<float, 3>>() : std::array<float, 3>{0.f, 0.f, 0.f};
+								const auto r = ev.contains("rotation_deg") ? ev["rotation_deg"].get<std::array<float, 3>>() : std::array<float, 3>{0.f, 0.f, 0.f};
+								const auto s = ev.contains("scale") ? ev["scale"].get<std::array<float, 3>>() : std::array<float, 3>{1.f, 1.f, 1.f};
+
+								float m16[16];
+								float tr[3] = { t[0], t[1], t[2] };
+								float rot[3] = { r[0], r[1], r[2] };
+								float sc[3] = { s[0], s[1], s[2] };
+
+								ImGuizmo::RecomposeMatrixFromComponents(tr, rot, sc, m16);
+								entry.imguizmo = *reinterpret_cast<float32_t4x4*>(m16);
+							}
+
+							m_scriptedInput.events.emplace_back(entry);
+						}
+						else if (type == "action")
+						{
+							if (!ev.contains("action"))
+							{
+								m_logger->log("Scripted action event missing \"action\".", ILogger::ELL_WARNING);
+								continue;
+							}
+
+							const auto actionStr = ev["action"].get<std::string>();
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Action;
+
+							auto getValueInt = [&]() -> int32_t
+							{
+								if (ev.contains("value"))
+									return ev["value"].get<int32_t>();
+								if (ev.contains("index"))
+									return ev["index"].get<int32_t>();
+								return 0;
+							};
+
+							if (actionStr == "set_active_render_window")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow;
+								entry.action.value = getValueInt();
+							}
+							else if (actionStr == "set_active_planar")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetActivePlanar;
+								entry.action.value = getValueInt();
+							}
+							else if (actionStr == "set_projection_type")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetProjectionType;
+								if (ev.contains("value") && ev["value"].is_string())
+								{
+									const auto valueStr = ev["value"].get<std::string>();
+									if (valueStr == "perspective")
+										entry.action.value = static_cast<int32_t>(IPlanarProjection::CProjection::Perspective);
+									else if (valueStr == "orthographic")
+										entry.action.value = static_cast<int32_t>(IPlanarProjection::CProjection::Orthographic);
+									else
+									{
+										m_logger->log("Scripted action projection type has invalid value \"%s\".", ILogger::ELL_WARNING, valueStr.c_str());
+										continue;
+									}
+								}
+								else
+								{
+									entry.action.value = getValueInt();
+								}
+							}
+							else if (actionStr == "set_projection_index")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetProjectionIndex;
+								entry.action.value = getValueInt();
+							}
+							else if (actionStr == "set_use_window")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetUseWindow;
+								entry.action.value = ev.value("value", false) ? 1 : 0;
+							}
+							else if (actionStr == "set_left_handed")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetLeftHanded;
+								entry.action.value = ev.value("value", false) ? 1 : 0;
+							}
+							else
+							{
+								m_logger->log("Scripted action event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
+								continue;
+							}
+
+							m_scriptedInput.events.emplace_back(entry);
+						}
+						else
+						{
+							m_logger->log("Scripted input event has invalid type \"%s\".", ILogger::ELL_WARNING, type.c_str());
+						}
+						}
+
+					if (script.contains("checks"))
+					{
+						for (const auto& chk : script["checks"])
+						{
+							if (!chk.contains("frame") || !chk.contains("kind"))
+							{
+								m_logger->log("Scripted check missing \"frame\" or \"kind\".", ILogger::ELL_WARNING);
+								continue;
+							}
+
+							const auto frame = chk["frame"].get<uint64_t>();
+							const auto kind = chk["kind"].get<std::string>();
+
+							ScriptedInputCheck entry;
+							entry.frame = frame;
+
+							if (kind == "baseline")
+							{
+								entry.kind = ScriptedInputCheck::Kind::Baseline;
+							}
+							else if (kind == "imguizmo_virtual")
+							{
+								entry.kind = ScriptedInputCheck::Kind::ImguizmoVirtual;
+								entry.tolerance = chk.value("tolerance", entry.tolerance);
+
+								if (!chk.contains("events"))
+								{
+									m_logger->log("Imguizmo virtual check missing \"events\".", ILogger::ELL_WARNING);
+									continue;
+								}
+
+								for (const auto& ev : chk["events"])
+								{
+									if (!ev.contains("type") || !ev.contains("magnitude"))
+									{
+										m_logger->log("Imguizmo virtual check event missing \"type\" or \"magnitude\".", ILogger::ELL_WARNING);
+										continue;
+									}
+
+									const auto typeStr = ev["type"].get<std::string>();
+									const auto type = CVirtualGimbalEvent::stringToVirtualEvent(typeStr);
+									if (type == CVirtualGimbalEvent::None)
+									{
+										m_logger->log("Imguizmo virtual check event has invalid type \"%s\".", ILogger::ELL_WARNING, typeStr.c_str());
+										continue;
+									}
+
+									ScriptedInputCheck::ExpectedVirtualEvent expected;
+									expected.type = type;
+									expected.magnitude = ev["magnitude"].get<double>();
+									entry.expectedVirtualEvents.emplace_back(expected);
+								}
+							}
+							else if (kind == "gimbal_near")
+							{
+								entry.kind = ScriptedInputCheck::Kind::GimbalNear;
+								entry.posTolerance = chk.value("pos_tolerance", entry.posTolerance);
+								entry.eulerToleranceDeg = chk.value("euler_tolerance_deg", entry.eulerToleranceDeg);
+
+								if (chk.contains("position"))
+								{
+									const auto pos = chk["position"].get<std::array<float, 3>>();
+									entry.expectedPos = float32_t3(pos[0], pos[1], pos[2]);
+									entry.hasExpectedPos = true;
+								}
+								if (chk.contains("euler_deg"))
+								{
+									const auto euler = chk["euler_deg"].get<std::array<float, 3>>();
+									entry.expectedEulerDeg = float32_t3(euler[0], euler[1], euler[2]);
+									entry.hasExpectedEuler = true;
+								}
+							}
+							else if (kind == "gimbal_delta")
+							{
+								entry.kind = ScriptedInputCheck::Kind::GimbalDelta;
+								entry.posTolerance = chk.value("pos_tolerance", entry.posTolerance);
+								entry.eulerToleranceDeg = chk.value("euler_tolerance_deg", entry.eulerToleranceDeg);
+							}
+							else
+							{
+								m_logger->log("Scripted check has invalid kind \"%s\".", ILogger::ELL_WARNING, kind.c_str());
+								continue;
+							}
+
+							m_scriptedInput.checks.emplace_back(entry);
+						}
+					}
+
+					std::sort(m_scriptedInput.events.begin(), m_scriptedInput.events.end(),
+						[](const ScriptedInputEvent& a, const ScriptedInputEvent& b) { return a.frame < b.frame; });
+					std::sort(m_scriptedInput.checks.begin(), m_scriptedInput.checks.end(),
+						[](const ScriptedInputCheck& a, const ScriptedInputCheck& b) { return a.frame < b.frame; });
+				};
+
+				if (program.is_used("--script"))
+				{
+					system::path scriptPath = program.get<std::string>("--script");
+					if (scriptPath.is_relative())
+						scriptPath = localInputCWD / scriptPath;
+					json scriptJson;
+					if (!loadScriptJson(scriptPath.string(), scriptJson))
+						return false;
+					parseScriptedInput(scriptJson);
+				}
+				else if (j.contains("scripted_input"))
+				{
+					parseScriptedInput(j["scripted_input"]);
 				}
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
@@ -1180,6 +1580,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
 						m_renderer->render(cmdbuf, viewParams);
+
 					}
 					willSubmit &= cmdbuf->endRenderPass();
 				};
@@ -1407,6 +1808,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool keepRunning() override
 		{
+			if (m_scriptedInput.enabled && m_scriptedInput.hardFail && m_scriptedInput.failed)
+			{
+				if (!m_ciMode || m_ciScreenshotDone)
+					std::exit(EXIT_FAILURE);
+			}
 			if (m_ciMode && m_ciScreenshotDone)
 				return false;
 			if (m_surface->irrecoverable())
@@ -1457,6 +1863,169 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}, m_logger.get());
 			}
 
+			if (m_scriptedInput.enabled && m_scriptedInput.exclusive)
+			{
+				capturedEvents.mouse.clear();
+				capturedEvents.keyboard.clear();
+			}
+
+			std::vector<SMouseEvent> scriptedMouse;
+			std::vector<SKeyboardEvent> scriptedKeyboard;
+			std::vector<float32_t4x4> scriptedImguizmo;
+			std::vector<ScriptedInputEvent::ActionData> scriptedActions;
+			const CVirtualGimbalEvent* scriptedImguizmoVirtual = nullptr;
+			uint32_t scriptedImguizmoVirtualCount = 0u;
+
+			if (m_scriptedInput.enabled && m_scriptedInput.nextEventIndex < m_scriptedInput.events.size())
+			{
+				const auto frame = m_realFrameIx;
+				while (m_scriptedInput.nextEventIndex < m_scriptedInput.events.size() &&
+					m_scriptedInput.events[m_scriptedInput.nextEventIndex].frame == frame)
+				{
+					const auto& ev = m_scriptedInput.events[m_scriptedInput.nextEventIndex];
+
+					if (ev.type == ScriptedInputEvent::Type::Keyboard)
+					{
+						SKeyboardEvent e(m_nextPresentationTimestamp);
+						e.keyCode = ev.keyboard.key;
+						e.action = ev.keyboard.action;
+						e.window = m_window.get();
+						scriptedKeyboard.emplace_back(e);
+					}
+					else if (ev.type == ScriptedInputEvent::Type::Mouse)
+					{
+						SMouseEvent e(m_nextPresentationTimestamp);
+						e.window = m_window.get();
+						e.type = ev.mouse.type;
+						if (ev.mouse.type == ui::SMouseEvent::EET_CLICK)
+						{
+							e.clickEvent.mouseButton = ev.mouse.button;
+							e.clickEvent.action = ev.mouse.action;
+							e.clickEvent.clickPosX = ev.mouse.x;
+							e.clickEvent.clickPosY = ev.mouse.y;
+						}
+						else if (ev.mouse.type == ui::SMouseEvent::EET_SCROLL)
+						{
+							e.scrollEvent.verticalScroll = ev.mouse.v;
+							e.scrollEvent.horizontalScroll = ev.mouse.h;
+						}
+						else if (ev.mouse.type == ui::SMouseEvent::EET_MOVEMENT)
+						{
+							e.movementEvent.relativeMovementX = ev.mouse.dx;
+							e.movementEvent.relativeMovementY = ev.mouse.dy;
+						}
+						scriptedMouse.emplace_back(e);
+					}
+					else if (ev.type == ScriptedInputEvent::Type::Imguizmo)
+					{
+						scriptedImguizmo.emplace_back(ev.imguizmo);
+					}
+					else if (ev.type == ScriptedInputEvent::Type::Action)
+					{
+						scriptedActions.emplace_back(ev.action);
+					}
+
+					++m_scriptedInput.nextEventIndex;
+				}
+			}
+
+			if (m_scriptedInput.enabled && scriptedActions.size())
+			{
+				auto applyAction = [&](const ScriptedInputEvent::ActionData& action) -> void
+				{
+					switch (action.kind)
+					{
+						case ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow:
+						{
+							if (action.value < 0 || static_cast<size_t>(action.value) >= windowBindings.size())
+							{
+								m_logger->log("[script][warn] action set_active_render_window out of range: %d", ILogger::ELL_WARNING, action.value);
+								return;
+							}
+							activeRenderWindowIx = static_cast<uint32_t>(action.value);
+						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::SetActivePlanar:
+						{
+							if (action.value < 0 || static_cast<size_t>(action.value) >= m_planarProjections.size())
+							{
+								m_logger->log("[script][warn] action set_active_planar out of range: %d", ILogger::ELL_WARNING, action.value);
+								return;
+							}
+							auto& binding = windowBindings[activeRenderWindowIx];
+							binding.activePlanarIx = static_cast<uint32_t>(action.value);
+							binding.pickDefaultProjections(m_planarProjections[binding.activePlanarIx]->getPlanarProjections());
+						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::SetProjectionType:
+						{
+							auto& binding = windowBindings[activeRenderWindowIx];
+							if (!binding.lastBoundPerspectivePresetProjectionIx.has_value() || !binding.lastBoundOrthoPresetProjectionIx.has_value())
+								binding.pickDefaultProjections(m_planarProjections[binding.activePlanarIx]->getPlanarProjections());
+
+							const auto type = static_cast<IPlanarProjection::CProjection::ProjectionType>(action.value);
+							switch (type)
+							{
+								case IPlanarProjection::CProjection::Perspective:
+									binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
+									break;
+								case IPlanarProjection::CProjection::Orthographic:
+									binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
+									break;
+								default:
+									m_logger->log("[script][warn] action set_projection_type invalid value: %d", ILogger::ELL_WARNING, action.value);
+									break;
+							}
+						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::SetProjectionIndex:
+						{
+							auto& binding = windowBindings[activeRenderWindowIx];
+							auto& projections = m_planarProjections[binding.activePlanarIx]->getPlanarProjections();
+							if (action.value < 0 || static_cast<size_t>(action.value) >= projections.size())
+							{
+								m_logger->log("[script][warn] action set_projection_index out of range: %d", ILogger::ELL_WARNING, action.value);
+								return;
+							}
+							const auto ix = static_cast<uint32_t>(action.value);
+							const auto type = projections[ix].getParameters().m_type;
+							binding.boundProjectionIx = ix;
+							if (type == IPlanarProjection::CProjection::Perspective)
+								binding.lastBoundPerspectivePresetProjectionIx = ix;
+							else if (type == IPlanarProjection::CProjection::Orthographic)
+								binding.lastBoundOrthoPresetProjectionIx = ix;
+						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::SetUseWindow:
+						{
+							useWindow = action.value != 0;
+						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::SetLeftHanded:
+						{
+							auto& binding = windowBindings[activeRenderWindowIx];
+							binding.leftHandedProjection = action.value != 0;
+						} break;
+					}
+				};
+
+				for (const auto& action : scriptedActions)
+					if (action.kind == ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+						applyAction(action);
+
+				for (const auto& action : scriptedActions)
+					if (action.kind != ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+						applyAction(action);
+
+				if (m_scriptedInput.log)
+					m_logger->log("[script] frame %llu actions=%zu", ILogger::ELL_INFO, static_cast<unsigned long long>(m_realFrameIx), scriptedActions.size());
+			}
+
+			if (!scriptedMouse.empty())
+				capturedEvents.mouse.insert(capturedEvents.mouse.end(), scriptedMouse.begin(), scriptedMouse.end());
+			if (!scriptedKeyboard.empty())
+				capturedEvents.keyboard.insert(capturedEvents.keyboard.end(), scriptedKeyboard.begin(), scriptedKeyboard.end());
+
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
 			nbl::ext::imgui::UI::SUpdateParameters params =
@@ -1466,6 +2035,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.mouseEvents = { capturedEvents.mouse.data(), capturedEvents.mouse.size() },
 				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
+
+			if (m_scriptedInput.log && (scriptedKeyboard.size() || scriptedMouse.size() || scriptedImguizmo.size()))
+			{
+				m_logger->log("[script] frame %llu input kb=%zu mouse=%zu imguizmo=%zu", ILogger::ELL_INFO,
+					static_cast<unsigned long long>(m_realFrameIx),
+					scriptedKeyboard.size(),
+					scriptedMouse.size(),
+					scriptedImguizmo.size());
+			}
 
 			if (enableActiveCameraMovement)
 			{
@@ -1513,10 +2091,253 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				projection.endInputProcessing();
 
 				if (vCount)
+				{
 					camera->manipulate({ virtualEvents.data(), vCount });
+					if (m_scriptedInput.log)
+					{
+						for (uint32_t i = 0u; i < vCount; ++i)
+						{
+							const auto& ev = virtualEvents[i];
+							m_logger->log("[script] virtual %s magnitude=%.6f", ILogger::ELL_INFO, CVirtualGimbalEvent::virtualEventToString(ev.type).data(), ev.magnitude);
+						}
+
+						const auto& gimbal = camera->getGimbal();
+						const auto pos = gimbal.getPosition();
+						const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+						m_logger->log("[script] gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
+							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
+					}
+				}
+			}
+
+			if (m_scriptedInput.enabled && scriptedImguizmo.size())
+			{
+				auto& binding = windowBindings[activeRenderWindowIx];
+				auto& planar = m_planarProjections[binding.activePlanarIx];
+				auto* camera = planar->getCamera();
+
+				static std::vector<CVirtualGimbalEvent> imguizmoEvents(0x20);
+				uint32_t vCount = 0u;
+
+				camera->beginInputProcessing(m_nextPresentationTimestamp);
+				{
+					camera->processImguizmo(nullptr, vCount, {});
+					if (imguizmoEvents.size() < vCount)
+						imguizmoEvents.resize(vCount);
+
+					camera->processImguizmo(imguizmoEvents.data(), vCount, { scriptedImguizmo.data(), scriptedImguizmo.size() });
+				}
+				camera->endInputProcessing();
+
+				if (vCount)
+				{
+					camera->manipulate({ imguizmoEvents.data(), vCount });
+
+					if (m_scriptedInput.log)
+					{
+						for (uint32_t i = 0u; i < vCount; ++i)
+						{
+							const auto& ev = imguizmoEvents[i];
+							m_logger->log("[script] imguizmo virtual %s magnitude=%.6f", ILogger::ELL_INFO, CVirtualGimbalEvent::virtualEventToString(ev.type).data(), ev.magnitude);
+						}
+
+						const auto& gimbal = camera->getGimbal();
+						const auto pos = gimbal.getPosition();
+						const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+						m_logger->log("[script] imguizmo gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
+							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
+					}
+				}
+
+				scriptedImguizmoVirtual = vCount ? imguizmoEvents.data() : nullptr;
+				scriptedImguizmoVirtualCount = vCount;
+			}
+
+			if (m_scriptedInput.enabled && m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size())
+			{
+				auto* camera = [&]() -> ICamera*
+				{
+					if (m_planarProjections.empty())
+						return nullptr;
+					auto& binding = windowBindings[activeRenderWindowIx];
+					if (binding.activePlanarIx >= m_planarProjections.size())
+						return nullptr;
+					return m_planarProjections[binding.activePlanarIx]->getCamera();
+				}();
+
+				auto logFail = [&](const char* fmt, auto&&... args) -> void
+				{
+					m_scriptedInput.failed = true;
+					m_logger->log(fmt, ILogger::ELL_ERROR, std::forward<decltype(args)>(args)...);
+				};
+
+				auto logPass = [&](const char* fmt, auto&&... args) -> void
+				{
+					if (!m_scriptedInput.log)
+						return;
+					m_logger->log(fmt, ILogger::ELL_INFO, std::forward<decltype(args)>(args)...);
+				};
+
+				auto angleDiffDeg = [](float a, float b) -> float
+				{
+					float d = std::fmod(a - b + 180.0f, 360.0f);
+					if (d < 0.0f)
+						d += 360.0f;
+					return std::abs(d - 180.0f);
+				};
+
+				auto isFinite3 = [](const float32_t3& v) -> bool
+				{
+					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+				};
+
+				const auto frame = m_realFrameIx;
+				while (m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size() &&
+					m_scriptedInput.checks[m_scriptedInput.nextCheckIndex].frame == frame)
+				{
+					const auto& check = m_scriptedInput.checks[m_scriptedInput.nextCheckIndex];
+
+					if (!camera)
+					{
+						logFail("[script][fail] check frame=%llu no active camera", static_cast<unsigned long long>(frame));
+						++m_scriptedInput.nextCheckIndex;
+						continue;
+					}
+
+					const auto& gimbal = camera->getGimbal();
+					const auto pos = gimbal.getPosition();
+					const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+
+					if (!isFinite3(pos) || !isFinite3(euler))
+					{
+						logFail("[script][fail] check frame=%llu non-finite gimbal state", static_cast<unsigned long long>(frame));
+						++m_scriptedInput.nextCheckIndex;
+						continue;
+					}
+
+					if (check.kind == ScriptedInputCheck::Kind::Baseline)
+					{
+						m_scriptedInput.baselineValid = true;
+						m_scriptedInput.baselinePos = pos;
+						m_scriptedInput.baselineEulerDeg = euler;
+						logPass("[script][pass] baseline frame=%llu pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)",
+							static_cast<unsigned long long>(frame),
+							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
+					}
+					else if (check.kind == ScriptedInputCheck::Kind::ImguizmoVirtual)
+					{
+						bool ok = true;
+						if (!scriptedImguizmoVirtual || scriptedImguizmoVirtualCount == 0u)
+						{
+							ok = false;
+						}
+						else
+						{
+							for (const auto& expected : check.expectedVirtualEvents)
+							{
+								bool found = false;
+								double actual = 0.0;
+								for (uint32_t i = 0u; i < scriptedImguizmoVirtualCount; ++i)
+								{
+									if (scriptedImguizmoVirtual[i].type == expected.type)
+									{
+										found = true;
+										actual = scriptedImguizmoVirtual[i].magnitude;
+										break;
+									}
+								}
+								if (!found || std::abs(actual - expected.magnitude) > check.tolerance)
+								{
+									ok = false;
+									logFail("[script][fail] imguizmo_virtual frame=%llu type=%s expected=%.6f actual=%.6f tol=%.6f",
+										static_cast<unsigned long long>(frame),
+										CVirtualGimbalEvent::virtualEventToString(expected.type).data(),
+										expected.magnitude,
+										actual,
+										check.tolerance);
+								}
+							}
+						}
+
+						if (ok)
+							logPass("[script][pass] imguizmo_virtual frame=%llu events=%zu", static_cast<unsigned long long>(frame), check.expectedVirtualEvents.size());
+					}
+					else if (check.kind == ScriptedInputCheck::Kind::GimbalNear)
+					{
+						bool ok = true;
+						if (check.hasExpectedPos)
+						{
+							const auto diff = float32_t3(pos.x - check.expectedPos.x, pos.y - check.expectedPos.y, pos.z - check.expectedPos.z);
+							const auto d = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+							if (d > check.posTolerance)
+							{
+								ok = false;
+								logFail("[script][fail] gimbal_near frame=%llu pos_diff=%.6f tol=%.6f",
+									static_cast<unsigned long long>(frame), d, check.posTolerance);
+							}
+						}
+						if (check.hasExpectedEuler)
+						{
+							const auto dx = angleDiffDeg(euler.x, check.expectedEulerDeg.x);
+							const auto dy = angleDiffDeg(euler.y, check.expectedEulerDeg.y);
+							const auto dz = angleDiffDeg(euler.z, check.expectedEulerDeg.z);
+							const auto dmax = std::max(dx, std::max(dy, dz));
+							if (dmax > check.eulerToleranceDeg)
+							{
+								ok = false;
+								logFail("[script][fail] gimbal_near frame=%llu euler_diff=%.6f tol=%.6f",
+									static_cast<unsigned long long>(frame), dmax, check.eulerToleranceDeg);
+							}
+						}
+
+						if (ok)
+							logPass("[script][pass] gimbal_near frame=%llu", static_cast<unsigned long long>(frame));
+					}
+					else if (check.kind == ScriptedInputCheck::Kind::GimbalDelta)
+					{
+						if (!m_scriptedInput.baselineValid)
+						{
+							logFail("[script][fail] gimbal_delta frame=%llu missing baseline", static_cast<unsigned long long>(frame));
+						}
+						else
+						{
+							const auto diff = float32_t3(pos.x - m_scriptedInput.baselinePos.x, pos.y - m_scriptedInput.baselinePos.y, pos.z - m_scriptedInput.baselinePos.z);
+							const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+							const auto dx = angleDiffDeg(euler.x, m_scriptedInput.baselineEulerDeg.x);
+							const auto dy = angleDiffDeg(euler.y, m_scriptedInput.baselineEulerDeg.y);
+							const auto dz = angleDiffDeg(euler.z, m_scriptedInput.baselineEulerDeg.z);
+							const auto dmax = std::max(dx, std::max(dy, dz));
+
+							if (dpos > check.posTolerance || dmax > check.eulerToleranceDeg)
+							{
+								logFail("[script][fail] gimbal_delta frame=%llu pos_diff=%.6f tol=%.6f euler_diff=%.6f tol=%.6f",
+									static_cast<unsigned long long>(frame),
+									dpos, check.posTolerance,
+									dmax, check.eulerToleranceDeg);
+							}
+							else
+							{
+								logPass("[script][pass] gimbal_delta frame=%llu pos_diff=%.6f euler_diff=%.6f",
+									static_cast<unsigned long long>(frame), dpos, dmax);
+							}
+						}
+					}
+
+					++m_scriptedInput.nextCheckIndex;
+				}
+
+				if (!m_scriptedInput.summaryReported && m_scriptedInput.nextCheckIndex >= m_scriptedInput.checks.size())
+				{
+					m_scriptedInput.summaryReported = true;
+					if (m_scriptedInput.failed)
+						m_logger->log("[script] checks result: FAIL", ILogger::ELL_ERROR);
+					else
+						m_logger->log("[script] checks result: PASS", ILogger::ELL_INFO);
+				}
 			}
 
 			m_ui.manager->update(params);
+
 		}
 
 	private:
@@ -1636,7 +2457,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						// I will assume we need to focus a window to start manipulating objects from it
 						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
-							activeRenderWindowIx = windowIx;
+						{
+							if (!(m_scriptedInput.enabled && m_scriptedInput.exclusive))
+								activeRenderWindowIx = windowIx;
+						}
 
 						// we render a scene from view of a camera bound to planar window
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
@@ -2578,6 +3402,105 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 		};
 
+		struct ScriptedInputEvent
+		{
+			enum class Type : uint8_t
+			{
+				Keyboard,
+				Mouse,
+				Imguizmo,
+				Action
+			};
+
+			struct KeyboardData
+			{
+				ui::E_KEY_CODE key = ui::EKC_NONE;
+				ui::SKeyboardEvent::E_KEY_ACTION action = ui::SKeyboardEvent::ECA_UNITIALIZED;
+			};
+
+			struct MouseData
+			{
+				ui::SMouseEvent::E_EVENT_TYPE type = ui::SMouseEvent::EET_UNITIALIZED;
+				ui::E_MOUSE_BUTTON button = ui::EMB_LEFT_BUTTON;
+				ui::SMouseEvent::SClickEvent::E_ACTION action = ui::SMouseEvent::SClickEvent::EA_UNITIALIZED;
+				int16_t x = 0;
+				int16_t y = 0;
+				int16_t dx = 0;
+				int16_t dy = 0;
+				int16_t v = 0;
+				int16_t h = 0;
+			};
+
+			struct ActionData
+			{
+				enum class Kind : uint8_t
+				{
+					SetActiveRenderWindow,
+					SetActivePlanar,
+					SetProjectionType,
+					SetProjectionIndex,
+					SetUseWindow,
+					SetLeftHanded
+				};
+
+				Kind kind = Kind::SetActiveRenderWindow;
+				int32_t value = 0;
+			};
+
+			uint64_t frame = 0;
+			Type type = Type::Keyboard;
+			KeyboardData keyboard;
+			MouseData mouse;
+			float32_t4x4 imguizmo = float32_t4x4(1.f);
+			ActionData action;
+		};
+
+		struct ScriptedInputCheck
+		{
+			enum class Kind : uint8_t
+			{
+				Baseline,
+				ImguizmoVirtual,
+				GimbalNear,
+				GimbalDelta
+			};
+
+			struct ExpectedVirtualEvent
+			{
+				CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
+				float64_t magnitude = 0.0;
+			};
+
+			uint64_t frame = 0;
+			Kind kind = Kind::Baseline;
+			float tolerance = 1e-3f;
+			std::vector<ExpectedVirtualEvent> expectedVirtualEvents;
+
+			float32_t3 expectedPos = float32_t3(0.f);
+			float32_t3 expectedEulerDeg = float32_t3(0.f);
+			bool hasExpectedPos = false;
+			bool hasExpectedEuler = false;
+			float posTolerance = 0.05f;
+			float eulerToleranceDeg = 1.0f;
+		};
+
+		struct ScriptedInputState
+		{
+			bool enabled = false;
+			bool log = false;
+			bool exclusive = false;
+			bool hardFail = false;
+			std::vector<ScriptedInputEvent> events;
+			size_t nextEventIndex = 0;
+			std::vector<ScriptedInputCheck> checks;
+			size_t nextCheckIndex = 0;
+			bool failed = false;
+			bool summaryReported = false;
+			bool baselineValid = false;
+			float32_t3 baselinePos = float32_t3(0.f);
+			float32_t3 baselineEulerDeg = float32_t3(0.f);
+		};
+
 		static constexpr inline auto MaxSceneFBOs = 2u;
 		std::array<windowControlBinding, MaxSceneFBOs> windowBindings;
 		uint32_t activeRenderWindowIx = 0u;
@@ -2598,6 +3521,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		bool m_ciScreenshotDone = false;
 		uint32_t m_ciFrameCounter = 0u;
 		system::path m_ciScreenshotPath;
+		ScriptedInputState m_scriptedInput;
 
 		const bool flipGizmoY = true;
 

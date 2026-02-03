@@ -114,8 +114,14 @@ public:
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
         m_nextPresentationTimeStamp = nextPresentationTimeStamp;
-        m_frameDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - m_lastVirtualUpTimeStamp).count();
-        assert(m_frameDeltaTime >= 0.f);
+        const auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - m_lastVirtualUpTimeStamp).count();
+        constexpr double MaxFrameDeltaMs = 200.0;
+        if (deltaMs < 0)
+            m_frameDeltaTime = 0.0;
+        else if (static_cast<double>(deltaMs) > MaxFrameDeltaMs)
+            m_frameDeltaTime = MaxFrameDeltaMs;
+        else
+            m_frameDeltaTime = static_cast<double>(deltaMs);
     }
 
     void endInputProcessing()
@@ -226,13 +232,7 @@ public:
                     if (keyboardEvent.action == input_keyboard_event_t::ECA_PRESSED)
                     {
                         if (!hash.active)
-                        {
-                            const auto keyDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - keyboardEvent.timeStamp).count();
-                            assert(keyDeltaTime >= 0);
-
                             hash.active = true;
-                            hash.event.magnitude = keyDeltaTime;
-                        }
                     }
                     else if (keyboardEvent.action == input_keyboard_event_t::ECA_RELEASED)
                         hash.active = false;
@@ -303,13 +303,7 @@ public:
                             if (mouseEvent.clickEvent.action == input_mouse_event_t::SClickEvent::EA_PRESSED)
                             {
                                 if (!hash.active)
-                                {
-                                    const auto keyDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - mouseEvent.timeStamp).count();
-                                    assert(keyDeltaTime >= 0);
-
                                     hash.active = true;
-                                    hash.event.magnitude += keyDeltaTime;
-                                }
                             }
                             else if (mouseEvent.clickEvent.action == input_mouse_event_t::SClickEvent::EA_RELEASED)
                                 hash.active = false;
@@ -390,9 +384,15 @@ public:
                 requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[2], std::abs(world.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[0], std::abs(world.dRotation[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[1], std::abs(world.dRotation[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[2], std::abs(world.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
+                const float32_t3 dRotationRad =
+                {
+                    glm::radians(world.dRotation[0]),
+                    glm::radians(world.dRotation[1]),
+                    glm::radians(world.dRotation[2])
+                };
+                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[0], std::abs(dRotationRad[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[1], std::abs(dRotationRad[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[2], std::abs(dRotationRad[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
 
                 // Delta scale impulse
                 requestMagnitudeUpdateWithScalar(1.f, world.dScale[0], std::abs(world.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
@@ -448,7 +448,7 @@ private:
     mouse_to_virtual_events_t m_mouseVirtualEventMap;
     imguizmo_to_virtual_events_t m_imguizmoVirtualEventMap;
 
-    size_t m_frameDeltaTime = {};
+    double m_frameDeltaTime = {};
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
 
