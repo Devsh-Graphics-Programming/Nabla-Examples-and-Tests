@@ -1,10 +1,9 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "nbl/examples/examples.hpp"
 
-#include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "nlohmann/json.hpp"
@@ -19,14 +18,15 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace nbl::examples;
 
 // defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
-class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 		using perf_clock_resolution_t = std::chrono::milliseconds;
 
@@ -161,26 +161,24 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Custom Shader
-				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
-					{
-						IAssetLoader::SAssetLoadParams lp = {};
-						lp.logger = m_logger.get();
-						lp.workingDirectory = ""; // virtual root
-						auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-						const auto assets = assetBundle.getContents();
-						if (assets.empty())
-							return nullptr;
+				auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = "app_resources";
 
-						// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-						auto source = IAsset::castDown<ICPUShader>(assets[0]);
-						if (!source)
-							return nullptr;
+					auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+					auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-						return m_device->createShader(source.get());
-					};
-				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+					auto shader = IAsset::castDown<IShader>(assets[0]);
+					return shader;
+				};
+				auto fragmentShader = loadPrecompiledShader.operator()<"present">(); // "app_resources/present.frag.hlsl"
 				if (!fragmentShader)
-					return logFail("Failed to Load and Compile Fragment Shader!");
+					return logFail("Failed to load precompiled fragment shader!");
 
 				// Now surface indep resources
 				m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -255,14 +253,14 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				// Now create the pipeline
 				{
 					const asset::SPushConstantRange range = {
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.stageFlags = ESS_FRAGMENT,
 						.offset = 0,
 						.size = sizeof(push_constants_t)
 					};
 					auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
-					const IGPUShader::SSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.shader = fragmentShader.get()
 					};
 					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass()/*,default is subpass 0*/);
 					if (!m_pipeline)
@@ -563,7 +561,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						const std::string prettyJson = current.data.dump(4);
 
 						if (options.verbose)
-							m_logger->log(prettyJson, ILogger::ELL_INFO);
+							m_logger->log("%s", ILogger::ELL_INFO, prettyJson);
 
 						system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
 						m_system->createFile(future, current.path, system::IFileBase::ECF_WRITE);
@@ -796,7 +794,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 						}
 						cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-						cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
+						cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 						cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
 						ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 						cmdbuf->endRenderPass();

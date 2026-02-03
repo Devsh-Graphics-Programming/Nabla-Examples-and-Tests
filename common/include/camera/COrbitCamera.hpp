@@ -2,7 +2,6 @@
 #define _C_ORBIT_CAMERA_HPP_
 
 #include "ICamera.hpp"
-#include <glm/gtx/euler_angles.hpp>
 
 namespace nbl::hlsl
 {

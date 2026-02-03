@@ -4,8 +4,7 @@
 #ifndef _NBL_TESTERS_H_INCLUDED_
 #define _NBL_TESTERS_H_INCLUDED_
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 
@@ -24,7 +23,7 @@ protected:
 	const std::string m_functionToTestName = "";
 
 protected:
-	static std::pair<smart_refctd_ptr<ICPUShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileHLSLShaderAndTestIntrospection(
+	static std::pair<smart_refctd_ptr<IShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileHLSLShaderAndTestIntrospection(
 		video::IPhysicalDevice* physicalDevice, video::ILogicalDevice* device, system::ILogger* logger, asset::IAssetManager* assetMgr, const std::string& shaderPath, CSPIRVIntrospector& introspector)
 	{
 		IAssetLoader::SAssetLoadParams lp = {};
@@ -33,15 +32,18 @@ protected:
 		// this time we load a shader directly from a file
 		auto assetBundle = assetMgr->getAsset(shaderPath, lp);
 		const auto assets = assetBundle.getContents();
-		if (assets.empty())
+		const auto* metadata = assetBundle.getMetadata();
+		if (assets.empty() || assetBundle.getAssetType() != IAsset::ET_SHADER)
 		{
 			logFail(logger, "Could not load shader!");
 			assert(0);
 		}
+		const auto hlslMetadata = static_cast<const CHLSLMetadata*>(metadata);
+		const auto shaderStage = hlslMetadata->shaderStages->front();
 
 		// It would be super weird if loading a shader from a file produced more than 1 asset
 		assert(assets.size() == 1);
-		smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+		smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 
 		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
@@ -53,8 +55,8 @@ protected:
 			// The Shader Asset Loaders deduce the stage from the file extension,
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 			// But it can still be overriden from within the source with a `#pragma shader_stage` 
-			options.stage = source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE ? source->getStage() : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
-			options.targetSpirvVersion = device->getPhysicalDevice()->getLimits().spirvVersion;
+			options.stage = shaderStage == IShader::E_SHADER_STAGE::ESS_COMPUTE ? shaderStage : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
+			options.preprocessorOptions.targetSpirvVersion = device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -186,7 +188,7 @@ public:
 		constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
 
 		CSPIRVIntrospector introspector[MERGE_TEST_SHADERS_CNT];
-		smart_refctd_ptr<ICPUShader> sources[MERGE_TEST_SHADERS_CNT];
+		smart_refctd_ptr<IShader> sources[MERGE_TEST_SHADERS_CNT];
 
 		for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
 		{
@@ -201,7 +203,7 @@ public:
 				.binding = 0,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 				.count = 1,
 				.immutableSamplers = nullptr
 			}
@@ -213,7 +215,7 @@ public:
 					.binding = 0,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				},
@@ -221,7 +223,7 @@ public:
 					.binding = 1,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 2,
 					.immutableSamplers = nullptr
 				}
@@ -251,9 +253,9 @@ public:
 		bool pplnCreationSuccess[MERGE_TEST_SHADERS_CNT];
 		for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
 		{
-			ICPUShader::SSpecInfo specInfo;
+			ICPUPipelineBase::SShaderSpecInfo specInfo;
 			specInfo.entryPoint = "main";
-			specInfo.shader = sources[i].get();
+			specInfo.shader = sources[i];
 			pplnCreationSuccess[i] = static_cast<bool>(introspector[i].createApproximateComputePipelineFromIntrospection(specInfo, core::smart_refctd_ptr<ICPUPipelineLayout>(predefinedPplnLayout)));
 		}
 

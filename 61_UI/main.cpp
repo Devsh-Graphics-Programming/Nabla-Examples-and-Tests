@@ -10,7 +10,13 @@ using json = nlohmann::json;
 #include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+#include "nbl/ext/ScreenShot/ScreenShot.h"
+#if __has_include("nbl/this_example/builtin/CArchive.h")
 #include "nbl/this_example/builtin/CArchive.h"
+#endif
+#if __has_include("nbl/this_example/builtin/build/CArchive.h")
+#include "nbl/this_example/builtin/build/CArchive.h"
+#endif
 
 using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
 using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
@@ -84,6 +90,8 @@ public:
 	// If we for example used a compute shader to tonemap and MSAA resolve, we'd request the COMPUTE_BIT here. 
 	constexpr static inline IQueue::FAMILY_FLAGS RequiredQueueFlags = IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
 
+	inline uint8_t getLastImageIndex() const { return m_lastImageIndex; }
+
 protected:
 	// We can return `BLIT_BIT` here, because the Source Image will be already in the correct layout to be used for the present
 	inline core::bitflag<asset::PIPELINE_STAGE_FLAGS> getTripleBufferPresentStages() const override { return asset::PIPELINE_STAGE_FLAGS::BLIT_BIT; }
@@ -92,6 +100,7 @@ protected:
 	{
 		bool success = true;
 		auto acquiredImage = getImage(imageIndex);
+		m_lastImageIndex = imageIndex;
 
 		// Ownership of the Source Blit Image, not the Swapchain Image
 		const bool needToAcquireSrcOwnership = qFamToAcquireSrcFrom != IQueue::FamilyIgnored;
@@ -187,7 +196,64 @@ protected:
 
 		return success;
 	}
+
+private:
+	uint8_t m_lastImageIndex = 0u;
 };
+
+static smart_refctd_ptr<IGPUImageView> createAttachmentView(ILogicalDevice* device, E_FORMAT format, uint32_t width, uint32_t height, const char* debugName)
+{
+	if (!device)
+		return nullptr;
+
+	const bool isDepth = isDepthOrStencilFormat(format);
+	auto usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT;
+	if (!isDepth)
+		usage |= IGPUImage::EUF_SAMPLED_BIT;
+
+	auto image = device->createImage({{
+		.type = IGPUImage::ET_2D,
+		.samples = IGPUImage::ESCF_1_BIT,
+		.format = format,
+		.extent = { width, height, 1u },
+		.mipLevels = 1u,
+		.arrayLayers = 1u,
+		.usage = usage
+	}});
+	if (!image)
+		return nullptr;
+
+	image->setObjectDebugName(debugName);
+
+	if (!device->allocate(image->getMemoryReqs(), image.get()).isValid())
+		return nullptr;
+
+	IGPUImageView::SCreationParams params = {
+		.subUsages = usage,
+		.image = std::move(image),
+		.viewType = IGPUImageView::ET_2D,
+		.format = format
+	};
+	params.subresourceRange.aspectMask = isDepth ? IGPUImage::EAF_DEPTH_BIT : IGPUImage::EAF_COLOR_BIT;
+	return device->createImageView(std::move(params));
+}
+
+static smart_refctd_ptr<IGPUFramebuffer> createSceneFramebuffer(ILogicalDevice* device, IGPURenderpass* renderpass, IGPUImageView* colorView, IGPUImageView* depthView)
+{
+	if (!device || !renderpass || !colorView || !depthView)
+		return nullptr;
+
+	const auto& imageParams = colorView->getCreationParameters().image->getCreationParameters();
+	IGPUFramebuffer::SCreationParams params = { {
+		.renderpass = core::smart_refctd_ptr<IGPURenderpass>(renderpass),
+		.depthStencilAttachments = &depthView,
+		.colorAttachments = &colorView,
+		.width = imageParams.extent.width,
+		.height = imageParams.extent.height,
+		.layers = imageParams.arrayLayers
+	} };
+	return device->createFramebuffer(std::move(params));
+}
 
 /*
 	Renders scene texture to an offline
@@ -205,6 +271,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+	constexpr static inline auto sceneRenderDepthFormat = EF_D32_SFLOAT;
+	constexpr static inline auto finalSceneRenderFormat = EF_R8G8B8A8_SRGB;
+	constexpr static inline IGPUCommandBuffer::SClearColorValue SceneClearColor = { .float32 = {0.f,0.f,0.f,1.f} };
+	constexpr static inline IGPUCommandBuffer::SClearDepthStencilValue SceneClearDepth = { .depth = 0.f };
 
 	public:
 		using base_t::base_t;
@@ -256,6 +326,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			program.add_argument<std::string>("--file")
 				.help("Path to json file with camera inputs");
+			program.add_argument("--ci")
+				.help("Run in CI mode: capture a screenshot after a few frames and exit.")
+				.default_value(false)
+				.implicit_value(true);
 
 			try
 			{
@@ -267,6 +341,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return false;
 			}
 
+			m_ciMode = program.get<bool>("--ci");
+			if (m_ciMode)
+				m_ciScreenshotPath = localOutputCWD / "cameraz_ci.png";
+
 			// Create imput system
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
@@ -275,9 +353,65 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return false;
 
 			{
+				smart_refctd_ptr<system::IFileArchive> examplesHeaderArch, examplesSourceArch, examplesBuildArch, thisExampleArch, thisExampleBuildArch;
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
+				examplesHeaderArch = core::make_smart_refctd_ptr<nbl::builtin::examples::include::CArchive>(smart_refctd_ptr(m_logger));
+				examplesSourceArch = core::make_smart_refctd_ptr<nbl::builtin::examples::src::CArchive>(smart_refctd_ptr(m_logger));
+				examplesBuildArch = core::make_smart_refctd_ptr<nbl::builtin::examples::build::CArchive>(smart_refctd_ptr(m_logger));
+
+	#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
+				thisExampleArch = make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+	#endif
+
+	#ifdef _NBL_THIS_EXAMPLE_BUILTIN_BUILD_C_ARCHIVE_H_
+				thisExampleBuildArch = make_smart_refctd_ptr<nbl::this_example::builtin::build::CArchive>(smart_refctd_ptr(m_logger));
+	#endif
+#else
+				examplesHeaderArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
+				examplesSourceArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
+				examplesBuildArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
+				thisExampleArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
+	#ifdef NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+				thisExampleBuildArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
+	#endif
+#endif
+				m_system->mount(std::move(examplesHeaderArch),"nbl/examples");
+				m_system->mount(std::move(examplesSourceArch),"nbl/examples");
+				m_system->mount(std::move(examplesBuildArch),"nbl/examples");
+				if (thisExampleArch)
+					m_system->mount(std::move(thisExampleArch),"app_resources");
+				if (thisExampleBuildArch)
+					m_system->mount(std::move(thisExampleBuildArch),"app_resources");
+			}
+
+			{
 				const std::optional<std::string> cameraJsonFile = program.is_used("--file") ? program.get<std::string>("--file") : std::optional<std::string>(std::nullopt);
 
 				json j;
+				auto loadDefaultConfig = [&]() -> bool
+				{
+#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
+					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
+					if (!pFile)
+						return logFail("Could not open builtin cameras.json!");
+
+					string config;
+					IFile::success_t result;
+					config.resize(pFile->getSize());
+					pFile->read(result, config.data(), 0, pFile->getSize());
+					j = json::parse(config);
+					return true;
+#else
+					const auto fallbackPath = localInputCWD / "app_resources" / "cameras.json";
+					std::ifstream fallbackFile(fallbackPath);
+					if (!fallbackFile.is_open())
+						return logFail("Cannot open default config \"%s\".", fallbackPath.string().c_str());
+					fallbackFile >> j;
+					return true;
+#endif
+				};
+
 				auto file = cameraJsonFile.has_value() ? std::ifstream(cameraJsonFile.value()) : std::ifstream();
 				if (!file.is_open())
 				{
@@ -286,15 +420,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					else
 						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_WARNING);
 
-					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
-					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
-
-					string config;
-					IFile::success_t result;
-					config.resize(pFile->getSize());
-					pFile->read(result, config.data(), 0, pFile->getSize());
-
-					j = json::parse(config);
+					if (!loadDefaultConfig())
+						return false;
 				}
 				else
 				{
@@ -576,18 +703,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-				if (m_planarProjections.size() < windowControlBinding.size())
+				if (m_planarProjections.size() < windowBindings.size())
 				{
 					// TODO, temporary assuming it, I'm not going to implement each possible case now
-					logFail("Expected at least %d planars", windowControlBinding.size());
+					logFail("Expected at least %d planars", windowBindings.size());
 					return false;
 				}
 
 				// init render window planar references - we make all render windows start with focus on first
 				// planar but in a way that first window has the planar's perspective preset bound & second orthographic
-				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
+				for (uint32_t i = 0u; i < windowBindings.size(); ++i)
 				{
-					auto& binding = windowControlBinding[i];
+					auto& binding = windowBindings[i];
 
 					auto& planar = m_planarProjections[binding.activePlanarIx = 0];
 					binding.pickDefaultProjections(planar->getPlanarProjections());
@@ -675,7 +802,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
 			// TODO: improve the queue allocation/choice and allocate a dedicated presentation queue to improve responsiveness and race to present.
-			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()), std::make_unique<CSwapchainResources>(), {}))
+			ISwapchain::SSharedCreationParams sharedParams = {};
+			sharedParams.imageUsage |= IGPUImage::EUF_TRANSFER_SRC_BIT;
+			auto swapchainResources = std::make_unique<CSwapchainResources>();
+			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()), std::move(swapchainResources), sharedParams))
 				return logFail("Failed to Create a Swapchain!");
 
 			// Normally you'd want to recreate these images whenever the swapchain is resized in some increment, like 64 pixels or something.
@@ -801,26 +931,116 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			// Geometry Creator Render Scene FBOs
 			{
-				resources = ResourcesBundle::create(m_device.get(), m_logger.get(), getGraphicsQueue(), m_assetManager->getGeometryCreator());
+				const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
+				m_scene = CGeometryCreatorScene::create(
+					{
+						.transferQueue = getTransferUpQueue(),
+						.utilities = m_utils.get(),
+						.logger = m_logger.get(),
+						.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
+					},
+					CSimpleDebugRenderer::DefaultPolygonGeometryPatch
+				);
 
-				if (!resources)
+				if (!m_scene)
+					return logFail("Could not create geometry creator scene!");
+
 				{
-					logFail("Could not create geometry creator gpu resources!");
-					return false;
+					IGPURenderpass::SCreationParams params = {};
+					const IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+						{{
+							{
+								.format = sceneRenderDepthFormat,
+								.samples = IGPUImage::ESCF_1_BIT,
+								.mayAlias = false
+							},
+							/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+							/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+							/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED},
+							/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
+						}},
+						IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+					};
+					params.depthStencilAttachments = depthAttachments;
+					const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+						{{
+							{
+								.format = finalSceneRenderFormat,
+								.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+								.mayAlias = false
+							},
+							/*.loadOp = */IGPURenderpass::LOAD_OP::CLEAR,
+							/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
+							/*.initialLayout = */IGPUImage::LAYOUT::UNDEFINED,
+							/*.finalLayout = */ IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+						}},
+						IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+					};
+					params.colorAttachments = colorAttachments;
+					IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+						{},
+						IGPURenderpass::SCreationParams::SubpassesEnd
+					};
+					subpasses[0].depthStencilAttachment = {{.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}};
+					subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+					params.subpasses = subpasses;
+					const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+						{
+							.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+							.dstSubpass = 0,
+							.memoryBarrier = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT|PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT|PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+								.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT|ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							}
+						},
+						{
+							.srcSubpass = 0,
+							.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+							.memoryBarrier = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+								.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT|PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
+							}
+						},
+						IGPURenderpass::SCreationParams::DependenciesEnd
+					};
+					params.dependencies = {};
+					m_sceneRenderpass = m_device->createRenderpass(std::move(params));
+					if (!m_sceneRenderpass)
+						return logFail("Failed to create Scene Renderpass!");
 				}
 
-				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
+				const auto& geometries = m_scene->getInitParams().geometries;
+				if (geometries.empty())
+					return logFail("No geometries found for scene!");
+				m_renderer = CSimpleDebugRenderer::create(m_assetManager.get(), m_sceneRenderpass.get(), 0, { &geometries.front().get(), geometries.size() });
+				if (!m_renderer)
+					return logFail("Failed to create debug renderer!");
 
-				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
 				{
-					auto& scene = windowControlBinding[i].scene;
-					scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources), dpyInfo.resX, dpyInfo.resY);
-
-					if (!scene)
+					const auto& pipelines = m_renderer->getInitParams().pipelines;
+					auto ix = 0u;
+					for (const auto& name : m_scene->getInitParams().geometryNames)
 					{
-						logFail("Could not create geometry creator scene[%d]!", i);
-						return false;
+						if (name == "Cone")
+							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+						ix++;
 					}
+				}
+				m_renderer->m_instances.resize(1);
+
+				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
+				for (uint32_t i = 0u; i < windowBindings.size(); ++i)
+				{
+					auto& binding = windowBindings[i];
+					binding.sceneColorView = createAttachmentView(m_device.get(), finalSceneRenderFormat, dpyInfo.resX, dpyInfo.resY, "UI Scene Color Attachment");
+					binding.sceneDepthView = createAttachmentView(m_device.get(), sceneRenderDepthFormat, dpyInfo.resX, dpyInfo.resY, "UI Scene Depth Attachment");
+					binding.sceneFramebuffer = createSceneFramebuffer(m_device.get(), m_sceneRenderpass.get(), binding.sceneColorView.get(), binding.sceneDepthView.get());
+					if (!binding.sceneFramebuffer)
+						return logFail("Could not create geometry creator scene[%d]!", i);
 				}
 			}
 
@@ -842,12 +1062,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(m_ui.manager->getFontAtlasView());
 			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
 
-			for (uint32_t i = 0; i < windowControlBinding.size(); ++i)
+			for (uint32_t i = 0; i < windowBindings.size(); ++i)
 			{
 				const auto textureIx = i + 1u;
 
 				descriptorInfo[textureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfo[textureIx].desc = windowControlBinding[i].scene->getColorAttachment();
+				descriptorInfo[textureIx].desc = windowBindings[i].sceneColorView;
 
 				writes[textureIx].info = descriptorInfo.data() + textureIx;
 				writes[textureIx].info = descriptorInfo.data() + textureIx;
@@ -906,26 +1126,57 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				willSubmit &= cmdbuf->beginDebugMarker("UIApp Frame");
 
-				// render geometry creator scene to offline frame buffer & submit
-				// TODO: OK with TRI buffer this thing is retarded now
-				// (**) <- a note why bellow before submit
-
-				auto renderOfflineScene = [&](auto& scene)
+				auto renderScene = [&](windowControlBinding& binding)
 				{
-					scene->begin();
+					if (!binding.sceneFramebuffer)
+						return;
+
+					const auto& fbParams = binding.sceneFramebuffer->getCreationParameters();
+					const VkRect2D renderArea = { .offset = {0,0}, .extent = {fbParams.width, fbParams.height} };
+					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+						.framebuffer = binding.sceneFramebuffer.get(),
+						.colorClearValues = &SceneClearColor,
+						.depthStencilClearValues = &SceneClearDepth,
+						.renderArea = renderArea
+					};
+
+					willSubmit &= cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 					{
-						scene->update();
-						scene->record();
-						scene->end();
+						asset::SViewport viewport = {};
+						viewport.minDepth = 1.f;
+						viewport.maxDepth = 0.f;
+						viewport.x = 0u;
+						viewport.y = 0u;
+						viewport.width = fbParams.width;
+						viewport.height = fbParams.height;
+
+						willSubmit &= cmdbuf->setViewport(0u, 1u, &viewport);
+						willSubmit &= cmdbuf->setScissor(0u, 1u, &renderArea);
+
+						const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
+						m_renderer->render(cmdbuf, viewParams);
 					}
-					scene->submit(getGraphicsQueue());
+					willSubmit &= cmdbuf->endRenderPass();
 				};
 
+				if (m_renderer && !m_renderer->m_instances.empty())
+				{
+					auto& instance = m_renderer->m_instances[0];
+					instance.world = m_model;
+					const auto geomCount = m_renderer->getGeometries().size();
+					if (geomCount)
+					{
+						if (gcIndex >= geomCount)
+							gcIndex = 0;
+						instance.packedGeo = m_renderer->getGeometries().data() + gcIndex;
+					}
+				}
+
 				if (useWindow)
-					for (auto binding : windowControlBinding)
-						renderOfflineScene(binding.scene);
+					for (auto& binding : windowBindings)
+						renderScene(binding);
 				else
-					renderOfflineScene(windowControlBinding[activeRenderWindowIx].scene.get());
+					renderScene(windowBindings[activeRenderWindowIx]);
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -961,7 +1212,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					const IGPUCommandBuffer::SRenderpassBeginInfo info =
 					{
 						.framebuffer = m_framebuffers[resourceIx].get(),
-						.colorClearValues = &Traits::clearColor,
+						.colorClearValues = &clearValue,
 						.depthStencilClearValues = nullptr,
 						.renderArea = currentRenderArea
 					};
@@ -1047,42 +1298,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				};
 
-				// (**) -> wait on offline framebuffers in window mode
-				{
-					if (useWindow)
-					{
-						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
-						(
-							{
-								// wait for first planar scene view fb
-								{
-									.semaphore = windowControlBinding[0].scene->semaphore.progress.get(),
-									.value = windowControlBinding[0].scene->semaphore.finishedValue
-								},
-								// and second one too
-								{
-									.semaphore = windowControlBinding[1].scene->semaphore.progress.get(),
-									.value = windowControlBinding[1].scene->semaphore.finishedValue
-								}
-							}
-						));
-					}
-					else
-					{
-						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
-						(
-							{
-								// wait for picked planar only
-								{
-									.semaphore = windowControlBinding[activeRenderWindowIx].scene->semaphore.progress.get(),
-									.value = windowControlBinding[activeRenderWindowIx].scene->semaphore.finishedValue
-								}
-							}
-						));
-					}
-
-					updateGUIDescriptorSet();
-				}
+				updateGUIDescriptorSet();
 
 				if (getGraphicsQueue()->submit(submitInfos) != IQueue::RESULT::SUCCESS)
 					return;
@@ -1100,6 +1316,65 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					// The Graphics Queue will be the the most recent owner just before it releases ownership
 					cmdbuf->getQueueFamilyIndex()
 				};
+				if (m_ciMode && !m_ciScreenshotDone)
+				{
+					++m_ciFrameCounter;
+					if (m_ciFrameCounter >= CiFramesBeforeCapture)
+					{
+						m_ciScreenshotDone = true;
+						if (!m_device || !m_assetManager || !m_surface)
+							return;
+
+						m_logger->log("CI screenshot capture start (frame %u).", ILogger::ELL_INFO, m_ciFrameCounter);
+						const ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx };
+						if (m_device->blockForSemaphores({ &waitInfo, &waitInfo + 1 }) != ISemaphore::WAIT_RESULT::SUCCESS)
+						{
+							m_logger->log("CI screenshot failed: wait for render finished.", ILogger::ELL_ERROR);
+							return;
+						}
+
+						if (!frame)
+						{
+							m_logger->log("CI screenshot failed: missing frame image.", ILogger::ELL_ERROR);
+							return;
+						}
+
+						auto viewParams = IGPUImageView::SCreationParams{
+							.subUsages = IGPUImage::EUF_TRANSFER_SRC_BIT,
+							.image = core::smart_refctd_ptr<IGPUImage>(frame),
+							.viewType = IGPUImageView::ET_2D,
+							.format = frame->getCreationParameters().format
+						};
+						viewParams.subresourceRange.aspectMask = IGPUImage::EAF_COLOR_BIT;
+						viewParams.subresourceRange.baseMipLevel = 0u;
+						viewParams.subresourceRange.levelCount = 1u;
+						viewParams.subresourceRange.baseArrayLayer = 0u;
+						viewParams.subresourceRange.layerCount = 1u;
+						auto frameView = m_device->createImageView(std::move(viewParams));
+						if (!frameView)
+						{
+							m_logger->log("CI screenshot failed: could not create frame view.", ILogger::ELL_ERROR);
+							return;
+						}
+
+						m_logger->log("CI screenshot capture: calling createScreenShot.", ILogger::ELL_INFO);
+						const bool ok = ext::ScreenShot::createScreenShot(
+							m_device.get(),
+							getGraphicsQueue(),
+							nullptr,
+							frameView.get(),
+							m_assetManager.get(),
+							m_ciScreenshotPath,
+							asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
+							asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT);
+
+						if (ok)
+							m_logger->log("CI screenshot saved to \"%s\".", ILogger::ELL_INFO, m_ciScreenshotPath.string().c_str());
+						else
+							m_logger->log("CI screenshot failed to save.", ILogger::ELL_ERROR);
+					}
+				}
+
 				m_surface->present(std::move(swapchainLock), presentInfo);
 			}
 			firstFrame = false;
@@ -1107,6 +1382,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool keepRunning() override
 		{
+			if (m_ciMode && m_ciScreenshotDone)
+				return false;
 			if (m_surface->irrecoverable())
 				return false;
 
@@ -1167,7 +1444,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (enableActiveCameraMovement)
 			{
-				auto& binding = windowControlBinding[activeRenderWindowIx];
+				auto& binding = windowBindings[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
 				auto* camera = planar->getCamera();
 				
@@ -1221,12 +1498,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		inline void imguiListen()
 		{
 			ImGuiIO& io = ImGui::GetIO();
+			if (m_ciMode)
+			{
+				io.IniFilename = nullptr;
+				useWindow = true;
+			}
 			
 			ImGuizmo::BeginFrame();
 			{
-				nbl::hlsl::ShowDebugWindow();
-
-				ImGuizmo::ShowDebugImguizmoWindow();
+				if (!m_ciMode)
+				{
+					nbl::hlsl::ShowDebugWindow();
+					ImGuizmo::ShowDebugImguizmoWindow();
+				}
 
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
@@ -1263,13 +1547,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					size_t manipulationCounter = {};
 					const std::optional<uint32_t> modelInUseIx = ImGuizmo::IsUsingAny() ? std::optional<uint32_t>(boundPlanarCameraIxToManipulate.has_value() ? 1u + boundPlanarCameraIxToManipulate.value() : 0u) : std::optional<uint32_t>(std::nullopt);
 
-					for (uint32_t windowIx = 0; windowIx < windowControlBinding.size(); ++windowIx)
+					for (uint32_t windowIx = 0; windowIx < windowBindings.size(); ++windowIx)
 					{
 						// setup
 						{
 							const auto& rw = wInit.renderWindows[windowIx];
-							ImGui::SetNextWindowPos({ rw.iPos.x, rw.iPos.y }, ImGuiCond_Appearing);
-							ImGui::SetNextWindowSize({ rw.iSize.x, rw.iSize.y }, ImGuiCond_Appearing);
+							const ImGuiCond windowCond = m_ciMode ? ImGuiCond_Always : ImGuiCond_Appearing;
+							ImGui::SetNextWindowPos({ rw.iPos.x, rw.iPos.y }, windowCond);
+							ImGui::SetNextWindowSize({ rw.iSize.x, rw.iSize.y }, windowCond);
 						}
 						ImGui::SetNextWindowSizeConstraints(ImVec2(0x45, 0x45), ImVec2(7680, 4320));
 
@@ -1290,7 +1575,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						}
 
 						// setup bound entities for the window like camera & projections
-						auto& binding = windowControlBinding[windowIx];
+						auto& binding = windowBindings[windowIx];
 						auto& planarBound = m_planarProjections[binding.activePlanarIx];
 						assert(planarBound);
 
@@ -1557,7 +1842,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
 					const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
 					{
-						auto& binding = windowControlBinding[activeRenderWindowIx];
+						auto& binding = windowBindings[activeRenderWindowIx];
 						auto& planarBound = m_planarProjections[binding.activePlanarIx];
 						assert(planarBound);
 
@@ -1579,41 +1864,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			// to Nabla + update camera & model matrices
+			// update camera matrices for scene rendering
 			{
-				const auto& references = resources->objects;
-				const auto type = static_cast<ObjectType>(gcIndex);
-				const auto& [gpu, meta] = references[type];
-
-				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
+				for (uint32_t i = 0u; i < windowBindings.size(); ++i)
 				{
-					auto& binding = windowControlBinding[i];
-					auto& hook = binding.scene->object;
+					auto& binding = windowBindings[i];
 
 					auto& planarBound = m_planarProjections[binding.activePlanarIx];
 					assert(planarBound);
 					auto* boundPlanarCamera = planarBound->getCamera();
 
-					hook.meta.type = type;
-					hook.meta.name = meta.name;
-					{
-						float32_t3x4 viewMatrix, modelViewMatrix, normalMatrix;
-						float32_t4x4 modelViewProjectionMatrix;
+					assert(binding.boundProjectionIx.has_value());
+					auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+					projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
-						viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
-						modelViewMatrix = concatenateBFollowedByA<float>(viewMatrix, m_model);
+					auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
+					auto viewProjMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 
-						assert(binding.boundProjectionIx.has_value());
-						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
-						projection.update(binding.leftHandedProjection, binding.aspectRatio);
-
-						auto concatMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
-						modelViewProjectionMatrix = mul(concatMatrix, getMatrix3x4As4x4(m_model));
-
-						memcpy(hook.viewParameters.MVP, &modelViewProjectionMatrix[0][0], sizeof(hook.viewParameters.MVP));
-						memcpy(hook.viewParameters.MV, &modelViewMatrix[0][0], sizeof(hook.viewParameters.MV));
-						memcpy(hook.viewParameters.NormalMat, &normalMatrix[0][0], sizeof(hook.viewParameters.NormalMat));
-					}
+					binding.viewMatrix = viewMatrix;
+					binding.viewProjMatrix = viewProjMatrix;
 				}
 			}
 
@@ -1621,15 +1890,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				// setup
 				{					
-					ImGui::SetNextWindowPos({ wInit.planars.iPos.x, wInit.planars.iPos.y }, ImGuiCond_Appearing);
-					ImGui::SetNextWindowSize({ wInit.planars.iSize.x, wInit.planars.iSize.y }, ImGuiCond_Appearing);
+					const ImGuiCond windowCond = m_ciMode ? ImGuiCond_Always : ImGuiCond_Appearing;
+					ImGui::SetNextWindowPos({ wInit.planars.iPos.x, wInit.planars.iPos.y }, windowCond);
+					ImGui::SetNextWindowSize({ wInit.planars.iSize.x, wInit.planars.iSize.y }, windowCond);
 				}
 
 				ImGui::Begin("Planar projection");
 				ImGui::Checkbox("Window mode##useWindow", &useWindow);
 				ImGui::Separator();
 
-				auto& active = windowControlBinding[activeRenderWindowIx];
+				auto& active = windowBindings[activeRenderWindowIx];
 				const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
 
 				ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
@@ -1928,8 +2198,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			// setup
 			{
-				ImGui::SetNextWindowPos({ wInit.trsEditor.iPos.x, wInit.trsEditor.iPos.y }, ImGuiCond_Appearing);
-				ImGui::SetNextWindowSize({ wInit.trsEditor.iSize.x, wInit.trsEditor.iSize.y }, ImGuiCond_Appearing);
+				const ImGuiCond windowCond = m_ciMode ? ImGuiCond_Always : ImGuiCond_Appearing;
+				ImGui::SetNextWindowPos({ wInit.trsEditor.iPos.x, wInit.trsEditor.iPos.y }, windowCond);
+				ImGui::SetNextWindowSize({ wInit.trsEditor.iSize.x, wInit.trsEditor.iSize.y }, windowCond);
 			}
 
 			ImGui::Begin("TRS Editor");
@@ -2014,29 +2285,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (!boundCameraToManipulate)
 			{
-				static const char* gcObjectTypeNames[] = {
-					"Cube",
-					"Sphere",
-					"Cylinder",
-					"Rectangle",
-					"Disk",
-					"Arrow",
-					"Cone",
-					"Icosphere"
-				};
-
-				if (ImGui::BeginCombo("Object Type", gcObjectTypeNames[gcIndex]))
+				const auto& names = m_scene->getInitParams().geometryNames;
+				if (!names.empty())
 				{
-					for (uint8_t i = 0; i < ObjectType::OT_COUNT; ++i)
-					{
-						bool isSelected = (static_cast<ObjectType>(gcIndex) == static_cast<ObjectType>(i));
-						if (ImGui::Selectable(gcObjectTypeNames[i], isSelected))
-							gcIndex = i;
+					if (gcIndex >= names.size())
+						gcIndex = 0;
 
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
+					if (ImGui::BeginCombo("Object Type", names[gcIndex].c_str()))
+					{
+						for (uint32_t i = 0u; i < names.size(); ++i)
+						{
+							const bool isSelected = (gcIndex == i);
+							if (ImGui::Selectable(names[i].c_str(), isSelected))
+								gcIndex = static_cast<uint16_t>(i);
+
+							if (isSelected)
+								ImGui::SetItemDefaultFocus();
+						}
+						ImGui::EndCombo();
 					}
-					ImGui::EndCombo();
 				}
 			}
 
@@ -2249,7 +2516,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		struct windowControlBinding
 		{
-			nbl::core::smart_refctd_ptr<CScene> scene;
+			nbl::core::smart_refctd_ptr<IGPUFramebuffer> sceneFramebuffer;
+			nbl::core::smart_refctd_ptr<IGPUImageView> sceneColorView;
+			nbl::core::smart_refctd_ptr<IGPUImageView> sceneDepthView;
+			float32_t3x4 viewMatrix = float32_t3x4(1.f);
+			float32_t4x4 viewProjMatrix = float32_t4x4(1.f);
 
 			uint32_t activePlanarIx = 0u;
 			bool allowGizmoAxesToFlip = false;
@@ -2283,17 +2554,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		};
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
-		std::array<windowControlBinding, MaxSceneFBOs> windowControlBinding;
+		std::array<windowControlBinding, MaxSceneFBOs> windowBindings;
 		uint32_t activeRenderWindowIx = 0u;
 
 		// UI font atlas + viewport FBO color attachment textures
 		constexpr static inline auto TotalUISampleTexturesAmount = 1u + MaxSceneFBOs;
 
-		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
+		nbl::core::smart_refctd_ptr<CGeometryCreatorScene> m_scene;
+		nbl::core::smart_refctd_ptr<IGPURenderpass> m_sceneRenderpass;
+		nbl::core::smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;
 		uint16_t gcIndex = {}; 
+
+		static constexpr uint32_t CiFramesBeforeCapture = 10u;
+		bool m_ciMode = false;
+		bool m_ciScreenshotDone = false;
+		uint32_t m_ciFrameCounter = 0u;
+		system::path m_ciScreenshotPath;
 
 		const bool flipGizmoY = true;
 

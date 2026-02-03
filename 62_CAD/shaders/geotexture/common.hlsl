@@ -4,7 +4,7 @@
 #include "../globals.hlsl"
 
 // Handle multiple geo textures, separate set, array of texture? index allocator? or multiple sets?
-NBL_CONSTEXPR uint32_t MaxGeoTextures = 256; 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxGeoTextures = 256; 
 
 // GeoTexture Oriented Bounding Box
 struct GeoTextureOBB
@@ -25,7 +25,7 @@ struct PSInput
 [[vk::push_constant]] GeoTextureOBB geoTextureOBB;
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
-[[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
+// [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals; ---> moved to globals.hlsl
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] Texture2D<float4> geoTexture : register(t0);

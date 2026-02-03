@@ -34,6 +34,7 @@ groupshared uint16_t3 sAxisCellMat[14][14][14]; // TODO: `uint16_t` per axis is 
 groupshared float16_t3 sDiffusion[14][14][14];
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
@@ -66,6 +67,7 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void setNeighborAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
@@ -126,6 +128,7 @@ float3 calculateDiffusionVelStep(int3 idx, float3 sampledVelocity, uint cellMate
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint3 gid = nbl::hlsl::glsl::gl_WorkGroupID();
@@ -211,6 +214,7 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 
 // TODO: same as the pressure solver, this kernel/dispatch should be fused onto `iterateDiffusion` guarded by `isLastIteration` push constant
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;

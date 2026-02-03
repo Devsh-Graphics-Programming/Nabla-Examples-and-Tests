@@ -13,7 +13,7 @@ struct PolylineSettings
 	static constexpr bool ResetLineStyleOnDiscontinuity = false;
 };
 
-// holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
+// holds values for `LineStyle` struct and caculates stipple pattern processed values, cant think of better name
 // Also used for TextStyles aliased with some members here. (temporarily?)
 struct LineStyleInfo
 {
@@ -23,9 +23,9 @@ struct LineStyleInfo
 	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think for phase shift in normalized stipple space this is a reasonable value? right?
 	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
-	float32_t4 color;
-	float screenSpaceLineWidth; // alternatively used as TextStyle::italicTiltSlope
-	float worldSpaceLineWidth;  // alternatively used as TextStyle::boldInPixels
+	float32_t4 color = {};
+	float screenSpaceLineWidth = 0.0f; // alternatively used as TextStyle::italicTiltSlope
+	float worldSpaceLineWidth = 0.0f;  // alternatively used as TextStyle::boldInPixels
 	
 	/*
 		Stippling Values:
@@ -65,8 +65,6 @@ struct LineStyleInfo
 		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
 		rigidSegmentIdx = InvalidRigidSegmentIndex;
 		phaseShift = 0.0f;
-
-		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
 
 		if (stipplePatternUnnormalizedRepresentation.size() == 0)
 		{
@@ -110,6 +108,8 @@ struct LineStyleInfo
 				stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 				stipplePatternTransformed.pop_back();
 			}
+			
+			assert(stipplePatternTransformed.size() <= StipplePatternMaxSize);
 
 			if (stipplePatternTransformed.size() != 1)
 			{
@@ -366,7 +366,7 @@ class CPolyline : public CPolylineBase
 public:
 	CPolyline() :
 		m_Min(float64_t2(nbl::hlsl::numeric_limits<float64_t>::max, nbl::hlsl::numeric_limits<float64_t>::max)),
-		m_Max(float64_t2(nbl::hlsl::numeric_limits<float64_t>::min, nbl::hlsl::numeric_limits<float64_t>::min)),
+		m_Max(float64_t2(nbl::hlsl::numeric_limits<float64_t>::lowest, nbl::hlsl::numeric_limits<float64_t>::lowest)),
 		m_closedPolygon(false)
 	{}
 
@@ -619,6 +619,44 @@ public:
 	float64_t2 getMin() const { return m_Min; }
 	float64_t2 getMax() const { return m_Max; }
 
+	void transform(const float64_t2x2& rotScale, float64_t2 translate)
+	{
+		// transform is linear
+		for (auto& linePoint : m_linePoints)
+			linePoint.p = mul(rotScale,linePoint.p) + translate;
+		for (auto& bezierPoint : m_quadBeziers)
+		{
+			bezierPoint.shape.P0 = mul(rotScale,bezierPoint.shape.P0) + translate;
+			bezierPoint.shape.P1 = mul(rotScale,bezierPoint.shape.P1) + translate;
+			bezierPoint.shape.P2 = mul(rotScale,bezierPoint.shape.P2) + translate;
+		}
+
+		// not useful for markers:
+#if 0
+		std::array<float64_t2, 4> corners = {
+			float64_t2{ m_Min.x, m_Min.y },
+			float64_t2{ m_Max.x, m_Min.y },
+			float64_t2{ m_Min.x, m_Max.y },
+			float64_t2{ m_Max.x, m_Max.y }
+		};
+	
+		std::array<float64_t2, 4> transformedCorners;
+		for (uint32_t i = 0; i < 4u; ++i)
+			transformedCorners[i] = mul(rotScale, corners[i]) + translate;
+	
+		// Compute new AABB by finding min and max of transformed corners (OBB)
+		m_Min = { nbl::hlsl::numeric_limits<float64_t>::max, nbl::hlsl::numeric_limits<float64_t>::max };
+		m_Max = { nbl::hlsl::numeric_limits<float64_t>::lowest, nbl::hlsl::numeric_limits<float64_t>::lowest };
+
+		for (const auto& corner : transformedCorners) {
+			m_Min.x = nbl::core::min(m_Min.x, corner.x);
+			m_Min.y = nbl::core::min(m_Min.y, corner.y);
+			m_Max.x = nbl::core::max(m_Max.x, corner.x);
+			m_Max.y = nbl::core::max(m_Max.y, corner.y);
+		}
+#endif
+	}
+
 protected:
 	std::vector<PolylineConnector> m_polylineConnector;
 	std::vector<SectionInfo> m_sections;
@@ -636,6 +674,7 @@ protected:
 		m_Max.y = nbl::hlsl::max(m_Max.y, point.y);
 	}
 
+	// AABB
 	float64_t2 m_Min; // min coordinate of the whole polyline
 	float64_t2 m_Max; // max coordinate of the whole polyline
 
@@ -1076,9 +1115,6 @@ protected:
 			// need To flip direction?
 			if (crossProductZ < 0.0f)
 				res.v = -res.v;
-
-			// Negating y to avoid doing it in vertex shader when working in screen space, where y is in the opposite direction of worldspace y direction
-			res.v.y = -res.v.y;
 
 			m_polylineConnector.push_back(res);
 		}
