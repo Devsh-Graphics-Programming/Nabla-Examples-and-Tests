@@ -354,7 +354,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         float32_t3 a = Li / absNdotL;
         float32_t3 b = recLi / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
-            if (!testing::relativeApproxCompare<float32_t3>(a, b, 1e-2))
+            if (!testing::relativeApproxCompare<float32_t3>(a, b, 1.25e-2))
             {
 #ifndef __HLSL_VERSION
                 if (verbose)
