@@ -189,11 +189,11 @@ private:
             case BTR_PRINT_MSG:
                 logger->log("seed %u: %s error message    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
-            case BTR_ERROR_GENERATED_H_INVALID:
-                logger->log("seed %u: %s failed invalid H configuration generated    %s", ILogger::ELL_WARNING, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
-                break;
             case BTR_ERROR_QUOTIENT_SUM_TOO_LARGE:
-                logger->log("seed %u: %s accumulated quotient > 1.0    %s", ILogger::ELL_WARNING, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                logger->log("seed %u: %s accumulated quotient > 1.0    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
+                break;
+            case BTR_WARNING_GENERATED_H_INVALID:
+                logger->log("seed %u: %s failed invalid H configuration generated    %s", ILogger::ELL_WARNING, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             default:
                 logger->log("seed %u: %s unknown error", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());

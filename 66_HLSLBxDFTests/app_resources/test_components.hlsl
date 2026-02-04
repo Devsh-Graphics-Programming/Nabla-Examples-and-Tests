@@ -138,15 +138,15 @@ struct TestNDF : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
-        float jacobi_dg1_ndoth = det * dg1 / absNdotL;
-        if (!checkZero<float>(det, 1e-3) && !testing::relativeApproxCompare<float>(jacobi_dg1_ndoth, 1.0, 0.1))
+        float jacobi_dg1 = det * dg1 / absNdotL;
+        if (!checkZero<float>(det, 1e-3) && !testing::relativeApproxCompare<float>(jacobi_dg1, 1.0, 0.1))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
                 base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, eta={}, alpha=[{},{}] Jacobian={}, DG1={}, Jacobian*DG1={}",
                                         aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? base_t::anisointer.getNdotV() : base_t::isointer.getNdotV(),
                                         aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), base_t::rc.eta.x, base_t::rc.alpha.x, base_t::rc.alpha.y,
-                                        det, dg1, jacobi_dg1_ndoth);
+                                        det, dg1, jacobi_dg1);
 #endif
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
         }
@@ -167,7 +167,7 @@ struct TestNDF : TestBxDF<BxDF>
             cb.__call(e, t, initparams.logInfo);
     }
 
-    float eps = 1e-4;
+    float eps = 1e-5;
     sample_t s, sx, sy;
     aniso_cache cache;
     iso_cache isocache;
@@ -244,7 +244,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (NdotV*VdotH): i={}, u=[{},{},{}] NdotV={}, VdotH={}", i, u.x, u.y, u.z, NdotV, VdotH);
-                    return BTR_ERROR_GENERATED_H_INVALID;
+                    return BTR_WARNING_GENERATED_H_INVALID;
                 }
                 else
                 {
@@ -258,7 +258,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
                 if (immediateFail)
                 {
                     base_t::errMsg += std::format("first failed case (compare VdotL): i={}, u=[{},{},{}] {}!={}", i, u.x, u.y, u.z, dotProductVdotL, VdotL);
-                    return BTR_ERROR_GENERATED_H_INVALID;
+                    return BTR_WARNING_GENERATED_H_INVALID;
                 }
                 else
                 {
@@ -276,7 +276,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             base_t::errMsg += std::format("fail count={} out of {} valid samples: [{}] NdotV*VdotH, [{}] compare VdotL, [{}] transmitted, [{}] reflected, alpha=[{},{}]",
                                 totalFails, counter.total, counter.NdotVVdotHfail, counter.VdotLfail,
                                 counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
-            return BTR_ERROR_GENERATED_H_INVALID;
+            return BTR_WARNING_GENERATED_H_INVALID;
         }
 
         return BTR_NONE;

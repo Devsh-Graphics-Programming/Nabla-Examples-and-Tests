@@ -153,11 +153,12 @@ enum TestResult
     BTR_ERROR_JACOBIAN_TEST_FAIL = -4,  // jacobian * pdf != 0
     BTR_ERROR_PDF_EVAL_DIFF = -5,       // quotient * pdf != eval
     BTR_ERROR_NO_RECIPROCITY = -6,      // eval(incoming) != eval(outgoing)
-    BTR_ERROR_GENERATED_H_INVALID = -7, // generated H is invalid
-    BTR_ERROR_REFLECTANCE_OUT_OF_RANGE = -8,    // reflectance not [0, 1]
-    BTR_ERROR_QUOTIENT_SUM_TOO_LARGE = -9,  // accumulated quotient >= 1.0
+    BTR_ERROR_REFLECTANCE_OUT_OF_RANGE = -7,    // reflectance not [0, 1]
+    BTR_ERROR_QUOTIENT_SUM_TOO_LARGE = -8,  // accumulated quotient >= 1.0
+
+    BTR_WARNING_GENERATED_H_INVALID = 3, // generated H is invalid
     
-    BTR_INVALID_TEST_CONFIG = 3         // returned when test values are outside of expected usage
+    BTR_INVALID_TEST_CONFIG = 4         // returned when test values are outside of expected usage
 };
 
 struct TestBase
