@@ -175,7 +175,7 @@ struct TestJacobian : TestBxDF<BxDF>
         return BTR_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    static bool run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -186,6 +186,7 @@ struct TestJacobian : TestBxDF<BxDF>
         TestResult e = t.test();
         if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
+        return e >= BTR_NOBREAK;
     }
 
     sample_t s, sx, sy;
@@ -368,7 +369,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         return BTR_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    static bool run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -379,6 +380,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         TestResult e = t.test();
         if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
+        return e >= BTR_NOBREAK;
     }
 
     sample_t s, rec_s;

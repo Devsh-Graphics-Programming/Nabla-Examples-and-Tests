@@ -33,7 +33,7 @@ using json = nlohmann::json;
 #define RUN_TEST_OF_TYPE(TEST_TYPE, INIT_PARAMS) {\
     PrintFailureCallback<BOOST_PP_REMOVE_PARENS(TEST_TYPE)> cb;\
     cb.logger = m_logger;\
-    BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb);\
+    pass &= BOOST_PP_REMOVE_PARENS(TEST_TYPE)::run(INIT_PARAMS, cb);\
 }\
 
 #define RUN_CHI2_TEST_WRITE_EXR(TEST_TYPE, INIT_PARAMS) {\
@@ -59,6 +59,7 @@ using json = nlohmann::json;
     else if (initparams.writeFrequencies == BOOST_PP_REMOVE_PARENS(TEST_TYPE)::WFE_WRITE_ALL)\
             writeToEXR<BOOST_PP_REMOVE_PARENS(TEST_TYPE)>(t);\
     }\
+    pass &= e >= BTR_NOBREAK;\
 }\
 
 class HLSLBxDFTests final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
@@ -139,9 +140,7 @@ public:
         static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>);
         static_assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>);
 
-        runTests();
-
-        return true;
+        return runTests();
     }
 
     void workLoopBody() override {}
@@ -212,9 +211,10 @@ private:
         smart_refctd_ptr<ILogger> logger;
     };
 
-    void runTests()
+    bool runTests()
     {
         const bool logInfo = testconfigs["logInfo"];
+        bool pass = true;
 
         // test jacobian * pdf
         uint32_t runs = testconfigs["TestJacobian"]["runs"];
@@ -286,6 +286,7 @@ private:
 
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SLambertian<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SOrenNayar<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SDeltaDistribution<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
@@ -294,6 +295,9 @@ private:
 
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SSmoothDielectric<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>), initparams);
+            RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SDeltaDistribution<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
             RUN_TEST_OF_TYPE((TestModifiedWhiteFurnace<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
@@ -369,7 +373,7 @@ private:
             RUN_TEST_OF_TYPE((TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
         FOR_EACH_END
 
-            // test arccos angle sums
+        // test arccos angle sums
         {
             Xoroshiro64Star rng = Xoroshiro64Star::construct(uint32_t2(4, 2));
             math::sincos_accumulator<float> angle_adder;
@@ -390,8 +394,10 @@ private:
                 angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
                 angle_adder.addAngle(b, Sin(b));
                 float res = angle_adder.getSumofArccos();
-                if (!testing::relativeApproxCompare<float>(res, exAB, 1e-3))
-                    fprintf(stderr, "[ERROR] angle adding (2 angles) failed! expected %f, got %f\n", exAB, res);
+                bool twoAnglesAcos = testing::relativeApproxCompare<float>(res, exAB, 1e-3);
+                pass &= twoAnglesAcos;
+                if (!twoAnglesAcos)
+                    m_logger->log("angle adding (2 angles) failed! expected %f, got %f", ILogger::ELL_ERROR, exAB, res);
 
                 const float exABCD = exAB + acos(c) + acos(d);
                 angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
@@ -399,10 +405,14 @@ private:
                 angle_adder.addAngle(c, Sin(c));
                 angle_adder.addAngle(d, Sin(d));
                 res = angle_adder.getSumofArccos();
-                if (!testing::relativeApproxCompare<float>(res, exABCD, 1e-3))
-                    fprintf(stderr, "[ERROR] angle adding (4 angles) failed! expected %f, got %f\n", exABCD, res);
+                bool fourAnglesAcos = testing::relativeApproxCompare<float>(res, exABCD, 1e-3);
+                pass &= fourAnglesAcos;
+                if (!fourAnglesAcos)
+                    m_logger->log("angle adding (4 angles) failed! expected %f, got %f", ILogger::ELL_ERROR, exABCD, res);
             }
         }
+
+        return pass;
     }
 
     template<class Chi2Test>

@@ -154,7 +154,7 @@ struct TestNDF : TestBxDF<BxDF>
         return BTR_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    static bool run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -165,6 +165,7 @@ struct TestNDF : TestBxDF<BxDF>
         TestResult e = t.test();
         if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
+        return e >= BTR_NOBREAK;
     }
 
     float eps = 1e-5;
@@ -298,7 +299,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         return BTR_NONE;
     }
 
-    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
+    static bool run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback<this_t>) cb)
     {
         this_t t;
         t.init(initparams.halfSeed);
@@ -310,6 +311,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         TestResult e = t.test();
         if (e != BTR_NONE)
             cb.__call(e, t, initparams.logInfo);
+        return e >= BTR_NOBREAK;
     }
 
     struct Counter
