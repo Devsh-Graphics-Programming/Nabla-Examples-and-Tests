@@ -23,14 +23,16 @@ struct TestModifiedWhiteFurnace : TestBxDF<BxDF>
 
     TestResult compute()
     {
-        accumulatedQuotient = float32_t3(0.f, 0.f, 0.f);
-
         aniso_cache cache;
         iso_cache isocache;
 
         sample_t s;
         quotient_pdf_t sampledLi;
 
+        uint32_t deltaSampleCount = 0u;
+        uint32_t continuousSampleCount = 0u;
+        float32_t3 deltaQuotientSum = float32_t3(0.f, 0.f, 0.f);
+        float32_t3 continuousQuotientSum = float32_t3(0.f, 0.f, 0.f);
         for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
@@ -85,9 +87,20 @@ struct TestModifiedWhiteFurnace : TestBxDF<BxDF>
                 }
             }
 
-            if (hlsl::isinf(sampledLi.pdf))
-                accumulatedQuotient += sampledLi.quotient;
+            if (hlsl::isinf(sampledLi.pdf)) // is from dirac delta distribution
+            {
+                // might have to be by weight of dirac delta sample
+                deltaQuotientSum += sampledLi.quotient;
+                deltaSampleCount++;
+            }
+            else
+            {
+                continuousQuotientSum += sampledLi.quotient;
+                continuousSampleCount++;
+            }
         }
+
+        accumulatedQuotient = deltaQuotientSum / float(deltaSampleCount) + continuousQuotientSum / float(continuousSampleCount);
 
         return BTR_NONE;
     }
