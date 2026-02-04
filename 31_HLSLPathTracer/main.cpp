@@ -33,8 +33,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			//ELG_TRIANGLE,
-			//ELG_RECTANGLE,
+			ELG_TRIANGLE,
+			ELG_RECTANGLE,
 			ELG_COUNT
 		};
 
@@ -47,16 +47,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    //"TRIANGLE_LIGHT",
-		    //"RECTANGLE_LIGHT"
+		    "TRIANGLE_LIGHT",
+		    "RECTANGLE_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			//"ELG_TRIANGLE",
-			//"ELG_RECTANGLE"
+			"ELG_TRIANGLE",
+			"ELG_RECTANGLE"
 		};
 
 	public:
