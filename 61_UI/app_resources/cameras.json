@@ -1,0 +1,162 @@
+{
+    "cameras": [
+      {
+        "type": "FPS",
+        "position": [-2.438, 1.995, -3.130],
+        "orientation": [0.195, 0.311, -0.065, 0.928]
+      },
+      {
+        "type": "Orbit",
+        "position": [-2.017, 0.386, 0.684],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "Free",
+        "position": [2.116, 0.826, 1.152],
+        "orientation": [0.095, -0.835, 0.152, 0.521]
+      }
+    ],
+    "projections": [
+      {
+        "type": "perspective",
+        "fov": 40.0,
+        "zNear": 0.1,
+        "zFar": 110.0
+      },
+      {
+        "type": "orthographic",
+        "orthoWidth": 16.0,
+        "zNear": 0.1,
+        "zFar": 110.0
+      }
+    ],
+    "viewports": [
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 0,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 1,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 2
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 1
+        }
+      },
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 3,
+          "mouse": 1
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 3,
+          "mouse": 1
+        }
+      }
+    ],
+    "planars": [
+      {
+        "camera": 0,
+        "viewports": [0, 1]
+      },
+      {
+        "camera": 1,
+        "viewports": [4, 5]
+      },
+      {
+        "camera": 2,
+        "viewports": [2, 3]
+      }
+    ],
+    "controllers": {
+      "keyboard": [
+        {
+          "mappings": {
+            "W": "MoveForward",
+            "S": "MoveBackward",
+            "A": "MoveLeft",
+            "D": "MoveRight",
+            "I": "TiltDown",
+            "K": "TiltUp",
+            "J": "PanLeft",
+            "L": "PanRight"
+          }
+        },
+        {
+          "mappings": {
+            "W": "MoveUp",
+            "S": "MoveDown",
+            "A": "MoveLeft",
+            "D": "MoveRight"
+          }
+        },
+        {
+          "mappings": {
+            "W": "MoveForward",
+            "S": "MoveBackward",
+            "A": "MoveLeft",
+            "D": "MoveRight",
+            "E": "MoveUp",
+            "Q": "MoveDown",
+            "I": "TiltDown",
+            "K": "TiltUp",
+            "J": "PanLeft",
+            "L": "PanRight",
+            "U": "RollRight",
+            "O": "RollLeft"
+          }
+        },
+        {
+          "mappings": {
+            "W": "MoveRight",
+            "S": "MoveLeft",
+            "A": "MoveDown",
+            "D": "MoveUp",
+            "E": "MoveForward",
+            "Q": "MoveBackward"
+          }
+        }
+      ],
+      "mouse": [
+        {
+          "mappings": {
+            "RELATIVE_POSITIVE_MOVEMENT_X": "PanRight",
+            "RELATIVE_NEGATIVE_MOVEMENT_X": "PanLeft",
+            "RELATIVE_POSITIVE_MOVEMENT_Y": "TiltUp",
+            "RELATIVE_NEGATIVE_MOVEMENT_Y": "TiltDown"
+          }
+        },
+        {
+          "mappings": {
+            "RELATIVE_POSITIVE_MOVEMENT_X": "MoveUp",
+            "RELATIVE_NEGATIVE_MOVEMENT_X": "MoveDown",
+            "RELATIVE_POSITIVE_MOVEMENT_Y": "MoveRight",
+            "RELATIVE_NEGATIVE_MOVEMENT_Y": "MoveLeft",
+            "VERTICAL_POSITIVE_SCROLL": "MoveForward",
+            "HORIZONTAL_POSITIVE_SCROLL": "MoveForward",
+            "VERTICAL_NEGATIVE_SCROLL": "MoveBackward",
+            "HORIZONTAL_NEGATIVE_SCROLL": "MoveBackward"
+          }
+        }
+      ]
+    }
+  }
+  
