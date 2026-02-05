@@ -252,10 +252,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 							{
 								if (event.keyCode == E_KEY_CODE::EKC_R && event.action == SKeyboardEvent::ECA_RELEASED)
 									reload = true;
-								if (event.keyCode == E_KEY_CODE::EKC_B && event.action == SKeyboardEvent::ECA_RELEASED)
-								{
-									m_drawBBMode = DrawBoundingBoxMode((m_drawBBMode + 1) % DBBM_COUNT);
-								}
 							}
 							camera.keyboardProcess(events);
 						},
@@ -277,13 +273,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
  					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 				}
 #ifdef NBL_BUILD_DEBUG_DRAW
-				if (m_drawBBMode != DBBM_NONE)
 				{
 					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
 					ext::debug_draw::DrawAABB::DrawParameters drawParams;
 					drawParams.commandBuffer = cb;
 					drawParams.cameraMat = viewProjMatrix;
-					m_drawAABB->render(drawParams, drawFinished, m_drawBBMode == DBBM_OBB ? m_obbInstances : m_aabbInstances);
+					m_drawAABB->render(drawParams, drawFinished, m_aabbInstances);
 				}
 #endif
 				cb->endRenderPass();
@@ -1611,7 +1606,7 @@ private:
 	std::string m_modelPath;
 	std::string m_caseName;
 
-	DrawBoundingBoxMode m_drawBBMode = DBBM_NONE;
+	DrawBoundingBoxMode m_drawBBMode = DBBM_AABB;
 #ifdef NBL_BUILD_DEBUG_DRAW
 		smart_refctd_ptr<ext::debug_draw::DrawAABB> m_drawAABB;
 		std::vector<ext::debug_draw::InstanceData> m_aabbInstances;
