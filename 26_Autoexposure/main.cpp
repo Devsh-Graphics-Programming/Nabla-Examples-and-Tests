@@ -48,6 +48,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 	constexpr static inline float32_t2 MeteringWindowOffset = { 0.1f, 0.1f };
 	constexpr static inline float32_t2 LumaRange = { 1.0f / 2048.0f, 65536.f };
 	constexpr static inline float32_t2 PercentileRange = { 0.45f, 0.55f };
+	constexpr static inline float32_t2 BaseExposureAdaptationFactorsLog2 = {-1.1f, -0.2f};
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -590,6 +591,7 @@ public:
 			// Allocate memory
 			m_gatherAllocation = {};
 			m_histoAllocation = {};
+			m_lastLumaAllocation = {};
 			{
 				auto build_buffer = [this](
 					smart_refctd_ptr<ILogicalDevice> m_device,
@@ -631,15 +633,23 @@ public:
 					BinCount * sizeof(float_t),
 					"Luma Histogram Buffer"
 				);
-
+				build_buffer(
+					m_device,
+					&m_lastLumaAllocation,
+					m_lastFrameEVBuffer,
+					sizeof(float32_t),
+					"Last Luma EV Buffer"
+				);
 			}
-			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
-			m_histoBDA = m_histoBuffer->getDeviceAddress();
+
 			m_gatherMemory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() });
 			m_histoMemory = m_histoAllocation.memory->map({ 0ull, m_histoAllocation.memory->getAllocationSize() });
+			void* lastLumaMemory = m_lastLumaAllocation.memory->map({ 0ull, m_lastLumaAllocation.memory->getAllocationSize() });
 
-			if (!m_gatherMemory || !m_histoMemory)
+			if (!m_gatherMemory || !m_histoMemory || !lastLumaMemory)
 				return logFail("Failed to map the Device Memory!\n");
+
+			memset(lastLumaMemory, 0, m_lastFrameEVBuffer->getSize());
 		}
 
 		// transition m_tonemappedImgView to GENERAL
@@ -751,6 +761,8 @@ public:
 		m_surface->recreateSwapchain();
 		m_winMgr->show(m_window.get());
 
+		m_lastPresentStamp = std::chrono::high_resolution_clock::now();
+
 		return true;
 	}
 
@@ -766,13 +778,19 @@ public:
 		uint32_t workgroupSize = SubgroupSize * SubgroupSize;
 		sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
 
+		auto thisPresentStamp = std::chrono::high_resolution_clock::now();
+		auto microsecondsElapsedBetweenPresents = std::chrono::duration_cast<std::chrono::microseconds>(thisPresentStamp - m_lastPresentStamp);
+		m_lastPresentStamp = thisPresentStamp;
+
 		auto pc = AutoexposurePushData
 		{
 			.window = hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
 			.lumaMin = LumaRange.x,
-		    .lumaMax = LumaRange.y,
+			.lumaMax = LumaRange.y,
 			.viewportSize = Dimensions,
-			.lumaMeterBDA = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBDA : m_histoBDA,
+			.exposureAdaptationFactors = getAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count()) * 1e-6f),
+			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
+			.pLastFrameEVBuf = m_lastFrameEVBuffer->getDeviceAddress(),
 			.sampleCount = sampleCount,
 			.lowerBoundPercentile = PercentileRange.x,
 			.upperBoundPercentile = PercentileRange.y
@@ -993,6 +1011,11 @@ public:
 	}
 
 protected:
+	float32_t2 getAdaptationFactorFromFrameDelta(float frameDeltaSeconds)
+	{
+		return hlsl::exp2(BaseExposureAdaptationFactorsLog2 * frameDeltaSeconds);
+	}
+
 	// window
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
@@ -1013,11 +1036,11 @@ protected:
 	uint64_t m_submitIx = 0;
 
 	// example resources
-	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation;
-	uint64_t m_gatherBDA, m_histoBDA;
+	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer, m_lastFrameEVBuffer;
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation, m_lastLumaAllocation;
 	void *m_gatherMemory, *m_histoMemory;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
+	std::chrono::high_resolution_clock::time_point m_lastPresentStamp;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)

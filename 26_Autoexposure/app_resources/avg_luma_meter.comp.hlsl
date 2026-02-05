@@ -56,7 +56,7 @@ uint32_t3 glsl::gl_WorkGroupSize()
 [shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    const Ptr val_ptr = Ptr::create(pushData.lumaMeterBDA);
+    const Ptr val_ptr = Ptr::create(pushData.pLumaMeterBuf);
     PtrAccessor val_accessor = PtrAccessor::create(val_ptr);
 
     SharedAccessor sdata;

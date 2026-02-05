@@ -19,7 +19,9 @@ struct AutoexposurePushData
     float32_t lumaMin;
     float32_t lumaMax;
     uint32_t2 viewportSize;
-    uint64_t lumaMeterBDA;
+    float32_t2 exposureAdaptationFactors;
+    uint64_t pLumaMeterBuf;
+    uint64_t pLastFrameEVBuf;
 
     // mean only
     float32_t sampleCount;

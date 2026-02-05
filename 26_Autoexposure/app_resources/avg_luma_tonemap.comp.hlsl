@@ -61,7 +61,7 @@ uint32_t3 glsl::gl_WorkGroupSize()
 [shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    const Ptr val_ptr = Ptr::create(pushData.lumaMeterBDA);
+    const Ptr val_ptr = Ptr::create(pushData.pLumaMeterBuf);
     PtrAccessor val_accessor = PtrAccessor::create(val_ptr);
 
     SharedAccessor sdata;
@@ -72,7 +72,16 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     float32_t EV = meter.gatherLuma(val_accessor);
 
+
+    // const float32_t lastEV = ;
+    const float32_t lumaDiff = vk::RawBufferLoad<float32_t>(pushData.pLastFrameEVBuf) - EV;
+    EV += lumaDiff * mix(pushData.exposureAdaptationFactors.x, pushData.exposureAdaptationFactors.y, lumaDiff >= 0.0);
+
     uint32_t tid = workgroup::SubgroupContiguousIndex();
+    if (all(glsl::gl_WorkGroupID() == uint32_t3(0,0,0)))
+        if (tid == 0)
+            vk::RawBufferStore<float32_t>(pushData.pLastFrameEVBuf, EV);
+
     morton::code<false, 32, 2> mc;
     mc.value = tid;
     uint32_t2 coord = _static_cast<uint32_t2>(mc);
