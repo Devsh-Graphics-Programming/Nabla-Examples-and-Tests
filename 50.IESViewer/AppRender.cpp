@@ -8,7 +8,7 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "app_resources/common.hlsl"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 
 bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
 {

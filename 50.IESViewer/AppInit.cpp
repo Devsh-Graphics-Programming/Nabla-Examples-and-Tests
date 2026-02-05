@@ -12,7 +12,7 @@
 #include "app_resources/common.hlsl"
 #include "app_resources/imgui.opts.hlsl"
 #include "nbl/ext/ImGui/ImGui.h"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 bool IESViewer::parseCommandLine()

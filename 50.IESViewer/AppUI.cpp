@@ -13,7 +13,7 @@
 #include "app_resources/common.hlsl"
 #include "app_resources/false_color.hlsl"
 #include "app_resources/imgui.opts.hlsl"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/math/octahedral.hlsl"
 
