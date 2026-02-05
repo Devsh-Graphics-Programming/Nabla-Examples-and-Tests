@@ -79,8 +79,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     float32_t EV = meter.gatherLuma(histo_accessor, sdata);
 
-    const float32_t lastEV = vk::RawBufferLoad<float32_t>(pushData.pLastFrameEVBuf);
-    const float32_t lumaDiff = lastEV - EV;
+    const float32_t lumaDiff = vk::RawBufferLoad<float32_t>(pushData.pLastFrameEVBuf) - EV;
     EV += lumaDiff * mix(pushData.exposureAdaptationFactors.x, pushData.exposureAdaptationFactors.y, lumaDiff >= 0.0);
 
     uint32_t tid = workgroup::SubgroupContiguousIndex();

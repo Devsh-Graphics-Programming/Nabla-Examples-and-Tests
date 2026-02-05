@@ -770,7 +770,7 @@ public:
 	inline void workLoopBody() override
 	{
 		memset(m_gatherMemory, 0, m_gatherBuffer->getSize());
-		memset(m_histoMemory, 0, m_gatherBuffer->getSize());
+		memset(m_histoMemory, 0, m_histoBuffer->getSize());
 
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().subgroupSize;
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;

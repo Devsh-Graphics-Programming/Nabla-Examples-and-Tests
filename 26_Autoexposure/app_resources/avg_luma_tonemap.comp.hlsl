@@ -72,8 +72,6 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     float32_t EV = meter.gatherLuma(val_accessor);
 
-
-    // const float32_t lastEV = ;
     const float32_t lumaDiff = vk::RawBufferLoad<float32_t>(pushData.pLastFrameEVBuf) - EV;
     EV += lumaDiff * mix(pushData.exposureAdaptationFactors.x, pushData.exposureAdaptationFactors.y, lumaDiff >= 0.0);
 
