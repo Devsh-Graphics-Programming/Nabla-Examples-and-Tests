@@ -25,14 +25,15 @@ groupshared float32_t sdata[WORKGROUP_SIZE];
 struct SharedAccessor
 {
     using type = float32_t;
-    void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
     {
-        value = sdata[index];
+        value = sdata[ix];
     }
-
-    void set(const uint32_t index, const uint32_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const uint32_t ix, const AccessType value)
     {
-        sdata[index] = value;
+        sdata[ix] = value;
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -67,7 +68,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = luma_meter::geom_meter< WORKGROUP_SIZE, SUBGROUP_SIZE, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::geom_meter<wg_config_t, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.sampleCount, pushData.rcpFirstPassWGCount);
 
     float32_t EV = meter.gatherLuma(val_accessor);

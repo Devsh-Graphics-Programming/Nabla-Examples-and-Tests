@@ -4,8 +4,6 @@
 
 #pragma wave shader_stage(fragment)
 
-#include "app_resources/common.hlsl"
-
 // vertex shader is provided by the fullScreenTriangle extension
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
 using namespace nbl::hlsl;

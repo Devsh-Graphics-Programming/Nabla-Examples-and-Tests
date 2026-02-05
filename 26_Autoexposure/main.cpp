@@ -11,6 +11,7 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "nbl/builtin/hlsl/luma_meter/common.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 #include "app_resources/common.hlsl"
 
 using namespace nbl;
@@ -317,18 +318,26 @@ public:
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
+				const uint32_t configItemsPerInvoc = MeterMode == MeteringMode::AVERAGE ? 1 : workgroupSize / BinCount;
+				workgroup2::SArithmeticConfiguration wgConfig;
+				wgConfig.init(hlsl::findMSB(workgroupSize), hlsl::log2(float(subgroupSize)), configItemsPerInvoc);
+
 				struct MacroDefines
 				{
 					std::string identifier;
 					std::string definition;
 				};
-				const MacroDefines definesBuf[2] = {
+				constexpr uint32_t NumDefines = 4;
+				const MacroDefines definesBuf[NumDefines] = {
 					{ "WORKGROUP_SIZE", std::to_string(workgroupSize) },
-					{ "SUBGROUP_SIZE", std::to_string(subgroupSize) }
+					{ "SUBGROUP_SIZE", std::to_string(subgroupSize) },
+					{"WG_CONFIG_T", wgConfig.getConfigTemplateStructString()},
+                    {"NATIVE_SUBGROUP_ARITHMETIC", "1"}
 				};
 
+				const uint32_t defineCount = m_physicalDevice->getLimits().shaderSubgroupArithmetic ? NumDefines : NumDefines - 1;
 				std::vector<IShaderCompiler::SMacroDefinition> defines;
-				for (uint32_t i = 0; i < 2; i++)
+				for (uint32_t i = 0; i < defineCount; i++)
 					defines.emplace_back(definesBuf[i].identifier, definesBuf[i].definition);
 			    options.preprocessorOptions.extraDefines = defines;
 

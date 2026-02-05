@@ -7,6 +7,7 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/luma_meter/common.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 
 namespace nbl
 {
@@ -41,6 +42,21 @@ struct AutoexposurePushData
 #ifndef SUBGROUP_SIZE
 #error "Define SUBGROUP_SIZE!"
 #endif
+
+#ifndef WG_CONFIG_T
+#error "Define WG_CONFIG_T!"
+#endif
+
+using wg_config_t = WG_CONFIG_T;
+
+struct device_capabilities
+{
+#ifdef NATIVE_SUBGROUP_ARITHMETIC
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
+#else
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = false;
+#endif
+};
 
 #endif
 
