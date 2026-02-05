@@ -9,6 +9,9 @@
 #include "camera/CFPSCamera.hpp"
 #include "camera/CFreeLockCamera.hpp"
 #include "camera/COrbitCamera.hpp"
+#include "camera/CArcballCamera.hpp"
+#include "camera/CTurntableCamera.hpp"
+#include "camera/CTargetPoseController.hpp"
 
 #include "camera/CCubeProjection.hpp"
 #include "camera/CLinearProjection.hpp"
@@ -33,6 +36,10 @@ using nbl::hlsl::ICamera;
 using nbl::hlsl::CFPSCamera;
 using nbl::hlsl::CFreeCamera;
 using nbl::hlsl::COrbitCamera;
+using nbl::hlsl::CArcballCamera;
+using nbl::hlsl::CTurntableCamera;
+using nbl::hlsl::CTargetPose;
+using nbl::hlsl::CTargetPoseController;
 using nbl::hlsl::IPlanarProjection;
 using nbl::hlsl::CPlanarProjection;
 using nbl::hlsl::IGimbalController;
@@ -46,6 +53,7 @@ using nbl::hlsl::float32_t3x3;
 using nbl::hlsl::float32_t3x4;
 using nbl::hlsl::float32_t4x4;
 using nbl::hlsl::float64_t;
+using nbl::hlsl::float64_t3;
 using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
 using nbl::hlsl::getCastedMatrix;

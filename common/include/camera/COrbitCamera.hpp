@@ -1,6 +1,8 @@
 #ifndef _C_ORBIT_CAMERA_HPP_
 #define _C_ORBIT_CAMERA_HPP_
 
+#include <algorithm>
+#include <cmath>
 #include "ICamera.hpp"
 
 namespace nbl::hlsl
@@ -34,6 +36,11 @@ public:
     inline void target(const float64_t3& p)
     {
         m_targetPosition = p;
+    }
+
+    inline float64_t3 getTarget() const
+    {
+        return m_targetPosition;
     }
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override

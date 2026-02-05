@@ -14,6 +14,16 @@
         "type": "Free",
         "position": [2.116, 0.826, 1.152],
         "orientation": [0.095, -0.835, 0.152, 0.521]
+      },
+      {
+        "type": "Arcball",
+        "position": [1.500, 1.200, -1.800],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "Turntable",
+        "position": [-1.400, 1.100, 1.600],
+        "target": [0, 0, 0]
       }
     ],
     "projections": [
@@ -48,13 +58,15 @@
       {
         "projection": 0,
         "controllers": {
-          "keyboard": 2
+          "keyboard": 2,
+          "mouse": 0
         }
       },
       {
         "projection": 1,
         "controllers": {
-          "keyboard": 1
+          "keyboard": 1,
+          "mouse": 0
         }
       },
       {
@@ -70,6 +82,34 @@
           "keyboard": 3,
           "mouse": 1
         }
+      },
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 2,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 2,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 2,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 2,
+          "mouse": 0
+        }
       }
     ],
     "planars": [
@@ -84,6 +124,14 @@
       {
         "camera": 2,
         "viewports": [2, 3]
+      },
+      {
+        "camera": 3,
+        "viewports": [6, 7]
+      },
+      {
+        "camera": 4,
+        "viewports": [8, 9]
       }
     ],
     "controllers": {

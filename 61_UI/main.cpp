@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
+#include <fstream>
+#include <string>
+#include <unordered_set>
 #include <utility>
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
@@ -14,6 +18,7 @@ using json = nlohmann::json;
 #include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+#include "glm/gtc/quaternion.hpp"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #if __has_include("nbl/this_example/builtin/CArchive.h")
@@ -456,13 +461,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					m_scriptedInput.events.clear();
 					m_scriptedInput.checks.clear();
+					m_scriptedInput.captureFrames.clear();
 					m_scriptedInput.nextEventIndex = 0;
 					m_scriptedInput.nextCheckIndex = 0;
+					m_scriptedInput.nextCaptureIndex = 0;
 					m_scriptedInput.failed = false;
 					m_scriptedInput.summaryReported = false;
 					m_scriptedInput.baselineValid = false;
 					m_scriptedInput.exclusive = false;
 					m_scriptedInput.hardFail = false;
+					m_scriptedInput.capturePrefix = "script";
+					m_scriptedInput.captureOutputDir = localOutputCWD;
 
 					if (script.contains("enabled"))
 						m_scriptedInput.enabled = script["enabled"].get<bool>();
@@ -485,6 +494,29 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (script.contains("exclusive"))
 						m_scriptedInput.exclusive = script["exclusive"].get<bool>() || m_scriptedInput.exclusive;
 
+					if (script.contains("capture_prefix"))
+						m_scriptedInput.capturePrefix = script["capture_prefix"].get<std::string>();
+					if (m_scriptedInput.capturePrefix.empty())
+						m_scriptedInput.capturePrefix = "script";
+					if (script.contains("capture_frames"))
+						for (const auto& frame : script["capture_frames"])
+							m_scriptedInput.captureFrames.emplace_back(frame.get<uint64_t>());
+
+					if (script.contains("camera_controls"))
+					{
+						const auto& controls = script["camera_controls"];
+						if (controls.contains("keyboard_scale"))
+							m_cameraControls.keyboardScale = controls["keyboard_scale"].get<float>();
+						if (controls.contains("mouse_move_scale"))
+							m_cameraControls.mouseMoveScale = controls["mouse_move_scale"].get<float>();
+						if (controls.contains("mouse_scroll_scale"))
+							m_cameraControls.mouseScrollScale = controls["mouse_scroll_scale"].get<float>();
+						if (controls.contains("translation_scale"))
+							m_cameraControls.translationScale = controls["translation_scale"].get<float>();
+						if (controls.contains("rotation_scale"))
+							m_cameraControls.rotationScale = controls["rotation_scale"].get<float>();
+					}
+
 					if (script.contains("events"))
 						for (const auto& ev : script["events"])
 						{
@@ -496,6 +528,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						const auto frame = ev["frame"].get<uint64_t>();
 						const auto type = ev["type"].get<std::string>();
+						const bool captureFrame = ev.value("capture", false);
 
 						if (type == "keyboard")
 						{
@@ -532,6 +565,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							entry.keyboard.key = key;
 							entry.keyboard.action = action;
 							m_scriptedInput.events.emplace_back(entry);
+							if (captureFrame)
+								m_scriptedInput.captureFrames.emplace_back(frame);
 						}
 						else if (type == "mouse")
 						{
@@ -606,6 +641,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 
 							m_scriptedInput.events.emplace_back(entry);
+							if (captureFrame)
+								m_scriptedInput.captureFrames.emplace_back(frame);
 						}
 						else if (type == "imguizmo")
 						{
@@ -637,6 +674,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 
 							m_scriptedInput.events.emplace_back(entry);
+							if (captureFrame)
+								m_scriptedInput.captureFrames.emplace_back(frame);
 						}
 						else if (type == "action")
 						{
@@ -713,6 +752,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 
 							m_scriptedInput.events.emplace_back(entry);
+							if (captureFrame)
+								m_scriptedInput.captureFrames.emplace_back(frame);
 						}
 						else
 						{
@@ -812,6 +853,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						[](const ScriptedInputEvent& a, const ScriptedInputEvent& b) { return a.frame < b.frame; });
 					std::sort(m_scriptedInput.checks.begin(), m_scriptedInput.checks.end(),
 						[](const ScriptedInputCheck& a, const ScriptedInputCheck& b) { return a.frame < b.frame; });
+					if (!m_scriptedInput.captureFrames.empty())
+					{
+						std::sort(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end());
+						m_scriptedInput.captureFrames.erase(std::unique(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end()), m_scriptedInput.captureFrames.end());
+					}
 				};
 
 				if (program.is_used("--script"))
@@ -864,6 +910,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							return float32_t3(jret[0], jret[1], jret[2]);
 						};
 
+						constexpr float DefaultMoveScale = 0.01f;
+						constexpr float DefaultRotateScale = 0.003f;
+						constexpr float OrbitMoveScale = 0.5f;
+
 						if (jCamera["type"] == "FPS")
 						{
 							if (!withOrientation)
@@ -872,7 +922,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								return false;
 							}
 
-							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
+							auto camera = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
+							camera->setMoveSpeedScale(DefaultMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
 						}
 						else if (jCamera["type"] == "Free")
 						{
@@ -882,12 +935,31 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								return false;
 							}
 
-							cameras.emplace_back() = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
+							auto camera = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
+							camera->setMoveSpeedScale(DefaultMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
 						}
 						else if (jCamera["type"] == "Orbit")
 						{
-							auto& camera = cameras.emplace_back() = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
-							camera->setMoveSpeedScale(0.2);
+							auto camera = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Arcball")
+						{
+							auto camera = make_smart_refctd_ptr<CArcballCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Turntable")
+						{
+							auto camera = make_smart_refctd_ptr<CTurntableCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
 						}
 						else
 						{
@@ -1272,6 +1344,59 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// UI
 			{
 				{
+					constexpr size_t ImGuiStreamingBufferSize = 32ull * 1024ull * 1024ull;
+					auto createImGuiStreamingBuffer = [&](size_t size) -> smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t>
+					{
+						constexpr uint32_t minStreamingBufferAllocationSize = 128u;
+						constexpr uint32_t maxStreamingBufferAllocationAlignment = 4096u;
+
+						auto getRequiredAccessFlags = [&](const bitflag<IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS>& properties)
+						{
+							bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags(IDeviceMemoryAllocation::EMCAF_NO_MAPPING_ACCESS);
+
+							if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_READABLE_BIT))
+								flags |= IDeviceMemoryAllocation::EMCAF_READ;
+							if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_WRITABLE_BIT))
+								flags |= IDeviceMemoryAllocation::EMCAF_WRITE;
+
+							return flags;
+						};
+
+						IGPUBuffer::SCreationParams mdiCreationParams = {};
+						mdiCreationParams.usage = nbl::ext::imgui::UI::SCachedCreationParams::RequiredUsageFlags;
+						mdiCreationParams.size = size;
+
+						auto buffer = m_utils->getLogicalDevice()->createBuffer(std::move(mdiCreationParams));
+						if (!buffer)
+							return nullptr;
+
+						buffer->setObjectDebugName("ImGui MDI Upstream Buffer");
+
+						auto memoryReqs = buffer->getMemoryReqs();
+						memoryReqs.memoryTypeBits &= m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+						auto allocation = m_utils->getLogicalDevice()->allocate(memoryReqs, buffer.get(), nbl::ext::imgui::UI::SCachedCreationParams::RequiredAllocateFlags);
+						if (!allocation.isValid())
+							return nullptr;
+
+						auto memory = allocation.memory;
+
+						if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
+						{
+							m_logger->log("Could not map ImGui streaming buffer memory!", ILogger::ELL_ERROR);
+							return nullptr;
+						}
+
+						return make_smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t>(
+							SBufferRange<IGPUBuffer>{0ull, mdiCreationParams.size, std::move(buffer)},
+							maxStreamingBufferAllocationAlignment,
+							minStreamingBufferAllocationSize);
+					};
+
+					auto imguiStreamingBuffer = createImGuiStreamingBuffer(ImGuiStreamingBufferSize);
+					if (!imguiStreamingBuffer)
+						return logFail("Failed to create ImGui streaming buffer.");
+
 					nbl::ext::imgui::UI::SCreationParameters params;
 					params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
 					params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
@@ -1279,7 +1404,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					params.pipelineCache = nullptr;
 					params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, TotalUISampleTexturesAmount);
 					params.renderpass = smart_refctd_ptr<IGPURenderpass>(m_renderpass);
-					params.streamingBuffer = nullptr;
+					params.streamingBuffer = std::move(imguiStreamingBuffer);
 					params.subpassIx = 0u;
 					params.transfer = getTransferUpQueue();
 					params.utilities = m_utils;
@@ -1334,20 +1459,24 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					const auto ds = float32_t2{ m_window->getWidth(), m_window->getHeight() };
 
 					wInit.trsEditor.iPos = iPaddingOffset;
-					wInit.trsEditor.iSize = { ds.x * 0.1, ds.y - wInit.trsEditor.iPos.y * 2 };
+					wInit.trsEditor.iSize = { 0.0f, ds.y - wInit.trsEditor.iPos.y * 2 };
 
-					wInit.planars.iSize = { ds.x * 0.2, ds.y - iPaddingOffset.y * 2 };
+					const float panelWidth = std::clamp(ds.x * 0.33f, 380.0f, ds.x * 0.48f);
+					wInit.planars.iSize = { panelWidth, ds.y - iPaddingOffset.y * 2 };
 					wInit.planars.iPos = { ds.x - wInit.planars.iSize.x - iPaddingOffset.x, 0 + iPaddingOffset.y };
 
 					{
-						float leftX = wInit.trsEditor.iPos.x + wInit.trsEditor.iSize.x + iPaddingOffset.x;
-						float eachXSize = wInit.planars.iPos.x - (wInit.trsEditor.iPos.x + wInit.trsEditor.iSize.x) - 2*iPaddingOffset.x;
-						float eachYSize = (ds.y - 2 * iPaddingOffset.y - (wInit.renderWindows.size() - 1) * iPaddingOffset.y) / wInit.renderWindows.size();
+						const float renderPaddingX = 0.0f;
+						const float renderPaddingY = 0.0f;
+						const float splitGap = 4.0f;
+						float leftX = renderPaddingX;
+						float eachXSize = std::max(0.0f, ds.x - 2.0f * renderPaddingX);
+						float eachYSize = (ds.y - 2.0f * renderPaddingY - (wInit.renderWindows.size() - 1) * splitGap) / wInit.renderWindows.size();
 						
 						for (size_t i = 0; i < wInit.renderWindows.size(); ++i)
 						{
 							auto& rw = wInit.renderWindows[i];
-							rw.iPos = { leftX, (1+i) * iPaddingOffset.y + i * eachYSize };
+							rw.iPos = { leftX, renderPaddingY + i * (eachYSize + splitGap) };
 							rw.iSize = { eachXSize, eachYSize };
 						}
 					}
@@ -1731,6 +1860,61 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				m_realFrameIx++;
 
+				const uint64_t renderedFrameIx = m_realFrameIx - 1u;
+				auto captureScreenshot = [&](const system::path& outPath, const char* tag) -> void
+				{
+					if (!m_device || !m_assetManager || !m_surface)
+						return;
+
+					m_logger->log("%s screenshot capture start (frame %llu).", ILogger::ELL_INFO, tag, static_cast<unsigned long long>(renderedFrameIx));
+					const ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx };
+					if (m_device->blockForSemaphores({ &waitInfo, &waitInfo + 1 }) != ISemaphore::WAIT_RESULT::SUCCESS)
+					{
+						m_logger->log("%s screenshot failed: wait for render finished.", ILogger::ELL_ERROR, tag);
+						return;
+					}
+
+					if (!frame)
+					{
+						m_logger->log("%s screenshot failed: missing frame image.", ILogger::ELL_ERROR, tag);
+						return;
+					}
+
+					auto viewParams = IGPUImageView::SCreationParams{
+						.subUsages = IGPUImage::EUF_TRANSFER_SRC_BIT,
+						.image = core::smart_refctd_ptr<IGPUImage>(frame),
+						.viewType = IGPUImageView::ET_2D,
+						.format = frame->getCreationParameters().format
+					};
+					viewParams.subresourceRange.aspectMask = IGPUImage::EAF_COLOR_BIT;
+					viewParams.subresourceRange.baseMipLevel = 0u;
+					viewParams.subresourceRange.levelCount = 1u;
+					viewParams.subresourceRange.baseArrayLayer = 0u;
+					viewParams.subresourceRange.layerCount = 1u;
+					auto frameView = m_device->createImageView(std::move(viewParams));
+					if (!frameView)
+					{
+						m_logger->log("%s screenshot failed: could not create frame view.", ILogger::ELL_ERROR, tag);
+						return;
+					}
+
+					m_logger->log("%s screenshot capture: calling createScreenShot.", ILogger::ELL_INFO, tag);
+					const bool ok = ext::ScreenShot::createScreenShot(
+						m_device.get(),
+						getGraphicsQueue(),
+						nullptr,
+						frameView.get(),
+						m_assetManager.get(),
+						outPath,
+						asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
+						asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT);
+
+					if (ok)
+						m_logger->log("%s screenshot saved to \"%s\".", ILogger::ELL_INFO, tag, outPath.string().c_str());
+					else
+						m_logger->log("%s screenshot failed to save.", ILogger::ELL_ERROR, tag);
+				};
+
 				// only present if there's successful content to show
 				const ISmoothResizeSurface::SPresentInfo presentInfo = {
 					{
@@ -1748,56 +1932,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (m_ciFrameCounter >= CiFramesBeforeCapture)
 					{
 						m_ciScreenshotDone = true;
-						if (!m_device || !m_assetManager || !m_surface)
-							return;
+						captureScreenshot(m_ciScreenshotPath, "CI");
+					}
+				}
 
-						m_logger->log("CI screenshot capture start (frame %u).", ILogger::ELL_INFO, m_ciFrameCounter);
-						const ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx };
-						if (m_device->blockForSemaphores({ &waitInfo, &waitInfo + 1 }) != ISemaphore::WAIT_RESULT::SUCCESS)
-						{
-							m_logger->log("CI screenshot failed: wait for render finished.", ILogger::ELL_ERROR);
-							return;
-						}
-
-						if (!frame)
-						{
-							m_logger->log("CI screenshot failed: missing frame image.", ILogger::ELL_ERROR);
-							return;
-						}
-
-						auto viewParams = IGPUImageView::SCreationParams{
-							.subUsages = IGPUImage::EUF_TRANSFER_SRC_BIT,
-							.image = core::smart_refctd_ptr<IGPUImage>(frame),
-							.viewType = IGPUImageView::ET_2D,
-							.format = frame->getCreationParameters().format
-						};
-						viewParams.subresourceRange.aspectMask = IGPUImage::EAF_COLOR_BIT;
-						viewParams.subresourceRange.baseMipLevel = 0u;
-						viewParams.subresourceRange.levelCount = 1u;
-						viewParams.subresourceRange.baseArrayLayer = 0u;
-						viewParams.subresourceRange.layerCount = 1u;
-						auto frameView = m_device->createImageView(std::move(viewParams));
-						if (!frameView)
-						{
-							m_logger->log("CI screenshot failed: could not create frame view.", ILogger::ELL_ERROR);
-							return;
-						}
-
-						m_logger->log("CI screenshot capture: calling createScreenShot.", ILogger::ELL_INFO);
-						const bool ok = ext::ScreenShot::createScreenShot(
-							m_device.get(),
-							getGraphicsQueue(),
-							nullptr,
-							frameView.get(),
-							m_assetManager.get(),
-							m_ciScreenshotPath,
-							asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
-							asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT);
-
-						if (ok)
-							m_logger->log("CI screenshot saved to \"%s\".", ILogger::ELL_INFO, m_ciScreenshotPath.string().c_str());
-						else
-							m_logger->log("CI screenshot failed to save.", ILogger::ELL_ERROR);
+				if (m_scriptedInput.enabled && !m_scriptedInput.captureFrames.empty())
+				{
+					while (m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size() &&
+						m_scriptedInput.captureFrames[m_scriptedInput.nextCaptureIndex] == renderedFrameIx)
+					{
+						const auto outPath = m_scriptedInput.captureOutputDir /
+							(m_scriptedInput.capturePrefix + "_" + std::to_string(renderedFrameIx) + ".png");
+						captureScreenshot(outPath, "Script");
+						++m_scriptedInput.nextCaptureIndex;
 					}
 				}
 
@@ -1814,7 +1961,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					std::exit(EXIT_FAILURE);
 			}
 			if (m_ciMode && m_ciScreenshotDone)
+			{
+				if (m_scriptedInput.enabled && m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size())
+					return true;
 				return false;
+			}
 			if (m_surface->irrecoverable())
 				return false;
 
@@ -1841,6 +1992,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			};
 
 			m_nextPresentationTimestamp = updatePresentationTimestamp();
+			if (m_haveLastPresentationTimestamp)
+			{
+				const auto delta = m_nextPresentationTimestamp - m_lastPresentationTimestamp;
+				if (delta.count() < 0)
+					m_frameDeltaSec = 0.0;
+				else
+					m_frameDeltaSec = static_cast<double>(delta.count()) / 1000000.0;
+			}
+			m_lastPresentationTimestamp = m_nextPresentationTimestamp;
+			m_haveLastPresentationTimestamp = true;
+
+			updatePlayback(m_frameDeltaSec);
+			const bool skipCameraInput = m_playback.playing && m_playback.overrideInput;
 
 			struct
 			{
@@ -2026,6 +2190,24 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!scriptedKeyboard.empty())
 				capturedEvents.keyboard.insert(capturedEvents.keyboard.end(), scriptedKeyboard.begin(), scriptedKeyboard.end());
 
+			m_uiInputEventsThisFrame = static_cast<uint32_t>(capturedEvents.mouse.size() + capturedEvents.keyboard.size());
+
+			auto cameraKeyboardEvents = capturedEvents.keyboard;
+			auto cameraMouseEvents = capturedEvents.mouse;
+			for (auto& ev : cameraMouseEvents)
+			{
+				if (ev.type == ui::SMouseEvent::EET_SCROLL)
+				{
+					ev.scrollEvent.verticalScroll *= m_cameraControls.mouseScrollScale;
+					ev.scrollEvent.horizontalScroll *= m_cameraControls.mouseScrollScale;
+				}
+				else if (ev.type == ui::SMouseEvent::EET_MOVEMENT)
+				{
+					ev.movementEvent.relativeMovementX *= m_cameraControls.mouseMoveScale;
+					ev.movementEvent.relativeMovementY *= m_cameraControls.mouseMoveScale;
+				}
+			}
+
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
 			nbl::ext::imgui::UI::SUpdateParameters params =
@@ -2045,54 +2227,101 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					scriptedImguizmo.size());
 			}
 
-			if (enableActiveCameraMovement)
+			if (enableActiveCameraMovement && !skipCameraInput)
 			{
 				auto& binding = windowBindings[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
 				auto* camera = planar->getCamera();
-				
+
 				assert(binding.boundProjectionIx.has_value());
 				auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount = {};
+				uint32_t vKeyboardEventsCount = {};
+				uint32_t vMouseEventsCount = {};
 
 				projection.beginInputProcessing(m_nextPresentationTimestamp);
 				{
-					projection.process(nullptr, vCount);
+					projection.processKeyboard(nullptr, vKeyboardEventsCount, {});
+					projection.processMouse(nullptr, vMouseEventsCount, {});
 
-					if (virtualEvents.size() < vCount)
-						virtualEvents.resize(vCount);
+					const auto totalCount = vKeyboardEventsCount + vMouseEventsCount;
+					if (virtualEvents.size() < totalCount)
+						virtualEvents.resize(totalCount);
 
-					auto* orbit = dynamic_cast<COrbitCamera*>(camera);
+					auto* output = virtualEvents.data();
+					projection.processKeyboard(output, vKeyboardEventsCount, { cameraKeyboardEvents.data(), cameraKeyboardEvents.size() });
+					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
+						output[i].magnitude *= m_cameraControls.keyboardScale;
+					output += vKeyboardEventsCount;
 
-					if (orbit)
+					if (isOrbitLikeCamera(camera))
 					{
-						uint32_t vKeyboardEventsCount = {}, vMouseEventsCount = {};
-
-						projection.processKeyboard(nullptr, vKeyboardEventsCount, {});
-						projection.processMouse(nullptr, vMouseEventsCount, {});
-
-						auto* output = virtualEvents.data();
-
-						projection.processKeyboard(output, vKeyboardEventsCount, params.keyboardEvents); 
-						output += vKeyboardEventsCount;
-
 						if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
-							projection.processMouse(output, vMouseEventsCount, params.mouseEvents);
+							projection.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
 						else
 							vMouseEventsCount = 0;
-
-						vCount = vKeyboardEventsCount + vMouseEventsCount;
 					}
 					else
-						projection.process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
+					{
+						projection.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
+					}
+
+					vCount = vKeyboardEventsCount + vMouseEventsCount;
 				}
 				projection.endInputProcessing();
 
 				if (vCount)
 				{
-					camera->manipulate({ virtualEvents.data(), vCount });
+					applyVirtualEventScaling(virtualEvents, vCount);
+
+					const char* controllerLabel = "Keyboard/Mouse";
+					auto applyEventsToCamera = [&](ICamera* target, uint32_t planarIx)
+					{
+						if (!target)
+							return;
+
+						if (m_cameraControls.worldTranslate)
+						{
+							std::vector<CVirtualGimbalEvent> perCameraEvents(virtualEvents.begin(), virtualEvents.begin() + vCount);
+							uint32_t perCount = vCount;
+							remapTranslationToWorld(target, perCameraEvents, perCount);
+							if (perCount)
+								target->manipulate({ perCameraEvents.data(), perCount });
+						}
+						else
+						{
+							target->manipulate({ virtualEvents.data(), vCount });
+						}
+
+						applyConstraintsToCamera(target);
+						appendVirtualEventLog("input", controllerLabel, planarIx, target, virtualEvents.data(), vCount);
+					};
+
+					if (m_cameraControls.mirrorInput)
+					{
+						std::unordered_set<uintptr_t> visited;
+						for (size_t bindingIx = 0u; bindingIx < windowBindings.size(); ++bindingIx)
+						{
+							auto& bindingIt = windowBindings[bindingIx];
+							auto& planarIt = m_planarProjections[bindingIt.activePlanarIx];
+							if (!planarIt)
+								continue;
+							auto* target = planarIt->getCamera();
+							if (!target)
+								continue;
+							const auto id = target->getGimbal().getID();
+							if (!visited.insert(id).second)
+								continue;
+							applyEventsToCamera(target, bindingIt.activePlanarIx);
+						}
+					}
+					else
+					{
+						applyEventsToCamera(camera, binding.activePlanarIx);
+					}
+
 					if (m_scriptedInput.log)
 					{
 						for (uint32_t i = 0u; i < vCount; ++i)
@@ -2110,7 +2339,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			if (m_scriptedInput.enabled && scriptedImguizmo.size())
+			if (m_scriptedInput.enabled && scriptedImguizmo.size() && !skipCameraInput)
 			{
 				auto& binding = windowBindings[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
@@ -2132,6 +2361,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (vCount)
 				{
 					camera->manipulate({ imguizmoEvents.data(), vCount });
+					appendVirtualEventLog("imguizmo", "ImGuizmo", binding.activePlanarIx, camera, imguizmoEvents.data(), vCount);
 
 					if (m_scriptedInput.log)
 					{
@@ -2336,11 +2566,554 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			UpdateUiMetrics();
 			m_ui.manager->update(params);
 
+			}
+
+		private:
+		struct CUILogFormatter final : public nbl::system::ILogger
+		{
+			CUILogFormatter() : ILogger(ILogger::DefaultLogMask()) {}
+
+			std::string format(E_LOG_LEVEL level, std::string_view fmt, ...)
+			{
+				va_list args;
+				va_start(args, fmt);
+				auto out = constructLogString(fmt, level, args);
+				va_end(args);
+				if (!out.empty() && out.back() == '\n')
+					out.pop_back();
+				return out;
+			}
+
+		protected:
+			void log_impl(const std::string_view&, E_LOG_LEVEL, va_list) override {}
+		};
+
+		struct VirtualEventLogEntry
+		{
+			uint64_t frame = 0;
+			CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
+			float64_t magnitude = 0.0;
+			std::string source;
+			std::string controller;
+			std::string camera;
+			uint32_t planarIx = 0u;
+			std::string line;
+		};
+
+		struct CameraPreset
+		{
+			std::string name;
+			std::string identifier;
+			float64_t3 position = float64_t3(0.0);
+			glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			float distance = 0.f;
+			bool hasDistance = false;
+			double orbitU = 0.0;
+			double orbitV = 0.0;
+			float orbitDistance = 0.f;
+			bool hasOrbitState = false;
+		};
+
+		struct CameraKeyframe
+		{
+			CameraPreset preset;
+			float time = 0.f;
+		};
+
+		struct CameraPlaybackState
+		{
+			bool playing = false;
+			bool loop = true;
+			bool overrideInput = true;
+			float speed = 1.f;
+			float time = 0.f;
+		};
+
+		struct CameraControlSettings
+		{
+			bool mirrorInput = false;
+			bool worldTranslate = false;
+			float keyboardScale = 0.00625f;
+			float mouseMoveScale = 1.0f;
+			float mouseScrollScale = 1.0f;
+			float translationScale = 1.0f;
+			float rotationScale = 1.0f;
+		};
+
+		struct CameraConstraintSettings
+		{
+			bool enabled = false;
+			bool clampPitch = false;
+			bool clampYaw = false;
+			bool clampRoll = false;
+			bool clampDistance = false;
+			float pitchMinDeg = -80.f;
+			float pitchMaxDeg = 80.f;
+			float yawMinDeg = -180.f;
+			float yawMaxDeg = 180.f;
+			float rollMinDeg = -180.f;
+			float rollMaxDeg = 180.f;
+			float minDistance = 0.1f;
+			float maxDistance = 1000.f;
+		};
+
+		inline ICamera* getActiveCamera()
+		{
+			auto& binding = windowBindings[activeRenderWindowIx];
+			auto& planar = m_planarProjections[binding.activePlanarIx];
+			return planar ? planar->getCamera() : nullptr;
 		}
 
-	private:
+		inline bool isOrbitLikeCamera(ICamera* camera)
+		{
+			return dynamic_cast<COrbitCamera*>(camera) || dynamic_cast<CArcballCamera*>(camera) || dynamic_cast<CTurntableCamera*>(camera);
+		}
+
+		template<typename Fn>
+		inline bool withOrbitLikeCamera(ICamera* camera, Fn&& fn)
+		{
+			if (auto* orbit = dynamic_cast<COrbitCamera*>(camera))
+			{
+				fn(orbit);
+				return true;
+			}
+			if (auto* arcball = dynamic_cast<CArcballCamera*>(camera))
+			{
+				fn(arcball);
+				return true;
+			}
+			if (auto* turntable = dynamic_cast<CTurntableCamera*>(camera))
+			{
+				fn(turntable);
+				return true;
+			}
+			return false;
+		}
+
+		inline std::string_view getCameraTypeLabel(const ICamera* camera) const
+		{
+			if (dynamic_cast<const CFPSCamera*>(camera))
+				return "FPS";
+			if (dynamic_cast<const CFreeCamera*>(camera))
+				return "Free";
+			if (dynamic_cast<const COrbitCamera*>(camera))
+				return "Orbit";
+			if (dynamic_cast<const CArcballCamera*>(camera))
+				return "Arcball";
+			if (dynamic_cast<const CTurntableCamera*>(camera))
+				return "Turntable";
+			return "Unknown";
+		}
+
+		inline std::string_view getCameraTypeDescription(const ICamera* camera) const
+		{
+			if (dynamic_cast<const CFPSCamera*>(camera))
+				return "First-person WASD + mouse look";
+			if (dynamic_cast<const CFreeCamera*>(camera))
+				return "Free-fly 6DOF with full rotation";
+			if (dynamic_cast<const COrbitCamera*>(camera))
+				return "Orbit around target with dolly";
+			if (dynamic_cast<const CArcballCamera*>(camera))
+				return "Arcball trackball around target";
+			if (dynamic_cast<const CTurntableCamera*>(camera))
+				return "Turntable yaw/pitch around target";
+			return "Unspecified camera behavior";
+		}
+
+		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
+		{
+			CameraPreset preset;
+			preset.name = name;
+			if (!camera)
+				return preset;
+
+			preset.identifier = std::string(camera->getIdentifier());
+			const auto& gimbal = camera->getGimbal();
+			preset.position = gimbal.getPosition();
+			preset.orientation = gimbal.getOrientation();
+
+			auto captureOrbit = [&](auto* orbit)
+			{
+				preset.distance = orbit->getDistance();
+				preset.hasDistance = true;
+				preset.orbitDistance = orbit->getDistance();
+				preset.orbitU = orbit->getU();
+				preset.orbitV = orbit->getV();
+				preset.hasOrbitState = true;
+			};
+
+			withOrbitLikeCamera(camera, captureOrbit);
+
+			return preset;
+		}
+
+		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
+		{
+			if (!camera)
+				return false;
+
+			CTargetPose target;
+			target.position = preset.position;
+			target.orientation = preset.orientation;
+			target.hasDistance = preset.hasDistance;
+			target.distance = preset.distance;
+			target.hasOrbitState = preset.hasOrbitState;
+			target.orbitU = preset.orbitU;
+			target.orbitV = preset.orbitV;
+			target.orbitDistance = preset.orbitDistance;
+
+			return m_targetPoseController.apply(camera, target);
+		}
+
+		inline void appendVirtualEventLog(std::string_view source, std::string_view controller, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
+		{
+			m_uiVirtualEventsThisFrame += count;
+			const std::string sourceStr(source);
+			const std::string controllerStr(controller);
+			const std::string cameraName = camera ? std::string(camera->getIdentifier()) : std::string("None");
+			for (uint32_t i = 0u; i < count; ++i)
+			{
+				const auto* eventName = CVirtualGimbalEvent::virtualEventToString(events[i].type).data();
+				auto line = m_logFormatter.format(ILogger::ELL_INFO,
+					"virtual frame=%llu src=%s ctrl=%s cam=%s planar=%u event=%s mag=%.6f",
+					static_cast<unsigned long long>(m_realFrameIx),
+					sourceStr.c_str(),
+					controllerStr.c_str(),
+					cameraName.c_str(),
+					planarIx,
+					eventName,
+					events[i].magnitude);
+				m_virtualEventLog.push_back({
+					m_realFrameIx,
+					events[i].type,
+					events[i].magnitude,
+					sourceStr,
+					controllerStr,
+					cameraName,
+					planarIx,
+					std::move(line)
+				});
+			}
+
+			while (m_virtualEventLog.size() > m_virtualEventLogMax)
+				m_virtualEventLog.pop_front();
+		}
+
+		inline void applyConstraintsToCamera(ICamera* camera)
+		{
+			if (!m_cameraConstraints.enabled || !camera)
+				return;
+
+			auto clampOrbitDistance = [&](auto* orbit)
+			{
+				if (m_cameraConstraints.clampDistance)
+				{
+					const float clamped = std::clamp<float>(orbit->getDistance(), m_cameraConstraints.minDistance, m_cameraConstraints.maxDistance);
+					orbit->setDistance(clamped);
+				}
+			};
+
+			if (withOrbitLikeCamera(camera, clampOrbitDistance))
+				return;
+
+			if (!(m_cameraConstraints.clampPitch || m_cameraConstraints.clampYaw || m_cameraConstraints.clampRoll))
+				return;
+
+			const auto& gimbal = camera->getGimbal();
+			const auto pos = gimbal.getPosition();
+			const auto eulerDeg = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+
+			auto clamped = eulerDeg;
+			if (m_cameraConstraints.clampPitch)
+				clamped.x = std::clamp(clamped.x, m_cameraConstraints.pitchMinDeg, m_cameraConstraints.pitchMaxDeg);
+			if (m_cameraConstraints.clampYaw)
+				clamped.y = std::clamp(clamped.y, m_cameraConstraints.yawMinDeg, m_cameraConstraints.yawMaxDeg);
+			if (m_cameraConstraints.clampRoll)
+				clamped.z = std::clamp(clamped.z, m_cameraConstraints.rollMinDeg, m_cameraConstraints.rollMaxDeg);
+
+			if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
+				return;
+
+			CameraPreset preset;
+			preset.position = pos;
+			preset.orientation = glm::quat(glm::radians(clamped));
+			applyPresetToCamera(camera, preset);
+		}
+
+		inline void applyVirtualEventScaling(std::vector<CVirtualGimbalEvent>& events, uint32_t count)
+		{
+			for (uint32_t i = 0u; i < count; ++i)
+			{
+				auto& ev = events[i];
+				const auto type = ev.type;
+
+				if (type == CVirtualGimbalEvent::MoveForward || type == CVirtualGimbalEvent::MoveBackward ||
+					type == CVirtualGimbalEvent::MoveLeft || type == CVirtualGimbalEvent::MoveRight ||
+					type == CVirtualGimbalEvent::MoveUp || type == CVirtualGimbalEvent::MoveDown)
+				{
+					ev.magnitude *= m_cameraControls.translationScale;
+				}
+				else if (type == CVirtualGimbalEvent::TiltUp || type == CVirtualGimbalEvent::TiltDown ||
+					type == CVirtualGimbalEvent::PanLeft || type == CVirtualGimbalEvent::PanRight ||
+					type == CVirtualGimbalEvent::RollLeft || type == CVirtualGimbalEvent::RollRight)
+				{
+					ev.magnitude *= m_cameraControls.rotationScale;
+				}
+			}
+		}
+
+		inline void remapTranslationToWorld(ICamera* camera, std::vector<CVirtualGimbalEvent>& events, uint32_t& count)
+		{
+			if (!camera)
+				return;
+
+			float64_t3 worldDelta = float64_t3(0.0);
+			std::vector<CVirtualGimbalEvent> filtered;
+			filtered.reserve(events.size());
+
+			for (uint32_t i = 0u; i < count; ++i)
+			{
+				const auto& ev = events[i];
+				switch (ev.type)
+				{
+					case CVirtualGimbalEvent::MoveRight: worldDelta.x += ev.magnitude; break;
+					case CVirtualGimbalEvent::MoveLeft: worldDelta.x -= ev.magnitude; break;
+					case CVirtualGimbalEvent::MoveUp: worldDelta.y += ev.magnitude; break;
+					case CVirtualGimbalEvent::MoveDown: worldDelta.y -= ev.magnitude; break;
+					case CVirtualGimbalEvent::MoveForward: worldDelta.z += ev.magnitude; break;
+					case CVirtualGimbalEvent::MoveBackward: worldDelta.z -= ev.magnitude; break;
+					default:
+						filtered.emplace_back(ev);
+						break;
+				}
+			}
+
+			if (worldDelta.x == 0.0 && worldDelta.y == 0.0 && worldDelta.z == 0.0)
+			{
+				events = std::move(filtered);
+				count = static_cast<uint32_t>(events.size());
+				return;
+			}
+
+			const auto& gimbal = camera->getGimbal();
+			const auto right = gimbal.getXAxis();
+			const auto up = gimbal.getYAxis();
+			const auto forward = gimbal.getZAxis();
+
+			const float64_t3 localDelta = float64_t3(
+				glm::dot(worldDelta, right),
+				glm::dot(worldDelta, up),
+				glm::dot(worldDelta, forward)
+			);
+
+			auto emitAxis = [&](double v, CVirtualGimbalEvent::VirtualEventType pos, CVirtualGimbalEvent::VirtualEventType neg)
+			{
+				if (v == 0.0)
+					return;
+				auto& ev = filtered.emplace_back();
+				ev.type = (v > 0.0) ? pos : neg;
+				ev.magnitude = std::abs(v);
+			};
+
+			emitAxis(localDelta.x, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+			emitAxis(localDelta.y, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+			emitAxis(localDelta.z, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+
+			events = std::move(filtered);
+			count = static_cast<uint32_t>(events.size());
+		}
+
+		inline void applyPresetToTargets(const CameraPreset& preset)
+		{
+			if (!m_playbackAffectsAll)
+			{
+				applyPresetToCamera(getActiveCamera(), preset);
+				return;
+			}
+
+			std::unordered_set<uintptr_t> visited;
+			for (auto& binding : windowBindings)
+			{
+				auto& planar = m_planarProjections[binding.activePlanarIx];
+				if (!planar)
+					continue;
+				auto* camera = planar->getCamera();
+				if (!camera)
+					continue;
+				const auto id = camera->getGimbal().getID();
+				if (visited.insert(id).second)
+					applyPresetToCamera(camera, preset);
+			}
+		}
+
+		inline void updatePlayback(double dtSec)
+		{
+			if (!m_playback.playing || m_keyframes.empty())
+				return;
+
+			m_playback.time += static_cast<float>(dtSec * m_playback.speed);
+
+			const float duration = m_keyframes.back().time;
+			if (duration <= 0.f)
+			{
+				applyPresetToTargets(m_keyframes.back().preset);
+				return;
+			}
+
+			if (m_playback.loop)
+			{
+				while (m_playback.time > duration)
+					m_playback.time -= duration;
+			}
+			else if (m_playback.time > duration)
+			{
+				m_playback.time = duration;
+				m_playback.playing = false;
+			}
+
+			const auto time = m_playback.time;
+			if (m_keyframes.size() == 1)
+			{
+				applyPresetToTargets(m_keyframes.front().preset);
+				return;
+			}
+
+			size_t idx = 0u;
+			while (idx + 1u < m_keyframes.size() && m_keyframes[idx + 1u].time < time)
+				++idx;
+
+			const auto& a = m_keyframes[idx];
+			const auto& b = m_keyframes[std::min(idx + 1u, m_keyframes.size() - 1u)];
+
+			if (b.time <= a.time)
+			{
+				applyPresetToTargets(a.preset);
+				return;
+			}
+
+			const double alpha = static_cast<double>(time - a.time) / static_cast<double>(b.time - a.time);
+
+			CameraPreset blended;
+			blended.position = a.preset.position + (b.preset.position - a.preset.position) * alpha;
+			blended.orientation = glm::slerp(a.preset.orientation, b.preset.orientation, static_cast<float>(alpha));
+			blended.hasDistance = a.preset.hasDistance || b.preset.hasDistance;
+			if (blended.hasDistance)
+			{
+				const float da = a.preset.hasDistance ? a.preset.distance : b.preset.distance;
+				const float db = b.preset.hasDistance ? b.preset.distance : a.preset.distance;
+				blended.distance = da + (db - da) * static_cast<float>(alpha);
+			}
+			blended.hasOrbitState = a.preset.hasOrbitState || b.preset.hasOrbitState;
+			if (blended.hasOrbitState)
+			{
+				const double ua = a.preset.hasOrbitState ? a.preset.orbitU : b.preset.orbitU;
+				const double ub = b.preset.hasOrbitState ? b.preset.orbitU : a.preset.orbitU;
+				const double va = a.preset.hasOrbitState ? a.preset.orbitV : b.preset.orbitV;
+				const double vb = b.preset.hasOrbitState ? b.preset.orbitV : a.preset.orbitV;
+				const float da = a.preset.hasOrbitState ? a.preset.orbitDistance : b.preset.orbitDistance;
+				const float db = b.preset.hasOrbitState ? b.preset.orbitDistance : a.preset.orbitDistance;
+
+				blended.orbitU = ua + (ub - ua) * alpha;
+				blended.orbitV = va + (vb - va) * alpha;
+				blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
+			}
+
+			applyPresetToTargets(blended);
+		}
+
+		inline bool savePresetsToFile(const system::path& path)
+		{
+			json root;
+			root["presets"] = json::array();
+
+			for (const auto& preset : m_presets)
+			{
+				json j;
+				j["name"] = preset.name;
+				j["identifier"] = preset.identifier;
+				j["position"] = { preset.position.x, preset.position.y, preset.position.z };
+				j["orientation"] = { preset.orientation.x, preset.orientation.y, preset.orientation.z, preset.orientation.w };
+				if (preset.hasDistance)
+					j["distance"] = preset.distance;
+				if (preset.hasOrbitState)
+				{
+					j["orbit_u"] = preset.orbitU;
+					j["orbit_v"] = preset.orbitV;
+					j["orbit_distance"] = preset.orbitDistance;
+				}
+				root["presets"].push_back(std::move(j));
+			}
+
+			std::ofstream out(path.string(), std::ios::binary);
+			if (!out)
+				return false;
+			out << root.dump(2);
+			return true;
+		}
+
+		inline bool loadPresetsFromFile(const system::path& path)
+		{
+			std::ifstream in(path.string(), std::ios::binary);
+			if (!in)
+				return false;
+
+			json root;
+			in >> root;
+			if (!root.contains("presets"))
+				return false;
+
+			m_presets.clear();
+			for (const auto& entry : root["presets"])
+			{
+				CameraPreset preset;
+				if (entry.contains("name"))
+					preset.name = entry["name"].get<std::string>();
+				if (entry.contains("identifier"))
+					preset.identifier = entry["identifier"].get<std::string>();
+				if (entry.contains("position") && entry["position"].is_array())
+				{
+					auto arr = entry["position"];
+					preset.position = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+				}
+				if (entry.contains("orientation") && entry["orientation"].is_array())
+				{
+					auto arr = entry["orientation"];
+					preset.orientation = glm::quat(
+						arr[3].get<float>(),
+						arr[0].get<float>(),
+						arr[1].get<float>(),
+						arr[2].get<float>()
+					);
+				}
+				if (entry.contains("distance"))
+				{
+					preset.distance = entry["distance"].get<float>();
+					preset.hasDistance = true;
+				}
+				if (entry.contains("orbit_u"))
+				{
+					preset.orbitU = entry["orbit_u"].get<double>();
+					preset.hasOrbitState = true;
+				}
+				if (entry.contains("orbit_v"))
+				{
+					preset.orbitV = entry["orbit_v"].get<double>();
+					preset.hasOrbitState = true;
+				}
+				if (entry.contains("orbit_distance"))
+				{
+					preset.orbitDistance = entry["orbit_distance"].get<float>();
+					preset.hasOrbitState = true;
+				}
+				m_presets.emplace_back(std::move(preset));
+			}
+
+			return true;
+		}
+
 		inline void imguiListen()
 		{
 			ImGuiIO& io = ImGui::GetIO();
@@ -2354,8 +3127,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				if (!m_ciMode)
 				{
-					nbl::hlsl::ShowDebugWindow();
-					ImGuizmo::ShowDebugImguizmoWindow();
 				}
 
 				SImResourceInfo info;
@@ -2366,24 +3137,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					for (auto& planar : m_planarProjections)
 					{
 						auto* camera = planar->getCamera();
-
-						auto* orbit = dynamic_cast<COrbitCamera*>(camera);
-
-						if (orbit)
+						withOrbitLikeCamera(camera, [&](auto* orbit)
 						{
 							auto targetPostion = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
 							orbit->target(targetPostion);
 							orbit->manipulate({}, {});
-						}
+						});
 					}
 				}
 
 				// render bound planar camera views onto GUI windows
 				if (useWindow)
 				{
-					// ABS TRS editor to manipulate bound object
-					TransformEditor();
-
 					if(enableActiveCameraMovement)
 						ImGuizmo::Enable(false);
 					else
@@ -2404,10 +3169,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						}
 						ImGui::SetNextWindowSizeConstraints(ImVec2(0x45, 0x45), ImVec2(7680, 4320));
 
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
 						const std::string ident = "Render Window \"" + std::to_string(windowIx) + "\"";
 
-						ImGui::Begin(ident.data(), 0);
+						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
 
 						ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -2415,9 +3183,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							const auto mPos = ImGui::GetMousePos();
 
 							if (mPos.x < cursorPos.x || mPos.y < cursorPos.y || mPos.x > cursorPos.x + contentRegionSize.x || mPos.y > cursorPos.y + contentRegionSize.y)
-								window->Flags = ImGuiWindowFlags_None;
+								window->Flags &= ~ImGuiWindowFlags_NoMove;
 							else
-								window->Flags = ImGuiWindowFlags_NoMove;
+								window->Flags |= ImGuiWindowFlags_NoMove;
 						}
 
 						// setup bound entities for the window like camera & projections
@@ -2454,6 +3222,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGuizmo::SetDrawlist();
 						ImGui::Image(info, contentRegionSize);
 						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+						{
+							const char* projLabel = projection.getParameters().m_type == IPlanarProjection::CProjection::Perspective ? "Persp" : "Ortho";
+							const std::string overlayText = "Planar " + std::to_string(binding.activePlanarIx) + " | " + projLabel + " | W" + std::to_string(windowIx);
+							const std::string cameraText = std::string(getCameraTypeLabel(planarViewCameraBound)) + ": " + std::string(getCameraTypeDescription(planarViewCameraBound));
+							const ImVec2 textSize = ImGui::CalcTextSize(overlayText.c_str());
+							const ImVec2 descSize = ImGui::CalcTextSize(cameraText.c_str());
+							const ImVec2 pad = ImVec2(6.0f, 4.0f);
+							const float lineGap = 2.0f;
+							const float width = std::max(textSize.x, descSize.x);
+							const float height = textSize.y + descSize.y + lineGap + pad.y * 2.0f;
+							ImVec2 overlayPos = ImVec2(cursorPos.x + contentRegionSize.x - width - pad.x * 2.0f - 6.0f, cursorPos.y + 6.0f);
+							overlayPos.x = std::max(overlayPos.x, cursorPos.x + 6.0f);
+							ImVec2 overlayMax = ImVec2(overlayPos.x + width + pad.x * 2.0f, overlayPos.y + height);
+							auto* drawList = ImGui::GetWindowDrawList();
+							drawList->AddRectFilled(overlayPos, overlayMax, ImGui::ColorConvertFloat4ToU32(ImVec4(0.05f, 0.06f, 0.08f, 0.80f)), 6.0f);
+							drawList->AddRect(overlayPos, overlayMax, ImGui::ColorConvertFloat4ToU32(ImVec4(0.60f, 0.66f, 0.76f, 0.80f)), 6.0f);
+							drawList->AddText(ImVec2(overlayPos.x + pad.x, overlayPos.y + pad.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.96f, 0.98f, 1.0f, 1.0f)), overlayText.c_str());
+							drawList->AddText(ImVec2(overlayPos.x + pad.x, overlayPos.y + pad.y + textSize.y + lineGap), ImGui::ColorConvertFloat4ToU32(ImVec4(0.78f, 0.82f, 0.90f, 1.0f)), cameraText.c_str());
+						}
 
 						// I will assume we need to focus a window to start manipulating objects from it
 						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
@@ -2506,6 +3293,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 							else
 								imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
+
+							float gizmoSizeClip = 0.1f;
+							ImGuizmo::SetGizmoSizeClipSpace(gizmoSizeClip);
 
 							imguizmoModel.outTRS = imguizmoModel.inTRS;
 							{
@@ -2643,6 +3433,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 								if (ImGuizmo::IsOver() and not ImGuizmo::IsUsingAny() && not enableActiveCameraMovement)
 								{
+									if (targetGimbalManipulationCamera && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+									{
+										const uint32_t newPlanarIx = modelIx - 1u;
+										if (newPlanarIx < m_planarProjections.size())
+										{
+											binding.activePlanarIx = newPlanarIx;
+											binding.pickDefaultProjections(m_planarProjections[binding.activePlanarIx]->getPlanarProjections());
+											if (!(m_scriptedInput.enabled && m_scriptedInput.exclusive))
+												activeRenderWindowIx = windowIx;
+										}
+									}
+
 									ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
 									ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 									ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
@@ -2665,6 +3467,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 									ImGui::Text("Identifier: %s", ident.c_str());
 									ImGui::Text("Object Ix: %u", modelIx);
+									if (targetGimbalManipulationCamera)
+									{
+										ImGui::Separator();
+										ImGui::TextDisabled("RMB: switch view to this camera");
+										ImGui::TextDisabled("LMB drag: manipulate gizmo");
+										ImGui::TextDisabled("SPACE: toggle move mode");
+									}
 
 									ImGui::End();
 
@@ -2677,6 +3486,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						ImGui::End();
 						ImGui::PopStyleColor(1);
+						ImGui::PopStyleVar(3);
+					}
+					if (windowBindings.size() > 1u)
+					{
+						const auto& topRw = wInit.renderWindows[0];
+						const float splitY = topRw.iPos.y + topRw.iSize.y;
+						const float gap = std::max(0.0f, wInit.renderWindows[1].iPos.y - splitY);
+						ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+						ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
+						ImGui::Begin("SplitOverlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus);
+						auto* drawList = ImGui::GetWindowDrawList();
+						if (gap >= 2.0f)
+							drawList->AddRectFilled(ImVec2(0.0f, splitY), ImVec2(io.DisplaySize.x, splitY + gap), ImGui::ColorConvertFloat4ToU32(ImVec4(0.05f, 0.06f, 0.08f, 0.85f)));
+						else
+							drawList->AddLine(ImVec2(0.0f, splitY), ImVec2(io.DisplaySize.x, splitY), ImGui::ColorConvertFloat4ToU32(ImVec4(0.80f, 0.84f, 0.92f, 0.75f)), 2.0f);
+						ImGui::End();
 					}
 					assert(manipulationCounter <= 1u);
 				}
@@ -2713,6 +3538,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			DrawControlPanel();
+			UpdateBoundCameraMovement();
+			UpdateCursorVisibility();
+
 			// update camera matrices for scene rendering
 			{
 				for (uint32_t i = 0u; i < windowBindings.size(); ++i)
@@ -2735,352 +3564,1072 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			// Planars
+
+		}
+
+		inline void UpdateBoundCameraMovement()
+		{
+			ImGuiIO& io = ImGui::GetIO();
+
+			if (ImGui::IsKeyPressed(ImGuiKey_Space))
+				enableActiveCameraMovement = !enableActiveCameraMovement;
+
+			if (enableActiveCameraMovement)
 			{
-				// setup
-				{					
-					const ImGuiCond windowCond = m_ciMode ? ImGuiCond_Always : ImGuiCond_Appearing;
-					ImGui::SetNextWindowPos({ wInit.planars.iPos.x, wInit.planars.iPos.y }, windowCond);
-					ImGui::SetNextWindowSize({ wInit.planars.iSize.x, wInit.planars.iSize.y }, windowCond);
-				}
+				io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+				io.MouseDrawCursor = false;
+				io.WantCaptureMouse = false;
 
-				ImGui::Begin("Planar projection");
-				ImGui::Checkbox("Window mode##useWindow", &useWindow);
-				ImGui::Separator();
+				ImVec2 viewportSize = io.DisplaySize;
+				auto* cc = m_window->getCursorControl();
+				int32_t posX = m_window->getX();
+				int32_t posY = m_window->getY();
 
-				auto& active = windowBindings[activeRenderWindowIx];
-				const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
-
-				ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
+				if (resetCursorToCenter)
 				{
-					const size_t planarsCount = m_planarProjections.size();
-					assert(planarsCount);
-
-					std::vector<std::string> sbels(planarsCount);
-					for (size_t i = 0; i < planarsCount; ++i)
-						sbels[i] = "Planar " + std::to_string(i);
-
-					std::vector<const char*> labels(planarsCount);
-					for (size_t i = 0; i < planarsCount; ++i)
-						labels[i] = sbels[i].c_str();
-
-					int currentPlanarIx = static_cast<int>(active.activePlanarIx);
-					if (ImGui::Combo("Active Planar", &currentPlanarIx, labels.data(), static_cast<int>(labels.size())))
-					{
-						active.activePlanarIx = static_cast<uint32_t>(currentPlanarIx);
-						active.pickDefaultProjections(m_planarProjections[active.activePlanarIx]->getPlanarProjections());
-					}
+					const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x / 2 + posX), static_cast<int32_t>(viewportSize.y / 2 + posY) };
+					cc->setPosition(middle);
 				}
-
-				assert(active.boundProjectionIx.has_value());
-				assert(active.lastBoundPerspectivePresetProjectionIx.has_value());
-				assert(active.lastBoundOrthoPresetProjectionIx.has_value());
-
-				const auto activePlanarIxString = std::to_string(active.activePlanarIx);
-				auto& planarBound = m_planarProjections[active.activePlanarIx];
-				assert(planarBound);
-
-				auto selectedProjectionType = planarBound->getPlanarProjections()[active.boundProjectionIx.value()].getParameters().m_type;
+				else 
 				{
-					const char* labels[] = { "Perspective", "Orthographic" };
-					int type = static_cast<int>(selectedProjectionType);
-
-					if (ImGui::Combo("Projection Type", &type, labels, IM_ARRAYSIZE(labels)))
-					{
-						selectedProjectionType = static_cast<IPlanarProjection::CProjection::ProjectionType>(type);
-
-						switch (selectedProjectionType)
-						{
-							case IPlanarProjection::CProjection::Perspective: active.boundProjectionIx = active.lastBoundPerspectivePresetProjectionIx.value(); break;
-							case IPlanarProjection::CProjection::Orthographic: active.boundProjectionIx = active.lastBoundOrthoPresetProjectionIx.value(); break;
-							default: active.boundProjectionIx = std::nullopt; assert(false); break;
-						}
-					}
+					auto currentCursorPos = cc->getPosition();
+					ICursorControl::SPosition newPos{};
+					newPos.x = std::clamp<int32_t>(currentCursorPos.x, posX, viewportSize.x + posX);
+					newPos.y = std::clamp<int32_t>(currentCursorPos.y, posY, viewportSize.y + posY);
+					cc->setPosition(newPos);
 				}
-
-				auto getPresetName = [&](auto ix) -> std::string
-				{
-					switch (selectedProjectionType)
-					{
-						case IPlanarProjection::CProjection::Perspective: return "Perspective Projection Preset " + std::to_string(ix);
-						case IPlanarProjection::CProjection::Orthographic: return "Orthographic Projection Preset " + std::to_string(ix);
-						default: return "Unknown Projection Preset " + std::to_string(ix);
-					}
-				};
-
-				bool updateBoundVirtualMaps = false;
-				if (ImGui::BeginCombo("Projection Preset", getPresetName(active.boundProjectionIx.value()).c_str()))
-				{
-					auto& projections = planarBound->getPlanarProjections();
-
-					for (uint32_t i = 0; i < projections.size(); ++i)
-					{
-						const auto& projection = projections[i];
-						const auto& params = projection.getParameters();
-
-						if (params.m_type != selectedProjectionType)
-							continue;
-
-						bool isSelected = (i == active.boundProjectionIx.value());
-
-						if (ImGui::Selectable(getPresetName(i).c_str(), isSelected))
-						{
-							active.boundProjectionIx = i;
-							updateBoundVirtualMaps |= true;
-
-							switch (selectedProjectionType)
-							{
-								case IPlanarProjection::CProjection::Perspective: active.lastBoundPerspectivePresetProjectionIx = active.boundProjectionIx.value(); break;
-								case IPlanarProjection::CProjection::Orthographic: active.lastBoundOrthoPresetProjectionIx = active.boundProjectionIx.value(); break;
-								default: assert(false); break;
-							}
-						}
-
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-					ImGui::EndCombo();
-				}
-
-				auto* const boundCamera = planarBound->getCamera();
-				auto& boundProjection = planarBound->getPlanarProjections()[active.boundProjectionIx.value()];
-				assert(not boundProjection.isProjectionSingular());
-
-				auto updateParameters = boundProjection.getParameters();
-
-				if (useWindow)
-					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
-
-				if(useWindow)
-					ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
-
-				if (ImGui::RadioButton("LH", active.leftHandedProjection))
-					active.leftHandedProjection = true;
-
-				ImGui::SameLine();
-
-				if (ImGui::RadioButton("RH", not active.leftHandedProjection))
-					active.leftHandedProjection = false;
-
-				updateParameters.m_zNear = std::clamp(updateParameters.m_zNear, 0.1f, 100.f);
-				updateParameters.m_zFar = std::clamp(updateParameters.m_zFar, 110.f, 10000.f);
-
-				ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
-				ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-
-				switch (selectedProjectionType)
-				{
-					case IPlanarProjection::CProjection::Perspective:
-					{
-						ImGui::SliderFloat("Fov", &updateParameters.m_planar.perspective.fov, 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-						boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
-					} break;
-
-					case IPlanarProjection::CProjection::Orthographic:
-					{
-						ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 30.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-						boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
-					} break;
-
-					default: break;
-				}
-
-				{
-					if (ImGui::TreeNodeEx("Cursor Behaviour"))
-					{
-						if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
-							resetCursorToCenter = false;
-						if (ImGui::RadioButton("Reset to the window center", resetCursorToCenter))
-							resetCursorToCenter = true;
-						ImGui::TreePop();
-					}
-				}
-
-				{
-					ImGuiIO& io = ImGui::GetIO();
-
-					if (ImGui::IsKeyPressed(ImGuiKey_Space))
-						enableActiveCameraMovement = !enableActiveCameraMovement;
-
-					if (enableActiveCameraMovement)
-					{
-						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
-						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
-						io.MouseDrawCursor = false;
-						io.WantCaptureMouse = false;
-
-						ImVec2 cursorPos = ImGui::GetMousePos();
-						ImVec2 viewportSize = io.DisplaySize;
-						auto* cc = m_window->getCursorControl();
-						int32_t posX = m_window->getX();
-						int32_t posY = m_window->getY();
-
-						if (resetCursorToCenter)
-						{
-							const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x / 2 + posX), static_cast<int32_t>(viewportSize.y / 2 + posY) };
-							cc->setPosition(middle);
-						}
-						else 
-						{
-							auto currentCursorPos = cc->getPosition();
-							ICursorControl::SPosition newPos{};
-							newPos.x = std::clamp<int32_t>(currentCursorPos.x, posX, viewportSize.x + posX);
-							newPos.y = std::clamp<int32_t>(currentCursorPos.y, posY, viewportSize.y + posY);
-							cc->setPosition(newPos);
-						}
-					}
-					else
-					{
-						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
-						io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
-						io.MouseDrawCursor = true;
-						io.WantCaptureMouse = true;
-					}
-		
-
-					if (ImGui::IsItemHovered())
-					{
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-						ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-						ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
-
-						ImVec2 mousePos = ImGui::GetMousePos();
-						ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
-
-						ImGui::Begin("HoverOverlay", nullptr,
-							ImGuiWindowFlags_NoDecoration |
-							ImGuiWindowFlags_AlwaysAutoResize |
-							ImGuiWindowFlags_NoSavedSettings);
-
-						ImGui::Text("Press 'Space' to Enable/Disable bound planar camera movement");
-
-						ImGui::End();
-
-						ImGui::PopStyleVar();
-						ImGui::PopStyleColor(2);
-					}
-
-					ImGui::Separator();
-
-					const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
-					if (ImGui::TreeNodeEx("Bound Camera", flags))
-					{
-						ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
-						ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
-						ImGui::Separator();
-						{
-							auto* orbit = dynamic_cast<COrbitCamera*>(boundCamera);
-
-							float moveSpeed = boundCamera->getMoveSpeedScale();
-							float rotationSpeed = boundCamera->getRotationSpeedScale();
-
-							ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-
-							if(not orbit)
-								ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-
-							boundCamera->setMoveSpeedScale(moveSpeed);
-							boundCamera->setRotationSpeedScale(rotationSpeed);
-
-							{
-								if (orbit)
-								{
-									float distance = orbit->getDistance();
-									ImGui::SliderFloat("Distance", &distance, COrbitCamera::MinDistance, COrbitCamera::MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
-									orbit->setDistance(distance);
-								}
-							}
-						}
-
-						if (ImGui::TreeNodeEx("World Data", flags))
-						{
-							auto& gimbal = boundCamera->getGimbal();
-							const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-							const auto& orientation = gimbal.getOrientation();
-							const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
-
-							addMatrixTable("Position", ("PositionTable_" + activePlanarIxString).c_str(), 1, 3, &position[0], false);
-							addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + activePlanarIxString).c_str(), 1, 4, &orientation[0], false);
-							addMatrixTable("View Matrix", ("ViewMatrixTable_" + activePlanarIxString).c_str(), 3, 4, &viewMatrix[0][0], false);
-							ImGui::TreePop();
-						}
-
-						if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
-						{
-							displayKeyMappingsAndVirtualStatesInline(&boundProjection);
-							ImGui::TreePop();
-						}
-
-						ImGui::TreePop();
-					}
-				}
-
-				{
-					ImGuiIO& io = ImGui::GetIO();
-					ImVec2 mousePos = ImGui::GetMousePos();
-					ImVec2 viewportSize = io.DisplaySize;
-					auto* cc = m_window->getCursorControl();
-
-					if (mousePos.x < 0.0f || mousePos.y < 0.0f || mousePos.x > viewportSize.x || mousePos.y > viewportSize.y)
-					{
-						if (not enableActiveCameraMovement)
-							cc->setVisible(true);
-					}
-					else
-					{
-						cc->setVisible(false);
-					}
-				}
-
-				ImGui::End();
+			}
+			else
+			{
+				io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+				io.MouseDrawCursor = true;
+				io.WantCaptureMouse = true;
 			}
 		}
 
-		inline void TransformEditor()
+		inline void UpdateCursorVisibility()
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			ImVec2 mousePos = ImGui::GetMousePos();
+			ImVec2 viewportSize = io.DisplaySize;
+			auto* cc = m_window->getCursorControl();
+
+			if (mousePos.x < 0.0f || mousePos.y < 0.0f || mousePos.x > viewportSize.x || mousePos.y > viewportSize.y)
+			{
+				if (not enableActiveCameraMovement)
+					cc->setVisible(true);
+			}
+			else
+			{
+				cc->setVisible(false);
+			}
+		}
+
+		inline void UpdateUiMetrics()
+		{
+			m_uiLastFrameMs = static_cast<float>(m_frameDeltaSec * 1000.0);
+			m_uiLastInputEvents = m_uiInputEventsThisFrame;
+			m_uiLastVirtualEvents = m_uiVirtualEventsThisFrame;
+
+			m_uiFrameMs[m_uiMetricIndex] = m_uiLastFrameMs;
+			m_uiInputCounts[m_uiMetricIndex] = static_cast<float>(m_uiInputEventsThisFrame);
+			m_uiVirtualCounts[m_uiMetricIndex] = static_cast<float>(m_uiVirtualEventsThisFrame);
+
+			m_uiMetricIndex = (m_uiMetricIndex + 1u) % UiMetricSamples;
+			m_uiInputEventsThisFrame = 0u;
+			m_uiVirtualEventsThisFrame = 0u;
+		}
+
+		inline void DrawBadge(const char* label, const ImVec4& bg, const ImVec4& fg)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, bg);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
+			ImGui::PushStyleColor(ImGuiCol_Text, fg);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 2.0f));
+			ImGui::Button(label);
+			ImGui::PopStyleVar();
+			ImGui::PopStyleColor(4);
+		}
+
+		inline void DrawKeyHint(const char* label, const ImVec4& bg, const ImVec4& fg)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, bg);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
+			ImGui::PushStyleColor(ImGuiCol_Text, fg);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
+			ImGui::SmallButton(label);
+			ImGui::PopStyleVar();
+			ImGui::PopStyleColor(4);
+		}
+
+		inline void DrawHoverHint(const char* text)
+		{
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(text);
+				ImGui::EndTooltip();
+			}
+		}
+
+		inline void DrawDot(const ImVec4& color)
+		{
+			ImVec2 p = ImGui::GetCursorScreenPos();
+			const float radius = 3.5f;
+			ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + radius, p.y + radius + 1.0f), radius, ImGui::ColorConvertFloat4ToU32(color));
+			ImGui::Dummy(ImVec2(radius * 2.0f + 2.0f, radius * 2.0f));
+			ImGui::SameLine(0, 6.0f);
+		}
+
+		inline void DrawSectionHeader(const char* id, const char* label, const ImVec4& accent)
+		{
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.14f, 0.18f, 0.22f, 0.52f));
+			if (ImGui::BeginChild(id, ImVec2(0, 20), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+			{
+				ImVec2 p = ImGui::GetWindowPos();
+				ImVec2 s = ImGui::GetWindowSize();
+				ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 2.0f, p.y + s.y), ImGui::ColorConvertFloat4ToU32(accent), 4.0f);
+				ImGui::SetCursorPosX(8.0f);
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextColored(accent, "%s", label);
+			}
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();
+			ImGui::Spacing();
+		}
+
+		inline float CalcCardHeight(int rows) const
+		{
+			return ImGui::GetFrameHeightWithSpacing() * (static_cast<float>(rows) + 1.0f) + 10.0f;
+		}
+
+		inline bool BeginCard(const char* id, float height, const ImVec4& top, const ImVec4& bottom, const ImVec4& border)
+		{
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+			const bool open = ImGui::BeginChild(id, ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+			ImVec2 p = ImGui::GetWindowPos();
+			ImVec2 s = ImGui::GetWindowSize();
+			const ImU32 colTop = ImGui::ColorConvertFloat4ToU32(top);
+			const ImU32 colBottom = ImGui::ColorConvertFloat4ToU32(bottom);
+			ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
+				p,
+				ImVec2(p.x + s.x, p.y + s.y),
+				colTop,
+				colTop,
+				colBottom,
+				colBottom
+			);
+			ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + s.x, p.y + s.y), ImGui::ColorConvertFloat4ToU32(border), 6.0f);
+			return open;
+		}
+
+		inline void EndCard()
+		{
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar(2);
+		}
+
+
+		inline void DrawControlPanel()
+		{
+			const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+			const float panelWidth = std::clamp(displaySize.x * 0.19f, 200.0f, displaySize.x * 0.25f);
+			const float panelHeight = std::clamp(displaySize.y * 0.34f, 200.0f, displaySize.y * 0.50f);
+			const ImVec2 panelSize = { panelWidth, panelHeight };
+			const ImVec2 panelPos = { 0.0f, 0.0f };
+			ImGui::SetNextWindowPos(panelPos, ImGuiCond_Always);
+			ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
+
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(5.0f, 4.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 2.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 3.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 4.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(3.0f, 2.0f));
+
+			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.06f, 0.08f, 0.0f));
+			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.12f, 0.16f, 0.44f));
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.64f, 0.72f, 0.84f, 0.55f));
+			ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.16f, 0.19f, 0.24f, 0.54f));
+			ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.26f, 0.32f, 0.40f, 0.64f));
+			ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.30f, 0.36f, 0.45f, 0.70f));
+			ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.14f, 0.18f, 0.24f, 0.60f));
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.24f, 0.30f, 0.40f, 0.70f));
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.28f, 0.36f, 0.46f, 0.78f));
+			ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.14f, 0.18f, 0.24f, 0.60f));
+			ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.24f, 0.30f, 0.40f, 0.70f));
+			ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(0.20f, 0.26f, 0.36f, 0.78f));
+			ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImVec4(0.12f, 0.14f, 0.18f, 0.50f));
+			ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImVec4(0.16f, 0.18f, 0.22f, 0.50f));
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.99f, 1.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.82f, 0.86f, 0.90f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.54f, 0.60f, 0.70f, 0.80f));
+			ImGui::PushStyleColor(ImGuiCol_SeparatorHovered, ImVec4(0.68f, 0.76f, 0.88f, 0.90f));
+			ImGui::PushStyleColor(ImGuiCol_SeparatorActive, ImVec4(0.82f, 0.90f, 1.0f, 0.96f));
+
+			ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
+			ImGui::SetNextWindowBgAlpha(0.0f);
+			if (m_ciMode)
+				ImGui::SetNextWindowFocus();
+			ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+
+			const ImVec4 accent = ImVec4(0.60f, 0.82f, 1.0f, 1.0f);
+			const ImVec4 good = ImVec4(0.45f, 0.90f, 0.60f, 1.0f);
+			const ImVec4 bad = ImVec4(1.0f, 0.50f, 0.45f, 1.0f);
+			const ImVec4 warn = ImVec4(0.95f, 0.80f, 0.45f, 1.0f);
+			const ImVec4 muted = ImVec4(0.92f, 0.93f, 0.95f, 1.0f);
+			const ImVec4 badgeText = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
+			const ImVec4 keyBg = ImVec4(0.20f, 0.22f, 0.25f, 1.0f);
+			const ImVec4 keyFg = ImVec4(0.92f, 0.94f, 0.96f, 1.0f);
+			const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX;
+			const ImVec4 panelBg = ImVec4(0.03f, 0.04f, 0.05f, 0.50f);
+			const ImVec4 panelEdge = ImVec4(0.62f, 0.70f, 0.84f, 0.60f);
+			const ImVec4 panelStripe = ImVec4(0.28f, 0.56f, 0.90f, 0.70f);
+			const ImVec4 panelShadow = ImVec4(0.0f, 0.0f, 0.0f, 0.12f);
+
+			{
+				const ImVec2 panelPos = ImGui::GetWindowPos();
+				const ImVec2 panelSize = ImGui::GetWindowSize();
+				auto* drawList = ImGui::GetWindowDrawList();
+				drawList->AddRectFilled(ImVec2(panelPos.x + 2.0f, panelPos.y + 3.0f), ImVec2(panelPos.x + panelSize.x + 4.0f, panelPos.y + panelSize.y + 5.0f), ImGui::ColorConvertFloat4ToU32(panelShadow), 8.0f);
+				drawList->AddRectFilled(panelPos, ImVec2(panelPos.x + panelSize.x, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelBg), 6.0f);
+				drawList->AddRect(panelPos, ImVec2(panelPos.x + panelSize.x, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelEdge), 6.0f);
+				drawList->AddRectFilled(panelPos, ImVec2(panelPos.x + 4.0f, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelStripe), 6.0f);
+			}
+
+			auto row = [&](const char* label, auto&& drawValue)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(label);
+				ImGui::TableSetColumnIndex(1);
+				drawValue();
+			};
+
+			auto metricMax = [&](const std::array<float, UiMetricSamples>& values, float minValue) -> float
+			{
+				float maxValue = minValue;
+				for (const float v : values)
+					maxValue = std::max(maxValue, v);
+				return maxValue;
+			};
+
+			auto miniStat = [&](const char* id, const char* label, const ImVec4& color, const std::array<float, UiMetricSamples>& series, float minValue, auto&& drawValue)
+			{
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.14f, 0.16f, 0.19f, 0.75f));
+				ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+				if (ImGui::BeginChild(id, ImVec2(0, 56), true, ImGuiWindowFlags_NoScrollbar))
+				{
+					ImGui::TextDisabled("%s", label);
+					ImGui::SetWindowFontScale(1.05f);
+					drawValue();
+					ImGui::SetWindowFontScale(1.0f);
+					ImGui::PushStyleColor(ImGuiCol_PlotLines, color);
+					const float maxValue = metricMax(series, minValue);
+					ImGui::PlotLines("##plot", series.data(), static_cast<int>(UiMetricSamples), static_cast<int>(m_uiMetricIndex), nullptr, 0.0f, maxValue, ImVec2(0, 24));
+					ImGui::PopStyleColor();
+				}
+				ImGui::EndChild();
+				ImGui::PopStyleVar();
+				ImGui::PopStyleColor();
+			};
+
+			auto calcPillWidth = [&](const char* label, const ImVec2& pad)
+			{
+				return ImGui::CalcTextSize(label).x + pad.x * 2.0f;
+			};
+
+			auto drawTogglePill = [&](const char* label, bool& value, const ImVec4& onCol, const ImVec4& offCol, const ImVec2& pad)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button, value ? onCol : offCol);
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, value ? onCol : offCol);
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, value ? onCol : offCol);
+				ImGui::PushStyleColor(ImGuiCol_Text, badgeText);
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, pad);
+				if (ImGui::Button(label))
+					value = !value;
+				ImGui::PopStyleVar();
+				ImGui::PopStyleColor(4);
+			};
+
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+			if (ImGui::BeginChild("PanelHeader", ImVec2(0, 64), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+			{
+				ImGui::Dummy(ImVec2(0.0f, 1.0f));
+				ImGui::SetWindowFontScale(1.08f);
+				ImGui::TextColored(accent, "Control Panel");
+				ImGui::SetWindowFontScale(1.0f);
+				{
+					const ImVec2 badgePad = ImVec2(6.0f, 2.0f);
+					const float gap = ImGui::GetStyle().ItemSpacing.x;
+					const char* badgeWindow = useWindow ? "WINDOW" : "FULL";
+					const char* badgeMove = enableActiveCameraMovement ? "MOVE ON" : "MOVE OFF";
+					const char* badgeScript = m_scriptedInput.enabled ? (m_scriptedInput.exclusive ? "SCRIPT EXCL" : "SCRIPT") : "SCRIPT OFF";
+					const float badgeRowWidth = calcPillWidth(badgeWindow, badgePad)
+						+ gap + calcPillWidth(badgeMove, badgePad)
+						+ gap + calcPillWidth(badgeScript, badgePad)
+						+ (m_ciMode ? (gap + calcPillWidth("CI", badgePad)) : 0.0f);
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - badgeRowWidth) * 0.5f));
+
+					DrawBadge(badgeWindow, accent, badgeText);
+					ImGui::SameLine(0.0f, gap);
+					DrawBadge(badgeMove, enableActiveCameraMovement ? good : bad, badgeText);
+					ImGui::SameLine(0.0f, gap);
+					DrawBadge(badgeScript, m_scriptedInput.enabled ? accent : ImVec4(0.35f, 0.36f, 0.38f, 1.0f), badgeText);
+					if (m_ciMode)
+					{
+						ImGui::SameLine(0.0f, gap);
+						DrawBadge("CI", warn, badgeText);
+					}
+				}
+
+				ImGui::Dummy(ImVec2(0.0f, 2.0f));
+				{
+					const ImVec2 keyPad = ImVec2(4.0f, 1.0f);
+					const float gap = ImGui::GetStyle().ItemSpacing.x;
+					const float groupGap = gap * 2.0f;
+					const float moveWidth = ImGui::CalcTextSize("Move").x + gap
+						+ calcPillWidth("W", keyPad) + gap
+						+ calcPillWidth("A", keyPad) + gap
+						+ calcPillWidth("S", keyPad) + gap
+						+ calcPillWidth("D", keyPad);
+					const float lookWidth = ImGui::CalcTextSize("Look").x + gap + calcPillWidth("RMB", keyPad);
+					const float zoomWidth = ImGui::CalcTextSize("Zoom").x + gap + calcPillWidth("MW", keyPad);
+					const float rowWidth = moveWidth + groupGap + lookWidth + groupGap + zoomWidth;
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f));
+
+					ImGui::TextDisabled("Move");
+					ImGui::SameLine();
+					DrawKeyHint("W", keyBg, keyFg);
+					ImGui::SameLine();
+					DrawKeyHint("A", keyBg, keyFg);
+					ImGui::SameLine();
+					DrawKeyHint("S", keyBg, keyFg);
+					ImGui::SameLine();
+					DrawKeyHint("D", keyBg, keyFg);
+
+					ImGui::SameLine(0.0f, groupGap);
+					ImGui::TextDisabled("Look");
+					ImGui::SameLine();
+					DrawKeyHint("RMB", keyBg, keyFg);
+
+					ImGui::SameLine(0.0f, groupGap);
+					ImGui::TextDisabled("Zoom");
+					ImGui::SameLine();
+					DrawKeyHint("MW", keyBg, keyFg);
+				}
+
+				ImGui::Dummy(ImVec2(0.0f, 2.0f));
+				if (ImGui::BeginTable("HeaderMetrics", 3, ImGuiTableFlags_SizingStretchProp))
+				{
+					const float frameMs = std::max(0.0f, m_uiLastFrameMs);
+					const float fps = frameMs > 0.0f ? (1000.0f / frameMs) : 0.0f;
+
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					miniStat("FrameStat", "Frame", accent, m_uiFrameMs, 16.0f, [&]
+					{
+						ImGui::TextColored(accent, "%.1f ms  %.0f fps", frameMs, fps);
+					});
+
+					ImGui::TableSetColumnIndex(1);
+					miniStat("InputStat", "Input", accent, m_uiInputCounts, 4.0f, [&]
+					{
+						ImGui::TextColored(accent, "%u ev", m_uiLastInputEvents);
+					});
+
+					ImGui::TableSetColumnIndex(2);
+					miniStat("VirtualStat", "Virtual", accent, m_uiVirtualCounts, 4.0f, [&]
+					{
+						ImGui::TextColored(accent, "%u ev", m_uiLastVirtualEvents);
+					});
+					ImGui::EndTable();
+				}
+			}
+			ImGui::EndChild();
+			ImGui::PopStyleVar();
+
+			ImGui::Spacing();
+
+			{
+				const ImVec2 togglePad = ImVec2(6.0f, 2.0f);
+				const float gap = ImGui::GetStyle().ItemSpacing.x;
+				const float rowWidth = calcPillWidth("WINDOW", togglePad)
+					+ gap + calcPillWidth("STATUS", togglePad)
+					+ gap + calcPillWidth("EVENT LOG", togglePad);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f));
+				drawTogglePill("WINDOW", useWindow, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
+				DrawHoverHint("Toggle split render windows");
+				ImGui::SameLine(0.0f, gap);
+				drawTogglePill("STATUS", m_showHud, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
+				DrawHoverHint("Show system and camera status panel");
+				ImGui::SameLine(0.0f, gap);
+				drawTogglePill("EVENT LOG", m_showEventLog, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
+				DrawHoverHint("Show virtual event log");
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::BeginTabBar("ControlTabs"))
+			{
+				if (m_showHud && ImGui::BeginTabItem("Status"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("StatusPanel", ImVec2(0, 0), true))
+					{
+						ImGui::PushItemWidth(-1.0f);
+						const ImVec4 cardTop = ImVec4(0.20f, 0.22f, 0.26f, 0.98f);
+						const ImVec4 cardBottom = ImVec4(0.12f, 0.13f, 0.15f, 0.98f);
+						const ImVec4 cardBorder = ImVec4(0.45f, 0.48f, 0.54f, 1.0f);
+
+						DrawSectionHeader("SessionHeader", "Session", accent);
+						if (BeginCard("SessionCard", CalcCardHeight(3), cardTop, cardBottom, cardBorder))
+						{
+							if (ImGui::BeginTable("SessionTable", 2, tableFlags))
+							{
+								ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+								ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+								row("Mode", [&] { DrawDot(accent); ImGui::TextColored(accent, "%s", useWindow ? "Window" : "Fullscreen"); });
+								row("Active window", [&] { DrawDot(accent); ImGui::TextColored(accent, "%u", activeRenderWindowIx); });
+								row("Movement", [&] { const ImVec4 c = enableActiveCameraMovement ? good : bad; DrawDot(c); ImGui::TextColored(c, "%s", enableActiveCameraMovement ? "Enabled" : "Disabled"); });
+								ImGui::EndTable();
+							}
+						}
+						EndCard();
+
+						DrawSectionHeader("CameraHeader", "Camera", accent);
+
+						auto* activeCamera = getActiveCamera();
+						if (activeCamera)
+						{
+							const auto& gimbal = activeCamera->getGimbal();
+							const auto pos = gimbal.getPosition();
+							const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+
+							if (BeginCard("CameraCard", CalcCardHeight(5), cardTop, cardBottom, cardBorder))
+							{
+								if (ImGui::BeginTable("CameraTable", 2, tableFlags))
+								{
+									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+									ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+									row("Name", [&] { DrawDot(accent); ImGui::TextColored(muted, "%s", activeCamera->getIdentifier().data()); });
+									row("Position", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f %.2f %.2f", pos.x, pos.y, pos.z); });
+									row("Euler", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f %.1f %.1f", euler.x, euler.y, euler.z); });
+									row("Move scale", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.4f", activeCamera->getMoveSpeedScale()); });
+									row("Rotate scale", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.4f", activeCamera->getRotationSpeedScale()); });
+									ImGui::EndTable();
+								}
+							}
+							EndCard();
+						}
+						else
+						{
+							if (BeginCard("CameraCard", CalcCardHeight(2), cardTop, cardBottom, cardBorder))
+								ImGui::TextDisabled("No active camera");
+							EndCard();
+						}
+
+						DrawSectionHeader("ProjectionHeader", "Projection", accent);
+
+						auto& binding = windowBindings[activeRenderWindowIx];
+						auto& planar = m_planarProjections[binding.activePlanarIx];
+						if (planar && binding.boundProjectionIx.has_value())
+						{
+							auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
+							const auto& params = projection.getParameters();
+							if (BeginCard("ProjectionCard", CalcCardHeight(4), cardTop, cardBottom, cardBorder))
+							{
+								if (ImGui::BeginTable("ProjectionTable", 2, tableFlags))
+								{
+									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+									ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+									row("Type", [&] { DrawDot(accent); ImGui::TextColored(muted, "%s", params.m_type == IPlanarProjection::CProjection::Perspective ? "Perspective" : "Orthographic"); });
+									row("zNear", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f", params.m_zNear); });
+									row("zFar", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f", params.m_zFar); });
+									if (params.m_type == IPlanarProjection::CProjection::Perspective)
+										row("Fov", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f", params.m_planar.perspective.fov); });
+									else
+										row("Ortho width", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f", params.m_planar.orthographic.orthoWidth); });
+									ImGui::EndTable();
+								}
+							}
+							EndCard();
+						}
+						else
+						{
+							if (BeginCard("ProjectionCard", CalcCardHeight(2), cardTop, cardBottom, cardBorder))
+								ImGui::TextDisabled("No projection bound");
+							EndCard();
+						}
+						ImGui::PopItemWidth();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Projection"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("ProjectionPanel", ImVec2(0, 0), true))
+					{
+						ImGui::PushItemWidth(-1.0f);
+						auto& active = windowBindings[activeRenderWindowIx];
+						const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
+
+						DrawSectionHeader("PlanarSelectHeader", "Planar Selection", accent);
+						ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
+						DrawHoverHint("Window that receives input and camera switching");
+						{
+							const size_t planarsCount = m_planarProjections.size();
+							assert(planarsCount);
+
+							std::vector<std::string> sbels(planarsCount);
+							for (size_t i = 0; i < planarsCount; ++i)
+								sbels[i] = "Planar " + std::to_string(i);
+
+							std::vector<const char*> labels(planarsCount);
+							for (size_t i = 0; i < planarsCount; ++i)
+								labels[i] = sbels[i].c_str();
+
+							int currentPlanarIx = static_cast<int>(active.activePlanarIx);
+							if (ImGui::Combo("Active Planar", &currentPlanarIx, labels.data(), static_cast<int>(labels.size())))
+							{
+								active.activePlanarIx = static_cast<uint32_t>(currentPlanarIx);
+								active.pickDefaultProjections(m_planarProjections[active.activePlanarIx]->getPlanarProjections());
+							}
+							DrawHoverHint("Select which camera the window renders");
+						}
+
+						assert(active.boundProjectionIx.has_value());
+						assert(active.lastBoundPerspectivePresetProjectionIx.has_value());
+						assert(active.lastBoundOrthoPresetProjectionIx.has_value());
+
+						const auto activePlanarIxString = std::to_string(active.activePlanarIx);
+						auto& planarBound = m_planarProjections[active.activePlanarIx];
+						assert(planarBound);
+
+						DrawSectionHeader("ProjectionParamsHeader", "Projection Parameters", accent);
+
+						auto selectedProjectionType = planarBound->getPlanarProjections()[active.boundProjectionIx.value()].getParameters().m_type;
+						{
+							const char* labels[] = { "Perspective", "Orthographic" };
+							int type = static_cast<int>(selectedProjectionType);
+
+							if (ImGui::Combo("Projection Type", &type, labels, IM_ARRAYSIZE(labels)))
+							{
+								selectedProjectionType = static_cast<IPlanarProjection::CProjection::ProjectionType>(type);
+
+								switch (selectedProjectionType)
+								{
+									case IPlanarProjection::CProjection::Perspective: active.boundProjectionIx = active.lastBoundPerspectivePresetProjectionIx.value(); break;
+									case IPlanarProjection::CProjection::Orthographic: active.boundProjectionIx = active.lastBoundOrthoPresetProjectionIx.value(); break;
+									default: active.boundProjectionIx = std::nullopt; assert(false); break;
+								}
+							}
+							DrawHoverHint("Switch projection type for this planar");
+						}
+
+						auto getPresetName = [&](auto ix) -> std::string
+						{
+							switch (selectedProjectionType)
+							{
+								case IPlanarProjection::CProjection::Perspective: return "Perspective Projection Preset " + std::to_string(ix);
+								case IPlanarProjection::CProjection::Orthographic: return "Orthographic Projection Preset " + std::to_string(ix);
+								default: return "Unknown Projection Preset " + std::to_string(ix);
+							}
+						};
+
+						bool updateBoundVirtualMaps = false;
+						if (ImGui::BeginCombo("Projection Preset", getPresetName(active.boundProjectionIx.value()).c_str()))
+						{
+							auto& projections = planarBound->getPlanarProjections();
+
+							for (uint32_t i = 0; i < projections.size(); ++i)
+							{
+								const auto& projection = projections[i];
+								const auto& params = projection.getParameters();
+
+								if (params.m_type != selectedProjectionType)
+									continue;
+
+								bool isSelected = (i == active.boundProjectionIx.value());
+
+								if (ImGui::Selectable(getPresetName(i).c_str(), isSelected))
+								{
+									active.boundProjectionIx = i;
+									updateBoundVirtualMaps |= true;
+
+									switch (selectedProjectionType)
+									{
+										case IPlanarProjection::CProjection::Perspective: active.lastBoundPerspectivePresetProjectionIx = active.boundProjectionIx.value(); break;
+										case IPlanarProjection::CProjection::Orthographic: active.lastBoundOrthoPresetProjectionIx = active.boundProjectionIx.value(); break;
+										default: assert(false); break;
+									}
+								}
+
+								if (isSelected)
+									ImGui::SetItemDefaultFocus();
+							}
+							ImGui::EndCombo();
+						}
+						DrawHoverHint("Switch preset projection for this planar");
+
+						auto* const boundCamera = planarBound->getCamera();
+						auto& boundProjection = planarBound->getPlanarProjections()[active.boundProjectionIx.value()];
+						assert(not boundProjection.isProjectionSingular());
+
+						auto updateParameters = boundProjection.getParameters();
+
+						if (useWindow)
+							ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
+						DrawHoverHint("Allow ImGuizmo axes to flip based on view");
+
+						if(useWindow)
+							ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
+						DrawHoverHint("Toggle debug grid in the render window");
+
+						if (ImGui::RadioButton("LH", active.leftHandedProjection))
+							active.leftHandedProjection = true;
+
+						ImGui::SameLine();
+
+						if (ImGui::RadioButton("RH", not active.leftHandedProjection))
+							active.leftHandedProjection = false;
+						DrawHoverHint("Toggle left or right handed projection");
+
+						updateParameters.m_zNear = std::clamp(updateParameters.m_zNear, 0.1f, 100.f);
+						updateParameters.m_zFar = std::clamp(updateParameters.m_zFar, 110.f, 10000.f);
+
+						ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
+						DrawHoverHint("Near clip plane");
+						ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+						DrawHoverHint("Far clip plane");
+
+						switch (selectedProjectionType)
+						{
+							case IPlanarProjection::CProjection::Perspective:
+							{
+								ImGui::SliderFloat("Fov", &updateParameters.m_planar.perspective.fov, 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+								DrawHoverHint("Perspective field of view");
+								boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
+							} break;
+
+							case IPlanarProjection::CProjection::Orthographic:
+							{
+								ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 30.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+								DrawHoverHint("Orthographic width");
+								boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
+							} break;
+
+							default: break;
+						}
+
+						DrawSectionHeader("CursorHeader", "Cursor Behaviour", accent);
+						if (ImGui::TreeNodeEx("Cursor Behaviour"))
+						{
+							if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
+								resetCursorToCenter = false;
+							if (ImGui::RadioButton("Reset to the window center", resetCursorToCenter))
+								resetCursorToCenter = true;
+							ImGui::TreePop();
+						}
+
+						if (enableActiveCameraMovement)
+							ImGui::TextColored(good, "Bound Camera Movement: Enabled");
+						else
+							ImGui::TextColored(bad, "Bound Camera Movement: Disabled");
+
+						ImGui::Separator();
+
+						DrawSectionHeader("BoundCameraHeader", "Bound Camera", accent);
+						const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
+						if (ImGui::TreeNodeEx("Bound Camera", flags))
+						{
+							ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
+							ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
+							ImGui::Separator();
+							{
+								auto* orbit = dynamic_cast<COrbitCamera*>(boundCamera);
+								auto* arcball = dynamic_cast<CArcballCamera*>(boundCamera);
+								auto* turntable = dynamic_cast<CTurntableCamera*>(boundCamera);
+								const bool isOrbitLike = orbit || arcball || turntable;
+
+								float moveSpeed = boundCamera->getMoveSpeedScale();
+								float rotationSpeed = boundCamera->getRotationSpeedScale();
+
+								ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+								DrawHoverHint("Scale translation speed for this camera");
+
+								if (not orbit)
+									ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+								DrawHoverHint("Scale rotation speed for this camera");
+
+								boundCamera->setMoveSpeedScale(moveSpeed);
+								boundCamera->setRotationSpeedScale(rotationSpeed);
+
+								if (isOrbitLike)
+								{
+									auto applyDistance = [&](auto* cam)
+									{
+										float distance = cam->getDistance();
+										ImGui::SliderFloat("Distance", &distance, cam->MinDistance, cam->MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
+										DrawHoverHint("Current orbit distance");
+										cam->setDistance(distance);
+									};
+
+									if (orbit)
+										applyDistance(orbit);
+									else if (arcball)
+										applyDistance(arcball);
+									else if (turntable)
+										applyDistance(turntable);
+								}
+							}
+
+							if (ImGui::TreeNodeEx("World Data", flags))
+							{
+								auto& gimbal = boundCamera->getGimbal();
+								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
+								const auto& orientation = gimbal.getOrientation();
+								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
+
+								addMatrixTable("Position", ("PositionTable_" + activePlanarIxString).c_str(), 1, 3, &position[0], false);
+								addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + activePlanarIxString).c_str(), 1, 4, &orientation[0], false);
+								addMatrixTable("View Matrix", ("ViewMatrixTable_" + activePlanarIxString).c_str(), 3, 4, &viewMatrix[0][0], false);
+								ImGui::TreePop();
+							}
+
+							if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
+							{
+								displayKeyMappingsAndVirtualStatesInline(&boundProjection);
+								ImGui::TreePop();
+							}
+
+							ImGui::TreePop();
+						}
+						ImGui::PopItemWidth();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Camera"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("CameraPanel", ImVec2(0, 0), true))
+					{
+						ImGui::PushItemWidth(-1.0f);
+						DrawSectionHeader("CameraInputHeader", "Input", accent);
+						ImGui::Checkbox("Mirror input to all cameras", &m_cameraControls.mirrorInput);
+						DrawHoverHint("Apply keyboard and mouse input to every camera");
+						ImGui::Checkbox("World translate", &m_cameraControls.worldTranslate);
+						DrawHoverHint("Translate in world space instead of camera space");
+						ImGui::SliderFloat("Keyboard scale", &m_cameraControls.keyboardScale, 0.01f, 10.f, "%.2f");
+						DrawHoverHint("Scale keyboard movement magnitudes");
+						ImGui::SliderFloat("Mouse move scale", &m_cameraControls.mouseMoveScale, 0.01f, 10.f, "%.2f");
+						DrawHoverHint("Scale mouse move magnitudes");
+						ImGui::SliderFloat("Mouse scroll scale", &m_cameraControls.mouseScrollScale, 0.01f, 10.f, "%.2f");
+						DrawHoverHint("Scale mouse wheel magnitudes");
+						ImGui::SliderFloat("Translate scale", &m_cameraControls.translationScale, 0.01f, 10.f, "%.2f");
+						DrawHoverHint("Overall translation scale for virtual events");
+						ImGui::SliderFloat("Rotate scale", &m_cameraControls.rotationScale, 0.01f, 10.f, "%.2f");
+						DrawHoverHint("Overall rotation scale for virtual events");
+
+						DrawSectionHeader("CameraConstraintsHeader", "Constraints", accent);
+						ImGui::Checkbox("Enable constraints", &m_cameraConstraints.enabled);
+						DrawHoverHint("Enable or disable all camera constraints");
+						ImGui::Checkbox("Clamp distance", &m_cameraConstraints.clampDistance);
+						DrawHoverHint("Clamp orbit distance to min/max");
+						ImGui::SliderFloat("Min distance", &m_cameraConstraints.minDistance, 0.01f, 1000.f, "%.3f", ImGuiSliderFlags_Logarithmic);
+						DrawHoverHint("Minimum orbit distance");
+						ImGui::SliderFloat("Max distance", &m_cameraConstraints.maxDistance, 0.01f, 10000.f, "%.3f", ImGuiSliderFlags_Logarithmic);
+						DrawHoverHint("Maximum orbit distance");
+						ImGui::Separator();
+						ImGui::Checkbox("Clamp pitch", &m_cameraConstraints.clampPitch);
+						DrawHoverHint("Clamp pitch angle");
+						ImGui::SliderFloat("Pitch min", &m_cameraConstraints.pitchMinDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Minimum pitch in degrees");
+						ImGui::SliderFloat("Pitch max", &m_cameraConstraints.pitchMaxDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Maximum pitch in degrees");
+						ImGui::Checkbox("Clamp yaw", &m_cameraConstraints.clampYaw);
+						DrawHoverHint("Clamp yaw angle");
+						ImGui::SliderFloat("Yaw min", &m_cameraConstraints.yawMinDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Minimum yaw in degrees");
+						ImGui::SliderFloat("Yaw max", &m_cameraConstraints.yawMaxDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Maximum yaw in degrees");
+						ImGui::Checkbox("Clamp roll", &m_cameraConstraints.clampRoll);
+						DrawHoverHint("Clamp roll angle");
+						ImGui::SliderFloat("Roll min", &m_cameraConstraints.rollMinDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Minimum roll in degrees");
+						ImGui::SliderFloat("Roll max", &m_cameraConstraints.rollMaxDeg, -180.f, 180.f, "%.1f");
+						DrawHoverHint("Maximum roll in degrees");
+
+						DrawSectionHeader("OrbitHeader", "Orbit Target", accent);
+
+						auto* activeCamera = getActiveCamera();
+						const bool hasOrbitTarget = withOrbitLikeCamera(activeCamera, [&](auto* orbit)
+						{
+							auto target = getCastedVector<float32_t>(orbit->getTarget());
+							if (ImGui::InputFloat3("Target", &target[0]))
+								orbit->target(getCastedVector<float64_t>(target));
+
+							if (ImGui::Button("Target model"))
+							{
+								auto targetPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
+								orbit->target(targetPos);
+							}
+							DrawHoverHint("Set orbit target to the model position");
+							ImGui::SameLine();
+							if (ImGui::Button("Target origin"))
+								orbit->target(float64_t3(0.0));
+							DrawHoverHint("Set orbit target to world origin");
+						});
+						if (!hasOrbitTarget)
+						{
+							ImGui::TextDisabled("Active camera is not orbit.");
+						}
+						ImGui::PopItemWidth();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Presets"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("PresetsPanel", ImVec2(0, 0), true))
+					{
+						ImGui::PushItemWidth(-1.0f);
+						DrawSectionHeader("PresetsHeader", "Presets", accent);
+						ImGui::InputText("Preset name", m_presetName, IM_ARRAYSIZE(m_presetName));
+						if (ImGui::Button("Add preset"))
+						{
+							auto* activeCamera = getActiveCamera();
+							m_presets.emplace_back(capturePreset(activeCamera, m_presetName));
+						}
+						DrawHoverHint("Store current camera as a preset");
+						ImGui::SameLine();
+						if (ImGui::Button("Clear presets"))
+							m_presets.clear();
+						DrawHoverHint("Remove all presets");
+
+						if (!m_presets.empty())
+						{
+							std::vector<const char*> names;
+							names.reserve(m_presets.size());
+							for (const auto& preset : m_presets)
+								names.push_back(preset.name.c_str());
+
+							static int selectedPreset = -1;
+							ImGui::ListBox("Preset list", &selectedPreset, names.data(), static_cast<int>(names.size()), 6);
+
+							if (selectedPreset >= 0 && static_cast<size_t>(selectedPreset) < m_presets.size())
+							{
+								if (ImGui::Button("Apply preset"))
+									applyPresetToCamera(getActiveCamera(), m_presets[static_cast<size_t>(selectedPreset)]);
+								DrawHoverHint("Apply selected preset to the active camera");
+								ImGui::SameLine();
+								if (ImGui::Button("Remove preset"))
+									m_presets.erase(m_presets.begin() + selectedPreset);
+								DrawHoverHint("Remove selected preset");
+							}
+						}
+
+						DrawSectionHeader("PresetsStorageHeader", "Storage", accent);
+						ImGui::InputText("Preset file", m_presetPath, IM_ARRAYSIZE(m_presetPath));
+						if (ImGui::Button("Save presets"))
+						{
+							if (!savePresetsToFile(system::path(m_presetPath)))
+								m_logger->log("Failed to save presets to \"%s\".", ILogger::ELL_ERROR, m_presetPath);
+						}
+						DrawHoverHint("Save presets to JSON file");
+						ImGui::SameLine();
+						if (ImGui::Button("Load presets"))
+						{
+							if (!loadPresetsFromFile(system::path(m_presetPath)))
+								m_logger->log("Failed to load presets from \"%s\".", ILogger::ELL_ERROR, m_presetPath);
+						}
+						DrawHoverHint("Load presets from JSON file");
+						ImGui::PopItemWidth();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Playback"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("PlaybackPanel", ImVec2(0, 0), true))
+					{
+						ImGui::PushItemWidth(-1.0f);
+						DrawSectionHeader("PlaybackHeader", "Playback", accent);
+						ImGui::Checkbox("Loop", &m_playback.loop);
+						DrawHoverHint("Loop playback when it reaches the end");
+						ImGui::Checkbox("Override input", &m_playback.overrideInput);
+						DrawHoverHint("Ignore manual input during playback");
+						ImGui::Checkbox("Affect all cameras", &m_playbackAffectsAll);
+						DrawHoverHint("Apply playback to all cameras");
+						ImGui::SliderFloat("Speed", &m_playback.speed, 0.1f, 4.f, "%.2f");
+						DrawHoverHint("Playback speed multiplier");
+
+						if (ImGui::Button(m_playback.playing ? "Pause" : "Play"))
+							m_playback.playing = !m_playback.playing;
+						DrawHoverHint("Start or pause playback");
+						ImGui::SameLine();
+						if (ImGui::Button("Stop"))
+						{
+							m_playback.playing = false;
+							m_playback.time = 0.f;
+						}
+						DrawHoverHint("Stop playback and reset time");
+
+						if (!m_keyframes.empty())
+						{
+							const float duration = m_keyframes.back().time;
+							ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f");
+						}
+
+						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
+						ImGui::InputFloat("New keyframe time", &m_newKeyframeTime, 0.1f, 1.f, "%.3f");
+						DrawHoverHint("Time value for new keyframe");
+						if (ImGui::Button("Add keyframe"))
+						{
+							auto* activeCamera = getActiveCamera();
+							CameraKeyframe keyframe;
+							keyframe.time = m_newKeyframeTime;
+							keyframe.preset = capturePreset(activeCamera, "Keyframe");
+							m_keyframes.emplace_back(std::move(keyframe));
+							std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+						}
+						DrawHoverHint("Add keyframe from current camera");
+						ImGui::SameLine();
+						if (ImGui::Button("Clear keyframes"))
+							m_keyframes.clear();
+						DrawHoverHint("Remove all keyframes");
+
+						if (!m_keyframes.empty())
+						{
+							if (ImGui::BeginChild("KeyframeList", ImVec2(0, 120), true))
+							{
+								for (size_t i = 0; i < m_keyframes.size(); ++i)
+								{
+									ImGui::Text("[%zu] t=%.3f", i, m_keyframes[i].time);
+								}
+							}
+							ImGui::EndChild();
+						}
+						ImGui::PopItemWidth();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Gizmo"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("GizmoPanel", ImVec2(0, 0), true))
+					{
+						DrawSectionHeader("GizmoHeader", "Gizmo", accent);
+						TransformEditorContents();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				if (m_showEventLog && ImGui::BeginTabItem("Log"))
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+					if (ImGui::BeginChild("LogPanel", ImVec2(0, 0), true))
+					{
+						DrawSectionHeader("LogHeader", "Virtual Events", accent);
+						ImGui::Checkbox("Auto-scroll", &m_logAutoScroll);
+						ImGui::SameLine();
+						ImGui::Checkbox("Wrap", &m_logWrap);
+						ImGui::Separator();
+
+						ImGuiWindowFlags logFlags = m_logWrap ? ImGuiWindowFlags_None : ImGuiWindowFlags_HorizontalScrollbar;
+						if (ImGui::BeginChild("LogList", ImVec2(0, 0), false, logFlags))
+						{
+							const float scrollY = ImGui::GetScrollY();
+							const float scrollMax = ImGui::GetScrollMaxY();
+							const bool wasAtBottom = scrollY >= scrollMax - 5.0f;
+							const size_t start = m_virtualEventLog.size() > 200 ? m_virtualEventLog.size() - 200 : 0;
+							if (m_logWrap)
+								ImGui::PushTextWrapPos(0.0f);
+							for (size_t i = start; i < m_virtualEventLog.size(); ++i)
+							{
+								const auto& entry = m_virtualEventLog[i];
+								ImGui::TextUnformatted(entry.line.c_str());
+							}
+							if (m_logWrap)
+								ImGui::PopTextWrapPos();
+							if (m_logAutoScroll && wasAtBottom && !m_virtualEventLog.empty())
+								ImGui::SetScrollHereY(1.0f);
+						}
+						ImGui::EndChild();
+					}
+					ImGui::EndChild();
+					ImGui::PopStyleVar();
+					ImGui::EndTabItem();
+				}
+
+				ImGui::EndTabBar();
+			}
+
+			ImGui::End();
+			ImGui::PopStyleColor(19);
+			ImGui::PopStyleVar(9);
+		}
+
+		inline void TransformEditorContents()
 		{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
 
-			ImGuiIO& io = ImGui::GetIO();
+			const size_t objectsCount = m_planarProjections.size() + 1u;
+			assert(objectsCount);
 
-			// setup
+			std::vector<std::string> sbels(objectsCount);
+			for (size_t i = 0; i < objectsCount; ++i)
+				sbels[i] = "Object " + std::to_string(i);
+
+			std::vector<const char*> labels(objectsCount);
+			for (size_t i = 0; i < objectsCount; ++i)
+				labels[i] = sbels[i].c_str();
+
+			int activeObject = boundCameraToManipulate ? static_cast<int>(boundPlanarCameraIxToManipulate.value() + 1u) : 0;
+			if (ImGui::Combo("Active Object", &activeObject, labels.data(), static_cast<int>(labels.size())))
 			{
-				const ImGuiCond windowCond = m_ciMode ? ImGuiCond_Always : ImGuiCond_Appearing;
-				ImGui::SetNextWindowPos({ wInit.trsEditor.iPos.x, wInit.trsEditor.iPos.y }, windowCond);
-				ImGui::SetNextWindowSize({ wInit.trsEditor.iSize.x, wInit.trsEditor.iSize.y }, windowCond);
-			}
+				const auto newActiveObject = static_cast<uint32_t>(activeObject);
 
-			ImGui::Begin("TRS Editor");
-			{
-				const size_t objectsCount = m_planarProjections.size() + 1u;
-				assert(objectsCount);
-
-				std::vector<std::string> sbels(objectsCount);
-				for (size_t i = 0; i < objectsCount; ++i)
-					sbels[i] = "Object " + std::to_string(i);
-
-				std::vector<const char*> labels(objectsCount);
-				for (size_t i = 0; i < objectsCount; ++i)
-					labels[i] = sbels[i].c_str();
-
-				int activeObject = boundCameraToManipulate ? static_cast<int>(boundPlanarCameraIxToManipulate.value() + 1u) : 0;
-				if (ImGui::Combo("Active Object", &activeObject, labels.data(), static_cast<int>(labels.size())))
+				if (newActiveObject) // camera
 				{
-					const auto newActiveObject = static_cast<uint32_t>(activeObject);
-
-					if (newActiveObject) // camera
-					{
-						boundPlanarCameraIxToManipulate = newActiveObject - 1u;
-						ICamera* const targetGimbalManipulationCamera = m_planarProjections[boundPlanarCameraIxToManipulate.value()]->getCamera();
-						boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
-					}
-					else // gc model
-					{
-						boundPlanarCameraIxToManipulate = std::nullopt;
-						boundCameraToManipulate = nullptr;
-					}
+					boundPlanarCameraIxToManipulate = newActiveObject - 1u;
+					ICamera* const targetGimbalManipulationCamera = m_planarProjections[boundPlanarCameraIxToManipulate.value()]->getCamera();
+					boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
+				}
+				else // gc model
+				{
+					boundPlanarCameraIxToManipulate = std::nullopt;
+					boundCameraToManipulate = nullptr;
 				}
 			}
 
@@ -3154,6 +4703,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::EndCombo();
 					}
 				}
+
 			}
 
 			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, m16TRSmatrix);
@@ -3208,70 +4758,67 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				break;
 			}
 
-			ImGui::End();
+			// generate virtual events given delta TRS matrix
+			if (boundCameraToManipulate)
 			{
-				// generate virtual events given delta TRS matrix
-				if (boundCameraToManipulate)
+				const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
+				const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
+
+				boundCameraToManipulate->setMoveSpeedScale(1);
+				boundCameraToManipulate->setRotationSpeedScale(1);
+
+				auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
+				boundCameraToManipulate->manipulate({}, &referenceFrame);
+
+				boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
+				boundCameraToManipulate->setRotationSpeedScale(prSpeed);
+
+				/*
 				{
-					const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
-					const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
+					static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 
-					boundCameraToManipulate->setMoveSpeedScale(1);
-					boundCameraToManipulate->setRotationSpeedScale(1);
-
-					auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
-					boundCameraToManipulate->manipulate({}, &referenceFrame);
-
-					boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
-					boundCameraToManipulate->setRotationSpeedScale(prSpeed);
-
-					/*
+					if (not enableActiveCameraMovement)
 					{
-						static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+						uint32_t vCount = {};
 
-						if (not enableActiveCameraMovement)
+						boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
 						{
-							uint32_t vCount = {};
+							boundCameraToManipulate->process(nullptr, vCount);
 
-							boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
-							{
-								boundCameraToManipulate->process(nullptr, vCount);
+							if (virtualEvents.size() < vCount)
+								virtualEvents.resize(vCount);
 
-								if (virtualEvents.size() < vCount)
-									virtualEvents.resize(vCount);
+							IGimbalController::SUpdateParameters params;
+							params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
+							boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
+						}
+						boundCameraToManipulate->endInputProcessing();
 
-								IGimbalController::SUpdateParameters params;
-								params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
-								boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
-							}
-							boundCameraToManipulate->endInputProcessing();
+						// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+						// in order for camera to not keep any magnitude scalars like move or rotation speed scales
 
-							// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-							// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+						if (vCount)
+						{
+							const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
+							const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
 
-							if (vCount)
-							{
-								const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
-								const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
+							boundCameraToManipulate->setMoveSpeedScale(1);
+							boundCameraToManipulate->setRotationSpeedScale(1);
 
-								boundCameraToManipulate->setMoveSpeedScale(1);
-								boundCameraToManipulate->setRotationSpeedScale(1);
+							auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
+							boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
 
-								auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
-								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
-
-								boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
-								boundCameraToManipulate->setRotationSpeedScale(prSpeed);
-							}
+							boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
+							boundCameraToManipulate->setRotationSpeedScale(prSpeed);
 						}
 					}
-					*/
 				}
-				else
-				{
-					// for scene demo model full affine transformation without limits is assumed 
-					m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
-				}
+				*/
+			}
+			else
+			{
+				// for scene demo model full affine transformation without limits is assumed 
+				m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
 			}
 		}
 
@@ -3361,7 +4908,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		bool enableActiveCameraMovement = false;
 
-		bool resetCursorToCenter = false;
+		bool resetCursorToCenter = true;
 
 		struct windowControlBinding
 		{
@@ -3494,6 +5041,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			size_t nextEventIndex = 0;
 			std::vector<ScriptedInputCheck> checks;
 			size_t nextCheckIndex = 0;
+			std::vector<uint64_t> captureFrames;
+			size_t nextCaptureIndex = 0;
+			std::string capturePrefix = "script";
+			system::path captureOutputDir;
 			bool failed = false;
 			bool summaryReported = false;
 			bool baselineValid = false;
@@ -3522,6 +5073,36 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		uint32_t m_ciFrameCounter = 0u;
 		system::path m_ciScreenshotPath;
 		ScriptedInputState m_scriptedInput;
+		CameraControlSettings m_cameraControls;
+		CameraConstraintSettings m_cameraConstraints;
+		CUILogFormatter m_logFormatter;
+		std::deque<VirtualEventLogEntry> m_virtualEventLog;
+		size_t m_virtualEventLogMax = 128u;
+		bool m_showHud = true;
+		bool m_showEventLog = false;
+		bool m_logAutoScroll = true;
+		bool m_logWrap = true;
+		std::vector<CameraPreset> m_presets;
+		std::vector<CameraKeyframe> m_keyframes;
+		CameraPlaybackState m_playback;
+		CTargetPoseController m_targetPoseController;
+		bool m_playbackAffectsAll = false;
+		float m_newKeyframeTime = 0.f;
+		char m_presetName[64] = "Preset";
+		char m_presetPath[260] = "camera_presets.json";
+		std::chrono::microseconds m_lastPresentationTimestamp = {};
+		bool m_haveLastPresentationTimestamp = false;
+		double m_frameDeltaSec = 0.0;
+		static constexpr size_t UiMetricSamples = 96u;
+		std::array<float, UiMetricSamples> m_uiFrameMs = {};
+		std::array<float, UiMetricSamples> m_uiInputCounts = {};
+		std::array<float, UiMetricSamples> m_uiVirtualCounts = {};
+		uint32_t m_uiMetricIndex = 0u;
+		uint32_t m_uiVirtualEventsThisFrame = 0u;
+		uint32_t m_uiInputEventsThisFrame = 0u;
+		uint32_t m_uiLastInputEvents = 0u;
+		uint32_t m_uiLastVirtualEvents = 0u;
+		float m_uiLastFrameMs = 0.0f;
 
 		const bool flipGizmoY = true;
 
