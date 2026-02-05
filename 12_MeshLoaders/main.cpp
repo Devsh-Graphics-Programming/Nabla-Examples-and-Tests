@@ -20,6 +20,7 @@
 #include "nbl/ext/DebugDraw/CDrawAABB.h"
 #endif
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
@@ -57,7 +58,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 	{
 		core::vectorSIMDf position;
 		core::vectorSIMDf target;
-		core::matrix4SIMD projection;
+		nbl::hlsl::float32_t4x4 projection;
 		float moveSpeed = 1.0f;
 	};
 
@@ -262,14 +263,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						reloadInteractive();
 				}
 				// draw scene
-				float32_t3x4 viewMatrix;
-				float32_t4x4 viewProjMatrix;
+				const auto& viewMatrix = camera.getViewMatrix();
+				const auto& viewProjMatrix = camera.getConcatenatedMatrix();
 				{
-					// TODO: get rid of legacy matrices
-					{
-						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
  					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 				}
 #ifdef NBL_BUILD_DEBUG_DRAW
@@ -1083,7 +1079,12 @@ private:
 		const double nearPlane = std::max(0.001, dist - halfZ - margin);
 		const double farPlane = dist + halfZ + margin;
 
-		camera.setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(static_cast<float>(fovY), static_cast<float>(aspectRatio), static_cast<float>(nearPlane), static_cast<float>(farPlane)));
+		const auto projection = nbl::hlsl::buildProjectionMatrixPerspectiveFovRH<nbl::hlsl::float32_t>(
+			static_cast<float>(fovY),
+			static_cast<float>(aspectRatio),
+			static_cast<float>(nearPlane),
+			static_cast<float>(farPlane));
+		camera.setProjectionMatrix(projection);
 		camera.setMoveSpeed(static_cast<float>(safeRadius * 0.1));
 		camera.setPosition(vectorSIMDf(pos.x, pos.y, pos.z));
 		camera.setTarget(vectorSIMDf(center.x, center.y, center.z));
@@ -1601,7 +1602,10 @@ private:
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	//
-	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	Camera camera = Camera(
+		core::vectorSIMDf(0, 0, 0),
+		core::vectorSIMDf(0, 0, -1),
+		nbl::hlsl::math::linalg::diagonal<nbl::hlsl::float32_t4x4>(1.0f));
 	// mutables
 	std::string m_modelPath;
 	std::string m_caseName;
