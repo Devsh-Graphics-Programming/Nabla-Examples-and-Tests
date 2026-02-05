@@ -14,7 +14,7 @@
 
 #include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
 #include <nbl/builtin/hlsl/math/linalg/fast_affine.hlsl>
-#include <nbl/builtin/hlsl/math/linalg/matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/matrix_utils/transformation_matrix_utils.hlsl>
 
 class Camera 
 { 
