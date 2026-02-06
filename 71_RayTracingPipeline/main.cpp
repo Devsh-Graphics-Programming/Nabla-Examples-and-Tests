@@ -1057,7 +1057,8 @@ private:
 				return transform;
 			};
 
-		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3,4,3,3>(hlsl::math::linalg::rotation_mat(core::radians(-90.0f), { 1,0,0 }));
+		const auto planeRotation = hlsl::math::quaternion<hlsl::float32_t>::create(hlsl::float32_t3(1.f, 0.f, 0.f), core::radians(-90.0f));
+		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3,4,3,3>(hlsl::_static_cast<hlsl::float32_t3x3>(planeRotation));
 
 		// triangles geometries
 		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
