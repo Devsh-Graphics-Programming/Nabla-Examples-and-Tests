@@ -528,7 +528,41 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 
 	// TODO: any CPU-side touch-ups we need to do, like Material IR options
 
-	
+#define TEST
+#ifdef TEST
+	// Create dummy sensors with different configurations for GUI testing
+	if (!sensors.empty())
+	{
+		const auto& baseSensor = sensors.front();
+
+		// Dummy sensor 1: 640x360 no offset
+		{
+			auto dummy = baseSensor;
+			dummy.mutableDefaults.cropWidth = 640;
+			dummy.mutableDefaults.cropHeight = 360;
+			dummy.mutableDefaults.cropOffsetX = 0;
+			dummy.mutableDefaults.cropOffsetY = 0;
+			dummy.constants.width = dummy.mutableDefaults.cropWidth;
+			dummy.constants.height = dummy.mutableDefaults.cropHeight;
+			sensors.push_back(std::move(dummy));
+		}
+
+		// Dummy sensor 2: 5120x2880 with 128 offset
+		{
+			auto dummy = baseSensor;
+			dummy.mutableDefaults.cropWidth = 5120;
+			dummy.mutableDefaults.cropHeight = 2880;
+			dummy.mutableDefaults.cropOffsetX = 128;
+			dummy.mutableDefaults.cropOffsetY = 128;
+			dummy.constants.width = dummy.mutableDefaults.cropWidth + 2 * dummy.mutableDefaults.cropOffsetX;
+			dummy.constants.height = dummy.mutableDefaults.cropHeight + 2 * dummy.mutableDefaults.cropOffsetY;
+			sensors.push_back(std::move(dummy));
+		}
+
+		logger.log("Added 2 dummy test sensors (total: %d)", ILogger::ELL_INFO, sensors.size());
+	}
+#endif
+
 	// empty out the cache from individual images and meshes taht are not used by the scene
 	assMan->clearAllAssetCache();
 	// return
