@@ -45,8 +45,9 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
 	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
-	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
-	constexpr static inline float32_t2 MeteringWindowOffset = { 0.1f, 0.1f };
+	constexpr static inline float32_t2 MeteringMinUV = { 0.1f, 0.1f };
+	constexpr static inline float32_t2 MeteringMaxUV = { 0.9f, 0.9f };
+	constexpr static inline float32_t SamplingFactor = 2.f;
 	constexpr static inline float32_t2 LumaRange = { 1.0f / 2048.0f, 65536.f };
 	constexpr static inline float32_t2 PercentileRange = { 0.45f, 0.55f };
 	constexpr static inline float32_t2 BaseExposureAdaptationFactorsLog2 = {-1.1f, -0.2f};
@@ -799,7 +800,6 @@ public:
 
 		auto pc = AutoexposurePushData
 		{
-			.window = hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
 			.lumaMin = LumaRange.x,
 			.lumaMax = LumaRange.y,
 			.viewportSize = Dimensions,
@@ -818,11 +818,15 @@ public:
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_gpuImgDS.get();
 
-			const uint32_t2 dispatchSize = {
-				1 + ((gpuImgExtent.width / 2) - 1) / SubgroupSize,
-				1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
-			};
+			const float32_t2 meteringUVRange = MeteringMaxUV - MeteringMinUV;
 
+			//const uint32_t2 dispatchSize = {
+			//	1 + ((gpuImgExtent.width / 2) - 1) / SubgroupSize,
+			//	1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
+			//};
+			const uint32_t2 dispatchSize = uint32_t2(hlsl::ceil(float32_t2(gpuImgExtent.width, gpuImgExtent.height) * meteringUVRange / (SubgroupSize * SamplingFactor)));
+
+			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * float(SubgroupSize)), MeteringMinUV);
 			pc.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
