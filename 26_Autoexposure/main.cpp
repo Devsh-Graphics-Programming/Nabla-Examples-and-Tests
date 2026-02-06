@@ -42,7 +42,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
 	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringMinUV = { 0.1f, 0.1f };
