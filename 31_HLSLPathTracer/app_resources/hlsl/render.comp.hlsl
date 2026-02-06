@@ -187,7 +187,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
     texCoord.y = 1.0 - texCoord.y;
 
-    if (false == (all((int32_t2)0 < coords)) && all(int32_t2(width, height) < coords)) {
+    if (any(coords < int32_t2(0,0)) || any(coords > int32_t2(width, height))) {
 #ifdef PERSISTENT_WORKGROUPS
         continue;
 #else
