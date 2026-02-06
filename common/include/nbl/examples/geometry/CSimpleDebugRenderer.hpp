@@ -168,6 +168,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				params[pipeline_e::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
 				params[pipeline_e::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
 				params[pipeline_e::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
+				params[pipeline_e::GridSnakeStrip].vertexShader = { .shader = shader.get(),.entryPoint = "BasicVS" };
+				params[pipeline_e::GridSnakeStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "BasicFSSnake" };
 				params[pipeline_e::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
 				params[pipeline_e::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
 				for (auto i=0; i<pipeline_e::Count; i++)
@@ -182,6 +184,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					{
 						case pipeline_e::BasicTriangleFan:
 							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
+							break;
+						case pipeline_e::GridSnakeStrip:
+							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP;
 							break;
 						default:
 							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
@@ -219,6 +224,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			{
 				BasicTriangleList,
 				BasicTriangleFan,
+				GridSnakeStrip,
 				Cone, // special case
 				Count
 			};
@@ -283,6 +289,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				{
 					case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
 						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleFan];
+						break;
+					case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP:
+						out.pipeline = m_params.pipelines[pipeline_e::GridSnakeStrip];
 						break;
 					default:
 						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleList];

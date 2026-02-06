@@ -51,7 +51,8 @@ public:
 
             CQuaternionTester quaternionTester(8);
             quaternionTester.setupPipeline(pplnSetupData);
-            quaternionTester.performTestsAndVerifyResults("QuaternionTestLog.txt");
+            if (!quaternionTester.performTestsAndVerifyResults("QuaternionTestLog.txt"))
+                return false;
         }
        
         // In contrast to fences, we just need one semaphore to rule all dispatches
