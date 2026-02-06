@@ -3,8 +3,8 @@
 
 
 #include <nabla.h>
+#include <type_traits>
 #include "nbl/asset/utils/CGeometryCreator.h"
-
 
 namespace nbl::examples
 {
@@ -17,7 +17,13 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			using namespace nbl::asset; \
 			using namespace nbl::video
 	public:
-		//
+
+		struct SGeometryEntry
+		{
+			std::string name;
+			core::smart_refctd_ptr<const asset::ICPUPolygonGeometry> geometry;
+		};
+		
 		struct SCreateParams
 		{
 			video::IQueue* transferQueue;
@@ -25,7 +31,45 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			system::ILogger* logger;
 			std::span<const uint32_t> addtionalBufferOwnershipFamilies = {};
 		};
-		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params, const video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>& geometryPatch)
+
+		// Creates and initializes a scene. Override addGeometries() to supply custom meshes.
+		template<typename SceneT = CGeometryCreatorScene, typename... Args>
+		static inline core::smart_refctd_ptr<SceneT> create(SCreateParams&& params, const video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>& geometryPatch, Args&&... args)
+		{
+			static_assert(std::is_base_of_v<CGeometryCreatorScene, SceneT>);
+			auto scene = core::smart_refctd_ptr<SceneT>(new SceneT(std::forward<Args>(args)...), core::dont_grab);
+			if (!scene->initialize(std::move(params), geometryPatch))
+				return nullptr;
+			return scene;
+		}
+
+		//
+		struct SInitParams
+		{
+			core::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> geometries;
+			core::vector<std::string> geometryNames;
+		};
+		const SInitParams& getInitParams() const {return m_init;}
+
+	protected:
+		inline CGeometryCreatorScene() = default;
+
+		// Override to supply custom geometries, names are used as UI labels
+		virtual core::vector<SGeometryEntry> addGeometries(asset::CGeometryCreator* creator) const
+		{
+			core::vector<SGeometryEntry> entries;
+			entries.push_back({ "Cube", creator->createCube({ 1.f,1.f,1.f }) });
+			entries.push_back({ "Rectangle", creator->createRectangle({ 1.5f,3.f }) });
+			entries.push_back({ "Disk", creator->createDisk(2.f, 30) });
+			entries.push_back({ "Sphere", creator->createSphere(2, 16, 16) });
+			entries.push_back({ "Cylinder", creator->createCylinder(2, 2, 20) });
+			entries.push_back({ "Cone", creator->createCone(2, 3, 10) });
+			entries.push_back({ "Icosphere", creator->createIcoSphere(1, 4, true) });
+			entries.push_back({ "Grid", creator->createGrid({ 32u, 32u }) });
+			return entries;
+		}
+
+		inline bool initialize(SCreateParams&& params, const video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>& geometryPatch)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 			auto* logger = params.logger;
@@ -33,43 +77,35 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			if (!params.transferQueue)
 			{
 				logger->log("Pass a non-null `IQueue* transferQueue`!",ILogger::ELL_ERROR);
-				return nullptr;
+				return false;
 			}
 			if (!params.utilities)
 			{
 				logger->log("Pass a non-null `IUtilities* utilities`!",ILogger::ELL_ERROR);
-				return nullptr;
+				return false;
 			}
-
 
 			SInitParams init = {};
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
 			// create out geometries
 			{
-				auto addGeometry = [&init,&geometries](const std::string_view name, smart_refctd_ptr<const ICPUPolygonGeometry>&& geom)->void
-				{
-					init.geometryNames.emplace_back(name);
-					geometries.push_back(std::move(geom));
-				};
-
 				auto creator = core::make_smart_refctd_ptr<CGeometryCreator>();
-				/* TODO: others
-				ReferenceObjectCpu {.meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
-				ReferenceObjectCpu {.meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
-				ReferenceObjectCpu {.meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
-				ReferenceObjectCpu {.meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
-				ReferenceObjectCpu {.meta = {.type = OT_DISK, .name = "Disk Mesh" }, .shadersType = GP_BASIC, .data = gc->createDiskMesh(2, 30) },
-				ReferenceObjectCpu {.meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() },
-				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
-				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
-				*/
-				addGeometry("Cube",creator->createCube({1.f,1.f,1.f}));
-				addGeometry("Rectangle",creator->createRectangle({1.5f,3.f}));
-				addGeometry("Disk",creator->createDisk(2.f,30));
-				addGeometry("Sphere", creator->createSphere(2, 16, 16));
-				addGeometry("Cylinder", creator->createCylinder(2, 2, 20));
-				addGeometry("Cone", creator->createCone(2, 3, 10));
-				addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
+				auto entries = addGeometries(creator.get());
+				if (entries.empty())
+					return false;
+
+				init.geometryNames.reserve(entries.size());
+				geometries.reserve(entries.size());
+				for (auto& entry : entries)
+				{
+					if (!entry.geometry)
+						continue;
+					init.geometryNames.emplace_back(entry.name);
+					geometries.push_back(std::move(entry.geometry));
+				}
+
+				if (geometries.empty())
+					return false;
 			}
 			init.geometries.reserve(init.geometryNames.size());
 
@@ -77,7 +113,6 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			{
 				auto device = params.utilities->getLogicalDevice();
 				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=device});
-
 
 				const auto transferFamily = params.transferQueue->getFamilyIndex();
 
@@ -109,7 +144,7 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				if (!reservation)
 				{
 					logger->log("Failed to reserve GPU objects for CPU->GPU conversion!",ILogger::ELL_ERROR);
-					return nullptr;
+					return false;
 				}
 
 				// convert
@@ -146,7 +181,7 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 					if (future.copy()!=IQueue::RESULT::SUCCESS)
 					{
 						logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-						return nullptr;
+						return false;
 					}
 				}
 
@@ -169,19 +204,9 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				}
 			}
 
-			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(init)),dont_grab);
+			m_init = std::move(init);
+			return true;
 		}
-
-		//
-		struct SInitParams
-		{
-			core::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> geometries;
-			core::vector<std::string> geometryNames;
-		};
-		const SInitParams& getInitParams() const {return m_init;}
-
-	protected:
-		inline CGeometryCreatorScene(SInitParams&& _init) : m_init(std::move(_init)) {}
 
 		SInitParams m_init;
 #undef EXPOSE_NABLA_NAMESPACES

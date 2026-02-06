@@ -47,6 +47,22 @@ float32_t4 BasicFS(SInterpolants input) : SV_Target0
     return float32_t4(normalize(normal)*0.5f+promote<float32_t3>(0.5f),1.f);
 }
 
+// Debug fragment shader for grid triangle-strips ("snake" order). It alternates
+// triangle shading to visualize strip winding and connectivity.
+[shader("pixel")]
+float32_t4 BasicFSSnake(SInterpolants input, uint primID : SV_PrimitiveID) : SV_Target0
+{
+    float3 N = normalize(pc.normalView < SPushConstants::DescriptorCount ? input.meta : reconstructGeometricNormal(input.meta));
+    float3 base = (primID & 1u) ? float3(0.68,0.68,0.68) : float3(0.88,0.88,0.88);
+
+    float nview = saturate(0.5 + 0.5 * N.z);
+    float grad  = pow(nview, 0.5);
+    float rim   = pow(1.0 - nview, 2.0) * 0.25;
+
+    float3 col = base * (0.2 + 0.8 * grad) + rim;
+    return float4(col, 1.0);
+}
+
 // TODO: do smooth normals on the cone
 [shader("vertex")]
 SInterpolants ConeVS(uint32_t VertexIndex : SV_VertexID)
