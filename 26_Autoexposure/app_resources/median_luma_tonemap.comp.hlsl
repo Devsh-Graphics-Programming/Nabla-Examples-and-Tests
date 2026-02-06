@@ -94,7 +94,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     uint32_t2 pos = (glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()).xy + coord;
     uint32_t texWidth, texHeight;
     textureOut.GetDimensions(texWidth, texHeight);
-    if (any(pos < promote<uint32_t2>(0u)) || any(pos > uint32_t2(texWidth, texHeight)))
+    if (any(pos < promote<uint32_t2>(0u)) || any(pos >= uint32_t2(texWidth, texHeight)))
         return;
 
     float32_t2 uv = (float32_t2)(pos) / pushData.viewportSize;
