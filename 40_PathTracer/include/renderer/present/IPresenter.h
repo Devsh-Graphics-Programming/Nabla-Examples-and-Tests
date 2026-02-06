@@ -71,6 +71,9 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 		inline video::IQueue* getQueue() const {return m_queue;}
 		//
 		inline video::ILogicalDevice* getDevice() const {return const_cast<video::ILogicalDevice*>(m_semaphore->getOriginDevice());}
+		
+		inline video::ISemaphore* getSemaphore() const { return m_semaphore.get(); }
+		inline uint64_t getPresentCount() const { return m_presentCount; }
 
 		//
 		virtual bool irrecoverable() const {return false;}
