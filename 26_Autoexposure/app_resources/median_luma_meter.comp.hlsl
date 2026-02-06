@@ -16,20 +16,20 @@ using PtrAccessor = BdaAccessor < uint32_t >;
 
 [[vk::push_constant]] AutoexposurePushData pushData;
 
-#define BIN_COUNT 1024
-
 groupshared uint32_t sdata[BIN_COUNT];
 struct SharedAccessor
 {
     using type = uint32_t;
-    void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
+    template<typename AccessType, typename IndexType=uint32_t>
+    void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
     {
-        value = sdata[index];
+        value = sdata[ix];
     }
 
-    void set(const uint32_t index, const uint32_t value)
+    template<typename AccessType, typename IndexType=uint32_t>
+    void set(const uint32_t ix, const AccessType value)
     {
-        sdata[index] = value;
+        sdata[ix] = value;
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -68,7 +68,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = luma_meter::median_meter< WORKGROUP_SIZE, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::median_meter<wg_config_t, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.lowerBoundPercentile, pushData.upperBoundPercentile);
 
     uint32_t texWidth, texHeight;

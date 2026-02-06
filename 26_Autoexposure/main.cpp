@@ -42,7 +42,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
 	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
@@ -318,7 +318,7 @@ public:
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
-				const uint32_t configItemsPerInvoc = MeterMode == MeteringMode::AVERAGE ? 1 : workgroupSize / BinCount;
+				const uint32_t configItemsPerInvoc = MeterMode == MeteringMode::AVERAGE ? 1 : BinCount / workgroupSize;
 				workgroup2::SArithmeticConfiguration wgConfig;
 				wgConfig.init(hlsl::findMSB(workgroupSize), hlsl::log2(float(subgroupSize)), configItemsPerInvoc);
 
@@ -327,15 +327,21 @@ public:
 					std::string identifier;
 					std::string definition;
 				};
-				constexpr uint32_t NumDefines = 4;
-				const MacroDefines definesBuf[NumDefines] = {
+				constexpr uint32_t NumBaseDefines = 3;
+				constexpr uint32_t NumExtraDefines = 2;
+				const MacroDefines definesBuf[NumBaseDefines+NumExtraDefines] = {
 					{ "WORKGROUP_SIZE", std::to_string(workgroupSize) },
 					{ "SUBGROUP_SIZE", std::to_string(subgroupSize) },
 					{"WG_CONFIG_T", wgConfig.getConfigTemplateStructString()},
-                    {"NATIVE_SUBGROUP_ARITHMETIC", "1"}
+                    {"NATIVE_SUBGROUP_ARITHMETIC", "1"},
+					{ "BIN_COUNT", std::to_string(BinCount) }
 				};
 
-				const uint32_t defineCount = m_physicalDevice->getLimits().shaderSubgroupArithmetic ? NumDefines : NumDefines - 1;
+				uint32_t defineCount = NumBaseDefines;
+				if (m_physicalDevice->getLimits().shaderSubgroupArithmetic)
+					defineCount++;
+				if (MeterMode == MeteringMode::MEDIAN)
+					defineCount++;
 				std::vector<IShaderCompiler::SMacroDefinition> defines;
 				for (uint32_t i = 0; i < defineCount; i++)
 					defines.emplace_back(definesBuf[i].identifier, definesBuf[i].definition);
@@ -632,14 +638,14 @@ public:
 					m_device,
 					&m_gatherAllocation,
 					m_gatherBuffer,
-					m_physicalDevice->getLimits().maxSubgroupSize * sizeof(uint32_t),
+					m_physicalDevice->getLimits().maxSubgroupSize * sizeof(float32_t),
  					"Luma Gather Buffer"
 				);
 				build_buffer(
 					m_device,
 					&m_histoAllocation,
 					m_histoBuffer,
-					BinCount * sizeof(float_t),
+					BinCount * sizeof(uint32_t),
 					"Luma Histogram Buffer"
 				);
 				build_buffer(
