@@ -88,6 +88,7 @@ if(NBL_BUILD_EXAMPLES)
 
 	#add_subdirectory(43_SumAndCDFFilters)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
+	add_subdirectory(50.IESViewer)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(59_QuaternionTests)

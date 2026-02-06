@@ -1,0 +1,14 @@
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+
+#include "App.hpp"
+
+IESViewer::IESViewer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+    : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
+    device_base_t({ AppWindowWidth, AppWindowHeight }, AppDepthBufferFormat, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
+{
+
+}
+
+NBL_MAIN_FUNC(IESViewer)
