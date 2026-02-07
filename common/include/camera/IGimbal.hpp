@@ -396,7 +396,7 @@ namespace nbl::hlsl
         //! Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
 
-        bool extractReferenceTransform(CReferenceTransform* out, const float64_t4x4 const* referenceFrame = nullptr)
+        bool extractReferenceTransform(CReferenceTransform* out, const float64_t4x4* referenceFrame = nullptr)
         {
             if (not out)
                 return false;

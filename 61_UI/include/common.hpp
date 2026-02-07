@@ -8,9 +8,16 @@
 // common api
 #include "camera/CFPSCamera.hpp"
 #include "camera/CFreeLockCamera.hpp"
+#include "camera/CSphericalTargetCamera.hpp"
 #include "camera/COrbitCamera.hpp"
 #include "camera/CArcballCamera.hpp"
 #include "camera/CTurntableCamera.hpp"
+#include "camera/CTopDownCamera.hpp"
+#include "camera/CIsometricCamera.hpp"
+#include "camera/CChaseCamera.hpp"
+#include "camera/CDollyCamera.hpp"
+#include "camera/CDollyZoomCamera.hpp"
+#include "camera/CPathCamera.hpp"
 #include "camera/CTargetPoseController.hpp"
 
 #include "camera/CCubeProjection.hpp"
@@ -35,9 +42,16 @@ namespace hlsl = nbl::hlsl;
 using nbl::hlsl::ICamera;
 using nbl::hlsl::CFPSCamera;
 using nbl::hlsl::CFreeCamera;
+using nbl::hlsl::CSphericalTargetCamera;
 using nbl::hlsl::COrbitCamera;
 using nbl::hlsl::CArcballCamera;
 using nbl::hlsl::CTurntableCamera;
+using nbl::hlsl::CTopDownCamera;
+using nbl::hlsl::CIsometricCamera;
+using nbl::hlsl::CChaseCamera;
+using nbl::hlsl::CDollyCamera;
+using nbl::hlsl::CDollyZoomCamera;
+using nbl::hlsl::CPathCamera;
 using nbl::hlsl::CTargetPose;
 using nbl::hlsl::CTargetPoseController;
 using nbl::hlsl::IPlanarProjection;

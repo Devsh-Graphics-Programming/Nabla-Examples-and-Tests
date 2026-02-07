@@ -9,9 +9,7 @@
 #include "ICamera.hpp"
 #include "CFPSCamera.hpp"
 #include "CFreeLockCamera.hpp"
-#include "COrbitCamera.hpp"
-#include "CArcballCamera.hpp"
-#include "CTurntableCamera.hpp"
+#include "CSphericalTargetCamera.hpp"
 #include "glm/glm/gtc/quaternion.hpp"
 
 namespace nbl::hlsl
@@ -38,12 +36,8 @@ public:
         if (!camera)
             return false;
 
-        if (auto* orbit = dynamic_cast<COrbitCamera*>(camera))
+        if (auto* orbit = dynamic_cast<CSphericalTargetCamera*>(camera))
             return buildOrbitEvents(orbit, target, out);
-        if (auto* arcball = dynamic_cast<CArcballCamera*>(camera))
-            return buildOrbitEvents(arcball, target, out);
-        if (auto* turntable = dynamic_cast<CTurntableCamera*>(camera))
-            return buildOrbitEvents(turntable, target, out);
 
         return buildFreeEvents(camera, target, out);
     }

@@ -7,22 +7,53 @@
       },
       {
         "type": "Orbit",
-        "position": [-2.017, 0.386, 0.684],
+        "position": [9.000, 1.500, 0.000],
         "target": [0, 0, 0]
       },
       {
         "type": "Free",
-        "position": [2.116, 0.826, 1.152],
+        "position": [0.000, 1.500, -9.000],
         "orientation": [0.095, -0.835, 0.152, 0.521]
       },
       {
         "type": "Arcball",
-        "position": [1.500, 1.200, -1.800],
+        "position": [0.000, 1.500, 9.000],
         "target": [0, 0, 0]
       },
       {
         "type": "Turntable",
-        "position": [-1.400, 1.100, 1.600],
+        "position": [-9.000, 1.500, 0.000],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "TopDown",
+        "position": [0.0, 10.0, 0.0],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "Isometric",
+        "position": [8.000, 4.000, 8.000],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "Chase",
+        "position": [-12.000, 1.500, 12.000],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "Dolly",
+        "position": [-12.000, 1.500, -12.000],
+        "target": [0, 0, 0]
+      },
+      {
+        "type": "DollyZoom",
+        "position": [12.000, 1.500, -12.000],
+        "target": [0, 0, 0],
+        "baseFov": 40.0
+      },
+      {
+        "type": "Path",
+        "position": [12.000, 1.500, 12.000],
         "target": [0, 0, 0]
       }
     ],
@@ -43,96 +74,105 @@
     "viewports": [
       {
         "projection": 0,
-        "controllers": {
-          "keyboard": 0,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 0, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": {
-          "keyboard": 1,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 0, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": {
-          "keyboard": 2,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": {
-          "keyboard": 1,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 0,
-        "controllers": {
-          "keyboard": 3,
-          "mouse": 1
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": {
-          "keyboard": 3,
-          "mouse": 1
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": {
-          "keyboard": 2,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": {
-          "keyboard": 2,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": {
-          "keyboard": 2,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": {
-          "keyboard": 2,
-          "mouse": 0
-        }
+        "controllers": { "keyboard": 2, "mouse": 0 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 0, "mouse": 1 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 0, "mouse": 1 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 1, "mouse": 1 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 1, "mouse": 1 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 2, "mouse": 0 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 2, "mouse": 0 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 2, "mouse": 0 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 2, "mouse": 0 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 3, "mouse": 1 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 3, "mouse": 1 }
+      },
+      {
+        "projection": 0,
+        "controllers": { "keyboard": 2, "mouse": 1 }
+      },
+      {
+        "projection": 1,
+        "controllers": { "keyboard": 2, "mouse": 1 }
       }
     ],
     "planars": [
-      {
-        "camera": 0,
-        "viewports": [0, 1]
-      },
-      {
-        "camera": 1,
-        "viewports": [4, 5]
-      },
-      {
-        "camera": 2,
-        "viewports": [2, 3]
-      },
-      {
-        "camera": 3,
-        "viewports": [6, 7]
-      },
-      {
-        "camera": 4,
-        "viewports": [8, 9]
-      }
+      { "camera": 0, "viewports": [0, 1] },
+      { "camera": 1, "viewports": [2, 3] },
+      { "camera": 2, "viewports": [4, 5] },
+      { "camera": 3, "viewports": [6, 7] },
+      { "camera": 4, "viewports": [8, 9] },
+      { "camera": 5, "viewports": [10, 11] },
+      { "camera": 6, "viewports": [12, 13] },
+      { "camera": 7, "viewports": [14, 15] },
+      { "camera": 8, "viewports": [16, 17] },
+      { "camera": 9, "viewports": [18, 19] },
+      { "camera": 10, "viewports": [20, 21] }
     ],
     "controllers": {
       "keyboard": [
@@ -207,4 +247,3 @@
       ]
     }
   }
-  

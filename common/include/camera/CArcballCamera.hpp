@@ -8,20 +8,20 @@
 #include <algorithm>
 #include <cmath>
 
-#include "ICamera.hpp"
+#include "CSphericalTargetCamera.hpp"
 
 namespace nbl::hlsl
 {
 
-class CArcballCamera final : public ICamera
+class CArcballCamera final : public CSphericalTargetCamera
 {
 public:
-    using base_t = ICamera;
+    using base_t = CSphericalTargetCamera;
 
     CArcballCamera(const float64_t3& position, const float64_t3& target)
-        : base_t(), m_targetPosition(target), m_distance(1.0f), m_gimbal({ .position = position, .orientation = glm::quat(glm::vec3(0.0f)) })
+        : base_t(position, target)
     {
-        initFromPosition(position);
+        m_v = std::clamp(m_v, MinPitch, MaxPitch);
         applyPose();
     }
     ~CArcballCamera() = default;
@@ -32,22 +32,7 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
-    inline bool setDistance(float d)
-    {
-        const auto clamped = std::clamp<float>(d, MinDistance, MaxDistance);
-        const bool ok = clamped == d;
-        m_distance = clamped;
-        return ok;
-    }
-
-    inline void target(const float64_t3& p) { m_targetPosition = p; }
-    inline float64_t3 getTarget() const { return m_targetPosition; }
-
-    inline float getDistance() { return m_distance; }
-    inline double getU() { return u; }
-    inline double getV() { return v; }
-
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
@@ -63,17 +48,14 @@ public:
         const double deltaPanY = impulse.dVirtualTranslate.y * panScalar;
         const double deltaDistance = impulse.dVirtualTranslate.z * translateScalar;
 
-        u += deltaYaw;
-        v = std::clamp(v + deltaPitch, MinPitch, MaxPitch);
+        m_u += deltaYaw;
+        m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
-        const auto localSpherePosition = S(u, v) * static_cast<double>(m_distance);
-        const auto newForward = normalize(-localSpherePosition);
-        const auto newUp = normalize(Sdv(u, v));
-        const auto newRight = normalize(cross(newUp, newForward));
+        const auto basis = computeBasis(m_u, m_v, m_distance);
 
         if (deltaPanX != 0.0 || deltaPanY != 0.0)
-            m_targetPosition += newRight * deltaPanX + newUp * deltaPanY;
+            m_targetPosition += basis.right * deltaPanX + basis.up * deltaPanY;
 
         return applyPose();
     }
@@ -81,74 +63,14 @@ public:
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
     virtual const std::string_view getIdentifier() override { return "Arcball Camera"; }
 
-    static inline constexpr float MinDistance = 0.1f;
-    static inline constexpr float MaxDistance = 10000.f;
+    static inline constexpr float MinDistance = base_t::MinDistance;
+    static inline constexpr float MaxDistance = base_t::MaxDistance;
 
 private:
-    float64_t3 m_targetPosition;
-    float m_distance;
-    typename base_t::CGimbal m_gimbal;
-    double u = {};
-    double v = {};
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
     static inline constexpr double MaxPitch = glm::radians(89.0);
     static inline constexpr double MinPitch = -MaxPitch;
-
-    inline float64_t3 S(double su, double sv) const
-    {
-        return float64_t3
-        {
-            std::cos(sv) * std::cos(su),
-            std::cos(sv) * std::sin(su),
-            std::sin(sv)
-        };
-    }
-
-    inline float64_t3 Sdv(double su, double sv) const
-    {
-        return float64_t3
-        {
-            -std::sin(sv) * std::cos(su),
-            -std::sin(sv) * std::sin(su),
-            std::cos(sv)
-        };
-    }
-
-    inline void initFromPosition(const float64_t3& position)
-    {
-        const auto offset = position - m_targetPosition;
-        const double dist = length(offset);
-        const double safeDist = std::isfinite(dist) && dist > 0.0 ? dist : static_cast<double>(MinDistance);
-        m_distance = std::clamp<float>(static_cast<float>(safeDist), MinDistance, MaxDistance);
-        const auto local = offset / static_cast<double>(m_distance);
-        u = std::atan2(local.y, local.x);
-        v = std::asin(std::clamp(local.z, -1.0, 1.0));
-        v = std::clamp(v, MinPitch, MaxPitch);
-    }
-
-    inline bool applyPose()
-    {
-        const auto localSpherePosition = S(u, v) * static_cast<double>(m_distance);
-        const auto newPosition = localSpherePosition + m_targetPosition;
-        const auto newForward = normalize(-localSpherePosition);
-        const auto newUp = normalize(Sdv(u, v));
-        const auto newRight = normalize(cross(newUp, newForward));
-        const auto newOrientation = glm::quat_cast(glm::dmat3{ newRight, newUp, newForward });
-
-        m_gimbal.begin();
-        {
-            m_gimbal.setPosition(newPosition);
-            m_gimbal.setOrientation(newOrientation);
-        }
-        m_gimbal.end();
-
-        const bool manipulated = bool(m_gimbal.getManipulationCounter());
-        if (manipulated)
-            m_gimbal.updateView();
-
-        return manipulated;
-    }
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {

@@ -1,25 +1,25 @@
-#ifndef _C_ORBIT_CAMERA_HPP_
-#define _C_ORBIT_CAMERA_HPP_
+#ifndef _C_DOLLY_ZOOM_CAMERA_HPP_
+#define _C_DOLLY_ZOOM_CAMERA_HPP_
 
 #include <algorithm>
 #include <cmath>
+
 #include "CSphericalTargetCamera.hpp"
 
 namespace nbl::hlsl
 {
 
-class COrbitCamera final : public CSphericalTargetCamera
+class CDollyZoomCamera final : public CSphericalTargetCamera
 {
 public:
     using base_t = CSphericalTargetCamera;
 
-    COrbitCamera(const float64_t3& position, const float64_t3& target)
-        : base_t(position, target)
+    CDollyZoomCamera(const float64_t3& position, const float64_t3& target, float baseFov = 40.0f)
+        : base_t(position, target), m_baseFov(baseFov), m_referenceDistance(m_distance)
     {
-        m_distance = std::clamp<float>(length(m_targetPosition - position), MinDistance, MaxDistance);
         applyPose();
     }
-    ~COrbitCamera() = default;
+    ~CDollyZoomCamera() = default;
 
     const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
     const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
@@ -27,40 +27,50 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    float getBaseFov() const { return m_baseFov; }
+    void setBaseFov(float fov) { m_baseFov = fov; }
+
+    float getReferenceDistance() const { return m_referenceDistance; }
+    void setReferenceDistance(float distance) { m_referenceDistance = distance; }
+
+    float computeDollyFov() const
+    {
+        const double base = std::tan(glm::radians(static_cast<double>(m_baseFov)) * 0.5);
+        const double ratio = static_cast<double>(m_referenceDistance) / std::max<double>(static_cast<double>(m_distance), static_cast<double>(MinDistance));
+        const double fov = 2.0 * std::atan(base * ratio);
+        const double fovDeg = glm::degrees(fov);
+        return static_cast<float>(std::clamp(fovDeg, 10.0, 150.0));
+    }
+
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
-        // TODO: it must work differently, we should take another gimbal to control target
+        if (not virtualEvents.size() and not referenceFrame)
+            return false;
 
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
-        double deltaU = impulse.dVirtualTranslate.y, deltaV = impulse.dVirtualTranslate.x, deltaDistance = impulse.dVirtualTranslate.z;
+        double deltaU = impulse.dVirtualTranslate.y;
+        double deltaV = impulse.dVirtualTranslate.x;
+        double deltaDistance = impulse.dVirtualTranslate.z;
 
-        // TODO!
-        constexpr auto nastyScalar = 0.01;
-        deltaU *= nastyScalar * m_moveSpeedScale;
-        deltaV *= nastyScalar * m_moveSpeedScale;
+        constexpr auto scalar = 0.01;
+        deltaU *= scalar * m_moveSpeedScale;
+        deltaV *= scalar * m_moveSpeedScale;
 
         m_u += deltaU;
         m_v += deltaV;
-   
-        m_distance = std::clamp<float>(m_distance += deltaDistance * nastyScalar, MinDistance, MaxDistance);
+        m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance * scalar), MinDistance, MaxDistance);
 
         return applyPose();
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override
-    {
-        return AllowedVirtualEvents;
-    }
+    virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual const std::string_view getIdentifier() override { return "Dolly Zoom Camera"; }
 
-    virtual const std::string_view getIdentifier() override
-    {
-        return "Orbit Camera";
-    }
-
-    static inline constexpr float MinDistance = base_t::MinDistance;
-    static inline constexpr float MaxDistance = base_t::MaxDistance;
-
+private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
+
+    float m_baseFov = 40.0f;
+    float m_referenceDistance = 1.0f;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {
@@ -109,4 +119,4 @@ public:
 
 }
 
-#endif // _C_ORBIT_CAMERA_HPP_
+#endif

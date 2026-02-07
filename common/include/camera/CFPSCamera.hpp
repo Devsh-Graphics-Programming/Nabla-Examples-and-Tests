@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -47,7 +47,7 @@ public:
 
     // rotation events IN RADIANS
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
         // TODO: note, for FPS camera its assumed tilt is performed with respect to "world" up vector which is (0,1,0)
         // but in reality its all about where -(gravity force) vector is, we can just add it and construct yaw quat with respect to this new custom vector instead

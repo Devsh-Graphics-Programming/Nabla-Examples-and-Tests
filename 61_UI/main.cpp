@@ -3,11 +3,15 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
+#include <limits>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include "nlohmann/json.hpp"
@@ -283,7 +287,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 	constexpr static inline auto sceneRenderDepthFormat = EF_D32_SFLOAT;
 	constexpr static inline auto finalSceneRenderFormat = EF_R8G8B8A8_SRGB;
-	constexpr static inline IGPUCommandBuffer::SClearColorValue SceneClearColor = { .float32 = {0.f,0.f,0.f,1.f} };
+	constexpr static inline IGPUCommandBuffer::SClearColorValue SceneClearColor = { .float32 = {0.014f,0.018f,0.030f,1.f} };
 	constexpr static inline IGPUCommandBuffer::SClearDepthStencilValue SceneClearDepth = { .depth = 0.f };
 
 	public:
@@ -322,7 +326,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				m_window->getManager()->maximize(m_window.get());
 				auto* cc = m_window->getCursorControl();
-				cc->setVisible(false);
+				cc->setVisible(true);
 
 				return { {m_surface->getSurface()/*,EQF_NONE*/} };
 			}
@@ -346,6 +350,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.help("Log scripted input and virtual events.")
 				.default_value(false)
 				.implicit_value(true);
+			program.add_argument("--script-visual-debug")
+				.help("Enable scripted visual debug overlay and fixed frame pacing.")
+				.default_value(false)
+				.implicit_value(true);
 
 			try
 			{
@@ -359,11 +367,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			m_ciMode = program.get<bool>("--ci");
 			if (m_ciMode)
+			{
 				m_ciScreenshotPath = localOutputCWD / "cameraz_ci.png";
+				m_ciStartedAt = clock_t::now();
+			}
 			m_scriptedInput.log = program.get<bool>("--script-log");
+			m_scriptVisualDebugCli = program.get<bool>("--script-visual-debug");
 
 			// Create imput system
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+			m_logFormatter = core::make_smart_refctd_ptr<CUILogFormatter>();
 
 			// Remember to call the base class initialization!
 			if (!base_t::onAppInitialized(std::move(system)))
@@ -435,7 +448,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (cameraJsonFile.has_value())
 						m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.value().c_str());
 					else
-						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_WARNING);
+						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_INFO);
 
 					if (!loadDefaultConfig())
 						return false;
@@ -468,8 +481,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					m_scriptedInput.failed = false;
 					m_scriptedInput.summaryReported = false;
 					m_scriptedInput.baselineValid = false;
+					m_scriptedInput.stepValid = false;
 					m_scriptedInput.exclusive = false;
 					m_scriptedInput.hardFail = false;
+					m_scriptedInput.visualDebug = false;
+					m_scriptedInput.visualTargetFps = 0.f;
+					m_scriptedInput.visualCameraHoldSeconds = 0.f;
+					m_scriptedInput.visualActivePlanarValid = false;
+					m_scriptedInput.visualActivePlanarIx = 0u;
+					m_scriptedInput.visualActivePlanarStartFrame = 0u;
+					m_scriptedInput.framePacerInitialized = false;
 					m_scriptedInput.capturePrefix = "script";
 					m_scriptedInput.captureOutputDir = localOutputCWD;
 
@@ -483,6 +504,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (script.contains("hard_fail"))
 						m_scriptedInput.hardFail = script["hard_fail"].get<bool>();
+
+					if (script.contains("visual_debug"))
+						m_scriptedInput.visualDebug = script["visual_debug"].get<bool>();
+					if (script.contains("visual_debug_target_fps"))
+						m_scriptedInput.visualTargetFps = script["visual_debug_target_fps"].get<float>();
+					if (script.contains("visual_debug_hold_seconds"))
+						m_scriptedInput.visualCameraHoldSeconds = script["visual_debug_hold_seconds"].get<float>();
+					if (m_scriptVisualDebugCli)
+						m_scriptedInput.visualDebug = true;
+					if (m_scriptedInput.visualDebug)
+					{
+						if (m_scriptedInput.visualTargetFps <= 0.f)
+							m_scriptedInput.visualTargetFps = 60.f;
+						if (m_scriptedInput.visualCameraHoldSeconds <= 0.f)
+							m_scriptedInput.visualCameraHoldSeconds = 3.f;
+					}
 
 					if (script.contains("enableActiveCameraMovement"))
 						enableActiveCameraMovement = script["enableActiveCameraMovement"].get<bool>();
@@ -839,6 +876,48 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								entry.posTolerance = chk.value("pos_tolerance", entry.posTolerance);
 								entry.eulerToleranceDeg = chk.value("euler_tolerance_deg", entry.eulerToleranceDeg);
 							}
+							else if (kind == "gimbal_step")
+							{
+								entry.kind = ScriptedInputCheck::Kind::GimbalStep;
+
+								if (chk.contains("min_pos_delta"))
+								{
+									entry.minPosDelta = chk["min_pos_delta"].get<float>();
+									entry.hasPosDeltaConstraint = true;
+								}
+								if (chk.contains("max_pos_delta"))
+								{
+									entry.posTolerance = chk["max_pos_delta"].get<float>();
+									entry.hasPosDeltaConstraint = true;
+								}
+								else if (chk.contains("pos_tolerance"))
+								{
+									entry.posTolerance = chk["pos_tolerance"].get<float>();
+									entry.hasPosDeltaConstraint = true;
+								}
+
+								if (chk.contains("min_euler_delta_deg"))
+								{
+									entry.minEulerDeltaDeg = chk["min_euler_delta_deg"].get<float>();
+									entry.hasEulerDeltaConstraint = true;
+								}
+								if (chk.contains("max_euler_delta_deg"))
+								{
+									entry.eulerToleranceDeg = chk["max_euler_delta_deg"].get<float>();
+									entry.hasEulerDeltaConstraint = true;
+								}
+								else if (chk.contains("euler_tolerance_deg"))
+								{
+									entry.eulerToleranceDeg = chk["euler_tolerance_deg"].get<float>();
+									entry.hasEulerDeltaConstraint = true;
+								}
+
+								if (!entry.hasPosDeltaConstraint && !entry.hasEulerDeltaConstraint)
+								{
+									m_logger->log("gimbal_step check requires at least one delta constraint.", ILogger::ELL_WARNING);
+									continue;
+								}
+							}
 							else
 							{
 								m_logger->log("Scripted check has invalid kind \"%s\".", ILogger::ELL_WARNING, kind.c_str());
@@ -957,6 +1036,52 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						else if (jCamera["type"] == "Turntable")
 						{
 							auto camera = make_smart_refctd_ptr<CTurntableCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "TopDown")
+						{
+							auto camera = make_smart_refctd_ptr<CTopDownCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Isometric")
+						{
+							auto camera = make_smart_refctd_ptr<CIsometricCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Chase")
+						{
+							auto camera = make_smart_refctd_ptr<CChaseCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Dolly")
+						{
+							auto camera = make_smart_refctd_ptr<CDollyCamera>(position, getTarget());
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "DollyZoom")
+						{
+							float baseFov = 40.0f;
+							if (jCamera.contains("baseFov"))
+								baseFov = jCamera["baseFov"].get<float>();
+
+							auto camera = make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov);
+							camera->setMoveSpeedScale(OrbitMoveScale);
+							camera->setRotationSpeedScale(DefaultRotateScale);
+							cameras.emplace_back(std::move(camera));
+						}
+						else if (jCamera["type"] == "Path")
+						{
+							auto camera = make_smart_refctd_ptr<CPathCamera>(position, getTarget());
 							camera->setMoveSpeedScale(OrbitMoveScale);
 							camera->setRotationSpeedScale(DefaultRotateScale);
 							cameras.emplace_back(std::move(camera));
@@ -1176,10 +1301,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-				if (m_planarProjections.size() < windowBindings.size())
+				if (m_planarProjections.empty())
 				{
-					// TODO, temporary assuming it, I'm not going to implement each possible case now
-					logFail("Expected at least %d planars", windowBindings.size());
+					logFail("Expected at least 1 planar");
 					return false;
 				}
 
@@ -1344,7 +1468,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// UI
 			{
 				{
-					constexpr size_t ImGuiStreamingBufferSize = 32ull * 1024ull * 1024ull;
+					constexpr std::array<size_t, 5> ImGuiStreamingBufferSizes = {
+						32ull * 1024ull * 1024ull,
+						16ull * 1024ull * 1024ull,
+						8ull * 1024ull * 1024ull,
+						4ull * 1024ull * 1024ull,
+						2ull * 1024ull * 1024ull
+					};
 					auto createImGuiStreamingBuffer = [&](size_t size) -> smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t>
 					{
 						constexpr uint32_t minStreamingBufferAllocationSize = 128u;
@@ -1368,22 +1498,35 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto buffer = m_utils->getLogicalDevice()->createBuffer(std::move(mdiCreationParams));
 						if (!buffer)
+						{
+							m_logger->log("Failed to create ImGui streaming buffer object for size=%zu.", ILogger::ELL_WARNING, size);
 							return nullptr;
+						}
 
 						buffer->setObjectDebugName("ImGui MDI Upstream Buffer");
 
 						auto memoryReqs = buffer->getMemoryReqs();
-						memoryReqs.memoryTypeBits &= m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+						const auto upStreamingBits = m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+						const auto reqMemoryTypeBits = memoryReqs.memoryTypeBits;
+						memoryReqs.memoryTypeBits &= upStreamingBits;
+						if (!memoryReqs.memoryTypeBits)
+						{
+							m_logger->log("No compatible up-streaming memory type for ImGui buffer size=%zu reqBits=0x%08x upBits=0x%08x.", ILogger::ELL_WARNING, size, reqMemoryTypeBits, upStreamingBits);
+							return nullptr;
+						}
 
 						auto allocation = m_utils->getLogicalDevice()->allocate(memoryReqs, buffer.get(), nbl::ext::imgui::UI::SCachedCreationParams::RequiredAllocateFlags);
 						if (!allocation.isValid())
+						{
+							m_logger->log("Failed to allocate ImGui streaming buffer memory for size=%zu reqBits=0x%08x upBits=0x%08x filteredBits=0x%08x sizeReq=%llu.", ILogger::ELL_WARNING, size, reqMemoryTypeBits, upStreamingBits, memoryReqs.memoryTypeBits, memoryReqs.size);
 							return nullptr;
+						}
 
 						auto memory = allocation.memory;
 
 						if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
 						{
-							m_logger->log("Could not map ImGui streaming buffer memory!", ILogger::ELL_ERROR);
+							m_logger->log("Could not map ImGui streaming buffer memory for size=%zu.", ILogger::ELL_WARNING, size);
 							return nullptr;
 						}
 
@@ -1393,7 +1536,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							minStreamingBufferAllocationSize);
 					};
 
-					auto imguiStreamingBuffer = createImGuiStreamingBuffer(ImGuiStreamingBufferSize);
+					smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t> imguiStreamingBuffer = nullptr;
+					for (const auto candidateSize : ImGuiStreamingBufferSizes)
+					{
+						imguiStreamingBuffer = createImGuiStreamingBuffer(candidateSize);
+						if (imguiStreamingBuffer)
+							break;
+					}
 					if (!imguiStreamingBuffer)
 						return logFail("Failed to create ImGui streaming buffer.");
 
@@ -1640,6 +1789,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline void workLoopBody() override
 		{
+			paceScriptedVisualDebugFrame();
+
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
 			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 			// We block for semaphores for 2 reasons here:
@@ -1953,12 +2104,52 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			firstFrame = false;
 		}
 
+		inline void paceScriptedVisualDebugFrame()
+		{
+			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
+			{
+				m_scriptedInput.framePacerInitialized = false;
+				return;
+			}
+
+			if (m_scriptedInput.visualTargetFps <= 0.f)
+				return;
+
+			const auto frameDuration = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+				std::chrono::duration<double>(1.0 / static_cast<double>(m_scriptedInput.visualTargetFps)));
+			const auto now = std::chrono::steady_clock::now();
+
+			if (!m_scriptedInput.framePacerInitialized)
+			{
+				m_scriptedInput.framePacerInitialized = true;
+				m_scriptedInput.framePacerNext = now + frameDuration;
+				return;
+			}
+
+			if (now < m_scriptedInput.framePacerNext)
+				std::this_thread::sleep_until(m_scriptedInput.framePacerNext);
+
+			auto postSleepNow = std::chrono::steady_clock::now();
+			while (m_scriptedInput.framePacerNext < postSleepNow)
+				m_scriptedInput.framePacerNext += frameDuration;
+		}
+
 		inline bool keepRunning() override
 		{
 			if (m_scriptedInput.enabled && m_scriptedInput.hardFail && m_scriptedInput.failed)
 			{
 				if (!m_ciMode || m_ciScreenshotDone)
 					std::exit(EXIT_FAILURE);
+			}
+			if (m_ciMode && m_ciStartedAt != clock_t::time_point::min())
+			{
+				const auto elapsed = clock_t::now() - m_ciStartedAt;
+				if (elapsed > CiMaxRuntime)
+				{
+					m_logger->log("[ci][fail] watchdog timeout after %.2f s.", ILogger::ELL_ERROR,
+						std::chrono::duration<double>(elapsed).count());
+					std::exit(EXIT_FAILURE);
+				}
 			}
 			if (m_ciMode && m_ciScreenshotDone)
 			{
@@ -2119,6 +2310,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							auto& binding = windowBindings[activeRenderWindowIx];
 							binding.activePlanarIx = static_cast<uint32_t>(action.value);
 							binding.pickDefaultProjections(m_planarProjections[binding.activePlanarIx]->getPlanarProjections());
+							m_scriptedInput.visualActivePlanarValid = true;
+							m_scriptedInput.visualActivePlanarIx = binding.activePlanarIx;
+							m_scriptedInput.visualActivePlanarStartFrame = m_realFrameIx;
 						} break;
 
 						case ScriptedInputEvent::ActionData::Kind::SetProjectionType:
@@ -2183,6 +2377,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				if (m_scriptedInput.log)
 					m_logger->log("[script] frame %llu actions=%zu", ILogger::ELL_INFO, static_cast<unsigned long long>(m_realFrameIx), scriptedActions.size());
+			}
+
+			if (m_scriptedInput.enabled && m_scriptedInput.visualDebug && !m_scriptedInput.visualActivePlanarValid)
+			{
+				if (activeRenderWindowIx < windowBindings.size())
+				{
+					m_scriptedInput.visualActivePlanarValid = true;
+					m_scriptedInput.visualActivePlanarIx = windowBindings[activeRenderWindowIx].activePlanarIx;
+					m_scriptedInput.visualActivePlanarStartFrame = m_realFrameIx;
+				}
 			}
 
 			if (!scriptedMouse.empty())
@@ -2420,6 +2624,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 				};
+				auto setStepReference = [&](const float32_t3& newPos, const float32_t3& newEuler) -> void
+				{
+					m_scriptedInput.stepValid = true;
+					m_scriptedInput.stepPos = newPos;
+					m_scriptedInput.stepEulerDeg = newEuler;
+				};
 
 				const auto frame = m_realFrameIx;
 				while (m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size() &&
@@ -2450,6 +2660,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						m_scriptedInput.baselineValid = true;
 						m_scriptedInput.baselinePos = pos;
 						m_scriptedInput.baselineEulerDeg = euler;
+						setStepReference(pos, euler);
 						logPass("[script][pass] baseline frame=%llu pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)",
 							static_cast<unsigned long long>(frame),
 							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
@@ -2551,6 +2762,53 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 									static_cast<unsigned long long>(frame), dpos, dmax);
 							}
 						}
+					}
+					else if (check.kind == ScriptedInputCheck::Kind::GimbalStep)
+					{
+						if (!m_scriptedInput.stepValid)
+						{
+							if (m_scriptedInput.baselineValid)
+								setStepReference(m_scriptedInput.baselinePos, m_scriptedInput.baselineEulerDeg);
+							else
+							{
+								logFail("[script][fail] gimbal_step frame=%llu missing step reference", static_cast<unsigned long long>(frame));
+								setStepReference(pos, euler);
+								++m_scriptedInput.nextCheckIndex;
+								continue;
+							}
+						}
+
+						const auto diff = float32_t3(pos.x - m_scriptedInput.stepPos.x, pos.y - m_scriptedInput.stepPos.y, pos.z - m_scriptedInput.stepPos.z);
+						const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+						const auto dx = angleDiffDeg(euler.x, m_scriptedInput.stepEulerDeg.x);
+						const auto dy = angleDiffDeg(euler.y, m_scriptedInput.stepEulerDeg.y);
+						const auto dz = angleDiffDeg(euler.z, m_scriptedInput.stepEulerDeg.z);
+						const auto dmax = std::max(dx, std::max(dy, dz));
+
+						bool ok = true;
+						if (check.hasPosDeltaConstraint)
+						{
+							if (dpos < check.minPosDelta || dpos > check.posTolerance)
+							{
+								ok = false;
+								logFail("[script][fail] gimbal_step frame=%llu pos_delta=%.6f expected=[%.6f, %.6f]",
+									static_cast<unsigned long long>(frame), dpos, check.minPosDelta, check.posTolerance);
+							}
+						}
+						if (check.hasEulerDeltaConstraint)
+						{
+							if (dmax < check.minEulerDeltaDeg || dmax > check.eulerToleranceDeg)
+							{
+								ok = false;
+								logFail("[script][fail] gimbal_step frame=%llu euler_delta=%.6f expected=[%.6f, %.6f]",
+									static_cast<unsigned long long>(frame), dmax, check.minEulerDeltaDeg, check.eulerToleranceDeg);
+							}
+						}
+
+						if (ok)
+							logPass("[script][pass] gimbal_step frame=%llu pos_delta=%.6f euler_delta=%.6f",
+								static_cast<unsigned long long>(frame), dpos, dmax);
+						setStepReference(pos, euler);
 					}
 
 					++m_scriptedInput.nextCheckIndex;
@@ -2669,25 +2927,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool isOrbitLikeCamera(ICamera* camera)
 		{
-			return dynamic_cast<COrbitCamera*>(camera) || dynamic_cast<CArcballCamera*>(camera) || dynamic_cast<CTurntableCamera*>(camera);
+			return dynamic_cast<CSphericalTargetCamera*>(camera);
 		}
 
 		template<typename Fn>
 		inline bool withOrbitLikeCamera(ICamera* camera, Fn&& fn)
 		{
-			if (auto* orbit = dynamic_cast<COrbitCamera*>(camera))
+			if (auto* orbit = dynamic_cast<CSphericalTargetCamera*>(camera))
 			{
 				fn(orbit);
-				return true;
-			}
-			if (auto* arcball = dynamic_cast<CArcballCamera*>(camera))
-			{
-				fn(arcball);
-				return true;
-			}
-			if (auto* turntable = dynamic_cast<CTurntableCamera*>(camera))
-			{
-				fn(turntable);
 				return true;
 			}
 			return false;
@@ -2705,6 +2953,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return "Arcball";
 			if (dynamic_cast<const CTurntableCamera*>(camera))
 				return "Turntable";
+			if (dynamic_cast<const CTopDownCamera*>(camera))
+				return "TopDown";
+			if (dynamic_cast<const CIsometricCamera*>(camera))
+				return "Isometric";
+			if (dynamic_cast<const CChaseCamera*>(camera))
+				return "Chase";
+			if (dynamic_cast<const CDollyCamera*>(camera))
+				return "Dolly";
+			if (dynamic_cast<const CDollyZoomCamera*>(camera))
+				return "Dolly Zoom";
+			if (dynamic_cast<const CPathCamera*>(camera))
+				return "Path";
 			return "Unknown";
 		}
 
@@ -2720,7 +2980,433 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return "Arcball trackball around target";
 			if (dynamic_cast<const CTurntableCamera*>(camera))
 				return "Turntable yaw/pitch around target";
+			if (dynamic_cast<const CTopDownCamera*>(camera))
+				return "Fixed pitch top-down pan";
+			if (dynamic_cast<const CIsometricCamera*>(camera))
+				return "Fixed isometric view with pan";
+			if (dynamic_cast<const CChaseCamera*>(camera))
+				return "Target follow with chase controls";
+			if (dynamic_cast<const CDollyCamera*>(camera))
+				return "Rig truck/dolly with look-at";
+			if (dynamic_cast<const CDollyZoomCamera*>(camera))
+				return "Orbit with dolly-zoom FOV";
+			if (dynamic_cast<const CPathCamera*>(camera))
+				return "Move along a target path";
 			return "Unspecified camera behavior";
+		}
+
+		inline void syncVisualDebugWindowBindings()
+		{
+			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
+				return;
+			if (windowBindings.size() < 2u || m_planarProjections.empty())
+				return;
+
+			auto& perspectiveBinding = windowBindings[0u];
+			if (perspectiveBinding.activePlanarIx >= m_planarProjections.size())
+				return;
+			auto& perspectivePlanar = m_planarProjections[perspectiveBinding.activePlanarIx];
+			if (!perspectivePlanar)
+				return;
+			if (!perspectiveBinding.lastBoundPerspectivePresetProjectionIx.has_value())
+				perspectiveBinding.pickDefaultProjections(perspectivePlanar->getPlanarProjections());
+			if (perspectiveBinding.lastBoundPerspectivePresetProjectionIx.has_value())
+				perspectiveBinding.boundProjectionIx = perspectiveBinding.lastBoundPerspectivePresetProjectionIx.value();
+
+			auto& orthoBinding = windowBindings[1u];
+			if (orthoBinding.activePlanarIx != perspectiveBinding.activePlanarIx)
+			{
+				orthoBinding.activePlanarIx = perspectiveBinding.activePlanarIx;
+				auto& orthoPlanar = m_planarProjections[orthoBinding.activePlanarIx];
+				if (!orthoPlanar)
+					return;
+				orthoBinding.pickDefaultProjections(orthoPlanar->getPlanarProjections());
+			}
+			if (orthoBinding.activePlanarIx >= m_planarProjections.size())
+				return;
+			auto& orthoPlanar = m_planarProjections[orthoBinding.activePlanarIx];
+			if (!orthoPlanar)
+				return;
+			if (!orthoBinding.lastBoundOrthoPresetProjectionIx.has_value())
+				orthoBinding.pickDefaultProjections(orthoPlanar->getPlanarProjections());
+			if (orthoBinding.lastBoundOrthoPresetProjectionIx.has_value())
+				orthoBinding.boundProjectionIx = orthoBinding.lastBoundOrthoPresetProjectionIx.value();
+		}
+
+		inline bool projectWorldPointToViewport(
+			const float32_t4x4& viewProjMatrix,
+			const float32_t3& worldPoint,
+			const ImVec2& viewportPos,
+			const ImVec2& viewportSize,
+			ImVec2& outScreen) const
+		{
+			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
+				return false;
+
+			const auto clip = mul(viewProjMatrix, float32_t4(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f));
+			if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
+				return false;
+
+			const float absW = std::abs(clip.w);
+			if (absW < 1e-5f)
+				return false;
+
+			const float invW = 1.0f / clip.w;
+			const float ndcX = clip.x * invW;
+			const float ndcY = clip.y * invW;
+			const float ndcZ = clip.z * invW;
+
+			if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ))
+				return false;
+			if (std::abs(ndcX) > 100.0f || std::abs(ndcY) > 100.0f || std::abs(ndcZ) > 100.0f)
+				return false;
+
+			outScreen.x = viewportPos.x + (ndcX * 0.5f + 0.5f) * viewportSize.x;
+			outScreen.y = viewportPos.y + (-ndcY * 0.5f + 0.5f) * viewportSize.y;
+			return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
+		}
+
+		inline void drawWorldReferenceOverlay(
+			const ImVec2& viewportPos,
+			const ImVec2& viewportSize,
+			const float32_t4x4& viewMatrix,
+			const float32_t4x4& projectionMatrix,
+			bool leftHandedProjection,
+			float nearPlane,
+			float farPlane)
+		{
+			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
+				return;
+			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
+				return;
+
+			auto* drawList = ImGui::GetWindowDrawList();
+			if (!drawList)
+				return;
+
+			const float safeNear = std::max(nearPlane, 0.001f);
+			const float safeFar = std::max(farPlane, safeNear + 0.001f);
+			const auto depthOfViewPoint = [&](const float32_t4& viewPoint) -> float
+			{
+				return leftHandedProjection ? viewPoint.z : -viewPoint.z;
+			};
+			const auto ndcToViewport = [&](const ImVec2& ndc) -> ImVec2
+			{
+				return ImVec2(
+					viewportPos.x + (ndc.x * 0.5f + 0.5f) * viewportSize.x,
+					viewportPos.y + (-ndc.y * 0.5f + 0.5f) * viewportSize.y);
+			};
+			const auto clipSegmentByDepthRange = [&](float32_t4& viewA, float32_t4& viewB) -> bool
+			{
+				const float32_t4 a0 = viewA;
+				const float32_t4 b0 = viewB;
+				const float32_t4 delta = b0 - a0;
+				const float depthA = depthOfViewPoint(a0);
+				const float depthB = depthOfViewPoint(b0);
+
+				float tEnter = 0.0f;
+				float tExit = 1.0f;
+				const auto clipByConstraint = [&](float fa, float fb) -> bool
+				{
+					if (fa < 0.0f && fb < 0.0f)
+						return false;
+					if (fa >= 0.0f && fb >= 0.0f)
+						return true;
+
+					const float denom = fa - fb;
+					if (std::abs(denom) < 1e-6f)
+						return false;
+					const float t = std::clamp(fa / denom, 0.0f, 1.0f);
+
+					if (fa < 0.0f)
+						tEnter = std::max(tEnter, t);
+					else
+						tExit = std::min(tExit, t);
+
+					return tEnter <= tExit;
+				};
+
+				if (!clipByConstraint(depthA - safeNear, depthB - safeNear))
+					return false;
+				if (!clipByConstraint(safeFar - depthA, safeFar - depthB))
+					return false;
+
+				viewA = a0 + delta * tEnter;
+				viewB = a0 + delta * tExit;
+				return true;
+			};
+			const auto projectViewPointToNdc = [&](const float32_t4& viewPoint, ImVec2& outNdc) -> bool
+			{
+				const auto clip = mul(projectionMatrix, viewPoint);
+				if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
+					return false;
+
+				const float absW = std::abs(clip.w);
+				if (absW < 1e-6f)
+					return false;
+
+				const float invW = 1.0f / clip.w;
+				const float ndcX = clip.x * invW;
+				const float ndcY = clip.y * invW;
+				const float ndcZ = clip.z * invW;
+				if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ))
+					return false;
+				if (std::abs(ndcX) > 1e4f || std::abs(ndcY) > 1e4f || std::abs(ndcZ) > 1e4f)
+					return false;
+
+				outNdc = ImVec2(ndcX, ndcY);
+				return true;
+			};
+			const auto clipNdcSegmentToViewport = [&](ImVec2& ndcA, ImVec2& ndcB) -> bool
+			{
+				float tEnter = 0.0f;
+				float tExit = 1.0f;
+				const float dx = ndcB.x - ndcA.x;
+				const float dy = ndcB.y - ndcA.y;
+				const auto clipTest = [&](float p, float q) -> bool
+				{
+					if (std::abs(p) < 1e-6f)
+						return q >= 0.0f;
+
+					const float r = q / p;
+					if (p < 0.0f)
+					{
+						if (r > tExit)
+							return false;
+						tEnter = std::max(tEnter, r);
+					}
+					else
+					{
+						if (r < tEnter)
+							return false;
+						tExit = std::min(tExit, r);
+					}
+					return tEnter <= tExit;
+				};
+
+				if (!clipTest(-dx, ndcA.x + 1.0f))
+					return false;
+				if (!clipTest(dx, 1.0f - ndcA.x))
+					return false;
+				if (!clipTest(-dy, ndcA.y + 1.0f))
+					return false;
+				if (!clipTest(dy, 1.0f - ndcA.y))
+					return false;
+
+				const ImVec2 a0 = ndcA;
+				ndcA = ImVec2(a0.x + dx * tEnter, a0.y + dy * tEnter);
+				ndcB = ImVec2(a0.x + dx * tExit, a0.y + dy * tExit);
+				return true;
+			};
+			const auto projectWorldPointToViewportClipped = [&](const float32_t3& worldPoint, ImVec2& outScreen) -> bool
+			{
+				const auto viewPoint = mul(viewMatrix, float32_t4(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f));
+				if (!std::isfinite(viewPoint.x) || !std::isfinite(viewPoint.y) || !std::isfinite(viewPoint.z) || !std::isfinite(viewPoint.w))
+					return false;
+
+				const float depth = depthOfViewPoint(viewPoint);
+				if (depth < safeNear || depth > safeFar)
+					return false;
+
+				ImVec2 ndcPoint = {};
+				if (!projectViewPointToNdc(viewPoint, ndcPoint))
+					return false;
+				if (ndcPoint.x < -1.0f || ndcPoint.x > 1.0f || ndcPoint.y < -1.0f || ndcPoint.y > 1.0f)
+					return false;
+
+				outScreen = ndcToViewport(ndcPoint);
+				return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
+			};
+
+			auto drawWorldLine = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
+			{
+				float32_t4 viewA = mul(viewMatrix, float32_t4(aWorld.x, aWorld.y, aWorld.z, 1.0f));
+				float32_t4 viewB = mul(viewMatrix, float32_t4(bWorld.x, bWorld.y, bWorld.z, 1.0f));
+				if (!std::isfinite(viewA.x) || !std::isfinite(viewA.y) || !std::isfinite(viewA.z) || !std::isfinite(viewA.w) ||
+					!std::isfinite(viewB.x) || !std::isfinite(viewB.y) || !std::isfinite(viewB.z) || !std::isfinite(viewB.w))
+					return;
+				if (!clipSegmentByDepthRange(viewA, viewB))
+					return;
+
+				ImVec2 ndcA = {};
+				ImVec2 ndcB = {};
+				if (!projectViewPointToNdc(viewA, ndcA))
+					return;
+				if (!projectViewPointToNdc(viewB, ndcB))
+					return;
+				if (!clipNdcSegmentToViewport(ndcA, ndcB))
+					return;
+
+				const ImVec2 screenA = ndcToViewport(ndcA);
+				const ImVec2 screenB = ndcToViewport(ndcB);
+				drawList->AddLine(screenA, screenB, color, thickness);
+			};
+
+			constexpr int gridHalfSteps = 8;
+			constexpr float gridStep = 2.0f;
+			const float gridHalfSize = static_cast<float>(gridHalfSteps) * gridStep;
+			constexpr int gridMajorModulo = 1;
+			const ImU32 gridMajor = IM_COL32(136, 160, 194, 95);
+
+			for (int i = -gridHalfSteps; i <= gridHalfSteps; ++i)
+			{
+				if (i == 0)
+					continue;
+				if ((i % gridMajorModulo) != 0)
+					continue;
+				const float c = static_cast<float>(i) * gridStep;
+				drawWorldLine(float32_t3(c, 0.0f, -gridHalfSize), float32_t3(c, 0.0f, gridHalfSize), gridMajor, 1.3f);
+				drawWorldLine(float32_t3(-gridHalfSize, 0.0f, c), float32_t3(gridHalfSize, 0.0f, c), gridMajor, 1.3f);
+			}
+
+			drawWorldLine(float32_t3(-gridHalfSize, 0.0f, 0.0f), float32_t3(gridHalfSize, 0.0f, 0.0f), IM_COL32(184, 204, 232, 170), 2.0f);
+			drawWorldLine(float32_t3(0.0f, 0.0f, -gridHalfSize), float32_t3(0.0f, 0.0f, gridHalfSize), IM_COL32(184, 204, 232, 170), 2.0f);
+
+			constexpr float axisLength = 7.5f;
+			const float32_t3 origin = float32_t3(0.0f);
+			const float32_t3 xPos = float32_t3(axisLength, 0.0f, 0.0f);
+			const float32_t3 yPos = float32_t3(0.0f, axisLength, 0.0f);
+			const float32_t3 zPos = float32_t3(0.0f, 0.0f, axisLength);
+			const float32_t3 xNeg = float32_t3(-axisLength * 0.4f, 0.0f, 0.0f);
+			const float32_t3 yNeg = float32_t3(0.0f, -axisLength * 0.3f, 0.0f);
+			const float32_t3 zNeg = float32_t3(0.0f, 0.0f, -axisLength * 0.4f);
+
+			drawWorldLine(origin, xPos, IM_COL32(244, 92, 92, 245), 3.2f);
+			drawWorldLine(origin, yPos, IM_COL32(124, 236, 132, 245), 3.2f);
+			drawWorldLine(origin, zPos, IM_COL32(106, 166, 255, 245), 3.2f);
+			drawWorldLine(origin, xNeg, IM_COL32(128, 74, 74, 180), 1.6f);
+			drawWorldLine(origin, yNeg, IM_COL32(74, 128, 78, 180), 1.6f);
+			drawWorldLine(origin, zNeg, IM_COL32(70, 88, 124, 180), 1.6f);
+
+			auto drawAxisLabel = [&](const char* label, const float32_t3& worldPoint, ImU32 color) -> void
+			{
+				ImVec2 screenPos = {};
+				if (!projectWorldPointToViewportClipped(worldPoint, screenPos))
+					return;
+				drawList->AddText(ImVec2(screenPos.x + 4.0f, screenPos.y + 3.0f), color, label);
+			};
+
+			ImVec2 originScreen = {};
+			if (projectWorldPointToViewportClipped(origin, originScreen))
+				drawList->AddCircleFilled(originScreen, 4.0f, IM_COL32(240, 248, 255, 220), 16);
+
+			drawAxisLabel("X", xPos, IM_COL32(255, 152, 152, 255));
+			drawAxisLabel("Y", yPos, IM_COL32(172, 255, 178, 255));
+			drawAxisLabel("Z", zPos, IM_COL32(172, 210, 255, 255));
+		}
+
+		inline void drawScriptVisualDebugOverlay(const ImVec2& displaySize)
+		{
+			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
+				return;
+			if (windowBindings.empty() || m_planarProjections.empty())
+				return;
+			if (activeRenderWindowIx >= windowBindings.size())
+				return;
+
+			const auto& binding = windowBindings[activeRenderWindowIx];
+			if (binding.activePlanarIx >= m_planarProjections.size())
+				return;
+
+			auto& planar = m_planarProjections[binding.activePlanarIx];
+			if (!planar)
+				return;
+			auto* camera = planar->getCamera();
+			if (!camera)
+				return;
+
+			if (!m_scriptedInput.visualActivePlanarValid)
+			{
+				m_scriptedInput.visualActivePlanarValid = true;
+				m_scriptedInput.visualActivePlanarIx = binding.activePlanarIx;
+				m_scriptedInput.visualActivePlanarStartFrame = m_realFrameIx;
+			}
+
+			const uint64_t elapsedFrames = (m_realFrameIx >= m_scriptedInput.visualActivePlanarStartFrame) ?
+				(m_realFrameIx - m_scriptedInput.visualActivePlanarStartFrame) : 0ull;
+			const float fps = std::max(1.f, m_scriptedInput.visualTargetFps);
+			const uint64_t holdFrames = static_cast<uint64_t>(std::round(std::max(0.f, m_scriptedInput.visualCameraHoldSeconds) * fps));
+			const uint64_t progressFrames = holdFrames ? std::min(elapsedFrames, holdFrames) : elapsedFrames;
+
+			const auto cameraLabel = getCameraTypeLabel(camera);
+			std::string lineTop = "SCRIPT VISUAL DEBUG";
+			std::string lineMid = "Camera " + std::to_string(binding.activePlanarIx + 1u) + "/" + std::to_string(m_planarProjections.size()) + "  " + std::string(cameraLabel);
+
+			char lineBottomBuffer[256] = {};
+			if (holdFrames)
+			{
+				const double elapsedSeconds = static_cast<double>(progressFrames) / static_cast<double>(fps);
+				const double holdSeconds = static_cast<double>(holdFrames) / static_cast<double>(fps);
+				std::snprintf(
+					lineBottomBuffer,
+					sizeof(lineBottomBuffer),
+					"Planar %u  Segment %.1f/%.1f s  Frame %llu/%llu",
+					binding.activePlanarIx,
+					elapsedSeconds,
+					holdSeconds,
+					static_cast<unsigned long long>(progressFrames),
+					static_cast<unsigned long long>(holdFrames));
+			}
+			else
+			{
+				std::snprintf(
+					lineBottomBuffer,
+					sizeof(lineBottomBuffer),
+					"Planar %u  Frame %llu",
+					binding.activePlanarIx,
+					static_cast<unsigned long long>(m_realFrameIx));
+			}
+			const std::string lineBottom(lineBottomBuffer);
+
+			const float topSize = 50.f;
+			const float midSize = 38.f;
+			const float bottomSize = 28.f;
+			const float marginTop = 18.f;
+			const float padX = 24.f;
+			const float padY = 16.f;
+			const float gap = 6.f;
+
+			ImFont* font = ImGui::GetFont();
+			if (!font)
+				return;
+
+			const float textWrap = std::numeric_limits<float>::max();
+			const ImVec2 topTextSize = font->CalcTextSizeA(topSize, textWrap, 0.0f, lineTop.c_str());
+			const ImVec2 midTextSize = font->CalcTextSizeA(midSize, textWrap, 0.0f, lineMid.c_str());
+			const ImVec2 bottomTextSize = font->CalcTextSizeA(bottomSize, textWrap, 0.0f, lineBottom.c_str());
+			const float panelWidth = std::max(topTextSize.x, std::max(midTextSize.x, bottomTextSize.x)) + padX * 2.0f;
+			const float panelHeight = topTextSize.y + midTextSize.y + bottomTextSize.y + gap * 2.0f + padY * 2.0f;
+			const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, marginTop);
+			const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
+
+			auto* drawList = ImGui::GetForegroundDrawList();
+			if (!drawList)
+				return;
+
+			drawList->AddRectFilled(panelMin, panelMax, IM_COL32(6, 8, 12, 232), 14.0f);
+			drawList->AddRect(panelMin, panelMax, IM_COL32(255, 166, 64, 255), 14.0f, 0, 2.5f);
+
+			const float topX = panelMin.x + (panelWidth - topTextSize.x) * 0.5f;
+			const float midX = panelMin.x + (panelWidth - midTextSize.x) * 0.5f;
+			const float bottomX = panelMin.x + (panelWidth - bottomTextSize.x) * 0.5f;
+			const float topY = panelMin.y + padY;
+			const float midY = topY + topTextSize.y + gap;
+			const float bottomY = midY + midTextSize.y + gap;
+
+			drawList->AddText(font, topSize, ImVec2(topX, topY), IM_COL32(255, 206, 120, 255), lineTop.c_str());
+			drawList->AddText(font, midSize, ImVec2(midX, midY), IM_COL32(255, 244, 224, 255), lineMid.c_str());
+			drawList->AddText(font, bottomSize, ImVec2(bottomX, bottomY), IM_COL32(202, 222, 255, 255), lineBottom.c_str());
+		}
+
+		inline void applyDollyZoomProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
+		{
+			auto* dolly = dynamic_cast<CDollyZoomCamera*>(camera);
+			if (!dolly)
+				return;
+			const auto& params = projection.getParameters();
+			if (params.m_type != IPlanarProjection::CProjection::Perspective)
+				return;
+			projection.setPerspective(params.m_zNear, params.m_zFar, dolly->computeDollyFov());
 		}
 
 		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
@@ -2777,7 +3463,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			for (uint32_t i = 0u; i < count; ++i)
 			{
 				const auto* eventName = CVirtualGimbalEvent::virtualEventToString(events[i].type).data();
-				auto line = m_logFormatter.format(ILogger::ELL_INFO,
+				auto line = m_logFormatter->format(ILogger::ELL_INFO,
 					"virtual frame=%llu src=%s ctrl=%s cam=%s planar=%u event=%s mag=%.6f",
 					static_cast<unsigned long long>(m_realFrameIx),
 					sourceStr.c_str(),
@@ -3149,7 +3835,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// render bound planar camera views onto GUI windows
 				if (useWindow)
 				{
-					if(enableActiveCameraMovement)
+					syncVisualDebugWindowBindings();
+					const bool hideSceneGizmos = enableActiveCameraMovement || (m_scriptedInput.enabled && m_scriptedInput.visualDebug);
+					if(hideSceneGizmos)
 						ImGuizmo::Enable(false);
 					else
 						ImGuizmo::Enable(true);
@@ -3200,6 +3888,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						assert(binding.boundProjectionIx.has_value());
 						
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+						applyDollyZoomProjection(planarViewCameraBound, projection);
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 						// TODO: 
@@ -3253,6 +3942,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
 						imguizmoPlanar.view = getCastedMatrix<float32_t>(hlsl::transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
 						imguizmoPlanar.projection = getCastedMatrix<float32_t>(hlsl::transpose(projection.getProjectionMatrix()));
+						const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(planarViewCameraBound->getGimbal().getViewMatrix()));
+						const auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
+						const auto& projectionParams = projection.getParameters();
+						drawWorldReferenceOverlay(cursorPos, contentRegionSize, viewMatrix, projectionMatrix, binding.leftHandedProjection, projectionParams.m_zNear, projectionParams.m_zFar);
 
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
@@ -3265,41 +3958,59 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							0.f, 0.f, 0.f, 1.f 
 						};
 
-						if(binding.enableDebugGridDraw)
+						if(!hideSceneGizmos && binding.enableDebugGridDraw)
 							ImGuizmo::DrawGrid(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], identityMatrix, 100.f);
 
-						for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
+						if (!hideSceneGizmos)
 						{
-							ImGuizmo::PushID(gizmoIx); ++gizmoIx;
+							for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
+							{
+								ImGuizmo::PushID(gizmoIx); ++gizmoIx;
 
-							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are planar cameras
-							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
+								const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are planar cameras
+								ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
 
 							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
 							// EDIT: it actually makes some sense if you assume render planar view is rendered with ortho projection, but we would need to add imguizmo controller virtual map
 							// to ban forward/backward in this mode if this condition is true
-							if (targetGimbalManipulationCamera == planarViewCameraBound)
-							{
-								ImGuizmo::PopID();
-								continue;
-							}
+								if (targetGimbalManipulationCamera == planarViewCameraBound)
+								{
+									ImGuizmo::PopID();
+									continue;
+								}
 
-							ImGuizmoModelM16InOut imguizmoModel;
+								ImGuizmoModelM16InOut imguizmoModel;
 
-							if (isCameraGimbalTarget)
-							{
-								assert(targetGimbalManipulationCamera);
-								imguizmoModel.inTRS = getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal().template operator() < float64_t4x4 > ());
-							}
-							else
-								imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
+								if (isCameraGimbalTarget)
+								{
+									assert(targetGimbalManipulationCamera);
+									imguizmoModel.inTRS = getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal().template operator() < float64_t4x4 > ());
+								}
+								else
+									imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
 
-							float gizmoSizeClip = 0.1f;
-							ImGuizmo::SetGizmoSizeClipSpace(gizmoSizeClip);
+								const float gizmoWorldRadius = 0.22f;
+								float32_t3 gizmoWorldPos = {};
+								if (isCameraGimbalTarget)
+									gizmoWorldPos = getCastedVector<float32_t>(targetGimbalManipulationCamera->getGimbal().getPosition());
+								else
+								{
+									const auto modelPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
+									gizmoWorldPos = float32_t3(modelPos.x, modelPos.y, modelPos.z);
+								}
 
-							imguizmoModel.outTRS = imguizmoModel.inTRS;
-							{
-								const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], ImGuizmo::OPERATION::UNIVERSAL, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
+								const auto viewPos = mul(viewMatrix, float32_t4(gizmoWorldPos, 1.0f));
+								const float depth = std::max(0.001f, std::abs(viewPos.z));
+								float gizmoSizeClip = 0.1f;
+								if (projection.getParameters().m_type == IPlanarProjection::CProjection::Perspective)
+									gizmoSizeClip = (gizmoWorldRadius * projectionMatrix[1][1]) / depth;
+								else
+									gizmoSizeClip = gizmoWorldRadius * projectionMatrix[1][1];
+								ImGuizmo::SetGizmoSizeClipSpace(gizmoSizeClip);
+
+								imguizmoModel.outTRS = imguizmoModel.inTRS;
+								{
+									const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], ImGuizmo::OPERATION::UNIVERSAL, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
 
 								if (success)
 								{
@@ -3431,8 +4142,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 									}
 								}
 
-								if (ImGuizmo::IsOver() and not ImGuizmo::IsUsingAny() && not enableActiveCameraMovement)
-								{
+									if (ImGuizmo::IsOver() and not ImGuizmo::IsUsingAny() && not enableActiveCameraMovement)
+									{
 									if (targetGimbalManipulationCamera && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 									{
 										const uint32_t newPlanarIx = modelIx - 1u;
@@ -3479,9 +4190,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 									ImGui::PopStyleVar();
 									ImGui::PopStyleColor(2);
+									}
 								}
+								ImGuizmo::PopID();
 							}
-							ImGuizmo::PopID();
 						}
 
 						ImGui::End();
@@ -3527,6 +4239,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						assert(binding.boundProjectionIx.has_value());
 
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+						applyDollyZoomProjection(planarViewCameraBound, projection);
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 					}
 
@@ -3538,6 +4251,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			drawScriptVisualDebugOverlay(io.DisplaySize);
 			DrawControlPanel();
 			UpdateBoundCameraMovement();
 			UpdateCursorVisibility();
@@ -3554,6 +4268,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					assert(binding.boundProjectionIx.has_value());
 					auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+					applyDollyZoomProjection(boundPlanarCamera, projection);
 					projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 					auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
@@ -3565,6 +4280,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 
+		}
+
+		inline bool shouldCaptureOSCursor()
+		{
+			if (!enableActiveCameraMovement || !captureCursorInMoveMode)
+				return false;
+			if (m_ciMode || m_scriptedInput.enabled)
+				return false;
+			if (!m_window || !m_window->hasInputFocus() || !m_window->hasMouseFocus())
+				return false;
+			return true;
 		}
 
 		inline void UpdateBoundCameraMovement()
@@ -3580,49 +4306,45 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				io.MouseDrawCursor = false;
 				io.WantCaptureMouse = false;
 
-				ImVec2 viewportSize = io.DisplaySize;
-				auto* cc = m_window->getCursorControl();
-				int32_t posX = m_window->getX();
-				int32_t posY = m_window->getY();
+				if (shouldCaptureOSCursor())
+				{
+					ImVec2 viewportSize = io.DisplaySize;
+					auto* cc = m_window->getCursorControl();
+					if (cc)
+					{
+						int32_t posX = m_window->getX();
+						int32_t posY = m_window->getY();
 
-				if (resetCursorToCenter)
-				{
-					const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x / 2 + posX), static_cast<int32_t>(viewportSize.y / 2 + posY) };
-					cc->setPosition(middle);
-				}
-				else 
-				{
-					auto currentCursorPos = cc->getPosition();
-					ICursorControl::SPosition newPos{};
-					newPos.x = std::clamp<int32_t>(currentCursorPos.x, posX, viewportSize.x + posX);
-					newPos.y = std::clamp<int32_t>(currentCursorPos.y, posY, viewportSize.y + posY);
-					cc->setPosition(newPos);
+						if (resetCursorToCenter)
+						{
+							const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x / 2 + posX), static_cast<int32_t>(viewportSize.y / 2 + posY) };
+							cc->setPosition(middle);
+						}
+						else
+						{
+							auto currentCursorPos = cc->getPosition();
+							ICursorControl::SPosition newPos{};
+							newPos.x = std::clamp<int32_t>(currentCursorPos.x, posX, viewportSize.x + posX);
+							newPos.y = std::clamp<int32_t>(currentCursorPos.y, posY, viewportSize.y + posY);
+							cc->setPosition(newPos);
+						}
+					}
 				}
 			}
 			else
 			{
 				io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
-				io.MouseDrawCursor = true;
+				io.MouseDrawCursor = false;
 				io.WantCaptureMouse = true;
 			}
 		}
 
 		inline void UpdateCursorVisibility()
 		{
-			ImGuiIO& io = ImGui::GetIO();
-			ImVec2 mousePos = ImGui::GetMousePos();
-			ImVec2 viewportSize = io.DisplaySize;
-			auto* cc = m_window->getCursorControl();
-
-			if (mousePos.x < 0.0f || mousePos.y < 0.0f || mousePos.x > viewportSize.x || mousePos.y > viewportSize.y)
-			{
-				if (not enableActiveCameraMovement)
-					cc->setVisible(true);
-			}
-			else
-			{
-				cc->setVisible(false);
-			}
+			auto* cc = m_window ? m_window->getCursorControl() : nullptr;
+			if (!cc)
+				return;
+			cc->setVisible(!shouldCaptureOSCursor());
 		}
 
 		inline void UpdateUiMetrics()
@@ -4238,10 +4960,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						DrawSectionHeader("CursorHeader", "Cursor Behaviour", accent);
 						if (ImGui::TreeNodeEx("Cursor Behaviour"))
 						{
-							if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
-								resetCursorToCenter = false;
-							if (ImGui::RadioButton("Reset to the window center", resetCursorToCenter))
-								resetCursorToCenter = true;
+							ImGui::Checkbox("Capture OS cursor in move mode", &captureCursorInMoveMode);
+							DrawHoverHint("When disabled the app never warps or clamps system cursor");
+							if (captureCursorInMoveMode)
+							{
+								if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
+									resetCursorToCenter = false;
+								if (ImGui::RadioButton("Reset to the window center", resetCursorToCenter))
+									resetCursorToCenter = true;
+							}
+							else
+							{
+								ImGui::TextDisabled("Cursor lock disabled");
+							}
 							ImGui::TreePop();
 						}
 
@@ -4260,10 +4991,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
 							ImGui::Separator();
 							{
-								auto* orbit = dynamic_cast<COrbitCamera*>(boundCamera);
-								auto* arcball = dynamic_cast<CArcballCamera*>(boundCamera);
-								auto* turntable = dynamic_cast<CTurntableCamera*>(boundCamera);
-								const bool isOrbitLike = orbit || arcball || turntable;
+								auto* orbit = dynamic_cast<CSphericalTargetCamera*>(boundCamera);
+								const bool isOrbitLike = orbit != nullptr;
 
 								float moveSpeed = boundCamera->getMoveSpeedScale();
 								float rotationSpeed = boundCamera->getRotationSpeedScale();
@@ -4271,7 +5000,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 								DrawHoverHint("Scale translation speed for this camera");
 
-								if (not orbit)
+								if (boundCamera->getAllowedVirtualEvents() & CVirtualGimbalEvent::Rotate)
 									ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 								DrawHoverHint("Scale rotation speed for this camera");
 
@@ -4280,20 +5009,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 								if (isOrbitLike)
 								{
-									auto applyDistance = [&](auto* cam)
-									{
-										float distance = cam->getDistance();
-										ImGui::SliderFloat("Distance", &distance, cam->MinDistance, cam->MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
-										DrawHoverHint("Current orbit distance");
-										cam->setDistance(distance);
-									};
-
-									if (orbit)
-										applyDistance(orbit);
-									else if (arcball)
-										applyDistance(arcball);
-									else if (turntable)
-										applyDistance(turntable);
+									float distance = orbit->getDistance();
+									ImGui::SliderFloat("Distance", &distance, orbit->MinDistance, orbit->MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
+									DrawHoverHint("Current orbit distance");
+									orbit->setDistance(distance);
 								}
 							}
 
@@ -4907,6 +5626,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 
 		bool enableActiveCameraMovement = false;
+		bool captureCursorInMoveMode = false;
 
 		bool resetCursorToCenter = true;
 
@@ -5009,7 +5729,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				Baseline,
 				ImguizmoVirtual,
 				GimbalNear,
-				GimbalDelta
+				GimbalDelta,
+				GimbalStep
 			};
 
 			struct ExpectedVirtualEvent
@@ -5029,6 +5750,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			bool hasExpectedEuler = false;
 			float posTolerance = 0.05f;
 			float eulerToleranceDeg = 1.0f;
+			float minPosDelta = 0.0f;
+			float minEulerDeltaDeg = 0.0f;
+			bool hasPosDeltaConstraint = false;
+			bool hasEulerDeltaConstraint = false;
 		};
 
 		struct ScriptedInputState
@@ -5037,6 +5762,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			bool log = false;
 			bool exclusive = false;
 			bool hardFail = false;
+			bool visualDebug = false;
+			float visualTargetFps = 0.f;
+			float visualCameraHoldSeconds = 0.f;
 			std::vector<ScriptedInputEvent> events;
 			size_t nextEventIndex = 0;
 			std::vector<ScriptedInputCheck> checks;
@@ -5050,6 +5778,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			bool baselineValid = false;
 			float32_t3 baselinePos = float32_t3(0.f);
 			float32_t3 baselineEulerDeg = float32_t3(0.f);
+			bool stepValid = false;
+			float32_t3 stepPos = float32_t3(0.f);
+			float32_t3 stepEulerDeg = float32_t3(0.f);
+			bool visualActivePlanarValid = false;
+			uint32_t visualActivePlanarIx = 0u;
+			uint64_t visualActivePlanarStartFrame = 0u;
+			bool framePacerInitialized = false;
+			std::chrono::steady_clock::time_point framePacerNext = {};
 		};
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
@@ -5068,14 +5804,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		uint16_t gcIndex = {}; 
 
 		static constexpr uint32_t CiFramesBeforeCapture = 10u;
+		static constexpr auto CiMaxRuntime = std::chrono::minutes(2);
 		bool m_ciMode = false;
 		bool m_ciScreenshotDone = false;
 		uint32_t m_ciFrameCounter = 0u;
 		system::path m_ciScreenshotPath;
+		clock_t::time_point m_ciStartedAt = clock_t::time_point::min();
+		bool m_scriptVisualDebugCli = false;
 		ScriptedInputState m_scriptedInput;
 		CameraControlSettings m_cameraControls;
 		CameraConstraintSettings m_cameraConstraints;
-		CUILogFormatter m_logFormatter;
+		core::smart_refctd_ptr<CUILogFormatter> m_logFormatter;
 		std::deque<VirtualEventLogEntry> m_virtualEventLog;
 		size_t m_virtualEventLogMax = 128u;
 		bool m_showHud = true;

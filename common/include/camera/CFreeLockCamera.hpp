@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -28,7 +28,7 @@ public:
         return m_gimbal;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
