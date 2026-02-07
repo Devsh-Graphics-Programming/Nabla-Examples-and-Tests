@@ -2,8 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-
 #include "nbl/examples/examples.hpp"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 
 #include <bit>
 #include <limits>
@@ -240,15 +240,20 @@ class BlurApp final : public SimpleWindowedApplication, public BuiltinResourcesA
 				auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
 				if (!sourceRaw)
 					return logFail("Failed to load shader from disk");
+
+				const uint32_t maxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+				const uint32_t workgroupSize = min(m_physicalDevice->getLimits().maxOptimallyResidentWorkgroupInvocations, m_physicalDevice->getLimits().maxComputeWorkgroupSubgroups);
+				hlsl::workgroup2::SArithmeticConfiguration wgConfig;
+				wgConfig.init(hlsl::findMSB(workgroupSize), hlsl::findMSB(maxSubgroupSize), 1u);
 				smart_refctd_ptr<IShader> source = CHLSLCompiler::createOverridenCopy(
 					sourceRaw.get(),
 					"static const uint16_t WORKGROUP_SIZE = %d;\n"
 					"static const uint16_t MAX_SCANLINE_SIZE = %d;\n"
 					"static const uint16_t MAX_SUBGROUP_SIZE = %d;\n"
 					"static const uint16_t CHANNELS = %d;\n",
-					m_physicalDevice->getLimits().maxOptimallyResidentWorkgroupInvocations,
+					wgConfig.WorkgroupSize,
 					max(image_params.extent.width, image_params.extent.height),
-					m_physicalDevice->getLimits().maxSubgroupSize,
+					wgConfig.SubgroupSize,
 					asset::getFormatChannelCount(image_params.format)
 				);
 
@@ -284,6 +289,8 @@ class BlurApp final : public SimpleWindowedApplication, public BuiltinResourcesA
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
 				params.cached.requireFullSubgroups = true;
+				uint8_t requiredSubgroupSizeLog2 = hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize);
+				params.shader.requiredSubgroupSize = reinterpret_cast<asset::IPipelineBase::SUBGROUP_SIZE&>(requiredSubgroupSizeLog2);
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
