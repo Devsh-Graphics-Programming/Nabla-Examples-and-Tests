@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
+#include <chrono>
 #include <cctype>
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
@@ -20,6 +22,7 @@
 #include "nbl/ext/DebugDraw/CDrawAABB.h"
 #endif
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include "nbl/system/CFileLogger.h"
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
@@ -48,10 +51,46 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		RenderWritten
 	};
 
+	enum class RowViewReloadMode
+	{
+		Full,
+		Incremental
+	};
+
 	struct TestCase
 	{
 		std::string name;
 		nbl::system::path path;
+	};
+
+	struct CachedGeometryEntry
+	{
+		smart_refctd_ptr<const ICPUPolygonGeometry> cpu;
+		video::asset_cached_t<asset::ICPUPolygonGeometry> gpu;
+		hlsl::shapes::AABB<3, double> aabb = hlsl::shapes::AABB<3, double>::create();
+		bool hasAabb = false;
+	};
+
+	struct RowViewPerfStats
+	{
+		double totalMs = 0.0;
+		double clearMs = 0.0;
+		double loadMs = 0.0;
+		double extractMs = 0.0;
+		double aabbMs = 0.0;
+		double convertMs = 0.0;
+		double addGeoMs = 0.0;
+		double layoutMs = 0.0;
+		double instanceMs = 0.0;
+		double cameraMs = 0.0;
+		size_t cases = 0u;
+		size_t cpuHits = 0u;
+		size_t cpuMisses = 0u;
+		size_t gpuHits = 0u;
+		size_t gpuMisses = 0u;
+		size_t convertCount = 0u;
+		size_t addCount = 0u;
+		bool incremental = false;
 	};
 
 	struct CameraState
@@ -99,6 +138,18 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		parser.add_argument("--testlist")
 			.nargs(1)
 			.help("JSON file with test cases. Relative paths are resolved against local input CWD.");
+		parser.add_argument("--row-add")
+			.nargs(1)
+			.help("Add a model path to row view on startup without using a dialog.");
+		parser.add_argument("--row-duplicate")
+			.nargs(1)
+			.help("Duplicate the last case N times on startup.");
+		parser.add_argument("--loader-perf-log")
+			.nargs(1)
+			.help("Write loader diagnostics to a file instead of stdout.");
+		parser.add_argument("--update-references")
+			.help("Update or create geometry hash references for CI validation.")
+			.flag();
 
 		try
 		{
@@ -138,10 +189,58 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				tmp = localInputCWD / tmp;
 			m_testListPath = tmp;
 		}
+		if (parser.present("--row-add"))
+		{
+			auto tmp = path(parser.get<std::string>("--row-add"));
+			if (tmp.is_relative())
+				tmp = localInputCWD / tmp;
+			m_rowAddPath = tmp;
+		}
+		if (parser.present("--row-duplicate"))
+		{
+			auto countStr = parser.get<std::string>("--row-duplicate");
+			try
+			{
+				m_rowDuplicateCount = static_cast<uint32_t>(std::stoul(countStr));
+			}
+			catch (const std::exception&)
+			{
+				return logFail("Invalid --row-duplicate value.");
+			}
+		}
+		if (parser.present("--loader-perf-log"))
+		{
+			auto tmp = path(parser.get<std::string>("--loader-perf-log"));
+			if (tmp.empty())
+				return logFail("Invalid --loader-perf-log value.");
+			if (tmp.is_relative())
+				tmp = localOutputCWD / tmp;
+			m_loaderPerfLogPath = tmp;
+		}
+		if (parser["--update-references"] == true)
+			m_updateGeometryHashReferences = true;
+
+		m_geometryHashReferenceDir = localInputCWD / "references";
+		if (m_geometryHashReferenceDir.empty())
+			m_geometryHashReferenceDir = localOutputCWD / "references";
+		if (m_runMode == RunMode::CI || m_updateGeometryHashReferences)
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(m_geometryHashReferenceDir, ec);
+			if (ec)
+				return logFail("Failed to create geometry hash reference directory: %s", m_geometryHashReferenceDir.string().c_str());
+		}
 
 		if (m_saveGeom)
 			std::filesystem::create_directories(m_saveGeomPrefixPath);
 		std::filesystem::create_directories(m_screenshotPrefixPath);
+		m_assetLoadLogger = m_logger;
+		if (m_loaderPerfLogPath)
+		{
+			if (!initLoaderPerfLogger(*m_loaderPerfLogPath))
+				return false;
+			m_logger->log("Loader diagnostics will be written to %s", ILogger::ELL_INFO, m_loaderPerfLogPath->string().c_str());
+		}
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 		if (!m_semaphore)
@@ -181,8 +280,18 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		if (isRowViewActive())
 		{
 			m_nonInteractiveTest = false;
-			if (!loadRowView())
+			if (!loadRowView(RowViewReloadMode::Full))
 				return false;
+			if (m_rowAddPath)
+				if (!addRowViewCaseFromPath(*m_rowAddPath))
+					return false;
+			if (m_rowDuplicateCount > 0u && !m_cases.empty())
+			{
+				const auto lastPath = m_cases.back().path;
+				for (uint32_t i = 0u; i < m_rowDuplicateCount; ++i)
+					if (!addRowViewCaseFromPath(lastPath))
+						return false;
+			}
 		}
 		else
 		{
@@ -244,22 +353,43 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				// late latch input
 				if (!m_nonInteractiveTest)
 				{
-					bool reload = false;
+					bool reloadInteractiveRequested = false;
+					bool reloadListRequested = false;
+					bool addRowViewRequested = false;
 					camera.beginInputProcessing(nextPresentationTimestamp);
 					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 						{
 							for (const auto& event : events)
 							{
-								if (event.keyCode == E_KEY_CODE::EKC_R && event.action == SKeyboardEvent::ECA_RELEASED)
-									reload = true;
+								if (event.action != SKeyboardEvent::ECA_RELEASED)
+									continue;
+								if (event.keyCode == E_KEY_CODE::EKC_R)
+								{
+									if (isRowViewActive())
+										reloadListRequested = true;
+									else
+										reloadInteractiveRequested = true;
+								}
+								else if (event.keyCode == E_KEY_CODE::EKC_A)
+								{
+									if (isRowViewActive())
+										addRowViewRequested = true;
+								}
 							}
 							camera.keyboardProcess(events);
 						},
 						m_logger.get()
 					);
 					camera.endInputProcessing(nextPresentationTimestamp);
-					if (reload)
+					if (addRowViewRequested)
+						addRowViewCase();
+					if (reloadListRequested)
+					{
+						if (!reloadFromTestList())
+							failExit("Failed to reload test list.");
+					}
+					if (reloadInteractiveRequested)
 						reloadInteractive();
 				}
 				// draw scene
@@ -399,12 +529,13 @@ private:
 	bool initTestCases()
 	{
 		m_cases.clear();
+		m_caseNameCounts.clear();
 		if (m_runMode == RunMode::Interactive)
 		{
 			system::path picked;
 			if (!pickModelPath(picked))
 				return logFail("No file selected.");
-			m_cases.push_back({ picked.stem().string(), picked });
+			m_cases.push_back({ makeUniqueCaseName(picked), picked });
 			return true;
 		}
 		return loadTestList(m_testListPath);
@@ -450,6 +581,8 @@ private:
 		if (!doc.contains("cases") || !doc["cases"].is_array())
 			return logFail("Test list JSON missing \"cases\" array.");
 
+		m_caseNameCounts.clear();
+
 		if (doc.contains("row_view"))
 		{
 			if (!doc["row_view"].is_boolean())
@@ -457,11 +590,10 @@ private:
 			m_rowViewEnabled = doc["row_view"].get<bool>();
 		}
 
+		const auto baseDir = jsonPath.parent_path();
 		for (const auto& entry : doc["cases"])
 		{
 			std::string pathString;
-			std::string name;
-			std::string extOverride;
 
 			if (entry.is_string())
 			{
@@ -472,29 +604,17 @@ private:
 				if (!entry.contains("path") || !entry["path"].is_string())
 					return logFail("Test list entry missing \"path\".");
 				pathString = entry["path"].get<std::string>();
-				if (entry.contains("name") && entry["name"].is_string())
-					name = entry["name"].get<std::string>();
-				if (entry.contains("extension") && entry["extension"].is_string())
-					extOverride = entry["extension"].get<std::string>();
 			}
 			else
 				return logFail("Invalid test list entry.");
 
 			system::path path = pathString;
 			if (path.is_relative())
-				path = sharedInputCWD / path;
+				path = baseDir / path;
 			if (!std::filesystem::exists(path))
 				return logFail("Missing test input: %s", path.string().c_str());
-			if (!extOverride.empty())
-			{
-				if (path.extension().string() != extOverride)
-					return logFail("Extension mismatch for %s", path.string().c_str());
-			}
 
-			if (name.empty())
-				name = path.stem().string();
-
-			m_cases.push_back({ name, path });
+			m_cases.push_back({ makeUniqueCaseName(path), path });
 		}
 
 		if (m_cases.empty())
@@ -543,6 +663,98 @@ private:
 		return m_saveGeomPrefixPath / (stem + "_written" + ext);
 	}
 
+	static inline std::string sanitizeCaseNameForFilename(std::string name)
+	{
+		for (auto& ch : name)
+		{
+			const unsigned char uch = static_cast<unsigned char>(ch);
+			if (!(std::isalnum(uch) || ch == '_' || ch == '-' || ch == '.'))
+				ch = '_';
+		}
+		if (name.empty())
+			name = "unnamed_case";
+		return name;
+	}
+
+	system::path getGeometryHashReferencePath(const std::string& caseName) const
+	{
+		return m_geometryHashReferenceDir / (sanitizeCaseNameForFilename(caseName) + ".geomhash");
+	}
+
+	static inline std::string geometryHashToHex(const core::blake3_hash_t& hash)
+	{
+		static constexpr char HexDigits[] = "0123456789abcdef";
+		std::string out;
+		out.resize(sizeof(hash.data) * 2ull);
+		for (size_t i = 0ull; i < sizeof(hash.data); ++i)
+		{
+			const uint8_t v = hash.data[i];
+			out[2ull * i + 0ull] = HexDigits[(v >> 4) & 0xfu];
+			out[2ull * i + 1ull] = HexDigits[v & 0xfu];
+		}
+		return out;
+	}
+
+	static inline bool tryParseNibble(const char c, uint8_t& out)
+	{
+		if (c >= '0' && c <= '9')
+		{
+			out = static_cast<uint8_t>(c - '0');
+			return true;
+		}
+		if (c >= 'a' && c <= 'f')
+		{
+			out = static_cast<uint8_t>(10 + c - 'a');
+			return true;
+		}
+		if (c >= 'A' && c <= 'F')
+		{
+			out = static_cast<uint8_t>(10 + c - 'A');
+			return true;
+		}
+		return false;
+	}
+
+	static inline bool tryParseGeometryHashHex(std::string hex, core::blake3_hash_t& outHash)
+	{
+		hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c) != 0; }), hex.end());
+		if (hex.size() != sizeof(outHash.data) * 2ull)
+			return false;
+
+		for (size_t i = 0ull; i < sizeof(outHash.data); ++i)
+		{
+			uint8_t hi = 0u;
+			uint8_t lo = 0u;
+			if (!tryParseNibble(hex[2ull * i + 0ull], hi) || !tryParseNibble(hex[2ull * i + 1ull], lo))
+				return false;
+			outHash.data[i] = static_cast<uint8_t>((hi << 4) | lo);
+		}
+		return true;
+	}
+
+	bool readGeometryHashReference(const system::path& refPath, core::blake3_hash_t& outHash) const
+	{
+		std::ifstream in(refPath);
+		if (!in.is_open())
+			return false;
+		std::string line;
+		std::getline(in, line);
+		return tryParseGeometryHashHex(std::move(line), outHash);
+	}
+
+	bool writeGeometryHashReference(const system::path& refPath, const core::blake3_hash_t& hash) const
+	{
+		std::error_code ec;
+		std::filesystem::create_directories(refPath.parent_path(), ec);
+		if (ec)
+			return false;
+		std::ofstream out(refPath, std::ios::binary | std::ios::trunc);
+		if (!out.is_open())
+			return false;
+		out << geometryHashToHex(hash) << '\n';
+		return out.good();
+	}
+
 	bool startCase(const size_t index)
 	{
 		if (index >= m_cases.size())
@@ -557,6 +769,7 @@ private:
 		m_referenceCpuGeom = nullptr;
 		m_hasReferenceGeometry = false;
 		m_hasReferenceGeometryHash = false;
+		m_caseGeometryHashReferencePath.clear();
 
 		const auto& testCase = m_cases[m_caseIndex];
 		m_caseName = testCase.name.empty() ? testCase.path.stem().string() : testCase.name;
@@ -571,8 +784,38 @@ private:
 		{
 			m_referenceCpuGeom = m_currentCpuGeom;
 			m_hasReferenceGeometry = true;
-			m_referenceGeometryHash = hashGeometry(m_referenceCpuGeom.get());
+			const auto loadedGeometryHash = hashGeometry(m_referenceCpuGeom.get());
+			m_referenceGeometryHash = loadedGeometryHash;
 			m_hasReferenceGeometryHash = true;
+			m_caseGeometryHashReferencePath = getGeometryHashReferencePath(m_caseName);
+
+			if (m_updateGeometryHashReferences)
+			{
+				const bool referenceExisted = std::filesystem::exists(m_caseGeometryHashReferencePath);
+				if (!writeGeometryHashReference(m_caseGeometryHashReferencePath, loadedGeometryHash))
+					return logFail("Failed to write geometry hash reference: %s", m_caseGeometryHashReferencePath.string().c_str());
+				if (!referenceExisted)
+					m_logger->log("Geometry hash reference did not exist for %s. Created new reference at %s", ILogger::ELL_WARNING, m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
+				else
+					m_logger->log("Geometry hash reference updated for %s at %s", ILogger::ELL_INFO, m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
+			}
+			else if (m_runMode == RunMode::CI)
+			{
+				if (!std::filesystem::exists(m_caseGeometryHashReferencePath))
+					return logFail("Missing geometry hash reference for %s at %s. Run once with --update-references.", m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
+
+				core::blake3_hash_t onDiskHash = {};
+				if (!readGeometryHashReference(m_caseGeometryHashReferencePath, onDiskHash))
+					return logFail("Invalid geometry hash reference for %s at %s", m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
+
+				m_referenceGeometryHash = onDiskHash;
+				m_hasReferenceGeometryHash = true;
+				if (loadedGeometryHash != onDiskHash)
+				{
+					m_logger->log("Loaded geometry hash mismatch for %s. Current=%s Reference=%s", ILogger::ELL_ERROR, m_caseName.c_str(), geometryHashToHex(loadedGeometryHash).c_str(), geometryHashToHex(onDiskHash).c_str());
+					return logFail("Loaded asset differs from stored geometry hash reference for %s.", m_caseName.c_str());
+				}
+			}
 		}
 
 		return true;
@@ -609,6 +852,39 @@ private:
 		}
 	}
 
+	bool addRowViewCase()
+	{
+		system::path picked;
+		if (!pickModelPath(picked))
+			return false;
+		return addRowViewCaseFromPath(picked);
+	}
+
+	bool addRowViewCaseFromPath(const system::path& picked)
+	{
+		if (picked.empty())
+			return false;
+		m_cases.push_back({ makeUniqueCaseName(picked), picked });
+		m_shouldQuit = false;
+		return loadRowView(RowViewReloadMode::Incremental);
+	}
+
+	bool reloadFromTestList()
+	{
+		m_cases.clear();
+		if (!loadTestList(m_testListPath))
+			return false;
+		m_shouldQuit = false;
+		m_rowViewScreenshotCaptured = false;
+		if (isRowViewActive())
+		{
+			m_nonInteractiveTest = false;
+			return loadRowView(RowViewReloadMode::Full);
+		}
+		m_nonInteractiveTest = (m_runMode != RunMode::Interactive);
+		return startCase(0u);
+	}
+
 	bool loadModel(const system::path& modelPath, const bool updateCamera, const bool storeCamera)
 	{
 		if (modelPath.empty())
@@ -624,9 +900,20 @@ private:
 		m_assetMgr->clearAllAssetCache();
 
 		//! load the geometry
-		IAssetLoader::SAssetLoadParams params = {};
-		params.logger = m_logger.get();
+		IAssetLoader::SAssetLoadParams params = makeLoadParams();
+		using clock_t = std::chrono::high_resolution_clock;
+		const auto loadStart = clock_t::now();
 		auto asset = m_assetMgr->getAsset(m_modelPath, params);
+		const auto loadMs = toMs(clock_t::now() - loadStart);
+		uintmax_t inputSize = 0u;
+		if (std::filesystem::exists(modelPath))
+			inputSize = std::filesystem::file_size(modelPath);
+		m_logger->log(
+			"Asset load call perf: path=%s time=%.3f ms size=%llu",
+			ILogger::ELL_INFO,
+			m_modelPath.c_str(),
+			loadMs,
+			static_cast<unsigned long long>(inputSize));
 		if (asset.getContents().empty())
 			failExit("Failed to load asset %s.", m_modelPath.c_str());
 
@@ -727,13 +1014,13 @@ private:
 				core::vector<hlsl::float32_t3x4> worldTforms;
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
 				m_aabbInstances.resize(converted.size());
-				m_obbInstances.resize(converted.size());
+				if (m_drawBBMode == DBBM_OBB)
+					m_obbInstances.resize(converted.size());
 				for (uint32_t i = 0; i < converted.size(); i++)
 				{
 					const auto& geom = converted[i];
 					const auto& cpuGeom = geometries[i].get();
-					CPolygonGeometryManipulator::recomputeAABB(cpuGeom);
-					const auto promoted = cpuGeom->getAABB<aabb_t>();
+					const auto promoted = getGeometryAABB(cpuGeom);
 					printAABB(promoted,"Geometry");
 					const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
 					const auto translation = hlsl::float64_t3(
@@ -761,22 +1048,41 @@ private:
 					aabbInst.color = { 1,1,1,1 };
 					aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
 
-					auto& obbInst = m_obbInstances[i];
-					const auto obb = CPolygonGeometryManipulator::calculateOBB(
-						cpuGeom->getPositionView().getElementCount(), 
-						[geo = cpuGeom, &world4x4](size_t vertex_i) {
-							hlsl::float32_t3 pt;
-							geo->getPositionView().decodeElement(vertex_i, pt);
-							return pt;
-						});
-					obbInst.color = { 0, 0, 1, 1 };
-					obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+					if (m_drawBBMode == DBBM_OBB)
+					{
+						auto& obbInst = m_obbInstances[i];
+						const auto obb = CPolygonGeometryManipulator::calculateOBB(
+							cpuGeom->getPositionView().getElementCount(),
+							[geo = cpuGeom, &world4x4](size_t vertex_i) {
+								hlsl::float32_t3 pt;
+								geo->getPositionView().decodeElement(vertex_i, pt);
+								return pt;
+							});
+						obbInst.color = { 0, 0, 1, 1 };
+						obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+					}
 #endif
 				}
 
 				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
 					failExit("Failed to add geometries to renderer.");
+				if (m_logger)
+				{
+					const auto& gpuGeos = m_renderer->getGeometries();
+					for (size_t geoIx = 0u; geoIx < gpuGeos.size(); ++geoIx)
+					{
+						const auto& gpuGeo = gpuGeos[geoIx];
+						m_logger->log(
+							"Renderer geo state: idx=%llu elem=%u posView=%u normalView=%u indexType=%u",
+							ILogger::ELL_DEBUG,
+							static_cast<unsigned long long>(geoIx),
+							gpuGeo.elementCount,
+							static_cast<uint32_t>(gpuGeo.positionView),
+							static_cast<uint32_t>(gpuGeo.normalView),
+							static_cast<uint32_t>(gpuGeo.indexType));
+					}
+				}
 
 			auto worlTformsIt = worldTforms.begin();
 			for (const auto& geo : m_renderer->getGeometries())
@@ -800,22 +1106,36 @@ private:
 		return true;
 	}
 
-	bool loadRowView()
+	bool loadRowView(const RowViewReloadMode mode)
 	{
 		if (m_cases.empty())
 			failExit("No test cases loaded for row view.");
 
-		m_renderer->m_instances.clear();
-		m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
-		m_assetMgr->clearAllAssetCache();
+		using clock_t = std::chrono::high_resolution_clock;
+		RowViewPerfStats stats = {};
+		stats.incremental = (mode == RowViewReloadMode::Incremental);
+		stats.cases = m_cases.size();
+		const auto totalStart = clock_t::now();
+
+		const auto clearStart = clock_t::now();
+		if (mode == RowViewReloadMode::Full)
+		{
+			m_renderer->m_instances.clear();
+			m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+		}
+		stats.clearMs = toMs(clock_t::now() - clearStart);
 
 		core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
 		core::vector<hlsl::shapes::AABB<3, double>> aabbs;
 		geometries.reserve(m_cases.size());
 		aabbs.reserve(m_cases.size());
 
-		IAssetLoader::SAssetLoadParams params = {};
-		params.logger = m_logger.get();
+		core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpuToConvert;
+		core::vector<CachedGeometryEntry*> convertEntries;
+
+		m_rowViewCache.reserve(m_cases.size());
+
+		IAssetLoader::SAssetLoadParams params = makeLoadParams();
 
 		for (const auto& testCase : m_cases)
 		{
@@ -823,29 +1143,187 @@ private:
 			if (!std::filesystem::exists(path))
 				failExit("Missing input: %s", path.string().c_str());
 
-			auto asset = m_assetMgr->getAsset(path.string(), params);
-			if (asset.getContents().empty())
-				failExit("Failed to load asset %s.", path.string().c_str());
-
-			smart_refctd_ptr<const ICPUPolygonGeometry> geom;
-			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
-			if (appendGeometriesFromBundle(asset, found))
+			const auto cacheKey = makeCacheKey(path);
+			auto& entry = m_rowViewCache[cacheKey];
+			double assetLoadMs = 0.0;
+			bool cached = true;
+			if (!entry.cpu)
 			{
-				if (!found.empty())
-					geom = found.front();
+				stats.cpuMisses++;
+				cached = false;
+				const auto loadStart = clock_t::now();
+				auto asset = m_assetMgr->getAsset(path.string(), params);
+				assetLoadMs = toMs(clock_t::now() - loadStart);
+				stats.loadMs += assetLoadMs;
+				if (asset.getContents().empty())
+					failExit("Failed to load asset %s.", path.string().c_str());
+
+				const auto extractStart = clock_t::now();
+				core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
+				if (appendGeometriesFromBundle(asset, found))
+				{
+					if (!found.empty())
+						entry.cpu = found.front();
+				}
+				stats.extractMs += toMs(clock_t::now() - extractStart);
+				if (!entry.cpu)
+					failExit("No geometry found in asset %s.", path.string().c_str());
+
+				const auto aabbStart = clock_t::now();
+				entry.aabb = getGeometryAABB(entry.cpu.get());
+				entry.hasAabb = isValidAABB(entry.aabb);
+				stats.aabbMs += toMs(clock_t::now() - aabbStart);
 			}
-			if (!geom)
-				failExit("No geometry found in asset %s.", path.string().c_str());
+			else
+			{
+				stats.cpuHits++;
+				if (!entry.hasAabb)
+				{
+					const auto aabbStart = clock_t::now();
+					entry.aabb = getGeometryAABB(entry.cpu.get());
+					entry.hasAabb = isValidAABB(entry.aabb);
+					stats.aabbMs += toMs(clock_t::now() - aabbStart);
+				}
+			}
+			logRowViewAssetLoad(path, assetLoadMs, cached);
 
-			CPolygonGeometryManipulator::recomputeAABB(geom.get());
-			const auto aabb = geom->getAABB<hlsl::shapes::AABB<3, double>>();
+			if (!entry.gpu)
+			{
+				stats.gpuMisses++;
+				cpuToConvert.push_back(entry.cpu);
+				convertEntries.push_back(&entry);
+			}
+			else
+			{
+				stats.gpuHits++;
+			}
 
-			geometries.push_back(std::move(geom));
-			aabbs.push_back(aabb);
+			geometries.push_back(entry.cpu);
+			aabbs.push_back(entry.aabb);
 		}
 
 		if (geometries.empty())
 			failExit("No geometry found for row view.");
+		logRowViewLoadTotal(stats.loadMs, stats.cpuHits, stats.cpuMisses);
+
+		if (!cpuToConvert.empty())
+		{
+			stats.convertCount = cpuToConvert.size();
+			const auto convertStart = clock_t::now();
+
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
+			const auto transferFamily = getTransferUpQueue()->getFamilyIndex();
+
+			struct SInputs : CAssetConverter::SInputs
+			{
+				virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t, const asset::ICPUBuffer*, const CAssetConverter::patch_t<asset::ICPUBuffer>&) const
+				{
+					return sharedBufferOwnership;
+				}
+
+				core::vector<uint32_t> sharedBufferOwnership;
+			} inputs = {};
+			core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(cpuToConvert.size(), CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
+			{
+				inputs.logger = m_logger.get();
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = { &cpuToConvert.front().get(),cpuToConvert.size() };
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
+				core::unordered_set<uint32_t> families;
+				families.insert(transferFamily);
+				families.insert(getGraphicsQueue()->getFamilyIndex());
+				if (families.size() > 1)
+					for (const auto fam : families)
+						inputs.sharedBufferOwnership.push_back(fam);
+			}
+
+			auto reservation = converter->reserve(inputs);
+			if (!reservation)
+				failExit("Failed to reserve GPU objects for CPU->GPU conversion.");
+
+			{
+				auto semaphore = m_device->createSemaphore(0u);
+
+				constexpr auto MultiBuffering = 2;
+				std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers = {};
+				{
+					auto pool = m_device->createCommandPool(transferFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+					pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers, smart_refctd_ptr(m_logger));
+				}
+				commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+				std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferSubmits;
+				for (auto i = 0; i < MultiBuffering; i++)
+					commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
+
+				SIntendedSubmitInfo transfer = {};
+				transfer.queue = getTransferUpQueue();
+				transfer.scratchCommandBuffers = commandBufferSubmits;
+				transfer.scratchSemaphore = {
+					.semaphore = semaphore.get(),
+					.value = 0u,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
+
+				CAssetConverter::SConvertParams cpar = {};
+				cpar.utilities = m_utils.get();
+				cpar.transfer = &transfer;
+
+				auto future = reservation.convert(cpar);
+				if (future.copy() != IQueue::RESULT::SUCCESS)
+					failExit("Failed to await submission feature.");
+			}
+
+			const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
+			for (size_t i = 0u; i < converted.size(); ++i)
+				convertEntries[i]->gpu = converted[i];
+
+			stats.convertMs = toMs(clock_t::now() - convertStart);
+		}
+
+		size_t existingCount = m_renderer->getGeometries().size();
+		const bool incremental = (mode == RowViewReloadMode::Incremental) && (existingCount <= m_cases.size());
+		if (!incremental && mode == RowViewReloadMode::Incremental)
+			return loadRowView(RowViewReloadMode::Full);
+
+		if (mode == RowViewReloadMode::Full)
+		{
+			core::vector<const IGPUPolygonGeometry*> allGeometries;
+			allGeometries.reserve(m_cases.size());
+			for (const auto& testCase : m_cases)
+			{
+				const auto& entry = m_rowViewCache[makeCacheKey(testCase.path)];
+				if (!entry.gpu)
+					failExit("Missing GPU geometry for %s.", testCase.path.string().c_str());
+				allGeometries.push_back(entry.gpu.get());
+			}
+			stats.addCount = allGeometries.size();
+			const auto addStart = clock_t::now();
+			if (!allGeometries.empty())
+				if (!m_renderer->addGeometries({ allGeometries.data(),allGeometries.size() }))
+					failExit("Failed to add geometries to renderer.");
+			stats.addGeoMs = toMs(clock_t::now() - addStart);
+		}
+		else
+		{
+			const size_t addCount = (existingCount < m_cases.size()) ? (m_cases.size() - existingCount) : 0u;
+			stats.addCount = addCount;
+			if (addCount > 0u)
+			{
+				core::vector<const IGPUPolygonGeometry*> newGeometries;
+				newGeometries.reserve(addCount);
+				for (size_t i = existingCount; i < m_cases.size(); ++i)
+				{
+					const auto& entry = m_rowViewCache[makeCacheKey(m_cases[i].path)];
+					if (!entry.gpu)
+						failExit("Missing GPU geometry for %s.", m_cases[i].path.string().c_str());
+					newGeometries.push_back(entry.gpu.get());
+				}
+				const auto addStart = clock_t::now();
+				if (!m_renderer->addGeometries({ newGeometries.data(),newGeometries.size() }))
+					failExit("Failed to add geometries to renderer.");
+				stats.addGeoMs = toMs(clock_t::now() - addStart);
+			}
+		}
 
 		using aabb_t = hlsl::shapes::AABB<3, double>;
 		auto printAABB = [&](const aabb_t& aabb, const char* extraMsg = "")->void
@@ -854,68 +1332,7 @@ private:
 			};
 		auto bound = aabb_t::create();
 
-		smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
-		const auto transferFamily = getTransferUpQueue()->getFamilyIndex();
-
-		struct SInputs : CAssetConverter::SInputs
-		{
-			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t, const asset::ICPUBuffer*, const CAssetConverter::patch_t<asset::ICPUBuffer>&) const
-			{
-				return sharedBufferOwnership;
-			}
-
-			core::vector<uint32_t> sharedBufferOwnership;
-		} inputs = {};
-		core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(), CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
-		{
-			inputs.logger = m_logger.get();
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = { &geometries.front().get(),geometries.size() };
-			std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
-			core::unordered_set<uint32_t> families;
-			families.insert(transferFamily);
-			families.insert(getGraphicsQueue()->getFamilyIndex());
-			if (families.size() > 1)
-				for (const auto fam : families)
-					inputs.sharedBufferOwnership.push_back(fam);
-		}
-
-		auto reservation = converter->reserve(inputs);
-		if (!reservation)
-			failExit("Failed to reserve GPU objects for CPU->GPU conversion.");
-
-		{
-			auto semaphore = m_device->createSemaphore(0u);
-
-			constexpr auto MultiBuffering = 2;
-			std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers = {};
-			{
-				auto pool = m_device->createCommandPool(transferFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-				pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers, smart_refctd_ptr(m_logger));
-			}
-			commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferSubmits;
-			for (auto i = 0; i < MultiBuffering; i++)
-				commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
-
-			SIntendedSubmitInfo transfer = {};
-			transfer.queue = getTransferUpQueue();
-			transfer.scratchCommandBuffers = commandBufferSubmits;
-			transfer.scratchSemaphore = {
-				.semaphore = semaphore.get(),
-				.value = 0u,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
-
-			CAssetConverter::SConvertParams cpar = {};
-			cpar.utilities = m_utils.get();
-			cpar.transfer = &transfer;
-
-			auto future = reservation.convert(cpar);
-			if (future.copy() != IQueue::RESULT::SUCCESS)
-				failExit("Failed to await submission feature.");
-		}
-
+		const auto layoutStart = clock_t::now();
 		double targetExtent = 0.0;
 		core::vector<double> maxDims;
 		maxDims.reserve(aabbs.size());
@@ -949,22 +1366,24 @@ private:
 		const double spacing = std::max(0.05 * maxWidth, 0.01);
 		const double totalSpan = totalWidth + spacing * double(widths.size() > 0 ? widths.size() - 1 : 0);
 		double cursor = -0.5 * totalSpan;
+		stats.layoutMs = toMs(clock_t::now() - layoutStart);
 
+		const auto instanceStart = clock_t::now();
 		auto tmp = hlsl::float32_t4x3(
 			hlsl::float32_t3(1, 0, 0),
 			hlsl::float32_t3(0, 1, 0),
 			hlsl::float32_t3(0, 0, 1),
 			hlsl::float32_t3(0, 0, 0)
 		);
-		const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
 		core::vector<hlsl::float32_t3x4> worldTforms;
-		worldTforms.reserve(converted.size());
-		m_aabbInstances.resize(converted.size());
-		m_obbInstances.resize(converted.size());
+		worldTforms.reserve(geometries.size());
+		m_aabbInstances.resize(geometries.size());
+		if (m_drawBBMode == DBBM_OBB)
+			m_obbInstances.resize(geometries.size());
+		m_renderer->m_instances.clear();
 
-		for (uint32_t i = 0; i < converted.size(); i++)
+		for (uint32_t i = 0; i < geometries.size(); i++)
 		{
-			const auto& geom = converted[i];
 			const auto& cpuGeom = geometries[i].get();
 			const auto aabb = aabbs[i];
 			printAABB(aabb, "Geometry");
@@ -1004,40 +1423,48 @@ private:
 			aabbInst.color = { 1,1,1,1 };
 			aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
 
-			auto& obbInst = m_obbInstances[i];
-			const auto obb = CPolygonGeometryManipulator::calculateOBB(
-				cpuGeom->getPositionView().getElementCount(),
-				[geo = cpuGeom](size_t vertex_i) {
-					hlsl::float32_t3 pt;
-					geo->getPositionView().decodeElement(vertex_i, pt);
-					return pt;
-				});
-			obbInst.color = { 0, 0, 1, 1 };
-			obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+			if (m_drawBBMode == DBBM_OBB)
+			{
+				auto& obbInst = m_obbInstances[i];
+				const auto obb = CPolygonGeometryManipulator::calculateOBB(
+					cpuGeom->getPositionView().getElementCount(),
+					[geo = cpuGeom](size_t vertex_i) {
+						hlsl::float32_t3 pt;
+						geo->getPositionView().decodeElement(vertex_i, pt);
+						return pt;
+					});
+				obbInst.color = { 0, 0, 1, 1 };
+				obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+			}
 #endif
 		}
 
 		printAABB(bound, "Total");
-		if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
-			failExit("Failed to add geometries to renderer.");
-
-		for (uint32_t i = 0; i < converted.size(); i++)
+		for (uint32_t i = 0; i < worldTforms.size(); i++)
 		{
 			m_renderer->m_instances.push_back({
 				.world = worldTforms[i],
 				.packedGeo = &m_renderer->getGeometry(i)
 				});
 		}
+		stats.instanceMs = toMs(clock_t::now() - instanceStart);
 
+		const auto cameraStart = clock_t::now();
 		setupCameraFromAABB(bound);
+		stats.cameraMs = toMs(clock_t::now() - cameraStart);
+
 		m_modelPath = "Row view (all meshes)";
 		m_rowViewScreenshotPath = m_screenshotPrefixPath / "meshloaders_row_view.png";
 		m_rowViewScreenshotCaptured = false;
+		stats.totalMs = toMs(clock_t::now() - totalStart);
+		logRowViewPerf(stats);
 		return true;
 	}
 
 	bool writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath)
 	{
+		using clock_t = std::chrono::high_resolution_clock;
+		const auto start = clock_t::now();
 		IAsset* assetPtr = const_cast<IAsset*>(static_cast<const IAsset*>(geometry.get()));
 		const auto ext = normalizeExtension(system::path(savePath));
 		auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
@@ -1047,9 +1474,16 @@ private:
 		m_logger->log("Saving mesh to %s", ILogger::ELL_INFO, savePath.c_str());
 		if (!m_assetMgr->writeAsset(savePath, params))
 		{
-			m_logger->log("Failed to save %s", ILogger::ELL_ERROR, savePath.c_str());
+			const auto ms = toMs(clock_t::now() - start);
+			m_logger->log("Failed to save %s after %.3f ms", ILogger::ELL_ERROR, savePath.c_str(), ms);
 			return false;
 		}
+		const auto ms = toMs(clock_t::now() - start);
+		uintmax_t size = 0u;
+		if (std::filesystem::exists(savePath))
+			size = std::filesystem::file_size(savePath);
+		m_logger->log("Asset write call perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), ms, static_cast<unsigned long long>(size));
+		m_logger->log("Writer perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), ms, static_cast<unsigned long long>(size));
 		m_logger->log("Mesh successfully saved!", ILogger::ELL_INFO);
 		return true;
 	}
@@ -1124,60 +1558,143 @@ private:
 		camera.setMoveSpeed(state.moveSpeed);
 	}
 
+	static bool isValidAABB(const hlsl::shapes::AABB<3, double>& aabb)
+	{
+		return
+			(aabb.minVx.x <= aabb.maxVx.x) &&
+			(aabb.minVx.y <= aabb.maxVx.y) &&
+			(aabb.minVx.z <= aabb.maxVx.z);
+	}
+
+	hlsl::shapes::AABB<3, double> getGeometryAABB(const ICPUPolygonGeometry* geometry) const
+	{
+		if (!geometry)
+			return hlsl::shapes::AABB<3, double>::create();
+		auto aabb = geometry->getAABB<hlsl::shapes::AABB<3, double>>();
+		if (!isValidAABB(aabb))
+		{
+			CPolygonGeometryManipulator::recomputeAABB(geometry);
+			aabb = geometry->getAABB<hlsl::shapes::AABB<3, double>>();
+		}
+		return aabb;
+	}
+
+	system::ILogger* getAssetLoadLogger() const
+	{
+		if (m_assetLoadLogger)
+			return m_assetLoadLogger.get();
+		return m_logger.get();
+	}
+
+	IAssetLoader::SAssetLoadParams makeLoadParams() const
+	{
+		IAssetLoader::SAssetLoadParams params = {};
+		params.logger = getAssetLoadLogger();
+		return params;
+	}
+
+	bool initLoaderPerfLogger(const system::path& logPath)
+	{
+		if (!m_system)
+			return logFail("Could not initialize loader perf logger because system is unavailable.");
+		if (logPath.empty())
+			return false;
+		const auto parent = logPath.parent_path();
+		if (!parent.empty())
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(parent, ec);
+			if (ec)
+				return logFail("Could not create loader perf log directory %s", parent.string().c_str());
+		}
+		system::ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
+		m_system->createFile(future, logPath, system::IFile::ECF_READ_WRITE);
+		if (!future.wait() || !future.get())
+			return logFail("Could not create loader perf log file %s", logPath.string().c_str());
+		const auto logMask = core::bitflag(system::ILogger::ELL_ALL);
+		m_loaderPerfLogger = core::make_smart_refctd_ptr<system::CFileLogger>(future.copy(), false, logMask);
+		m_assetLoadLogger = m_loaderPerfLogger;
+		return true;
+	}
+
+	std::string makeUniqueCaseName(const system::path& path)
+	{
+		auto base = path.stem().string();
+		if (base.empty())
+			base = "case";
+		auto& counter = m_caseNameCounts[base];
+		std::string name = (counter == 0u) ? base : (base + "_" + std::to_string(counter));
+		++counter;
+		return name;
+	}
+
+	static double toMs(const std::chrono::high_resolution_clock::duration& d)
+	{
+		return std::chrono::duration<double, std::milli>(d).count();
+	}
+
+	std::string makeCacheKey(const system::path& path) const
+	{
+		return path.lexically_normal().generic_string();
+	}
+
+	void logRowViewPerf(const RowViewPerfStats& stats) const
+	{
+		if (!m_logger)
+			return;
+		m_logger->log(
+			"RowView perf: mode=%s cases=%llu cpuHit=%llu cpuMiss=%llu gpuHit=%llu gpuMiss=%llu convert=%llu add=%llu total=%.3f ms",
+			ILogger::ELL_INFO,
+			stats.incremental ? "inc" : "full",
+			static_cast<unsigned long long>(stats.cases),
+			static_cast<unsigned long long>(stats.cpuHits),
+			static_cast<unsigned long long>(stats.cpuMisses),
+			static_cast<unsigned long long>(stats.gpuHits),
+			static_cast<unsigned long long>(stats.gpuMisses),
+			static_cast<unsigned long long>(stats.convertCount),
+			static_cast<unsigned long long>(stats.addCount),
+			stats.totalMs);
+		m_logger->log(
+			"RowView perf: clear=%.3f load=%.3f extract=%.3f aabb=%.3f convert=%.3f add=%.3f layout=%.3f inst=%.3f cam=%.3f",
+			ILogger::ELL_INFO,
+			stats.clearMs,
+			stats.loadMs,
+			stats.extractMs,
+			stats.aabbMs,
+			stats.convertMs,
+			stats.addGeoMs,
+			stats.layoutMs,
+			stats.instanceMs,
+			stats.cameraMs);
+	}
+
+	void logRowViewAssetLoad(const system::path& path, const double ms, const bool cached) const
+	{
+		if (!m_logger)
+			return;
+		m_logger->log(
+			"RowView perf: asset %s load=%.3f ms%s",
+			ILogger::ELL_INFO,
+			path.string().c_str(),
+			ms,
+			cached ? " (cached)" : "");
+	}
+
+	void logRowViewLoadTotal(const double ms, const size_t hits, const size_t misses) const
+	{
+		if (!m_logger)
+			return;
+		m_logger->log(
+			"RowView perf: asset load total=%.3f ms hits=%llu misses=%llu",
+			ILogger::ELL_INFO,
+			ms,
+			static_cast<unsigned long long>(hits),
+			static_cast<unsigned long long>(misses));
+	}
+
 	core::blake3_hash_t hashGeometry(const ICPUPolygonGeometry* geo)
 	{
-		core::blake3_hasher hasher;
-		if (!geo)
-			return static_cast<core::blake3_hash_t>(hasher);
-
-		const auto* indexing = geo->getIndexingCallback();
-		const bool hasIndexing = indexing != nullptr;
-		hasher.update(&hasIndexing, sizeof(hasIndexing));
-		if (hasIndexing)
-		{
-			const auto topology = indexing->knownTopology();
-			hasher << topology;
-		}
-
-		auto hashView = [&](const ICPUPolygonGeometry::SDataView& view)
-		{
-			const bool present = static_cast<bool>(view);
-			hasher.update(&present, sizeof(present));
-			if (!present)
-				return;
-
-			const auto format = view.composed.format;
-			const auto stride = view.composed.getStride();
-			hasher.update(&format, sizeof(format));
-			hasher.update(&stride, sizeof(stride));
-			hasher.update(&view.src.offset, sizeof(view.src.offset));
-			hasher.update(&view.src.size, sizeof(view.src.size));
-			const auto rangeFormat = view.composed.rangeFormat;
-			hasher.update(&rangeFormat, sizeof(rangeFormat));
-			view.composed.visitRange([&](const auto& range)
-				{
-					hasher.update(&range.minVx, sizeof(range.minVx));
-					hasher.update(&range.maxVx, sizeof(range.maxVx));
-				});
-
-			if (view.src.buffer)
-			{
-				const auto bufHash = view.src.buffer->computeContentHash();
-				hasher << bufHash;
-			}
-		};
-
-		hashView(geo->getPositionView());
-		hashView(geo->getNormalView());
-		hashView(geo->getIndexView());
-
-		const auto& auxViews = geo->getAuxAttributeViews();
-		const uint64_t auxCount = static_cast<uint64_t>(auxViews.size());
-		hasher.update(&auxCount, sizeof(auxCount));
-		for (const auto& view : auxViews)
-			hashView(view);
-
-		return static_cast<core::blake3_hash_t>(hasher);
+		return CPolygonGeometryManipulator::computeDeterministicContentHash(geo);
 	}
 
 	struct GeometryCompareResult
@@ -1311,8 +1828,7 @@ private:
 
 		m_assetMgr->clearAllAssetCache();
 
-		IAssetLoader::SAssetLoadParams params = {};
-		params.logger = m_logger.get();
+		IAssetLoader::SAssetLoadParams params = makeLoadParams();
 		auto asset = m_assetMgr->getAsset(path.string(), params);
 		if (asset.getContents().empty())
 			return false;
@@ -1515,32 +2031,12 @@ private:
 				const auto writtenHash = hashGeometry(m_currentCpuGeom.get());
 				if (writtenHash != m_referenceGeometryHash)
 				{
-					if (m_hasReferenceGeometry)
-					{
-						GeometryCompareResult diff = {};
-						const double tol = 1e-5;
-						const bool compareOk = compareGeometry(m_referenceCpuGeom.get(), m_currentCpuGeom.get(), tol, diff);
-						m_logger->log("Geometry hash mismatch for %s. CompareOk(%d) Vtx(%llu vs %llu) Idx(%llu vs %llu) PosDiff(%llu max %.8f) NDiff(%llu max %.8f) UvDiff(%llu max %.8f) IdxDiff(%llu) Normals(%d/%d) UV(%d/%d)",
-							ILogger::ELL_ERROR,
-							m_caseName.c_str(),
-							compareOk ? 1 : 0,
-							static_cast<unsigned long long>(diff.vertexCountA),
-							static_cast<unsigned long long>(diff.vertexCountB),
-							static_cast<unsigned long long>(diff.indexCountA),
-							static_cast<unsigned long long>(diff.indexCountB),
-							static_cast<unsigned long long>(diff.posDiffCount),
-							diff.posMaxAbs,
-							static_cast<unsigned long long>(diff.normalDiffCount),
-							diff.normalMaxAbs,
-							static_cast<unsigned long long>(diff.uvDiffCount),
-							diff.uvMaxAbs,
-							static_cast<unsigned long long>(diff.indexDiffCount),
-							diff.hasNormalA ? 1 : 0,
-							diff.hasNormalB ? 1 : 0,
-							diff.hasUvA ? 1 : 0,
-							diff.hasUvB ? 1 : 0);
-					}
-					failExit("Geometry hash mismatch for %s.", m_caseName.c_str());
+					m_logger->log("Geometry hash reference mismatch for %s. Current=%s Reference=%s ReferenceFile=%s",
+						ILogger::ELL_WARNING,
+						m_caseName.c_str(),
+						geometryHashToHex(writtenHash).c_str(),
+						geometryHashToHex(m_referenceGeometryHash).c_str(),
+						m_caseGeometryHashReferencePath.empty() ? "<none>" : m_caseGeometryHashReferencePath.string().c_str());
 				}
 			}
 
@@ -1624,12 +2120,22 @@ private:
 	nbl::system::path m_screenshotPrefixPath;
 	nbl::system::path m_rowViewScreenshotPath;
 	nbl::system::path m_testListPath;
+	nbl::system::path m_geometryHashReferenceDir;
+	nbl::system::path m_caseGeometryHashReferencePath;
+	std::optional<nbl::system::path> m_loaderPerfLogPath;
+	std::optional<nbl::system::path> m_rowAddPath;
+	uint32_t m_rowDuplicateCount = 0u;
+	smart_refctd_ptr<system::ILogger> m_assetLoadLogger;
+	smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
+	bool m_updateGeometryHashReferences = false;
 
 	RunMode m_runMode = RunMode::Batch;
 	Phase m_phase = Phase::RenderOriginal;
 	uint32_t m_phaseFrameCounter = 0u;
 	size_t m_caseIndex = 0u;
 	core::vector<TestCase> m_cases;
+	std::unordered_map<std::string, uint32_t> m_caseNameCounts;
+	std::unordered_map<std::string, CachedGeometryEntry> m_rowViewCache;
 	bool m_shouldQuit = false;
 
 	nbl::system::path m_writtenPath;

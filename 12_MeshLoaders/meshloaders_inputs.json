@@ -1,8 +1,8 @@
 {
   "row_view": true,
   "cases": [
-    { "name": "spanner_ply", "extension": ".ply", "path": "ply/Spanner-ply.ply" },
-    { "name": "yellowflower_obj", "extension": ".obj", "path": "yellowflower.obj" },
-    { "name": "stanford_bunny_stl", "extension": ".stl", "path": "Stanford_Bunny.stl" }
+    "../media/ply/Spanner-ply.ply",
+    "../media/yellowflower.obj",
+    "../media/Stanford_Bunny.stl"
   ]
 }
