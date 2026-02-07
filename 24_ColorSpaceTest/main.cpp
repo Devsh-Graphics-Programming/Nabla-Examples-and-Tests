@@ -793,6 +793,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 							};
 							cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 						}
+
 						cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 						cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 						cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);

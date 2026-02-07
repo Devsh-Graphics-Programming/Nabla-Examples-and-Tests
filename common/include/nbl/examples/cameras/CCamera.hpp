@@ -14,7 +14,7 @@
 
 #include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
 #include <nbl/builtin/hlsl/math/linalg/fast_affine.hlsl>
-#include <nbl/builtin/hlsl/math/linalg/matrix_utils/transformation_matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/basic.hlsl>
 
 class Camera 
 { 
@@ -209,7 +209,8 @@ public:
 			if(keysDown[k]) 
 			{
 				auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
-				assert(timeDiff >= 0);
+				if (timeDiff < 0)
+					timeDiff = 0;
 				perActionDt[k] += timeDiff;
 			}
 
@@ -218,8 +219,9 @@ public:
 			const auto ev = *eventIt;
 			
 			// accumulate the periods for which a key was down
-			const auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
-			assert(timeDiff >= 0);
+			auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
+			if (timeDiff < 0)
+				timeDiff = 0;
 
 			// handle camera movement
 			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })

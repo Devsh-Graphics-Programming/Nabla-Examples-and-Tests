@@ -1,13 +1,17 @@
-#ifndef _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
-#define _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
+#ifndef _NBL_EXAMPLES_C_SIMPLE_IES_RENDERER_H_INCLUDED_
+#define _NBL_EXAMPLES_C_SIMPLE_IES_RENDERER_H_INCLUDED_
 
+// NOTE: this is CSimpleDebugRenderer with dirty updates, not meant to be used outside the example
+
+#include "nbl/examples/examples.hpp"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
-#include "nbl/examples/geometry/SPushConstants.hlsl"
+#include "app_resources/common.hlsl"
+#include <vector>
 
 namespace nbl::examples
 {
 
-class CSimpleDebugRenderer final : public core::IReferenceCounted
+class CSimpleIESRenderer final : public core::IReferenceCounted
 {
 #define EXPOSE_NABLA_NAMESPACES \
 			using namespace nbl::core; \
@@ -32,7 +36,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			inline auto computeForInstance(hlsl::float32_t3x4 world) const
 			{
 				using namespace nbl::hlsl;
-				hlsl::examples::geometry_creator_scene::SInstanceMatrices retval = {
+				hlsl::this_example::SInstanceMatrices retval = {
 					.worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj),float64_t3x4(world)))
 				};
 				const auto sub3x3 = mul(float64_t3x3(viewProj),float64_t3x3(world));
@@ -44,6 +48,15 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			hlsl::float32_t4x4 viewProj;
 			hlsl::float32_t3x3 normal;
 		};
+
+		struct SIESParams
+		{
+			hlsl::float32_t radius = 1.f;
+			IGPUDescriptorSet* ds = nullptr;
+			uint16_t texID = 0u;
+			uint16_t mode = hlsl::this_example::ies::ESM_NONE;
+			bool wireframe = false;
+		};
 		//
 		struct SPackedGeometry
 		{
@@ -51,7 +64,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
-			constexpr static inline auto MissingView = hlsl::examples::geometry_creator_scene::SPushConstants::DescriptorCount;
+			constexpr static inline auto MissingView = hlsl::this_example::ies::SpherePC::DescriptorCount;
 			uint16_t positionView = MissingView;
 			uint16_t normalView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
@@ -59,14 +72,17 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		//
 		struct SInstance
 		{
-			using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
-			inline SPushConstants computePushConstants(const SViewParams& viewParams) const
+			using SPushConstants = hlsl::this_example::ies::SpherePC;
+			inline SPushConstants computePushConstants(const SViewParams& viewParams, const SIESParams& iesParams) const
 			{
 				using namespace hlsl;
 				return {
 					.matrices = viewParams.computeForInstance(world),
 					.positionView = packedGeo->positionView,
-					.normalView = packedGeo->normalView
+					.normalView = packedGeo->normalView,
+					.radius = iesParams.radius,
+					.mode = iesParams.mode,
+					.texIx = iesParams.texID
 				};
 			}
 
@@ -87,7 +103,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		}();
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX)
+		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> iesDSLayout, video::IGPURenderpass* renderpass, const uint32_t subpassIX)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
@@ -96,23 +112,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
 			auto logger = device->getLogger();
 
-			if (!assMan)
+			if (not precompiled)
 				return nullptr;
-
-			// load shader
-			smart_refctd_ptr<IShader> shader;
-			{
-				auto key = "nbl/examples/" + nbl::builtin::examples::build::get_spirv_key<"shaders/geometry/unified">(device);
-				const auto bundle = assMan->getAsset(key.data(), {});
-
-				const auto contents = bundle.getContents();
-				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
-					return nullptr;
-				shader = IAsset::castDown<IShader>(contents[0]);
-				
-				if (!shader)
-					return nullptr;
-			}
+			smart_refctd_ptr<IShader> shader = precompiled;
 
 			SInitParams init;
 
@@ -155,23 +157,19 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// create pipeline layout
 			const SPushConstantRange ranges[] = {{
 				.stageFlags = hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,
-				.offset = 0,
+				.offset = offsetof(hlsl::this_example::ies::PushConstants, sphere),
 				.size = sizeof(SInstance::SPushConstants),
 			}};
-			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
+			init.layout = device->createPipelineLayout(ranges, smart_refctd_ptr(iesDSLayout), smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
 
 			// create pipelines
 			using pipeline_e = SInitParams::PipelineType;
 			{
 				IGPUGraphicsPipeline::SCreationParams params[pipeline_e::Count] = {};
-				params[pipeline_e::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
-				params[pipeline_e::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
-				params[pipeline_e::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
-				params[pipeline_e::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
-				params[pipeline_e::GridSnakeStrip].vertexShader = { .shader = shader.get(),.entryPoint = "BasicVS" };
-				params[pipeline_e::GridSnakeStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "BasicFSSnake" };
-				params[pipeline_e::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
-				params[pipeline_e::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
+				params[pipeline_e::SphereTriangleStrip].vertexShader = { .shader = shader.get(),.entryPoint = "SphereVS" };
+				params[pipeline_e::SphereTriangleStrip].fragmentShader = { .shader = shader.get(),.entryPoint = "SpherePS" };
+				params[pipeline_e::SphereTriangleStripWire].vertexShader = { .shader = shader.get(),.entryPoint = "SphereVS" };
+				params[pipeline_e::SphereTriangleStripWire].fragmentShader = { .shader = shader.get(),.entryPoint = "SpherePS" };
 				for (auto i=0; i<pipeline_e::Count; i++)
 				{
 					params[i].layout = init.layout.get();
@@ -182,19 +180,21 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					const auto type = static_cast<pipeline_e>(i);
 					switch (type)
 					{
-						case pipeline_e::BasicTriangleFan:
-							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
-							break;
-						case pipeline_e::GridSnakeStrip:
+						case pipeline_e::SphereTriangleStrip:
 							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP;
 							break;
+						case pipeline_e::SphereTriangleStripWire:
+							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP;
+							rasterization.polygonMode = EPM_LINE;
+							break;
 						default:
-							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
+							assert(false);
 							break;
 					}
 					primitiveAssembly.primitiveRestartEnable = false;
-					primitiveAssembly.tessPatchVertCount = 3;
 					rasterization.faceCullingMode = EFCM_NONE;
+					rasterization.depthWriteEnable = true;
+					rasterization.depthCompareOp = ECO_GREATER;
 					params[i].cached.subpassIx = subpassIX;
 					params[i].renderpass = renderpass;
 				}
@@ -205,13 +205,13 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				}
 			}
 
-			return smart_refctd_ptr<CSimpleDebugRenderer>(new CSimpleDebugRenderer(std::move(init)),dont_grab);
+			return smart_refctd_ptr<CSimpleIESRenderer>(new CSimpleIESRenderer(std::move(init)),dont_grab);
 		}
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
+		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> iesDSLayout, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
 		{
-			auto retval = create(assMan,renderpass,subpassIX);
+			auto retval = create(precompiled, iesDSLayout, renderpass, subpassIX);
 			if (retval)
 				retval->addGeometries(geometries);
 			return retval;
@@ -222,10 +222,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		{
 			enum PipelineType : uint8_t
 			{
-				BasicTriangleList,
-				BasicTriangleFan,
-				GridSnakeStrip,
-				Cone, // special case
+				SphereTriangleStrip,
+				SphereTriangleStripWire,
 				Count
 			};
 
@@ -243,8 +241,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				return false;
 			auto device = const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice());
 
-			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
-			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+			std::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
+			std::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
 			bool anyFailed = false;
 			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value)
 			{
@@ -287,14 +285,11 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				using pipeline_e = SInitParams::PipelineType;
 				switch (geom->getIndexingCallback()->knownTopology())
 				{
-					case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
-						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleFan];
-						break;
 					case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_STRIP:
-						out.pipeline = m_params.pipelines[pipeline_e::GridSnakeStrip];
+						out.pipeline = m_params.pipelines[pipeline_e::SphereTriangleStrip];
 						break;
 					default:
-						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleList];
+						assert(false);
 						break;
 				}
 				if (const auto& view=geom->getIndexView(); view)
@@ -341,7 +336,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			if (ix>=m_geoms.size())
 				return;
 
-			core::vector<SubAllocatedDescriptorSet::value_type> deferredFree;
+			std::vector<SubAllocatedDescriptorSet::value_type> deferredFree;
 			deferredFree.reserve(3);
 			auto deallocate = [&](SubAllocatedDescriptorSet::value_type index)->void
 			{
@@ -374,26 +369,27 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		inline const auto& getGeometries() const {return m_geoms;}
 		inline auto& getGeometry(const uint32_t ix) {return m_geoms[ix];}
 
-		inline const auto& getInstances() const {return m_instances;}
-		inline auto& getInstance(const uint32_t ix) {return m_instances[ix];}
-
 		//
-		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const
+		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams, const SIESParams& iesParams) const
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
-			cmdbuf->beginDebugMarker("CSimpleDebugRenderer::render");
+			cmdbuf->beginDebugMarker("CSimpleIESRenderer::render");
 
 			const auto* layout = m_params.layout.get();
-			const auto ds = m_params.subAllocDS->getDescriptorSet();
-			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,1,&ds);
+
+			IGPUDescriptorSet* descriptors[] = { iesParams.ds, m_params.subAllocDS->getDescriptorSet() };
+			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,2, descriptors);
 
 			for (const auto& instance : m_instances)
 			{
 				const auto* geo = instance.packedGeo;
-				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
-				const auto pc = instance.computePushConstants(viewParams);
-				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(pc),&pc);
+				auto pipeline = geo->pipeline;
+				if (iesParams.wireframe)
+					pipeline = m_params.pipelines[SInitParams::PipelineType::SphereTriangleStripWire];
+				cmdbuf->bindGraphicsPipeline(pipeline.get());
+				const auto pc = instance.computePushConstants(viewParams, iesParams);
+				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,offsetof(hlsl::this_example::ies::PushConstants, sphere),sizeof(pc),&pc);
 				if (geo->indexBuffer)
 				{
 					cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);
@@ -405,11 +401,11 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			cmdbuf->endDebugMarker();
 		}
 
-		core::vector<SInstance> m_instances;
+		std::vector<SInstance> m_instances;
 
 	protected:
-		inline CSimpleDebugRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
-		inline ~CSimpleDebugRenderer()
+		inline CSimpleIESRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
+		inline ~CSimpleIESRenderer()
 		{
 			// clean shutdown, can also make SubAllocatedDescriptorSet resillient against that, and issue `device->waitIdle` if not everything is freed
 			const_cast<video::ILogicalDevice*>(m_params.layout->getOriginDevice())->waitIdle();
@@ -423,9 +419,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		}
 
 		SInitParams m_params;
-		core::vector<SPackedGeometry> m_geoms;
+		std::vector<SPackedGeometry> m_geoms;
 #undef EXPOSE_NABLA_NAMESPACES
 };
 
 }
-#endif
+#endif // _NBL_EXAMPLES_C_SIMPLE_IES_RENDERER_H_INCLUDED_
