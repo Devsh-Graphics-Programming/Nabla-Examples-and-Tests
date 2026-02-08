@@ -107,9 +107,6 @@ private:
 	void drawDynamicsSection();
 	void drawMutablesSection();
 	void drawOutputBufferSection();
-
-	// Get buffer name for display
-	static const char* getBufferName(BufferType type);
 };
 
 } // namespace nbl::this_example::gui

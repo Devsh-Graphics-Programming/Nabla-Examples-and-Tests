@@ -6,6 +6,7 @@
 #include "renderer/CScene.h"
 #include "renderer/CRenderer.h"
 #include "nbl/ext/ImGui/ImGui.h"
+#include "nbl/system/to_string.h"
 
 namespace nbl::this_example::gui
 {
@@ -34,21 +35,6 @@ void CSessionWindow::setSession(CSession* session)
 void CSessionWindow::setBufferTextureIDs(const std::array<uint32_t, static_cast<size_t>(BufferType::Count)>& textureIDs)
 {
 	m_bufferTextureIDs = textureIDs;
-}
-
-const char* CSessionWindow::getBufferName(BufferType type)
-{
-	switch (type)
-	{
-	case BufferType::Beauty:       return "Beauty";
-	case BufferType::Albedo:       return "Albedo";
-	case BufferType::Normal:       return "Normal";
-	case BufferType::Motion:       return "Motion";
-	case BufferType::Mask:         return "Mask";
-	case BufferType::RWMCCascades: return "RWMC Cascades";
-	case BufferType::SampleCount:  return "Sample Count";
-	default:                       return "Unknown";
-	}
 }
 
 void CSessionWindow::draw(const bool forceReposition)
@@ -185,7 +171,7 @@ void CSessionWindow::drawOutputBufferSection()
 		{
 			const int idx = static_cast<int>(type);
 			const uint32_t texID = m_bufferTextureIDs[idx];
-			const char* name = getBufferName(type);
+			const std::string name = nbl::system::to_string(type);
 			const bool isValid = imageWithViews && (texID != 0xFFFFFFFF);
 			const bool isSelected = (m_state.selectedBufferIndex == idx);
 
@@ -217,7 +203,7 @@ void CSessionWindow::drawOutputBufferSection()
 
 				// Use ImageButton for clickable thumbnail
 				ImGui::PushID(idx);
-				clicked = ImGui::ImageButton(name, texInfo, ImVec2(thumbnailSize, thumbnailSize));
+				clicked = ImGui::ImageButton(name.c_str(), texInfo, ImVec2(thumbnailSize, thumbnailSize));
 				ImGui::PopID();
 			}
 			else
@@ -231,7 +217,7 @@ void CSessionWindow::drawOutputBufferSection()
 			ImGui::PopStyleColor(2);
 
 			// Show label below thumbnail
-			ImGui::TextUnformatted(name);
+			ImGui::TextUnformatted(name.c_str());
 
 			ImGui::EndGroup();
 
@@ -264,3 +250,25 @@ void CSessionWindow::drawOutputBufferSection()
 }
 
 } // namespace nbl::this_example::gui
+
+namespace nbl::system::impl
+{
+	template<>
+	struct to_string_helper<this_example::gui::CSessionWindow::BufferType>
+	{
+		static std::string __call(const this_example::gui::CSessionWindow::BufferType& value)
+		{
+			switch (value)
+			{
+				case this_example::gui::CSessionWindow::BufferType::Beauty: return "Beauty";
+				case this_example::gui::CSessionWindow::BufferType::Albedo: return "Albedo";
+				case this_example::gui::CSessionWindow::BufferType::Normal: return "Normal";
+				case this_example::gui::CSessionWindow::BufferType::Motion: return "Motion";
+				case this_example::gui::CSessionWindow::BufferType::Mask: return "Mask";
+				case this_example::gui::CSessionWindow::BufferType::RWMCCascades: return "RWMC Cascades";
+				case this_example::gui::CSessionWindow::BufferType::SampleCount: return "Sample Count";
+				default: return "Unknown";
+			}
+		}
+	};
+}

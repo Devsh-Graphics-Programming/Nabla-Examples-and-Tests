@@ -72,7 +72,7 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 		//
 		inline video::ILogicalDevice* getDevice() const {return const_cast<video::ILogicalDevice*>(m_semaphore->getOriginDevice());}
 		
-		inline video::ISemaphore* getSemaphore() const { return m_semaphore.get(); }
+		inline const video::ISemaphore* getSemaphore() const { return m_semaphore.get(); }
 		inline uint64_t getPresentCount() const { return m_presentCount; }
 
 		//
