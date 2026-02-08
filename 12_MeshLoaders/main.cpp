@@ -220,9 +220,15 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		if (parser["--update-references"] == true)
 			m_updateGeometryHashReferences = true;
 
-		m_geometryHashReferenceDir = localInputCWD / "references";
-		if (m_geometryHashReferenceDir.empty())
-			m_geometryHashReferenceDir = localOutputCWD / "references";
+		const path inputReferencesDir = localInputCWD / "references";
+		const path outputReferencesDir = localOutputCWD / "references";
+		std::error_code referenceDirEc;
+		const bool hasInputReferencesDir = std::filesystem::is_directory(inputReferencesDir, referenceDirEc) && !referenceDirEc;
+		referenceDirEc.clear();
+		const bool hasOutputReferencesDir = std::filesystem::is_directory(outputReferencesDir, referenceDirEc) && !referenceDirEc;
+		m_geometryHashReferenceDir = hasOutputReferencesDir || !hasInputReferencesDir ? outputReferencesDir : inputReferencesDir;
+		if (hasOutputReferencesDir && !hasInputReferencesDir)
+			m_logger->log("Geometry hash references resolved to output directory: %s", system::ILogger::ELL_INFO, m_geometryHashReferenceDir.string().c_str());
 		if (m_runMode == RunMode::CI || m_updateGeometryHashReferences)
 		{
 			std::error_code ec;
@@ -891,6 +897,8 @@ private:
 			failExit("Empty model path.");
 		if (!std::filesystem::exists(modelPath))
 			failExit("Missing input: %s", modelPath.string().c_str());
+		using clock_t = std::chrono::high_resolution_clock;
+		const auto loadOuterStart = clock_t::now();
 
 		m_modelPath = modelPath.string();
 
@@ -901,9 +909,16 @@ private:
 
 		//! load the geometry
 		IAssetLoader::SAssetLoadParams params = makeLoadParams();
-		using clock_t = std::chrono::high_resolution_clock;
+		const auto openStart = clock_t::now();
+		system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> loadFileFuture;
+		m_system->createFile(loadFileFuture, modelPath, system::IFile::ECF_READ);
+		core::smart_refctd_ptr<system::IFile> loadFile;
+		loadFileFuture.acquire().move_into(loadFile);
+		const auto openMs = toMs(clock_t::now() - openStart);
+		if (!loadFile)
+			failExit("Failed to open input file %s.", modelPath.string().c_str());
 		const auto loadStart = clock_t::now();
-		auto asset = m_assetMgr->getAsset(m_modelPath, params);
+		auto asset = m_assetMgr->getAsset(loadFile.get(), m_modelPath, params);
 		const auto loadMs = toMs(clock_t::now() - loadStart);
 		uintmax_t inputSize = 0u;
 		if (std::filesystem::exists(modelPath))
@@ -919,10 +934,23 @@ private:
 
 		// 
 		core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+		const auto extractStart = clock_t::now();
 		if (!appendGeometriesFromBundle(asset, geometries))
 			failExit("Asset loaded but not a supported type for %s.", m_modelPath.c_str());
+		const auto extractMs = toMs(clock_t::now() - extractStart);
 		if (geometries.empty())
 			failExit("No geometry found in asset %s.", m_modelPath.c_str());
+		const auto outerMs = toMs(clock_t::now() - loadOuterStart);
+		const auto nonLoaderMs = std::max(0.0, outerMs - loadMs);
+		m_logger->log(
+			"Asset load outer perf: path=%s open=%.3f ms getAsset=%.3f ms extract=%.3f ms total=%.3f ms non_loader=%.3f ms",
+			ILogger::ELL_INFO,
+			m_modelPath.c_str(),
+			openMs,
+			loadMs,
+			extractMs,
+			outerMs,
+			nonLoaderMs);
 
 		m_currentCpuGeom = geometries[0];
 
@@ -1464,26 +1492,54 @@ private:
 	bool writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath)
 	{
 		using clock_t = std::chrono::high_resolution_clock;
-		const auto start = clock_t::now();
+		const auto writeOuterStart = clock_t::now();
 		IAsset* assetPtr = const_cast<IAsset*>(static_cast<const IAsset*>(geometry.get()));
 		const auto ext = normalizeExtension(system::path(savePath));
 		auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
 		if (ext != ".obj")
 			flags = static_cast<asset::E_WRITER_FLAGS>(flags | asset::EWF_BINARY);
 		IAssetWriter::SAssetWriteParams params{ assetPtr, flags };
+		params.logger = getAssetLoadLogger();
 		m_logger->log("Saving mesh to %s", ILogger::ELL_INFO, savePath.c_str());
-		if (!m_assetMgr->writeAsset(savePath, params))
+		const auto openStart = clock_t::now();
+		system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
+		m_system->createFile(writeFileFuture, system::path(savePath), system::IFile::ECF_WRITE);
+		core::smart_refctd_ptr<system::IFile> writeFile;
+		writeFileFuture.acquire().move_into(writeFile);
+		const auto openMs = toMs(clock_t::now() - openStart);
+		if (!writeFile)
+		{
+			m_logger->log("Failed to open output file %s", ILogger::ELL_ERROR, savePath.c_str());
+			return false;
+		}
+		const auto start = clock_t::now();
+		if (!m_assetMgr->writeAsset(writeFile.get(), params))
 		{
 			const auto ms = toMs(clock_t::now() - start);
 			m_logger->log("Failed to save %s after %.3f ms", ILogger::ELL_ERROR, savePath.c_str(), ms);
 			return false;
 		}
-		const auto ms = toMs(clock_t::now() - start);
+		const auto writeMs = toMs(clock_t::now() - start);
+		const auto statStart = clock_t::now();
 		uintmax_t size = 0u;
 		if (std::filesystem::exists(savePath))
 			size = std::filesystem::file_size(savePath);
-		m_logger->log("Asset write call perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), ms, static_cast<unsigned long long>(size));
-		m_logger->log("Writer perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), ms, static_cast<unsigned long long>(size));
+		const auto statMs = toMs(clock_t::now() - statStart);
+		const auto outerMs = toMs(clock_t::now() - writeOuterStart);
+		const auto nonWriterMs = std::max(0.0, outerMs - writeMs);
+		m_logger->log("Asset write call perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), writeMs, static_cast<unsigned long long>(size));
+		m_logger->log(
+			"Asset write outer perf: path=%s ext=%s open=%.3f ms writeAsset=%.3f ms stat=%.3f ms total=%.3f ms non_writer=%.3f ms size=%llu",
+			ILogger::ELL_INFO,
+			savePath.c_str(),
+			ext.c_str(),
+			openMs,
+			writeMs,
+			statMs,
+			outerMs,
+			nonWriterMs,
+			static_cast<unsigned long long>(size));
+		m_logger->log("Writer perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), writeMs, static_cast<unsigned long long>(size));
 		m_logger->log("Mesh successfully saved!", ILogger::ELL_INFO);
 		return true;
 	}
@@ -1590,6 +1646,7 @@ private:
 	{
 		IAssetLoader::SAssetLoadParams params = {};
 		params.logger = getAssetLoadLogger();
+		params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
 		return params;
 	}
 
