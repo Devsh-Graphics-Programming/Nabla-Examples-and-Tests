@@ -29,8 +29,8 @@ struct AutoexposurePushData
     float32_t rcpFirstPassWGCount;
 
     // histogram only
-    float32_t lowerBoundPercentile;
-    float32_t upperBoundPercentile;
+    uint32_t lowerBoundPercentile;
+    uint32_t upperBoundPercentile;
 };
 
 #ifdef __HLSL_VERSION

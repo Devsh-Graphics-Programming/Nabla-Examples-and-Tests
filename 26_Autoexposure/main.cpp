@@ -807,8 +807,6 @@ public:
 			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
 			.pLastFrameEVBuf = m_lastFrameEVBuffer->getDeviceAddress(),
 			.sampleCount = sampleCount,
-			.lowerBoundPercentile = PercentileRange.x,
-			.upperBoundPercentile = PercentileRange.y
 		};
 
 		// Luma Meter
@@ -823,6 +821,10 @@ public:
 
 			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * float(SubgroupSize)), MeteringMinUV);
 			pc.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
+
+			uint32_t totalSampleCount = dispatchSize.x * SubgroupSize * dispatchSize.y * SubgroupSize;
+			pc.lowerBoundPercentile = uint32_t(PercentileRange.x * totalSampleCount);
+			pc.upperBoundPercentile = uint32_t(PercentileRange.y * totalSampleCount);
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());
