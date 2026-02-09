@@ -819,11 +819,6 @@ public:
 			auto ds = m_gpuImgDS.get();
 
 			const float32_t2 meteringUVRange = MeteringMaxUV - MeteringMinUV;
-
-			//const uint32_t2 dispatchSize = {
-			//	1 + ((gpuImgExtent.width / 2) - 1) / SubgroupSize,
-			//	1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
-			//};
 			const uint32_t2 dispatchSize = uint32_t2(hlsl::ceil(float32_t2(gpuImgExtent.width, gpuImgExtent.height) * meteringUVRange / (SubgroupSize * SamplingFactor)));
 
 			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * float(SubgroupSize)), MeteringMinUV);

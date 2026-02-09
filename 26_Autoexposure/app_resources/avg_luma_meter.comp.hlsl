@@ -66,7 +66,5 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     using LumaMeter = luma_meter::geom_meter<wg_config_t, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.sampleCount, pushData.rcpFirstPassWGCount);
 
-    uint32_t texWidth, texHeight;
-    texture.GetDimensions(texWidth, texHeight);
-    meter.sampleLuma(pushData.window, val_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()), float32_t2(texWidth, texHeight));
+    meter.sampleLuma(pushData.window, val_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()));
 }
