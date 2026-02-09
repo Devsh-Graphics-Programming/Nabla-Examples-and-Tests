@@ -59,11 +59,6 @@ struct TexAccessor
     }
 };
 
-uint32_t3 glsl::gl_WorkGroupSize()
-{
-    return uint32_t3(SUBGROUP_SIZE, SUBGROUP_SIZE, 1);
-}
-
 [numthreads(SUBGROUP_SIZE, SUBGROUP_SIZE, 1)]
 [shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
@@ -91,7 +86,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     mc.value = tid;
     uint32_t2 coord = _static_cast<uint32_t2>(mc);
 
-    uint32_t2 pos = (glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()).xy + coord;
+    uint32_t2 pos = (glsl::gl_WorkGroupID() * SUBGROUP_SIZE).xy + coord;
     if (any(pos < promote<uint32_t2>(0u)) || any(pos >= pushData.viewportSize))
         return;
 
