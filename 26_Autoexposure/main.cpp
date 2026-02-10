@@ -317,11 +317,11 @@ public:
 				options.preprocessorOptions.includeFinder = includeFinder;
 
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+				m_subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
 				const uint32_t configItemsPerInvoc = MeterMode == MeteringMode::AVERAGE ? 1 : BinCount / workgroupSize;
 				workgroup2::SArithmeticConfiguration wgConfig;
-				wgConfig.init(hlsl::findMSB(workgroupSize), hlsl::log2(float(subgroupSize)), configItemsPerInvoc);
+				wgConfig.init(hlsl::findMSB(workgroupSize), hlsl::log2(float(m_subgroupSize)), configItemsPerInvoc);
 
 				struct MacroDefines
 				{
@@ -332,7 +332,7 @@ public:
 				constexpr uint32_t NumExtraDefines = 2;
 				const MacroDefines definesBuf[NumBaseDefines+NumExtraDefines] = {
 					{ "WORKGROUP_SIZE", std::to_string(workgroupSize) },
-					{ "SUBGROUP_SIZE", std::to_string(subgroupSize) },
+					{ "SUBGROUP_SIZE", std::to_string(m_subgroupSize) },
 					{"WG_CONFIG_T", wgConfig.getConfigTemplateStructString()},
                     {"NATIVE_SUBGROUP_ARITHMETIC", "1"},
 					{ "BIN_COUNT", std::to_string(BinCount) }
@@ -382,7 +382,7 @@ public:
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
 				params.cached.requireFullSubgroups = true;
-				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(m_subgroupSize));
 
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_meterPipeline)) {
 					return logFail("Failed to create meter compute pipeline!\n");
@@ -411,7 +411,7 @@ public:
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
 				params.cached.requireFullSubgroups = true;
-				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(m_subgroupSize));
 
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_tonemapPipeline)) {
 					return logFail("Failed to create tonemap compute pipeline!\n");
@@ -792,11 +792,7 @@ public:
 		memset(m_gatherMemory, 0, m_gatherBuffer->getSize());
 		memset(m_histoMemory, 0, m_histoBuffer->getSize());
 
-		const uint32_t SubgroupSize = m_physicalDevice->getLimits().subgroupSize;
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
-		float32_t sampleCount = (gpuImgExtent.width * gpuImgExtent.height) / 4;
-		uint32_t workgroupSize = SubgroupSize * SubgroupSize;
-		sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
 
 		auto thisPresentStamp = std::chrono::high_resolution_clock::now();
 		auto microsecondsElapsedBetweenPresents = std::chrono::duration_cast<std::chrono::microseconds>(thisPresentStamp - m_lastPresentStamp);
@@ -810,7 +806,6 @@ public:
 			.exposureAdaptationFactors = getAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count()) * 1e-6f),
 			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
 			.pLastFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress(),
-			.sampleCount = sampleCount,
 		};
 		m_lastFrameEVIx = (m_lastFrameEVIx + 1) % 2;
 		pc.pCurrFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress();
@@ -823,12 +818,12 @@ public:
 			auto ds = m_gpuImgDS.get();
 
 			const float32_t2 meteringUVRange = MeteringMaxUV - MeteringMinUV;
-			const uint32_t2 dispatchSize = uint32_t2(hlsl::ceil(float32_t2(gpuImgExtent.width, gpuImgExtent.height) * meteringUVRange / (SubgroupSize * SamplingFactor)));
+			const uint32_t2 dispatchSize = uint32_t2(hlsl::ceil(float32_t2(gpuImgExtent.width, gpuImgExtent.height) * meteringUVRange / (m_subgroupSize * SamplingFactor)));
 
-			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * float(SubgroupSize)), MeteringMinUV);
+			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * static_cast<float>(m_subgroupSize)), MeteringMinUV);
 			pc.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
 
-			uint32_t totalSampleCount = dispatchSize.x * SubgroupSize * dispatchSize.y * SubgroupSize;
+			uint32_t totalSampleCount = dispatchSize.x * m_subgroupSize * dispatchSize.y * m_subgroupSize;
 			pc.lowerBoundPercentile = uint32_t(PercentileRange.x * totalSampleCount);
 			pc.upperBoundPercentile = uint32_t(PercentileRange.y * totalSampleCount);
 
@@ -879,8 +874,8 @@ public:
 			auto ds2 = m_tonemappedImgRWDS.get();
 
 			const uint32_t2 dispatchSize = {
-				1 + ((Dimensions.x) - 1) / SubgroupSize,
-				1 + ((Dimensions.y) - 1) / SubgroupSize
+				1 + ((Dimensions.x) - 1) / m_subgroupSize,
+				1 + ((Dimensions.y) - 1) / m_subgroupSize
 			};
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -1058,6 +1053,7 @@ protected:
 	uint64_t m_submitIx = 0;
 
 	// example resources
+	uint32_t m_subgroupSize;
 	uint32_t m_lastFrameEVIx = 0;
 	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
 	smart_refctd_ptr<IGPUBuffer> m_lastFrameEVBuffers[2];

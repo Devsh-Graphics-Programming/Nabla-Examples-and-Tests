@@ -26,7 +26,6 @@ struct AutoexposurePushData
     uint64_t pCurrFrameEVBuf;
 
     // mean only
-    float32_t sampleCount;
     float32_t rcpFirstPassWGCount;
 
     // histogram only

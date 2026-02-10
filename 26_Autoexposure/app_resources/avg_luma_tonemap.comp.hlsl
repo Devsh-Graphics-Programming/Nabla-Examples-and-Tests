@@ -64,7 +64,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     TexAccessor tex;
 
     using LumaMeter = luma_meter::geom_meter<wg_config_t, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
-    LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.sampleCount, pushData.rcpFirstPassWGCount);
+    LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.rcpFirstPassWGCount);
 
     float32_t EV = meter.gatherLuma(val_accessor);
 
