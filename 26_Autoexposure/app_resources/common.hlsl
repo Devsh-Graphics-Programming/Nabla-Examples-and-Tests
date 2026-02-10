@@ -23,6 +23,7 @@ struct AutoexposurePushData
     float32_t2 exposureAdaptationFactors;
     uint64_t pLumaMeterBuf;
     uint64_t pLastFrameEVBuf;
+    uint64_t pCurrFrameEVBuf;
 
     // mean only
     float32_t sampleCount;

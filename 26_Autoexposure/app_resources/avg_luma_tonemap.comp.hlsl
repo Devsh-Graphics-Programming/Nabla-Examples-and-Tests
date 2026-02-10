@@ -74,7 +74,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     uint32_t tid = workgroup::SubgroupContiguousIndex();
     if (all(glsl::gl_WorkGroupID() == uint32_t3(0,0,0)))
         if (tid == 0)
-            vk::RawBufferStore<float32_t>(pushData.pLastFrameEVBuf, EV);
+            vk::RawBufferStore<float32_t>(pushData.pCurrFrameEVBuf, EV);
 
     morton::code<false, 32, 2> mc;
     mc.value = tid;
@@ -87,9 +87,9 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     float32_t2 uv = float32_t2(pos) / pushData.viewportSize;
     float32_t3 color = colorspace::eotf::sRGB(tex.get(uv).rgb);
     float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
-    tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV, 0.18f, 0.85f);
+    tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV, 1.0f, 0.85f);
     const float32_t ditherFactor = 0.5f;    // TODO: dithering
     float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, reinhard(CIEColor)*ditherFactor);
 
-    textureOut[pos] = float32_t4(colorspace::oetf::sRGB(tonemappedColor), 1.0f);
+    textureOut[pos] = float32_t4(tonemappedColor, 1.0f);
 }

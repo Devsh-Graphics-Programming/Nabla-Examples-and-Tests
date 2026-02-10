@@ -607,7 +607,8 @@ public:
 			// Allocate memory
 			m_gatherAllocation = {};
 			m_histoAllocation = {};
-			m_lastLumaAllocation = {};
+			for (uint32_t i = 0; i < 2; i++)
+			    m_lastLumaAllocations[i] = {};
 			{
 				auto build_buffer = [this](
 					smart_refctd_ptr<ILogicalDevice> m_device,
@@ -649,23 +650,26 @@ public:
 					BinCount * sizeof(uint32_t),
 					"Luma Histogram Buffer"
 				);
-				build_buffer(
-					m_device,
-					&m_lastLumaAllocation,
-					m_lastFrameEVBuffer,
-					sizeof(float32_t),
-					"Last Luma EV Buffer"
-				);
+				for (uint32_t i = 0; i < 2; i++)
+				    build_buffer(
+					    m_device,
+					    &m_lastLumaAllocations[i],
+					    m_lastFrameEVBuffers[i],
+					    sizeof(float32_t),
+					    ("Last Luma EV Buffer " + std::to_string(i)).c_str()
+				    );
 			}
 
 			m_gatherMemory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() });
 			m_histoMemory = m_histoAllocation.memory->map({ 0ull, m_histoAllocation.memory->getAllocationSize() });
-			void* lastLumaMemory = m_lastLumaAllocation.memory->map({ 0ull, m_lastLumaAllocation.memory->getAllocationSize() });
+			void* lastLumaMemory0 = m_lastLumaAllocations[0].memory->map({ 0ull, m_lastLumaAllocations[0].memory->getAllocationSize() });
+			void* lastLumaMemory1 = m_lastLumaAllocations[1].memory->map({ 0ull, m_lastLumaAllocations[1].memory->getAllocationSize() });
 
-			if (!m_gatherMemory || !m_histoMemory || !lastLumaMemory)
+			if (!m_gatherMemory || !m_histoMemory || !lastLumaMemory0 || !lastLumaMemory1)
 				return logFail("Failed to map the Device Memory!\n");
 
-			memset(lastLumaMemory, 0, m_lastFrameEVBuffer->getSize());
+			memset(lastLumaMemory0, 0, m_lastFrameEVBuffers[0]->getSize());
+			memset(lastLumaMemory1, 0, m_lastFrameEVBuffers[1]->getSize());
 		}
 
 		// transition m_tonemappedImgView to GENERAL
@@ -805,9 +809,11 @@ public:
 			.viewportSize = Dimensions,
 			.exposureAdaptationFactors = getAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count()) * 1e-6f),
 			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
-			.pLastFrameEVBuf = m_lastFrameEVBuffer->getDeviceAddress(),
+			.pLastFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress(),
 			.sampleCount = sampleCount,
 		};
+		m_lastFrameEVIx = (m_lastFrameEVIx + 1) % 2;
+		pc.pCurrFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress();
 
 		// Luma Meter
 		{
@@ -1052,8 +1058,11 @@ protected:
 	uint64_t m_submitIx = 0;
 
 	// example resources
-	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer, m_lastFrameEVBuffer;
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation, m_lastLumaAllocation;
+	uint32_t m_lastFrameEVIx = 0;
+	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_lastFrameEVBuffers[2];
+	IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation;
+	IDeviceMemoryAllocator::SAllocation m_lastLumaAllocations[2];
 	void *m_gatherMemory, *m_histoMemory;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 	std::chrono::high_resolution_clock::time_point m_lastPresentStamp;
