@@ -1,8 +1,6 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-//#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-//#include "SimpleWindowedApplication.hpp"
 
 #include "nbl/examples/examples.hpp"
 
@@ -33,6 +31,8 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
+
+	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
 	static inline std::string DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
 	static inline std::array<std::string, 5> ShaderPaths = {
@@ -92,10 +92,7 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// Create semaphores
-		m_meterSemaphore = m_device->createSemaphore(m_submitIx);
-		m_tonemapSemaphore = m_device->createSemaphore(m_submitIx);
-		m_presentSemaphore = m_device->createSemaphore(m_submitIx);
+		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 
 		// Create command pool and buffers
 		{
@@ -104,8 +101,13 @@ public:
 			if (!m_cmdPool)
 				return logFail("Couldn't create Command Pool!");
 
-			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 1 }))
-				return logFail("Couldn't create Command Buffer!");
+			for (auto i = 0u; i < MaxFramesInFlight; i++)
+			{
+				if (!m_cmdPool)
+					return logFail("Couldn't create Command Pool!");
+				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
+					return logFail("Couldn't create Command Buffer!");
+			}
 		}
 
 		// Create renderpass and init surface
@@ -607,7 +609,7 @@ public:
 			// Allocate memory
 			m_gatherAllocation = {};
 			m_histoAllocation = {};
-			for (uint32_t i = 0; i < 2; i++)
+			for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 			    m_lastLumaAllocations[i] = {};
 			{
 				auto build_buffer = [this](
@@ -650,7 +652,7 @@ public:
 					BinCount * sizeof(uint32_t),
 					"Luma Histogram Buffer"
 				);
-				for (uint32_t i = 0; i < 2; i++)
+				for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 				    build_buffer(
 					    m_device,
 					    &m_lastLumaAllocations[i],
@@ -662,14 +664,17 @@ public:
 
 			m_gatherMemory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() });
 			m_histoMemory = m_histoAllocation.memory->map({ 0ull, m_histoAllocation.memory->getAllocationSize() });
-			void* lastLumaMemory0 = m_lastLumaAllocations[0].memory->map({ 0ull, m_lastLumaAllocations[0].memory->getAllocationSize() });
-			void* lastLumaMemory1 = m_lastLumaAllocations[1].memory->map({ 0ull, m_lastLumaAllocations[1].memory->getAllocationSize() });
 
-			if (!m_gatherMemory || !m_histoMemory || !lastLumaMemory0 || !lastLumaMemory1)
+			if (!m_gatherMemory || !m_histoMemory)
 				return logFail("Failed to map the Device Memory!\n");
 
-			memset(lastLumaMemory0, 0, m_lastFrameEVBuffers[0]->getSize());
-			memset(lastLumaMemory1, 0, m_lastFrameEVBuffers[1]->getSize());
+			for (uint32_t i = 0; i < MaxFramesInFlight; i++)
+			{
+				void* lastLumaMemory = m_lastLumaAllocations[i].memory->map({ 0ull, m_lastLumaAllocations[i].memory->getAllocationSize() });
+				if (!lastLumaMemory)
+					return logFail("Failed to map the Device Memory!\n");
+				memset(lastLumaMemory, 0, m_lastFrameEVBuffers[i]->getSize());
+			}
 		}
 
 		// transition m_tonemappedImgView to GENERAL
@@ -780,6 +785,7 @@ public:
 		m_winMgr->setWindowSize(m_window.get(), Dimensions.x, Dimensions.y);
 		m_surface->recreateSwapchain();
 		m_winMgr->show(m_window.get());
+		oracle.reportBeginFrameRecord();
 
 		m_lastPresentStamp = std::chrono::high_resolution_clock::now();
 
@@ -789,6 +795,39 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
+
+		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+
+		if (m_realFrameIx >= framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = m_realFrameIx + 1 - framesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
+
+		auto updatePresentationTimestamp = [&]()
+			{
+				m_currentImageAcquire = m_surface->acquireNextImage();
+
+				oracle.reportEndFrameRecord();
+				const auto timestamp = oracle.getNextPresentationTimeStamp();
+				oracle.reportBeginFrameRecord();
+
+				return timestamp;
+			};
+
+		const auto nextPresentationTimestamp = updatePresentationTimestamp();
+
+		if (!m_currentImageAcquire)
+			return;
+
 		memset(m_gatherMemory, 0, m_gatherBuffer->getSize());
 		memset(m_histoMemory, 0, m_histoBuffer->getSize());
 
@@ -805,16 +844,18 @@ public:
 			.viewportSize = Dimensions,
 			.exposureAdaptationFactors = getAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count()) * 1e-6f),
 			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
-			.pLastFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress(),
+			.pLastFrameEVBuf = m_lastFrameEVBuffers[resourceIx]->getDeviceAddress(),
 		};
-		m_lastFrameEVIx = (m_lastFrameEVIx + 1) % 2;
-		pc.pCurrFrameEVBuf = m_lastFrameEVBuffers[m_lastFrameEVIx]->getDeviceAddress();
+		pc.pCurrFrameEVBuf = m_lastFrameEVBuffers[(resourceIx+1)%MaxFramesInFlight]->getDeviceAddress();
+
+		auto queue = getGraphicsQueue();
+		auto cmdbuf = m_cmdBufs[resourceIx].get();
+		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdbuf->beginDebugMarker("Autoexposure Frame");
 
 		// Luma Meter
 		{
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_gpuImgDS.get();
 
 			const float32_t2 meteringUVRange = MeteringMaxUV - MeteringMinUV;
@@ -827,49 +868,37 @@ public:
 			pc.lowerBoundPercentile = uint32_t(PercentileRange.x * totalSampleCount);
 			pc.upperBoundPercentile = uint32_t(PercentileRange.y * totalSampleCount);
 
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_meterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->pushConstants(m_meterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
-			cmdbuf->end();
-
-			{
-				IQueue::SSubmitInfo submit_infos[1];
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
-					{
-						.cmdbuf = cmdbuf
-					}
-				};
-				submit_infos[0].commandBuffers = cmdBufs;
-				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
-					{
-						.semaphore = m_meterSemaphore.get(),
-						.value = m_submitIx + 1,
-						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-					}
-				};
-				submit_infos[0].signalSemaphores = signals;
-
-				m_api->startCapture();
-				queue->submit(submit_infos);
-				m_api->endCapture();
-			}
-
-			const ISemaphore::SWaitInfo wait_infos[] = {
-				{
-					.semaphore = m_meterSemaphore.get(),
-					.value = m_submitIx + 1
-				}
-			};
-			m_device->blockForSemaphores(wait_infos);
 		}
 
 		// Luma Gather and Tonemapping
 		{
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+			{
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+				imageBarriers[0].barrier = {
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						 .srcAccessMask = ACCESS_FLAGS::NONE,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						 .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+				};
+				imageBarriers[0].image = m_tonemappedImgView->getCreationParameters().image.get();
+				imageBarriers[0].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+			}
+
 			auto ds1 = m_gpuImgDS.get();
 			auto ds2 = m_tonemappedImgRWDS.get();
 
@@ -878,58 +907,39 @@ public:
 				1 + ((Dimensions.y) - 1) / m_subgroupSize
 			};
 
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_tonemapPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 0, 1, &ds1);
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 3, 1, &ds2);
 			cmdbuf->pushConstants(m_tonemapPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
-			cmdbuf->end();
-
-			{
-				IQueue::SSubmitInfo submit_infos[1];
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
-					{
-						.cmdbuf = cmdbuf
-					}
-				};
-				submit_infos[0].commandBuffers = cmdBufs;
-				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
-					{
-						.semaphore = m_tonemapSemaphore.get(),
-						.value = m_submitIx + 1,
-						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-					}
-				};
-				submit_infos[0].signalSemaphores = signals;
-
-				m_api->startCapture();
-				queue->submit(submit_infos);
-				m_api->endCapture();
-			}
-
-			const ISemaphore::SWaitInfo wait_infos[] = {
-				{
-					.semaphore = m_tonemapSemaphore.get(),
-					.value = m_submitIx + 1
-				}
-			};
-			m_device->blockForSemaphores(wait_infos);
 		}
 
 		// Render to swapchain
 		{
-			// Acquire
-			auto acquire = m_surface->acquireNextImage();
-			if (!acquire)
-				return;
+			{
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+				imageBarriers[0].barrier = {
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						 .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS,
+						 .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+					}
+				};
+				imageBarriers[0].image = m_tonemappedImgView->getCreationParameters().image.get();
+				imageBarriers[0].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
+				imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+			}
 
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_tonemappedImgSamplerDS.get();
-
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			const VkRect2D currentRenderArea =
 			{
@@ -949,68 +959,80 @@ public:
 
 			// begin the renderpass
 			{
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-					.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
+				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+				const IGPUCommandBuffer::SRenderpassBeginInfo beginInfo =
+				{
+					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 					.colorClearValues = &clearValue,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+
+				cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
 			cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
 			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 			cmdbuf->endRenderPass();
-
-			cmdbuf->end();
-
-			// submit
-			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
-				.semaphore = m_presentSemaphore.get(),
-				.value = m_submitIx + 1,
-				// just as we've outputted all pixels, signal
-				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-			} };
-			{
-				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf
-				} };
-				// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
-				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = { {
-					.semaphore = acquire.semaphore,
-					.value = acquire.acquireCount,
-					.stageMask = PIPELINE_STAGE_FLAGS::NONE
-				} };
-				const IQueue::SSubmitInfo infos[1] = { {
-					.waitSemaphores = acquired,
-					.commandBuffers = commandBuffers,
-					.signalSemaphores = rendered
-				} };
-
-				m_api->startCapture();
-				queue->submit(infos);
-				m_api->endCapture();
-			}
-
-			// Present
-			m_surface->present(acquire.imageIndex, rendered);
-
-			// Wait for completion
-			{
-				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
-					{
-						.semaphore = m_presentSemaphore.get(),
-						.value = m_submitIx + 1
-					}
-				};
-				if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
-					return;
-			}
 		}
-		m_submitIx++;
+
+		cmdbuf->endDebugMarker();
+		cmdbuf->end();
+
+		{
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = ++m_realFrameIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				}
+			};
+			{
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+					{
+						{.cmdbuf = cmdbuf }
+					};
+
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+					{
+						{
+							.semaphore = m_currentImageAcquire.semaphore,
+							.value = m_currentImageAcquire.acquireCount,
+							.stageMask = PIPELINE_STAGE_FLAGS::NONE
+						}
+					};
+					const IQueue::SSubmitInfo infos[] =
+					{
+						{
+							.waitSemaphores = acquired,
+							.commandBuffers = commandBuffers,
+							.signalSemaphores = rendered
+						}
+					};
+
+					if (queue->submit(infos) == IQueue::RESULT::SUCCESS)
+					{
+						const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+						{ {
+							.semaphore = m_semaphore.get(),
+							.value = m_realFrameIx
+						} };
+
+						m_device->blockForSemaphores(waitInfos); // this is not solution, quick wa to not throw validation errors
+					}
+					else
+						--m_realFrameIx;
+				}
+			}
+
+			std::string caption = "[Nabla Engine] Autoexposure Example";
+			m_window->setCaption(caption);
+			m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+		}
 	}
 
 	inline bool keepRunning() override
@@ -1046,158 +1068,23 @@ protected:
 
 	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, 1> m_cmdBufs;
+	uint64_t m_realFrameIx = 0;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	// Semaphores
-	smart_refctd_ptr<ISemaphore> m_meterSemaphore, m_tonemapSemaphore, m_presentSemaphore;
-	uint64_t m_submitIx = 0;
+	smart_refctd_ptr<ISemaphore> m_semaphore;
+	video::CDumbPresentationOracle oracle;
 
 	// example resources
 	uint32_t m_subgroupSize;
 	uint32_t m_lastFrameEVIx = 0;
 	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_lastFrameEVBuffers[2];
+	std::array<smart_refctd_ptr<IGPUBuffer>, MaxFramesInFlight> m_lastFrameEVBuffers;
 	IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation;
-	IDeviceMemoryAllocator::SAllocation m_lastLumaAllocations[2];
+	std::array<IDeviceMemoryAllocator::SAllocation, MaxFramesInFlight> m_lastLumaAllocations;
 	void *m_gatherMemory, *m_histoMemory;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 	std::chrono::high_resolution_clock::time_point m_lastPresentStamp;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
-
-#if 0
-
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
-// This file is part of the "Nabla Engine".
-// For conditions of distribution and use, see copyright notice in nabla.h
-
-#define _NBL_STATIC_LIB_
-#include <nabla.h>
-#include <iostream>
-#include <cstdio>
-
-
-#include "nbl/ext/ToneMapper/CToneMapper.h"
-
-#include "../common/QToQuitEventReceiver.h"
-
-using namespace nbl;
-using namespace nbl::core;
-using namespace nbl::asset;
-using namespace nbl::video;
-
-
-int main()
-{
-	nbl::SIrrlichtCreationParameters deviceParams;
-	deviceParams.Bits = 24; //may have to set to 32bit for some platforms
-	deviceParams.ZBufferBits = 24; //we'd like 32bit here
-	deviceParams.DriverType = EDT_OPENGL; //! Only Well functioning driver, software renderer left for sake of 2D image drawing
-	deviceParams.WindowSize = dimension2d<uint32_t>(1280, 720);
-	deviceParams.Fullscreen = false;
-	deviceParams.Vsync = true; //! If supported by target platform
-	deviceParams.Doublebuffer = true;
-	deviceParams.Stencilbuffer = false; //! This will not even be a choice soon
-
-	auto device = createDeviceEx(deviceParams);
-	if (!device)
-		return 1; // could not create selected driver.
-
-	using LumaMeterClass = ext::LumaMeter::CLumaMeter;
-	constexpr auto MeterMode = LumaMeterClass::EMM_MEDIAN;
-	const float minLuma = 1.f/2048.f;
-	const float maxLuma = 65536.f;
-
-	auto cpuLumaMeasureSpecializedShader = LumaMeterClass::createShader(glslCompiler,inputColorSpace,MeterMode,minLuma,maxLuma);
-	auto gpuLumaMeasureShader = driver->createShader(smart_refctd_ptr<const ICPUShader>(cpuLumaMeasureSpecializedShader->getUnspecialized()));
-	auto gpuLumaMeasureSpecializedShader = driver->createSpecializedShader(gpuLumaMeasureShader.get(), cpuLumaMeasureSpecializedShader->getSpecializationInfo());
-
-	const float meteringMinUV[2] = { 0.1f,0.1f };
-	const float meteringMaxUV[2] = { 0.9f,0.9f };
-	LumaMeterClass::Uniforms_t<MeterMode> uniforms;
-	auto lumaDispatchInfo = LumaMeterClass::buildParameters(uniforms, outImg->getCreationParameters().extent, meteringMinUV, meteringMaxUV);
-
-	auto uniformBuffer = driver->createFilledDeviceLocalBufferOnDedMem(sizeof(uniforms),&uniforms);
-
-
-	using ToneMapperClass = ext::ToneMapper::CToneMapper;
-	constexpr auto TMO = ToneMapperClass::EO_ACES;
-	constexpr bool usingLumaMeter = MeterMode<LumaMeterClass::EMM_COUNT;
-	constexpr bool usingTemporalAdapatation = true;
-
-	auto cpuTonemappingSpecializedShader = ToneMapperClass::createShader(am->getGLSLCompiler(),
-		inputColorSpace,
-		std::make_tuple(outFormat,ECP_SRGB,OETF_sRGB),
-		TMO,usingLumaMeter,MeterMode,minLuma,maxLuma,usingTemporalAdapatation
-	);
-	auto gpuTonemappingShader = driver->createShader(smart_refctd_ptr<const ICPUShader>(cpuTonemappingSpecializedShader->getUnspecialized()));
-	auto gpuTonemappingSpecializedShader = driver->createSpecializedShader(gpuTonemappingShader.get(),cpuTonemappingSpecializedShader->getSpecializationInfo());
-
-	auto outImgStorage = ToneMapperClass::createViewForImage(driver,false,core::smart_refctd_ptr(outImg),{static_cast<IImage::E_ASPECT_FLAGS>(0u),0,1,0,1});
-
-	auto parameterBuffer = driver->createDeviceLocalGPUBufferOnDedMem(ToneMapperClass::getParameterBufferSize<TMO,MeterMode>());
-	constexpr float Exposure = 0.f;
-	constexpr float Key = ;
-	auto params = ToneMapperClass::Params_t<TMO>(Exposure, Key, );
-	{
-		params.setAdaptationFactorFromFrameDelta(0.f);
-		driver->updateBufferRangeViaStagingBuffer(parameterBuffer.get(),0u,sizeof(params),&params);
-	}
-
-	auto commonPipelineLayout = ToneMapperClass::getDefaultPipelineLayout(driver,usingLumaMeter);
-
-	auto lumaMeteringPipeline = driver->createComputePipeline(nullptr,core::smart_refctd_ptr(commonPipelineLayout),std::move(gpuLumaMeasureSpecializedShader));
-	auto toneMappingPipeline = driver->createComputePipeline(nullptr,core::smart_refctd_ptr(commonPipelineLayout),std::move(gpuTonemappingSpecializedShader));
-
-	auto commonDescriptorSet = driver->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(commonPipelineLayout->getDescriptorSetLayout(0u)));
-	ToneMapperClass::updateDescriptorSet<TMO,MeterMode>(driver,commonDescriptorSet.get(),parameterBuffer,imgToTonemapView,outImgStorage,1u,2u,usingLumaMeter ? 3u:0u,uniformBuffer,0u,usingTemporalAdapatation);
-
-
-	constexpr auto dynOffsetArrayLen = usingLumaMeter ? 2u : 1u;
-
-	auto lumaDynamicOffsetArray = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<uint32_t> >(dynOffsetArrayLen,0u);
-	lumaDynamicOffsetArray->back() = sizeof(ToneMapperClass::Params_t<TMO>);
-
-	auto toneDynamicOffsetArray = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<uint32_t> >(dynOffsetArrayLen,0u);
-
-
-	auto blitFBO = driver->addFrameBuffer();
-	blitFBO->attach(video::EFAP_COLOR_ATTACHMENT0, std::move(outImgView));
-
-	uint32_t outBufferIx = 0u;
-	auto lastPresentStamp = std::chrono::high_resolution_clock::now();
-	while (device->run() && receiver.keepOpen())
-	{
-		driver->beginScene(false, false);
-
-		driver->bindComputePipeline(lumaMeteringPipeline.get());
-		driver->bindDescriptorSets(EPBP_COMPUTE,commonPipelineLayout.get(),0u,1u,&commonDescriptorSet.get(),&lumaDynamicOffsetArray);
-		driver->pushConstants(commonPipelineLayout.get(),IGPUSpecializedShader::ESS_COMPUTE,0u,sizeof(outBufferIx),&outBufferIx); outBufferIx ^= 0x1u;
-		LumaMeterClass::dispatchHelper(driver,lumaDispatchInfo,true);
-
-		driver->bindComputePipeline(toneMappingPipeline.get());
-		driver->bindDescriptorSets(EPBP_COMPUTE,commonPipelineLayout.get(),0u,1u,&commonDescriptorSet.get(),&toneDynamicOffsetArray);
-		ToneMapperClass::dispatchHelper(driver,outImgStorage.get(),true);
-
-		driver->blitRenderTargets(blitFBO, nullptr, false, false);
-
-		driver->endScene();
-		if (usingTemporalAdapatation)
-		{
-			auto thisPresentStamp = std::chrono::high_resolution_clock::now();
-			auto microsecondsElapsedBetweenPresents = std::chrono::duration_cast<std::chrono::microseconds>(thisPresentStamp-lastPresentStamp);
-			lastPresentStamp = thisPresentStamp;
-
-			params.setAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count())/1000000.f);
-			// dont override shader output
-			constexpr auto offsetPastLumaHistory = offsetof(decltype(params),lastFrameExtraEVAsHalf)+sizeof(decltype(params)::lastFrameExtraEVAsHalf);
-			auto* paramPtr = reinterpret_cast<const uint8_t*>(&params);
-			driver->updateBufferRangeViaStagingBuffer(parameterBuffer.get(), offsetPastLumaHistory, sizeof(params)-offsetPastLumaHistory, paramPtr+offsetPastLumaHistory);
-		}
-	}
-
-	return 0;
-}
-
-#endif
