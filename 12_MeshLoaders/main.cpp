@@ -147,6 +147,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		parser.add_argument("--loader-perf-log")
 			.nargs(1)
 			.help("Write loader diagnostics to a file instead of stdout.");
+		parser.add_argument("--loader-content-hashes")
+			.help("Force loaders to compute CPU buffer content hashes before returning. Enabled by default.")
+			.flag();
+		parser.add_argument("--runtime-tuning")
+			.nargs(1)
+			.help("Runtime tuning mode for loaders: none|heuristic|hybrid. Default: heuristic.");
 		parser.add_argument("--update-references")
 			.help("Update or create geometry hash references for CI validation.")
 			.flag();
@@ -219,6 +225,21 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		}
 		if (parser["--update-references"] == true)
 			m_updateGeometryHashReferences = true;
+		if (parser["--loader-content-hashes"] == true)
+			m_forceLoaderContentHashes = true;
+		if (parser.present("--runtime-tuning"))
+		{
+			auto mode = parser.get<std::string>("--runtime-tuning");
+			std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (mode == "none")
+				m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::None;
+			else if (mode == "heuristic")
+				m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
+			else if (mode == "hybrid")
+				m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Hybrid;
+			else
+				return logFail("Invalid --runtime-tuning value. Expected: none|heuristic|hybrid.");
+		}
 
 		const path inputReferencesDir = localInputCWD / "references";
 		const path outputReferencesDir = localOutputCWD / "references";
@@ -909,26 +930,27 @@ private:
 
 		//! load the geometry
 		IAssetLoader::SAssetLoadParams params = makeLoadParams();
-		const auto openStart = clock_t::now();
-		system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> loadFileFuture;
-		m_system->createFile(loadFileFuture, modelPath, system::IFile::ECF_READ);
-		core::smart_refctd_ptr<system::IFile> loadFile;
-		loadFileFuture.acquire().move_into(loadFile);
-		const auto openMs = toMs(clock_t::now() - openStart);
-		if (!loadFile)
+		AssetLoadCallResult loadResult = {};
+		if (!loadAssetCallFromPath(modelPath, params, loadResult))
 			failExit("Failed to open input file %s.", modelPath.string().c_str());
-		const auto loadStart = clock_t::now();
-		auto asset = m_assetMgr->getAsset(loadFile.get(), m_modelPath, params);
-		const auto loadMs = toMs(clock_t::now() - loadStart);
-		uintmax_t inputSize = 0u;
-		if (std::filesystem::exists(modelPath))
-			inputSize = std::filesystem::file_size(modelPath);
+		if (loadResult.fileFlags != 0u)
+		{
+			m_logger->log(
+				"Input file mapping probe: path=%s flags=0x%X mapped=%d",
+				ILogger::ELL_PERFORMANCE,
+				m_modelPath.c_str(),
+				loadResult.fileFlags,
+				loadResult.mapped ? 1 : 0);
+		}
+		const auto openMs = loadResult.openMs;
+		const auto loadMs = loadResult.getAssetMs;
+		auto asset = std::move(loadResult.bundle);
 		m_logger->log(
 			"Asset load call perf: path=%s time=%.3f ms size=%llu",
 			ILogger::ELL_INFO,
 			m_modelPath.c_str(),
 			loadMs,
-			static_cast<unsigned long long>(inputSize));
+			static_cast<unsigned long long>(loadResult.inputSize));
 		if (asset.getContents().empty())
 			failExit("Failed to load asset %s.", m_modelPath.c_str());
 
@@ -1179,9 +1201,11 @@ private:
 			{
 				stats.cpuMisses++;
 				cached = false;
-				const auto loadStart = clock_t::now();
-				auto asset = m_assetMgr->getAsset(path.string(), params);
-				assetLoadMs = toMs(clock_t::now() - loadStart);
+				AssetLoadCallResult loadResult = {};
+				if (!loadAssetCallFromPath(path, params, loadResult))
+					failExit("Failed to open input file %s.", path.string().c_str());
+				auto asset = std::move(loadResult.bundle);
+				assetLoadMs = loadResult.getAssetMs;
 				stats.loadMs += assetLoadMs;
 				if (asset.getContents().empty())
 					failExit("Failed to load asset %s.", path.string().c_str());
@@ -1646,8 +1670,40 @@ private:
 	{
 		IAssetLoader::SAssetLoadParams params = {};
 		params.logger = getAssetLoadLogger();
+		if ((m_runMode == RunMode::CI || isRowViewActive()) && !m_loaderPerfLogger)
+			params.logger = nullptr;
 		params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
+		params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
+		if (m_forceLoaderContentHashes)
+			params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_COMPUTE_CONTENT_HASHES);
 		return params;
+	}
+
+	struct AssetLoadCallResult
+	{
+		asset::SAssetBundle bundle = {};
+		double openMs = 0.0;
+		double getAssetMs = 0.0;
+		uintmax_t inputSize = 0u;
+		unsigned fileFlags = 0u;
+		bool mapped = false;
+	};
+
+	bool loadAssetCallFromPath(const system::path& modelPath, const IAssetLoader::SAssetLoadParams& params, AssetLoadCallResult& out)
+	{
+		using clock_t = std::chrono::high_resolution_clock;
+		out.openMs = 0.0;
+		out.fileFlags = 0u;
+		out.mapped = false;
+		if (std::filesystem::exists(modelPath))
+			out.inputSize = std::filesystem::file_size(modelPath);
+		else
+			out.inputSize = 0u;
+
+		const auto loadStart = clock_t::now();
+		out.bundle = m_assetMgr->getAsset(modelPath.string(), params);
+		out.getAssetMs = toMs(clock_t::now() - loadStart);
+		return true;
 	}
 
 	bool initLoaderPerfLogger(const system::path& logPath)
@@ -2185,6 +2241,8 @@ private:
 	smart_refctd_ptr<system::ILogger> m_assetLoadLogger;
 	smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
 	bool m_updateGeometryHashReferences = false;
+	bool m_forceLoaderContentHashes = true;
+	asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
 
 	RunMode m_runMode = RunMode::Batch;
 	Phase m_phase = Phase::RenderOriginal;
