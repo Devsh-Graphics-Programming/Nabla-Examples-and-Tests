@@ -1,63 +1,92 @@
 # 12_MeshLoaders
 
-Loads and writes OBJ, PLY, and STL meshes. Default run reads `meshloaders_inputs.json` from this folder. Relative paths in that file resolve against the JSON file location.
+Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 
-Modes
-- Default: row view if `row_view` is true in the JSON
-- `--interactive`: single file dialog
-- `--ci`: sequential load, write, reload, hash and image compare, then exit
+## At a glance
+- Default input list: `inputs.json`
+- Default mode: `batch`
+- Default tuning: `heuristic`
+- Loader content hashes: enabled by default
+- Output meshes: `saved/`
+- Output screenshots: `screenshots/`
 
-Controls (non CI)
-- Arrow keys: move camera
-- Left mouse drag: rotate
-- Home: reset view
-- A: add a model to row view
-- R: reload test list for row view
+## Mode cheat sheet
+- `batch`
+  - Uses test list and runs normal workflow.
+  - If test list has `row_view: true`, renders all cases in one scene.
+- `interactive`
+  - Opens file dialog and loads one model.
+- `ci`
+  - Runs strict pass/fail validation per case.
 
-Test list
-- `cases` can be a list of strings. Each string is a file path relative to the JSON file.
+## Common workflows
+- Quick visual check:
+  - run default `batch`
+- Inspect one local model:
+  - run with `--interactive`
+- Validate load/write correctness:
+  - run with `--ci`
+- Refresh geometry references:
+  - run with `--update-references` (usually with `--ci`)
 
-Args
+## CLI
+- `--ci`
+  - strict validation run
+- `--interactive`
+  - file-dialog run
 - `--testlist <path>`
+  - custom JSON list
 - `--savegeometry`
+  - keep writing output meshes
 - `--savepath <path>`
+  - force output path
 - `--row-add <path>`
+  - add model to row view at startup
 - `--row-duplicate <count>`
+  - duplicate last row-view case
+- `--loader-perf-log <path>`
+  - redirect loader diagnostics
+- `--runtime-tuning <none|heuristic|hybrid>`
+  - IO runtime tuning mode
+- `--loader-content-hashes`
+  - compatibility switch; already enabled by default
+- `--update-references`
+  - regenerate `references/*.geomhash`
 
-Performance (Debug, Win11, Ryzen 5 5600G, RTX 4070, 64 GiB RAM)
-- Dataset:
-  - `yellowflower.obj` (104416 bytes)
-  - `Spanner-ply.ply` (5700266 bytes)
-  - `Stanford_Bunny.stl` (5620184 bytes)
-- Method:
-  - 9 sequential runs per format
-  - compared `master_like_oldalgo` vs `latest_optimized`
-  - measured `getAsset` and `writeAsset` call times from example logs
+## Controls (non-CI)
+- Arrow keys: move camera
+- Left mouse drag: rotate camera
+- `Home`: reset view
+- `A`: add model to row view
+- `R`: reload row view from test list
 
-Median summary
+## Input list format (`inputs.json`)
+```json
+{
+  "row_view": true,
+  "cases": [
+    "../media/yellowflower.obj",
+    { "name": "spanner", "path": "../media/ply/Spanner-ply.ply" },
+    { "path": "../media/Stanford_Bunny.stl" }
+  ]
+}
+```
 
-| Asset | Load old ms | Load latest ms | Load speedup x | Write old ms | Write latest ms | Write speedup x |
-|---|---:|---:|---:|---:|---:|---:|
-| `yellowflower.obj` | 31.657 | 25.988 | 1.22 | 543.659 | 156.585 | 3.47 |
-| `Spanner-ply.ply` | 1020.151 | 132.630 | 7.69 | 45.458 | 41.828 | 1.09 |
-| `Stanford_Bunny.stl` | 36153.774 | 23.387 | 1545.89 | 17324.853 | 209.200 | 82.81 |
+Rules:
+- `cases` is required and must be an array
+- case item can be string path or object with `path` and optional `name`
+- relative paths resolve against JSON file directory
 
-Why old path was slow
-- STL loader used tiny scalar reads in binary path (`4` bytes per float), which amplified IO call overhead.
-- STL writer emitted many small writes per triangle (`normal + v0 + v1 + v2 + attr`).
-- OBJ/PLY writers performed incremental small writes while building text output.
-- IO strategy was hardcoded per loader/writer, without one shared policy for tuning.
+## What CI validates
+- Per-case geometry hash:
+  - deterministic `BLAKE3` hash compared with `references/*.geomhash`
+- Per-case image consistency:
+  - `*_loaded.png` vs `*_written.png` byte diff
+  - thresholds come from `MaxImageDiffBytes` and `MaxImageDiffValue` in `MeshLoadersApp.hpp`
+- Any mismatch ends with non-zero exit code
 
-Why current path is better
-- One shared `SFileIOPolicy` is available in load/write params for all formats.
-- Strategy is explicit (`Auto`, `WholeFile`, `Chunked`) with one resolution path and limits.
-- `Auto` can use whole-file for small payloads and chunked IO for larger ones.
-- Loader perf logs include requested/effective strategy and timing breakdown.
+## Performance logs to trust
+- `Asset load call perf` for `getAsset`
+- `Asset write call perf` for `writeAsset`
 
-Raw benchmark data (full per-run tables)
-- `tmp/master_vs_latest_debug.md`
-- `tmp/bench_masterlike_vs_latest_debug_2026-02-07_v2/raw_runs.csv`
-- `tmp/bench_masterlike_vs_latest_debug_2026-02-07_v2/paired_runs.csv`
-
-https://github.com/user-attachments/assets/6f779700-e6d4-4e11-95fb-7a7fddc47255
-
+Internal loader stage logs are diagnostics only.

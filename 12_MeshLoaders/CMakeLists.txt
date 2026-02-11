@@ -1,12 +1,23 @@
-set(NBL_INCLUDE_SERACH_DIRECTORIES
+set(SRCs
+	main.cpp
+	MeshLoadersApp.hpp
+	MeshLoadersAppLifecycle.cpp
+	MeshLoadersAppLoad.cpp
+	MeshLoadersAppRuntime.cpp
+	inputs.json
+	README.md
+)
+
+set(NBL_INCLUDE_SEARCH_DIRECTORIES
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
+	"${CMAKE_SOURCE_DIR}/3rdparty"
 )
 set(NBL_LIBRARIES
 	nlohmann_json::nlohmann_json
 )
 
 if (NBL_BUILD_MITSUBA_LOADER)
-	list(APPEND NBL_INCLUDE_SERACH_DIRECTORIES
+	list(APPEND NBL_INCLUDE_SEARCH_DIRECTORIES
 		"${NBL_EXT_MITSUBA_LOADER_INCLUDE_DIRS}"
 	)
 	list(APPEND NBL_LIBRARIES
@@ -14,10 +25,7 @@ if (NBL_BUILD_MITSUBA_LOADER)
 	)
 endif()
 
-	# TODO; Arek I removed `NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET` from the last parameter here, doesn't this macro have 4 arguments anyway !?
-nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
-# TODO: Arek temporarily disabled cause I haven't figured out how to make this target yet
-# LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
+nbl_create_executable_project("${SRCs}" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
 if (NBL_BUILD_DEBUG_DRAW)
 	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
