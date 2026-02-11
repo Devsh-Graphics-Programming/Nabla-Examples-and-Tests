@@ -42,7 +42,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
 	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringMinUV = { 0.1f, 0.1f };
@@ -598,7 +598,9 @@ public:
 			gpuImg->setObjectDebugName("GPU Img");
 			m_gpuImgView = createHDRIImageView(gpuImg);
 			m_gpuImgView->setObjectDebugName("GPU Img View");
-			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R32G32B32A32_SFLOAT, Dimensions.x, Dimensions.y);
+
+			const auto gpuImgDims = params.extent;
+			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R32G32B32A32_SFLOAT, gpuImgDims.width, gpuImgDims.height);
 			outImg->setObjectDebugName("Tonemapped Image");
 			m_tonemappedImgView = createHDRIImageView(outImg);
 			m_tonemappedImgView->setObjectDebugName("Tonemapped Image View");
@@ -841,7 +843,7 @@ public:
 		{
 			.lumaMin = LumaRange.x,
 			.lumaMax = LumaRange.y,
-			.viewportSize = Dimensions,
+			.viewportSize = uint32_t2(gpuImgExtent.width, gpuImgExtent.height),
 			.exposureAdaptationFactors = getAdaptationFactorFromFrameDelta(float(microsecondsElapsedBetweenPresents.count()) * 1e-6f),
 			.pLumaMeterBuf = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBuffer->getDeviceAddress() : m_histoBuffer->getDeviceAddress(),
 			.pLastFrameEVBuf = m_lastFrameEVBuffers[resourceIx]->getDeviceAddress(),
@@ -903,8 +905,8 @@ public:
 			auto ds2 = m_tonemappedImgRWDS.get();
 
 			const uint32_t2 dispatchSize = {
-				1 + ((Dimensions.x) - 1) / m_subgroupSize,
-				1 + ((Dimensions.y) - 1) / m_subgroupSize
+				1 + ((gpuImgExtent.width) - 1) / m_subgroupSize,
+				1 + ((gpuImgExtent.height) - 1) / m_subgroupSize
 			};
 
 			cmdbuf->bindComputePipeline(m_tonemapPipeline.get());
@@ -1014,6 +1016,7 @@ public:
 						}
 					};
 
+					m_api->startCapture();
 					if (queue->submit(infos) == IQueue::RESULT::SUCCESS)
 					{
 						const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
@@ -1026,6 +1029,7 @@ public:
 					}
 					else
 						--m_realFrameIx;
+					m_api->endCapture();
 				}
 			}
 

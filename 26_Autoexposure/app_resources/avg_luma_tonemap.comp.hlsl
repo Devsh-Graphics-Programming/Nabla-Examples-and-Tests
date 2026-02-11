@@ -9,6 +9,7 @@
 #include "nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 #include "nbl/builtin/hlsl/tonemapper/operators/reinhard.hlsl"
+#include "nbl/builtin/hlsl/tonemapper/operators/aces.hlsl"
 #include "app_resources/common.hlsl"
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D textureIn;
@@ -84,11 +85,12 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     if (any(pos < promote<uint32_t2>(0u)) || any(pos >= pushData.viewportSize))
         return;
 
-    float32_t2 uv = float32_t2(pos) / pushData.viewportSize;
+    float32_t2 uv = float32_t2(pos) / float32_t2(pushData.viewportSize);
     float32_t3 color = tex.get(uv).rgb;
     float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
-    tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV, 0.18f, 0.85f);
-    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, reinhard(CIEColor));
+    // tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV, 0.18f, 0.85f);
+    tonemapper::ACES<float32_t> aces = tonemapper::ACES<float32_t>::create(EV, 0.18f, 0.85f);
+    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, aces(CIEColor));
 
     textureOut[pos] = float32_t4(tonemappedColor, 1.0f);
 }
