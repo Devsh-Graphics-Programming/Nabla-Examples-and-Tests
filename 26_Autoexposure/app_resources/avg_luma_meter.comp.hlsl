@@ -39,7 +39,7 @@ struct SharedAccessor
 
 struct TexAccessor
 {
-    static float32_t3 toXYZ(float32_t3 srgbColor) {
+    static float32_t toXYZ(float32_t3 srgbColor) {
         return dot(colorspace::sRGBtoXYZ[1], srgbColor);
     }
 
@@ -61,5 +61,5 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     using LumaMeter = luma_meter::geom_meter<wg_config_t, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.meanParams.rcpFirstPassWGCount);
 
-    meter.sampleLuma(pushData.window, val_accessor, tex, sdata, float32_t2((glsl::gl_WorkGroupID() * SUBGROUP_SIZE).xy));
+    meter.sampleLuma(pushData.window, val_accessor, tex, sdata);
 }
