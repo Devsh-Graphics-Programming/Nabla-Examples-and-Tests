@@ -1,9 +1,10 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "MeshLoadersApp.hpp"
 
+#include <array>
 #include <algorithm>
 #include <cmath>
 
@@ -660,17 +661,36 @@ void MeshLoadersApp::setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bo
     const double halfZ = std::max(halfExtent.z, 0.001);
     const double safeRadius = std::max({ halfX, halfY, halfZ });
 
-    const double distY = halfY / std::tan(fovY * 0.5);
-    const double distX = halfX / std::tan(fovX * 0.5);
-    double dist = std::max(distX, distY) + halfZ;
-    dist *= 1.1;
+    struct CameraCandidate
+    {
+        hlsl::float64_t3 dir;
+        double planeHalfX;
+        double planeHalfY;
+        double depthHalf;
+        double footprint;
+    };
+    std::array<CameraCandidate, 3u> candidates = {
+        CameraCandidate{ hlsl::float64_t3(1.0, 0.0, 0.0), halfY, halfZ, halfX, halfY * halfZ },
+        CameraCandidate{ hlsl::float64_t3(0.0, 1.0, 0.0), halfX, halfZ, halfY, halfX * halfZ },
+        CameraCandidate{ hlsl::float64_t3(0.0, 0.0, 1.0), halfX, halfY, halfZ, halfX * halfY }
+    };
+    const auto bestIt = std::max_element(candidates.begin(), candidates.end(), [](const CameraCandidate& a, const CameraCandidate& b) { return a.footprint < b.footprint; });
+    const CameraCandidate best = (bestIt != candidates.end()) ? *bestIt : candidates[2u];
 
-    const auto dir = hlsl::float64_t3(0.0, 0.0, 1.0);
+    const double distY = best.planeHalfY / std::tan(fovY * 0.5);
+    const double distX = best.planeHalfX / std::tan(fovX * 0.5);
+    const double framingMargin = std::max(0.1, safeRadius * 0.35);
+    const double dist = std::max(distX, distY) + best.depthHalf + framingMargin;
+
+    const auto dir = best.dir;
     const auto pos = center + dir * dist;
 
-    const double margin = halfZ * 0.1 + 0.01;
-    const double nearPlane = std::max(0.001, dist - halfZ - margin);
-    const double farPlane = dist + halfZ + margin;
+    const double tightNear = std::max(0.0, dist - best.depthHalf - framingMargin);
+    const double tightFar = dist + best.depthHalf + framingMargin;
+    const double nearByTight = tightNear * 0.01;
+    const double nearByRadius = safeRadius * 0.002;
+    const double nearPlane = std::max(0.001, std::min({ nearByTight, nearByRadius, 1.0 }));
+    const double farPlane = std::max({ tightFar * 16.0, nearPlane + safeRadius * 24.0 + 10.0, dist + safeRadius * 24.0 });
 
     const auto projection = nbl::hlsl::buildProjectionMatrixPerspectiveFovRH<nbl::hlsl::float32_t>(
         static_cast<float>(fovY),
@@ -678,7 +698,8 @@ void MeshLoadersApp::setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bo
         static_cast<float>(nearPlane),
         static_cast<float>(farPlane));
     camera.setProjectionMatrix(projection);
-    camera.setMoveSpeed(static_cast<float>(safeRadius * 0.1));
+    const double moveSpeed = std::clamp(safeRadius * 0.015, 0.2, 40.0);
+    camera.setMoveSpeed(static_cast<float>(moveSpeed));
     camera.setPosition(vectorSIMDf(pos.x, pos.y, pos.z));
     camera.setTarget(vectorSIMDf(center.x, center.y, center.z));
 }
@@ -753,8 +774,8 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
-    if (m_forceLoaderContentHashes)
-        params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_COMPUTE_CONTENT_HASHES);
+    if (!m_forceLoaderContentHashes)
+        params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES);
     return params;
 }
 

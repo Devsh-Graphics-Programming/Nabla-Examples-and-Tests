@@ -1,7 +1,7 @@
 #ifndef _NBL_EXAMPLES_12_MESHLOADERS_APP_H_INCLUDED_
 #define _NBL_EXAMPLES_12_MESHLOADERS_APP_H_INCLUDED_
 
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -109,6 +109,11 @@ public:
     bool keepRunning() override;
 
 protected:
+    core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
+    {
+        return system::ILogger::DefaultLogMask() | system::ILogger::ELL_INFO;
+    }
+
     const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;
 
 private:
