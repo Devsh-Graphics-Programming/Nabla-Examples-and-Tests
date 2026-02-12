@@ -42,7 +42,7 @@ class AutoexposureApp final : public SimpleWindowedApplication, public BuiltinRe
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
 	constexpr static inline uint32_t BinCount = 1024;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringMinUV = { 0.1f, 0.1f };
@@ -367,7 +367,7 @@ public:
 				const nbl::asset::SPushConstantRange pcRange = {
 						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 						.offset = 0,
-						.size = sizeof(AutoexposurePushData)
+						.size = sizeof(luma_meter::PushConstants)
 				};
 				auto pipelineLayout = m_device->createPipelineLayout(
 					{ &pcRange, 1 },
@@ -396,7 +396,7 @@ public:
 				const nbl::asset::SPushConstantRange pcRange = {
 						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 						.offset = 0,
-						.size = sizeof(AutoexposurePushData)
+						.size = sizeof(luma_meter::PushConstants)
 				};
 				auto pipelineLayout = m_device->createPipelineLayout(
 					{ &pcRange, 1 },
@@ -839,7 +839,7 @@ public:
 		auto microsecondsElapsedBetweenPresents = std::chrono::duration_cast<std::chrono::microseconds>(thisPresentStamp - m_lastPresentStamp);
 		m_lastPresentStamp = thisPresentStamp;
 
-		auto pc = AutoexposurePushData
+		auto pc = luma_meter::PushConstants
 		{
 			.lumaMin = LumaRange.x,
 			.lumaMax = LumaRange.y,
@@ -864,11 +864,11 @@ public:
 			const uint32_t2 dispatchSize = uint32_t2(hlsl::ceil(float32_t2(gpuImgExtent.width, gpuImgExtent.height) * meteringUVRange / (m_subgroupSize * SamplingFactor)));
 
 			pc.window = luma_meter::MeteringWindow::create(meteringUVRange / (float32_t2(dispatchSize) * static_cast<float>(m_subgroupSize)), MeteringMinUV);
-			pc.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
+			pc.meanParams.rcpFirstPassWGCount = 1.f / float(dispatchSize.x * dispatchSize.y);
 
 			uint32_t totalSampleCount = dispatchSize.x * m_subgroupSize * dispatchSize.y * m_subgroupSize;
-			pc.lowerBoundPercentile = uint32_t(PercentileRange.x * totalSampleCount);
-			pc.upperBoundPercentile = uint32_t(PercentileRange.y * totalSampleCount);
+			pc.histoParams.lowerBoundPercentile = uint32_t(PercentileRange.x * totalSampleCount);
+			pc.histoParams.upperBoundPercentile = uint32_t(PercentileRange.y * totalSampleCount);
 
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_meterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers

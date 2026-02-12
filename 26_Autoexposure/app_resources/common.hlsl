@@ -14,25 +14,6 @@ namespace nbl
 namespace hlsl
 {
 
-struct AutoexposurePushData
-{
-    luma_meter::MeteringWindow window;
-    float32_t lumaMin;
-    float32_t lumaMax;
-    uint32_t2 viewportSize;
-    float32_t2 exposureAdaptationFactors;
-    uint64_t pLumaMeterBuf;
-    uint64_t pLastFrameEVBuf;
-    uint64_t pCurrFrameEVBuf;
-
-    // mean only
-    float32_t rcpFirstPassWGCount;
-
-    // histogram only
-    uint32_t lowerBoundPercentile;
-    uint32_t upperBoundPercentile;
-};
-
 #ifdef __HLSL_VERSION
 
 #ifndef WORKGROUP_SIZE

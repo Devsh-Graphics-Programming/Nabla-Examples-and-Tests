@@ -14,7 +14,7 @@ using namespace nbl::hlsl;
 using Ptr = bda::__ptr < uint32_t >;
 using PtrAccessor = BdaAccessor < uint32_t >;
 
-[[vk::push_constant]] AutoexposurePushData pushData;
+[[vk::push_constant]] luma_meter::PushConstants pushData;
 
 groupshared uint32_t sdata[BIN_COUNT];
 struct SharedAccessor
@@ -64,7 +64,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     TexAccessor tex;
 
     using LumaMeter = luma_meter::median_meter<wg_config_t, BIN_COUNT, PtrAccessor, SharedAccessor, TexAccessor, device_capabilities>;
-    LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.lowerBoundPercentile, pushData.upperBoundPercentile);
+    LumaMeter meter = LumaMeter::create(pushData.lumaMin, pushData.lumaMax, pushData.histoParams.lowerBoundPercentile, pushData.histoParams.upperBoundPercentile);
 
     meter.sampleLuma(pushData.window, histo_accessor, tex, sdata, float32_t2((glsl::gl_WorkGroupID() * SUBGROUP_SIZE).xy));
 }
