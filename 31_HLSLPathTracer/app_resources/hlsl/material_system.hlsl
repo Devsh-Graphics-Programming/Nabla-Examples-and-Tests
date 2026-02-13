@@ -26,6 +26,7 @@ struct MaterialSystem
     using scalar_type = typename DiffuseBxDF::scalar_type;      // types should be same across all 3 bxdfs
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
+    using material_id_type = uint32_t;
     using measure_type = typename DiffuseBxDF::spectral_type;
     using sample_type = typename DiffuseBxDF::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
@@ -49,13 +50,13 @@ struct MaterialSystem
                                                         uint32_t(bxdf::traits<iri_conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_CONDUCTOR) &
                                                         uint32_t(bxdf::traits<iri_dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_DIELECTRIC);
 
-    static bool isBSDF(uint32_t material)
+    static bool isBSDF(material_id_type material)
     {
         return bool(IsBSDFPacked & (1u << material));
     }
 
     // these are specific for the bxdfs used for this example
-    void fillBxdfParams(uint32_t material, NBL_CONST_REF_ARG(create_params_t) cparams)
+    void fillBxdfParams(material_id_type material, NBL_CONST_REF_ARG(create_params_t) cparams)
     {
         switch(material)
         {
@@ -111,7 +112,7 @@ struct MaterialSystem
         }
     }
 
-    measure_type eval(uint32_t material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction, NBL_CONST_REF_ARG(isocache_type) _cache)
+    measure_type eval(material_id_type material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction, NBL_CONST_REF_ARG(isocache_type) _cache)
     {
         fillBxdfParams(material, cparams);
         switch(material)
@@ -146,7 +147,7 @@ struct MaterialSystem
         }
     }
 
-    sample_type generate(uint32_t material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) _cache)
+    sample_type generate(material_id_type material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) _cache)
     {
         fillBxdfParams(material, cparams);
         switch(material)
@@ -189,7 +190,7 @@ struct MaterialSystem
         return sample_type::create(L, hlsl::promote<vector3_type>(0.0));
     }
 
-    quotient_pdf_type quotient_and_pdf(uint32_t material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction, NBL_CONST_REF_ARG(isocache_type) _cache)
+    quotient_pdf_type quotient_and_pdf(material_id_type material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction, NBL_CONST_REF_ARG(isocache_type) _cache)
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
