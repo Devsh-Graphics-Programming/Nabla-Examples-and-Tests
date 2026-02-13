@@ -124,6 +124,11 @@ MeshLoadersApp::MeshLoadersApp(
 {
 }
 
+void MeshLoadersApp::configureSwapchainCreationParams(video::ISwapchain::SCreationParams& params) const
+{
+    params.sharedParams.imageUsage |= IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
+}
+
 bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 {
     if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))

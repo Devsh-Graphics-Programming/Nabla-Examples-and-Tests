@@ -114,6 +114,7 @@ protected:
         return system::ILogger::DefaultLogMask() | system::ILogger::ELL_INFO;
     }
 
+    void configureSwapchainCreationParams(video::ISwapchain::SCreationParams& params) const override;
     const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;
 
 private:
