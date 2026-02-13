@@ -169,9 +169,9 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
         sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st);
-        const scalar_type pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
+        const scalar_type pdf = pst.backwardPdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
         // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
-        return hlsl::mix(numeric_limits<scalar_type>::max, pdf, pdf < numeric_limits<scalar_type>::max);
+        return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
     }
 
     template<class Aniso>
@@ -180,11 +180,11 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         scalar_type rcpPdf;
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
-        sampling::ProjectedSphericalTriangle<scalar_type> sst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st);
+        sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st);
 
-        const vector3_type L = sst.generate(rcpPdf, interaction.getN(), isBSDF, xi.xy);
+        const vector3_type L = pst.generate(rcpPdf, interaction.getN(), isBSDF, xi.xy);
 
-        pdf = hlsl::mix(numeric_limits<scalar_type>::max, scalar_type(1.0) / rcpPdf, rcpPdf > numeric_limits<scalar_type>::min);
+        pdf = rcpPdf > numeric_limits<scalar_type>::min ? (1.0 / rcpPdf) : numeric_limits<scalar_type>::max;
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);

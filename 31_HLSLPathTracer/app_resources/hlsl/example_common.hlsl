@@ -207,6 +207,12 @@ struct BxDFNode
         return retval;
     }
 
+    scalar_type getNEEProb()
+    {
+        const scalar_type alpha = materialType != 0u ? params.A[0] : 1.0;
+        return hlsl::min(8.0 * alpha, 1.0);
+    }
+
     spectral_type albedo;
     uint32_t materialType;
     params_type params;
