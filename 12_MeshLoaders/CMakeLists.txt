@@ -10,6 +10,7 @@ set(SRCs
 
 option(NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS "Enable benchmark dataset clone + benchmark payload setup for 12_MeshLoaders." OFF)
 option(NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST "When benchmark datasets are enabled, use benchmark payload as default startup test list in batch mode." OFF)
+option(NBL_MESHLOADERS_ENABLE_HASH_CTESTS "Enable hash parity CTests (legacy_seq/new_seq/new_parallel) for 12_MeshLoaders." OFF)
 set(NBL_MESHLOADERS_BENCHMARK_DATASET_DIR "${CMAKE_BINARY_DIR}/meshloaders_benchmark_datasets" CACHE PATH "Destination directory for cloned 12_MeshLoaders benchmark datasets.")
 set(NBL_MESHLOADERS_BENCHMARK_DATASET_REPO "https://github.com/Devsh-Graphics-Programming/Nabla-Benchmark-Datasets.git" CACHE STRING "Git repository URL for 12_MeshLoaders benchmark datasets.")
 set(NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH "inputs_benchmark.json" CACHE STRING "Relative path to committed benchmark payload JSON inside dataset repo.")
@@ -90,6 +91,33 @@ add_test(NAME NBL_MESHLOADERS_CI
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
 	COMMAND_EXPAND_LISTS
 )
+
+if (NBL_MESHLOADERS_ENABLE_HASH_CTESTS)
+	set(_NBL_MESHLOADERS_HASH_TEST_COMMON_ARGS
+		--hash-test
+	)
+
+	if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
+		list(APPEND _NBL_MESHLOADERS_HASH_TEST_COMMON_ARGS --testlist "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+	endif()
+
+	add_test(NAME NBL_MESHLOADERS_HASH_TEST_HEURISTIC
+		COMMAND "$<TARGET_FILE:${EXECUTABLE_NAME}>" ${_NBL_MESHLOADERS_HASH_TEST_COMMON_ARGS} --runtime-tuning heuristic
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
+		COMMAND_EXPAND_LISTS
+	)
+	add_test(NAME NBL_MESHLOADERS_HASH_TEST_HYBRID
+		COMMAND "$<TARGET_FILE:${EXECUTABLE_NAME}>" ${_NBL_MESHLOADERS_HASH_TEST_COMMON_ARGS} --runtime-tuning hybrid
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
+		COMMAND_EXPAND_LISTS
+	)
+	set_tests_properties(
+		NBL_MESHLOADERS_HASH_TEST_HEURISTIC
+		NBL_MESHLOADERS_HASH_TEST_HYBRID
+		PROPERTIES
+			LABELS "meshloaders;hash;ci"
+	)
+endif()
 
 if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 	set(_NBL_MESHLOADERS_BENCHMARK_CI_COMMON_ARGS

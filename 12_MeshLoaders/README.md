@@ -18,6 +18,8 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - Opens file dialog and loads one model.
 - `ci`
   - Runs strict pass/fail validation per case.
+- `hash-test`
+  - Headless hash parity check per geometry (`parallel` vs `sequential` recompute).
 
 ## Common workflows
 - Quick visual check:
@@ -28,6 +30,8 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - run with `--ci`
 - Refresh geometry references:
   - run with `--update-references` (usually with `--ci`)
+- Validate content hash parity only (no write/screenshot roundtrip):
+  - run with `--hash-test`
 
 ## Optional benchmark datasets via CMake
 - Use this when you want larger/public inputs downloaded automatically.
@@ -36,6 +40,7 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Configure options:
   - `NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS=ON`
   - `NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST=ON|OFF` (default: `OFF`)
+  - `NBL_MESHLOADERS_ENABLE_HASH_CTESTS=ON|OFF` (default: `OFF`)
   - `NBL_MESHLOADERS_BENCHMARK_DATASET_DIR=<path>` (optional, default: build dir)
   - `NBL_MESHLOADERS_BENCHMARK_DATASET_REPO=<git-url>` (optional, default: public repo above)
   - `NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH=<path>` (optional, default: `inputs_benchmark.json`)
@@ -56,12 +61,19 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Run default CI directly via `ctest` (no benchmark datasets enabled):
   - `ctest --output-on-failure -C Debug -R ^NBL_MESHLOADERS_CI$`
   - uses default `inputs.json` (3 inputs)
+- Run hash parity tests directly via `ctest`:
+  - `ctest --output-on-failure -C Debug -R NBL_MESHLOADERS_HASH_TEST`
+  - requires `NBL_MESHLOADERS_ENABLE_HASH_CTESTS=ON` at configure time
+  - runs both tuning modes: `heuristic` and `hybrid`
+  - if benchmark datasets are enabled, hash tests use benchmark payload test list
 
 ## CLI
 - `--ci`
   - strict validation run
 - `--interactive`
   - file-dialog run
+- `--hash-test`
+  - headless load + hash parity check (`parallel` vs `sequential`), then exit
 - `--testlist <path>`
   - custom JSON list
 - `--savegeometry`

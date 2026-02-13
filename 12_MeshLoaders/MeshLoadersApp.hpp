@@ -147,6 +147,7 @@ private:
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
     bool loadRowView(RowViewReloadMode mode);
     bool writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath);
+    bool runHashConsistencyChecks();
 
     void setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bound);
     static hlsl::shapes::AABB<3, double> translateAABB(const hlsl::shapes::AABB<3, double>& aabb, const hlsl::float64_t3& translation);
@@ -230,6 +231,7 @@ private:
     smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
     bool m_updateGeometryHashReferences = false;
     bool m_forceLoaderContentHashes = true;
+    bool m_hashTestOnly = false;
     asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
 
     RunMode m_runMode = RunMode::Batch;

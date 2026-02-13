@@ -5,6 +5,26 @@
 #include "MeshLoadersApp.hpp"
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include "nbl/asset/interchange/SGeometryContentHashCommon.h"
+#include "nbl/core/hash/blake.h"
+
+namespace
+{
+
+core::blake3_hash_t meshloadersHashBufferLegacySequential(const asset::ICPUBuffer* const buffer)
+{
+    if (!buffer)
+        return static_cast<core::blake3_hash_t>(core::blake3_hasher{});
+    const auto* const ptr = buffer->getPointer();
+    const size_t size = buffer->getSize();
+    if (!ptr || size == 0ull)
+        return static_cast<core::blake3_hash_t>(core::blake3_hasher{});
+    core::blake3_hasher hasher;
+    hasher.update(ptr, size);
+    return static_cast<core::blake3_hash_t>(hasher);
+}
+
+}
 
 std::string MeshLoadersApp::makeUniqueCaseName(const system::path& path)
 {
@@ -84,6 +104,145 @@ void MeshLoadersApp::logRowViewLoadTotal(const double ms, const size_t hits, con
 core::blake3_hash_t MeshLoadersApp::hashGeometry(const ICPUPolygonGeometry* geo)
 {
     return CPolygonGeometryManipulator::computeDeterministicContentHash(geo);
+}
+
+bool MeshLoadersApp::runHashConsistencyChecks()
+{
+    using clock_t = std::chrono::high_resolution_clock;
+
+    if (m_cases.empty())
+        return logFail("Hash test requires at least one test case.");
+
+    IAssetLoader::SAssetLoadParams params = makeLoadParams();
+    params.logger = nullptr;
+    params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES);
+
+    double totalLoadMs = 0.0;
+    double totalLegacySequentialMs = 0.0;
+    double totalNewSequentialMs = 0.0;
+    double totalNewParallelMs = 0.0;
+    uint64_t totalGeometryCount = 0ull;
+    uint64_t totalBufferCount = 0ull;
+
+    for (const auto& testCase : m_cases)
+    {
+        m_assetMgr->clearAllAssetCache();
+
+        AssetLoadCallResult loadResult = {};
+        if (!loadAssetCallFromPath(testCase.path, params, loadResult))
+            failExit("Hash test failed to load input %s.", testCase.path.string().c_str());
+        totalLoadMs += loadResult.getAssetMs;
+
+        if (loadResult.bundle.getContents().empty())
+            failExit("Hash test loaded empty asset for %s.", testCase.path.string().c_str());
+
+        core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+        if (!appendGeometriesFromBundle(loadResult.bundle, geometries))
+            failExit("Hash test found no polygon geometry in %s.", testCase.path.string().c_str());
+
+        double caseLegacySequentialMs = 0.0;
+        double caseNewSequentialMs = 0.0;
+        double caseNewParallelMs = 0.0;
+        uint64_t caseBufferCount = 0ull;
+
+        for (size_t geoIx = 0u; geoIx < geometries.size(); ++geoIx)
+        {
+            auto* geometry = const_cast<ICPUPolygonGeometry*>(geometries[geoIx].get());
+            if (!geometry)
+                failExit("Hash test failed to access geometry %llu in %s.", static_cast<unsigned long long>(geoIx), testCase.path.string().c_str());
+
+            core::vector<core::smart_refctd_ptr<ICPUBuffer>> buffers;
+            asset::collectGeometryBuffers(geometry, buffers);
+            if (buffers.empty())
+                continue;
+
+            core::vector<core::blake3_hash_t> legacySequentialHashes;
+            core::vector<core::blake3_hash_t> newSequentialHashes;
+            core::vector<core::blake3_hash_t> newParallelHashes;
+            legacySequentialHashes.reserve(buffers.size());
+            newSequentialHashes.reserve(buffers.size());
+            newParallelHashes.reserve(buffers.size());
+
+            for (const auto& buffer : buffers)
+            {
+                if (!buffer)
+                    continue;
+
+                const auto* const ptr = buffer->getPointer();
+                const size_t size = buffer->getSize();
+
+                const auto legacyStart = clock_t::now();
+                const auto legacyHash = meshloadersHashBufferLegacySequential(buffer.get());
+                caseLegacySequentialMs += toMs(clock_t::now() - legacyStart);
+                legacySequentialHashes.push_back(legacyHash);
+
+                const auto newSeqStart = clock_t::now();
+                const auto newSeqHash = core::blake3_hash_buffer_sequential(ptr, size);
+                caseNewSequentialMs += toMs(clock_t::now() - newSeqStart);
+                newSequentialHashes.push_back(newSeqHash);
+
+                const auto newParStart = clock_t::now();
+                const auto newParHash = core::blake3_hash_buffer(ptr, size);
+                caseNewParallelMs += toMs(clock_t::now() - newParStart);
+                newParallelHashes.push_back(newParHash);
+            }
+
+            if (legacySequentialHashes.size() != newSequentialHashes.size() || legacySequentialHashes.size() != newParallelHashes.size())
+                failExit("Hash test buffer count mismatch for %s geo=%llu.", testCase.path.string().c_str(), static_cast<unsigned long long>(geoIx));
+
+            for (size_t hashIx = 0u; hashIx < legacySequentialHashes.size(); ++hashIx)
+            {
+                if (legacySequentialHashes[hashIx] == newSequentialHashes[hashIx] && legacySequentialHashes[hashIx] == newParallelHashes[hashIx])
+                    continue;
+                failExit(
+                    "Hash mismatch for %s geo=%llu buffer=%llu legacy_seq=%s new_seq=%s new_parallel=%s",
+                    testCase.path.string().c_str(),
+                    static_cast<unsigned long long>(geoIx),
+                    static_cast<unsigned long long>(hashIx),
+                    geometryHashToHex(legacySequentialHashes[hashIx]).c_str(),
+                    geometryHashToHex(newSequentialHashes[hashIx]).c_str(),
+                    geometryHashToHex(newParallelHashes[hashIx]).c_str());
+            }
+
+            caseBufferCount += legacySequentialHashes.size();
+            ++totalGeometryCount;
+        }
+
+        totalLegacySequentialMs += caseLegacySequentialMs;
+        totalNewSequentialMs += caseNewSequentialMs;
+        totalNewParallelMs += caseNewParallelMs;
+        totalBufferCount += caseBufferCount;
+
+        if (m_logger)
+        {
+            m_logger->log(
+                "Hash test case: %s load=%.3f ms geos=%llu buffers=%llu legacy_seq=%.3f ms new_seq=%.3f ms new_parallel=%.3f ms",
+                ILogger::ELL_INFO,
+                testCase.path.string().c_str(),
+                loadResult.getAssetMs,
+                static_cast<unsigned long long>(geometries.size()),
+                static_cast<unsigned long long>(caseBufferCount),
+                caseLegacySequentialMs,
+                caseNewSequentialMs,
+                caseNewParallelMs);
+        }
+    }
+
+    if (m_logger)
+    {
+        m_logger->log(
+            "Hash test summary: cases=%llu geos=%llu buffers=%llu load=%.3f ms legacy_seq=%.3f ms new_seq=%.3f ms new_parallel=%.3f ms",
+            ILogger::ELL_INFO,
+            static_cast<unsigned long long>(m_cases.size()),
+            static_cast<unsigned long long>(totalGeometryCount),
+            static_cast<unsigned long long>(totalBufferCount),
+            totalLoadMs,
+            totalLegacySequentialMs,
+            totalNewSequentialMs,
+            totalNewParallelMs);
+    }
+
+    return true;
 }
 
 bool MeshLoadersApp::validateWrittenAsset(const system::path& path)

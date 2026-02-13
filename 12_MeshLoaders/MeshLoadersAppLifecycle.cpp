@@ -165,6 +165,9 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     parser.add_argument("--ci")
         .help("Run in CI mode: load test list, write .ply, capture screenshots, compare data, and exit.")
         .flag();
+    parser.add_argument("--hash-test")
+        .help("Run headless hash consistency check: parallel vs sequential content hash recompute, then exit.")
+        .flag();
     parser.add_argument("--interactive")
         .help("Use file dialog to select a single model.")
         .flag();
@@ -205,6 +208,11 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         m_runMode = RunMode::Interactive;
     if (parser["--ci"] == true)
         m_runMode = RunMode::CI;
+    if (parser["--hash-test"] == true)
+    {
+        m_hashTestOnly = true;
+        m_runMode = RunMode::CI;
+    }
     const bool hasExplicitTestListArg = parser.present("--testlist").has_value();
 
     if (parser.present("--savepath"))
@@ -347,6 +355,15 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
     if (!initTestCases())
         return false;
+
+    if (m_hashTestOnly)
+    {
+        if (!runHashConsistencyChecks())
+            return false;
+        m_shouldQuit = true;
+        onAppInitializedFinish();
+        return true;
+    }
 
     if (isRowViewActive())
     {

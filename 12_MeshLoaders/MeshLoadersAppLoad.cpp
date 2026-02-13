@@ -108,6 +108,7 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
     const auto extractMs = toMs(clock_t::now() - extractStart);
     if (geometries.empty())
         failExit("No geometry found in asset %s.", m_modelPath.c_str());
+
     const auto outerMs = toMs(clock_t::now() - loadOuterStart);
     const auto nonLoaderMs = std::max(0.0, outerMs - loadMs);
     m_logger->log(
