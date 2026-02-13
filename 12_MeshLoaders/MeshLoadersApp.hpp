@@ -142,6 +142,7 @@ private:
     bool addRowViewCase();
     bool addRowViewCaseFromPath(const system::path& picked);
     bool reloadFromTestList();
+    void resetRowViewScene();
 
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
     bool loadRowView(RowViewReloadMode mode);
@@ -210,6 +211,7 @@ private:
 
     bool m_nonInteractiveTest = false;
     bool m_rowViewEnabled = true;
+    bool m_forceRowViewForCurrentTestList = false;
     bool m_rowViewScreenshotCaptured = false;
     bool m_fileDialogOpen = false;
 

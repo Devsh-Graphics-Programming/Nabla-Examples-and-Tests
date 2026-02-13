@@ -12,6 +12,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
@@ -19,6 +20,99 @@
 #endif
 
 #include "nbl/system/CFileLogger.h"
+
+namespace
+{
+
+template<typename ArgContainer>
+std::string makeCaptionModelPath(const std::string& modelPath, const ArgContainer& argv)
+{
+    if (modelPath.empty())
+        return {};
+
+    std::error_code ec;
+    if (modelPath.find('/') == std::string::npos && modelPath.find('\\') == std::string::npos)
+    {
+        if (!std::filesystem::exists(std::filesystem::path(modelPath), ec))
+        {
+            ec.clear();
+            return modelPath;
+        }
+        ec.clear();
+    }
+    std::filesystem::path targetPath(modelPath);
+    targetPath = targetPath.lexically_normal();
+    const auto canonicalTarget = std::filesystem::weakly_canonical(targetPath, ec);
+    if (!ec)
+        targetPath = canonicalTarget;
+    else
+        ec.clear();
+
+    if (!targetPath.is_absolute())
+    {
+        const auto absoluteTarget = std::filesystem::absolute(targetPath, ec);
+        if (!ec)
+            targetPath = absoluteTarget.lexically_normal();
+        else
+            ec.clear();
+    }
+    if (!targetPath.is_absolute())
+        return targetPath.generic_string();
+
+    auto relativeFromBase = [&](const std::filesystem::path& basePath) -> std::string
+    {
+        if (basePath.empty())
+            return {};
+        auto canonicalBase = std::filesystem::weakly_canonical(basePath, ec);
+        if (ec)
+        {
+            ec.clear();
+            canonicalBase = std::filesystem::absolute(basePath, ec);
+        }
+        if (ec)
+        {
+            ec.clear();
+            return {};
+        }
+        const auto relativePath = std::filesystem::relative(targetPath, canonicalBase, ec);
+        if (ec || relativePath.empty() || relativePath.is_absolute())
+        {
+            ec.clear();
+            return {};
+        }
+        return relativePath.lexically_normal().generic_string();
+    };
+
+    std::string bestRelativePath;
+    if (!argv.empty() && !argv[0].empty())
+    {
+        const auto exePath = std::filesystem::absolute(std::filesystem::path(argv[0]), ec);
+        if (!ec)
+        {
+            const auto relativeToExe = relativeFromBase(exePath.parent_path());
+            if (!relativeToExe.empty())
+                bestRelativePath = relativeToExe;
+        }
+        else
+            ec.clear();
+    }
+
+    const auto cwd = std::filesystem::current_path(ec);
+    if (!ec)
+    {
+        const auto relativeToCwd = relativeFromBase(cwd);
+        if (!relativeToCwd.empty() && (bestRelativePath.empty() || relativeToCwd.size() < bestRelativePath.size()))
+            bestRelativePath = relativeToCwd;
+    }
+    else
+        ec.clear();
+
+    if (!bestRelativePath.empty())
+        return bestRelativePath;
+    return targetPath.generic_string();
+}
+
+}
 
 MeshLoadersApp::MeshLoadersApp(
     const path& localInputCWD,
@@ -40,10 +134,25 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
         return false;
 
+    const auto resolveRuntimeCWD = [](const path& preferred)->path
+    {
+        if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
+            return path(std::filesystem::current_path());
+        return preferred;
+    };
+    const path effectiveInputCWD = resolveRuntimeCWD(localInputCWD);
+    const path effectiveOutputCWD = resolveRuntimeCWD(localOutputCWD);
+
     m_runMode = RunMode::Batch;
-    m_saveGeomPrefixPath = localOutputCWD / "saved";
-    m_screenshotPrefixPath = localOutputCWD / "screenshots";
-    m_testListPath = localInputCWD / "inputs.json";
+    m_saveGeomPrefixPath = effectiveOutputCWD / "saved";
+    m_screenshotPrefixPath = effectiveOutputCWD / "screenshots";
+    m_testListPath = effectiveInputCWD / "inputs.json";
+    m_forceRowViewForCurrentTestList = false;
+#if defined(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH)
+    const path defaultBenchmarkTestListPath = path(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH);
+#else
+    const path defaultBenchmarkTestListPath;
+#endif
 
     argparse::ArgumentParser parser("12_meshloaders");
     parser.add_argument("--savegeometry")
@@ -96,6 +205,7 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         m_runMode = RunMode::Interactive;
     if (parser["--ci"] == true)
         m_runMode = RunMode::CI;
+    const bool hasExplicitTestListArg = parser.present("--testlist").has_value();
 
     if (parser.present("--savepath"))
     {
@@ -110,20 +220,30 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         m_specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
     }
 
-    if (parser.present("--testlist"))
+    if (hasExplicitTestListArg)
     {
         auto tmp = path(parser.get<std::string>("--testlist"));
         if (tmp.empty())
             return logFail("Invalid path has been specified in --testlist argument");
         if (tmp.is_relative())
-            tmp = localInputCWD / tmp;
+            tmp = effectiveInputCWD / tmp;
         m_testListPath = tmp;
+    }
+    else if (m_runMode == RunMode::Batch && !defaultBenchmarkTestListPath.empty())
+    {
+        std::error_code benchmarkPathEc;
+        if (std::filesystem::exists(defaultBenchmarkTestListPath, benchmarkPathEc) && !benchmarkPathEc)
+        {
+            m_testListPath = defaultBenchmarkTestListPath;
+            m_forceRowViewForCurrentTestList = true;
+            m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_testListPath.string().c_str());
+        }
     }
     if (parser.present("--row-add"))
     {
         auto tmp = path(parser.get<std::string>("--row-add"));
         if (tmp.is_relative())
-            tmp = localInputCWD / tmp;
+            tmp = effectiveInputCWD / tmp;
         m_rowAddPath = tmp;
     }
     if (parser.present("--row-duplicate"))
@@ -144,7 +264,7 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         if (tmp.empty())
             return logFail("Invalid --loader-perf-log value.");
         if (tmp.is_relative())
-            tmp = localOutputCWD / tmp;
+            tmp = effectiveOutputCWD / tmp;
         m_loaderPerfLogPath = tmp;
     }
     if (parser["--update-references"] == true)
@@ -165,8 +285,8 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             return logFail("Invalid --runtime-tuning value. Expected: none|heuristic|hybrid.");
     }
 
-    const path inputReferencesDir = localInputCWD / "references";
-    const path outputReferencesDir = localOutputCWD / "references";
+    const path inputReferencesDir = effectiveInputCWD / "references";
+    const path outputReferencesDir = effectiveOutputCWD / "references";
     std::error_code referenceDirEc;
     const bool hasInputReferencesDir = std::filesystem::is_directory(inputReferencesDir, referenceDirEc) && !referenceDirEc;
     referenceDirEc.clear();
@@ -306,6 +426,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
                 bool reloadInteractiveRequested = false;
                 bool reloadListRequested = false;
                 bool addRowViewRequested = false;
+                bool clearRowViewRequested = false;
                 camera.beginInputProcessing(nextPresentationTimestamp);
                 mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
                 keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
@@ -326,12 +447,19 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
                                 if (isRowViewActive())
                                     addRowViewRequested = true;
                             }
+                            else if (event.keyCode == E_KEY_CODE::EKC_X)
+                            {
+                                if (isRowViewActive())
+                                    clearRowViewRequested = true;
+                            }
                         }
                         camera.keyboardProcess(events);
                     },
                     m_logger.get()
                 );
                 camera.endInputProcessing(nextPresentationTimestamp);
+                if (clearRowViewRequested)
+                    resetRowViewScene();
                 if (addRowViewRequested)
                     addRowViewCase();
                 if (reloadListRequested)
@@ -396,7 +524,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
     std::string caption = "[Nabla Engine] Mesh Loaders";
     {
         caption += ", displaying [";
-        caption += m_modelPath;
+        caption += makeCaptionModelPath(m_modelPath, argv);
         caption += "]";
         m_window->setCaption(caption);
     }
@@ -528,6 +656,7 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
 {
     if (!std::filesystem::exists(jsonPath))
         return logFail("Missing test list: %s", jsonPath.string().c_str());
+    m_rowViewEnabled = true;
 
     std::ifstream stream(jsonPath);
     if (!stream.is_open())
@@ -554,6 +683,8 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
             return logFail("\"row_view\" must be a boolean.");
         m_rowViewEnabled = doc["row_view"].get<bool>();
     }
+    if (m_forceRowViewForCurrentTestList && m_runMode == RunMode::Batch)
+        m_rowViewEnabled = true;
 
     const auto baseDir = jsonPath.parent_path();
     for (const auto& entry : doc["cases"])
@@ -844,6 +975,25 @@ bool MeshLoadersApp::reloadFromTestList()
     }
     m_nonInteractiveTest = (m_runMode != RunMode::Interactive);
     return startCase(0u);
+}
+
+void MeshLoadersApp::resetRowViewScene()
+{
+    if (!isRowViewActive())
+        return;
+    m_cases.clear();
+    m_rowViewCache.clear();
+    m_renderer->m_instances.clear();
+    m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+#ifdef NBL_BUILD_DEBUG_DRAW
+    m_aabbInstances.clear();
+    m_obbInstances.clear();
+#endif
+    m_modelPath = "Row view (empty)";
+    m_rowViewScreenshotCaptured = false;
+    m_shouldQuit = false;
+    m_nonInteractiveTest = false;
+    m_logger->log("Row view reset to empty. Press A to add a model.", ILogger::ELL_INFO);
 }
 
 

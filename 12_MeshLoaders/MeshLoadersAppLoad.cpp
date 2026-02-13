@@ -10,6 +10,65 @@
 
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
+namespace
+{
+inline bool meshloadersIsFinite(const double value)
+{
+    return std::isfinite(value);
+}
+
+inline bool meshloadersIsFinite(const hlsl::float64_t3& value)
+{
+    return meshloadersIsFinite(value.x) && meshloadersIsFinite(value.y) && meshloadersIsFinite(value.z);
+}
+
+hlsl::shapes::AABB<3, double> meshloadersComputeFinitePositionAABB(const ICPUPolygonGeometry* geometry)
+{
+    auto aabb = hlsl::shapes::AABB<3, double>::create();
+    if (!geometry)
+        return aabb;
+    const auto positionView = geometry->getPositionView();
+    const auto vertexCount = positionView.getElementCount();
+    bool hasFiniteVertex = false;
+    for (size_t i = 0u; i < vertexCount; ++i)
+    {
+        hlsl::float32_t3 decoded = {};
+        positionView.decodeElement(i, decoded);
+        const hlsl::float64_t3 p = {
+            static_cast<double>(decoded.x),
+            static_cast<double>(decoded.y),
+            static_cast<double>(decoded.z)
+        };
+        if (!meshloadersIsFinite(p))
+            continue;
+        if (!hasFiniteVertex)
+        {
+            aabb.minVx = p;
+            aabb.maxVx = p;
+            hasFiniteVertex = true;
+            continue;
+        }
+        aabb.minVx.x = std::min(aabb.minVx.x, p.x);
+        aabb.minVx.y = std::min(aabb.minVx.y, p.y);
+        aabb.minVx.z = std::min(aabb.minVx.z, p.z);
+        aabb.maxVx.x = std::max(aabb.maxVx.x, p.x);
+        aabb.maxVx.y = std::max(aabb.maxVx.y, p.y);
+        aabb.maxVx.z = std::max(aabb.maxVx.z, p.z);
+    }
+    if (hasFiniteVertex)
+        return aabb;
+    return hlsl::shapes::AABB<3, double>::create();
+}
+
+hlsl::shapes::AABB<3, double> meshloadersFallbackUnitAABB()
+{
+    hlsl::shapes::AABB<3, double> fallback = hlsl::shapes::AABB<3, double>::create();
+    fallback.minVx = hlsl::float64_t3(-1.0, -1.0, -1.0);
+    fallback.maxVx = hlsl::float64_t3(1.0, 1.0, 1.0);
+    return fallback;
+}
+}
+
 bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera)
 {
     if (modelPath.empty())
@@ -151,7 +210,12 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         for (uint32_t i = 0; i < converted.size(); i++)
         {
             const auto& cpuGeom = geometries[i].get();
-            const auto promoted = getGeometryAABB(cpuGeom);
+            auto promoted = getGeometryAABB(cpuGeom);
+            if (!isValidAABB(promoted))
+            {
+                m_logger->log("Invalid geometry AABB for %s (geo=%u). Using fallback unit AABB for framing.", ILogger::ELL_WARNING, m_modelPath.c_str(), i);
+                promoted = meshloadersFallbackUnitAABB();
+            }
             printAABB(promoted, "Geometry");
             const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
             const auto translation = hlsl::float64_t3(
@@ -304,6 +368,12 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             const auto aabbStart = clock_t::now();
             entry.aabb = getGeometryAABB(entry.cpu.get());
             entry.hasAabb = isValidAABB(entry.aabb);
+            if (!entry.hasAabb)
+            {
+                m_logger->log("Invalid row-view geometry AABB for %s. Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str());
+                entry.aabb = meshloadersFallbackUnitAABB();
+                entry.hasAabb = true;
+            }
             stats.aabbMs += toMs(clock_t::now() - aabbStart);
         }
         else
@@ -314,6 +384,12 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 const auto aabbStart = clock_t::now();
                 entry.aabb = getGeometryAABB(entry.cpu.get());
                 entry.hasAabb = isValidAABB(entry.aabb);
+                if (!entry.hasAabb)
+                {
+                    m_logger->log("Invalid row-view geometry AABB for %s. Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str());
+                    entry.aabb = meshloadersFallbackUnitAABB();
+                    entry.hasAabb = true;
+                }
                 stats.aabbMs += toMs(clock_t::now() - aabbStart);
             }
         }
@@ -650,43 +726,38 @@ bool MeshLoadersApp::writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> g
 
 void MeshLoadersApp::setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bound)
 {
-    const auto extent = bound.getExtent();
+    auto validBound = bound;
+    if (!isValidAABB(validBound))
+    {
+        m_logger->log("Total AABB invalid; using fallback unit AABB for camera setup.", ILogger::ELL_WARNING);
+        validBound = meshloadersFallbackUnitAABB();
+    }
+    const auto extent = validBound.getExtent();
     const auto aspectRatio = double(m_window->getWidth()) / double(m_window->getHeight());
     const double fovY = 1.2;
     const double fovX = 2.0 * std::atan(std::tan(fovY * 0.5) * aspectRatio);
-    const auto center = (bound.minVx + bound.maxVx) * 0.5;
+    const auto center = (validBound.minVx + validBound.maxVx) * 0.5;
     const auto halfExtent = extent * 0.5;
     const double halfX = std::max(halfExtent.x, 0.001);
     const double halfY = std::max(halfExtent.y, 0.001);
     const double halfZ = std::max(halfExtent.z, 0.001);
     const double safeRadius = std::max({ halfX, halfY, halfZ });
 
-    struct CameraCandidate
-    {
-        hlsl::float64_t3 dir;
-        double planeHalfX;
-        double planeHalfY;
-        double depthHalf;
-        double footprint;
-    };
-    std::array<CameraCandidate, 3u> candidates = {
-        CameraCandidate{ hlsl::float64_t3(1.0, 0.0, 0.0), halfY, halfZ, halfX, halfY * halfZ },
-        CameraCandidate{ hlsl::float64_t3(0.0, 1.0, 0.0), halfX, halfZ, halfY, halfX * halfZ },
-        CameraCandidate{ hlsl::float64_t3(0.0, 0.0, 1.0), halfX, halfY, halfZ, halfX * halfY }
-    };
-    const auto bestIt = std::max_element(candidates.begin(), candidates.end(), [](const CameraCandidate& a, const CameraCandidate& b) { return a.footprint < b.footprint; });
-    const CameraCandidate best = (bestIt != candidates.end()) ? *bestIt : candidates[2u];
-
-    const double distY = best.planeHalfY / std::tan(fovY * 0.5);
-    const double distX = best.planeHalfX / std::tan(fovX * 0.5);
+    // Keep startup camera horizontal and in front of the scene.
+    const hlsl::float64_t3 dir(0.0, 0.0, 1.0);
+    const double planeHalfX = halfX;
+    const double planeHalfY = halfY;
+    const double depthHalf = halfZ;
+    const double distY = planeHalfY / std::tan(fovY * 0.5);
+    const double distX = planeHalfX / std::tan(fovX * 0.5);
     const double framingMargin = std::max(0.1, safeRadius * 0.35);
-    const double dist = std::max(distX, distY) + best.depthHalf + framingMargin;
+    const double dist = std::max(distX, distY) + depthHalf + framingMargin;
+    const double eyeHeightOffset = std::max(halfY * 0.2, 0.05);
+    const auto eyeCenter = center + hlsl::float64_t3(0.0, eyeHeightOffset, 0.0);
+    const auto pos = eyeCenter + dir * dist;
 
-    const auto dir = best.dir;
-    const auto pos = center + dir * dist;
-
-    const double tightNear = std::max(0.0, dist - best.depthHalf - framingMargin);
-    const double tightFar = dist + best.depthHalf + framingMargin;
+    const double tightNear = std::max(0.0, dist - depthHalf - framingMargin);
+    const double tightFar = dist + depthHalf + framingMargin;
     const double nearByTight = tightNear * 0.01;
     const double nearByRadius = safeRadius * 0.002;
     const double nearPlane = std::max(0.001, std::min({ nearByTight, nearByRadius, 1.0 }));
@@ -701,7 +772,7 @@ void MeshLoadersApp::setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bo
     const double moveSpeed = std::clamp(safeRadius * 0.015, 0.2, 40.0);
     camera.setMoveSpeed(static_cast<float>(moveSpeed));
     camera.setPosition(vectorSIMDf(pos.x, pos.y, pos.z));
-    camera.setTarget(vectorSIMDf(center.x, center.y, center.z));
+    camera.setTarget(vectorSIMDf(eyeCenter.x, eyeCenter.y, eyeCenter.z));
 }
 
 hlsl::shapes::AABB<3, double> MeshLoadersApp::translateAABB(const hlsl::shapes::AABB<3, double>& aabb, const hlsl::float64_t3& translation)
@@ -741,6 +812,8 @@ void MeshLoadersApp::applyCameraState(const CameraState& state)
 bool MeshLoadersApp::isValidAABB(const hlsl::shapes::AABB<3, double>& aabb)
 {
     return
+        meshloadersIsFinite(aabb.minVx) &&
+        meshloadersIsFinite(aabb.maxVx) &&
         (aabb.minVx.x <= aabb.maxVx.x) &&
         (aabb.minVx.y <= aabb.maxVx.y) &&
         (aabb.minVx.z <= aabb.maxVx.z);
@@ -755,6 +828,8 @@ hlsl::shapes::AABB<3, double> MeshLoadersApp::getGeometryAABB(const ICPUPolygonG
     {
         CPolygonGeometryManipulator::recomputeAABB(geometry);
         aabb = geometry->getAABB<hlsl::shapes::AABB<3, double>>();
+        if (!isValidAABB(aabb))
+            aabb = meshloadersComputeFinitePositionAABB(geometry);
     }
     return aabb;
 }
