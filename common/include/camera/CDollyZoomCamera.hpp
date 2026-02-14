@@ -35,10 +35,10 @@ public:
 
     float computeDollyFov() const
     {
-        const double base = std::tan(glm::radians(static_cast<double>(m_baseFov)) * 0.5);
+        const double base = std::tan(hlsl::radians(static_cast<double>(m_baseFov)) * 0.5);
         const double ratio = static_cast<double>(m_referenceDistance) / std::max<double>(static_cast<double>(m_distance), static_cast<double>(MinDistance));
         const double fov = 2.0 * std::atan(base * ratio);
-        const double fovDeg = glm::degrees(fov);
+        const double fovDeg = hlsl::degrees(fov);
         return static_cast<float>(std::clamp(fovDeg, 10.0, 150.0));
     }
 

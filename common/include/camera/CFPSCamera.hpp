@@ -5,6 +5,8 @@
 #ifndef _C_FPS_CAMERA_HPP_
 #define _C_FPS_CAMERA_HPP_
 
+#include <cmath>
+
 #include "ICamera.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
@@ -15,6 +17,8 @@ class CFPSCamera final : public ICamera
 { 
 public:
     using base_t = ICamera;
+    static inline constexpr float HalfPi = 1.57079632679489661923f;
+    static inline constexpr float RadToDeg = 57.2957795130823208768f;
 
     CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
@@ -25,8 +29,8 @@ public:
             const float gForwardX = static_cast<float>(gForward.x);
             const float gForwardY = static_cast<float>(gForward.y);
             const float gForwardZ = static_cast<float>(gForward.z);
-            const float gPitch = glm::atan(glm::length(glm::vec2(gForwardX, gForwardZ)), gForwardY) - glm::half_pi<float>();
-            const float gYaw = glm::atan(gForwardX, gForwardZ);
+            const float gPitch = std::atan2(std::hypot(gForwardX, gForwardZ), gForwardY) - HalfPi;
+            const float gYaw = std::atan2(gForwardX, gForwardZ);
             auto test = glm::quat(glm::vec3(gPitch, gYaw, 0.0f));
 
 
@@ -70,11 +74,11 @@ public:
                 const float z = static_cast<float>(q.z);
                 const float sinr_cosp = 2.f * (w * z + x * y);
                 const float cosr_cosp = 1.f - 2.f * (y * y + z * z);
-                const float roll = glm::degrees(glm::atan(sinr_cosp, cosr_cosp));
-                const float absRoll = glm::abs(roll);
+                const float roll = RadToDeg * std::atan2(sinr_cosp, cosr_cosp);
+                const float absRoll = std::abs(roll);
                 constexpr float epsilon = 1.e-4f;
 
-                if (not (glm::epsilonEqual(absRoll, 0.f, epsilon) || glm::epsilonEqual(absRoll, 180.f, epsilon)))
+                if (not ((absRoll <= epsilon) || (std::abs(absRoll - 180.f) <= epsilon)))
                     return false;
             }
 
@@ -87,9 +91,11 @@ public:
 
         m_gimbal.begin();
         {
-            const auto rForward = glm::vec3(reference.frame[2]);
-            const float rPitch = glm::atan(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>();
-            const float gYaw = glm::atan(rForward.x, rForward.z);
+            const float rForwardX = static_cast<float>(reference.frame[2].x);
+            const float rForwardY = static_cast<float>(reference.frame[2].y);
+            const float rForwardZ = static_cast<float>(reference.frame[2].z);
+            const float rPitch = std::atan2(std::hypot(rForwardX, rForwardZ), rForwardY) - HalfPi;
+            const float gYaw = std::atan2(rForwardX, rForwardZ);
             const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
 
             if(validateReference()) m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
@@ -120,7 +126,7 @@ private:
     typename base_t::CGimbal m_gimbal;
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr float MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+    static inline constexpr float MaxVerticalAngle = 1.53588974175501f, MinVerticalAngle = -MaxVerticalAngle;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {

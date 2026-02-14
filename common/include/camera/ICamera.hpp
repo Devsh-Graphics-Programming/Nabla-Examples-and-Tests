@@ -32,9 +32,9 @@ public:
 
             const auto& position = base_t::getPosition();
 
-            m_viewMatrix[0u] = float64_t4(gRight, -glm::dot(gRight, position));
-            m_viewMatrix[1u] = float64_t4(gUp, -glm::dot(gUp, position));
-            m_viewMatrix[2u] = float64_t4(gForward, -glm::dot(gForward, position));
+            m_viewMatrix[0u] = float64_t4(gRight, -hlsl::dot(gRight, position));
+            m_viewMatrix[1u] = float64_t4(gUp, -hlsl::dot(gUp, position));
+            m_viewMatrix[2u] = float64_t4(gForward, -hlsl::dot(gForward, position));
         }
 
         inline const float64_t3x4& getViewMatrix() const { return m_viewMatrix; }

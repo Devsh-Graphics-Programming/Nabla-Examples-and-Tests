@@ -386,9 +386,9 @@ public:
                 // Delta rotation impulse
                 const float32_t3 dRotationRad =
                 {
-                    glm::radians(world.dRotation[0]),
-                    glm::radians(world.dRotation[1]),
-                    glm::radians(world.dRotation[2])
+                    hlsl::radians(world.dRotation[0]),
+                    hlsl::radians(world.dRotation[1]),
+                    hlsl::radians(world.dRotation[2])
                 };
                 requestMagnitudeUpdateWithScalar(0.f, dRotationRad[0], std::abs(dRotationRad[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
                 requestMagnitudeUpdateWithScalar(0.f, dRotationRad[1], std::abs(dRotationRad[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);

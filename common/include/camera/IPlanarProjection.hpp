@@ -69,9 +69,9 @@ public:
                     const auto& fov = m_parameters.m_planar.perspective.fov;
 
                     if (leftHanded)
-                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                     else
-                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                 } break;
 
                 case Orthographic:

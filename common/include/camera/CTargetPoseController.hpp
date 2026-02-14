@@ -172,9 +172,9 @@ private:
 
         const auto deltaWorld = target.position - currentPos;
         const float64_t3 localDelta(
-            glm::dot(deltaWorld, right),
-            glm::dot(deltaWorld, up),
-            glm::dot(deltaWorld, forward));
+            hlsl::dot(deltaWorld, right),
+            hlsl::dot(deltaWorld, up),
+            hlsl::dot(deltaWorld, forward));
 
         appendSignedEvent(out, localDelta.x, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
         appendSignedEvent(out, localDelta.y, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);

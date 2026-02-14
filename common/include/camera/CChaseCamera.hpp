@@ -72,8 +72,8 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = glm::radians(70.0);
-    static inline constexpr double MinPitch = glm::radians(-60.0);
+    static inline constexpr double MaxPitch = 1.2217304763960306;
+    static inline constexpr double MinPitch = -1.0471975511965976;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {

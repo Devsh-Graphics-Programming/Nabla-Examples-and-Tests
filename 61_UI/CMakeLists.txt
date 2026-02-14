@@ -1,5 +1,6 @@
 if(NBL_BUILD_IMGUI)
 	set(NBL_EXTRA_SOURCES
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/keysmapping.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
 	)
 
