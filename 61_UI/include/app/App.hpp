@@ -1849,7 +1849,8 @@ class App final : public examples::SimpleWindowedApplication
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;
-		uint16_t gcIndex = {}; 
+		uint16_t gcIndex = {};
+		uint16_t m_gridGeometryIx = std::numeric_limits<uint16_t>::max();
 
 		static constexpr uint32_t CiFramesBeforeCapture = 10u;
 		static constexpr auto CiMaxRuntime = std::chrono::minutes(2);

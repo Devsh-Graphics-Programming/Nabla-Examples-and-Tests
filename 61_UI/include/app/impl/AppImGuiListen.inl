@@ -146,17 +146,6 @@
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
-						static constexpr float identityMatrix[] =
-						{
-							1.f, 0.f, 0.f, 0.f,
-							0.f, 1.f, 0.f, 0.f,
-							0.f, 0.f, 1.f, 0.f,
-							0.f, 0.f, 0.f, 1.f 
-						};
-
-						if(!hideSceneGizmos && binding.enableDebugGridDraw)
-							ImGuizmo::DrawGrid(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], identityMatrix, 100.f);
-
 						if (!hideSceneGizmos)
 						{
 							for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)

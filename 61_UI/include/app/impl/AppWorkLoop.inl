@@ -42,7 +42,45 @@
 
 				auto renderScene = [&](windowControlBinding& binding)
 				{
-					if (!binding.sceneFramebuffer)
+					if (!binding.sceneFramebuffer || !m_renderer)
+						return;
+
+					const auto& geometries = m_renderer->getGeometries();
+					const auto geomCount = geometries.size();
+					if (!geomCount)
+						return;
+
+					if (gcIndex >= geomCount)
+						gcIndex = 0u;
+
+					const bool hasGridGeometry = m_gridGeometryIx < geomCount;
+					const bool drawDepthGrid = binding.enableDebugGridDraw && hasGridGeometry;
+					if (drawDepthGrid)
+					{
+						if (m_renderer->m_instances.size() < 2u)
+							m_renderer->m_instances.resize(2u);
+
+						auto& gridInstance = m_renderer->m_instances[0];
+						gridInstance.world = nbl::hlsl::float32_t3x4(1.f);
+						gridInstance.packedGeo = geometries.data() + m_gridGeometryIx;
+
+						auto& objectInstance = m_renderer->m_instances[1];
+						objectInstance.world = m_model;
+						objectInstance.packedGeo = geometries.data() + gcIndex;
+					}
+					else
+					{
+						if (m_renderer->m_instances.empty())
+							m_renderer->m_instances.resize(1u);
+						if (m_renderer->m_instances.size() > 1u)
+							m_renderer->m_instances.resize(1u);
+
+						auto& objectInstance = m_renderer->m_instances[0];
+						objectInstance.world = m_model;
+						objectInstance.packedGeo = geometries.data() + gcIndex;
+					}
+
+					if (m_renderer->m_instances.empty())
 						return;
 
 					const auto& fbParams = binding.sceneFramebuffer->getCreationParameters();
@@ -73,19 +111,6 @@
 					}
 					willSubmit &= cmdbuf->endRenderPass();
 				};
-
-				if (m_renderer && !m_renderer->m_instances.empty())
-				{
-					auto& instance = m_renderer->m_instances[0];
-					instance.world = m_model;
-					const auto geomCount = m_renderer->getGeometries().size();
-					if (geomCount)
-					{
-						if (gcIndex >= geomCount)
-							gcIndex = 0;
-						instance.packedGeo = m_renderer->getGeometries().data() + gcIndex;
-					}
-				}
 
 				if (useWindow)
 					for (auto& binding : windowBindings)

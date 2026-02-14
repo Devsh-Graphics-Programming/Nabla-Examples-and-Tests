@@ -1392,6 +1392,8 @@
 					{
 						if (name == "Cone")
 							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+						else if (name == "Grid")
+							m_gridGeometryIx = static_cast<uint16_t>(ix);
 						ix++;
 					}
 				}
