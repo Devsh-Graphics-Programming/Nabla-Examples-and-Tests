@@ -4,6 +4,7 @@
 
 if(NBL_BUILD_EXAMPLES)
 	project(NablaExamples)
+	enable_testing()
 
 	if(NBL_BUILD_ANDROID)
 		nbl_android_create_media_storage_apk()
