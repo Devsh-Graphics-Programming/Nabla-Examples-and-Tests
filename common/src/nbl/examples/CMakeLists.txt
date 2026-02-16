@@ -29,7 +29,6 @@ set(JSON [=[
 		"INPUT": "shaders/geometry/unified.hlsl",
 		"KEY": "shaders/geometry/unified",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
-		"DEPENDS": [],
 		"CAPS": []
     }
 ]
@@ -39,11 +38,10 @@ NBL_CREATE_NSC_COMPILE_RULES(${ARGS} INPUTS ${JSON})
 
 set(JSON [=[
 [
-    {
+	{
 		"INPUT": "shaders/geometry/unified.hlsl",
 		"KEY": "shaders/geometry/unified-caps",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
-		"DEPENDS": [],
 		"CAPS": [
             {
                 "name": "shaderFloat64",
@@ -61,7 +59,6 @@ set(JSON [=[
 		"INPUT": "shaders/geometry/unified.hlsl",
 		"KEY": "shaders/geometry/unified-caps-2",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
-		"DEPENDS": [],
 		"CAPS": [
             {
                 "name": "shaderFloat64",

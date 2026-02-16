@@ -4,6 +4,7 @@ if(NOT RES)
 endif()
 
 nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::FullScreenTriangle)
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
@@ -35,12 +36,6 @@ add_test(NAME NBL_IMAGE_HASH_RUN_TESTS
 )
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(DEPENDS
-    app_resources/present.frag.hlsl
-    app_resources/push_constants.hlsl
-)
-target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
-set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(SM 6_8)
 set(JSON [=[
@@ -61,7 +56,6 @@ set(COMPILE_OPTIONS
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
-    DEPENDS ${DEPENDS}
     BINARY_DIR ${OUTPUT_DIRECTORY}
     MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
     COMMON_OPTIONS ${COMPILE_OPTIONS}

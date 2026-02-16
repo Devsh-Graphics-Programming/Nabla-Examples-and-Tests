@@ -11,6 +11,7 @@ if(NBL_BUILD_IMGUI)
 	list(APPEND NBL_LIBRARIES 
 		imtestengine
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::FullScreenTriangle
 	)
 
 	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
@@ -35,23 +36,6 @@ if(NBL_BUILD_IMGUI)
 endif()
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(DEPENDS
-    app_resources/common.hlsl
-    app_resources/light_directional.rcall.hlsl
-	app_resources/light_point.rcall.hlsl
-	app_resources/light_spot.rcall.hlsl
-	app_resources/present.frag.hlsl
-	app_resources/raytrace.rahit.hlsl
-	app_resources/raytrace.rchit.hlsl
-	app_resources/raytrace.rgen.hlsl
-	app_resources/raytrace.rint.hlsl
-	app_resources/raytrace.rmiss.hlsl
-	app_resources/raytrace_procedural.rchit.hlsl
-	app_resources/raytrace_shadow.rahit.hlsl
-	app_resources/raytrace_shadow.rmiss.hlsl
-)
-target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
-set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(SM 6_8)
 set(JSON [=[
@@ -116,7 +100,6 @@ set(COMPILE_OPTIONS
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
-    DEPENDS ${DEPENDS}
     BINARY_DIR ${OUTPUT_DIRECTORY}
     MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
     COMMON_OPTIONS ${COMPILE_OPTIONS}
