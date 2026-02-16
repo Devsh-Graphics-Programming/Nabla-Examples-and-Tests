@@ -325,70 +325,91 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     using shape_type = Shape<scalar_type, PST>;
     using shape_sampling_type = ShapeSampling<scalar_type, PST, PPM>;
 
+    struct SEvalPdfReturn
+    {
+        spectral_type radiance;
+        scalar_type pdf;
+    };
+    using eval_pdf_return_type = SEvalPdfReturn;
+
+    struct SampleQuotientReturn
+    {
+        sample_type sample_;
+        quotient_pdf_type quotient_pdf;
+        scalar_type newRayMaxT;
+    };
+    using sample_quotient_return_type = SampleQuotientReturn;
+
     // affected by https://github.com/microsoft/DirectXShaderCompiler/issues/7007
     // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
     enum : uint16_t { PolygonMethod = PPM };
     NBL_CONSTEXPR_STATIC_INLINE bool IsPolygonMethodProjectedSolidAngle = PPM == PPM_APPROX_PROJECTED_SOLID_ANGLE;
 
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
-    static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
+    shape_sampling_type __getShapeSampling(uint32_t lightObjectID)
     {
         const shape_type sphere = scene.getSphere(lightObjectID);
         return shape_sampling_type::create(sphere);
     }
     template<typename C=bool_constant<PST==PST_TRIANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_TRIANGLE)
-    static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
+    shape_sampling_type __getShapeSampling(uint32_t lightObjectID)
     {
         const shape_type tri = scene.getTriangle(lightObjectID);
         return shape_sampling_type::create(tri);
     }
     template<typename C=bool_constant<PST==PST_RECTANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_RECTANGLE)
-    static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
+    shape_sampling_type __getShapeSampling(uint32_t lightObjectID)
     {
         const shape_type rect = scene.getRectangle(lightObjectID);
         return shape_sampling_type::create(rect);
     }
 
-    spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
+    eval_pdf_return_type deferred_eval_and_pdf(light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        pdf = 1.0 / lightCount;
+        eval_pdf_return_type retval;
+        retval.pdf = 1.0 / lightCount;
         const light_type light = lights[lightID];
-        const shape_sampling_type sampling = __getShapeSampling(scene, light.objectID.id);
-        pdf *= sampling.template deferredPdf<ray_type>(ray);
+        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id);
+        retval.pdf *= sampling.template deferredPdf<ray_type>(ray);
 
-        return light.radiance;
+        retval.radiance = light.radiance;
+        return retval;
     }
 
-    sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
+    sample_quotient_return_type generate_and_quotient_and_pdf(light_id_type lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
     {
         const light_type light = lights[lightID];
-        const shape_sampling_type sampling = __getShapeSampling(scene, light.objectID.id);
+        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id);
 
-        scalar_type pdf;
+        sample_quotient_return_type retval;
+        scalar_type pdf, newRayMaxT;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
         ray_dir_info_type rayL;
         if (hlsl::isinf(pdf))
         {
-            quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
-            return sample_type::createInvalid();
+            retval.quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
+            retval.sample_ = sample_type::createInvalid();
+            return retval;
         }
 
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
         
         rayL.setDirection(sampleL);
-        sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
+        retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(lightCount);
         spectral_type quo = light.radiance / pdf;
-        quotient_pdf = quotient_pdf_type::create(quo, pdf);
+        retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
+        retval.newRayMaxT = newRayMaxT;
 
-        return L;
+        return retval;
     }
 
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
     uint32_t lightCount;
+    scene_type scene;
 };
 
 #endif
