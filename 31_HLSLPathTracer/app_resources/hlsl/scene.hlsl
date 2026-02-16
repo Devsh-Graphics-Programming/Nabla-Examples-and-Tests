@@ -17,6 +17,27 @@ struct SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 9u;
 
     static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
+
+    struct MatLightID
+    {
+        using light_id_type = uint32_t;
+        using material_id_type = uint32_t;
+
+        light_id_type lightID;
+        material_id_type matID;
+
+        static MatLightID createFromPacked(uint32_t packedID)
+        {
+            MatLightID retval;
+            retval.lightID = glsl::bitfieldExtract(packedID, 16, 16);
+            retval.matID = glsl::bitfieldExtract(packedID, 0, 16);
+            return retval;
+        }
+
+        bool isBxDF() { return matID != BxDFNode<vector3_type>::INVALID_ID; }
+        bool isLight() { return lightID != light_type::INVALID_ID; }
+    };
+    using mat_light_id_type = MatLightID;
 };
 
 const Shape<float, PST_SPHERE> SceneBase::scene_spheres[SCENE_SPHERE_COUNT] = {
@@ -43,6 +64,7 @@ struct Scene<PST_SPHERE> : SceneBase
     using this_t = Scene<PST_SPHERE>;
     using base_t = SceneBase;
     using object_handle_type = ObjectID;
+    using mat_light_id_type = base_t::mat_light_id_type;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
@@ -78,10 +100,10 @@ struct Scene<PST_SPHERE> : SceneBase
         light_spheres[0].updateTransform(generalPurposeLightMatrix);
     }
     
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE);
-        return getSphere(objectID.id).bsdfLightIDs;
+        return mat_light_id_type::createFromPacked(getSphere(objectID.id).bsdfLightIDs);
     }
 
     vector3_type getNormal(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
@@ -99,6 +121,7 @@ struct Scene<PST_TRIANGLE> : SceneBase
     using this_t = Scene<PST_TRIANGLE>;
     using base_t = SceneBase;
     using object_handle_type = ObjectID;
+    using mat_light_id_type = base_t::mat_light_id_type;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
@@ -128,10 +151,13 @@ struct Scene<PST_TRIANGLE> : SceneBase
         light_triangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
-        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getTriangle(objectID.id).bsdfLightIDs;
+        if (objectID.shapeType == PST_SPHERE)
+            return mat_light_id_type::createFromPacked(getSphere(objectID.id).bsdfLightIDs);
+        else    
+            return mat_light_id_type::createFromPacked(getTriangle(objectID.id).bsdfLightIDs);
     }
 
     vector3_type getNormal(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
@@ -149,6 +175,7 @@ struct Scene<PST_RECTANGLE> : SceneBase
     using this_t = Scene<PST_RECTANGLE>;
     using base_t = SceneBase;
     using object_handle_type = ObjectID;
+    using mat_light_id_type = base_t::mat_light_id_type;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
@@ -178,10 +205,13 @@ struct Scene<PST_RECTANGLE> : SceneBase
         light_rectangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
-    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
-        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getRectangle(objectID.id).bsdfLightIDs;
+        if (objectID.shapeType == PST_SPHERE)
+            return mat_light_id_type::createFromPacked(getSphere(objectID.id).bsdfLightIDs);
+        else
+            return mat_light_id_type::createFromPacked(getRectangle(objectID.id).bsdfLightIDs);
     }
 
     vector3_type getNormal(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
