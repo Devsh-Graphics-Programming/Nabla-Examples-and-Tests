@@ -20,24 +20,7 @@ set(EXAMPLE_SOURCES
 set(EXAMPLE_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/boost/superproject/libs/math/include")
 nbl_create_executable_project("${EXAMPLE_SOURCES}" "" "${EXAMPLE_INCLUDES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
-
-if(NBL_EMBED_BUILTIN_RESOURCES)
-	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-	set(RESOURCE_DIR "app_resources")
-
-	get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-	get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
-	get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
-
-    file(GLOB_RECURSE BUILTIN_RESOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}" CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}/*")
-    foreach(RES_FILE ${BUILTIN_RESOURCE_FILES})
-      LIST_BUILTIN_RESOURCE(RESOURCES_TO_EMBED "${RES_FILE}")
-    endforeach()
-
-	ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
-
-	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
-endif()
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::FullScreenTriangle)
 
 # if enabled then try use Nabla "Text Rendering" extension 
 # with an implemented interface using the 3rdparty deps 
