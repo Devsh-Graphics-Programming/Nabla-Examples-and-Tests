@@ -4,6 +4,7 @@
 #ifdef PERSISTENT_WORKGROUPS
 #include "nbl/builtin/hlsl/math/morton.hlsl"
 #endif
+#include "rwmc_global_settings_common.hlsl"
 
 [[vk::push_constant]] ResolvePushConstants pc;
 [[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
@@ -28,7 +29,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         return;
 
     using ResolveAccessorAdaptorType = rwmc::ResolveAccessorAdaptor<float>;
-    using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, float32_t3>;
+    using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, CascadeCount>;
     ResolveAccessorAdaptorType accessor;
     accessor.cascade = cascade;
     ResolverType resolve = ResolverType::create(pc.resolveParameters);

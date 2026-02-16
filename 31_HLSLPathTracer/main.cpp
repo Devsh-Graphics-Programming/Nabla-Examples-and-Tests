@@ -1322,7 +1322,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
+				resolvePushConstants.resolveParameters = rwmc::ResolveParameters::create(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1568,7 +1568,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				//rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
 				//rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
-				float32_t2 packLogs = float32_t2(std::log2(rwmcStart), std::log2(rwmcBase));
+				float32_t2 packLogs = float32_t2(std::log2(rwmcStart), 1.0f/std::log2(rwmcBase));
 				rwmcPushConstants.splattingParameters.packedLog2 = hlsl::packHalf2x16(packLogs);
 			}
 			else
