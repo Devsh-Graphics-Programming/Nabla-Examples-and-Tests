@@ -7,7 +7,7 @@
 using namespace nbl;
 using namespace hlsl;
 
-template<class Ray, class Scene>
+template<class Ray, class Scene, class AnisoInteraction>
 struct Intersector
 {
     using scalar_type = typename Ray::scalar_type;
@@ -16,7 +16,20 @@ struct Intersector
     using scene_type = Scene;
     using object_handle_type = ObjectID;
 
-    static object_handle_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    using anisotropic_interaction_type = AnisoInteraction;
+    using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
+    using ray_dir_info_type = typename anisotropic_interaction_type::ray_dir_info_type;
+
+    struct SIntersectData
+    {
+        bool foundHit;
+        vector3_type intersection;
+        isotropic_interaction_type iso_interaction;
+        anisotropic_interaction_type aniso_interaction;
+    };
+    using intersect_data_type = SIntersectData;
+
+    static intersect_data_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         object_handle_type objectID;
         objectID.id = -1;
@@ -67,7 +80,23 @@ struct Intersector
 
         // TODO: trace AS
 
-        return objectID;
+        ray.objectID = objectID;
+
+        intersect_data_type retval;
+        retval.foundHit = objectID.id != -1;
+        if (retval.foundHit)
+        {
+            retval.intersection = ray.origin + ray.direction * ray.intersectionT;
+            typename scene_type::mat_light_id_type matLightID = scene.getMatLightIDs(objectID);
+            vector3_type N = scene.getNormal(objectID, retval.intersection);
+            N = nbl::hlsl::normalize(N);
+            ray_dir_info_type V;
+            V.setDirection(-ray.direction);
+            retval.iso_interaction = isotropic_interaction_type::create(V, N);
+            retval.aniso_interaction = anisotropic_interaction_type::create(retval.iso_interaction);
+        }
+
+        return retval;
     }
 };
 
