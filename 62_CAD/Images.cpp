@@ -107,14 +107,16 @@ GeoreferencedImageInfo GeoreferencedImageStreamingState::computeGeoreferencedIma
 	const uint32_t2 viewportTileLength = currentViewportTileRange.bottomRightTile - currentViewportTileRange.topLeftTile + uint32_t2(1, 1);
 	// If the last tile is visible, we use the fractional span for the last tile. Otherwise it's just a normal tile
 	const bool2 lastTileVisible = isLastTileVisible(currentViewportTileRange.bottomRightTile);
+	const uint32_t2 lastSampledImageTileTexels = { lastTileVisible.x ? lastTileSamplingExtent.x : oneTileTexelSpan, lastTileVisible.y ? lastTileSamplingExtent.y : oneTileTexelSpan };
 	const uint32_t2 lastGPUImageTileTexels = { lastTileVisible.x ? lastTileTargetExtent.x : GeoreferencedImageTileSize, lastTileVisible.y ? lastTileTargetExtent.y : GeoreferencedImageTileSize };
 
 	// Instead of grouping per tile like in the offset case, we group per texel: the same reasoning leads to a single texel at current mip level having a span of `dirU * 2^(currentMappedRegionTileRange.baseMipLevel)/ fullResImageExtents.x`
-	// in the U direction. Therefore the span in worldspace of the OBB we construct is just this number multiplied by the number of gpu texels spanned to draw.
-	// The number of texels is just `GeoreferencedImageTileSize` times the number of full tiles (all but the last) + the number of texels of the last tile, which might not be a full tile if near the right boundary
-	viewportEncompassingOBB.dirU = worldspaceOBB.dirU * float32_t((GeoreferencedImageTileSize * (viewportTileLength.x - 1) + lastGPUImageTileTexels.x) << currentMappedRegionTileRange.baseMipLevel) / float32_t(fullResImageExtents.x);
-	// Simply number of gpu texels in the y direction divided by number of texels in the x direction.
-	viewportEncompassingOBB.aspectRatio = float32_t(GeoreferencedImageTileSize * (viewportTileLength.y - 1) + lastGPUImageTileTexels.y) / float32_t(GeoreferencedImageTileSize * (viewportTileLength.x - 1) + lastGPUImageTileTexels.x);
+	// in the U direction. Therefore the span in worldspace of the OBB we construct is just this number multiplied by the number of image texels spanned to draw.
+	// The number of texels is just `GeoreferencedImageTileSize * 2^{mipLevel}` times the number of full tiles (all but the last) + the number of texels of the last tile, which might not be a full tile if near the right boundary
+	const uint32_t2 sampledImageTexels = oneTileTexelSpan * (viewportTileLength - 1u) + lastSampledImageTileTexels;
+	viewportEncompassingOBB.dirU = worldspaceOBB.dirU * float32_t(sampledImageTexels.x) / float32_t(fullResImageExtents.x);
+	// Simply number of image texels in the y direction divided by number of texels in the x direction.
+	viewportEncompassingOBB.aspectRatio = float32_t(sampledImageTexels.y) / float32_t(sampledImageTexels.x);
 
 	// GPU tile corresponding to the real image tile containing the viewport top left - we can let it be negative since wrapping mode is repeat, negative tiles are correct modulo `gpuImageSideLengthTiles`
 	const uint32_t2 viewportTopLeftGPUTile = currentViewportTileRange.topLeftTile - currentMappedRegionTileRange.topLeftTile + gpuImageTopLeft;
