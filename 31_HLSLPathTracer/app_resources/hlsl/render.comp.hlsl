@@ -195,7 +195,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    if (((renderPushConstants.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((renderPushConstants.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
+    if (((renderPushConstants.depth - 1) >> MaxDepthLog2) > 0 || ((renderPushConstants.sampleCount - 1) >> MaxSamplesLog2) > 0)
     {
         float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
         outImage[uint3(coords.x, coords.y, 0)] = pixelCol;

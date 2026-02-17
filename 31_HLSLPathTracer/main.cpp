@@ -758,7 +758,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
-				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
+				constexpr size_t bufferSize = quantizedDimensions * MaxSamplesBuffer;
 				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
 				std::array<sequence_type, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
@@ -769,12 +769,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sequence_type);
+					params.size = quantizedDimensions * MaxSamplesBuffer * sizeof(sequence_type);
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
 					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
 					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
-						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						for (uint32_t i = 0; i < MaxSamplesBuffer; i++)
 						{
 							const uint32_t quant_dim = dim / 3u;
 							const uint32_t offset = dim % 3u;
@@ -968,7 +968,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
+					ImGui::SliderInt("SPP", &spp, 1, MaxSamplesBuffer);
 					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
 					ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
 
