@@ -99,7 +99,7 @@ using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
 using bxdfnode_type = BxDFNode<spectral_t>;
 using scene_type = Scene<LIGHT_TYPE>;
-using randgen_type = RandGen::UniformND<Xoroshiro64Star,3>;
+using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
@@ -220,7 +220,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up path tracer
     pathtracer_type pathtracer;
-    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg);
+    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
 
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
@@ -245,7 +245,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.nee.scene = scene;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
-    pathtracer.pSampleBuffer = renderPushConstants.pSampleSequence;
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.getSplattingParams(CascadeCount));
