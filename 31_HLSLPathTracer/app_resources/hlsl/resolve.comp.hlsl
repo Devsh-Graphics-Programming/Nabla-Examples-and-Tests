@@ -30,7 +30,7 @@ struct SCascadeAccessor
     }
 
     template<typename OutputScalarType, int32_t Dimension>
-    void get(vector<uint16_t, 2> uv, uint16_t layer, uint16_t level, NBL_REF_ARG(output_t) value)
+    void get(NBL_REF_ARG(output_t) value, vector<uint16_t, 2> uv, uint16_t layer, uint16_t level)
     {
         if (any(uv < int16_t2(0, 0)) || any(uv >= cascadeImageDimension))
         {
@@ -39,14 +39,6 @@ struct SCascadeAccessor
         }
 
         value = cascade.Load(int32_t3(uv, int32_t(layer)));
-    }
-
-    template<typename OutputScalarType, int32_t Dimension>
-    output_t get(vector<uint16_t, 2> uv, uint16_t layer, uint16_t level)
-    {
-        output_t value;
-        get<OutputScalarType, Dimension>(uv, layer, level, value);
-        return value;
     }
 
     int16_t2 cascadeImageDimension;

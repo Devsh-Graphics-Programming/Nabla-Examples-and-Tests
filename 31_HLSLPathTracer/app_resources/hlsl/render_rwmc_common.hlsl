@@ -11,7 +11,7 @@
 struct RenderRWMCPushConstants
 {
 	RenderPushConstants renderPushConstants;
-	nbl::hlsl::rwmc::SplattingParameters splattingParameters;
+	nbl::hlsl::rwmc::SPackedSplattingParameters splattingParameters;
 };
 
 #endif
