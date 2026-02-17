@@ -1572,8 +1572,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const float brightSampleLumaBias = (log2BaseRootOfStart + static_cast<float>(CascadeCount - 1u)) / rcpLog2Base;
 				float32_t2 packLogs = float32_t2(baseRootOfStart, rcpLog2Base);
 				float32_t2 packPrecomputed = float32_t2(log2BaseRootOfStart, brightSampleLumaBias);
-				rwmcPushConstants.splattingParameters.PackedLog2 = hlsl::packHalf2x16(packLogs);
-				rwmcPushConstants.splattingParameters.PackedPrecomputed = hlsl::packHalf2x16(packPrecomputed);
+				rwmcPushConstants.splattingParameters.PackedBaseRootAndRcpLog2Base = hlsl::packHalf2x16(packLogs);
+				rwmcPushConstants.splattingParameters.PackedLog2BaseRootAndBrightSampleLumaBias = hlsl::packHalf2x16(packPrecomputed);
 			}
 			else
 			{
