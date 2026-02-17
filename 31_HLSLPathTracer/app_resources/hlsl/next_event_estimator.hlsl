@@ -340,11 +340,6 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     };
     using sample_quotient_return_type = SampleQuotientReturn;
 
-    // affected by https://github.com/microsoft/DirectXShaderCompiler/issues/7007
-    // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
-    enum : uint16_t { PolygonMethod = PPM };
-    NBL_CONSTEXPR_STATIC_INLINE bool IsPolygonMethodProjectedSolidAngle = PPM == PPM_APPROX_PROJECTED_SOLID_ANGLE;
-
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
     shape_sampling_type __getShapeSampling(uint32_t lightObjectID)
     {

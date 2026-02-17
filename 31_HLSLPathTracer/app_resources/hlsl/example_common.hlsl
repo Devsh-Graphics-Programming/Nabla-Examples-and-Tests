@@ -64,10 +64,10 @@ struct ObjectID
     ProceduralShapeType shapeType;
 };
 
-template<typename T>
+template<typename T, PTPolygonMethod PPM>
 struct Ray
 {
-    using this_t = Ray<T>;
+    using this_t = Ray<T,PPM>;
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
@@ -75,7 +75,37 @@ struct Ray
     vector3_type origin;
     vector3_type direction;
 
-    // polygon method == PPM_APPROX_PROJECTED_SOLID_ANGLE
+    // mutable
+    scalar_type intersectionT;
+    ObjectID objectID;
+
+    Payload<T> payload;
+
+    void initData(const vector3_type _origin, const vector3_type _direction, const vector3_type _normalAtOrigin, bool _wasBSDFAtOrigin)
+    {
+        origin = _origin;
+        direction = _direction;
+    }
+
+    void initPayload()
+    {
+        payload.accumulation = hlsl::promote<vector3_type>(0.0);
+        payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
+        payload.throughput = hlsl::promote<vector3_type>(1.0);
+    }
+};
+
+template<typename T>
+struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+{
+    using this_t = Ray<T,PPM_APPROX_PROJECTED_SOLID_ANGLE>;
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    // immutable
+    vector3_type origin;
+    vector3_type direction;
+
     vector3_type normalAtOrigin;
     bool wasBSDFAtOrigin;
 
@@ -85,14 +115,19 @@ struct Ray
 
     Payload<T> payload;
 
+    void initData(const vector3_type _origin, const vector3_type _direction, const vector3_type _normalAtOrigin, bool _wasBSDFAtOrigin)
+    {
+        origin = _origin;
+        direction = _direction;
+        normalAtOrigin = _normalAtOrigin;
+        wasBSDFAtOrigin = _wasBSDFAtOrigin;
+    }
+
     void initPayload()
     {
         payload.accumulation = hlsl::promote<vector3_type>(0.0);
         payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
         payload.throughput = hlsl::promote<vector3_type>(1.0);
-        // #ifdef KILL_DIFFUSE_SPECULAR_PATHS
-        // hasDiffuse = false;
-        // #endif
     }
 };
 

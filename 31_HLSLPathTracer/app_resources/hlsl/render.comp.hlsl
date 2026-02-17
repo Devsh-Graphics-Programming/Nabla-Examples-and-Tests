@@ -95,7 +95,7 @@ using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_mic
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
-using ray_type = Ray<float>;
+using ray_type = Ray<float,POLYGON_METHOD>;
 using light_type = Light<spectral_t>;
 using bxdfnode_type = BxDFNode<spectral_t>;
 using scene_type = Scene<LIGHT_TYPE>;
