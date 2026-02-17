@@ -1,3 +1,6 @@
+//// Copyright (C) 2026-2026 - DevSH Graphics Programming Sp. z O.O.
+//// This file is part of the "Nabla Engine".
+//// For conditions of distribution and use, see copyright notice in nabla.h
 #pragma wave shader_stage(fragment)
 
 #include "common.hlsl"
@@ -16,18 +19,15 @@ struct ArrowResult
 };
 
 [[vk::push_constant]] struct PushConstantRayVis pc;
-// #if DEBUG_DATA
-[[vk::binding(0, 0)]] RWStructuredBuffer<ResultData> DebugDataBuffer;
-// #endif
 
 #if VISUALIZE_SAMPLES
-#include "Drawing.hlsl"
+#include "drawing.hlsl"
 
 // Ray-AABB intersection in world space
 // Returns the distance to the nearest intersection point, or -1 if no hit
 float32_t rayAABBIntersection(float32_t3 rayOrigin, float32_t3 rayDir, float32_t3 aabbMin, float32_t3 aabbMax)
 {
-    float32_t3 invDir = 1.0 / rayDir;
+    float32_t3 invDir = 1.0f / rayDir;
     float32_t3 t0 = (aabbMin - rayOrigin) * invDir;
     float32_t3 t1 = (aabbMax - rayOrigin) * invDir;
 
@@ -61,7 +61,7 @@ ArrowResult visualizeRayAsArrow(float32_t3 rayOrigin, float32_t4 directionAndPdf
 {
     ArrowResult result;
     result.color = float32_t4(0, 0, 0, 0);
-    result.depth = 1.0; // Far plane in reversed-Z
+    result.depth = 0.0; // Far plane in reversed-Z
 
     float32_t3 rayDir = normalize(directionAndPdf.xyz);
     float32_t pdf = directionAndPdf.w;
@@ -140,7 +140,7 @@ ArrowResult visualizeRayAsArrow(float32_t3 rayOrigin, float32_t4 directionAndPdf
 
         // Compute NDC depth for reversed-Z
         float32_t depthNDC = clipPos.z / clipPos.w;
-        result.depth = depthNDC;
+        result.depth = 1.0f - depthNDC;
 
         // Clip against valid depth range
         if (result.depth < 0.0 || result.depth > 1.0)
@@ -155,32 +155,6 @@ ArrowResult visualizeRayAsArrow(float32_t3 rayOrigin, float32_t4 directionAndPdf
 
     result.color = float32_t4(finalColor, lineIntensity);
     return result;
-}
-
-// Transform a point by inverse of model matrix (world to local space)
-float32_t3 worldToLocal(float32_t3 worldPos, float32_t3x4 modelMatrix)
-{
-    // Manually construct 4x4 from 3x4
-    float32_t4x4 model4x4 = float32_t4x4(
-        modelMatrix[0],
-        modelMatrix[1],
-        modelMatrix[2],
-        float32_t4(0.0, 0.0, 0.0, 1.0));
-    float32_t4x4 invModel = inverse(model4x4);
-    return mul(invModel, float32_t4(worldPos, 1.0)).xyz;
-}
-
-// Transform a direction by inverse of model matrix (no translation)
-float32_t3 worldToLocalDir(float32_t3 worldDir, float32_t3x4 modelMatrix)
-{
-    // Manually construct 4x4 from 3x4
-    float32_t4x4 model4x4 = float32_t4x4(
-        modelMatrix[0],
-        modelMatrix[1],
-        modelMatrix[2],
-        float32_t4(0.0, 0.0, 0.0, 1.0));
-    float32_t4x4 invModel = inverse(model4x4);
-    return mul(invModel, float32_t4(worldDir, 0.0)).xyz;
 }
 
 // Returns both tMin (entry) and tMax (exit) for ray-AABB intersection
@@ -220,6 +194,7 @@ AABBIntersection rayAABBIntersectionFull(float32_t3 origin, float32_t3 dir, floa
 }
 #endif // VISUALIZE_SAMPLES
 
+// [shader("pixel")]
 [[vk::location(0)]] ArrowResult main(SVertexAttributes vx)
 {
     ArrowResult output;
@@ -253,58 +228,54 @@ AABBIntersection rayAABBIntersectionFull(float32_t3 origin, float32_t3 dir, floa
 
     uint32_t sampleCount = DebugDataBuffer[0].sampleCount;
 
-    // for (uint32_t i = 0; i < sampleCount; i++)
-    // {
-    //     float32_t3 rayOrigin = float32_t3(0, 0, 0);
-    //     float32_t4 directionAndPdf = DebugDataBuffer[0].rayData[i];
-    //     float32_t3 rayDir = normalize(directionAndPdf.xyz);
+    for (uint32_t i = 0; i < sampleCount; i++)
+    {
+        float32_t3 rayOrigin = float32_t3(0, 0, 0);
+        float32_t4 directionAndPdf = DebugDataBuffer[0].rayData[i];
+        float32_t3 rayDir = normalize(directionAndPdf.xyz);
 
-    //     // Define cube bounds in local space
-    //     float32_t3 cubeLocalMin = float32_t3(-0.5, -0.5, -0.5);
-    //     float32_t3 cubeLocalMax = float32_t3(0.5, 0.5, 0.5);
+        // Define cube bounds in local space
+        float32_t3 cubeLocalMin = float32_t3(-0.5, -0.5, -0.5);
+        float32_t3 cubeLocalMax = float32_t3(0.5, 0.5, 0.5);
 
-    //     // Transform ray to local space of the cube
-    //     float32_t3 localRayOrigin = worldToLocal(rayOrigin, pc.modelMatrix);
-    //     float32_t3 localRayDir = normalize(worldToLocalDir(rayDir, pc.modelMatrix));
+        // Transform ray to local space of the cube (using precomputed inverse)
+        float32_t3 localRayOrigin = mul(pc.invModelMatrix, float32_t4(rayOrigin, 1.0)).xyz;
+        float32_t3 localRayDir = normalize(mul(pc.invModelMatrix, float32_t4(rayDir, 0.0)).xyz);
 
-    //     // Get both entry and exit distances
-    //     AABBIntersection intersection = rayAABBIntersectionFull(
-    //         localRayOrigin,
-    //         localRayDir,
-    //         cubeLocalMin,
-    //         cubeLocalMax);
+        // Get both entry and exit distances
+        AABBIntersection intersection = rayAABBIntersectionFull(localRayOrigin, localRayDir, cubeLocalMin, cubeLocalMax);
 
-    //     float32_t arrowLength;
-    //     float32_t3 arrowColor;
+        float32_t arrowLength;
+        float32_t3 arrowColor;
 
-    //     if (intersection.hit)
-    //     {
-    //         // Use tMax (exit point at back face) instead of tMin (entry point at front face)
-    //         float32_t3 localExitPoint = localRayOrigin + localRayDir * intersection.tMax;
-    //         float32_t3 worldExitPoint = mul(pc.modelMatrix, float32_t4(localExitPoint, 1.0)).xyz;
-    //         arrowLength = length(worldExitPoint - rayOrigin);
-    //         arrowColor = float32_t3(0.0, 1.0, 0.0); // Green for valid samples
-    //     }
-    //     else
-    //     {
-    //         // Ray doesn't intersect - THIS SHOULD NEVER HAPPEN with correct sampling!
-    //         float32_t3 cubeCenter = mul(pc.modelMatrix, float32_t4(0, 0, 0, 1)).xyz;
-    //         arrowLength = length(cubeCenter - rayOrigin) + 2.0;
-    //         arrowColor = float32_t3(1.0, 0.0, 0.0); // Red for BROKEN samples
-    //     }
+        if (intersection.hit)
+        {
+            // Use tMax (exit point at back face) instead of tMin (entry point at front face)
+            float32_t3 localExitPoint = localRayOrigin + localRayDir * intersection.tMax;
+            float32_t3 worldExitPoint = mul(pc.modelMatrix, float32_t4(localExitPoint, 1.0)).xyz;
+            arrowLength = length(worldExitPoint - rayOrigin);
+            arrowColor = float32_t3(0.0, 1.0, 0.0); // Green for valid samples
+        }
+        else
+        {
+            // Ray doesn't intersect - THIS SHOULD NEVER HAPPEN with correct sampling!
+            float32_t3 cubeCenter = mul(pc.modelMatrix, float32_t4(0, 0, 0, 1)).xyz;
+            arrowLength = length(cubeCenter - rayOrigin) + 2.0;
+            arrowColor = float32_t3(1.0, 0.0, 0.0); // Red for BROKEN samples
+        }
 
-    //     ArrowResult arrow = visualizeRayAsArrow(rayOrigin, directionAndPdf, arrowLength, ndcPos, aspect);
+        ArrowResult arrow = visualizeRayAsArrow(rayOrigin, directionAndPdf, arrowLength, ndcPos, aspect);
 
-    //     // Only update depth if arrow was actually drawn
-    //     if (arrow.color.a > 0.0)
-    //     {
-    //         maxDepth = max(maxDepth, arrow.depth);
-    //     }
+        // Only update depth if arrow was actually drawn
+        if (arrow.color.a > 0.0)
+        {
+            maxDepth = max(maxDepth, arrow.depth);
+        }
 
-    //     // Modulate arrow color by its alpha (only add where arrow is visible)
-    //     output.color.rgb += arrowColor * arrow.color.a;
-    //     output.color.a = max(output.color.a, arrow.color.a);
-    // }
+        // Modulate arrow color by its alpha (only add where arrow is visible)
+        output.color.rgb += arrowColor * arrow.color.a;
+        output.color.a = max(output.color.a, arrow.color.a);
+    }
 
     // Clamp to prevent overflow
     output.color = saturate(output.color);

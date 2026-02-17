@@ -16,8 +16,8 @@
 #include <nbl/builtin/hlsl/math/linalg/fast_affine.hlsl>
 #include <nbl/builtin/hlsl/math/linalg/basic.hlsl>
 
-class Camera 
-{ 
+class Camera
+{
 public:
 	Camera() = default;
 	Camera(const nbl::core::vectorSIMDf& position, const nbl::core::vectorSIMDf& lookat, const nbl::hlsl::float32_t4x4& projection, float moveSpeed = 1.0f, float rotateSpeed = 1.0f, const nbl::core::vectorSIMDf& upVec = nbl::core::vectorSIMDf(0.0f, 1.0f, 0.0f), const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f))
@@ -72,7 +72,7 @@ public:
 	inline void mapKeysCustom(std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT>& map) { keysMap = map; }
 
 	inline const nbl::hlsl::float32_t4x4& getProjectionMatrix() const { return projMatrix; }
-	inline const nbl::hlsl::float32_t3x4& getViewMatrix() const {	return viewMatrix; }
+	inline const nbl::hlsl::float32_t3x4& getViewMatrix() const { return viewMatrix; }
 	inline const nbl::hlsl::float32_t4x4& getConcatenatedMatrix() const { return concatMatrix; }
 
 	inline void setProjectionMatrix(const nbl::hlsl::float32_t4x4& projection)
@@ -81,16 +81,16 @@ public:
 		leftHanded = nbl::hlsl::determinant(projMatrix) < 0.f;
 		concatMatrix = nbl::hlsl::math::linalg::promoted_mul(projMatrix, viewMatrix);
 	}
-	
+
 	inline void setPosition(const nbl::core::vectorSIMDf& pos)
 	{
 		position.set(pos);
 		recomputeViewMatrix();
 	}
-	
+
 	inline const nbl::core::vectorSIMDf& getPosition() const { return position; }
 
-	inline void setTarget(const nbl::core::vectorSIMDf& pos) 
+	inline void setTarget(const nbl::core::vectorSIMDf& pos)
 	{
 		target.set(pos);
 		recomputeViewMatrix();
@@ -99,11 +99,11 @@ public:
 	inline const nbl::core::vectorSIMDf& getTarget() const { return target; }
 
 	inline void setUpVector(const nbl::core::vectorSIMDf& up) { upVector = up; }
-	
+
 	inline void setBackupUpVector(const nbl::core::vectorSIMDf& up) { backupUpVector = up; }
 
 	inline const nbl::core::vectorSIMDf& getUpVector() const { return upVector; }
-	
+
 	inline const nbl::core::vectorSIMDf& getBackupUpVector() const { return backupUpVector; }
 
 	inline const float getMoveSpeed() const { return moveSpeed; }
@@ -114,7 +114,7 @@ public:
 
 	inline void setRotateSpeed(const float _rotateSpeed) { rotateSpeed = _rotateSpeed; }
 
-	inline void recomputeViewMatrix() 
+	inline void recomputeViewMatrix()
 	{
 		nbl::hlsl::float32_t3 pos = nbl::core::convertToHLSLVector(position).xyz;
 		nbl::hlsl::float32_t3 localTarget = nbl::hlsl::normalize(nbl::core::convertToHLSLVector(target).xyz - pos);
@@ -144,64 +144,78 @@ public:
 
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
 	{
-		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
 		{
 			auto ev = *eventIt;
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
-				if(ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_PRESSED) 
+			if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
+				if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_PRESSED)
 					mouseDown = true;
 				else if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
 					mouseDown = false;
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) 
+			if (ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown)
 			{
-				nbl::hlsl::float32_t4 pos = nbl::core::convertToHLSLVector(getPosition());
-				nbl::hlsl::float32_t4 localTarget = nbl::core::convertToHLSLVector(getTarget()) - pos;
+				// --- corrected camera rotation update ---
+				nbl::hlsl::float32_t3 pos = nbl::core::convertToHLSLVector(getPosition()).xyz;
+				nbl::hlsl::float32_t3 targetVec = nbl::core::convertToHLSLVector(getTarget()).xyz - pos; // original vector to target
 
-				// Get Relative Rotation for localTarget in Radians
-				float relativeRotationX, relativeRotationY;
-				relativeRotationY = atan2(localTarget.x, localTarget.z);
-				const double z1 = nbl::core::sqrt(localTarget.x*localTarget.x + localTarget.z*localTarget.z);
-				relativeRotationX = atan2(z1, localTarget.y) - nbl::core::PI<float>()/2;
-				
-				constexpr float RotateSpeedScale = 0.003f; 
-				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
-				float tmpYRot = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale * -1.0f;
+				// preserve distance so we don't collapse to unit length
+				float targetDistance = nbl::hlsl::length(targetVec);
+				if (targetDistance < 1e-6f) targetDistance = 1.0f; // avoid div-by-zero
 
+				nbl::hlsl::float32_t3 forward = nbl::hlsl::normalize(targetVec);
+				nbl::hlsl::float32_t3 upVector = nbl::core::convertToHLSLVector(getUpVector()).xyz;
+				nbl::hlsl::float32_t3 right = nbl::hlsl::normalize(nbl::hlsl::cross(upVector, forward));
+				nbl::hlsl::float32_t3 correctedForward = nbl::hlsl::normalize(nbl::hlsl::cross(right, upVector));
+
+				// horizontal yaw (angle from correctedForward towards right)
+				float rightDot = nbl::hlsl::dot(targetVec, right);
+				float forwardDot = nbl::hlsl::dot(targetVec, correctedForward);
+				float relativeRotationY = atan2(rightDot, forwardDot);
+
+				// pitch: angle above/below horizontal
+				float upDot = nbl::hlsl::dot(targetVec, upVector);
+				nbl::hlsl::float32_t3 horizontalComponent = targetVec - upVector * upDot;
+				float horizontalLength = nbl::hlsl::length(horizontalComponent);
+				float relativeRotationX = atan2(upDot, horizontalLength);
+
+				// apply mouse/controller deltas (signs simplified)
+				constexpr float RotateSpeedScale = 0.003f;
+				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale;
+				float tmpYRot = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale;
 				if (leftHanded)
-					yawDelta = -yawDelta;
+					relativeRotationY += tmpYRot;
+				else
+					relativeRotationY -= tmpYRot;
 
-				// Clamp pitch BEFORE applying rotation
+				// clamp pitch
 				const float MaxVerticalAngle = nbl::core::radians<float>(88.0f);
-				float currentPitch = asin(nbl::core::dot(forward, upVector).X);
-				float newPitch = nbl::core::clamp(currentPitch + pitchDelta, -MaxVerticalAngle, MaxVerticalAngle);
-				pitchDelta = newPitch - currentPitch;
+				if (relativeRotationX > MaxVerticalAngle) relativeRotationX = MaxVerticalAngle;
+				if (relativeRotationX < -MaxVerticalAngle) relativeRotationX = -MaxVerticalAngle;
 
-				// Create rotation quaternions using axis-angle method
-				nbl::core::quaternion pitchRot = nbl::core::quaternion::fromAngleAxis(pitchDelta, right);
-				nbl::core::quaternion yawRot = nbl::core::quaternion::fromAngleAxis(yawDelta, upVector); 
-				nbl::core::quaternion combinedRot = yawRot * pitchRot;
+				// build final direction by first yaw-rotating in the horizontal plane, then pitching
+				float cosYaw = cos(relativeRotationY);
+				float sinYaw = sin(relativeRotationY);
+				nbl::hlsl::float32_t3 yawForward = correctedForward * cosYaw + right * sinYaw;
+				yawForward = nbl::hlsl::normalize(yawForward);
 
-				pos.w = 0;
-				localTarget = nbl::hlsl::float32_t4(0, 0, nbl::core::max(1.f, nbl::hlsl::length(pos)), 1.0f);
+				float cosPitch = cos(relativeRotationX);
+				float sinPitch = sin(relativeRotationX);
+				nbl::hlsl::float32_t3 finalDir = nbl::hlsl::normalize(yawForward * cosPitch + upVector * sinPitch);
 
-				const nbl::hlsl::math::quaternion<float> quat = nbl::hlsl::math::quaternion<float>::create(relativeRotationX, relativeRotationY, 0.0f);
-				nbl::hlsl::float32_t3x4 mat = nbl::hlsl::math::linalg::promote_affine<3, 4, 3, 3>(quat.__constructMatrix());
-
-
-				localTarget = nbl::hlsl::float32_t4(nbl::hlsl::mul(mat, localTarget), 1.0f);
-
-				nbl::core::vectorSIMDf finalTarget = nbl::core::constructVecorSIMDFromHLSLVector(localTarget + pos);
+				// restore original distance and set target
+				nbl::core::vectorSIMDf finalTarget = nbl::core::constructVecorSIMDFromHLSLVector(pos + finalDir * targetDistance);
 				finalTarget.w = 1.0f;
 				setTarget(finalTarget);
+
 			}
 		}
 	}
 
 	void keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
 	{
-		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
+		for (uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
 			perActionDt[k] = 0.0;
 
 		/*
@@ -210,8 +224,8 @@ public:
 		* And If an UP event was sent It will get subtracted it from this value. (Currently Disabled Because we Need better Oracle)
 		*/
 
-		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k) 
-			if(keysDown[k]) 
+		for (uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
+			if (keysDown[k])
 			{
 				auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
 				if (timeDiff < 0)
@@ -219,10 +233,10 @@ public:
 				perActionDt[k] += timeDiff;
 			}
 
-		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
 		{
 			const auto ev = *eventIt;
-			
+
 			// accumulate the periods for which a key was down
 			auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
 			if (timeDiff < 0)
@@ -235,12 +249,12 @@ public:
 
 				if (ev.keyCode == code)
 				{
-					if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keysDown[logicalKey]) 
+					if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keysDown[logicalKey])
 					{
 						perActionDt[logicalKey] += timeDiff;
 						keysDown[logicalKey] = true;
 					}
-					else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) 
+					else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
 					{
 						// perActionDt[logicalKey] -= timeDiff; 
 						keysDown[logicalKey] = false;
@@ -264,7 +278,7 @@ public:
 		nextPresentationTimeStamp = _nextPresentationTimeStamp;
 		return;
 	}
-	
+
 	void endInputProcessing(std::chrono::microseconds _nextPresentationTimeStamp)
 	{
 		nbl::core::vectorSIMDf pos = getPosition();
@@ -276,13 +290,12 @@ public:
 			movedir.makeSafe3D();
 			movedir = nbl::core::normalize(movedir);
 
-			constexpr float MoveSpeedScale = 0.02f; 
+			constexpr float MoveSpeedScale = 0.02f;
 
 			pos += movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_FORWARD] * moveSpeed * MoveSpeedScale;
 			pos -= movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale;
 
-			// strafing
-		
+
 			// if upvector and vector to the target are the same, we have a
 			// problem. so solve this problem:
 			nbl::core::vectorSIMDf up = nbl::core::normalize(upVector);
@@ -293,9 +306,11 @@ public:
 				up = nbl::core::normalize(backupUpVector);
 			}
 
-			pos += up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_UP] * moveSpeed * MoveSpeedScale;
-			pos -= up * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_DOWN] * moveSpeed * MoveSpeedScale;
+			nbl::core::vectorSIMDf currentUp = nbl::core::normalize(nbl::core::cross(localTarget, nbl::core::cross(up, localTarget)));
+			pos += currentUp * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_UP] * moveSpeed * MoveSpeedScale;
+			pos -= currentUp * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_DOWN] * moveSpeed * MoveSpeedScale;
 
+			// strafing
 			nbl::core::vectorSIMDf strafevect = localTarget;
 			if (leftHanded)
 				strafevect = nbl::core::cross(strafevect, up);
@@ -311,7 +326,7 @@ public:
 			firstUpdate = false;
 
 		setPosition(pos);
-		setTarget(localTarget+pos);
+		setTarget(localTarget + pos);
 
 		lastVirtualUpTimeStamp = nextPresentationTimeStamp;
 	}
@@ -324,10 +339,10 @@ public:
 private:
 
 	inline void initDefaultKeysMap() { mapKeysToWASD(); }
-	
-	inline void allKeysUp() 
+
+	inline void allKeysUp()
 	{
-		for (uint32_t i=0; i< E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++i)
+		for (uint32_t i = 0; i < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++i)
 			keysDown[i] = false;
 
 		mouseDown = false;
@@ -340,7 +355,7 @@ private:
 
 	float moveSpeed, rotateSpeed;
 	bool leftHanded, firstUpdate = true, mouseDown = false;
-	
+
 	std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT> keysMap = { {nbl::ui::EKC_NONE} }; // map camera E_CAMERA_MOVE_KEYS to corresponding Nabla key codes, by default camera uses WSAD to move
 	// TODO: make them use std::array
 	bool keysDown[E_CAMERA_MOVE_KEYS::ECMK_COUNT] = {};

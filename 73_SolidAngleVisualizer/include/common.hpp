@@ -6,7 +6,6 @@
 
 // the example's headers
 #include "transform.hpp"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 using namespace nbl;
 using namespace nbl::core;

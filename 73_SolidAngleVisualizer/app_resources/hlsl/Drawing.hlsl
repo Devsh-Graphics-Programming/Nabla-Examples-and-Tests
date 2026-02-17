@@ -1,5 +1,8 @@
-#ifndef _DEBUG_HLSL_
-#define _DEBUG_HLSL_
+//// Copyright (C) 2026-2026 - DevSH Graphics Programming Sp. z O.O.
+//// This file is part of the "Nabla Engine".
+//// For conditions of distribution and use, see copyright notice in nabla.h
+#ifndef _SOLID_ANGLE_VIS_EXAMPLE_DRAWING_HLSL_INCLUDED_
+#define _SOLID_ANGLE_VIS_EXAMPLE_DRAWING_HLSL_INCLUDED_
 
 #include "common.hlsl"
 #include "gpu_common.hlsl"
@@ -210,6 +213,7 @@ float32_t4 drawCorners(float32_t3x4 modelMatrix, float32_t2 ndc, float32_t aaWid
     return color;
 }
 
+#ifdef _SOLID_ANGLE_VIS_EXAMPLE_SILHOUETTE_HLSL_INCLUDED_
 float32_t4 drawClippedSilhouetteVertices(float32_t2 ndc, ClippedSilhouette silhouette, float32_t aaWidth)
 {
     float32_t4 color = 0;
@@ -235,6 +239,7 @@ float32_t4 drawClippedSilhouetteVertices(float32_t2 ndc, ClippedSilhouette silho
     }
     return color;
 }
+#endif // _SOLID_ANGLE_VIS_EXAMPLE_SILHOUETTE_HLSL_INCLUDED_
 
 float32_t4 drawRing(float32_t2 ndc, float32_t aaWidth)
 {
@@ -378,6 +383,120 @@ float32_t4 drawFaces(float32_t3x4 modelMatrix, float32_t3 spherePos, float32_t a
     return color;
 }
 
+// ============================================================================
+// Spherical geometry drawing helpers (for pyramid visualization)
+// ============================================================================
+
+// Draw a great circle where dot(p, axis) = 0
+// Used to visualize caliper planes
+float32_t4 drawGreatCirclePlane(
+    float32_t3 axis,
+    float32_t3 spherePos,
+    float32_t aaWidth,
+    float32_t3 color,
+    float32_t width = 0.005f)
+{
+    float32_t3 fragDir = normalize(spherePos);
+
+    // Only draw on front hemisphere
+    if (fragDir.z < 0.0f)
+        return float32_t4(0, 0, 0, 0);
+
+    // Distance from the great circle plane
+    float32_t distFromPlane = abs(dot(fragDir, axis));
+
+    float32_t alpha = 1.0f - smoothstep(width - aaWidth, width + aaWidth, distFromPlane);
+
+    return float32_t4(color * alpha, alpha);
+}
+
+// Draw lune boundaries - two small circles at dot(p, axis) = offset ± halfWidth
+// halfWidth and offset are in sin-space (not radians)
+float32_t4 drawLuneBoundary(float32_t3 axis, float32_t halfWidth, float32_t offset, float32_t3 spherePos, float32_t aaWidth, float32_t3 color, float32_t lineWidth = 0.004f)
+{
+    float32_t3 fragDir = normalize(spherePos);
+
+    // Only draw on front hemisphere
+    if (fragDir.z < 0.0f)
+        return float32_t4(0, 0, 0, 0);
+
+    // The lune boundaries are where dot(p, axis) = offset ± halfWidth
+    float32_t dotWithAxis = dot(fragDir, axis);
+
+    // Draw both boundaries of the lune (accounting for offset)
+    float32_t upperBound = offset + halfWidth;
+    float32_t lowerBound = offset - halfWidth;
+    float32_t distFromUpperBoundary = abs(dotWithAxis - upperBound);
+    float32_t distFromLowerBoundary = abs(dotWithAxis - lowerBound);
+
+    float32_t alphaUpper = 1.0f - smoothstep(lineWidth - aaWidth, lineWidth + aaWidth, distFromUpperBoundary);
+    float32_t alphaLower = 1.0f - smoothstep(lineWidth - aaWidth, lineWidth + aaWidth, distFromLowerBoundary);
+
+    float32_t alpha = max(alphaUpper, alphaLower);
+
+    return float32_t4(color * alpha, alpha);
+}
+
+// Draw axis direction markers (dots at +/- axis from center)
+float32_t4 drawAxisMarkers(
+    float32_t3 axis,
+    float32_t3 center,
+    float32_t2 ndc,
+    float32_t aaWidth,
+    float32_t3 color,
+    float32_t extent = 0.25f)
+{
+    float32_t4 result = float32_t4(0, 0, 0, 0);
+
+    // Positive axis endpoint
+    float32_t3 axisEndPos = normalize(center + axis * extent);
+    float32_t3 axisEndPosCircle = sphereToCircle(axisEndPos);
+    result += drawCorner(axisEndPosCircle, ndc, aaWidth, 0.025f, 0.0f, color);
+
+    // Negative axis endpoint (smaller, dimmer)
+    float32_t3 axisEndNeg = normalize(center - axis * extent);
+    float32_t3 axisEndNegCircle = sphereToCircle(axisEndNeg);
+    result += drawCorner(axisEndNegCircle, ndc, aaWidth, 0.015f, 0.0f, color * 0.5f);
+
+    return result;
+}
+
+// ============================================================================
+// Visualization
+// ============================================================================
+
+// Draw half of a great circle (the visible half of a lune boundary)
+float32_t4 drawGreatCircleHalf(float32_t3 normal, float32_t3 spherePos, float32_t3 axis3, float32_t aaWidth, float32_t3 color, float32_t thickness)
+{
+    // Point is on great circle if dot(point, normal) ≈ 0
+    // Only draw the half where dot(point, axis3) > 0 (toward silhouette)
+    float32_t dist = abs(dot(spherePos, normal));
+    float32_t sideFade = smoothstep(-0.1f, 0.1f, dot(spherePos, axis3));
+    float32_t alpha = (1.0f - smoothstep(thickness - aaWidth, thickness + aaWidth, dist)) * sideFade;
+    return float32_t4(color * alpha, alpha);
+}
+
+// Visualize the best caliper edge (the edge that determined axis1)
+float32_t4 visualizeBestCaliperEdge(const float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t bestEdgeIdx, uint32_t count, float32_t3 spherePos, float32_t aaWidth)
+{
+    float32_t4 result = float32_t4(0, 0, 0, 0);
+
+    if (bestEdgeIdx >= count)
+        return result;
+
+    uint32_t nextIdx = (bestEdgeIdx + 1 < count) ? bestEdgeIdx + 1 : 0;
+    float32_t3 v0 = vertices[bestEdgeIdx];
+    float32_t3 v1 = vertices[nextIdx];
+
+    // Draw the best caliper edge with a thicker, gold line
+    float32_t3 pts[2] = {v0, v1};
+    float32_t3 highlightColor = float32_t3(1.0f, 0.8f, 0.0f);
+    float32_t alpha = drawGreatCircleArc(spherePos, pts, aaWidth, 0.008f);
+    result += float32_t4(highlightColor * alpha, alpha);
+
+    return result;
+}
+
 #endif // VISUALIZE_SAMPLES
 
 #if DEBUG_DATA
@@ -472,4 +591,4 @@ void validateEdgeVisibility(float32_t3x4 modelMatrix, uint32_t sil, uint32_t ver
 }
 #endif // DEBUG_DATA
 
-#endif // _DEBUG_HLSL_
+#endif // _SOLID_ANGLE_VIS_EXAMPLE_DRAWING_HLSL_INCLUDED_

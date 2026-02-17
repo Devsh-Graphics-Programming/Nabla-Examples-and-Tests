@@ -1,15 +1,20 @@
-#ifndef GPU_COMMON_HLSL
-#define GPU_COMMON_HLSL
+//// Copyright (C) 2026-2026 - DevSH Graphics Programming Sp. z O.O.
+//// This file is part of the "Nabla Engine".
+//// For conditions of distribution and use, see copyright notice in nabla.h
+#ifndef _SOLID_ANGLE_VIS_EXAMPLE_GPU_COMMON_HLSL_INCLUDED_
+#define _SOLID_ANGLE_VIS_EXAMPLE_GPU_COMMON_HLSL_INCLUDED_
 
-static const float32_t CIRCLE_RADIUS = 1.0f;
+#include "utils.hlsl"
+
+static const float32_t CIRCLE_RADIUS = 0.5f;
 static const float32_t INV_CIRCLE_RADIUS = 1.0f / CIRCLE_RADIUS;
 
 // --- Geometry Utils ---
-struct ClippedSilhouette
-{
-    float32_t3 vertices[7]; // Max 7 vertices after clipping, unnormalized
-    uint32_t count;
-};
+#define MAX_SILHOUETTE_VERTICES 7
+
+// Special index values for clip points
+static const uint32_t CLIP_POINT_A = 23; // Clip point between last positive and first negative
+static const uint32_t CLIP_POINT_B = 24; // Clip point between last negative and first positive
 
 static const float32_t3 constCorners[8] = {
     float32_t3(-0.5f, -0.5f, -0.5f), float32_t3(0.5f, -0.5f, -0.5f), float32_t3(-0.5f, 0.5f, -0.5f), float32_t3(0.5f, 0.5f, -0.5f),
@@ -70,7 +75,7 @@ static const uint32_t silhouettes[27][7] = {
     {4, 2, 6, 7, 3, 0, 0}, // 10: Light Orange
     {6, 0, 4, 6, 7, 3, 2}, // 11: Dark Orange
     {4, 1, 3, 7, 5, 0, 0}, // 12: Pink
-    {6, 0, 4, 6, 7, 3, 2}, // 13: Light Pink
+    {4, 0, 4, 6, 7, 3, 2}, // 13: Light Pink
     {4, 0, 4, 6, 2, 0, 0}, // 14: Deep Rose
     {6, 0, 1, 3, 7, 5, 4}, // 15: Purple
     {4, 0, 1, 5, 4, 0, 0}, // 16: Light Purple
@@ -166,4 +171,5 @@ float32_t3 getVertex(float32_t3x4 modelMatrix, uint32_t vertexIdx)
     return corners[vertexIdx];
 #endif
 }
-#endif // GPU_COMMON_HLSL
+
+#endif // _SOLID_ANGLE_VIS_EXAMPLE_GPU_COMMON_HLSL_INCLUDED_

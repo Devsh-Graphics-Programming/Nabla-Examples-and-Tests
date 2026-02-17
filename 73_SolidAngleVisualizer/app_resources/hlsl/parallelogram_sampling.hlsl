@@ -1,535 +1,418 @@
-#ifndef _PARALLELOGRAM_SAMPLING_HLSL_
-#define _PARALLELOGRAM_SAMPLING_HLSL_
+//// Copyright (C) 2026-2026 - DevSH Graphics Programming Sp. z O.O.
+//// This file is part of the "Nabla Engine".
+//// For conditions of distribution and use, see copyright notice in nabla.h
+#ifndef _SOLID_ANGLE_VIS_EXAMPLE_PARALLELOGRAM_SAMPLING_HLSL_INCLUDED_
+#define _SOLID_ANGLE_VIS_EXAMPLE_PARALLELOGRAM_SAMPLING_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
+#include "silhouette.hlsl"
+#include "drawing.hlsl"
 
-#define MAX_SILHOUETTE_VERTICES 7
 #define MAX_CURVE_APEXES 2
-#define GET_PROJ_VERT(i) vertices[i].xy *CIRCLE_RADIUS
+#define GET_PROJ_VERT(i) silhouette.vertices[i].xy *CIRCLE_RADIUS
 
 // ============================================================================
-// Core structures
+// Minimum bounding rectangle on projected sphere
 // ============================================================================
-
 struct Parallelogram
 {
     float16_t2 corner;
     float16_t2 axisDir;
     float16_t width;
     float16_t height;
-};
 
-struct PrecomputedSilhouette
-{
-    float16_t3 edgeNormals[MAX_SILHOUETTE_VERTICES]; // 10.5 floats instead of 21
-    uint32_t count;
-};
+    // ========================================================================
+    // Projection helpers
+    // ========================================================================
 
-struct ParallelogramSilhouette
-{
-    Parallelogram para;
-    PrecomputedSilhouette silhouette;
-};
-
-// ============================================================================
-// Silhouette helpers
-// ============================================================================
-
-PrecomputedSilhouette precomputeSilhouette(NBL_CONST_REF_ARG(ClippedSilhouette) sil)
-{
-    PrecomputedSilhouette result;
-    result.count = sil.count;
-
-    float32_t3 v0 = sil.vertices[0];
-    float32_t3 v1 = sil.vertices[1];
-    float32_t3 v2 = sil.vertices[2];
-
-    result.edgeNormals[0] = float16_t3(cross(v0, v1));
-    result.edgeNormals[1] = float16_t3(cross(v1, v2));
-
-    if (sil.count > 3)
+    static float32_t3 circleToSphere(float32_t2 circlePoint)
     {
-        float32_t3 v3 = sil.vertices[3];
-        result.edgeNormals[2] = float16_t3(cross(v2, v3));
+        float32_t2 xy = circlePoint / CIRCLE_RADIUS;
+        float32_t xy_len_sq = dot(xy, xy);
+        return float32_t3(xy, sqrt(1.0f - xy_len_sq));
+    }
 
-        if (sil.count > 4)
+    // ========================================================================
+    // Curve evaluation helpers
+    // ========================================================================
+
+    static float32_t2 evalCurvePoint(float32_t3 S, float32_t3 E, float32_t t)
+    {
+        float32_t3 v = S + t * (E - S);
+        float32_t invLen = rsqrt(dot(v, v));
+        return v.xy * (invLen * CIRCLE_RADIUS);
+    }
+
+    static float32_t2 evalCurveTangent(float32_t3 S, float32_t3 E, float32_t t)
+    {
+        float32_t3 v = S + t * (E - S);
+        float32_t vLenSq = dot(v, v);
+
+        if (vLenSq < 1e-12f)
+            return normalize(E.xy - S.xy);
+
+        float32_t3 p = v * rsqrt(vLenSq);
+        float32_t3 vPrime = E - S;
+        float32_t2 tangent2D = (vPrime - p * dot(p, vPrime)).xy;
+
+        float32_t len = length(tangent2D);
+        return (len > 1e-7f) ? tangent2D / len : normalize(E.xy - S.xy);
+    }
+
+    // Get both endpoint tangents (shares SdotE computation)
+    static void getProjectedTangents(float32_t3 S, float32_t3 E, out float32_t2 t0, out float32_t2 t1)
+    {
+        float32_t SdotE = dot(S, E);
+
+        float32_t2 tangent0_2D = (E - S * SdotE).xy;
+        float32_t2 tangent1_2D = (E * SdotE - S).xy;
+
+        float32_t len0Sq = dot(tangent0_2D, tangent0_2D);
+        float32_t len1Sq = dot(tangent1_2D, tangent1_2D);
+
+        const float32_t eps = 1e-14f;
+
+        if (len0Sq > eps && len1Sq > eps)
         {
-            float32_t3 v4 = sil.vertices[4];
-            result.edgeNormals[3] = float16_t3(cross(v3, v4));
+            t0 = tangent0_2D * rsqrt(len0Sq);
+            t1 = tangent1_2D * rsqrt(len1Sq);
+            return;
+        }
 
-            if (sil.count > 5)
+        // Rare fallback path
+        float32_t2 diff = E.xy - S.xy;
+        float32_t diffLenSq = dot(diff, diff);
+        float32_t2 fallback = diffLenSq > eps ? diff * rsqrt(diffLenSq) : float32_t2(1.0f, 0.0f);
+
+        t0 = len0Sq > eps ? tangent0_2D * rsqrt(len0Sq) : fallback;
+        t1 = len1Sq > eps ? tangent1_2D * rsqrt(len1Sq) : fallback;
+    }
+
+    // Compute apex with clamping to prevent apex explosion
+    static void computeApexClamped(float32_t2 p0, float32_t2 p1, float32_t2 t0, float32_t2 t1, out float32_t2 apex)
+    {
+        float32_t denom = t0.x * t1.y - t0.y * t1.x;
+        float32_t2 center = (p0 + p1) * 0.5f;
+
+        if (abs(denom) < 1e-6f)
+        {
+            apex = center;
+            return;
+        }
+
+        float32_t2 dp = p1 - p0;
+        float32_t s = (dp.x * t1.y - dp.y * t1.x) / denom;
+        apex = p0 + s * t0;
+
+        float32_t2 toApex = apex - center;
+        float32_t distSq = dot(toApex, toApex);
+        float32_t maxDistSq = CIRCLE_RADIUS * CIRCLE_RADIUS * 4.0f;
+
+        if (distSq > maxDistSq)
+        {
+            apex = center + toApex * (CIRCLE_RADIUS * 2.0f * rsqrt(distSq));
+        }
+    }
+
+    // ========================================================================
+    // Bounding box computation (rotating calipers)
+    //
+    // testEdgeForAxis<I, Accurate> and computeBoundsForAxis<Accurate> are
+    // templated on a bool to select between two precision levels:
+    //
+    // Accurate=false (used by tryCaliperDir, O(N^2) total calls):
+    //   Tests vertices + edge midpoints only. Cheap (just dot products) and
+    //   sufficient for *ranking* candidate axes, even though it may
+    //   underestimate the true extent of convex edges.
+    //
+    // Accurate=true (used by buildForAxis, called once):
+    //   Also computes tangent-line apex intersections for convex edges to
+    //   find the true extremum. Great circle arcs that project as convex
+    //   curves can bulge beyond their endpoints; the apex (tangent
+    //   evaluation + line intersection + clamping) captures this but is
+    //   ~4x more expensive per edge.
+    //
+    // The fast path gives the same relative ranking of axes (the
+    // approximation error is consistent across candidates), so the
+    // cheapest axis found by Fast is also the cheapest under Accurate.
+    // ========================================================================
+
+    static void testPoint(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp, float32_t2 pt, float32_t2 dir, float32_t2 perpDir)
+    {
+        float32_t projAlong = dot(pt, dir);
+        float32_t projPerp = dot(pt, perpDir);
+
+        minAlong = min(minAlong, projAlong);
+        maxAlong = max(maxAlong, projAlong);
+        minPerp = min(minPerp, projPerp);
+        maxPerp = max(maxPerp, projPerp);
+    }
+
+    // Accurate=false (Fast): tests vertex + midpoint only. Used O(N^2) times for axis ranking.
+    // Accurate=true:         also computes tangent-line apex for convex edges. Used once for final rect.
+    template <uint32_t I, bool Accurate = false>
+    static void testEdgeForAxis(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp, const ClippedSilhouette silhouette, uint32_t convexMask, uint32_t n3Mask, float32_t2 dir, float32_t2 perpDir)
+    {
+        const uint32_t nextIdx = (I + 1 < silhouette.count) ? I + 1 : 0;
+        const float32_t2 projectedVertex = GET_PROJ_VERT(I);
+
+        testPoint(minAlong, maxAlong, minPerp, maxPerp, projectedVertex, dir, perpDir);
+
+        bool isN3 = (n3Mask & (1u << I)) != 0;
+
+        if (Accurate)
+        {
+            bool isConvex = (convexMask & (1u << I)) != 0;
+
+            if (!isN3 && !isConvex)
+                return;
+
+            float32_t3 S = silhouette.vertices[I];
+            float32_t3 E = silhouette.vertices[nextIdx];
+            float32_t2 midPoint = evalCurvePoint(S, E, 0.5f);
+
+            if (isN3)
             {
-                float32_t3 v5 = sil.vertices[5];
-                result.edgeNormals[4] = float16_t3(cross(v4, v5));
-
-                if (sil.count > 6)
-                {
-                    float32_t3 v6 = sil.vertices[6];
-                    result.edgeNormals[5] = float16_t3(cross(v5, v6));
-                    result.edgeNormals[6] = float16_t3(cross(v6, v0));
-                }
-                else
-                {
-                    result.edgeNormals[5] = float16_t3(cross(v5, v0));
-                    result.edgeNormals[6] = float16_t3(0.0f, 0.0f, 0.0f);
-                }
+                testPoint(minAlong, maxAlong, minPerp, maxPerp, midPoint, dir, perpDir);
             }
-            else
+
+            if (isConvex)
             {
-                result.edgeNormals[4] = float16_t3(cross(v4, v0));
-                result.edgeNormals[5] = float16_t3(0.0f, 0.0f, 0.0f);
-                result.edgeNormals[6] = float16_t3(0.0f, 0.0f, 0.0f);
+                float32_t2 t0, endTangent;
+                getProjectedTangents(S, E, t0, endTangent);
+
+                if (dot(t0, perpDir) > 0.0f)
+                {
+                    float32_t2 apex0;
+                    if (isN3)
+                    {
+                        float32_t2 tangentAtMid = evalCurveTangent(S, E, 0.5f);
+                        computeApexClamped(projectedVertex, midPoint, t0, tangentAtMid, apex0);
+                        testPoint(minAlong, maxAlong, minPerp, maxPerp, apex0, dir, perpDir);
+
+                        if (dot(tangentAtMid, perpDir) > 0.0f)
+                        {
+                            float32_t2 apex1;
+                            computeApexClamped(midPoint, E.xy * CIRCLE_RADIUS, tangentAtMid, endTangent, apex1);
+                            testPoint(minAlong, maxAlong, minPerp, maxPerp, apex1, dir, perpDir);
+                        }
+                    }
+                    else
+                    {
+                        computeApexClamped(projectedVertex, E.xy * CIRCLE_RADIUS, t0, endTangent, apex0);
+                        testPoint(minAlong, maxAlong, minPerp, maxPerp, apex0, dir, perpDir);
+                    }
+                }
             }
         }
         else
         {
-            result.edgeNormals[3] = float16_t3(cross(v3, v0));
-            result.edgeNormals[4] = float16_t3(0.0f, 0.0f, 0.0f);
-            result.edgeNormals[5] = float16_t3(0.0f, 0.0f, 0.0f);
-            result.edgeNormals[6] = float16_t3(0.0f, 0.0f, 0.0f);
-        }
-    }
-    else
-    {
-        result.edgeNormals[2] = float16_t3(cross(v2, v0));
-        result.edgeNormals[3] = float16_t3(0.0f, 0.0f, 0.0f);
-        result.edgeNormals[4] = float16_t3(0.0f, 0.0f, 0.0f);
-        result.edgeNormals[5] = float16_t3(0.0f, 0.0f, 0.0f);
-        result.edgeNormals[6] = float16_t3(0.0f, 0.0f, 0.0f);
-    }
-
-    return result;
-}
-
-bool isInsideSilhouetteFast(float32_t3 dir, NBL_CONST_REF_ARG(PrecomputedSilhouette) sil)
-{
-    float16_t3 d = float16_t3(dir);
-    half maxDot = dot(d, sil.edgeNormals[0]);
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[1]));
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[2]));
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[3]));
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[4]));
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[5]));
-    maxDot = max(maxDot, dot(d, sil.edgeNormals[6]));
-    return maxDot <= half(0.0f);
-}
-float32_t3 circleToSphere(float32_t2 circlePoint)
-{
-    float32_t2 xy = circlePoint / CIRCLE_RADIUS;
-    float32_t xy_len_sq = dot(xy, xy);
-
-    // if (xy_len_sq >= 1.0f)
-    //     return float32_t3(0, 0, 0);
-
-    return float32_t3(xy, sqrt(1.0f - xy_len_sq));
-}
-
-bool isEdgeConvex(float32_t3 S, float32_t3 E)
-{
-    return nbl::hlsl::cross2D(S.xy, E.xy) < -1e-6f;
-}
-
-// ============================================================================
-// Curve evaluation helpers
-// ============================================================================
-
-// Evaluate curve point at t using rsqrt
-float32_t2 evalCurvePoint(float32_t3 S, float32_t3 E, float32_t t)
-{
-    float32_t3 v = S + t * (E - S);
-    float32_t invLen = rsqrt(dot(v, v));
-    return v.xy * (invLen * CIRCLE_RADIUS);
-}
-
-// Evaluate tangent at arbitrary t
-float32_t2 evalCurveTangent(float32_t3 S, float32_t3 E, float32_t t)
-{
-    float32_t3 v = S + t * (E - S);
-    float32_t vLenSq = dot(v, v);
-
-    if (vLenSq < 1e-12f)
-        return normalize(E.xy - S.xy);
-
-    float32_t3 p = v * rsqrt(vLenSq);
-    float32_t3 vPrime = E - S;
-    float32_t2 tangent2D = (vPrime - p * dot(p, vPrime)).xy;
-
-    float32_t len = length(tangent2D);
-    return (len > 1e-7f) ? tangent2D / len : normalize(E.xy - S.xy);
-}
-
-// Get both endpoint tangents efficiently (shares SdotE computation)
-void getProjectedTangents(float32_t3 S, float32_t3 E, out float32_t2 t0, out float32_t2 t1)
-{
-    float32_t SdotE = dot(S, E);
-
-    float32_t2 tangent0_2D = (E - S * SdotE).xy;
-    float32_t2 tangent1_2D = (E * SdotE - S).xy;
-
-    float32_t len0Sq = dot(tangent0_2D, tangent0_2D);
-    float32_t len1Sq = dot(tangent1_2D, tangent1_2D);
-
-    const float32_t eps = 1e-14f;
-
-    if (len0Sq > eps && len1Sq > eps)
-    {
-        t0 = tangent0_2D * rsqrt(len0Sq);
-        t1 = tangent1_2D * rsqrt(len1Sq);
-        return;
-    }
-
-    // Rare fallback path
-    float32_t2 diff = E.xy - S.xy;
-    float32_t diffLenSq = dot(diff, diff);
-    float32_t2 fallback = diffLenSq > eps ? diff * rsqrt(diffLenSq) : float32_t2(1.0f, 0.0f);
-
-    t0 = len0Sq > eps ? tangent0_2D * rsqrt(len0Sq) : fallback;
-    t1 = len1Sq > eps ? tangent1_2D * rsqrt(len1Sq) : fallback;
-}
-
-// Compute apex with clamping to prevent apex explosion
-void computeApexClamped(float32_t2 p0, float32_t2 p1, float32_t2 t0, float32_t2 t1, out float32_t2 apex)
-{
-    float32_t denom = t0.x * t1.y - t0.y * t1.x;
-    float32_t2 center = (p0 + p1) * 0.5f;
-
-    if (abs(denom) < 1e-6f)
-    {
-        apex = center;
-        return;
-    }
-
-    float32_t2 dp = p1 - p0;
-    float32_t s = (dp.x * t1.y - dp.y * t1.x) / denom;
-    apex = p0 + s * t0;
-
-    float32_t2 toApex = apex - center;
-    float32_t distSq = dot(toApex, toApex);
-    float32_t maxDistSq = CIRCLE_RADIUS * CIRCLE_RADIUS * 4.0f;
-
-    if (distSq > maxDistSq)
-    {
-        apex = center + toApex * (CIRCLE_RADIUS * 2.0f * rsqrt(distSq));
-    }
-}
-
-void testPoint(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp, float32_t2 pt, float32_t2 axisDir, float32_t2 perpDir)
-{
-    float32_t projAlong = dot(pt, axisDir);
-    float32_t projPerp = dot(pt, perpDir);
-
-    minAlong = min(minAlong, projAlong);
-    maxAlong = max(maxAlong, projAlong);
-    minPerp = min(minPerp, projPerp);
-    maxPerp = max(maxPerp, projPerp);
-}
-
-template <uint32_t I>
-void testEdgeForAxisFast(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp,
-                         uint32_t count, uint32_t n3Mask, float32_t2 axisDir, float32_t2 perpDir,
-                         const float32_t3 vertices[MAX_SILHOUETTE_VERTICES])
-{
-    const uint32_t nextIdx = (I + 1 < count) ? I + 1 : 0;
-
-    testPoint(minAlong, maxAlong, minPerp, maxPerp, GET_PROJ_VERT(I), axisDir, perpDir);
-
-    if (n3Mask & (1u << I))
-    {
-        float32_t2 midPoint = evalCurvePoint(vertices[I], vertices[nextIdx], 0.5f);
-        testPoint(minAlong, maxAlong, minPerp, maxPerp, midPoint, axisDir, perpDir);
-    }
-}
-
-float32_t computeBoundingBoxAreaForAxisFast(NBL_CONST_REF_ARG(float32_t3) vertices[MAX_SILHOUETTE_VERTICES], uint32_t n3Mask, uint32_t count, float32_t2 axisDir)
-{
-    float32_t2 perpDir = float32_t2(-axisDir.y, axisDir.x);
-
-    float32_t minAlong = 1e10f;
-    float32_t maxAlong = -1e10f;
-    float32_t minPerp = 1e10f;
-    float32_t maxPerp = -1e10f;
-
-    testEdgeForAxisFast<0>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-    testEdgeForAxisFast<1>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-    testEdgeForAxisFast<2>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-    if (count > 3)
-    {
-        testEdgeForAxisFast<3>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-        if (count > 4)
-        {
-            testEdgeForAxisFast<4>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-            if (count > 5)
-            {
-                testEdgeForAxisFast<5>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-                if (count > 6)
-                {
-                    testEdgeForAxisFast<6>(minAlong, maxAlong, minPerp, maxPerp, count, n3Mask, axisDir, perpDir, vertices);
-                }
-            }
-        }
-    }
-
-    return (maxAlong - minAlong) * (maxPerp - minPerp);
-}
-
-void tryCaliperDir(inout float32_t bestArea, inout float32_t2 bestDir, const float32_t2 dir, const float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t n3Mask, uint32_t count)
-{
-    float32_t area = computeBoundingBoxAreaForAxisFast(vertices, n3Mask, count, dir);
-
-    if (area < bestArea)
-    {
-        bestArea = area;
-        bestDir = dir;
-    }
-}
-
-template <uint32_t I>
-inline void processEdge(inout float32_t bestArea, inout float32_t2 bestDir, inout uint32_t convexMask, inout uint32_t n3Mask, uint32_t count, const float32_t3 vertices[MAX_SILHOUETTE_VERTICES])
-{
-    const uint32_t nextIdx = (I + 1 < count) ? I + 1 : 0;
-    float32_t3 S = vertices[I];
-    float32_t3 E = vertices[nextIdx];
-
-    float32_t2 t0, t1;
-    getProjectedTangents(S, E, t0, t1);
-
-    tryCaliperDir(bestArea, bestDir, t0, vertices, n3Mask, count);
-
-    if (isEdgeConvex(S, E))
-    {
-        convexMask |= (1u << I);
-        tryCaliperDir(bestArea, bestDir, t1, vertices, n3Mask, count);
-
-        if (dot(t0, t1) < 0.5f)
-        {
-            n3Mask |= (1u << I);
-            float32_t2 tangentAtMid = evalCurveTangent(S, E, 0.5f);
-            tryCaliperDir(bestArea, bestDir, tangentAtMid, vertices, n3Mask, count);
-        }
-    }
-}
-
-template <uint32_t I>
-inline void testEdgeForAxisAccurate(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp, uint32_t count, uint32_t convexMask, uint32_t n3Mask,
-                                    float32_t2 axisDir, float32_t2 perpDir, const float32_t3 vertices[MAX_SILHOUETTE_VERTICES])
-{
-    const uint32_t nextIdx = (I + 1 < count) ? I + 1 : 0;
-    float32_t2 projectedVertex = vertices[I].xy * CIRCLE_RADIUS;
-
-    testPoint(minAlong, maxAlong, minPerp, maxPerp, projectedVertex, axisDir, perpDir);
-
-    bool isN3 = (n3Mask & (1u << I)) != 0;
-    bool isConvex = (convexMask & (1u << I)) != 0;
-
-    if (!isN3 && !isConvex)
-        return;
-
-    float32_t3 S = vertices[I];
-    float32_t3 E = vertices[nextIdx];
-    float32_t2 midPoint = evalCurvePoint(S, E, 0.5f);
-
-    if (isN3)
-    {
-        testPoint(minAlong, maxAlong, minPerp, maxPerp, midPoint, axisDir, perpDir);
-    }
-
-    if (isConvex)
-    {
-        float32_t2 t0, endTangent;
-        getProjectedTangents(S, E, t0, endTangent);
-
-        if (dot(t0, perpDir) > 0.0f)
-        {
-            float32_t2 apex0;
             if (isN3)
             {
+                float32_t2 midPoint = evalCurvePoint(silhouette.vertices[I], silhouette.vertices[nextIdx], 0.5f);
+                testPoint(minAlong, maxAlong, minPerp, maxPerp, midPoint, dir, perpDir);
+            }
+        }
+    }
+
+    // Unrolled bounding box computation for a given axis direction.
+    // Accurate=false: fast path for axis ranking during candidate selection.
+    // Accurate=true:  tight bounds with apex computation for the final rectangle.
+    template <bool Accurate = false>
+    static void computeBoundsForAxis(inout float32_t minAlong, inout float32_t maxAlong, inout float32_t minPerp, inout float32_t maxPerp, const ClippedSilhouette silhouette, uint32_t convexMask, uint32_t n3Mask, float32_t2 dir, float32_t2 perpDir)
+    {
+        testEdgeForAxis<0, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+        testEdgeForAxis<1, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+        testEdgeForAxis<2, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+        if (silhouette.count > 3)
+        {
+            testEdgeForAxis<3, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+            if (silhouette.count > 4)
+            {
+                testEdgeForAxis<4, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+                if (silhouette.count > 5)
+                {
+                    testEdgeForAxis<5, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+                    if (silhouette.count > 6)
+                    {
+                        testEdgeForAxis<6, Accurate>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+                    }
+                }
+            }
+        }
+    }
+
+    static void tryCaliperDir(inout float32_t bestArea, inout float32_t2 bestDir, const float32_t2 dir, const ClippedSilhouette silhouette, uint32_t n3Mask)
+    {
+        float32_t2 perpDir = float32_t2(-dir.y, dir.x);
+
+        float32_t minAlong = 1e10f;
+        float32_t maxAlong = -1e10f;
+        float32_t minPerp = 1e10f;
+        float32_t maxPerp = -1e10f;
+
+        computeBoundsForAxis<false>(minAlong, maxAlong, minPerp, maxPerp, silhouette, 0, n3Mask, dir, perpDir);
+
+        float32_t area = (maxAlong - minAlong) * (maxPerp - minPerp);
+        if (area < bestArea)
+        {
+            bestArea = area;
+            bestDir = dir;
+        }
+    }
+
+    template <uint32_t I>
+    static void processEdge(inout float32_t bestArea, inout float32_t2 bestDir, inout uint32_t convexMask, inout uint32_t n3Mask, const ClippedSilhouette silhouette, inout SilEdgeNormals precompSil)
+    {
+        const uint32_t nextIdx = (I + 1 < silhouette.count) ? I + 1 : 0;
+        float32_t3 S = silhouette.vertices[I];
+        float32_t3 E = silhouette.vertices[nextIdx];
+        precompSil.edgeNormals[I] = float16_t3(cross(S, E));
+
+        float32_t2 t0, t1;
+        getProjectedTangents(S, E, t0, t1);
+
+        tryCaliperDir(bestArea, bestDir, t0, silhouette, n3Mask);
+
+        if (nbl::hlsl::cross2D(S.xy, E.xy) < -1e-6f)
+        {
+            convexMask |= (1u << I);
+            tryCaliperDir(bestArea, bestDir, t1, silhouette, n3Mask);
+
+            if (dot(t0, t1) < 0.5f)
+            {
+                n3Mask |= (1u << I);
                 float32_t2 tangentAtMid = evalCurveTangent(S, E, 0.5f);
-                computeApexClamped(projectedVertex, midPoint, t0, tangentAtMid, apex0);
-                testPoint(minAlong, maxAlong, minPerp, maxPerp, apex0, axisDir, perpDir);
-
-                if (dot(tangentAtMid, perpDir) > 0.0f)
-                {
-                    float32_t2 apex1;
-                    computeApexClamped(midPoint, E.xy * CIRCLE_RADIUS, tangentAtMid, endTangent, apex1);
-                    testPoint(minAlong, maxAlong, minPerp, maxPerp, apex1, axisDir, perpDir);
-                }
-            }
-            else
-            {
-                computeApexClamped(projectedVertex, E.xy * CIRCLE_RADIUS, t0, endTangent, apex0);
-                testPoint(minAlong, maxAlong, minPerp, maxPerp, apex0, axisDir, perpDir);
+                tryCaliperDir(bestArea, bestDir, tangentAtMid, silhouette, n3Mask);
             }
         }
     }
-}
 
-Parallelogram buildParallelogramForAxisAccurate(const float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t convexMask, uint32_t n3Mask, uint32_t count, float32_t2 axisDir)
-{
-    float32_t2 perpDir = float32_t2(-axisDir.y, axisDir.x);
+    // ========================================================================
+    // Factory methods
+    // ========================================================================
 
-    float32_t minAlong = 1e10f;
-    float32_t maxAlong = -1e10f;
-    float32_t minPerp = 1e10f;
-    float32_t maxPerp = -1e10f;
-
-    testEdgeForAxisAccurate<0>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-    testEdgeForAxisAccurate<1>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-    testEdgeForAxisAccurate<2>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-    if (count > 3)
+    static Parallelogram buildForAxis(const ClippedSilhouette silhouette, uint32_t convexMask, uint32_t n3Mask, float32_t2 dir)
     {
-        testEdgeForAxisAccurate<3>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-        if (count > 4)
-        {
-            testEdgeForAxisAccurate<4>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-            if (count > 5)
-            {
-                testEdgeForAxisAccurate<5>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-                if (count > 6)
-                {
-                    testEdgeForAxisAccurate<6>(minAlong, maxAlong, minPerp, maxPerp, count, convexMask, n3Mask, axisDir, perpDir, vertices);
-                }
-            }
-        }
+        float32_t2 perpDir = float32_t2(-dir.y, dir.x);
+
+        float32_t minAlong = 1e10f;
+        float32_t maxAlong = -1e10f;
+        float32_t minPerp = 1e10f;
+        float32_t maxPerp = -1e10f;
+
+        computeBoundsForAxis<true>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
+
+        Parallelogram result;
+        result.width = float16_t(maxAlong - minAlong);
+        result.height = float16_t(maxPerp - minPerp);
+        result.axisDir = float16_t2(dir);
+        result.corner = float16_t2(minAlong * dir + minPerp * float16_t2(-dir.y, dir.x));
+
+        return result;
     }
 
-    Parallelogram result;
-    result.width = float16_t(maxAlong - minAlong);
-    result.height = float16_t(maxPerp - minPerp);
-    result.axisDir = float16_t2(axisDir);
-    result.corner = float16_t2(minAlong * axisDir + minPerp * float16_t2(-axisDir.y, axisDir.x));
-
-    return result;
-}
-
-Parallelogram findMinimumBoundingBoxCurved(const float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count
+    // Silhouette vertices must be normalized before calling create()
+    static Parallelogram create(const ClippedSilhouette silhouette, out SilEdgeNormals precompSil
 #if VISUALIZE_SAMPLES
-                                           ,
-                                           float32_t2 ndc, float32_t3 spherePos, float32_t aaWidth,
-                                           inout float32_t4 color
+                                ,
+                                float32_t2 ndc, float32_t3 spherePos, float32_t aaWidth,
+                                inout float32_t4 color
 #endif
-)
-{
-    uint32_t convexMask = 0;
-    uint32_t n3Mask = 0;
-    float32_t bestArea = 1e10f;
-    float32_t2 bestDir = float32_t2(1.0f, 0.0f);
-
-    processEdge<0>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-    processEdge<1>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-    processEdge<2>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-    if (count > 3)
+    )
     {
-        processEdge<3>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-        if (count > 4)
+        precompSil = (SilEdgeNormals)0;
+        precompSil.count = silhouette.count;
+
+        uint32_t convexMask = 0;
+        uint32_t n3Mask = 0;
+        float32_t bestArea = 1e10f;
+        float32_t2 bestDir = float32_t2(1.0f, 0.0f);
+
+        processEdge<0>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+        processEdge<1>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+        processEdge<2>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+        if (silhouette.count > 3)
         {
-            processEdge<4>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-            if (count > 5)
+            processEdge<3>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+            if (silhouette.count > 4)
             {
-                processEdge<5>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
-                if (count > 6)
+                processEdge<4>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+                if (silhouette.count > 5)
                 {
-                    processEdge<6>(bestArea, bestDir, convexMask, n3Mask, count, vertices);
+                    processEdge<5>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+                    if (silhouette.count > 6)
+                    {
+                        processEdge<6>(bestArea, bestDir, convexMask, n3Mask, silhouette, precompSil);
+                    }
                 }
             }
         }
-    }
 
-    tryCaliperDir(bestArea, bestDir, float32_t2(1.0f, 0.0f), vertices, n3Mask, count);
-    tryCaliperDir(bestArea, bestDir, float32_t2(0.0f, 1.0f), vertices, n3Mask, count);
+        tryCaliperDir(bestArea, bestDir, float32_t2(1.0f, 0.0f), silhouette, n3Mask);
+        tryCaliperDir(bestArea, bestDir, float32_t2(0.0f, 1.0f), silhouette, n3Mask);
 
-    Parallelogram best = buildParallelogramForAxisAccurate(vertices, convexMask, n3Mask, count, bestDir);
+        Parallelogram best = buildForAxis(silhouette, convexMask, n3Mask, bestDir);
 
 #if VISUALIZE_SAMPLES
-    for (uint32_t i = 0; i < count; i++)
-    {
-        if (convexMask & (1u << i))
+        for (uint32_t i = 0; i < silhouette.count; i++)
         {
-            uint32_t nextIdx = (i + 1) % count;
-            float32_t2 p0 = vertices[i].xy * CIRCLE_RADIUS;
-            float32_t2 p1 = vertices[nextIdx].xy * CIRCLE_RADIUS;
-
-            float32_t2 t0, endTangent;
-            getProjectedTangents(vertices[i], vertices[nextIdx], t0, endTangent);
-
-            if (n3Mask & (1u << i))
+            if (convexMask & (1u << i))
             {
-                float32_t2 tangentAtMid = evalCurveTangent(vertices[i], vertices[nextIdx], 0.5f);
-                float32_t2 midPoint = evalCurvePoint(vertices[i], vertices[nextIdx], 0.5f);
+                uint32_t nextIdx = (i + 1) % silhouette.count;
+                float32_t2 p0 = GET_PROJ_VERT(i);
+                float32_t2 p1 = GET_PROJ_VERT(nextIdx);
 
-                float32_t2 apex0, apex1;
-                computeApexClamped(p0, midPoint, t0, tangentAtMid, apex0);
-                computeApexClamped(midPoint, p1, tangentAtMid, endTangent, apex1);
+                float32_t2 t0, endTangent;
+                getProjectedTangents(silhouette.vertices[i], silhouette.vertices[nextIdx], t0, endTangent);
 
-                color += drawCorner(float32_t3(apex0, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
-                color += drawCorner(float32_t3(midPoint, 0.0f), ndc, aaWidth, 0.02, 0.0f, float32_t3(0, 1, 0));
-                color += drawCorner(float32_t3(apex1, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0.5, 0));
-            }
-            else
-            {
-                float32_t2 apex;
-                computeApexClamped(p0, p1, t0, endTangent, apex);
-                color += drawCorner(float32_t3(apex, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
+                if (n3Mask & (1u << i))
+                {
+                    float32_t2 tangentAtMid = evalCurveTangent(silhouette.vertices[i], silhouette.vertices[nextIdx], 0.5f);
+                    float32_t2 midPoint = evalCurvePoint(silhouette.vertices[i], silhouette.vertices[nextIdx], 0.5f);
+
+                    float32_t2 apex0, apex1;
+                    computeApexClamped(p0, midPoint, t0, tangentAtMid, apex0);
+                    computeApexClamped(midPoint, p1, tangentAtMid, endTangent, apex1);
+
+                    color += drawCorner(float32_t3(apex0, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
+                    color += drawCorner(float32_t3(midPoint, 0.0f), ndc, aaWidth, 0.02, 0.0f, float32_t3(0, 1, 0));
+                    color += drawCorner(float32_t3(apex1, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0.5, 0));
+                }
+                else
+                {
+                    float32_t2 apex;
+                    computeApexClamped(p0, p1, t0, endTangent, apex);
+                    color += drawCorner(float32_t3(apex, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
+                }
             }
         }
-    }
 #endif
-
-    return best;
-}
-// ============================================================================
-// Main entry points
-// ============================================================================
-
-ParallelogramSilhouette buildParallelogram(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette
-#if VISUALIZE_SAMPLES
-                                           ,
-                                           float32_t2 ndc, float32_t3 spherePos, float32_t aaWidth,
-                                           inout float32_t4 color
-#endif
-)
-{
-    ParallelogramSilhouette result;
-
-    // if (silhouette.count < 3)
-    // {
-    //     result.para.corner = float32_t2(0, 0);
-    //     result.para.edge0 = float32_t2(1, 0);
-    //     result.para.edge1 = float32_t2(0, 1);
-    //     result.para.area = 1.0f;
-    //     return result;
-    // }
-
-    result.para = findMinimumBoundingBoxCurved(silhouette.vertices, silhouette.count
-#if VISUALIZE_SAMPLES
-                                               ,
-                                               ndc, spherePos, aaWidth, color
-#endif
-    );
-
 #if DEBUG_DATA
-    DebugDataBuffer[0].parallelogramArea = result.para.width * result.para.height;
+        DebugDataBuffer[0].parallelogramArea = best.width * best.height;
 #endif
-    result.silhouette = precomputeSilhouette(silhouette);
 
-    return result;
-}
+        return best;
+    }
 
-float32_t3 sampleFromParallelogram(NBL_CONST_REF_ARG(ParallelogramSilhouette) paraSilhouette, float32_t2 xi, out float32_t pdf, out bool valid)
-{
-    float16_t2 axisDir = paraSilhouette.para.axisDir;
-    float16_t2 perpDir = float16_t2(-axisDir.y, axisDir.x);
+    float32_t3 sample(NBL_CONST_REF_ARG(SilEdgeNormals) silhouette, float32_t2 xi, out float32_t pdf, out bool valid)
+    {
+        float16_t2 perpDir = float16_t2(-axisDir.y, axisDir.x);
 
-    float16_t2 circleXY = paraSilhouette.para.corner +
-                          float16_t(xi.x) * paraSilhouette.para.width * axisDir +
-                          float16_t(xi.y) * paraSilhouette.para.height * perpDir;
+        float16_t2 circleXY = corner +
+                              float16_t(xi.x) * width * axisDir +
+                              float16_t(xi.y) * height * perpDir;
 
-    float32_t3 direction = circleToSphere(circleXY);
+        float32_t3 direction = circleToSphere(circleXY);
 
-    valid = (direction.z > 0.0f) && isInsideSilhouetteFast(direction, paraSilhouette.silhouette);
-    pdf = valid ? (1.0f / (paraSilhouette.para.width * paraSilhouette.para.height)) : 0.0f;
+        valid = direction.z > 0.0f && silhouette.isInside(direction);
+        // PDF in solid angle measure: the rectangle is in circle-space (scaled by CIRCLE_RADIUS),
+        // and the orthographic projection Jacobian is dA_circle/dω = CIRCLE_RADIUS^2 * z
+        pdf = valid ? (CIRCLE_RADIUS * CIRCLE_RADIUS * direction.z / (float32_t(width) * float32_t(height))) : 0.0f;
 
-    return direction;
-}
+        return direction;
+    }
+};
 
-#endif // _PARALLELOGRAM_SAMPLING_HLSL_
+#endif // _SOLID_ANGLE_VIS_EXAMPLE_PARALLELOGRAM_SAMPLING_HLSL_INCLUDED_
