@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 /*
 Renders scene texture to an offscreen framebuffer whose color attachment is then sampled into a imgui window.
@@ -252,14 +253,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				}
 				// draw scene
 				{
-					float32_t3x4 viewMatrix;
-					float32_t4x4 viewProjMatrix;
-					// TODO: get rid of legacy matrices
-					{
-						const auto& camera = interface.camera;
-						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
+					const auto& camera = interface.camera;
+					float32_t3x4 viewMatrix = camera.getViewMatrix();
+					float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
 					const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 					// tear down scene every frame
@@ -570,21 +566,21 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				// TODO: why is this a lambda and not just an assignment in a scope ?
 				camera.setProjectionMatrix([&]() 
 				{
-					matrix4SIMD projection;
+					hlsl::float32_t4x4 projection;
 
 					if (isPerspective)
 						if(isLH)
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 						else
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 					else
 					{
 						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 						if(isLH)
-							projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
 						else
-							projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
 					}
 
 					return projection;
@@ -720,33 +716,32 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				* note it also modifies input view matrix but projection matrix is immutable
 				*/
 
-// TODO: do all computation using `hlsl::matrix` and its `hlsl::float32_tNxM` aliases
 				static struct
 				{
-					core::matrix4SIMD view, projection, model;
+					hlsl::float32_t4x4 view, projection, model;
 				} imguizmoM16InOut;
 
 				ImGuizmo::SetID(0u);
 
-				imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-				imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-				imguizmoM16InOut.model = core::transpose(matrix4SIMD(model));
+				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(camera.getViewMatrix()));
+				imguizmoM16InOut.projection = hlsl::transpose(camera.getProjectionMatrix());
+				imguizmoM16InOut.model = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(model));
 				{
 					if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 						imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
-					transformParams.editTransformDecomposition = true;
-					sceneResolution = EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					transformParams.editTransformDecomposition = true; 
+					sceneResolution = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
 				}
 
-				model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+				model = hlsl::math::linalg::truncate<3,4,4,4>(hlsl::transpose(imguizmoM16InOut.model));
 				// to Nabla + update camera & model matrices
 // TODO: make it more nicely, extract:
 // - Position by computing inverse of the view matrix and grabbing its translation
 // - Target from 3rd row without W component of view matrix multiplied by some arbitrary distance value (can be the length of position from origin) and adding the position
 // But then set the view matrix this way anyway, because up-vector may not be compatible
 				const auto& view = camera.getViewMatrix();
-				const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+				const_cast<hlsl::float32_t3x4&>(view) = hlsl::math::linalg::truncate<3,4,4,4>(hlsl::transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 				// update concatanated matrix
 				const auto& projection = camera.getProjectionMatrix();
 				camera.setProjectionMatrix(projection);
@@ -783,9 +778,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							ImGui::Separator();
 					};
 
-					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, model.pointer());
-					addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-					addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &model[0][0]);
+					addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
+					addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, &projection[0][0], false);
 
 					ImGui::End();
 				}
@@ -867,9 +862,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			smart_refctd_ptr<SubAllocatedDescriptorSet> subAllocDS;
 			SubAllocatedDescriptorSet::value_type renderColorViewDescIndex = SubAllocatedDescriptorSet::invalid_value;
 			//
-			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 			// mutables
-			core::matrix3x4SIMD model;
+			hlsl::float32_t3x4 model = hlsl::math::linalg::diagonal<hlsl::float32_t3x4>(1.0f);
 			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
