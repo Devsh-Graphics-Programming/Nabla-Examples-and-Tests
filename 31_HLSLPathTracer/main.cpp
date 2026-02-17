@@ -1322,7 +1322,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				resolvePushConstants.resolveParameters = rwmc::ResolveParameters::create(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa);
+				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());

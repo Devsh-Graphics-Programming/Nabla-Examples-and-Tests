@@ -35,7 +35,6 @@ struct Unidirectional
     using vector3_type = vector<scalar_type, 3>;
     using monochrome_type = vector<scalar_type, 1>;
     using measure_type = typename MaterialSystem::measure_type;
-    using output_storage_type = typename Accumulator::output_storage_type; // ?
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;

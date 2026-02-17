@@ -6,7 +6,7 @@
 struct ResolvePushConstants
 {
 	uint32_t sampleCount;
-	nbl::hlsl::rwmc::ResolveParameters resolveParameters;
+	nbl::hlsl::rwmc::SResolveParameters resolveParameters;
 };
 
 NBL_CONSTEXPR uint32_t ResolveWorkgroupSizeX = 32u;

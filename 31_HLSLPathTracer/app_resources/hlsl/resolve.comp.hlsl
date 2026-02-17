@@ -13,6 +13,45 @@
 using namespace nbl;
 using namespace hlsl;
 
+struct SCascadeAccessor
+{
+    using output_scalar_t = float32_t;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t Components = 4;
+    using output_t = vector<output_scalar_t, Components>;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t image_dimension = 2;
+
+    static SCascadeAccessor create()
+    {
+        SCascadeAccessor retval;
+        uint32_t imgWidth, imgHeight, layers;
+        cascade.GetDimensions(imgWidth, imgHeight, layers);
+        retval.cascadeImageDimension = int16_t2(imgWidth, imgHeight);
+        return retval;
+    }
+
+    template<typename OutputScalarType, int32_t Dimension>
+    void get(vector<uint16_t, 2> uv, uint16_t layer, uint16_t level, NBL_REF_ARG(output_t) value)
+    {
+        if (any(uv < int16_t2(0, 0)) || any(uv >= cascadeImageDimension))
+        {
+            value = promote<output_t, output_scalar_t>(0);
+            return;
+        }
+
+        value = cascade.Load(int32_t3(uv, int32_t(layer)));
+    }
+
+    template<typename OutputScalarType, int32_t Dimension>
+    output_t get(vector<uint16_t, 2> uv, uint16_t layer, uint16_t level)
+    {
+        output_t value;
+        get<OutputScalarType, Dimension>(uv, layer, level, value);
+        return value;
+    }
+
+    int16_t2 cascadeImageDimension;
+};
+
 int32_t2 getImageExtents()
 {
     uint32_t width, height, imageArraySize;
@@ -28,11 +67,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     if (coords.x >= imageExtents.x || coords.y >= imageExtents.y)
         return;
 
-    using ResolveAccessorAdaptorType = rwmc::ResolveAccessorAdaptor<float>;
-    using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, CascadeCount>;
-    ResolveAccessorAdaptorType accessor;
-    accessor.cascade = cascade;
-    ResolverType resolve = ResolverType::create(pc.resolveParameters);
+    using SResolveAccessorAdaptorType = rwmc::SResolveAccessorAdaptor<SCascadeAccessor, float32_t>;
+    using SResolverType = rwmc::SResolver<SResolveAccessorAdaptorType, CascadeCount>;
+    SResolveAccessorAdaptorType accessor = { SCascadeAccessor::create() };
+    SResolverType resolve = SResolverType::create(pc.resolveParameters);
 
     float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
 
