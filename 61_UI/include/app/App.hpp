@@ -27,6 +27,7 @@ using json = nlohmann::json;
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 #include "glm/gtc/quaternion.hpp"
+#include "nbl/ext/Frustum/CDrawFrustum.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
@@ -1862,6 +1863,7 @@ class App final : public examples::SimpleWindowedApplication
 		nbl::core::smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 		nbl::core::smart_refctd_ptr<IGPURenderpass> m_sceneRenderpass;
 		nbl::core::smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
+		nbl::core::smart_refctd_ptr<nbl::ext::frustum::CDrawFrustum> m_drawFrustum;
 		std::optional<uint32_t> m_gridGeometryIx = std::nullopt;
 		core::smart_refctd_ptr<IGPUGraphicsPipeline> m_spaceEnvPipeline;
 		core::smart_refctd_ptr<IGPUDescriptorSetLayout> m_spaceEnvDescriptorSetLayout;

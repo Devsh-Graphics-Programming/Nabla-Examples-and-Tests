@@ -18,6 +18,7 @@ if(NBL_BUILD_IMGUI)
 		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::Frustum
 		Nabla::ext::FullScreenTriangle
 	)
 

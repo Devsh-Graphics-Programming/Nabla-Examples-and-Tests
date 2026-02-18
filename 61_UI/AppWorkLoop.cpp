@@ -44,7 +44,7 @@ void App::workLoopBody()
 				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				willSubmit &= cmdbuf->beginDebugMarker("UIApp Frame");
 
-				auto renderScene = [&](windowControlBinding& binding)
+				auto renderScene = [&](windowControlBinding& binding, const uint32_t bindingIx)
 				{
 					if (!binding.sceneFramebuffer)
 						return;
@@ -92,6 +92,29 @@ void App::workLoopBody()
 
 						const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
 						m_renderer->render(cmdbuf, viewParams);
+						if (m_drawFrustum)
+						{
+							ext::frustum::CDrawFrustum::DrawParameters drawParams = {};
+							drawParams.commandBuffer = cmdbuf;
+							drawParams.viewProjectionMatrix = binding.viewProjMatrix;
+							drawParams.lineWidth = 1.2f;
+
+							for (uint32_t frustumIx = 0u; frustumIx < windowBindings.size(); ++frustumIx)
+							{
+								const auto& frustumBinding = windowBindings[frustumIx];
+								if (!frustumBinding.boundProjectionIx.has_value())
+									continue;
+								if (frustumBinding.activePlanarIx >= m_planarProjections.size())
+									continue;
+
+								const float32_t4 color = (frustumIx == bindingIx) ?
+									float32_t4(1.0f, 0.95f, 0.25f, 1.0f) :
+									(frustumBinding.isOrthographicProjection ?
+										float32_t4(0.30f, 0.90f, 1.00f, 1.0f) :
+										float32_t4(1.00f, 0.45f, 0.90f, 1.0f));
+								willSubmit &= m_drawFrustum->renderSingle(drawParams, hlsl::inverse(frustumBinding.viewProjMatrix), color);
+							}
+						}
 
 					}
 					willSubmit &= cmdbuf->endRenderPass();
@@ -128,10 +151,10 @@ void App::workLoopBody()
 				}
 
 				if (useWindow)
-					for (auto& binding : windowBindings)
-						renderScene(binding);
+					for (uint32_t i = 0u; i < windowBindings.size(); ++i)
+						renderScene(windowBindings[i], i);
 				else
-					renderScene(windowBindings[activeRenderWindowIx]);
+					renderScene(windowBindings[activeRenderWindowIx], activeRenderWindowIx);
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {

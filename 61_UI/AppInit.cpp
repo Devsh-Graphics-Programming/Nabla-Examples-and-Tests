@@ -1686,6 +1686,24 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				m_renderer = CSimpleDebugRenderer::create(m_assetManager.get(), m_sceneRenderpass.get(), 0, { &geometries.front().get(), geometries.size() });
 				if (!m_renderer)
 					return logFail("Failed to create debug renderer!");
+				{
+					const asset::SPushConstantRange singlePcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+						.offset = offsetof(ext::frustum::PushConstants, spc),
+						.size = sizeof(ext::frustum::SSinglePC)
+					};
+
+					ext::frustum::CDrawFrustum::SCreationParameters frustumParams = {};
+					frustumParams.transfer = getTransferUpQueue();
+					frustumParams.assetManager = m_assetManager;
+					frustumParams.drawMode = ext::frustum::CDrawFrustum::DrawMode::DM_SINGLE;
+					frustumParams.singlePipelineLayout = ext::frustum::CDrawFrustum::createPipelineLayoutFromPCRange(m_device.get(), singlePcRange);
+					frustumParams.renderpass = core::smart_refctd_ptr(m_sceneRenderpass);
+					frustumParams.utilities = m_utils;
+					m_drawFrustum = ext::frustum::CDrawFrustum::create(std::move(frustumParams));
+					if (!m_drawFrustum)
+						return logFail("Failed to create frustum drawer.");
+				}
 
 				{
 					const auto& pipelines = m_renderer->getInitParams().pipelines;
