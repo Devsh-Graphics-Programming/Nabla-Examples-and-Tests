@@ -1,4 +1,50 @@
 #include "app/App.hpp"
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <span>
+#include <vector>
+
+namespace
+{
+	struct SpaceEnvBlobHeader final
+	{
+		uint32_t magic = 0u;
+		uint32_t width = 0u;
+		uint32_t height = 0u;
+		uint32_t format = 0u;
+		uint64_t payloadSize = 0ull;
+	};
+
+	constexpr uint32_t SpaceEnvBlobMagic = 0x31425645u; // "EVB1"
+	constexpr uint32_t SpaceEnvBlobFormatRgba16Sfloat = 2u;
+
+	bool loadSpaceEnvBlob(const std::filesystem::path& blobPath, SpaceEnvBlobHeader& outHeader, std::vector<uint8_t>& outPayload)
+	{
+		std::ifstream in(blobPath, std::ios::binary);
+		if (!in.is_open())
+			return false;
+
+		in.read(reinterpret_cast<char*>(&outHeader), sizeof(outHeader));
+		if (in.gcount() != sizeof(outHeader))
+			return false;
+
+		if (outHeader.magic != SpaceEnvBlobMagic || outHeader.format != SpaceEnvBlobFormatRgba16Sfloat)
+			return false;
+		if (outHeader.width == 0u || outHeader.height == 0u)
+			return false;
+		if (outHeader.payloadSize != static_cast<uint64_t>(outHeader.width) * outHeader.height * 8ull)
+			return false;
+		if (outHeader.payloadSize > static_cast<uint64_t>(std::numeric_limits<size_t>::max()))
+			return false;
+
+		outPayload.resize(static_cast<size_t>(outHeader.payloadSize));
+		in.read(reinterpret_cast<char*>(outPayload.data()), static_cast<std::streamsize>(outPayload.size()));
+		return in.gcount() == static_cast<std::streamsize>(outPayload.size());
+	}
+}
 
 bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 {
@@ -1381,6 +1427,257 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_sceneRenderpass = m_device->createRenderpass(std::move(params));
 					if (!m_sceneRenderpass)
 						return logFail("Failed to create Scene Renderpass!");
+				}
+
+				{
+					constexpr std::string_view SpaceEnvBlobCandidates[] = {
+						"rich_blue_nebulae_1_8k.rgba16f.envblob"
+					};
+
+					SpaceEnvBlobHeader envBlobHeader = {};
+					std::vector<uint8_t> envBlobPayload;
+					const std::array<path, 2u> SpaceEnvSearchRoots = {
+						localInputCWD / "media",
+						localInputCWD / "app_resources"
+					};
+					for (const auto candidate : SpaceEnvBlobCandidates)
+					{
+						for (const auto& root : SpaceEnvSearchRoots)
+						{
+							const auto candidatePath = root / candidate;
+							if (loadSpaceEnvBlob(candidatePath, envBlobHeader, envBlobPayload))
+							{
+								break;
+							}
+						}
+						if (!envBlobPayload.empty())
+							break;
+					}
+					if (envBlobPayload.empty())
+						return logFail("Failed to load space environment blob from available assets.");
+
+					const E_FORMAT envFormat = EF_R16G16B16A16_SFLOAT;
+					const asset::VkExtent3D envExtent = { envBlobHeader.width, envBlobHeader.height, 1u };
+					constexpr uint32_t envMipLevels = 1u;
+					constexpr uint32_t envArrayLayers = 1u;
+					const E_FORMAT envGpuFormat = envFormat;
+					const std::array<IImage::SBufferCopy, 1u> envRegions = {{
+						{
+							.bufferOffset = 0ull,
+							.bufferRowLength = 0u,
+							.bufferImageHeight = 0u,
+							.imageSubresource = {
+								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+								.mipLevel = 0u,
+								.baseArrayLayer = 0u,
+								.layerCount = envArrayLayers
+							},
+							.imageOffset = { 0, 0, 0 },
+							.imageExtent = envExtent
+						}
+					}};
+
+					IGPUImage::SCreationParams imageParams = {};
+					imageParams = asset::IImage::SCreationParams{
+						.type = IGPUImage::ET_2D,
+						.samples = IGPUImage::ESCF_1_BIT,
+						.format = envGpuFormat,
+						.extent = envExtent,
+						.mipLevels = envMipLevels,
+						.arrayLayers = envArrayLayers,
+						.flags = IGPUImage::ECF_NONE,
+						.usage = IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_TRANSFER_DST_BIT
+					};
+					m_spaceEnvImage = m_device->createImage(std::move(imageParams));
+					if (!m_spaceEnvImage)
+						return logFail("Failed to create space environment image.");
+					m_spaceEnvImage->setObjectDebugName("61_UI Space Environment");
+
+					auto memReqs = m_spaceEnvImage->getMemoryReqs();
+					memReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+					if (!m_device->allocate(memReqs, m_spaceEnvImage.get()).isValid())
+						return logFail("Failed to allocate memory for space environment image.");
+
+					auto uploadResult = m_utils->autoSubmit(
+						SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
+						[&](SIntendedSubmitInfo& submitInfo) -> bool
+						{
+							auto* recordingInfo = submitInfo.getCommandBufferForRecording();
+							if (!recordingInfo)
+								return false;
+
+							auto* cmdbuf = recordingInfo->cmdbuf;
+							using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+							const image_barrier_t preBarrier[] = {
+								{
+									.barrier = {
+										.dep = {
+											.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+											.srcAccessMask = ACCESS_FLAGS::NONE,
+											.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+											.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+										}
+									},
+									.image = m_spaceEnvImage.get(),
+									.subresourceRange = {
+										.aspectMask = IGPUImage::EAF_COLOR_BIT,
+										.baseMipLevel = 0u,
+										.levelCount = envMipLevels,
+										.baseArrayLayer = 0u,
+										.layerCount = envArrayLayers
+									},
+									.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
+									.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+								}
+							};
+							const IGPUCommandBuffer::SPipelineBarrierDependencyInfo preDep = { .imgBarriers = preBarrier };
+							bool success = cmdbuf->pipelineBarrier(asset::EDF_NONE, preDep);
+							success = success && m_utils->updateImageViaStagingBuffer(
+								submitInfo,
+								envBlobPayload.data(),
+								envFormat,
+								m_spaceEnvImage.get(),
+								IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+								std::span<const IImage::SBufferCopy>(envRegions));
+							recordingInfo = submitInfo.getCommandBufferForRecording();
+							if (!recordingInfo)
+								return false;
+							cmdbuf = recordingInfo->cmdbuf;
+
+							const image_barrier_t postBarrier[] = {
+								{
+									.barrier = {
+										.dep = {
+											.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+											.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+											.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+											.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
+										}
+									},
+									.image = m_spaceEnvImage.get(),
+									.subresourceRange = {
+										.aspectMask = IGPUImage::EAF_COLOR_BIT,
+										.baseMipLevel = 0u,
+										.levelCount = envMipLevels,
+										.baseArrayLayer = 0u,
+										.layerCount = envArrayLayers
+									},
+									.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+									.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+								}
+							};
+							const IGPUCommandBuffer::SPipelineBarrierDependencyInfo postDep = { .imgBarriers = postBarrier };
+							success = success && cmdbuf->pipelineBarrier(asset::EDF_NONE, postDep);
+							return success;
+						});
+					if (uploadResult.copy() != IQueue::RESULT::SUCCESS)
+						return logFail("Failed to upload space environment map.");
+
+					IGPUImageView::SCreationParams viewParams = {};
+					viewParams.subUsages = IGPUImage::EUF_SAMPLED_BIT;
+					viewParams.image = core::smart_refctd_ptr(m_spaceEnvImage);
+					viewParams.viewType = IGPUImageView::ET_2D;
+					viewParams.format = envGpuFormat;
+					viewParams.subresourceRange.aspectMask = IGPUImage::EAF_COLOR_BIT;
+					viewParams.subresourceRange.baseMipLevel = 0u;
+					viewParams.subresourceRange.levelCount = envMipLevels;
+					viewParams.subresourceRange.baseArrayLayer = 0u;
+					viewParams.subresourceRange.layerCount = envArrayLayers;
+					m_spaceEnvImageView = m_device->createImageView(std::move(viewParams));
+					if (!m_spaceEnvImageView)
+						return logFail("Failed to create space environment image view.");
+
+					IGPUSampler::SParams samplerParams = {};
+					samplerParams.MinFilter = ISampler::ETF_LINEAR;
+					samplerParams.MaxFilter = ISampler::ETF_LINEAR;
+					samplerParams.MipmapMode = ISampler::ESMM_LINEAR;
+					samplerParams.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+					samplerParams.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+					samplerParams.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+					samplerParams.AnisotropicFilter = 0u;
+					samplerParams.CompareEnable = false;
+					samplerParams.CompareFunc = ISampler::ECO_ALWAYS;
+					m_spaceEnvSampler = m_device->createSampler(samplerParams);
+					if (!m_spaceEnvSampler)
+						return logFail("Failed to create space environment sampler.");
+
+					const IGPUDescriptorSetLayout::SBinding bindings[] = {
+						{
+							.binding = 0u,
+							.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+							.count = 1u,
+							.immutableSamplers = &m_spaceEnvSampler
+						}
+					};
+					m_spaceEnvDescriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+					if (!m_spaceEnvDescriptorSetLayout)
+						return logFail("Failed to create space environment descriptor set layout.");
+
+					const asset::SPushConstantRange pushConstantRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.offset = 0u,
+						.size = sizeof(SpaceEnvPushConstants)
+					};
+					auto pipelineLayout = m_device->createPipelineLayout(
+						{ &pushConstantRange, 1u },
+						core::smart_refctd_ptr(m_spaceEnvDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr);
+					if (!pipelineLayout)
+						return logFail("Failed to create space environment pipeline layout.");
+
+					auto loadPrecompiledShader = [&](const std::string_view key) -> smart_refctd_ptr<IShader>
+					{
+						IAssetLoader::SAssetLoadParams loadParams = {};
+						loadParams.logger = m_logger.get();
+						loadParams.workingDirectory = "app_resources";
+						auto bundle = m_assetManager->getAsset(key.data(), loadParams);
+						const auto& contents = bundle.getContents();
+						if (contents.empty())
+							return nullptr;
+						return IAsset::castDown<IShader>(contents[0]);
+					};
+					const auto spaceFragKey = nbl::this_example::builtin::build::get_spirv_key<"sky_env_fragment">(m_device.get());
+					auto fragmentShader = loadPrecompiledShader(spaceFragKey.data());
+					if (!fragmentShader)
+						return logFail("Failed to load space environment fragment shader.");
+
+					nbl::ext::FullScreenTriangle::ProtoPipeline fsTriProto(m_assetManager.get(), m_device.get(), m_logger.get());
+					if (!fsTriProto)
+						return logFail("Failed to create FullScreenTriangle prototype pipeline.");
+
+					const IGPUPipelineBase::SShaderSpecInfo fragmentSpec = {
+						.shader = fragmentShader.get(),
+						.entryPoint = "main"
+					};
+					m_spaceEnvPipeline = fsTriProto.createPipeline(fragmentSpec, pipelineLayout.get(), m_sceneRenderpass.get());
+					if (!m_spaceEnvPipeline)
+						return logFail("Failed to create space environment pipeline.");
+
+					uint32_t setCount = 1u;
+					const IGPUDescriptorSetLayout* setLayouts[] = { m_spaceEnvDescriptorSetLayout.get() };
+					m_spaceEnvDescriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, setLayouts, &setCount);
+					if (!m_spaceEnvDescriptorPool)
+						return logFail("Failed to create space environment descriptor pool.");
+					m_spaceEnvDescriptorSet = m_spaceEnvDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(m_spaceEnvDescriptorSetLayout));
+					if (!m_spaceEnvDescriptorSet)
+						return logFail("Failed to create space environment descriptor set.");
+
+					IGPUDescriptorSet::SDescriptorInfo info = {};
+					info.desc = m_spaceEnvImageView;
+					info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+					IGPUDescriptorSet::SWriteDescriptorSet write = {};
+					write.dstSet = m_spaceEnvDescriptorSet.get();
+					write.binding = 0u;
+					write.arrayElement = 0u;
+					write.count = 1u;
+					write.info = &info;
+					if (!m_device->updateDescriptorSets({ &write, 1u }, {}))
+						return logFail("Failed to update space environment descriptor set.");
 				}
 
 				const auto& geometries = m_scene->getInitParams().geometries;

@@ -71,6 +71,25 @@ void App::workLoopBody()
 						willSubmit &= cmdbuf->setViewport(0u, 1u, &viewport);
 						willSubmit &= cmdbuf->setScissor(0u, 1u, &renderArea);
 
+						if (m_spaceEnvPipeline && m_spaceEnvDescriptorSet)
+						{
+							auto* pipelineLayout = m_spaceEnvPipeline->getLayout();
+							const IGPUDescriptorSet* descriptorSets[] = { m_spaceEnvDescriptorSet.get() };
+							SpaceEnvPushConstants pc = {};
+							pc.invProj = hlsl::inverse(binding.projectionMatrix);
+							pc.invViewRot = hlsl::inverse(getMatrix3x4As4x4(binding.viewMatrix));
+							pc.invViewRot[0].w = 0.0f;
+							pc.invViewRot[1].w = 0.0f;
+							pc.invViewRot[2].w = 0.0f;
+							pc.invViewRot[3] = float32_t4(0.0f, 0.0f, 0.0f, 1.0f);
+							pc.orthoMode = binding.isOrthographicProjection ? 1u : 0u;
+
+							willSubmit &= cmdbuf->bindGraphicsPipeline(m_spaceEnvPipeline.get());
+							willSubmit &= cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, pipelineLayout, 0u, 1u, descriptorSets);
+							willSubmit &= cmdbuf->pushConstants(pipelineLayout, IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0u, sizeof(pc), &pc);
+							willSubmit &= nbl::ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+						}
+
 						const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
 						m_renderer->render(cmdbuf, viewParams);
 

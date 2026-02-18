@@ -144,8 +144,6 @@ void App::imguiListen()
 						imguizmoPlanar.projection = getCastedMatrix<float32_t>(hlsl::transpose(projection.getProjectionMatrix()));
 						const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(planarViewCameraBound->getGimbal().getViewMatrix()));
 						const auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
-						const auto& projectionParams = projection.getParameters();
-						drawWorldReferenceOverlay(cursorPos, contentRegionSize, viewMatrix, projectionMatrix, binding.leftHandedProjection, projectionParams.m_zNear, projectionParams.m_zFar);
 
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
@@ -459,12 +457,14 @@ void App::imguiListen()
 					auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
 					applyDollyZoomProjection(boundPlanarCamera, projection);
 					projection.update(binding.leftHandedProjection, binding.aspectRatio);
+					binding.isOrthographicProjection = projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic;
 
 					auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
 					auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
 					auto viewProjMatrix = mul(projectionMatrix, getMatrix3x4As4x4(viewMatrix));
 
 					binding.viewMatrix = viewMatrix;
+					binding.projectionMatrix = projectionMatrix;
 					binding.viewProjMatrix = viewProjMatrix;
 				}
 			}

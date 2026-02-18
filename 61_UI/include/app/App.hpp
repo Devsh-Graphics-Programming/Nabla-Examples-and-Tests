@@ -27,6 +27,7 @@ using json = nlohmann::json;
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 #include "glm/gtc/quaternion.hpp"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #if __has_include("nbl/this_example/builtin/CArchive.h")
@@ -270,6 +271,15 @@ class App final : public examples::SimpleWindowedApplication
 	constexpr static inline auto finalSceneRenderFormat = EF_R8G8B8A8_SRGB;
 	constexpr static inline IGPUCommandBuffer::SClearColorValue SceneClearColor = { .float32 = {0.014f,0.018f,0.030f,1.f} };
 	constexpr static inline IGPUCommandBuffer::SClearDepthStencilValue SceneClearDepth = { .depth = 0.f };
+	struct SpaceEnvPushConstants
+	{
+		float32_t4x4 invProj = float32_t4x4(1.f);
+		float32_t4x4 invViewRot = float32_t4x4(1.f);
+		uint32_t orthoMode = 0u;
+		uint32_t pad0 = 0u;
+		uint32_t pad1 = 0u;
+		uint32_t pad2 = 0u;
+	};
 
 	public:
 		using base_t::base_t;
@@ -316,6 +326,13 @@ class App final : public examples::SimpleWindowedApplication
 		}
 
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override;
+		core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
+		{
+			return core::bitflag<system::ILogger::E_LOG_LEVEL>(system::ILogger::ELL_INFO) |
+				system::ILogger::ELL_WARNING |
+				system::ILogger::ELL_PERFORMANCE |
+				system::ILogger::ELL_ERROR;
+		}
 
 		bool updateGUIDescriptorSet()
 		{
@@ -585,9 +602,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void syncVisualDebugWindowBindings()
 		{
-			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
-				return;
-			if (m_scriptedInput.exclusive)
+			if (!m_scriptedInput.enabled)
 				return;
 			if (windowBindings.size() < 2u || m_planarProjections.empty())
 				return;
@@ -1682,11 +1697,13 @@ class App final : public examples::SimpleWindowedApplication
 			nbl::core::smart_refctd_ptr<IGPUImageView> sceneColorView;
 			nbl::core::smart_refctd_ptr<IGPUImageView> sceneDepthView;
 			float32_t3x4 viewMatrix = float32_t3x4(1.f);
+			float32_t4x4 projectionMatrix = float32_t4x4(1.f);
 			float32_t4x4 viewProjMatrix = float32_t4x4(1.f);
 
 			uint32_t activePlanarIx = 0u;
 			bool allowGizmoAxesToFlip = false;
 			bool enableDebugGridDraw = true;
+			bool isOrthographicProjection = false;
 			float aspectRatio = 16.f / 9.f;
 			bool leftHandedProjection = true;
 
@@ -1846,6 +1863,13 @@ class App final : public examples::SimpleWindowedApplication
 		nbl::core::smart_refctd_ptr<IGPURenderpass> m_sceneRenderpass;
 		nbl::core::smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		std::optional<uint32_t> m_gridGeometryIx = std::nullopt;
+		core::smart_refctd_ptr<IGPUGraphicsPipeline> m_spaceEnvPipeline;
+		core::smart_refctd_ptr<IGPUDescriptorSetLayout> m_spaceEnvDescriptorSetLayout;
+		core::smart_refctd_ptr<IDescriptorPool> m_spaceEnvDescriptorPool;
+		core::smart_refctd_ptr<IGPUDescriptorSet> m_spaceEnvDescriptorSet;
+		core::smart_refctd_ptr<IGPUImage> m_spaceEnvImage;
+		core::smart_refctd_ptr<IGPUImageView> m_spaceEnvImageView;
+		core::smart_refctd_ptr<IGPUSampler> m_spaceEnvSampler;
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;

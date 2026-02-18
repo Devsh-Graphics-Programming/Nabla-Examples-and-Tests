@@ -18,6 +18,7 @@ if(NBL_BUILD_IMGUI)
 		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::FullScreenTriangle
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
@@ -53,6 +54,11 @@ if(NBL_BUILD_IMGUI)
 		"INPUT": "app_resources/imgui_fragment.hlsl",
 		"KEY": "imgui_fragment",
 		"COMPILE_OPTIONS": ["-T", "ps_6_7", "-E", "PSMain", "-O3"]
+	},
+	{
+		"INPUT": "app_resources/sky_env_fragment.hlsl",
+		"KEY": "sky_env_fragment",
+		"COMPILE_OPTIONS": ["-T", "ps_6_7", "-E", "main", "-O3"]
 	}
 ]
 ]=])
