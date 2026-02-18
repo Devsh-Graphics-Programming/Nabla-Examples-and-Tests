@@ -40,8 +40,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
-		constexpr static inline uint32_t MaxDescriptorCount = 256u;
-		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
@@ -969,7 +967,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxSamplesBuffer);
-					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 4);
 					ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);

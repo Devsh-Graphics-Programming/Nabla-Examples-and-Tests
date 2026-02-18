@@ -402,6 +402,12 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         return retval;
     }
 
+    spectral_type get_environment_radiance(NBL_CONST_REF_ARG(ray_type) ray)
+    {
+        // can also sample environment map using ray direction
+        return vector3_type(0.15, 0.21, 0.3);
+    }
+
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
     uint32_t lightCount;
     scene_type scene;

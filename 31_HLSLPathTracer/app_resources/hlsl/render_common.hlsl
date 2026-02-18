@@ -21,5 +21,7 @@ NBL_CONSTEXPR uint32_t MaxDepthLog2 = 4u;
 NBL_CONSTEXPR uint32_t MaxSamplesLog2 = 10u;
 NBL_CONSTEXPR uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
 NBL_CONSTEXPR uint32_t MaxSamplesBuffer = 1u << MaxSamplesLog2;
+NBL_CONSTEXPR uint32_t MaxDescriptorCount = 256u;
+NBL_CONSTEXPR uint16_t MaxUITextureCount = 1u;
 
 #endif
