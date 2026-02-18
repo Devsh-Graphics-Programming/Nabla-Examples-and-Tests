@@ -10,15 +10,6 @@
 using namespace nbl;
 using namespace hlsl;
 
-enum MaterialType : uint32_t    // enum class?
-{
-    DIFFUSE = 0u,
-    CONDUCTOR,
-    DIELECTRIC,
-    IRIDESCENT_CONDUCTOR,
-    IRIDESCENT_DIELECTRIC,
-};
-
 template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class IridescentDielectricBxDF, class Scene>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
 struct MaterialSystem
 {
@@ -54,6 +45,12 @@ struct MaterialSystem
     {
         MaterialType matType = (MaterialType)bxdfs[matID].materialType;
         return bool(IsBSDFPacked & (1u << matID));
+    }
+
+    bool hasEmission(material_id_type matID)
+    {
+        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        return matType == MaterialType::EMISSIVE;
     }
 
     // these are specific for the bxdfs used for this example
@@ -234,6 +231,13 @@ struct MaterialSystem
             }
         }
         return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
+    }
+
+    measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction)
+    {
+        if (hasEmission(matID))
+            return bxdfs[matID].albedo;
+        return hlsl::promote<measure_type>(0.0);
     }
 
     DiffuseBxDF diffuseBxDF;

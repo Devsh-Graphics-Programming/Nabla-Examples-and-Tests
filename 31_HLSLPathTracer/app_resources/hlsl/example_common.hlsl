@@ -93,6 +93,11 @@ struct Ray
         payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
         payload.throughput = hlsl::promote<vector3_type>(1.0);
     }
+
+    vector3_type foundEmissiveMIS(scalar_type pdfSq)
+    {
+        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+    }
 };
 
 template<typename T>
@@ -129,6 +134,11 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
         payload.throughput = hlsl::promote<vector3_type>(1.0);
     }
+
+    vector3_type foundEmissiveMIS(scalar_type pdfSq)
+    {
+        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+    }
 };
 
 template<class Spectrum>
@@ -138,23 +148,23 @@ struct Light
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
-    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
+    static Light<spectral_type> create(uint32_t emissiveMatID, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
     {
         Light<spectral_type> retval;
-        retval.radiance = radiance;
+        retval.emissiveMatID = emissiveMatID;
         retval.objectID = ObjectID::create(objId, mode, shapeType);
         return retval;
     }
 
-    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, NBL_CONST_REF_ARG(ObjectID) objectID)
+    static Light<spectral_type> create(uint32_t emissiveMatID, NBL_CONST_REF_ARG(ObjectID) objectID)
     {
         Light<spectral_type> retval;
-        retval.radiance = radiance;
+        retval.emissiveMatID = emissiveMatID;
         retval.objectID = objectID;
         return retval;
     }
 
-    spectral_type radiance;
+    uint32_t emissiveMatID;
     ObjectID objectID;
 };
 
@@ -178,6 +188,16 @@ struct Tolerance
     {
         return 1.0 - nbl::hlsl::exp2(__common(depth) + 1.0);
     }
+};
+
+enum MaterialType : uint32_t    // enum class?
+{
+    DIFFUSE = 0u,
+    CONDUCTOR,
+    DIELECTRIC,
+    IRIDESCENT_CONDUCTOR,
+    IRIDESCENT_DIELECTRIC,
+    EMISSIVE
 };
 
 template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)
@@ -242,13 +262,22 @@ struct BxDFNode
         return retval;
     }
 
+    // for emissive materials
+    static BxDFNode<Spectrum> create(uint32_t materialType, NBL_CONST_REF_ARG(spectral_type) radiance)
+    {
+        BxDFNode<Spectrum> retval;
+        retval.albedo = radiance;
+        retval.materialType = materialType;
+        return retval;
+    }
+
     scalar_type getNEEProb()
     {
-        const scalar_type alpha = materialType != 0u ? params.A[0] : 1.0;
+        const scalar_type alpha = materialType != MaterialType::DIFFUSE ? params.A[0] : 1.0;
         return hlsl::min(8.0 * alpha, 1.0);
     }
 
-    spectral_type albedo;
+    spectral_type albedo;   // also stores radiance for emissive
     uint32_t materialType;
     params_type params;
 };

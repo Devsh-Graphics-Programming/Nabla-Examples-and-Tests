@@ -116,24 +116,24 @@ using pathtracer_type = path_tracing::Unidirectional<randgen_type, raygen_type, 
 
 #ifdef SPHERE_LIGHT
 static const Shape<float, PST_SPHERE> spheres[scene_type::SCENE_LIGHT_COUNT] = {
-    Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+    Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, 9u, 0u)
 };
 #endif
 
 #ifdef TRIANGLE_LIGHT
 static const Shape<float, PST_TRIANGLE> triangles[scene_type::SCENE_LIGHT_COUNT] = {
-    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, 9u, 0u)
 };
 #endif
 
 #ifdef RECTANGLE_LIGHT
 static const Shape<float, PST_RECTANGLE> rectangles[scene_type::SCENE_LIGHT_COUNT] = {
-    Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+    Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, 9u, 0u)
 };
 #endif
 
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
-    light_type::create(LightEminence,
+    light_type::create(9u,
 #ifdef SPHERE_LIGHT
         scene_type::SCENE_SPHERE_COUNT,
 #else
@@ -151,7 +151,8 @@ static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5)),
     bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.0, 505.0, spectral_t(1.39,1.39,1.39), spectral_t(1.2,1.2,1.2), spectral_t(0.5,0.5,0.5)),
-    bxdfnode_type::create(MaterialType::IRIDESCENT_DIELECTRIC, false, 0.0, 400.0, spectral_t(1.7,1.7,1.7), spectral_t(1.0,1.0,1.0), spectral_t(0,0,0))
+    bxdfnode_type::create(MaterialType::IRIDESCENT_DIELECTRIC, false, 0.0, 400.0, spectral_t(1.7,1.7,1.7), spectral_t(1.0,1.0,1.0), spectral_t(0,0,0)),
+    bxdfnode_type::create(MaterialType::EMISSIVE, LightEminence)
 };
 
 RenderPushConstants retireveRenderPushConstants()

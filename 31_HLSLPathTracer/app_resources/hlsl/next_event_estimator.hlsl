@@ -325,13 +325,6 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     using shape_type = Shape<scalar_type, PST>;
     using shape_sampling_type = ShapeSampling<scalar_type, PST, PPM>;
 
-    struct SEvalPdfReturn
-    {
-        spectral_type radiance;
-        scalar_type pdf;
-    };
-    using eval_pdf_return_type = SEvalPdfReturn;
-
     struct SampleQuotientReturn
     {
         sample_type sample_;
@@ -359,19 +352,14 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         return shape_sampling_type::create(rect);
     }
 
-    eval_pdf_return_type deferred_eval_and_pdf(light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
+    scalar_type deferred_pdf(light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        eval_pdf_return_type retval;
-        retval.pdf = 1.0 / lightCount;
         const light_type light = lights[lightID];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id);
-        retval.pdf *= sampling.template deferredPdf<ray_type>(ray);
-
-        retval.radiance = light.radiance;
-        return retval;
+        return sampling.template deferredPdf<ray_type>(ray) / scalar_type(lightCount);
     }
 
-    sample_quotient_return_type generate_and_quotient_and_pdf(light_id_type lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
+    sample_quotient_return_type generate_and_quotient_and_pdf(light_id_type lightID, const spectral_type radiance, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint32_t depth)
     {
         const light_type light = lights[lightID];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id);
@@ -395,7 +383,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(lightCount);
-        spectral_type quo = light.radiance / pdf;
+        spectral_type quo = radiance / pdf;
         retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
         retval.newRayMaxT = newRayMaxT;
 
