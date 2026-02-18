@@ -837,8 +837,12 @@ class App final : public examples::SimpleWindowedApplication
 				drawProjectedSegment(aWorld, bWorld, color, thickness);
 			};
 
-			constexpr float axisLength = 7.5f;
 			const float32_t3 origin = float32_t3(0.0f);
+			ImVec2 originScreen = {};
+			if (!projectWorldPointToViewportClipped(origin, originScreen))
+				return;
+
+			constexpr float axisLength = 5.0f;
 			const float32_t3 xPos = float32_t3(axisLength, 0.0f, 0.0f);
 			const float32_t3 yPos = float32_t3(0.0f, axisLength, 0.0f);
 			const float32_t3 zPos = float32_t3(0.0f, 0.0f, axisLength);
@@ -846,12 +850,39 @@ class App final : public examples::SimpleWindowedApplication
 			const float32_t3 yNeg = float32_t3(0.0f, -axisLength * 0.3f, 0.0f);
 			const float32_t3 zNeg = float32_t3(0.0f, 0.0f, -axisLength * 0.4f);
 
-			drawWorldLine(origin, xPos, IM_COL32(244, 92, 92, 245), 3.2f);
-			drawWorldLine(origin, yPos, IM_COL32(124, 236, 132, 245), 3.2f);
-			drawWorldLine(origin, zPos, IM_COL32(106, 166, 255, 245), 3.2f);
-			drawWorldLine(origin, xNeg, IM_COL32(128, 74, 74, 180), 1.6f);
-			drawWorldLine(origin, yNeg, IM_COL32(74, 128, 78, 180), 1.6f);
-			drawWorldLine(origin, zNeg, IM_COL32(70, 88, 124, 180), 1.6f);
+			drawWorldLine(origin, xPos, IM_COL32(244, 92, 92, 245), 2.8f);
+			drawWorldLine(origin, yPos, IM_COL32(124, 236, 132, 245), 2.8f);
+			drawWorldLine(origin, zPos, IM_COL32(106, 166, 255, 245), 2.8f);
+			drawWorldLine(origin, xNeg, IM_COL32(128, 74, 74, 170), 1.4f);
+			drawWorldLine(origin, yNeg, IM_COL32(74, 128, 78, 170), 1.4f);
+			drawWorldLine(origin, zNeg, IM_COL32(70, 88, 124, 170), 1.4f);
+
+			const auto drawAxisArrowHead = [&](const float32_t3& tipWorld, const float32_t3& tailWorld, ImU32 color) -> void
+			{
+				ImVec2 tipScreen = {};
+				ImVec2 tailScreen = {};
+				if (!projectWorldPointToViewportClipped(tipWorld, tipScreen) || !projectWorldPointToViewportClipped(tailWorld, tailScreen))
+					return;
+
+				const ImVec2 dir = ImVec2(tipScreen.x - tailScreen.x, tipScreen.y - tailScreen.y);
+				const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+				if (len < 1e-3f)
+					return;
+
+				const ImVec2 n = ImVec2(dir.x / len, dir.y / len);
+				const ImVec2 ortho = ImVec2(-n.y, n.x);
+				const float headLength = 9.0f;
+				const float headHalfWidth = 4.5f;
+
+				const ImVec2 base = ImVec2(tipScreen.x - n.x * headLength, tipScreen.y - n.y * headLength);
+				const ImVec2 left = ImVec2(base.x + ortho.x * headHalfWidth, base.y + ortho.y * headHalfWidth);
+				const ImVec2 right = ImVec2(base.x - ortho.x * headHalfWidth, base.y - ortho.y * headHalfWidth);
+				drawList->AddTriangleFilled(tipScreen, left, right, color);
+			};
+
+			drawAxisArrowHead(xPos, float32_t3(axisLength - 0.55f, 0.0f, 0.0f), IM_COL32(255, 162, 162, 255));
+			drawAxisArrowHead(yPos, float32_t3(0.0f, axisLength - 0.55f, 0.0f), IM_COL32(186, 255, 192, 255));
+			drawAxisArrowHead(zPos, float32_t3(0.0f, 0.0f, axisLength - 0.55f), IM_COL32(178, 216, 255, 255));
 
 			auto drawAxisLabel = [&](const char* label, const float32_t3& worldPoint, ImU32 color) -> void
 			{
@@ -861,9 +892,7 @@ class App final : public examples::SimpleWindowedApplication
 				drawList->AddText(ImVec2(screenPos.x + 4.0f, screenPos.y + 3.0f), color, label);
 			};
 
-			ImVec2 originScreen = {};
-			if (projectWorldPointToViewportClipped(origin, originScreen))
-				drawList->AddCircleFilled(originScreen, 4.0f, IM_COL32(240, 248, 255, 220), 16);
+			drawList->AddCircleFilled(originScreen, 4.0f, IM_COL32(240, 248, 255, 220), 16);
 
 			drawAxisLabel("X", xPos, IM_COL32(255, 152, 152, 255));
 			drawAxisLabel("Y", yPos, IM_COL32(172, 255, 178, 255));
