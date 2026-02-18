@@ -1,3 +1,7 @@
+#include "app/App.hpp"
+
+void App::update()
+{
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -217,6 +221,23 @@
 				}
 			}
 
+			if (!m_scriptedInput.enabled)
+			{
+				m_scriptedInput.scriptedLeftMouseDown = false;
+			}
+			else
+			{
+				for (const auto& ev : scriptedMouse)
+				{
+					if (ev.type != ui::SMouseEvent::EET_CLICK || ev.clickEvent.mouseButton != ui::EMB_LEFT_BUTTON)
+						continue;
+					if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_PRESSED)
+						m_scriptedInput.scriptedLeftMouseDown = true;
+					else if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_RELEASED)
+						m_scriptedInput.scriptedLeftMouseDown = false;
+				}
+			}
+
 			if (!scriptedMouse.empty())
 				capturedEvents.mouse.insert(capturedEvents.mouse.end(), scriptedMouse.begin(), scriptedMouse.end());
 			if (!scriptedKeyboard.empty())
@@ -290,7 +311,8 @@
 
 					if (isOrbitLikeCamera(camera))
 					{
-						if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+						const bool orbitMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left) || (m_scriptedInput.enabled && m_scriptedInput.scriptedLeftMouseDown);
+						if (orbitMouseDown)
 							projection.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
 						else
 							vMouseEventsCount = 0;
@@ -654,4 +676,8 @@
 
 			UpdateUiMetrics();
 			m_ui.manager->update(params);
+
+
+}
+
 

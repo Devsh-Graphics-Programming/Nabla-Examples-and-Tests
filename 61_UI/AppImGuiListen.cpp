@@ -1,3 +1,7 @@
+#include "app/App.hpp"
+
+void App::imguiListen()
+{
 			ImGuiIO& io = ImGui::GetIO();
 			if (m_ciMode)
 			{
@@ -457,11 +461,16 @@
 					projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 					auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
-					auto viewProjMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
+					auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
+					auto viewProjMatrix = mul(projectionMatrix, getMatrix3x4As4x4(viewMatrix));
 
 					binding.viewMatrix = viewMatrix;
 					binding.viewProjMatrix = viewProjMatrix;
 				}
 			}
+
+
+
+}
 
 

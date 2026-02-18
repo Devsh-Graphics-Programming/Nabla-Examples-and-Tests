@@ -315,10 +315,7 @@ class App final : public examples::SimpleWindowedApplication
 			return {};
 		}
 
-		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
-		{
-		#include "app/impl/AppInit.inl"
-		}
+		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override;
 
 		bool updateGUIDescriptorSet()
 		{
@@ -352,10 +349,7 @@ class App final : public examples::SimpleWindowedApplication
 			return m_device->updateDescriptorSets(writes, {});
 		}
 
-		inline void workLoopBody() override
-		{
-		#include "app/impl/AppWorkLoop.inl"
-		}
+		void workLoopBody() override;
 
 		inline void paceScriptedVisualDebugFrame()
 		{
@@ -421,10 +415,7 @@ class App final : public examples::SimpleWindowedApplication
 			return base_t::onAppTerminated();
 		}
 
-		inline void update()
-		{
-		#include "app/impl/AppUpdate.inl"
-			}
+		void update();
 
 		private:
 		struct CUILogFormatter final : public nbl::system::ILogger
@@ -595,6 +586,8 @@ class App final : public examples::SimpleWindowedApplication
 		inline void syncVisualDebugWindowBindings()
 		{
 			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
+				return;
+			if (m_scriptedInput.exclusive)
 				return;
 			if (windowBindings.size() < 2u || m_planarProjections.empty())
 				return;
@@ -815,7 +808,7 @@ class App final : public examples::SimpleWindowedApplication
 				return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
 			};
 
-			auto drawWorldLine = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
+			const auto drawProjectedSegment = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
 			{
 				float32_t4 viewA = mul(viewMatrix, float32_t4(aWorld.x, aWorld.y, aWorld.z, 1.0f));
 				float32_t4 viewB = mul(viewMatrix, float32_t4(bWorld.x, bWorld.y, bWorld.z, 1.0f));
@@ -839,25 +832,10 @@ class App final : public examples::SimpleWindowedApplication
 				drawList->AddLine(screenA, screenB, color, thickness);
 			};
 
-			constexpr int gridHalfSteps = 8;
-			constexpr float gridStep = 2.0f;
-			const float gridHalfSize = static_cast<float>(gridHalfSteps) * gridStep;
-			constexpr int gridMajorModulo = 1;
-			const ImU32 gridMajor = IM_COL32(136, 160, 194, 95);
-
-			for (int i = -gridHalfSteps; i <= gridHalfSteps; ++i)
+			auto drawWorldLine = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
 			{
-				if (i == 0)
-					continue;
-				if ((i % gridMajorModulo) != 0)
-					continue;
-				const float c = static_cast<float>(i) * gridStep;
-				drawWorldLine(float32_t3(c, 0.0f, -gridHalfSize), float32_t3(c, 0.0f, gridHalfSize), gridMajor, 1.3f);
-				drawWorldLine(float32_t3(-gridHalfSize, 0.0f, c), float32_t3(gridHalfSize, 0.0f, c), gridMajor, 1.3f);
-			}
-
-			drawWorldLine(float32_t3(-gridHalfSize, 0.0f, 0.0f), float32_t3(gridHalfSize, 0.0f, 0.0f), IM_COL32(184, 204, 232, 170), 2.0f);
-			drawWorldLine(float32_t3(0.0f, 0.0f, -gridHalfSize), float32_t3(0.0f, 0.0f, gridHalfSize), IM_COL32(184, 204, 232, 170), 2.0f);
+				drawProjectedSegment(aWorld, bWorld, color, thickness);
+			};
 
 			constexpr float axisLength = 7.5f;
 			const float32_t3 origin = float32_t3(0.0f);
@@ -1397,10 +1375,7 @@ class App final : public examples::SimpleWindowedApplication
 			return true;
 		}
 
-		inline void imguiListen()
-		{
-		#include "app/impl/AppImGuiListen.inl"
-		}
+		void imguiListen();
 
 		inline bool shouldCaptureOSCursor()
 		{
@@ -1579,15 +1554,9 @@ class App final : public examples::SimpleWindowedApplication
 		}
 
 
-		inline void DrawControlPanel()
-		{
-		#include "app/impl/AppControlPanel.inl"
-		}
+		void DrawControlPanel();
 
-		inline void TransformEditorContents()
-		{
-		#include "app/impl/AppTransformEditor.inl"
-		}
+		void TransformEditorContents();
 
 		inline void addMatrixTable(const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
 		{
@@ -1832,6 +1801,7 @@ class App final : public examples::SimpleWindowedApplication
 			bool visualActivePlanarValid = false;
 			uint32_t visualActivePlanarIx = 0u;
 			uint64_t visualActivePlanarStartFrame = 0u;
+			bool scriptedLeftMouseDown = false;
 			bool framePacerInitialized = false;
 			std::chrono::steady_clock::time_point framePacerNext = {};
 		};
@@ -1846,11 +1816,11 @@ class App final : public examples::SimpleWindowedApplication
 		nbl::core::smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 		nbl::core::smart_refctd_ptr<IGPURenderpass> m_sceneRenderpass;
 		nbl::core::smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
+		std::optional<uint32_t> m_gridGeometryIx = std::nullopt;
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;
 		uint16_t gcIndex = {};
-		uint16_t m_gridGeometryIx = std::numeric_limits<uint16_t>::max();
 
 		static constexpr uint32_t CiFramesBeforeCapture = 10u;
 		static constexpr auto CiMaxRuntime = std::chrono::minutes(2);

@@ -1,3 +1,7 @@
+#include "app/App.hpp"
+
+void App::DrawControlPanel()
+{
 			const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
 			const float panelWidth = std::clamp(displaySize.x * 0.19f, 200.0f, displaySize.x * 0.25f);
 			const float panelHeight = std::clamp(displaySize.y * 0.34f, 200.0f, displaySize.y * 0.50f);
@@ -851,3 +855,7 @@
 			ImGui::End();
 			ImGui::PopStyleColor(19);
 			ImGui::PopStyleVar(9);
+
+}
+
+

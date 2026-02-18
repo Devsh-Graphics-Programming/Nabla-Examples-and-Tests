@@ -1,5 +1,11 @@
 if(NBL_BUILD_IMGUI)
 	set(NBL_EXTRA_SOURCES
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanel.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppImGuiListen.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppInit.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppTransformEditor.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppUpdate.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/AppWorkLoop.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/keysmapping.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
 	)

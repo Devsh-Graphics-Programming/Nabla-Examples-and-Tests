@@ -1,3 +1,7 @@
+#include "app/App.hpp"
+
+bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
+{
 			argparse::ArgumentParser program("Virtual camera event system demo");
 
 			program.add_argument<std::string>("--file")
@@ -152,6 +156,7 @@
 					m_scriptedInput.visualActivePlanarValid = false;
 					m_scriptedInput.visualActivePlanarIx = 0u;
 					m_scriptedInput.visualActivePlanarStartFrame = 0u;
+					m_scriptedInput.scriptedLeftMouseDown = false;
 					m_scriptedInput.framePacerInitialized = false;
 					m_scriptedInput.capturePrefix = "script";
 					m_scriptedInput.captureOutputDir = localOutputCWD;
@@ -1387,17 +1392,18 @@
 
 				{
 					const auto& pipelines = m_renderer->getInitParams().pipelines;
+					m_gridGeometryIx = std::nullopt;
 					auto ix = 0u;
 					for (const auto& name : m_scene->getInitParams().geometryNames)
 					{
 						if (name == "Cone")
 							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
 						else if (name == "Grid")
-							m_gridGeometryIx = static_cast<uint16_t>(ix);
+							m_gridGeometryIx = ix;
 						ix++;
 					}
 				}
-				m_renderer->m_instances.resize(1);
+				m_renderer->m_instances.resize(m_gridGeometryIx.has_value() ? 2u : 1u);
 
 				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
 				for (uint32_t i = 0u; i < windowBindings.size(); ++i)
@@ -1417,3 +1423,7 @@
 				timeout = std::chrono::seconds(std::atoi(argv[2].c_str()));
 			start = clock_t::now();
 			return true;
+
+}
+
+

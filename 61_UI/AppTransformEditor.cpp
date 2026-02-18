@@ -1,3 +1,7 @@
+#include "app/App.hpp"
+
+void App::TransformEditorContents()
+{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
 			static bool boundSizing = false;
@@ -219,3 +223,7 @@
 				// for scene demo model full affine transformation without limits is assumed 
 				m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
 			}
+
+}
+
+
