@@ -111,6 +111,7 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 
 	add_subdirectory(74_QuantizedSequenceTests)
+	add_subdirectory(75_HLSLSamplingTests)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
