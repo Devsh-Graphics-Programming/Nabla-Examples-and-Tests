@@ -21,12 +21,16 @@
 
 #include "nbl/system/CFileLogger.h"
 
-namespace
+system::path MeshLoadersApp::resolveRuntimeCWD(const system::path& preferred)
 {
+    if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
+        return path(std::filesystem::current_path());
+    return preferred;
+}
 
-template<typename ArgContainer>
-std::string makeCaptionModelPath(const std::string& modelPath, const ArgContainer& argv)
+std::string MeshLoadersApp::makeCaptionModelPath() const
 {
+    const auto& modelPath = m_modelPath;
     if (modelPath.empty())
         return {};
 
@@ -112,47 +116,24 @@ std::string makeCaptionModelPath(const std::string& modelPath, const ArgContaine
     return targetPath.generic_string();
 }
 
-}
-
 MeshLoadersApp::MeshLoadersApp(
     const path& localInputCWD,
     const path& localOutputCWD,
     const path& sharedInputCWD,
     const path& sharedOutputCWD)
-    : IApplicationFramework(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+    : nbl::examples::MonoWindowApplication({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+    , IApplicationFramework(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
     , device_base_t({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
 {
 }
 
-bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
+bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputCWD, const system::path& effectiveOutputCWD, const system::path& defaultBenchmarkTestListPath)
 {
-    if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
-        return false;
-#ifdef NBL_BUILD_MITSUBA_LOADER
-    m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
-#endif
-    if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
-        return false;
-
-    const auto resolveRuntimeCWD = [](const path& preferred)->path
-    {
-        if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
-            return path(std::filesystem::current_path());
-        return preferred;
-    };
-    const path effectiveInputCWD = resolveRuntimeCWD(localInputCWD);
-    const path effectiveOutputCWD = resolveRuntimeCWD(localOutputCWD);
-
     m_runMode = RunMode::Batch;
     m_saveGeomPrefixPath = effectiveOutputCWD / "saved";
     m_screenshotPrefixPath = effectiveOutputCWD / "screenshots";
     m_testListPath = effectiveInputCWD / "inputs.json";
     m_forceRowViewForCurrentTestList = false;
-#if defined(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH)
-    const path defaultBenchmarkTestListPath = path(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH);
-#else
-    const path defaultBenchmarkTestListPath;
-#endif
 
     argparse::ArgumentParser parser("12_meshloaders");
     parser.add_argument("--savegeometry")
@@ -166,7 +147,7 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         .help("Run in CI mode: load test list, write .ply, capture screenshots, compare data, and exit.")
         .flag();
     parser.add_argument("--hash-test")
-        .help("Run headless hash consistency check: parallel vs sequential content hash recompute, then exit.")
+        .help("Run headless prehash consistency check: invalid before recompute, valid after recompute, then exit.")
         .flag();
     parser.add_argument("--interactive")
         .help("Use file dialog to select a single model.")
@@ -218,13 +199,10 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (parser.present("--savepath"))
     {
         auto tmp = path(parser.get<std::string>("--savepath"));
-
         if (tmp.empty() || !tmp.has_filename())
             return logFail("Invalid path has been specified in --savepath argument");
-
         if (!std::filesystem::exists(tmp.parent_path()))
             return logFail("Path specified in --savepath argument doesn't exist");
-
         m_specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
     }
 
@@ -247,6 +225,7 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_testListPath.string().c_str());
         }
     }
+
     if (parser.present("--row-add"))
     {
         auto tmp = path(parser.get<std::string>("--row-add"));
@@ -292,6 +271,29 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         else
             return logFail("Invalid --runtime-tuning value. Expected: none|heuristic|hybrid.");
     }
+
+    return true;
+}
+
+bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
+{
+    if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+        return false;
+#ifdef NBL_BUILD_MITSUBA_LOADER
+    m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
+#endif
+    if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+        return false;
+
+    const path effectiveInputCWD = resolveRuntimeCWD(localInputCWD);
+    const path effectiveOutputCWD = resolveRuntimeCWD(localOutputCWD);
+#if defined(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH)
+    const path defaultBenchmarkTestListPath = path(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH);
+#else
+    const path defaultBenchmarkTestListPath;
+#endif
+    if (!parseCommandLineOptions(effectiveInputCWD, effectiveOutputCWD, defaultBenchmarkTestListPath))
+        return false;
 
     const path inputReferencesDir = effectiveInputCWD / "references";
     const path outputReferencesDir = effectiveOutputCWD / "references";
@@ -340,6 +342,7 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         return logFail("Failed to create renderer!");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
+        if (!m_hashTestOnly)
         {
             auto* renderpass = scRes->getRenderpass();
             ext::debug_draw::DrawAABB::SCreationParameters params = {};
@@ -440,10 +443,13 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
             // late latch input
             if (!m_nonInteractiveTest)
             {
-                bool reloadInteractiveRequested = false;
-                bool reloadListRequested = false;
-                bool addRowViewRequested = false;
-                bool clearRowViewRequested = false;
+                struct SPendingInputActions
+                {
+                    bool reloadInteractive = false;
+                    bool reloadList = false;
+                    bool addRowView = false;
+                    bool clearRowView = false;
+                } pending;
                 camera.beginInputProcessing(nextPresentationTimestamp);
                 mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
                 keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
@@ -455,19 +461,19 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
                             if (event.keyCode == E_KEY_CODE::EKC_R)
                             {
                                 if (isRowViewActive())
-                                    reloadListRequested = true;
+                                    pending.reloadList = true;
                                 else
-                                    reloadInteractiveRequested = true;
+                                    pending.reloadInteractive = true;
                             }
                             else if (event.keyCode == E_KEY_CODE::EKC_A)
                             {
                                 if (isRowViewActive())
-                                    addRowViewRequested = true;
+                                    pending.addRowView = true;
                             }
                             else if (event.keyCode == E_KEY_CODE::EKC_X)
                             {
                                 if (isRowViewActive())
-                                    clearRowViewRequested = true;
+                                    pending.clearRowView = true;
                             }
                         }
                         camera.keyboardProcess(events);
@@ -475,16 +481,16 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
                     m_logger.get()
                 );
                 camera.endInputProcessing(nextPresentationTimestamp);
-                if (clearRowViewRequested)
+                if (pending.clearRowView)
                     resetRowViewScene();
-                if (addRowViewRequested)
+                if (pending.addRowView)
                     addRowViewCase();
-                if (reloadListRequested)
+                if (pending.reloadList)
                 {
                     if (!reloadFromTestList())
                         failExit("Failed to reload test list.");
                 }
-                if (reloadInteractiveRequested)
+                if (pending.reloadInteractive)
                     reloadInteractive();
             }
             // draw scene
@@ -541,7 +547,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
     std::string caption = "[Nabla Engine] Mesh Loaders";
     {
         caption += ", displaying [";
-        caption += makeCaptionModelPath(m_modelPath, argv);
+        caption += makeCaptionModelPath();
         caption += "]";
         m_window->setCaption(caption);
     }
@@ -560,11 +566,9 @@ bool MeshLoadersApp::onAppTerminated()
     return device_base_t::onAppTerminated();
 }
 
-bool MeshLoadersApp::keepRunning()
+bool MeshLoadersApp::shouldKeepRunning() const
 {
-    if (m_shouldQuit)
-        return false;
-    return device_base_t::keepRunning();
+    return !m_shouldQuit;
 }
 
 const video::IGPURenderpass::SCreationParams::SSubpassDependency* MeshLoadersApp::getDefaultSubpassDependencies() const
