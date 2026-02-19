@@ -120,7 +120,7 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                return diffuseBxDF.eval(_sample, interaction);
+                return bxdfs[matID].albedo * diffuseBxDF.eval(_sample, interaction);
             }
             break;
             case MaterialType::CONDUCTOR:
@@ -203,7 +203,9 @@ struct MaterialSystem
             {
                 case MaterialType::DIFFUSE:
                 {
-                    return diffuseBxDF.quotient_and_pdf(_sample, interaction);
+                    quotient_pdf_type ret = diffuseBxDF.quotient_and_pdf(_sample, interaction);
+                    ret.quotient *= bxdfs[matID].albedo;
+                    return ret;
                 }
                 break;
                 case MaterialType::CONDUCTOR:
