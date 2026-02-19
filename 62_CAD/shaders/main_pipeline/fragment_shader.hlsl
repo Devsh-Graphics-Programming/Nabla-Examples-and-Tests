@@ -82,15 +82,18 @@ float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, co
 template<>
 float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
+    float32_t4 color;
     uint32_t styleIdx = loadMainObject(currentMainObjectIdx).styleIdx;
     if (!colorFromTexture)
     {
-        float32_t4 col = loadLineStyle(styleIdx).color;
-        col.w *= localAlpha;
-        return float4(col);
+        color = loadLineStyle(styleIdx).color;
+        color.w *= localAlpha;
     }
     else
-        return float4(localTextureColor, localAlpha);
+        color = float4(localTextureColor, localAlpha);
+        
+    color.rgb *= color.a;
+    return color;
 }
 template<>
 float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
@@ -141,6 +144,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
+    color.rgb *= color.a;
     return color;
 }
 
@@ -695,7 +699,6 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
         }
 
-        
         if (localAlpha <= 0)
             discard;
         
