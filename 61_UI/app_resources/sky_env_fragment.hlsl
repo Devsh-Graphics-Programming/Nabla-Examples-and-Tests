@@ -29,6 +29,14 @@ float32_t3 safeNormalize(float32_t3 v)
 	return v * rsqrt(len2);
 }
 
+float32_t3 safeHomogeneousDivide(float32_t4 v)
+{
+	float32_t w = v.w;
+	if (abs(w) < 1e-6f)
+		w = (w < 0.0f) ? -1e-6f : 1e-6f;
+	return v.xyz / w;
+}
+
 float32_t3 acesToneMap(float32_t3 x)
 {
 	const float32_t a = 2.51f;
@@ -47,8 +55,8 @@ float32_t3 acesToneMap(float32_t3 x)
 	{
 		const float32_t4 centerNearVS_H = mul(pc.invProj, float32_t4(0.0f, 0.0f, 0.0f, 1.0f));
 		const float32_t4 centerFarVS_H = mul(pc.invProj, float32_t4(0.0f, 0.0f, 1.0f, 1.0f));
-		const float32_t3 centerNearVS = centerNearVS_H.xyz / max(abs(centerNearVS_H.w), 1e-6f);
-		const float32_t3 centerFarVS = centerFarVS_H.xyz / max(abs(centerFarVS_H.w), 1e-6f);
+		const float32_t3 centerNearVS = safeHomogeneousDivide(centerNearVS_H);
+		const float32_t3 centerFarVS = safeHomogeneousDivide(centerFarVS_H);
 		const float32_t3 orthoForward = safeNormalize(centerFarVS - centerNearVS);
 
 		const float32_t4 leftNearVS_H = mul(pc.invProj, float32_t4(-1.0f, 0.0f, 0.0f, 1.0f));
@@ -56,10 +64,10 @@ float32_t3 acesToneMap(float32_t3 x)
 		const float32_t4 downNearVS_H = mul(pc.invProj, float32_t4(0.0f, -1.0f, 0.0f, 1.0f));
 		const float32_t4 upNearVS_H = mul(pc.invProj, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
 
-		const float32_t3 leftNearVS = leftNearVS_H.xyz / max(abs(leftNearVS_H.w), 1e-6f);
-		const float32_t3 rightNearVS = rightNearVS_H.xyz / max(abs(rightNearVS_H.w), 1e-6f);
-		const float32_t3 downNearVS = downNearVS_H.xyz / max(abs(downNearVS_H.w), 1e-6f);
-		const float32_t3 upNearVS = upNearVS_H.xyz / max(abs(upNearVS_H.w), 1e-6f);
+		const float32_t3 leftNearVS = safeHomogeneousDivide(leftNearVS_H);
+		const float32_t3 rightNearVS = safeHomogeneousDivide(rightNearVS_H);
+		const float32_t3 downNearVS = safeHomogeneousDivide(downNearVS_H);
+		const float32_t3 upNearVS = safeHomogeneousDivide(upNearVS_H);
 
 		const float32_t3 orthoRight = safeNormalize(rightNearVS - leftNearVS);
 		const float32_t3 orthoUp = safeNormalize(upNearVS - downNearVS);
@@ -70,7 +78,7 @@ float32_t3 acesToneMap(float32_t3 x)
 	{
 		const float32_t4 clip = float32_t4(ndc, 1.0f, 1.0f);
 		const float32_t4 viewH = mul(pc.invProj, clip);
-		dirVS = safeNormalize(viewH.xyz / max(abs(viewH.w), 1e-6f));
+		dirVS = safeNormalize(safeHomogeneousDivide(viewH));
 	}
 	const float32_t3 dir = safeNormalize(mul(pc.invViewRot, float32_t4(dirVS, 0.0f)).xyz);
 
@@ -80,7 +88,7 @@ float32_t3 acesToneMap(float32_t3 x)
 	envUv.x = atan2(dir.z, dir.x) * invTwoPi + 0.5f;
 	envUv.y = acos(clamp(dir.y, -1.0f, 1.0f)) * invPi;
 
-	float32_t3 color = max(envMap.SampleLevel(envSampler, envUv, 0.0f).rgb, 0.0f);
+	float32_t3 color = max(envMap.SampleLevel(envSampler, envUv, 0.0f).rgb - 0.0010f, 0.0f);
 	color = acesToneMap(color * 0.45f);
 	return float32_t4(color, 1.0f);
 }

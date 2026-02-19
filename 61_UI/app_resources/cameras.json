@@ -13,7 +13,7 @@
       {
         "type": "Free",
         "position": [0.000, 1.500, -9.000],
-        "orientation": [0.095, -0.835, 0.152, 0.521]
+        "orientation": [0.082, 0.000, 0.000, 0.997]
       },
       {
         "type": "Arcball",

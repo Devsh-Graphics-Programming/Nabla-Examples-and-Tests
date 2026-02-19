@@ -112,7 +112,7 @@ Notes:
 - `NBL_61_UI_CAMERA_SMOKE`
 - `NBL_61_UI_CAMERA_CONTINUITY`
 
-Run from `build_vs2026/examples_tests`:
+Run from `build_vs2026/examples_tests/61_UI`:
 
 ```powershell
 ctest -C Debug --output-on-failure -R NBL_61_UI_CAMERA_

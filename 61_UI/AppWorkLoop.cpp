@@ -77,7 +77,7 @@ void App::workLoopBody()
 							const IGPUDescriptorSet* descriptorSets[] = { m_spaceEnvDescriptorSet.get() };
 							SpaceEnvPushConstants pc = {};
 							pc.invProj = hlsl::inverse(binding.projectionMatrix);
-							pc.invViewRot = hlsl::inverse(getMatrix3x4As4x4(binding.viewMatrix));
+							pc.invViewRot = hlsl::transpose(getMatrix3x4As4x4(binding.viewMatrix));
 							pc.invViewRot[0].w = 0.0f;
 							pc.invViewRot[1].w = 0.0f;
 							pc.invViewRot[2].w = 0.0f;
@@ -94,25 +94,52 @@ void App::workLoopBody()
 						m_renderer->render(cmdbuf, viewParams);
 						if (m_drawFrustum)
 						{
-							ext::frustum::CDrawFrustum::DrawParameters drawParams = {};
-							drawParams.commandBuffer = cmdbuf;
-							drawParams.viewProjectionMatrix = binding.viewProjMatrix;
-							drawParams.lineWidth = 1.2f;
-
-							for (uint32_t frustumIx = 0u; frustumIx < windowBindings.size(); ++frustumIx)
+							const auto findSourceBindingIxForPlanar = [&](const uint32_t planarIx) -> std::optional<uint32_t>
 							{
-								const auto& frustumBinding = windowBindings[frustumIx];
-								if (!frustumBinding.boundProjectionIx.has_value())
-									continue;
-								if (frustumBinding.activePlanarIx >= m_planarProjections.size())
-									continue;
+								if (activeRenderWindowIx < windowBindings.size())
+								{
+									const auto& activeBinding = windowBindings[activeRenderWindowIx];
+									if (activeBinding.activePlanarIx == planarIx && activeBinding.boundProjectionIx.has_value())
+										return activeRenderWindowIx;
+								}
 
-								const float32_t4 color = (frustumIx == bindingIx) ?
-									float32_t4(1.0f, 0.95f, 0.25f, 1.0f) :
-									(frustumBinding.isOrthographicProjection ?
-										float32_t4(0.30f, 0.90f, 1.00f, 1.0f) :
-										float32_t4(1.00f, 0.45f, 0.90f, 1.0f));
-								willSubmit &= m_drawFrustum->renderSingle(drawParams, hlsl::inverse(frustumBinding.viewProjMatrix), color);
+								for (uint32_t i = 0u; i < windowBindings.size(); ++i)
+								{
+									const auto& candidate = windowBindings[i];
+									if (candidate.activePlanarIx != planarIx)
+										continue;
+									if (!candidate.boundProjectionIx.has_value())
+										continue;
+									return i;
+								}
+								return std::nullopt;
+							};
+
+							std::optional<uint32_t> sourceBindingIx = std::nullopt;
+							if (boundPlanarCameraIxToManipulate.has_value())
+								sourceBindingIx = findSourceBindingIxForPlanar(boundPlanarCameraIxToManipulate.value());
+							if (!sourceBindingIx.has_value() && activeRenderWindowIx < windowBindings.size())
+							{
+								const auto& activeBinding = windowBindings[activeRenderWindowIx];
+								if (activeBinding.boundProjectionIx.has_value() && activeBinding.activePlanarIx < m_planarProjections.size())
+									sourceBindingIx = activeRenderWindowIx;
+							}
+
+							if (sourceBindingIx.has_value())
+							{
+								const auto& sourceBinding = windowBindings[sourceBindingIx.value()];
+								const bool sameCameraAsView = binding.activePlanarIx == sourceBinding.activePlanarIx;
+								const bool sameWindow = bindingIx == sourceBindingIx.value();
+								if (!sameCameraAsView && !sameWindow)
+								{
+									ext::frustum::CDrawFrustum::DrawParameters drawParams = {};
+									drawParams.commandBuffer = cmdbuf;
+									drawParams.viewProjectionMatrix = binding.viewProjMatrix;
+									drawParams.lineWidth = 1.0f;
+
+									const float32_t4 color = float32_t4(1.0f, 0.95f, 0.25f, 1.0f);
+									willSubmit &= m_drawFrustum->renderSingle(drawParams, hlsl::inverse(sourceBinding.viewProjMatrix), color);
+								}
 							}
 						}
 
@@ -355,11 +382,12 @@ void App::workLoopBody()
 					if (m_ciFrameCounter >= CiFramesBeforeCapture)
 					{
 						m_ciScreenshotDone = true;
-						captureScreenshot(m_ciScreenshotPath, "CI");
+						if (!m_disableScreenshotsCli)
+							captureScreenshot(m_ciScreenshotPath, "CI");
 					}
 				}
 
-				if (m_scriptedInput.enabled && !m_scriptedInput.captureFrames.empty())
+				if (!m_disableScreenshotsCli && m_scriptedInput.enabled && !m_scriptedInput.captureFrames.empty())
 				{
 					while (m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size() &&
 						m_scriptedInput.captureFrames[m_scriptedInput.nextCaptureIndex] == renderedFrameIx)

@@ -115,12 +115,14 @@ void App::imguiListen()
 							const char* projLabel = projection.getParameters().m_type == IPlanarProjection::CProjection::Perspective ? "Persp" : "Ortho";
 							const std::string overlayText = "Planar " + std::to_string(binding.activePlanarIx) + " | " + projLabel + " | W" + std::to_string(windowIx);
 							const std::string cameraText = std::string(getCameraTypeLabel(planarViewCameraBound)) + ": " + std::string(getCameraTypeDescription(planarViewCameraBound));
+							const std::string frustumText = "Frustum: active camera (hidden in owner view)";
 							const ImVec2 textSize = ImGui::CalcTextSize(overlayText.c_str());
 							const ImVec2 descSize = ImGui::CalcTextSize(cameraText.c_str());
+							const ImVec2 frustumSize = ImGui::CalcTextSize(frustumText.c_str());
 							const ImVec2 pad = ImVec2(6.0f, 4.0f);
 							const float lineGap = 2.0f;
-							const float width = std::max(textSize.x, descSize.x);
-							const float height = textSize.y + descSize.y + lineGap + pad.y * 2.0f;
+							const float width = std::max(std::max(textSize.x, descSize.x), frustumSize.x);
+							const float height = textSize.y + descSize.y + frustumSize.y + lineGap * 2.0f + pad.y * 2.0f;
 							ImVec2 overlayPos = ImVec2(cursorPos.x + contentRegionSize.x - width - pad.x * 2.0f - 6.0f, cursorPos.y + 6.0f);
 							overlayPos.x = std::max(overlayPos.x, cursorPos.x + 6.0f);
 							ImVec2 overlayMax = ImVec2(overlayPos.x + width + pad.x * 2.0f, overlayPos.y + height);
@@ -129,12 +131,16 @@ void App::imguiListen()
 							drawList->AddRect(overlayPos, overlayMax, ImGui::ColorConvertFloat4ToU32(ImVec4(0.60f, 0.66f, 0.76f, 0.80f)), 6.0f);
 							drawList->AddText(ImVec2(overlayPos.x + pad.x, overlayPos.y + pad.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.96f, 0.98f, 1.0f, 1.0f)), overlayText.c_str());
 							drawList->AddText(ImVec2(overlayPos.x + pad.x, overlayPos.y + pad.y + textSize.y + lineGap), ImGui::ColorConvertFloat4ToU32(ImVec4(0.78f, 0.82f, 0.90f, 1.0f)), cameraText.c_str());
+							drawList->AddText(ImVec2(overlayPos.x + pad.x, overlayPos.y + pad.y + textSize.y + descSize.y + lineGap * 2.0f), ImGui::ColorConvertFloat4ToU32(ImVec4(0.96f, 0.90f, 0.36f, 1.0f)), frustumText.c_str());
 						}
 
-						// I will assume we need to focus a window to start manipulating objects from it
-						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
+						const bool windowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+						const bool windowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+						if (!(m_scriptedInput.enabled && m_scriptedInput.exclusive))
 						{
-							if (!(m_scriptedInput.enabled && m_scriptedInput.exclusive))
+							if (!m_scriptedInput.enabled && windowHovered)
+								activeRenderWindowIx = windowIx;
+							else if (windowFocused)
 								activeRenderWindowIx = windowIx;
 						}
 

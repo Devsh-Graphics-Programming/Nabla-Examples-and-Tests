@@ -196,6 +196,25 @@ void App::update()
 							auto& binding = windowBindings[activeRenderWindowIx];
 							binding.leftHandedProjection = action.value != 0;
 						} break;
+
+						case ScriptedInputEvent::ActionData::Kind::ResetActiveCamera:
+						{
+							auto& binding = windowBindings[activeRenderWindowIx];
+							if (binding.activePlanarIx >= m_planarProjections.size())
+							{
+								m_logger->log("[script][warn] action reset_active_camera active planar out of range: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
+								return;
+							}
+							if (binding.activePlanarIx >= m_initialPlanarPresets.size())
+							{
+								m_logger->log("[script][warn] action reset_active_camera missing initial preset for planar: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
+								return;
+							}
+
+							auto* camera = m_planarProjections[binding.activePlanarIx]->getCamera();
+							if (!applyPresetToCamera(camera, m_initialPlanarPresets[binding.activePlanarIx]))
+								m_logger->log("[script][warn] action reset_active_camera failed for planar: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
+						} break;
 					}
 				};
 

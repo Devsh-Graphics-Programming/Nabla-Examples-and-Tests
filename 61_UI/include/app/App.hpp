@@ -401,6 +401,9 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool keepRunning() override
 		{
+			if (m_headlessCameraSmokeMode)
+				return false;
+
 			if (m_scriptedInput.enabled && m_scriptedInput.hardFail && m_scriptedInput.failed)
 			{
 				if (!m_ciMode || m_ciScreenshotDone)
@@ -418,8 +421,15 @@ class App final : public examples::SimpleWindowedApplication
 			}
 			if (m_ciMode && m_ciScreenshotDone)
 			{
-				if (m_scriptedInput.enabled && m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size())
-					return true;
+				if (m_scriptedInput.enabled)
+				{
+					if (m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size())
+						return true;
+					if (m_scriptedInput.nextEventIndex < m_scriptedInput.events.size())
+						return true;
+					if (m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size())
+						return true;
+				}
 				return false;
 			}
 			if (m_surface->irrecoverable())
@@ -430,6 +440,9 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool onAppTerminated() override
 		{
+			if (m_headlessCameraSmokeMode)
+				return m_headlessCameraSmokePassed;
+
 			return base_t::onAppTerminated();
 		}
 
@@ -915,8 +928,8 @@ class App final : public examples::SimpleWindowedApplication
 			drawAxisLabel("Z", zPos, IM_COL32(172, 210, 255, 255));
 		}
 
-		inline void drawScriptVisualDebugOverlay(const ImVec2& displaySize)
-		{
+			inline void drawScriptVisualDebugOverlay(const ImVec2& displaySize)
+			{
 			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
 				return;
 			if (windowBindings.empty() || m_planarProjections.empty())
@@ -948,12 +961,13 @@ class App final : public examples::SimpleWindowedApplication
 			const uint64_t holdFrames = static_cast<uint64_t>(std::round(std::max(0.f, m_scriptedInput.visualCameraHoldSeconds) * fps));
 			const uint64_t progressFrames = holdFrames ? std::min(elapsedFrames, holdFrames) : elapsedFrames;
 
-			const auto cameraLabel = getCameraTypeLabel(camera);
-			std::string lineTop = "SCRIPT VISUAL DEBUG";
-			std::string lineMid = "Camera " + std::to_string(binding.activePlanarIx + 1u) + "/" + std::to_string(m_planarProjections.size()) + "  " + std::string(cameraLabel);
+				const auto cameraLabel = getCameraTypeLabel(camera);
+				const auto cameraHint = getCameraTypeDescription(camera);
+				std::string lineTop = "SCRIPT VISUAL DEBUG";
+				std::string lineMid = "Camera " + std::to_string(binding.activePlanarIx + 1u) + "/" + std::to_string(m_planarProjections.size()) + "  " + std::string(cameraLabel);
 
-			char lineBottomBuffer[256] = {};
-			if (holdFrames)
+				char lineBottomBuffer[256] = {};
+				if (holdFrames)
 			{
 				const double elapsedSeconds = static_cast<double>(progressFrames) / static_cast<double>(fps);
 				const double holdSeconds = static_cast<double>(holdFrames) / static_cast<double>(fps);
@@ -975,29 +989,38 @@ class App final : public examples::SimpleWindowedApplication
 					"Planar %u  Frame %llu",
 					binding.activePlanarIx,
 					static_cast<unsigned long long>(m_realFrameIx));
-			}
-			const std::string lineBottom(lineBottomBuffer);
+				}
+				const std::string lineBottom(lineBottomBuffer);
+				std::string lineHint = std::string(cameraHint);
+				if (auto* dollyZoom = dynamic_cast<CDollyZoomCamera*>(camera))
+				{
+					char fovBuffer[96] = {};
+					std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", dollyZoom->computeDollyFov());
+					lineHint += fovBuffer;
+				}
 
-			const float topSize = 50.f;
-			const float midSize = 38.f;
-			const float bottomSize = 28.f;
-			const float marginTop = 18.f;
-			const float padX = 24.f;
-			const float padY = 16.f;
-			const float gap = 6.f;
+				const float topSize = 50.f;
+				const float midSize = 38.f;
+				const float bottomSize = 28.f;
+				const float hintSize = 24.f;
+				const float marginTop = 18.f;
+				const float padX = 24.f;
+				const float padY = 16.f;
+				const float gap = 6.f;
 
 			ImFont* font = ImGui::GetFont();
 			if (!font)
 				return;
 
-			const float textWrap = std::numeric_limits<float>::max();
-			const ImVec2 topTextSize = font->CalcTextSizeA(topSize, textWrap, 0.0f, lineTop.c_str());
-			const ImVec2 midTextSize = font->CalcTextSizeA(midSize, textWrap, 0.0f, lineMid.c_str());
-			const ImVec2 bottomTextSize = font->CalcTextSizeA(bottomSize, textWrap, 0.0f, lineBottom.c_str());
-			const float panelWidth = std::max(topTextSize.x, std::max(midTextSize.x, bottomTextSize.x)) + padX * 2.0f;
-			const float panelHeight = topTextSize.y + midTextSize.y + bottomTextSize.y + gap * 2.0f + padY * 2.0f;
-			const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, marginTop);
-			const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
+				const float textWrap = std::numeric_limits<float>::max();
+				const ImVec2 topTextSize = font->CalcTextSizeA(topSize, textWrap, 0.0f, lineTop.c_str());
+				const ImVec2 midTextSize = font->CalcTextSizeA(midSize, textWrap, 0.0f, lineMid.c_str());
+				const ImVec2 bottomTextSize = font->CalcTextSizeA(bottomSize, textWrap, 0.0f, lineBottom.c_str());
+				const ImVec2 hintTextSize = font->CalcTextSizeA(hintSize, textWrap, 0.0f, lineHint.c_str());
+				const float panelWidth = std::max(std::max(topTextSize.x, midTextSize.x), std::max(bottomTextSize.x, hintTextSize.x)) + padX * 2.0f;
+				const float panelHeight = topTextSize.y + midTextSize.y + bottomTextSize.y + hintTextSize.y + gap * 3.0f + padY * 2.0f;
+				const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, marginTop);
+				const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
 
 			auto* drawList = ImGui::GetForegroundDrawList();
 			if (!drawList)
@@ -1006,17 +1029,20 @@ class App final : public examples::SimpleWindowedApplication
 			drawList->AddRectFilled(panelMin, panelMax, IM_COL32(6, 8, 12, 232), 14.0f);
 			drawList->AddRect(panelMin, panelMax, IM_COL32(255, 166, 64, 255), 14.0f, 0, 2.5f);
 
-			const float topX = panelMin.x + (panelWidth - topTextSize.x) * 0.5f;
-			const float midX = panelMin.x + (panelWidth - midTextSize.x) * 0.5f;
-			const float bottomX = panelMin.x + (panelWidth - bottomTextSize.x) * 0.5f;
-			const float topY = panelMin.y + padY;
-			const float midY = topY + topTextSize.y + gap;
-			const float bottomY = midY + midTextSize.y + gap;
+				const float topX = panelMin.x + (panelWidth - topTextSize.x) * 0.5f;
+				const float midX = panelMin.x + (panelWidth - midTextSize.x) * 0.5f;
+				const float bottomX = panelMin.x + (panelWidth - bottomTextSize.x) * 0.5f;
+				const float hintX = panelMin.x + (panelWidth - hintTextSize.x) * 0.5f;
+				const float topY = panelMin.y + padY;
+				const float midY = topY + topTextSize.y + gap;
+				const float bottomY = midY + midTextSize.y + gap;
+				const float hintY = bottomY + bottomTextSize.y + gap;
 
-			drawList->AddText(font, topSize, ImVec2(topX, topY), IM_COL32(255, 206, 120, 255), lineTop.c_str());
-			drawList->AddText(font, midSize, ImVec2(midX, midY), IM_COL32(255, 244, 224, 255), lineMid.c_str());
-			drawList->AddText(font, bottomSize, ImVec2(bottomX, bottomY), IM_COL32(202, 222, 255, 255), lineBottom.c_str());
-		}
+				drawList->AddText(font, topSize, ImVec2(topX, topY), IM_COL32(255, 206, 120, 255), lineTop.c_str());
+				drawList->AddText(font, midSize, ImVec2(midX, midY), IM_COL32(255, 244, 224, 255), lineMid.c_str());
+				drawList->AddText(font, bottomSize, ImVec2(bottomX, bottomY), IM_COL32(202, 222, 255, 255), lineBottom.c_str());
+				drawList->AddText(font, hintSize, ImVec2(hintX, hintY), IM_COL32(170, 204, 255, 255), lineHint.c_str());
+			}
 
 		inline void applyDollyZoomProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
 		{
@@ -1771,7 +1797,8 @@ class App final : public examples::SimpleWindowedApplication
 					SetProjectionType,
 					SetProjectionIndex,
 					SetUseWindow,
-					SetLeftHanded
+					SetLeftHanded,
+					ResetActiveCamera
 				};
 
 				Kind kind = Kind::SetActiveRenderWindow;
@@ -1885,6 +1912,9 @@ class App final : public examples::SimpleWindowedApplication
 		system::path m_ciScreenshotPath;
 		clock_t::time_point m_ciStartedAt = clock_t::time_point::min();
 		bool m_scriptVisualDebugCli = false;
+		bool m_disableScreenshotsCli = false;
+		bool m_headlessCameraSmokeMode = false;
+		bool m_headlessCameraSmokePassed = false;
 		ScriptedInputState m_scriptedInput;
 		CameraControlSettings m_cameraControls;
 		CameraConstraintSettings m_cameraConstraints;
@@ -1896,6 +1926,7 @@ class App final : public examples::SimpleWindowedApplication
 		bool m_logAutoScroll = true;
 		bool m_logWrap = true;
 		std::vector<CameraPreset> m_presets;
+		std::vector<CameraPreset> m_initialPlanarPresets;
 		std::vector<CameraKeyframe> m_keyframes;
 		CameraPlaybackState m_playback;
 		CTargetPoseController m_targetPoseController;

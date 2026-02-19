@@ -66,6 +66,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				.help("Enable scripted visual debug overlay and fixed frame pacing.")
 				.default_value(false)
 				.implicit_value(true);
+			program.add_argument("--no-screenshots")
+				.help("Disable CI and scripted screenshot captures.")
+				.default_value(false)
+				.implicit_value(true);
+			program.add_argument("--headless-camera-smoke")
+				.help("Run a headless camera-only smoke test and exit after initialization.")
+				.default_value(false)
+				.implicit_value(true);
 
 			try
 			{
@@ -77,6 +85,275 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				return false;
 			}
 
+			m_headlessCameraSmokeMode = program.get<bool>("--headless-camera-smoke");
+			if (m_headlessCameraSmokeMode)
+			{
+				auto fail = [&](const std::string& msg) -> bool
+				{
+					std::cerr << "[headless-camera-smoke][fail] " << msg << std::endl;
+					m_headlessCameraSmokePassed = false;
+					return false;
+				};
+
+				auto configPath = [&]() -> std::filesystem::path
+				{
+					if (program.is_used("--file"))
+					{
+						std::filesystem::path path = program.get<std::string>("--file");
+						if (path.is_relative())
+							path = localInputCWD / path;
+						return path.lexically_normal();
+					}
+					return (localInputCWD / "app_resources" / "cameras.json").lexically_normal();
+				}();
+
+				json j;
+				{
+					std::ifstream file(configPath);
+					if (!file.is_open())
+						return fail("Cannot open config \"" + configPath.string() + "\".");
+
+					try
+					{
+						file >> j;
+					}
+					catch (const std::exception& e)
+					{
+						return fail("JSON parse error: " + std::string(e.what()));
+					}
+				}
+
+				if (!j.contains("cameras") || !j["cameras"].is_array())
+					return fail("Missing \"cameras\" array in config.");
+
+				std::vector<smart_refctd_ptr<ICamera>> cameras;
+				cameras.reserve(j["cameras"].size());
+				for (const auto& jCamera : j["cameras"])
+				{
+					if (!jCamera.contains("type"))
+						return fail("Camera entry missing \"type\".");
+					if (!jCamera.contains("position"))
+						return fail("Camera entry missing \"position\".");
+
+					const auto withOrientation = jCamera.contains("orientation");
+					auto position = [&]()
+					{
+						auto jret = jCamera["position"].get<std::array<float, 3>>();
+						return float32_t3(jret[0], jret[1], jret[2]);
+					}();
+
+					auto getOrientation = [&]()
+					{
+						auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+						return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+					};
+
+					auto getTarget = [&]()
+					{
+						auto jret = jCamera["target"].get<std::array<float, 3>>();
+						return float32_t3(jret[0], jret[1], jret[2]);
+					};
+
+					constexpr float DefaultMoveScale = 0.01f;
+					constexpr float DefaultRotateScale = 0.003f;
+					constexpr float OrbitMoveScale = 0.5f;
+					const auto type = jCamera["type"].get<std::string>();
+
+					if (type == "FPS")
+					{
+						if (!withOrientation)
+							return fail("FPS camera requires \"orientation\".");
+						auto camera = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
+						camera->setMoveSpeedScale(DefaultMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Free")
+					{
+						if (!withOrientation)
+							return fail("Free camera requires \"orientation\".");
+						auto camera = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
+						camera->setMoveSpeedScale(DefaultMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Orbit")
+					{
+						auto camera = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Arcball")
+					{
+						auto camera = make_smart_refctd_ptr<CArcballCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Turntable")
+					{
+						auto camera = make_smart_refctd_ptr<CTurntableCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "TopDown")
+					{
+						auto camera = make_smart_refctd_ptr<CTopDownCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Isometric")
+					{
+						auto camera = make_smart_refctd_ptr<CIsometricCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Chase")
+					{
+						auto camera = make_smart_refctd_ptr<CChaseCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Dolly")
+					{
+						auto camera = make_smart_refctd_ptr<CDollyCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "DollyZoom")
+					{
+						float baseFov = 40.0f;
+						if (jCamera.contains("baseFov"))
+							baseFov = jCamera["baseFov"].get<float>();
+
+						auto camera = make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov);
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else if (type == "Path")
+					{
+						auto camera = make_smart_refctd_ptr<CPathCamera>(position, getTarget());
+						camera->setMoveSpeedScale(OrbitMoveScale);
+						camera->setRotationSpeedScale(DefaultRotateScale);
+						cameras.emplace_back(std::move(camera));
+					}
+					else
+					{
+						return fail("Unsupported camera type \"" + type + "\".");
+					}
+				}
+
+				if (cameras.empty())
+					return fail("No cameras defined.");
+
+				auto angleDiffDeg = [](double a, double b) -> double
+				{
+					double d = std::fmod(a - b + 180.0, 360.0);
+					if (d < 0.0)
+						d += 360.0;
+					return std::abs(d - 180.0);
+				};
+
+				auto isFinite3 = [](const auto& v) -> bool
+				{
+					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+				};
+
+				for (const auto& cameraRef : cameras)
+				{
+					auto* camera = cameraRef.get();
+					if (!camera)
+						return fail("Null camera instance.");
+
+					camera->updateKeyboardMapping([&](auto& map) { map = camera->getKeyboardMappingPreset(); });
+					camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
+					camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
+
+					const auto& beforeGimbal = camera->getGimbal();
+					const auto beforePos = beforeGimbal.getPosition();
+					const auto beforeEuler = glm::degrees(glm::eulerAngles(beforeGimbal.getOrientation()));
+
+					const uint32_t allowed = camera->getAllowedVirtualEvents();
+					std::vector<CVirtualGimbalEvent> events;
+					events.reserve(3u);
+
+					auto pushEvent = [&](const CVirtualGimbalEvent::VirtualEventType type, const double magnitude) -> void
+					{
+						CVirtualGimbalEvent ev;
+						ev.type = type;
+						ev.magnitude = magnitude;
+						events.emplace_back(ev);
+					};
+
+					if (allowed & CVirtualGimbalEvent::MoveForward)
+						pushEvent(CVirtualGimbalEvent::MoveForward, 1.0);
+					else if (allowed & CVirtualGimbalEvent::MoveRight)
+						pushEvent(CVirtualGimbalEvent::MoveRight, 1.0);
+					else if (allowed & CVirtualGimbalEvent::MoveUp)
+						pushEvent(CVirtualGimbalEvent::MoveUp, 1.0);
+
+					if (allowed & CVirtualGimbalEvent::PanRight)
+						pushEvent(CVirtualGimbalEvent::PanRight, 1.0);
+					else if (allowed & CVirtualGimbalEvent::TiltUp)
+						pushEvent(CVirtualGimbalEvent::TiltUp, 1.0);
+					else if (allowed & CVirtualGimbalEvent::RollRight)
+						pushEvent(CVirtualGimbalEvent::RollRight, 1.0);
+
+					if (events.empty())
+					{
+						for (const auto event : CVirtualGimbalEvent::VirtualEventsTypeTable)
+						{
+							if (allowed & event)
+							{
+								pushEvent(event, 1.0);
+								break;
+							}
+						}
+					}
+
+					if (events.empty())
+						return fail("No allowed virtual events for camera \"" + std::string(camera->getIdentifier()) + "\".");
+
+					const bool manipulated = camera->manipulate({ events.data(), events.size() });
+					if (!manipulated)
+						return fail("Manipulation returned false for camera \"" + std::string(camera->getIdentifier()) + "\".");
+
+					const auto& afterGimbal = camera->getGimbal();
+					const auto afterPos = afterGimbal.getPosition();
+					const auto afterEuler = glm::degrees(glm::eulerAngles(afterGimbal.getOrientation()));
+
+					if (!isFinite3(afterPos) || !isFinite3(afterEuler))
+						return fail("Non-finite state for camera \"" + std::string(camera->getIdentifier()) + "\".");
+
+					const auto dPos = afterPos - beforePos;
+					const double posDelta = std::sqrt(dPos.x * dPos.x + dPos.y * dPos.y + dPos.z * dPos.z);
+					const double rotDeltaDeg = std::max({
+						angleDiffDeg(afterEuler.x, beforeEuler.x),
+						angleDiffDeg(afterEuler.y, beforeEuler.y),
+						angleDiffDeg(afterEuler.z, beforeEuler.z)
+					});
+
+					if (posDelta <= 1e-9 && rotDeltaDeg <= 1e-9)
+						return fail("No observable change for camera \"" + std::string(camera->getIdentifier()) + "\".");
+
+					std::cout << "[headless-camera-smoke][pass] " << camera->getIdentifier()
+						<< " pos_delta=" << posDelta
+						<< " rot_delta_deg=" << rotDeltaDeg
+						<< std::endl;
+				}
+
+				m_headlessCameraSmokePassed = true;
+				std::cout << "[headless-camera-smoke] PASS cameras=" << cameras.size() << std::endl;
+				return true;
+			}
+
 			m_ciMode = program.get<bool>("--ci");
 			if (m_ciMode)
 			{
@@ -85,6 +362,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			}
 			m_scriptedInput.log = program.get<bool>("--script-log");
 			m_scriptVisualDebugCli = program.get<bool>("--script-visual-debug");
+			m_disableScreenshotsCli = program.get<bool>("--no-screenshots");
 
 			// Create imput system
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -495,6 +773,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetLeftHanded;
 								entry.action.value = ev.value("value", false) ? 1 : 0;
 							}
+							else if (actionStr == "reset_active_camera")
+							{
+								entry.action.kind = ScriptedInputEvent::ActionData::Kind::ResetActiveCamera;
+								entry.action.value = 1;
+							}
 							else
 							{
 								m_logger->log("Scripted action event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
@@ -649,6 +932,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					{
 						std::sort(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end());
 						m_scriptedInput.captureFrames.erase(std::unique(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end()), m_scriptedInput.captureFrames.end());
+					}
+					if (m_disableScreenshotsCli)
+					{
+						m_scriptedInput.captureFrames.clear();
+						m_scriptedInput.nextCaptureIndex = 0;
 					}
 				};
 
@@ -1033,6 +1321,15 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
 					else
 						binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
+				}
+
+				m_initialPlanarPresets.clear();
+				m_initialPlanarPresets.reserve(m_planarProjections.size());
+				for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
+				{
+					auto* camera = m_planarProjections[planarIx]->getCamera();
+					const std::string presetName = "Planar " + std::to_string(planarIx);
+					m_initialPlanarPresets.emplace_back(capturePreset(camera, presetName));
 				}
 			}
 
