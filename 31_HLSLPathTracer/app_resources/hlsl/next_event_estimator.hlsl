@@ -359,8 +359,10 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         return sampling.template deferredPdf<ray_type>(ray) / scalar_type(lightCount);
     }
 
-    sample_quotient_return_type generate_and_quotient_and_pdf(light_id_type lightID, const spectral_type radiance, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint32_t depth)
+    template<class MaterialSystem>
+    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint32_t depth)
     {
+        const light_id_type lightID = 0u;
         const light_type light = lights[lightID];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id);
 
@@ -381,11 +383,19 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         rayL.setDirection(sampleL);
         retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
-        newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
-        pdf *= 1.0 / scalar_type(lightCount);
-        spectral_type quo = radiance / pdf;
-        retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
-        retval.newRayMaxT = newRayMaxT;
+        if (retval.sample_.getNdotL() > numeric_limits<scalar_type>::min && retval.sample_.isValid())
+        {
+            newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
+            pdf *= 1.0 / scalar_type(lightCount);
+            const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction.isotropic);
+            spectral_type quo = radiance / pdf;
+            retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
+            retval.newRayMaxT = newRayMaxT;
+        }
+        else
+        {
+            retval.quotient_pdf = quotient_pdf_type::create(1.0, 0.0);
+        }
 
         return retval;
     }
