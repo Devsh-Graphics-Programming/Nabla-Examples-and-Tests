@@ -1,5 +1,10 @@
 #include <nbl/builtin/hlsl/rwmc/resolve.hlsl>
 #include "resolve_common.hlsl"
+#include "rwmc_global_settings_common.hlsl"
+#ifdef PERSISTENT_WORKGROUPS
+#include "nbl/builtin/hlsl/math/morton.hlsl"
+#endif
+#include "rwmc_global_settings_common.hlsl"
 
 [[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
@@ -8,30 +13,35 @@
 using namespace nbl;
 using namespace hlsl;
 
-template<typename OutputScalar>
-struct ResolveAccessorAdaptor
+struct SCascadeAccessor
 {
-	using output_scalar_type = OutputScalar;
-	using output_type = vector<OutputScalar, 4>;
-	NBL_CONSTEXPR int32_t image_dimension = 2;
+    using output_scalar_t = float32_t;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t Components = 4;
+    using output_t = vector<output_scalar_t, Components>;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t image_dimension = 2;
 
-	float32_t calcLuma(NBL_REF_ARG(float32_t3) col)
-	{
-		return hlsl::dot<float32_t3>(colorspace::scRGB::ToXYZ()[1], col);
-	}
+    static SCascadeAccessor create()
+    {
+        SCascadeAccessor retval;
+        uint32_t imgWidth, imgHeight, layers;
+        cascade.GetDimensions(imgWidth, imgHeight, layers);
+        retval.cascadeImageDimension = int16_t2(imgWidth, imgHeight);
+        return retval;
+    }
 
-	template<typename OutputScalarType, int32_t Dimension>
-	output_type get(vector<uint16_t, 2> uv, uint16_t layer)
-	{
-		uint32_t imgWidth, imgHeight, layers;
-		cascade.GetDimensions(imgWidth, imgHeight, layers);
-		int16_t2 cascadeImageDimension = int16_t2(imgWidth, imgHeight);
+    template<typename OutputScalarType, int32_t Dimension>
+    void get(NBL_REF_ARG(output_t) value, vector<uint16_t, 2> uv, uint16_t layer, uint16_t level)
+    {
+        if (any(uv < int16_t2(0, 0)) || any(uv >= cascadeImageDimension))
+        {
+            value = promote<output_t, output_scalar_t>(0);
+            return;
+        }
 
-		if (any(uv < int16_t2(0, 0)) || any(uv > cascadeImageDimension))
-			return vector<OutputScalar, 4>(0, 0, 0, 0);
+        value = cascade.Load(int32_t3(uv, int32_t(layer)));
+    }
 
-		return cascade.Load(int32_t3(uv, int32_t(layer)));
-	}
+    int16_t2 cascadeImageDimension;
 };
 
 int32_t2 getImageExtents()
@@ -49,10 +59,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     if (coords.x >= imageExtents.x || coords.y >= imageExtents.y)
         return;
 
-    using ResolveAccessorAdaptorType = ResolveAccessorAdaptor<float>;
-    using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, float32_t3>;
-    ResolveAccessorAdaptorType accessor;
-    ResolverType resolve = ResolverType::create(pc.resolveParameters);
+    using SResolveAccessorAdaptorType = rwmc::SResolveAccessorAdaptor<SCascadeAccessor, float32_t>;
+    using SResolverType = rwmc::SResolver<SResolveAccessorAdaptorType, CascadeCount>;
+    SResolveAccessorAdaptorType accessor = { SCascadeAccessor::create() };
+    SResolverType resolve = SResolverType::create(pc.resolveParameters);
 
     float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
 

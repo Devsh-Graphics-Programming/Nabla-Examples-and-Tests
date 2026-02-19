@@ -106,7 +106,7 @@ using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, co
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
-using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
+using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_t3, CascadeCount> >;
 #else
 #include "nbl/builtin/hlsl/path_tracing/default_accumulator.hlsl"
 using accumulator_type = path_tracing::DefaultAccumulator<float32_t3>;

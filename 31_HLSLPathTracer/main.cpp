@@ -1131,7 +1131,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.depth = depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-					rwmcPushConstants.setSplattingParams(rwmcBase, rwmcStart);
+					const float rcpLog2Base = 1.0f / std::log2(rwmcBase);
+					const float baseRootOfStart = std::exp2(std::log2(rwmcStart) * rcpLog2Base);
+					const float log2BaseRootOfStart = std::log2(baseRootOfStart);
+					const float brightSampleLumaBias = (log2BaseRootOfStart + static_cast<float>(CascadeCount - 1u)) / rcpLog2Base;
+					float32_t2 packLogs = float32_t2(baseRootOfStart, rcpLog2Base);
+					float32_t2 packPrecomputed = float32_t2(log2BaseRootOfStart, brightSampleLumaBias);
+					rwmcPushConstants.splattingParameters.PackedBaseRootAndRcpLog2Base = hlsl::packHalf2x16(packLogs);
+					rwmcPushConstants.splattingParameters.PackedLog2BaseRootAndBrightSampleLumaBias = hlsl::packHalf2x16(packPrecomputed);
 				}
 				else
 				{
@@ -1257,8 +1264,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				ResolvePushConstants resolvePushConstants;
-				resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
+				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1498,6 +1504,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		}
 	
 	private:
+
 		IGPUComputePipeline* pickPTPipeline()
 		{
 			IGPUComputePipeline* pipeline;
