@@ -50,7 +50,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 			limits.maxComputeWorkGroupInvocations = hlsl::min<uint16_t>(limits.maxSubgroupSize*limits.maxComputeWorkgroupSubgroups,limits.maxComputeWorkGroupInvocations);
 			const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 			const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
-			constexpr uint32_t element_count = 100000;
+			constexpr uint32_t element_count = 10;
 			const uint32_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
 			const uint32_t elements_per_thread = ceil((float)ceil((float)element_count / limits.computeUnits) / WorkgroupSize);
 
@@ -173,7 +173,8 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 			// Generate random data
 			constexpr uint32_t minimum = 0;
 			const uint32_t range = bucket_count;
-			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			//unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			unsigned seed = 1u;
 			std::mt19937 g(seed);
 
 			auto bufferData = new uint32_t[2][element_count];
@@ -266,7 +267,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 			m_device->blockForSemaphores(wait_infos);
 
 			// Create the Semaphore for Scatter
-			uint64_t timeline2 = started_value;
+			/*uint64_t timeline2 = started_value;
 			smart_refctd_ptr<ISemaphore> progress2 = m_device->createSemaphore(started_value);
 
 			cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -313,7 +314,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 					.semaphore = progress2.get(),
 					.value = timeline2
 				} };
-			m_device->blockForSemaphores(wait_infos2);
+			m_device->blockForSemaphores(wait_infos2);*/
 
 			const ILogicalDevice::MappedMemoryRange memory_range[] = {
 				ILogicalDevice::MappedMemoryRange(allocation[0].memory.get(), 0ull, allocation[0].memory->getAllocationSize()),

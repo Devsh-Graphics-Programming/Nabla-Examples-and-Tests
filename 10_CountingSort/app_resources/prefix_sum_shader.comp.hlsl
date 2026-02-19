@@ -13,7 +13,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     params.minimum = pushData.minimum;
     params.maximum = pushData.maximum;
 
-    using Counter = sort::counting<WorkgroupSize, BucketCount, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor, PtrAccessor::type_t>;
+    using Counter = sort::counting<WorkgroupSize, BucketCount, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor, ArithmeticConfig, PtrAccessor::type_t>;
     Counter counter = Counter::create(glsl::gl_WorkGroupID().x);
 
     const Ptr input_ptr = Ptr::create(pushData.inputKeyAddress);

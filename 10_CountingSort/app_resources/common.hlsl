@@ -21,10 +21,18 @@ using namespace nbl::hlsl;
 
 #ifdef __HLSL_VERSION
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
+#include "nbl/builtin/hlsl/mpl.hlsl"
 
 static const uint32_t WorkgroupSize = DeviceConfigCaps::maxComputeWorkGroupInvocations;
 static const uint32_t MaxBucketCount = (DeviceConfigCaps::maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
 static const uint32_t BucketCount = (MaxBucketCount > 3000) ? 3000 : MaxBucketCount;
+
+static const uint32_t WorkgroupSizeLog2 = mpl::log2<WorkgroupSize>::value;
+static const uint32_t SubgroupSizeLog2 = mpl::log2<DeviceConfigCaps::maxSubgroupSize>::value;
+
+// TODO: item per thread count should not be hardcoded
+using ArithmeticConfig = workgroup2::ArithmeticConfiguration<WorkgroupSizeLog2, SubgroupSizeLog2, 1u>;
 
 using Ptr = bda::__ptr<uint32_t>;
 using PtrAccessor = BdaAccessor<uint32_t>;
@@ -33,12 +41,14 @@ groupshared uint32_t sdata[BucketCount];
 
 struct SharedAccessor
 {
-    void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType index, NBL_REF_ARG(AccessType) value)
     {
         value = sdata[index];
     }
 
-    void set(const uint32_t index, const uint32_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType index, const AccessType value)
     {
         sdata[index] = value;
     }
