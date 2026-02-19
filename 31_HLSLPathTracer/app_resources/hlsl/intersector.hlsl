@@ -74,7 +74,7 @@ struct Intersector
                 ray.intersectionT = t;
                 objectID.id = i;
                 objectID.mode = IM_PROCEDURAL;
-                objectID.shapeType = PST_TRIANGLE;
+                objectID.shapeType = PST_RECTANGLE;
             }
         }
 
@@ -97,6 +97,37 @@ struct Intersector
         }
 
         return retval;
+    }
+
+    static scalar_type traceShadowRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(object_handle_type) objectID)
+    {
+        // prodedural shapes
+        NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
+        {
+            float t = scene.getSphere(i).intersect(ray.origin, ray.direction);
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+                return 0.0;
+        }
+        NBL_UNROLL for (int i = 0; i < scene_type::TriangleCount; i++)
+        {
+            float t = scene.getTriangle(i).intersect(ray.origin, ray.direction);
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+                return 0.0;
+        }
+        NBL_UNROLL for (int i = 0; i < scene_type::RectangleCount; i++)
+        {
+            float t = scene.getRectangle(i).intersect(ray.origin, ray.direction);
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+                return 0.0;
+        }
+
+        return 1.0;
     }
 };
 

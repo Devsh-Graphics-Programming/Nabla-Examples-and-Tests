@@ -330,6 +330,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         sample_type sample_;
         quotient_pdf_type quotient_pdf;
         scalar_type newRayMaxT;
+        ObjectID lightObjectID;
     };
     using sample_quotient_return_type = SampleQuotientReturn;
 
@@ -391,6 +392,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
             spectral_type quo = radiance / pdf;
             retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
             retval.newRayMaxT = newRayMaxT;
+            retval.lightObjectID = light.objectID;
         }
         else
         {
