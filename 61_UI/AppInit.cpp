@@ -1733,8 +1733,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					SpaceEnvBlobHeader envBlobHeader = {};
 					std::vector<uint8_t> envBlobPayload;
-					const std::array<path, 2u> SpaceEnvSearchRoots = {
-						localInputCWD / "media",
+					const std::array<path, 3u> SpaceEnvSearchRoots = {
+						(localInputCWD / ".." / "media" / "envmap").lexically_normal(),
+						(localInputCWD / ".." / "media").lexically_normal(),
 						localInputCWD / "app_resources"
 					};
 					for (const auto candidate : SpaceEnvBlobCandidates)
