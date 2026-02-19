@@ -1115,6 +1115,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
 			RenderRWMCPushConstants rwmcPushConstants;
+			ResolvePushConstants resolvePushConstants;
 			RenderPushConstants pc;
 			auto updatePathtracerPushConstants = [&]() -> void {
 				// disregard surface/swapchain transformation for now
@@ -1129,7 +1130,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = spp;
+					rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 					const float rcpLog2Base = 1.0f / std::log2(rwmcBase);
 					const float baseRootOfStart = std::exp2(std::log2(rwmcStart) * rcpLog2Base);

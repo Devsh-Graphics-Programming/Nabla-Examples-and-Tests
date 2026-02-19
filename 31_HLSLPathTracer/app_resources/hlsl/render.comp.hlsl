@@ -251,7 +251,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
 
 #ifdef RWMC_ENABLED
-    accumulator_type accumulator = accumulator_type::create(pc.getSplattingParams(CascadeCount));
+    accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
 #else
     accumulator_type accumulator = accumulator_type::create();
 #endif
