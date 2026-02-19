@@ -6,7 +6,7 @@
 #include "nlohmann/json.hpp"
 
 NBL_EXPOSE_NAMESPACES
-using namespace nlohmann;
+using json = ::nlohmann::json;
 
 bool AppInputParser::parse(Output& out, const std::string input, const std::string cwd)
 {
@@ -30,7 +30,7 @@ bool AppInputParser::parse(Output& out, const std::string input, const std::stri
         return false;
     }
 
-    const auto jsonMap = json::parse(jsonBuffer.c_str());
+    const auto jsonMap = ::json::parse(jsonBuffer.c_str());
 
     if (!jsonMap["directories"].is_array())
     {

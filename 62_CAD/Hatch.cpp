@@ -812,7 +812,7 @@ static constexpr float64_t FillPatternShapeExtent = 32.0;
 
 void line(std::vector<CPolyline>& polylines, float64_t2 begin, float64_t2 end)
 {
-	std::vector<float64_t2> points = {
+	std::array<float64_t2, 2> points = {
 		begin, end
 	};
 	CPolyline polyline;
@@ -846,15 +846,23 @@ void checkered(std::vector<CPolyline>& polylines, const float64_t2& offset)
 		float64_t2(0.0, 1.0),
 	};
 	{
-		std::vector<float64_t2> points;
-		points.reserve(squarePointsCW.size());
-		for (const auto& p : squarePointsCW) points.push_back(p * FillPatternShapeExtent + offset);
+		std::array<float64_t2, 5> points;
+		auto i = 0u;
+		for (const auto& p : squarePointsCW)
+		{
+			points[i] = p * FillPatternShapeExtent + offset;
+			i++;
+		}
 		polyline.addLinePoints(points);
 	}
 	{
-		std::vector<float64_t2> points;
-		points.reserve(squarePointsCW.size());
-		for (const auto& p : squarePointsCW) points.push_back((p + float64_t2(0.5, -0.5)) * FillPatternShapeExtent + offset);
+		std::array<float64_t2, 5> points;
+		auto i = 0u;
+		for (const auto& p : squarePointsCW)
+		{
+			points[i] = (p + float64_t2(0.5, -0.5)) * FillPatternShapeExtent + offset;
+			i++;
+		}
 		polyline.addLinePoints(points);
 	}
 	polylines.push_back(std::move(polyline));
@@ -885,16 +893,24 @@ void diamonds(std::vector<CPolyline>& polylines, const float64_t2& offset)
 
 	// Outer
 	{
-		std::vector<float64_t2> points;
-		points.reserve(diamondPointsCW.size());
-		for (const auto& p : diamondPointsCW) points.push_back(p * outerSize + origin);
+		std::array<float64_t2, 5> points;
+		auto i = 0u;
+		for (const auto& p : diamondPointsCW)
+		{
+			points[i] = p * outerSize + origin;
+			i++;
+		}
 		polyline.addLinePoints(points);
 	}
 	// Inner
 	{
-		std::vector<float64_t2> points;
-		points.reserve(diamondPointsCCW.size());
-		for (const auto& p : diamondPointsCCW) points.push_back(p * innerSize + origin);
+		std::array<float64_t2, 5> points;
+		auto i = 0u;
+		for (const auto& p : diamondPointsCCW)
+		{
+			points[i] = p * innerSize + origin;
+			i++;
+		}	
 		polyline.addLinePoints(points);
 	}
 	polylines.push_back(std::move(polyline));
@@ -915,9 +931,13 @@ void crossHatch(std::vector<CPolyline>& polylines, const float64_t2& offset)
 			float64_t2(0.375, 0.0),
 	};
 	{
-		std::vector<float64_t2> points;
-		points.reserve(outerPointsCW.size());
-		for (const auto& p : outerPointsCW) points.push_back(p * FillPatternShapeExtent + offset);
+		std::array<float64_t2, 9u> points;
+		auto i = 0u;
+		for (const auto& p : outerPointsCW)
+		{
+			points[i] = p * FillPatternShapeExtent + offset;
+			i++;
+		}
 		polyline.addLinePoints(points);
 	}
 	
@@ -930,9 +950,13 @@ void crossHatch(std::vector<CPolyline>& polylines, const float64_t2& offset)
 	};
 	{
 		float64_t2 origin = float64_t2(FillPatternShapeExtent/2.0, FillPatternShapeExtent/2.0) + offset;
-		std::vector<float64_t2> points;
-		points.reserve(diamondPointsCCW.size());
-		for (const auto& p : diamondPointsCCW) points.push_back(p * 0.75 * FillPatternShapeExtent + origin);
+		std::array<float64_t2, 5u> points;
+		auto i = 0u;
+		for (const auto& p : diamondPointsCCW)
+		{
+			points[i] = p * 0.75 * FillPatternShapeExtent + origin;
+			i++;
+		}
 		polyline.addLinePoints(points);
 	}
 	polylines.push_back(std::move(polyline));
@@ -948,7 +972,7 @@ void hatch(std::vector<CPolyline>& polylines, const float64_t2& offset)
 	{
 		float64_t2 radiusOffsetTL = float64_t2(+lineDiameter / 2.0, +lineDiameter / 2.0) * FillPatternShapeExtent / 8.0;
 		float64_t2 radiusOffsetBL = float64_t2(-lineDiameter / 2.0, -lineDiameter / 2.0) * FillPatternShapeExtent / 8.0;
-		std::vector<float64_t2> points = {
+		std::array<float64_t2, 5u> points = {
 			basePt0 + radiusOffsetTL,
 			basePt0 + radiusOffsetBL, // 0
 			basePt1 + radiusOffsetBL, // 1
@@ -1052,7 +1076,7 @@ void reverseHatch(std::vector<CPolyline>& polylines, const float64_t2& offset)
 	{
 		float64_t2 radiusOffsetTL = float64_t2(-lineDiameter / 2.0, +lineDiameter / 2.0) * FillPatternShapeExtent / 8.0;
 		float64_t2 radiusOffsetBL = float64_t2(+lineDiameter / 2.0, -lineDiameter / 2.0) * FillPatternShapeExtent / 8.0;
-		std::vector<float64_t2> points = {
+		std::array<float64_t2, 5u> points = {
 			basePt0 + radiusOffsetTL,
 			basePt1 + radiusOffsetTL, // 0
 			basePt1 + radiusOffsetBL, // 1

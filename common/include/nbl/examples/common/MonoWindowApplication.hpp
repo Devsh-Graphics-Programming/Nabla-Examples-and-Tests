@@ -153,7 +153,8 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 		virtual inline bool onAppTerminated()
 		{
 			m_inputSystem = nullptr;
-			m_device->waitIdle();
+			if (m_device)
+				m_device->waitIdle();
 			m_framesInFlight.clear();
 			m_surface = nullptr;
 			m_window = nullptr;

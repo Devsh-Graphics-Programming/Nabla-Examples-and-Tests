@@ -1,0 +1,31 @@
+{
+    "logInfo": false,
+    "TestJacobian": {
+        "runs": 10,
+        "verbose": true
+    },
+    "TestReciprocity": {
+        "runs": 10,
+        "verbose": true
+    },
+    "TestModifiedWhiteFurnace": {
+        "runs": 10,
+        "samples": 100000
+    },
+    "TestChi2": {
+        "runs": 10,
+        "samples": 1000000,
+        "thetaSplits": 80,
+        "phiSplits": 160,
+        "writeFrequencies": 1
+    },
+    "TestNDF": {
+        "runs": 10,
+        "verbose": true
+    },
+    "TestCTGenerateH": {
+        "runs": 10,
+        "samples": 1000000,
+        "immediateFail": false
+    }
+}
