@@ -243,7 +243,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.rayGen.invMVP = renderPushConstants.invMVP;
     pathtracer.nee.lights = lights;
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
-    pathtracer.nee.scene = scene;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
     pathtracer.bxdfPdfThreshold = 0.0001;
