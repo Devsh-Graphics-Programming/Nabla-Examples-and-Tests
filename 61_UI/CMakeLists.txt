@@ -1,4 +1,4 @@
-if(NBL_BUILD_IMGUI)
+if(NBL_BUILD_IMGUI AND NBL_BUILD_FRUSTUM)
 	set(NBL_EXTRA_SOURCES
 		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanel.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/AppImGuiListen.cpp"
@@ -14,12 +14,12 @@ if(NBL_BUILD_IMGUI)
 		"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	)
 
-	list(APPEND NBL_LIBRARIES 
+	list(APPEND NBL_LIBRARIES
 		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
-		Nabla::ext::Frustum
 		Nabla::ext::FullScreenTriangle
+		"${NBL_EXT_FRUSTUM_LIB}"
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")

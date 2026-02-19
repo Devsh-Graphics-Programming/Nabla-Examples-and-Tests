@@ -23,6 +23,8 @@
 #include "camera/CCubeProjection.hpp"
 #include "camera/CLinearProjection.hpp"
 #include "camera/CPlanarProjection.hpp"
+// extensions
+#include "nbl/ext/Frustum/CDrawFrustum.h"
 
 // the example's headers
 #include "nbl/ui/ICursorControl.h"
