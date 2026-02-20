@@ -77,7 +77,6 @@ struct Ray
 
     // mutable
     scalar_type intersectionT;
-    ObjectID objectID;
 
     Payload<T> payload;
 
@@ -110,6 +109,9 @@ struct Ray
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
     }
 
+    void setT(scalar_type t) { intersectionT = t; }
+    scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
+
     vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
@@ -129,7 +131,6 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 
     // mutable
     scalar_type intersectionT;
-    ObjectID objectID;
 
     Payload<T> payload;
 
@@ -163,6 +164,9 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
     }
+
+    void setT(scalar_type t) { intersectionT = t; }
+    scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
 
     vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
@@ -199,20 +203,26 @@ struct Tolerance
 {
     NBL_CONSTEXPR_STATIC_INLINE T INTERSECTION_ERROR_BOUND_LOG2 = -8.0;
 
-    static T __common(uint32_t depth)
+    static T __common(uint16_t depth)
     {
         T depthRcp = 1.0 / T(depth);
         return INTERSECTION_ERROR_BOUND_LOG2;
     }
 
-    static T getStart(uint32_t depth)
+    static T getStart(uint16_t depth)
     {
         return nbl::hlsl::exp2(__common(depth));
     }
 
-    static T getEnd(uint32_t depth)
+    static T getEnd(uint16_t depth)
     {
         return 1.0 - nbl::hlsl::exp2(__common(depth) + 1.0);
+    }
+
+    template<class Ray>
+    static void adjust(NBL_REF_ARG(Ray) ray, const vector<T, 3> adjDirection, uint16_t depth)
+    {
+        ray.origin += adjDirection * ray.intersectionT * getStart(depth);
     }
 };
 

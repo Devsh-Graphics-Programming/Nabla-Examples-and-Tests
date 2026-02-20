@@ -22,10 +22,12 @@ struct Intersector
 
     struct SIntersectData
     {
+        object_handle_type objectID;
         vector3_type position;
         anisotropic_interaction_type aniso_interaction;
 
         bool foundHit() NBL_CONST_MEMBER_FUNC { return !hlsl::isnan(position.x); }
+        object_handle_type getObjectID() NBL_CONST_MEMBER_FUNC { return objectID; }
         vector3_type getPosition() NBL_CONST_MEMBER_FUNC { return position; }
         anisotropic_interaction_type getInteraction() NBL_CONST_MEMBER_FUNC { return aniso_interaction; }
     };
@@ -82,9 +84,8 @@ struct Intersector
 
         // TODO: trace AS
 
-        ray.objectID = objectID;
-
         closest_hit_type retval;
+        retval.objectID = objectID;
         retval.position = hlsl::promote<vector3_type>(bit_cast<scalar_type>(numeric_limits<scalar_type>::quiet_NaN));
 
         bool foundHit = objectID.id != -1;

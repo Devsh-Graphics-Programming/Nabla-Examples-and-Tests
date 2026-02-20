@@ -321,6 +321,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
+    using tolerance_method_type = Tolerance<scalar_type>;
 
     using shape_type = Shape<scalar_type, PST>;
     using shape_sampling_type = ShapeSampling<scalar_type, PST, PPM>;
@@ -386,7 +387,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
 
         if (retval.sample_.getNdotL() > numeric_limits<scalar_type>::min && retval.sample_.isValid())
         {
-            newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
+            newRayMaxT *= tolerance_method_type::getEnd(depth);
             pdf *= 1.0 / scalar_type(lightCount);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction.isotropic);
             spectral_type quo = radiance / pdf;
