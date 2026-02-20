@@ -180,6 +180,13 @@ public:
 	ArithmeticBenchApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getPreferredDeviceFeatures();
+		retval.pipelineExecutableInfo = true;
+		return retval;
+	}
+
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
 		if (!m_surface)
@@ -508,9 +515,20 @@ private:
 			.entries = nullptr,
 		};
 		params.cached.requireFullSubgroups = true;
+		if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+		{
+			params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+			params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+		}
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
 		if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 			return nullptr;
+
+		if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+		{
+			auto report = m_device->getPipelineExecutableReport(pipeline.get(), true);
+			m_logger->log("Arithmetic Bench Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+		}
 		return pipeline;
 	}
 

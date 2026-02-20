@@ -37,6 +37,13 @@ public:
     CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+    {
+        auto retval = device_base_t::getPreferredDeviceFeatures();
+        retval.pipelineExecutableInfo = true;
+        return retval;
+    }
+
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
         // since emulated_float64_t rounds to zero
@@ -317,8 +324,19 @@ private:
                     params.layout = m_pplnLayout.get();
                     params.shader.entryPoint = "main";
                     params.shader.shader = shader.get();
+                    if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
+                    {
+                        params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                        params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                    }
                     if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                         base.logFail("Failed to create pipelines (compile & link shaders)!\n");
+
+                    if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
+                    {
+                        auto report = base.m_device->getPipelineExecutableReport(m_pipeline.get(), true);
+                        base.m_logger->log("EF64Submitter Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+                    }
                 }
 
                 // Allocate the memory
@@ -975,8 +993,19 @@ private:
                     params.layout = m_pplnLayout.get();
                     params.shader.entryPoint = "main";
                     params.shader.shader = shader.get();
+                    if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
+                    {
+                        params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                        params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                    }
                     if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                         base.logFail("Failed to create pipelines (compile & link shaders)!\n");
+
+                    if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
+                    {
+                        auto report = base.m_device->getPipelineExecutableReport(m_pipeline.get(), true);
+                        base.m_logger->log("EF64Benchmark Pipeline Executable Report:\n%s", ILogger::ELL_INFO, report.c_str());
+                    }
                 }
 
                 // Allocate the memory

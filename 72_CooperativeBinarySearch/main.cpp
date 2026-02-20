@@ -40,6 +40,13 @@ public:
     CooperativeBinarySearch(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+    {
+        auto retval = device_base_t::getPreferredDeviceFeatures();
+        retval.pipelineExecutableInfo = true;
+        return retval;
+    }
+
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
         // Remember to call the base class initialization!
@@ -94,8 +101,19 @@ public:
             params.layout = layout.get();
             params.shader.shader = shader.get();
             params.shader.entryPoint = "main";
+            if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+            {
+                params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+            }
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
+
+            if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+            {
+                auto report = m_device->getPipelineExecutableReport(m_pipeline.get(), true);
+                m_logger->log("Cooperative Binary Search Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+            }
         }
         
         const size_t sizes[2] = {sizeof(TestCaseIndices),sizeof(uint32_t)*totalValues};

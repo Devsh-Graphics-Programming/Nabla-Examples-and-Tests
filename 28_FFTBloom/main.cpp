@@ -227,6 +227,13 @@ public:
 	FFTBloomApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getPreferredDeviceFeatures();
+		retval.pipelineExecutableInfo = true;
+		return retval;
+	}
+
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// Remember to call the base class initialization!
@@ -730,11 +737,26 @@ public:
 				// Normalization doesn't require full subgroups
 				params[i].cached.requireFullSubgroups = bool(2-i);
 				params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+				{
+					params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+					params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+				}
 			}
-			
+
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
 			if(!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 				return logFail("Failed to create Compute Pipelines!\n");
+
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				const char* kernelNames[] = {"Kernel First Axis FFT", "Kernel Second Axis FFT", "Kernel Spectrum Normalize"};
+				for (auto i = 0u; i < 3; i++)
+				{
+					auto report = m_device->getPipelineExecutableReport(pipelines[i].get(), true);
+					m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, kernelNames[i], report.c_str());
+				}
+			}
 
 			// Push Constants - only need to specify BDAs here
 			PushConstantData pushConstants;
@@ -933,11 +955,26 @@ public:
 			params[i].shader.entryPoint = "main";
 			params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			params[i].cached.requireFullSubgroups = true;
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+				params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+			}
 		}
 
 		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
 		if (!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 			return logFail("Failed to create Compute Pipelines!\n");
+
+		if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+		{
+			const char* imageNames[] = {"Image First Axis FFT", "FFT Convolve IFFT", "Image First Axis IFFT"};
+			for (auto i = 0u; i < 3; i++)
+			{
+				auto report = m_device->getPipelineExecutableReport(pipelines[i].get(), true);
+				m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, imageNames[i], report.c_str());
+			}
+		}
 
 		m_firstAxisFFTPipeline = pipelines[0];
 		m_lastAxisFFT_convolution_lastAxisIFFTPipeline = pipelines[1];

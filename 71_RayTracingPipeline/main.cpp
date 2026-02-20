@@ -51,6 +51,7 @@ public:
 	{
 		auto retval = device_base_t::getPreferredDeviceFeatures();
 		retval.accelerationStructureHostCommands = true;
+		retval.pipelineExecutableInfo = true;
 		return retval;
 	}
 
@@ -102,40 +103,40 @@ public:
 
 		// Load Custom Shader
 		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+		{
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = "app_resources"; // virtual root
+			auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+				return nullptr;
+
+			// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+			auto shader = IAsset::castDown<IShader>(assets[0]);
+			if (!shader)
 			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = "app_resources"; // virtual root
-				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
-				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
+				m_logger->log("Failed to load a precompiled shader.", ILogger::ELL_ERROR);
+				return nullptr;
+			}
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto shader = IAsset::castDown<IShader>(assets[0]);
-				if (!shader)
-				{
-					m_logger->log("Failed to load a precompiled shader.", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				return shader;
-			};
+			return shader;
+		};
 
 		// load shaders
-		const auto raygenShader = loadPrecompiledShader.operator()<"raytrace_rgen">(); // "app_resources/raytrace.rgen.hlsl"
-		const auto closestHitShader = loadPrecompiledShader.operator()<"raytrace_rchit">(); // "app_resources/raytrace.rchit.hlsl"
-		const auto proceduralClosestHitShader = loadPrecompiledShader.operator()<"raytrace_procedural_rchit">(); // "app_resources/raytrace_procedural.rchit.hlsl"
-		const auto intersectionHitShader = loadPrecompiledShader.operator()<"raytrace_rint">(); // "app_resources/raytrace.rint.hlsl"
-		const auto anyHitShaderColorPayload = loadPrecompiledShader.operator()<"raytrace_rahit">(); // "app_resources/raytrace.rahit.hlsl"
-		const auto anyHitShaderShadowPayload = loadPrecompiledShader.operator()<"raytrace_shadow_rahit">(); // "app_resources/raytrace_shadow.rahit.hlsl"
-		const auto missShader = loadPrecompiledShader.operator()<"raytrace_rmiss">(); // "app_resources/raytrace.rmiss.hlsl"
-		const auto missShadowShader = loadPrecompiledShader.operator()<"raytrace_shadow_rmiss">(); // "app_resources/raytrace_shadow.rmiss.hlsl"
-		const auto directionalLightCallShader = loadPrecompiledShader.operator()<"light_directional_rcall">(); // "app_resources/light_directional.rcall.hlsl"
-		const auto pointLightCallShader = loadPrecompiledShader.operator()<"light_point_rcall">(); // "app_resources/light_point.rcall.hlsl"
-		const auto spotLightCallShader = loadPrecompiledShader.operator()<"light_spot_rcall">(); // "app_resources/light_spot.rcall.hlsl"
-		const auto fragmentShader = loadPrecompiledShader.operator()<"present_frag">(); // "app_resources/present.frag.hlsl"
+		const auto raygenShader = loadPrecompiledShader.operator() < "raytrace_rgen" > (); // "app_resources/raytrace.rgen.hlsl"
+		const auto closestHitShader = loadPrecompiledShader.operator() < "raytrace_rchit" > (); // "app_resources/raytrace.rchit.hlsl"
+		const auto proceduralClosestHitShader = loadPrecompiledShader.operator() < "raytrace_procedural_rchit" > (); // "app_resources/raytrace_procedural.rchit.hlsl"
+		const auto intersectionHitShader = loadPrecompiledShader.operator() < "raytrace_rint" > (); // "app_resources/raytrace.rint.hlsl"
+		const auto anyHitShaderColorPayload = loadPrecompiledShader.operator() < "raytrace_rahit" > (); // "app_resources/raytrace.rahit.hlsl"
+		const auto anyHitShaderShadowPayload = loadPrecompiledShader.operator() < "raytrace_shadow_rahit" > (); // "app_resources/raytrace_shadow.rahit.hlsl"
+		const auto missShader = loadPrecompiledShader.operator() < "raytrace_rmiss" > (); // "app_resources/raytrace.rmiss.hlsl"
+		const auto missShadowShader = loadPrecompiledShader.operator() < "raytrace_shadow_rmiss" > (); // "app_resources/raytrace_shadow.rmiss.hlsl"
+		const auto directionalLightCallShader = loadPrecompiledShader.operator() < "light_directional_rcall" > (); // "app_resources/light_directional.rcall.hlsl"
+		const auto pointLightCallShader = loadPrecompiledShader.operator() < "light_point_rcall" > (); // "app_resources/light_point.rcall.hlsl"
+		const auto spotLightCallShader = loadPrecompiledShader.operator() < "light_spot_rcall" > (); // "app_resources/light_spot.rcall.hlsl"
+		const auto fragmentShader = loadPrecompiledShader.operator() < "present_frag" > (); // "app_resources/present.frag.hlsl"
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 		if (!m_semaphore)
@@ -232,18 +233,18 @@ public:
 		{
 			const auto bindings = std::array<const ICPUDescriptorSetLayout::SBinding, 2>{
 			  ICPUDescriptorSetLayout::SBinding{
-          .binding = 0,
-          .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
+		  .binding = 0,
+		  .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+		  .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+		  .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+		  .count = 1,
 			  },
 			  {
-          .binding = 1,
-          .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
+		  .binding = 1,
+		  .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+		  .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+		  .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+		  .count = 1,
 			  }
 			};
 			auto cpuDescriptorSetLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
@@ -256,11 +257,19 @@ public:
 			const auto cpuPipelineLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>({ pcRange }), std::move(cpuDescriptorSetLayout), nullptr, nullptr, nullptr);
 
 			const auto pipeline = ICPURayTracingPipeline::create(cpuPipelineLayout.get());
-			pipeline->getCachedCreationParams() = {
-				.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS,
-				.maxRecursionDepth = 1,
-				.dynamicStackSize = true,
-			};
+			{
+				core::bitflag<IGPURayTracingPipeline::SCreationParams::FLAGS> flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS;
+				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+				{
+					flags |= IGPURayTracingPipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+					flags |= IGPURayTracingPipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+				}
+				pipeline->getCachedCreationParams() = {
+					.flags = flags,
+					.maxRecursionDepth = 1,
+					.dynamicStackSize = true,
+				};
+			}
 
 			pipeline->getSpecInfos(ESS_RAYGEN)[0] = {
 				.shader = raygenShader,
@@ -287,7 +296,7 @@ public:
 			const auto intersectionSpecs = pipeline->getSpecInfos(ESS_INTERSECTION);
 
 			closestHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = closestHitShader, .entryPoint = "main" };
-			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {.shader = anyHitShaderColorPayload, .entryPoint = "main"};
+			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
 
 			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
 
@@ -295,7 +304,7 @@ public:
 			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
 			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = intersectionHitShader, .entryPoint = "main" };
 
-			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {.shader = anyHitShaderShadowPayload, .entryPoint = "main" };
+			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
 			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = intersectionHitShader, .entryPoint = "main" };
 
 			pipeline->getSpecInfoVector(ESS_CALLABLE)->resize(ELT_COUNT);
@@ -304,9 +313,9 @@ public:
 			callableGroups[ELT_POINT] = { .shader = pointLightCallShader, .entryPoint = "main" };
 			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader, .entryPoint = "main" };
 
-      smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-		  CAssetConverter::SInputs inputs = {};
-      inputs.logger = m_logger.get();
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
 
 			const std::array cpuPipelines = { pipeline.get() };
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPURayTracingPipeline>>(inputs.assets) = cpuPipelines;
@@ -314,7 +323,7 @@ public:
 			CAssetConverter::SConvertParams params = {};
 			params.utilities = m_utils.get();
 
-      auto reservation = converter->reserve(inputs);
+			auto reservation = converter->reserve(inputs);
 			auto future = reservation.convert(params);
 			if (future.copy() != IQueue::RESULT::SUCCESS)
 			{
@@ -325,10 +334,16 @@ public:
 			// assign gpu objects to output
 			auto&& pipelines = reservation.getGPUObjects<ICPURayTracingPipeline>();
 			m_rayTracingPipeline = pipelines[0].value;
+
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				auto report = m_device->getPipelineExecutableReport(m_rayTracingPipeline.get(), true);
+				m_logger->log("Ray Tracing Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+			}
 			const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
 
 			const std::array<const IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { gpuDsLayout };
-      m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+			m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
 			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
 
 			calculateRayTracingStackSize(m_rayTracingPipeline);
@@ -661,9 +676,9 @@ public:
 			cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
 			cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
 			if (m_useIndirectCommand)
-				cmdbuf->traceRaysIndirect({.offset=0,.buffer=m_indirectBuffer});
+				cmdbuf->traceRaysIndirect({ .offset = 0,.buffer = m_indirectBuffer });
 			else
-				cmdbuf->traceRays(m_shaderBindingTable,WIN_W,WIN_H,1);
+				cmdbuf->traceRays(m_shaderBindingTable, WIN_W, WIN_H, 1);
 		}
 
 		// pipeline barrier
@@ -1058,7 +1073,7 @@ private:
 			};
 
 		const auto planeRotation = hlsl::math::quaternion<hlsl::float32_t>::create(hlsl::float32_t3(1.f, 0.f, 0.f), core::radians(-90.0f));
-		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3,4,3,3>(hlsl::_static_cast<hlsl::float32_t3x3>(planeRotation));
+		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3, 4, 3, 3>(hlsl::_static_cast<hlsl::float32_t3x3>(planeRotation));
 
 		// triangles geometries
 		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
@@ -1146,7 +1161,7 @@ private:
 		const auto blasCount = std::size(cpuObjects) + 1;
 		const auto proceduralBlasIdx = std::size(cpuObjects);
 
-		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlasList;
+		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects) + 1u> cpuBlasList;
 		for (uint32_t i = 0; i < blasCount; i++)
 		{
 			auto& blas = cpuBlasList[i];
@@ -1159,7 +1174,7 @@ private:
 
 				auto& aabb = aabbs->front();
 				auto& primCount = primitiveCounts->front();
-				
+
 				primCount = NumberOfProceduralGeometries;
 				aabb.data = { .offset = 0, .buffer = cpuProcBuffer };
 				aabb.stride = sizeof(IGPUBottomLevelAccelerationStructure::AABB_t);
@@ -1264,7 +1279,7 @@ private:
 			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
 				tmpGeometries[i] = cpuObjects[i].data.get();
-				tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				tmpGeometryPatches[i].indexBufferUsages = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			}
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
@@ -1275,7 +1290,7 @@ private:
 
 		auto reservation = converter->reserve(inputs);
 		{
-			auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+			auto prepass = [&]<typename asset_type_t>(const auto& references) -> bool
 			{
 				auto objects = reservation.getGPUObjects<asset_type_t>();
 				uint32_t counter = {};
@@ -1372,8 +1387,8 @@ private:
 				return false;
 			}
 			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!
-			if (compute.getFutureScratchSemaphore().value>3)
-				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!",system::ILogger::ELL_ERROR);
+			if (compute.getFutureScratchSemaphore().value > 3)
+				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!", system::ILogger::ELL_ERROR);
 
 			// assign gpu objects to output
 			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
@@ -1395,9 +1410,9 @@ private:
 
 				const auto& normalView = gpuPolygon->getNormalView();
 				const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
-        auto normalType = NT_R32G32B32_SFLOAT;
-        if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
-          normalType = NT_R8G8B8A8_SNORM;
+				auto normalType = NT_R32G32B32_SFLOAT;
+				if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
+					normalType = NT_R8G8B8A8_SNORM;
 
 				const auto& indexBufferBinding = gpuTriangles.indexData;
 				auto& geomInfo = geomInfos[i];
