@@ -30,7 +30,7 @@ class CWindowPresenter : public IPresenter
 		};
 		struct SCreationParams : IPresenter::SCachedCreationParams, SCachedCreationParams
 		{
-			inline operator bool() const {return assMan && winMgr && api && callback;}
+			explicit inline operator bool() const {return assMan && winMgr && api && callback;}
 			
 			core::smart_refctd_ptr<video::CVulkanConnection> api = {};
 			core::smart_refctd_ptr<ui::IWindow::IEventCallback> callback = {};
