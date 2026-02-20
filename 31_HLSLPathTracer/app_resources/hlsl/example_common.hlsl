@@ -98,6 +98,17 @@ struct Ray
     {
         return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
     }
+
+    void addPayloadContribution(const vector3_type contribution)
+    {
+        payload.accumulation += contribution;
+    }
+
+    void setPayloadMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
+    {
+        payload.throughput = throughput;
+        payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
+    }
 };
 
 template<typename T>
@@ -138,6 +149,17 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     vector3_type foundEmissiveMIS(scalar_type pdfSq)
     {
         return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+    }
+
+    void addPayloadContribution(const vector3_type contribution)
+    {
+        payload.accumulation += contribution;
+    }
+
+    void setPayloadMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
+    {
+        payload.throughput = throughput;
+        payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
     }
 };
 
