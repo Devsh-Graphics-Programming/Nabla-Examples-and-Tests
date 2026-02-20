@@ -361,7 +361,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     }
 
     template<class MaterialSystem>
-    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(MaterialSystem) materialSystem, NBL_CONST_REF_ARG(scene_type) scene, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint32_t depth)
+    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(MaterialSystem) materialSystem, NBL_CONST_REF_ARG(scene_type) scene, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint16_t depth)
     {
         const light_id_type lightID = 0u;
         const light_type light = lights[lightID];

@@ -22,14 +22,16 @@ struct Intersector
 
     struct SIntersectData
     {
-        bool foundHit;
-        vector3_type intersection;
-        isotropic_interaction_type iso_interaction;
+        vector3_type position;
         anisotropic_interaction_type aniso_interaction;
-    };
-    using intersect_data_type = SIntersectData;
 
-    static intersect_data_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+        bool foundHit() NBL_CONST_MEMBER_FUNC { return !hlsl::isnan(position.x); }
+        vector3_type getPosition() NBL_CONST_MEMBER_FUNC { return position; }
+        anisotropic_interaction_type getInteraction() NBL_CONST_MEMBER_FUNC { return aniso_interaction; }
+    };
+    using closest_hit_type = SIntersectData;
+
+    static closest_hit_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         object_handle_type objectID;
         objectID.id = -1;
@@ -82,18 +84,21 @@ struct Intersector
 
         ray.objectID = objectID;
 
-        intersect_data_type retval;
-        retval.foundHit = objectID.id != -1;
-        if (retval.foundHit)
+        closest_hit_type retval;
+        retval.position = hlsl::promote<vector3_type>(bit_cast<scalar_type>(numeric_limits<scalar_type>::quiet_NaN));
+
+        bool foundHit = objectID.id != -1;
+        if (foundHit)
         {
-            retval.intersection = ray.origin + ray.direction * ray.intersectionT;
+            retval.position = ray.origin + ray.direction * ray.intersectionT;
             typename scene_type::mat_light_id_type matLightID = scene.getMatLightIDs(objectID);
-            vector3_type N = scene.getNormal(objectID, retval.intersection);
+            vector3_type N = scene.getNormal(objectID, retval.position);
             N = nbl::hlsl::normalize(N);
             ray_dir_info_type V;
             V.setDirection(-ray.direction);
-            retval.iso_interaction = isotropic_interaction_type::create(V, N);
-            retval.aniso_interaction = anisotropic_interaction_type::create(retval.iso_interaction);
+            isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+            iso_interaction.luminosityContributionHint = hlsl::normalize(colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput());
+            retval.aniso_interaction = anisotropic_interaction_type::create(iso_interaction);
         }
 
         return retval;

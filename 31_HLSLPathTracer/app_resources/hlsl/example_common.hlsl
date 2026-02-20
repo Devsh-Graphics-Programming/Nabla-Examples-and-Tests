@@ -109,6 +109,8 @@ struct Ray
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
     }
+
+    vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
 template<typename T>
@@ -161,6 +163,8 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
     }
+
+    vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
 template<class Spectrum>
