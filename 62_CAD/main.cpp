@@ -32,14 +32,8 @@ using namespace video;
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "HatchGlyphBuilder.h"
-#include "GeoTexture.h"
 
 #include <nbl/builtin/hlsl/tgmath.hlsl>
-
-//TODO: remove
-#include <nbl/builtin/hlsl/concepts/core.hlsl>
-#include <nbl/builtin/hlsl/concepts/vector.hlsl>
-#include <nbl/builtin/hlsl/concepts/matrix.hlsl>
 
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
@@ -49,6 +43,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
+static constexpr bool testCameraRotation = false;
 
 enum class ExampleMode
 {
@@ -64,6 +59,7 @@ enum class ExampleMode
 	CASE_9, // DTM
 	CASE_10, // testing fixed geometry and emulated fp64 corner cases
 	CASE_11, // grid DTM
+	CASE_12, // Georeferenced streamed images
 	CASE_COUNT
 };
 
@@ -80,10 +76,11 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 	600.0,	// CASE_9
 	10.0,	// CASE_10
-	1000.0	// CASE_11
+	1000.0,	// CASE_11
+	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -133,7 +130,7 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
+				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.025 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.025};
 				m_bounds = float64_t2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
@@ -361,6 +358,195 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
         return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
 }
 
+// Used by case 12
+struct ImageLoader : public IImageRegionLoader
+{
+	ImageLoader(asset::IAssetManager* assetMgr, system::ILogger* logger, video::IPhysicalDevice* physicalDevice)
+		: m_assetMgr(assetMgr), m_logger(logger), m_physicalDevice(physicalDevice) 
+	{ 
+		auto loadImage = [&](const std::string& imagePath) -> smart_refctd_ptr<ICPUImage>
+			{
+				system::path m_loadCWD = "..";
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger, m_loadCWD);
+				auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
+				{
+					m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+					return nullptr;
+				}
+
+				smart_refctd_ptr<ICPUImageView> cpuImgView;
+				const auto& asset = contents[0];
+				switch (asset->getAssetType())
+				{
+				case IAsset::ET_IMAGE:
+				{
+					auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+					auto& flags = image->getCreationParameters().flags;
+					// assert if asset is mutable
+					const_cast<core::bitflag<asset::IImage::E_CREATE_FLAGS>&>(flags) |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
+					const auto format = image->getCreationParameters().format;
+
+					ICPUImageView::SCreationParams viewParams = {
+						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+						.image = std::move(image),
+						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+						.format = format,
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						}
+					};
+
+					cpuImgView = ICPUImageView::create(std::move(viewParams));
+				} break;
+
+				case IAsset::ET_IMAGE_VIEW:
+					cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+					break;
+				default:
+					m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+
+				const auto loadedCPUImage = cpuImgView->getCreationParameters().image;
+				const auto loadedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+				// Promoting the image to a format GPU supports. (so that updateImageViaStagingBuffer doesn't have to handle that each frame if overflow-submit needs to happen)
+				auto promotedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+				promotedCPUImageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT;
+				// promote format because RGB8 and friends don't actually exist in HW
+				{
+					const IPhysicalDevice::SImageFormatPromotionRequest request = {
+						.originalFormat = promotedCPUImageCreationParams.format,
+						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(promotedCPUImageCreationParams.usage)
+					};
+					promotedCPUImageCreationParams.format = m_physicalDevice->promoteImageFormat(request, video::IGPUImage::TILING::OPTIMAL);
+				}
+
+				if (loadedCPUImageCreationParams.format != promotedCPUImageCreationParams.format)
+				{
+					smart_refctd_ptr<ICPUImage> promotedCPUImage = ICPUImage::create(promotedCPUImageCreationParams);
+					core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(promotedCPUImageCreationParams.format);
+
+					const auto extent = loadedCPUImageCreationParams.extent;
+					const uint32_t mipLevels = loadedCPUImageCreationParams.mipLevels;
+					const uint32_t arrayLayers = loadedCPUImageCreationParams.arrayLayers;
+
+					// Only supporting 1 mip, it's just for test..
+					const size_t byteSize = (bytesPerPixel * extent.width * extent.height * extent.depth * arrayLayers).getIntegerApprox(); // TODO: consider mips
+					ICPUBuffer::SCreationParams bufferCreationParams = {};
+					bufferCreationParams.size = byteSize;
+					smart_refctd_ptr<ICPUBuffer> promotedCPUImageBuffer = ICPUBuffer::create(std::move(bufferCreationParams));
+
+					auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+					ICPUImage::SBufferCopy& region = newRegions->front();
+					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					region.imageSubresource.mipLevel = 0u; // TODO
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = arrayLayers;
+					region.bufferOffset = 0u;
+					region.bufferRowLength = 0u;
+					region.bufferImageHeight = 0u;
+					region.imageOffset = { 0u, 0u, 0u };
+					region.imageExtent = extent;
+					promotedCPUImage->setBufferAndRegions(std::move(promotedCPUImageBuffer), newRegions);
+
+					performImageFormatPromotionCopy(loadedCPUImage, promotedCPUImage);
+					return promotedCPUImage;
+				}
+				else
+				{
+					return loadedCPUImage;
+				}
+			};
+
+		// This is all hardcoded for the example
+		const std::string basePath = "../../media/npot_geotex_mip_";
+		smart_refctd_ptr<ICPUImage> img = loadImage(basePath + "0_base.png");
+
+		// This is hardcoded
+		const uint32_t maxMipLevel = 7;
+		baseMipLevels.reserve(maxMipLevel + 1);
+		baseMipLevels.emplace_back(std::move(img));
+		for (auto i = 1u; i <= maxMipLevel; i++)
+		{
+			baseMipLevels.emplace_back(loadImage(basePath + std::to_string(i) + "_base.png"));
+		}
+		downsampledMipLevels.reserve(maxMipLevel + 1);
+		for (auto i = 0u; i <= maxMipLevel; i++)
+		{
+			downsampledMipLevels.emplace_back(loadImage(basePath + std::to_string(i) + "_downsampled.png"));
+		}
+	}
+
+	uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel)
+	{
+		return { baseMipLevels[mipLevel]->getCreationParameters().extent.width, baseMipLevels[mipLevel]->getCreationParameters().extent.height };
+	}
+
+	uint32_t2 getExtents(std::filesystem::path imagePath) override
+	{
+		return getExtents(imagePath, 0);
+	}
+
+	asset::E_FORMAT getFormat(std::filesystem::path imagePath) override
+	{
+		return baseMipLevels[0]->getCreationParameters().format;
+	}
+
+	bool hasPrecomputedMips(std::filesystem::path imagePath) const override
+	{
+		return true;
+	}
+
+private:
+
+	// Assume offset always fits in the image, but maybe offset + extent doesn't
+	// Example of a precomputed mip loader with 2x mip levels
+	core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) override
+	{
+		// Hardcoded tile size that's not accessible
+		auto mippedImageExtents = getExtents(imagePath, mipLevel);
+		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
+		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);
+		// Image path ignored for this hardcoded example
+		const auto& image = downsample ? downsampledMipLevels[mipLevel] : baseMipLevels[mipLevel];
+		const auto& imageBuffer = image->getBuffer();
+		const core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(image->getCreationParameters().format);
+		const size_t bytesPerRow = (bytesPerPixel * extent.x).getIntegerApprox();
+		const size_t loadedImageBytes = bytesPerRow * extent.y;
+		asset::IBuffer::SCreationParams bufCreationParams = { .size = loadedImageBytes, .usage = imageBuffer->getCreationParams().usage };
+		ICPUBuffer::SCreationParams cpuBufCreationParams(std::move(bufCreationParams));
+		core::smart_refctd_ptr<ICPUBuffer> retVal = ICPUBuffer::create(std::move(cpuBufCreationParams));
+
+		// Copy row by row into the new buffer
+		uint8_t* dataPtr = reinterpret_cast<uint8_t*>(retVal->getPointer());
+		const uint8_t* imageBufferDataPtr = reinterpret_cast<uint8_t*>(imageBuffer->getPointer());
+		const size_t bytesPerImageRow = (bytesPerPixel * image->getCreationParameters().extent.width).getIntegerApprox();
+		for (auto row = 0u; row < extent.y; row++)
+		{
+			const size_t imageBufferOffset = bytesPerImageRow * (offset.y + row) + (bytesPerPixel * offset.x).getIntegerApprox();
+			std::memcpy(dataPtr + row * bytesPerRow, imageBufferDataPtr + imageBufferOffset, bytesPerRow);
+		}
+		return retVal;
+	}
+
+	// These are here for the example, might not be class members when porting to n4ce
+	asset::IAssetManager* m_assetMgr = {};
+	system::ILogger* m_logger = {};
+	video::IPhysicalDevice* m_physicalDevice = {};
+	// We're going to fake it in the example so it's easier to work with, but the interface remains
+	core::vector<smart_refctd_ptr<ICPUImage>> baseMipLevels = {};
+	core::vector<smart_refctd_ptr<ICPUImage>> downsampledMipLevels = {};
+};
+
 class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
 {
 	using device_base_t = nbl::examples::SimpleWindowedApplication;
@@ -375,11 +561,22 @@ public:
 
 	void allocateResources()
 	{
-		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
-		
+		// TODO: currently using the same utils for buffers and images, make them separate staging buffers
+		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_device), core::smart_refctd_ptr(m_utils), core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
+
+		// Just wanting to try memory type indices with device local flag, TODO: later improve to prioritize pure device local
+		std::vector<uint32_t> deviceLocalMemoryTypeIndices;
+		for (uint32_t i = 0u; i < m_physicalDevice->getMemoryProperties().memoryTypeCount; ++i)
+		{
+			const auto& memType = m_physicalDevice->getMemoryProperties().memoryTypes[i];
+			if (memType.propertyFlags.hasFlags(IDeviceMemoryAllocation::EMPF_DEVICE_LOCAL_BIT))
+				deviceLocalMemoryTypeIndices.push_back(i);
+		}
+
 		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
-		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize);
+
+		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize, deviceLocalMemoryTypeIndices);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
@@ -495,9 +692,9 @@ public:
 		// Static Image Sampler
 		{
 			IGPUSampler::SParams samplerParams = {};
-			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
-			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
-			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
 			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
 			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
 			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
@@ -733,12 +930,6 @@ public:
 		return {};
 	}
 	
-	double dt = 0;
-	double m_timeElapsed = 0.0;
-	std::chrono::steady_clock::time_point lastTime;
-	uint32_t m_hatchDebugStep = 10u;
-	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
-
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<nbl::examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -920,7 +1111,7 @@ public:
 						.size = sizeof(PushConstants)
 			};
 
-			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+			m_pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 
 		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
@@ -954,74 +1145,104 @@ public:
 			mainPipelineVertexShader = loadPrecompiledShader.operator() <"main_pipeline_vertex_shader">(); // "../shaders/main_pipeline/vertex_shader.hlsl"
 		}
 
+
 		// Shared Blend Params between pipelines
-		SBlendParams blendParams = {};
-		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
-		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
-		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
-		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
-		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+		// Premultiplied over-blend (back-to-front)
+		SBlendParams premultipliedOverBlendParams = {};
+		premultipliedOverBlendParams.blendParams[0u].srcColorFactor = asset::EBF_ONE;
+		premultipliedOverBlendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedOverBlendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		premultipliedOverBlendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		premultipliedOverBlendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedOverBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		premultipliedOverBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+		// Premultiplied UNDER-blend (front-to-back)
+		SBlendParams premultipliedUnderBlendParams = {};
+		premultipliedUnderBlendParams.blendParams[0u].srcColorFactor = asset::EBF_ONE_MINUS_DST_ALPHA;
+		premultipliedUnderBlendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE;
+		premultipliedUnderBlendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		premultipliedUnderBlendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		premultipliedUnderBlendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedUnderBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		premultipliedUnderBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+
+		IGPUGraphicsPipeline::SCreationParams mainGraphicsPipelineParams = {};
+		mainGraphicsPipelineParams.layout = m_pipelineLayout.get();
+		mainGraphicsPipelineParams.cached = {
+			.vertexInput = {},
+			.primitiveAssembly = {
+				.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
+			},
+			.rasterization = {
+				.polygonMode = EPM_FILL,
+				.faceCullingMode = EFCM_NONE,
+				.depthWriteEnable = false,
+			},
+			.blend = premultipliedOverBlendParams,
+		};
+		mainGraphicsPipelineParams.renderpass = compatibleRenderPass.get();
+
+		// Create Main Graphics Pipelines 
+		{
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
+				{ .shader = mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader = mainPipelineFragmentShaders.get(), .entryPoint = "fragMain" },
+			};
+			
+			IGPUGraphicsPipeline::SCreationParams params[1] = { mainGraphicsPipelineParams };
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
+
+			if (!m_device->createGraphicsPipelines(nullptr,params,&m_graphicsPipeline))
+				return logFail("Graphics Pipeline Creation Failed.");
+		}
 		
+		// Debug Pipeline
+		if constexpr (DebugModeWireframe)
+		{
+			// Create Main Graphics Pipelines 
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
+				{ .shader=mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader=mainPipelineFragmentShaders.get(), .entryPoint = "fragDebugMain" },
+			};
+			IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineParams[1] = { mainGraphicsPipelineParams };
+			debugGraphicsPipelineParams[0].cached.rasterization.polygonMode = asset::EPM_LINE;
+			debugGraphicsPipelineParams[0].vertexShader = specInfo[0];
+			debugGraphicsPipelineParams[0].fragmentShader = specInfo[1];
+				
+			if (!m_device->createGraphicsPipelines(nullptr,debugGraphicsPipelineParams,&m_debugGraphicsPipeline))
+				return logFail("Debug Graphics Pipeline Creation Failed.");
+		}
+
+		// StreamedImages Pipeline
+		{
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
+				{ .shader=mainPipelineVertexShader.get(), .entryPoint = "vtxMain" },
+				{ .shader=mainPipelineFragmentShaders.get(), .entryPoint = "fragGeoref" },
+			};
+
+			IGPUGraphicsPipeline::SCreationParams params[1] = { mainGraphicsPipelineParams };
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
+			params[0].cached.blend = premultipliedUnderBlendParams;
+			
+			if (!m_device->createGraphicsPipelines(nullptr, params, &m_streamedImagesGraphicsPipeline))
+				return logFail("StreamedImages Graphics Pipeline Creation Failed.");
+		}
+
 		// Create Alpha Resovle Pipeline
 		{
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
+			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "fragShaderResolveAlphas" };
 
-			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, m_pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
 			if (!resolveAlphaGraphicsPipeline)
 				return logFail("Graphics Pipeline Creation Failed.");
 
 		}
 		
-		// Create Main Graphics Pipelines 
-		{
-			
-			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
-				{
-					.shader = mainPipelineVertexShader.get(),
-					.entryPoint = "vtxMain"
-				},
-				{
-					.shader = mainPipelineFragmentShaders.get(),
-					.entryPoint = "fragMain"
-				},
-			};
-
-			IGPUGraphicsPipeline::SCreationParams params[1] = {};
-			params[0].layout = pipelineLayout.get();
-			params[0].vertexShader = specInfo[0];
-			params[0].fragmentShader = specInfo[1];
-			params[0].cached = {
-				.vertexInput = {},
-				.primitiveAssembly = {
-					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
-				},
-				.rasterization = {
-					.polygonMode = EPM_FILL,
-					.faceCullingMode = EFCM_NONE,
-					.depthWriteEnable = false,
-				},
-				.blend = blendParams,
-			};
-			params[0].renderpass = compatibleRenderPass.get();
-			
-			if (!m_device->createGraphicsPipelines(nullptr,params,&graphicsPipeline))
-				return logFail("Graphics Pipeline Creation Failed.");
-
-			if constexpr (DebugModeWireframe)
-			{
-				specInfo[1u].entryPoint = "fragDebugMain"; // change only fragment shader entrypoint
-				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
-				
-				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))
-					return logFail("Debug Graphics Pipeline Creation Failed.");
-			}
-		}
-
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
 		m_graphicsCommandPool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		if (!m_graphicsCommandPool)
@@ -1033,8 +1254,6 @@ public:
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
 		m_Camera.setSize(cameraExtents[uint32_t(mode)]);
 
-		m_timeElapsed = 0.0;
-		
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
@@ -1062,9 +1281,6 @@ public:
 			}
 		);
 		
-		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
-		// m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
-		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
 		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
@@ -1086,13 +1302,6 @@ public:
 
 		// Load image
 		system::path m_loadCWD = "..";
-		std::string imagePaths[] =
-		{
-			"../../media/color_space_test/R8G8B8_1.jpg",
-			"../../media/color_space_test/R8G8B8_1.png",
-			"../../media/color_space_test/R8G8B8A8_2.png",
-			"../../media/color_space_test/R8G8B8A8_1.png",
-		};
 
 		/**
 		* @param formatOverride override format of an image view, use special argument asset::E_FORMAT::EF_COUNT to don't override image view format and use one retrieved from the loaded image
@@ -1198,44 +1407,62 @@ public:
 				return loadedCPUImage;
 			}
 		};
-
-		for (const auto& imagePath : imagePaths)
+		
+		if constexpr (mode == ExampleMode::CASE_7)
 		{
-			auto image = loadImage(imagePath);
-			if (image)
-				sampleImages.push_back(image);
-		}
-
-		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
-
-		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
-		{
-			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
-
-			auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
-			auto imageExtent = region->getExtent();
-			auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
-			float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
-			const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
-			assert(imageByteSize % sizeof(float) == 0);
-
-			std::random_device rd;
-			std::mt19937 mt(rd());
-			std::uniform_int_distribution<int> dist(0, 1);
-
-			for (int i = 0; i < imageByteSize; i += sizeof(float))
+			std::string imagePaths[] =
 			{
-				const bool isTexelEven = static_cast<bool>(dist(mt));
-				E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
-
-				setDiagonalModeBit(imageData, diagonal);
-				imageData++;
+				"../../media/color_space_test/R8G8B8_1.jpg",
+				"../../media/color_space_test/R8G8B8_1.png",
+				"../../media/color_space_test/R8G8B8A8_2.png",
+				"../../media/color_space_test/R8G8B8A8_1.png",
+			};
+			for (const auto& imagePath : imagePaths)
+			{
+				auto image = loadImage(imagePath);
+				if (image)
+					sampleImages.push_back(image);
 			}
-
+			assert(gridDTMHeightMap);
 		}
 
-		assert(gridDTMHeightMap);
+		if constexpr (mode == ExampleMode::CASE_11)
+		{
+			gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+			// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
+			{
+				// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
 
+				auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
+				auto imageExtent = region->getExtent();
+				auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
+				float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
+				const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
+				assert(imageByteSize % sizeof(float) == 0);
+
+				std::random_device rd;
+				std::mt19937 mt(rd());
+				std::uniform_int_distribution<int> dist(0, 1);
+
+				for (int i = 0; i < imageByteSize; i += sizeof(float))
+				{
+					const bool isTexelEven = static_cast<bool>(dist(mt));
+					E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
+
+					setDiagonalModeBit(imageData, diagonal);
+					imageData++;
+				}
+
+			}
+		}
+
+		// Create case 12 image loader
+		if constexpr (mode == ExampleMode::CASE_12)
+			drawResourcesFiller.setGeoreferencedImageLoader(make_smart_refctd_ptr<ImageLoader>(m_assetMgr.get(), m_logger.get(), m_physicalDevice));
+
+		
+		m_timeElapsed = 0.0;
+		
 		return true;
 	}
 
@@ -1243,7 +1470,7 @@ public:
 	inline void workLoopBody() override
 	{
 		auto now = std::chrono::high_resolution_clock::now();
-		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
 		m_timeElapsed += dt;
 		if constexpr (mode == ExampleMode::CASE_0)
@@ -1256,7 +1483,8 @@ public:
 
 		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				m_Camera.mouseProcess(events);
+				if (m_window->hasMouseFocus())
+					m_Camera.mouseProcess(events);
 			}
 		, m_logger.get());
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
@@ -1437,17 +1665,9 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 
 		// TEST CAMERA ROTATION
-#if 1
-		// double rotation = 0.25 * PI<double>();
-		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
-		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
-		float64_t3x3 rotationParameter = float64_t3x3 {
-			rotationVec.x, rotationVec.y, 0.0,
-			-rotationVec.y, rotationVec.x, 0.0,
-			0.0, 0.0, 1.0
-		};
-		projectionToNDC = nbl::hlsl::mul(projectionToNDC, rotationParameter);
-#endif
+		if constexpr (testCameraRotation)
+			projectionToNDC = rotateBasedOnTime(projectionToNDC);
+
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
@@ -1468,7 +1688,7 @@ public:
 																0.0f, 0.0f, 1.0f);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer};
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 
@@ -1550,22 +1770,22 @@ public:
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, m_pipelineLayout.get(), 0u, 2u, descriptorSets);
 		
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		cb->bindGraphicsPipeline(m_graphicsPipeline.get());
 
 		for (auto& drawCall : drawResourcesFiller.getDrawCalls())
 		{
 			if (drawCall.isDTMRendering)
 			{
-				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer()}, asset::EIT_32BIT);
 
 				PushConstants pc = {
 					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
 					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
 					.isDTMRendering = true
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -1574,13 +1794,13 @@ public:
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
 
 				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
-				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer}, asset::EIT_32BIT);
 				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 			}
 		}
@@ -1593,20 +1813,20 @@ public:
 		
 		if constexpr (DebugModeWireframe)
 		{
-			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
+			cb->bindGraphicsPipeline(m_debugGraphicsPipeline.get());
 
 			for (auto& drawCall : drawResourcesFiller.getDrawCalls())
 			{
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(m_debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
 
 				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
-				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer}, asset::EIT_32BIT);
 
 				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -1703,8 +1923,9 @@ public:
 		retval.synchronizationValidation = false;
 		return retval;
 	}
+
 protected:
-	
+
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
 		drawResourcesFiller.setSubmitDrawsFunction(
@@ -3072,12 +3293,6 @@ protected:
 				//printf("\n");
 			}
 
-			GeoreferencedImageParams geoRefParams = {};
-			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
-			geoRefParams.imageExtents = uint32_t2 (2048, 2048);
-			geoRefParams.viewportExtents = (m_realFrameIx <= 5u) ? uint32_t2(1280, 720) : uint32_t2(3840, 2160); // to test trigerring resize/recreation
-			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
-			
 			LineStyleInfo lineStyle = 
 			{
 				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
@@ -3631,6 +3846,57 @@ protected:
 			}
 #endif
 		}
+		else if (mode == ExampleMode::CASE_12)
+		{
+			// [TODO]: Use streamedImagesGraphicsPipeline which is underblended, it requires:
+			// 1. Only queuing draws here to be rendered(underblended) later. (same as n4ce's Nabla Renderer)
+			// 2. EndFrame should do some special checks, then call these drawResourcesFiller functions (launchLoad -> draw -> finalize) after everything else was rendered.
+			// 3. Basically another submit at the end for underblending the georeferenced images using it's own dedicated pipeline
+			// 4. since CASE_12 only has images, underblending or overblending doesn't matter and VirtualTexturing might make a lot of these efforts useless
+			// 5. so let's just render the georeferenced images normally (over blend on bg) here for now 
+			
+			// placeholder, actual path is right now hardcoded into the loader
+			const static std::string georeferencedImagePath = "../../media/tiled_grid_mip_0.exr";
+
+			constexpr float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			constexpr float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
+			constexpr float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
+			constexpr float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
+
+			//GeoreferencedImageParams georeferencedImageParams;
+			//georeferencedImageParams.storagePath = georeferencedImagePath;
+			//georeferencedImageParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(georeferencedImagePath);
+			//georeferencedImageParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
+
+			image_id georefImageID = 6996;
+			// Position at topLeft viewport
+			auto projectionToNDC = m_Camera.constructViewProjection();
+			// TEST CAMERA ROTATION
+			if constexpr (testCameraRotation)
+				projectionToNDC = rotateBasedOnTime(projectionToNDC);
+			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
+
+			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
+			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
+			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
+			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
+
+			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
+			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
+			OrientedBoundingBox2D georefImageBB = { .topLeft = startingTopLeft, .dirU = dirU, .aspectRatio = float32_t(imageExtents.y) / imageExtents.x };
+
+			auto streamingState = drawResourcesFiller.ensureGeoreferencedImageEntry(georefImageID, georefImageBB, uint32_t2(m_window->getWidth(), m_window->getHeight()), inverseViewProj, georeferencedImagePath);
+			constexpr static WorldClipRect invalidClipRect = { .minClip = float64_t2(std::numeric_limits<float64_t>::signaling_NaN()) };
+			drawResourcesFiller.launchGeoreferencedImageTileLoads(georefImageID, streamingState.get(), invalidClipRect);
+
+			drawResourcesFiller.drawGeoreferencedImage(georefImageID, std::move(streamingState), intendedNextSubmit);
+
+			drawResourcesFiller.finalizeGeoreferencedImageTileLoads(intendedNextSubmit);
+
+			//drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, std::move(georeferencedImageParams), intendedNextSubmit);
+
+			//drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, intendedNextSubmit);
+		}
 	}
 
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
@@ -3640,9 +3906,25 @@ protected:
 		return hlsl::length(float64_t2(idx_0_0, idx_1_0));
 	}
 
+	float64_t3x3 rotateBasedOnTime(const float64_t3x3& projectionMatrix)
+	{
+		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>();
+		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
+		float64_t3x3 rotationParameter = float64_t3x3{
+			rotationVec.x, rotationVec.y, 0.0,
+			-rotationVec.y, rotationVec.x, 0.0,
+			0.0, 0.0, 1.0
+		};
+		return nbl::hlsl::mul(projectionMatrix, rotationParameter);
+	}
+
 protected:
-	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+
 	clock_t::time_point start;
+	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+
+	double m_timeElapsed = 0.0;
+	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
 	bool finishedCachingDraw = false;
@@ -3682,12 +3964,13 @@ protected:
 
 	uint64_t m_realFrameIx = 0u;
 
-	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout1;
-	smart_refctd_ptr<IGPUPipelineLayout>		pipelineLayout;
+	smart_refctd_ptr<IGPUPipelineLayout>		m_pipelineLayout;
 	smart_refctd_ptr<IGPUGraphicsPipeline>		resolveAlphaGraphicsPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_debugGraphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_graphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		m_streamedImagesGraphicsPipeline;
 
 	Camera2D m_Camera;
 
@@ -3714,7 +3997,9 @@ protected:
 	bool stopBenchamrkFlag = false;
 	#endif
 	
-	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
+	// Example Specific Settings:
+	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

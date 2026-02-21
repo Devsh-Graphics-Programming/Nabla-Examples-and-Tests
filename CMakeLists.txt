@@ -51,6 +51,7 @@ if(NBL_BUILD_EXAMPLES)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(15_MitsubaLoader)
 	endif()
+	add_subdirectory(16_ZipArchiveLoaderTest)
 
 
 	# Waiting for a refactor
@@ -77,14 +78,21 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
-	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
-	#	add_subdirectory(39_DenoiserTonemapper)
-	# endif()
+	if (NBL_BUILD_MITSUBA_LOADER)
+		# if (NBL_BUILD_OPTIX)
+		#	add_subdirectory(39_DenoiserTonemapper)
+		# endif()
+		if(NBL_BUILD_IMGUI)
+			add_subdirectory(40_PathTracer)
+		endif()
+	endif()
 
 	#add_subdirectory(43_SumAndCDFFilters)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
+	add_subdirectory(50.IESViewer)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
+	add_subdirectory(59_QuaternionTests)
 	add_subdirectory(61_UI)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL) # TODO: Erfan, Przemek, Francisco and co. need to resurrect this
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
@@ -99,6 +107,12 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(71_RayTracingPipeline)
 	add_subdirectory(72_CooperativeBinarySearch)
 	add_subdirectory(74_EnvmapImportanceSampling)
+
+	if (NBL_BUILD_MITSUBA_LOADER)
+		add_subdirectory(73_GeometryInspector)
+	endif()
+
+	add_subdirectory(74_QuantizedSequenceTests)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)

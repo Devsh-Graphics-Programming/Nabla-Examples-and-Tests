@@ -1,18 +1,33 @@
+/******************************************************************************/
+/* DrawResourcesFiller: This class provides important functionality to manage resources needed for a draw.
+/******************************************************************************/
 #pragma once
+
+#if __has_include("glm/glm/glm.hpp") // legacy
+#include "glm/glm/glm.hpp"
+#else
+#include "glm/glm.hpp" // new build system
+#endif
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include <nbl/builtin/hlsl/limits.hlsl>
+#include <nbl/core/containers/LRUCache.h>
 #include "Polyline.h"
-#include "CTriangleMesh.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
-#include "Images.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
-#include <nbl/core/containers/LRUCache.h>  
+#include "CTriangleMesh.h"
+#include "Shaders/globals.hlsl"
+#include "Images.h"
+
+//#include <nbl/core/hash/blake.h>
 #include <nbl/ext/TextRendering/TextRendering.h>
-// #include <nbl/video/alloc/SubAllocatedDescriptorSet.h>
+
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
-using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 20u);
@@ -120,13 +135,30 @@ public:
 				geometryInfo.getAlignedStorageSize();
 		}
 	};
+
+	// @brief Register a loader
+	void setGeoreferencedImageLoader(core::smart_refctd_ptr<IImageRegionLoader>&& _imageLoader)
+	{
+		imageLoader = _imageLoader;
+	}
+
+	uint32_t2 queryGeoreferencedImageExtents(std::filesystem::path imagePath)
+	{
+		return imageLoader->getExtents(imagePath);
+	}
+
+	asset::E_FORMAT queryGeoreferencedImageFormat(std::filesystem::path imagePath)
+	{
+		return imageLoader->getFormat(imagePath);
+	}
 	
 	DrawResourcesFiller();
 
-	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue, core::smart_refctd_ptr<system::ILogger>&& logger);
+	DrawResourcesFiller(smart_refctd_ptr<video::ILogicalDevice>&& device, smart_refctd_ptr<IUtilities>&& bufferUploadUtils, smart_refctd_ptr<IUtilities>&& imageUploadUtils, IQueue* copyQueue, core::smart_refctd_ptr<system::ILogger>&& logger);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
+
 	
 	// DrawResourcesFiller needs to access these in order to allocate GPUImages and write the to their correct descriptor set binding
 	void setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr<video::IGPUDescriptorSet>&& descriptorSet, uint32_t binding);
@@ -147,10 +179,11 @@ public:
 	 * @param logicalDevice Pointer to the logical device used for memory allocation and resource creation.
 	 * @param requiredImageMemorySize The size in bytes of the memory required for images.
 	 * @param requiredBufferMemorySize The size in bytes of the memory required for buffers.
+	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
 	 * 
 	 * @return true if the memory allocation and resource setup succeeded; false otherwise.
 	 */
-	bool allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize);
+	bool allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder);
 	
 	/**
 	 * @brief Attempts to allocate draw resources within a given VRAM budget, retrying with progressively smaller sizes on failure.
@@ -162,12 +195,13 @@ public:
 	 * @param logicalDevice Pointer to the logical device used for allocation.
 	 * @param maxImageMemorySize Initial image memory size (in bytes) to attempt allocation with.
 	 * @param maxBufferMemorySize Initial buffer memory size (in bytes) to attempt allocation with.
+	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
 	 * @param reductionPercent The percentage by which to reduce the memory sizes after each failed attempt (e.g., 10 means reduce by 10%).
 	 * @param maxTries Maximum number of attempts to try reducing and allocating memory.
 	 * 
 	 * @return true if the allocation succeeded at any iteration; false if all attempts failed.
 	 */
-	bool allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, uint32_t reductionPercent = 10u, uint32_t maxTries = 32u);
+	bool allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder, uint32_t reductionPercent = 10u, uint32_t maxTries = 32u);
 
 	bool allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
@@ -323,35 +357,103 @@ public:
 	 */
 	bool ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit);
 
-	/**
-	 * @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.
-	 * 
-	 * If the specified image ID is not already present in the cache, or if the cached version is incompatible
-	 * with the requested parameters (e.g. extent, format, or type), this function allocates GPU memory,
-	 * creates the image and its view, to be bound to a descriptor binding in the future.
-	 * 
-	 * If the image already exists and matches the requested parameters, its usage metadata is updated.
-	 * In either case, the cache is updated to reflect usage in the current frame.
-	 * 
-	 * This function also handles automatic eviction of old images via an LRU policy when space is limited.
-	 * 
-	 * @param imageID                Unique identifier of the image to add or reuse.
-	 * @param params                 Georeferenced Image Params
-	 * @param intendedNextSubmit     Submit info object used to track resources pending GPU submission.
-	 * 
-	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
-	 * [TODO]: should be internal protected member function.
-	 */
-	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
-
-	// [TODO]: should be internal protected member function.
-	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
-
 	// This function must be called immediately after `addStaticImage` for the same imageID.
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
+
+	/*
+		Georeferenced Image Functions:
+	*/
+	 
+	/**
+	 * @brief Computes the recommended GPU image extents for streamed (georeferenced) imagery.
+	 * 
+	 * This function estimates the required GPU-side image size to safely cover the current viewport, accounting for:
+	 *  - Full coverage of twice the viewport at mip 0
+	 *  - Arbitrary rotation (by considering the diagonal)
+	 *  - Padding
+	 * 
+	 * The resulting size is always rounded up to a multiple of the georeferenced tile size.
+	 * 
+	 * @param viewportExtents The width and height of the viewport in pixels.
+	 * @return A uint32_t2 representing the GPU image width and height for streamed imagery.
+	*/
+	static uint32_t2 computeStreamingImageExtentsForViewportCoverage(const uint32_t2 viewportExtents);
+
+	/**
+	* @brief Creates a streaming state for a georeferenced image.
+	* 
+	* This function prepares the required state for streaming and rendering a georeferenced image.
+	* 
+	* WARNING: User should make sure to:
+	* - Transforms the OBB into world space if custom projections (such as dwg/symbols) are active.
+	* 
+	* Specifically, this function:
+	* - Builds a new GeoreferencedImageStreamingState for the given image ID, OBB, and storage path.
+	* - Looks up image info such as format and extents from the registered loader and the storage path
+	* - Updates the returned state with current viewport.
+	*
+	* @note The returned state is not managed by the cache. The caller is responsible for
+	*       storing it and passing the same state to subsequent streaming and draw functions.
+	*
+	* this function does **not** insert the image into the internal cache, because doing so could lead to
+	* premature eviction (either of this image or of another resource) before the draw call is made.
+	*
+	* @param imageID					Unique identifier of the image.
+	* @param worldspaceOBB				Oriented bounding box of the image in world space.
+	* @param viewportExtent				Extent of the current viewport in pixels.
+	* @param ndcToWorldMat				3x3 matrix transforming NDC coordinates to world coordinates.
+	* @param storagePath				Filesystem path where the image data is stored.
+	* @return A GeoreferencedImageStreamingState object initialized for this image.
+	*/
+	nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState> ensureGeoreferencedImageEntry(image_id imageID, const OrientedBoundingBox2D& worldSpaceOBB, const uint32_t2 currentViewportExtents, const float64_t3x3& ndcToWorldMat, const std::filesystem::path& storagePath);
+
+	/**
+	* @brief Launches tile loading for a cached georeferenced image.
+	* 
+	* Queues all tiles visible in the current viewport for GPU upload.
+	* 
+	* The work includes:
+	* - Calculating visible tile coverage from the OBB and viewport.
+	* - Loading the necessary tiles from disk via the registered `imageLoader`.
+	* - Preparing staging buffers and `IImage::SBufferCopy` upload regions for GPU transfer.
+	* - Appending the upload commands into `streamedImageCopies` for later execution.
+	* - Updating the state's tile occupancy map to reflect newly resident tiles.
+	*
+	* Context: this function is dedicated to streaming tiles for georeferenced images only.
+	* This function should be called anywhere between `ensureGeoreferencedImageEntry` and `finalizeGeoreferencedImageTileLoads`
+	* But It's prefered to start loading as soon as possible to hide the latency of loading tiles from disk.
+	*
+	* @note The `imageStreamingState` passed in must be exactly the one returned by `ensureGeoreferencedImageEntry` with same image_id. Passing a stale or unrelated state is undefined.
+	* @note This function only queues uploads; GPU transfer happens later when queued copies are executed.
+	*
+	* @param imageID             Unique identifier of the image.
+	* @param imageStreamingState Reference to the GeoreferencedImageStreamingState created or returned by `ensureGeoreferencedImageEntry` with same image_id.
+	*/
+	bool launchGeoreferencedImageTileLoads(image_id imageID, GeoreferencedImageStreamingState* imageStreamingState, const WorldClipRect clipRect);
+
+	bool cancelGeoreferencedImageTileLoads(image_id imageID);
+
+	/**
+	* @brief Issue Drawing a GeoreferencedImage
+	* 
+	* Ensures streaming resources are allocated, computes addressing and positioning info (OBB and min/max UV), and pushes the image info to the geometry buffer for rendering.
+	* 
+	* This function should be called anywhere between `ensureGeoreferencedImageEntry` and `finalizeGeoreferencedImageTileLoads`
+	*
+	* @note The `imageStreamingState` must be the one returned by `ensureGeoreferencedImageEntry`.
+	*
+	* @param imageID             Unique identifier of the image.
+	* @param imageStreamingState Reference to the GeoreferencedImageStreamingState created or returned by `ensureGeoreferencedImageEntry` with same image_id.
+	* @param intendedNextSubmit  Submission info describing synchronization and barriers for the next batch.
+	*/
+	void drawGeoreferencedImage(image_id imageID, nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState>&& imageStreamingState, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	// This function must be called immediately after `addStaticImage` for the same imageID.
-	void addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	/**
+	* @brief copies the queued up streamed copies.
+	* @note call this function after `drawGeoreferencedImage` to make sure there is a gpu resource to copy to.
+	* @because`drawGeoreferencedImage` internally calls `ensureGeoreferencedImageResources_AllocateIfNeeded`
+	*/
+	bool finalizeGeoreferencedImageTileLoads(SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
@@ -488,6 +590,49 @@ public:
 	/// Must be called once per corresponding `pushReplayCacheUse()`.
 	void unsetReplayCache();
 
+	uint64_t getImagesMemoryConsumption() const;
+
+	struct UsageData
+	{
+		uint32_t lineStyleCount = 0u;
+		uint32_t dtmSettingsCount = 0u;
+		uint32_t customProjectionsCount = 0u;
+		uint32_t mainObjectCount = 0u;
+		uint32_t drawObjectCount = 0u;
+		uint32_t geometryBufferSize = 0u;
+		uint64_t bufferMemoryConsumption = 0ull;
+		uint64_t imageMemoryConsumption = 0ull;
+
+		void add(const UsageData& other)
+		{
+			lineStyleCount += other.lineStyleCount;
+			dtmSettingsCount += other.dtmSettingsCount;
+			customProjectionsCount += other.customProjectionsCount;
+			mainObjectCount += other.mainObjectCount;
+			drawObjectCount += other.drawObjectCount;
+			geometryBufferSize += other.geometryBufferSize;
+			bufferMemoryConsumption = nbl::hlsl::max(bufferMemoryConsumption, other.bufferMemoryConsumption);
+			imageMemoryConsumption = nbl::hlsl::max(imageMemoryConsumption, other.imageMemoryConsumption);
+		}
+
+		std::string toString() const
+		{
+			std::ostringstream oss;
+			oss << "Usage Data:\n";
+			oss << "  lineStyles (Count): " << lineStyleCount << "\n";
+			oss << "  dtmSettings (Count): " << dtmSettingsCount << "\n";
+			oss << "  customProjections (Count): " << customProjectionsCount << "\n";
+			oss << "  mainObject (Count): " << mainObjectCount << "\n";
+			oss << "  drawObject (Count): " << drawObjectCount << "\n";
+			oss << "  geometryBufferSize (Bytes): " << geometryBufferSize << "\n";
+			oss << "  Max Buffer Memory Consumption (Bytes): " << bufferMemoryConsumption << "\n";
+			oss << "  Max Image Memory Consumption  (Bytes):" << imageMemoryConsumption;
+			return oss.str();
+		}
+	};
+
+	UsageData getCurrentUsageData();
+
 protected:
 
 	SubmitFunc submitDraws;
@@ -499,13 +644,46 @@ protected:
 	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& msdfImagesState);
 
 	/// @brief binds cached images into their correct descriptor set slot if not already resident.
-	bool bindImagesToArrayIndices(ImagesCache& imagesCache);
+	bool updateDescriptorSetImageBindings(ImagesCache& imagesCache);
 
 	/// @brief Records GPU copy commands for all staged images into the active command buffer.
 	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, ImagesCache& imagesCache);
 	
-	/// @brief copies the queued up streamed copies.
-	bool pushStreamedImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief Handles eviction of images with conflicting memory regions or array indices in cache & replay mode.
+	///
+	/// In cache & replay mode, image allocations bypass the standard arena allocator and are rebound
+	/// to their original GPU memory locations. Since we can't depend on the allocator to avoid conflicting memory location,
+	/// this function scans the image cache for potential overlaps with the given image and evicts any conflicting entries, submitting work if necessary.
+	///
+	/// @param toInsertImageID Identifier of the image being inserted.
+	/// @param toInsertRecord Record describing the image and its intended memory placement.
+	/// @param intendedNextSubmit Reference to the intended GPU submit info; may be used if eviction requires submission.
+	/// @return true if something was evicted, false otherwise
+	bool evictConflictingImagesInCache_SubmitIfNeeded(image_id toInsertImageID, const CachedImageRecord& toInsertRecord, nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/*
+		GeoreferencesImage Protected Functions:
+	*/
+	
+	/**
+	* @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.
+	* 
+	* If the specified image ID is not already present in the cache, or if the cached version is incompatible
+	* with the requested parameters (e.g. extent, format, or type), this function allocates GPU memory,
+	* creates the image and its view, to be bound to a descriptor binding in the future.
+	* 
+	* If the image already exists and matches the requested parameters, its usage metadata is updated.
+	* In either case, the cache is updated to reflect usage in the current frame.
+	* 
+	* This function also handles automatic eviction of old images via an LRU policy when space is limited.
+	* 
+	* @param imageID                Unique identifier of the image to add or reuse.
+	* @param imageStreamingState Reference to the GeoreferencedImageStreamingState created or returned by `ensureGeoreferencedImageEntry` with same image_id.
+	* @param intendedNextSubmit     Submit info object used to track resources pending GPU submission.
+	* 
+	* @return true if the image was successfully cached and is ready for use; false if allocation failed.
+	*/
+	bool ensureGeoreferencedImageResources_AllocateIfNeeded(image_id imageID, nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState>&& imageStreamingState, SIntendedSubmitInfo& intendedNextSubmit);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -596,7 +774,7 @@ protected:
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
 	
 	/// Attempts to upload a georeferenced image info considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
-	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);;
+	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);
 	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -650,19 +828,6 @@ protected:
 		const asset::E_FORMAT imageViewFormatOverride,
 		nbl::video::SIntendedSubmitInfo& intendedNextSubmit,
 		std::string imageDebugName);
-
-	/**
-	 * @brief Determines creation parameters for a georeferenced image based on heuristics.
-	 *
-	 * This function decides whether a georeferenced image should be treated as a fully resident GPU texture
-	 * or as a streamable image based on the relationship between its total resolution and the viewport size.
-	 * It then fills out the appropriate Nabla image creation parameters.
-	 *
-	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
-	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
-	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
-	*/
-	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
 
 	/**
 	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
@@ -744,9 +909,9 @@ protected:
 		{
 			computeBlake3Hash();
 		}
-		
 		bool operator==(const MSDFInputInfo& rhs) const
-		{ return hash == rhs.hash && glyphIndex == rhs.glyphIndex && type == rhs.type;
+		{
+			return hash == rhs.hash && glyphIndex == rhs.glyphIndex && type == rhs.type;
 		}
 
 		MSDFType type;
@@ -761,7 +926,6 @@ protected:
 		core::blake3_hash_t faceHash = {};
 		core::blake3_hash_t hash = {}; // actual hash, we will check in == operator
 		size_t lookupHash = 0ull; // for containers expecting size_t hash
-
 
 	private:
 		
@@ -795,7 +959,7 @@ protected:
 	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit);
 	
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
-	
+
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
 
@@ -818,12 +982,11 @@ protected:
 	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
 	size_t copiedResourcesSize;
 
-	// GPUImages Memory Arena + AddressAllocator
-	IDeviceMemoryAllocator::SAllocation imagesMemoryArena;
-	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
 
-	// Members
-	smart_refctd_ptr<IUtilities> m_utilities;
+	smart_refctd_ptr<video::ILogicalDevice> m_device;
+	core::smart_refctd_ptr<video::IUtilities> m_bufferUploadUtils;
+	core::smart_refctd_ptr<video::IUtilities> m_imageUploadUtils;
+
 	IQueue* m_copyQueue;
 
 	// Active Resources we need to keep track of and push to resources buffer if needed.
@@ -858,10 +1021,19 @@ protected:
 	bool m_hasInitializedMSDFTextureArrays = false;
 	
 	// Images:
+	core::smart_refctd_ptr<IImageRegionLoader> imageLoader;
+	//	A. Image Cache
 	std::unique_ptr<ImagesCache> imagesCache;
-	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
+	//	B. GPUImages Memory Arena + AddressAllocator
+	IDeviceMemoryAllocator::SAllocation imagesMemoryArena;
+	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
+	//	C. Images Descriptor Set Allocation/Deallocation
 	uint32_t imagesArrayBinding = 0u;
-
+	smart_refctd_ptr<SubAllocatedDescriptorSet> imagesDescriptorIndexAllocator;
+	//	Tracks descriptor array indices that have been logically deallocated independant of the `imagesDescriptorSetAllocator` but may still be in use by the GPU.
+	// Notes: If `imagesDescriptorIndexAllocator` could give us functionality to force allocate and exact index, that would allow us to replay the cache perfectly 
+	// remove the variable below and only rely on the `imagesDescriptorIndexAllocator` to synchronize accesses to descriptor sets for us. but unfortuantely it doesn't have that functionality yet.
+	std::unordered_map<uint32_t, ISemaphore::SWaitInfo> deferredDescriptorIndexDeallocations;
+	//	D. Queued Up Copies/Futures for Streamed Images
 	std::unordered_map<image_id, std::vector<StreamedImageCopy>> streamedImageCopies;
 };
-

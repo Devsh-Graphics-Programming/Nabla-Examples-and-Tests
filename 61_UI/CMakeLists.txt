@@ -1,4 +1,4 @@
-if(NBL_BUILD_IMGUI)
+if(NBL_BUILD_IMGUI AND NBL_BUILD_FRUSTUM)
 	set(NBL_EXTRA_SOURCES
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
 	)
@@ -7,10 +7,11 @@ if(NBL_BUILD_IMGUI)
 		"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	)
 
-	list(APPEND NBL_LIBRARIES 
+	list(APPEND NBL_LIBRARIES
 		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		"${NBL_EXT_FRUSTUM_LIB}"
 	)
 	
 	# TODO; Arek I removed `NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET` from the last parameter here, doesn't this macro have 4 arguments anyway !?

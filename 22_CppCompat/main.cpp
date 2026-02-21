@@ -59,6 +59,7 @@ public:
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
 
+        bool pass = true;
         {
             CTgmathTester::PipelineSetupData pplnSetupData;
             pplnSetupData.device = m_device;
@@ -71,7 +72,7 @@ public:
 
             CTgmathTester tgmathTester(8);
             tgmathTester.setupPipeline(pplnSetupData);
-            tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
+            pass &= tgmathTester.performTestsAndVerifyResults("TgmathTestLog.txt");
         }
         {
             CIntrinsicsTester::PipelineSetupData pplnSetupData;
@@ -85,8 +86,10 @@ public:
 
             CIntrinsicsTester intrinsicsTester(8);
             intrinsicsTester.setupPipeline(pplnSetupData);
-            intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
+            pass &= intrinsicsTester.performTestsAndVerifyResults("IntrinsicsTestLog.txt");
         }
+        if (!pass)
+            return false;
 
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);

@@ -160,7 +160,7 @@ class JpegLoaderApp final : public BuiltinResourcesApplication
       m_logger->log("Process took %llu ms", ILogger::ELL_INFO, time);
 
       // Dump data to JSON
-      json j;
+      ::json j;
       j["loaded_files"] = files;
       j["duration_ms"] = time;
       

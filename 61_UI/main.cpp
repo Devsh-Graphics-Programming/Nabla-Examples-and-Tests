@@ -1,8 +1,9 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2026 DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 /*
 Renders scene texture to an offscreen framebuffer whose color attachment is then sampled into a imgui window.
@@ -148,6 +149,26 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			// we'll only display one thing at a time
 			m_renderer->m_instances.resize(1);
 
+			// Create Frustum Drawer
+			{
+				SPushConstantRange simplePcRange = {
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+					.offset = offsetof(ext::frustum::PushConstants, spc),
+					.size = sizeof(ext::frustum::SSinglePC)
+				};
+				ext::frustum::CDrawFrustum::SCreationParameters params = {};
+				params.transfer = getTransferUpQueue();
+				params.assetManager = m_assetMgr;
+				params.drawMode = ext::frustum::CDrawFrustum::DM_BOTH;
+				params.singlePipelineLayout = ext::frustum::CDrawFrustum::createPipelineLayoutFromPCRange(m_device.get(), simplePcRange);
+				params.batchPipelineLayout = ext::frustum::CDrawFrustum::createDefaultPipelineLayout(m_device.get());
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(m_renderpass);
+				params.utilities = m_utils;
+				m_drawFrustum = ext::frustum::CDrawFrustum::create(std::move(params));
+				if (!m_drawFrustum)
+					return logFail("Failed to create Frustum Drawer!");
+			}
+
 			// Create ImGUI
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
@@ -252,14 +273,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				}
 				// draw scene
 				{
-					float32_t3x4 viewMatrix;
-					float32_t4x4 viewProjMatrix;
-					// TODO: get rid of legacy matrices
-					{
-						const auto& camera = interface.camera;
-						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
+					// Select active camera for viewing
+					const auto& viewCamera = interface.useDebugCameraView ? interface.debugCamera : interface.camera;
+					float32_t3x4 viewMatrix = viewCamera.getViewMatrix();
+					float32_t4x4 viewProjMatrix = viewCamera.getConcatenatedMatrix();
 					const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 					// tear down scene every frame
@@ -267,6 +284,24 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					memcpy(&instance.world,&interface.model,sizeof(instance.world));
 					instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
  					m_renderer->render(cb,viewParams);
+				}
+				// Always draw debug camera's frustum — viewed from whichever camera is active.
+				if (interface.showFrustum)
+				{
+					const auto& viewCamera = interface.useDebugCameraView ? interface.debugCamera : interface.camera;
+
+					ext::frustum::CDrawFrustum::DrawParameters drawParams;
+					drawParams.commandBuffer = cb;
+					drawParams.viewProjectionMatrix = viewCamera.getConcatenatedMatrix();
+					drawParams.lineWidth = 1.0f;
+
+					hlsl::float32_t4x4 frustumCameraViewProj = interface.debugCamera.getConcatenatedMatrix();
+					hlsl::float32_t4x4 frustumTransform = hlsl::inverse(frustumCameraViewProj);
+
+					hlsl::float32_t4 color = {1.0f, 1.0f, 1.0f, 1.0f}; 
+
+					if (!m_drawFrustum->renderSingle(drawParams, frustumTransform, color))
+						m_logger->log("Failed to draw frustum!", ILogger::ELL_ERROR);
 				}
 				cb->endRenderPass();
 				cb->endDebugMarker();
@@ -553,6 +588,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 		smart_refctd_ptr<IGPURenderpass> m_renderpass;
 		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		smart_refctd_ptr<IGPUFramebuffer> m_framebuffer;
+		smart_refctd_ptr<ext::frustum::CDrawFrustum> m_drawFrustum;
 		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
@@ -568,25 +604,45 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				ImGuiIO& io = ImGui::GetIO();
 
 				// TODO: why is this a lambda and not just an assignment in a scope ?
-				camera.setProjectionMatrix([&]() 
+				camera.setProjectionMatrix([&]()
 				{
-					matrix4SIMD projection;
+					hlsl::float32_t4x4 projection;
 
 					if (isPerspective)
 						if(isLH)
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 						else
-							projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 					else
 					{
 						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 						if(isLH)
-							projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
 						else
-							projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
 					}
 
+					return projection;
+				}());
+
+				// Debug camera projection has its own LH/RH and perspective/ortho toggles.
+				debugCamera.setProjectionMatrix([&]()
+				{
+					hlsl::float32_t4x4 projection;
+					if (debugIsPerspective)
+						if (debugIsLH)
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZNear, debugCamZFar);
+						else
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZNear, debugCamZFar);
+					else
+					{
+						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+						if (debugIsLH)
+							projection = hlsl::math::thin_lens::lhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZNear, debugCamZFar);
+						else
+							projection = hlsl::math::thin_lens::rhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZNear, debugCamZFar);
+					}
 					return projection;
 				}());
 
@@ -644,6 +700,29 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
 				viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
+
+				// Frustum Visualization Controls
+				ImGui::Separator();
+				ImGui::Text("Frustum Debug Visualization");
+				ImGui::Checkbox("Show Debug Camera Frustum", &showFrustum);
+				ImGui::Checkbox("Use Debug Camera View", &useDebugCameraView);
+				if (showFrustum)
+				{
+					if (ImGui::RadioButton("Debug LH", debugIsLH))
+						debugIsLH = true;
+					ImGui::SameLine();
+					if (ImGui::RadioButton("Debug RH", !debugIsLH))
+						debugIsLH = false;
+					if (ImGui::RadioButton("Debug Perspective", debugIsPerspective))
+						debugIsPerspective = true;
+					ImGui::SameLine();
+					if (ImGui::RadioButton("Debug Orthographic", !debugIsPerspective))
+						debugIsPerspective = false;
+					if (debugIsPerspective)
+						ImGui::SliderFloat("Debug Fov", &debugFov, 20.f, 150.f);
+					ImGui::SliderFloat("Debug Cam zNear", &debugCamZNear, 0.1f, 5.f);
+					ImGui::SliderFloat("Debug Cam zFar", &debugCamZFar, 5.f, 50.f);
+				}
 
 				if (viewDirty || firstFrame)
 				{
@@ -720,33 +799,32 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				* note it also modifies input view matrix but projection matrix is immutable
 				*/
 
-// TODO: do all computation using `hlsl::matrix` and its `hlsl::float32_tNxM` aliases
 				static struct
 				{
-					core::matrix4SIMD view, projection, model;
+					hlsl::float32_t4x4 view, projection, model;
 				} imguizmoM16InOut;
 
 				ImGuizmo::SetID(0u);
 
-				imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-				imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-				imguizmoM16InOut.model = core::transpose(matrix4SIMD(model));
+				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(camera.getViewMatrix()));
+				imguizmoM16InOut.projection = hlsl::transpose(camera.getProjectionMatrix());
+				imguizmoM16InOut.model = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(model));
 				{
 					if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 						imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
-					transformParams.editTransformDecomposition = true;
-					sceneResolution = EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					transformParams.editTransformDecomposition = true; 
+					sceneResolution = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
 				}
 
-				model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+				model = hlsl::math::linalg::truncate<3,4,4,4>(hlsl::transpose(imguizmoM16InOut.model));
 				// to Nabla + update camera & model matrices
 // TODO: make it more nicely, extract:
 // - Position by computing inverse of the view matrix and grabbing its translation
 // - Target from 3rd row without W component of view matrix multiplied by some arbitrary distance value (can be the length of position from origin) and adding the position
 // But then set the view matrix this way anyway, because up-vector may not be compatible
 				const auto& view = camera.getViewMatrix();
-				const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+				const_cast<hlsl::float32_t3x4&>(view) = hlsl::math::linalg::truncate<3,4,4,4>(hlsl::transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 				// update concatanated matrix
 				const auto& projection = camera.getProjectionMatrix();
 				camera.setProjectionMatrix(projection);
@@ -783,9 +861,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							ImGui::Separator();
 					};
 
-					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, model.pointer());
-					addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-					addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &model[0][0]);
+					addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
+					addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, &projection[0][0], false);
 
 					ImGui::End();
 				}
@@ -867,9 +945,12 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			smart_refctd_ptr<SubAllocatedDescriptorSet> subAllocDS;
 			SubAllocatedDescriptorSet::value_type renderColorViewDescIndex = SubAllocatedDescriptorSet::invalid_value;
 			//
-			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+			// Main camera: positioned to see both the object and the frustum
+			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+			// Debug camera: positioned closer to the object (frustum will visualize what this camera sees)
+			Camera debugCamera = Camera(core::vectorSIMDf(3, 2, 3), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 			// mutables
-			core::matrix3x4SIMD model;
+			hlsl::float32_t3x4 model = hlsl::math::linalg::diagonal<hlsl::float32_t3x4>(1.0f);
 			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
@@ -879,6 +960,11 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			float camXAngle = 32.f / 180.f * 3.14159f;
 			uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 			bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
+			bool showFrustum = true; // Toggle frustum visualization
+			float debugFov = 60.f, debugCamZNear = 0.5f, debugCamZFar = 20.0f;
+			bool useDebugCameraView = false; // Switch between main and debug camera view
+			bool debugIsPerspective = true; // Independent projection type for debug camera
+			bool debugIsLH = false; // Debug camera handedness defaults to RH (Camera lookat is RH)
 			bool firstFrame = true;
 		} interface;
 };
