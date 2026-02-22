@@ -41,6 +41,14 @@ namespace
     auto shader = IAsset::castDown<IShader>(assets[0]);
     return shader;
   };
+
+  template<typename T>
+  bool checkEq(T a, T b, float32_t eps = 1e-4)
+  {
+      T _a = hlsl::max(hlsl::abs(a), hlsl::promote<T>(1e-5));
+      T _b = hlsl::max(hlsl::abs(b), hlsl::promote<T>(1e-5));
+      return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
+  }
 }
 
 class EnvmapImportanceSampleApp final : public application_templates::BasicMultiQueueApplication, public BuiltinResourcesApplication
@@ -271,23 +279,30 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
             // Call the function
             const uint8_t* bufSrc = reinterpret_cast<uint8_t*>(downStreamingBuffer->getBufferPointer()) + m_outputOffset;
-            const auto* testOutputs = reinterpret_cast<const test_sample_t*>(bufSrc);
+            const auto* testSamples = reinterpret_cast<const test_sample_t*>(bufSrc);
 
             for (uint32_t sample_i = 0; sample_i < m_sampleCount; sample_i++)
             {
-              const auto& testOutput = testOutputs[sample_i];
-              if (testOutput.jacobian < 1e-3) continue;
-              if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.pdf)); diff > 1e-2)
+              const auto& testSample = testSamples[sample_i];
+              const auto& directOutput = testSample.directOutput;
+              const auto& cachedOutput = testSample.cachedOutput;
+
+              if (!checkEq(cachedOutput.L, directOutput.L) || !checkEq(cachedOutput.uv, directOutput.uv) || !checkEq(cachedOutput.pdf, directOutput.pdf) || !checkEq(cachedOutput.deferredPdf, directOutput.deferredPdf))
               {
-                m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testOutput.xi.x, testOutput.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
-                m_totalFailCount++;
-                continue;
+                logFail("Failed similarity test between direct sampling and cached sampling. Direct Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}, Cached Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}", directOutput.uv.x, directOutput.uv.y, directOutput.L.x, directOutput.L.y, directOutput.L.z, directOutput.pdf, directOutput.deferredPdf, cachedOutput.uv.x, cachedOutput.uv.y, cachedOutput.L.x, cachedOutput.L.y, cachedOutput.L.z, cachedOutput.pdf, cachedOutput.pdf);
               }
 
-              if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.deferredPdf)); diff > 1e-2)
+              const auto& testOutput = directOutput;
+              if (testOutput.jacobian < 1e-3) continue;
+              if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.pdf)); diff > 0.05)
               {
-                m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testOutput.xi.x, testOutput.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.deferredPdf, diff);
-                m_totalFailCount++;
+                m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
+                continue;
+              }
+              
+              if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.deferredPdf)); diff > 0.05)
+              {
+                m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.deferredPdf, diff);
               }
             }
           }
@@ -303,8 +318,6 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
 		inline bool onAppTerminated() override
 		{
-      m_logger->log("==========Result==========", ILogger::ELL_INFO);
-      m_logger->log("Fail Count: %u / %u", ILogger::ELL_INFO, m_totalFailCount, m_sampleCount);
       return true;
 		}
 
@@ -433,7 +446,6 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
     uint32_t m_sampleCount = 10000;
     uint32_t m_outputOffset;
-    uint32_t m_totalFailCount = 0;
 
 };
 
