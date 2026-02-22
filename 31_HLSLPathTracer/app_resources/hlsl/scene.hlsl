@@ -37,6 +37,61 @@ template<ProceduralShapeType LightShape>
 struct Scene;
 
 template<>
+struct Scene<PST_NONE> : SceneBase
+{
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using this_t = Scene<PST_SPHERE>;
+    using base_t = SceneBase;
+    using id_type = ObjectID;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
+
+    Shape<scalar_type, PST_SPHERE> light_spheres[1];
+    Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+    Shape<scalar_type, PST_RECTANGLE> light_rectangles[1];
+
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        if (idx < base_t::SCENE_SPHERE_COUNT)
+            return base_t::scene_spheres[idx];
+        else
+            return light_spheres[idx-base_t::SCENE_SPHERE_COUNT];
+    }
+
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(false);
+        return light_triangles[0];
+    }
+
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        return light_rectangles[0];
+    }
+
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+    }
+    
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(id_type) objectID)
+    {
+        assert(false);
+        return getSphere(objectID.id).bsdfLightIDs;
+    }
+
+    vector3_type getNormal(NBL_CONST_REF_ARG(id_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    {
+        assert(objectID.shapeType == PST_SPHERE);
+        return getSphere(objectID.id).getNormal(intersection);
+    }
+};
+
+template<>
 struct Scene<PST_SPHERE> : SceneBase
 {
     using scalar_type = float;

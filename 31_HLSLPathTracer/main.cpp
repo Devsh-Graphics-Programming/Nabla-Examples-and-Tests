@@ -5,6 +5,7 @@
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/EnvmapImportanceSampling/CEnvmapImportanceSampling.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
 #include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
@@ -35,8 +36,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		enum E_LIGHT_GEOMETRY : uint8_t
 		{
 			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
+			// ELG_TRIANGLE,
+			// ELG_RECTANGLE,
+			ELG_ENVMAP,
 			ELG_COUNT
 		};
 
@@ -52,26 +54,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
-		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
+		static inline std::string DefaultImagePathsFile = "envmap/envmap_2.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
-		    "app_resources/glsl/litBySphere.comp",
-		    "app_resources/glsl/litByTriangle.comp",
-		    "app_resources/glsl/litByRectangle.comp"
-		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
+        "ENVMAP_LIGHT",
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
+      "ELG_ENVMAP",
 		};
 
 		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
@@ -243,7 +238,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					};
 
 				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet3Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 4> descriptorSet2Bindings = {};
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSet0Bindings[0] = {
@@ -264,7 +259,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.immutableSamplers = nullptr
 				};
 
-				descriptorSet3Bindings[0] = {
+				descriptorSet2Bindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -272,9 +267,25 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
-				descriptorSet3Bindings[1] = {
+				descriptorSet2Bindings[1] = {
 					.binding = 2u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSet2Bindings[2] = {
+				  .binding = 3u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSet2Bindings[3] = {
+				  .binding = 4u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -291,7 +302,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
-				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
+				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet2Bindings);
 
 				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
 				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
@@ -469,29 +480,29 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
 						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
-								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
-						}
-
-						// rwmc pipelines
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
-						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
-						}
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+						// 	
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
+						// 		return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
+						// }
+						//
+						// // rwmc pipelines
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+						//
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
+						// 		return logFail("Failed to create HLSL RWMC compute pipeline!\n");
+						// }
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+						//
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
+						// 		return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
+						// }
 					}
 				}
 
@@ -772,6 +783,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_cascadeView = createHDRIImageView(cascade, CascadeCount, IGPUImageView::ET_2D_ARRAY);
 				m_cascadeView->setObjectDebugName("Cascade View");
 
+        // Create resources related to envmap importance sampling
+        {
+          ext::envmap_importance_sampling::EnvmapSampler::SCreationParameters params = {};
+          params.assetManager = m_assetMgr;
+          params.utilities = m_utils;
+          params.envMap = m_envMapView;
+          m_envmapImportanceSampling = nbl::ext::envmap_importance_sampling::EnvmapSampler::create(std::move(params));
+					m_envmapImportanceSampling->computeWarpMap(getGraphicsQueue());
+        }
+
 				// TODO: change cascade layout to general
 			}
 
@@ -897,23 +918,34 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 7> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+
 				writeDSInfos[1].desc = m_cascadeView;
 				writeDSInfos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+
 				writeDSInfos[2].desc = m_envMapView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
 				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
 				writeDSInfos[3].desc = m_scrambleView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
 				writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
 				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[4].desc = m_outImgView;
-				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
+				writeDSInfos[4].desc = m_envmapImportanceSampling->getLumaMapView();
+				writeDSInfos[4].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				writeDSInfos[5].desc = m_envmapImportanceSampling->getWarpMapView();
+				writeDSInfos[5].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				writeDSInfos[6].desc = m_outImgView;
+				writeDSInfos[6].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 7> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet0.get(),
 					.binding = 0,
@@ -943,11 +975,25 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.info = &writeDSInfos[3]
 				};
 				writeDescriptorSets[4] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 3,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 4,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
+				};
+				writeDescriptorSets[6] = {
 					.dstSet = m_presentDescriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
-					.info = &writeDSInfos[4]
+					.info = &writeDSInfos[6]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -1089,7 +1135,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						);
 					}
 
-					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					if (E_LIGHT_GEOMETRY::ELG_ENVMAP == PTPipeline)
 					{
 						m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::SCALEU;
 						m_transformParams.isSphere = true;
@@ -1101,7 +1147,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 					EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &m_lightModelMatrix[0][0], m_transformParams);
 
-					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					if (E_LIGHT_GEOMETRY::ELG_ENVMAP == PTPipeline)
 					{
 						// keep uniform scale for sphere
 						float32_t uniformScale = (m_lightModelMatrix[0][0] + m_lightModelMatrix[1][1] + m_lightModelMatrix[2][2]) / 3.0f;
@@ -1230,7 +1276,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						},
 						.oldLayout = IImage::LAYOUT::UNDEFINED,
 						.newLayout = IImage::LAYOUT::GENERAL
-					}
+					},
 				};
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 			}
@@ -1571,6 +1617,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				rwmcPushConstants.renderPushConstants.avgLuma = m_envmapImportanceSampling->getAvgLuma();
 				float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
 				rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
 			}
@@ -1581,6 +1628,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				pc.sampleCount = spp;
 				pc.depth = depth;
 				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				pc.avgLuma = m_envmapImportanceSampling->getAvgLuma();
 			}
 		}
 
@@ -1611,6 +1659,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+
+		smart_refctd_ptr<ext::envmap_importance_sampling::EnvmapSampler> m_envmapImportanceSampling;
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
@@ -1669,7 +1719,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
-		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int PTPipeline = E_LIGHT_GEOMETRY::ELG_ENVMAP;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;

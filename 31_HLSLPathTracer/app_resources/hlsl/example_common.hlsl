@@ -24,7 +24,8 @@ enum IntersectMode : uint32_t
 {
     IM_RAY_QUERY,
     IM_RAY_TRACING,
-    IM_PROCEDURAL
+    IM_PROCEDURAL,
+    IM_ENVMAP,
 };
 
 template<typename T>    // TODO make type T Spectrum
@@ -105,6 +106,24 @@ struct Light
 
     spectral_type radiance;
     ObjectID objectID;
+};
+
+template <typename EnvMapT, typename HierarchicalImageT>
+struct EnvmapLight
+{
+    using spectral_type = float32_t3;
+    using this_type = EnvmapLight<EnvMapT, HierarchicalImageT>;
+
+    static this_type create(NBL_CONST_REF_ARG(EnvMapT) envMap, NBL_CONST_REF_ARG(HierarchicalImageT) hierarchicalImage)
+    {
+      this_type retval;
+      retval.envMap = envMap;
+      retval.hierarchicalImage = hierarchicalImage;
+      return retval;
+    }
+
+    EnvMapT envMap;
+    HierarchicalImageT hierarchicalImage;
 };
 
 template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)

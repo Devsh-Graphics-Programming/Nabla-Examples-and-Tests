@@ -379,4 +379,80 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     uint32_t lightCount;
 };
 
+template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, path_tracing::PTPolygonMethod PPM>
+struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_ENVMAP, PST, PPM>
+{
+  using scalar_type = typename Ray::scalar_type;
+  using vector2_type = vector<scalar_type, 2>;
+  using vector3_type = vector<scalar_type, 3>;
+  using ray_type = Ray;
+  using scene_type = Scene;
+  using light_type = Light;
+  using spectral_type = typename light_type::spectral_type;
+  using interaction_type = Aniso;
+  using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+  using sample_type = LightSample;
+  using ray_dir_info_type = typename sample_type::ray_dir_info_type;
+
+  // affected by https://github.com/microsoft/DirectXShaderCompiler/issues/7007
+  // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
+  enum : uint16_t { PolygonMethod = PPM };
+
+  spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
+  {
+    const light_type light = lights[lightID];
+
+    vector2_type envmapUv = light.hierarchicalImage.inverseWarp_and_deferredPdf(pdf, ray.direction);
+    pdf *= (1.0 / scalar_type(lightCount));
+
+    spectral_type radiance;
+    light.envMap.get(envmapUv, radiance);
+
+    return radiance;
+  }
+
+  sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
+  {
+    newRayMaxT = numeric_limits<scalar_type>::max;
+
+    const light_type light = lights[lightID];
+
+    scalar_type pdf;
+    vector2_type envmapUv;
+    const vector3_type sampleL = light.hierarchicalImage.generate_and_pdf(pdf, envmapUv, xi.xy);
+
+    ray_dir_info_type rayL;
+    if (hlsl::isinf(pdf))
+    {
+      quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
+      return sample_type::createInvalid();
+    }
+
+    const vector3_type N = interaction.getN();
+    const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
+
+    rayL.setDirection(sampleL);
+    sample_type L = sample_type::create(rayL, interaction.getT(), interaction.getB(), NdotL);
+
+    newRayMaxT *= path_tracing::Tolerance<scalar_type>::getEnd(depth);
+
+    // Ray ray;
+    // ray.origin = origin;
+    // ray.direction = sampleL;
+    // spectral_type radiance = deferredEvalAndPdf(pdf, scene, 0, ray);
+
+    pdf *= 1.0 / scalar_type(lightCount);
+    spectral_type radiance;
+    light.envMap.get(envmapUv, radiance);
+
+    spectral_type quo = radiance / pdf;
+
+    quotient_pdf = quotient_pdf_type::create(quo, pdf);
+
+    return L;
+  }
+
+  light_type lights[scene_type::SCENE_LIGHT_COUNT];
+  uint32_t lightCount;
+};
 #endif

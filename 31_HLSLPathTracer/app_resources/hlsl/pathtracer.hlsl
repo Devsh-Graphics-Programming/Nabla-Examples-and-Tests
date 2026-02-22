@@ -205,16 +205,18 @@ struct Unidirectional
         return false;
     }
 
-    void missProgram(NBL_REF_ARG(ray_type) ray)
+    void missProgram(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         vector3_type finalContribution = ray.payload.throughput;
-        // #ifdef USE_ENVMAP
-        //     vec2 uv = SampleSphericalMap(_immutable.direction);
-        //     finalContribution *= textureLod(envMap, uv, 0.0).rgb;
-        // #else
+#ifdef ENVMAP_LIGHT
+        float _pdf;
+        ray.payload.accumulation += nee.deferredEvalAndPdf(_pdf, scene, 
+          0, ray) * ray.payload.throughput / (1.0 + _pdf * _pdf * ray.payload.otherTechniqueHeuristic);
+#else
         const vector3_type kConstantEnvLightRadiance = vector3_type(0.15, 0.21, 0.3);   // TODO: match spectral_type
         finalContribution *= kConstantEnvLightRadiance;
         ray.payload.accumulation += finalContribution;
+#endif
         // #endif
     }
 
@@ -238,7 +240,7 @@ struct Unidirectional
                 rayAlive = closestHitProgram(1, sampleIndex, ray, scene);
         }
         if (!hit)
-            missProgram(ray);
+            missProgram(ray, scene);
 
         const uint32_t sampleCount = sampleIndex + 1;
         accumulator.addSample(sampleCount, ray.payload.accumulation);

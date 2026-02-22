@@ -18,6 +18,7 @@ struct RenderPushConstants
     int sampleCount;
     int depth;
     uint64_t pSampleSequence;
+    float avgLuma;
 };
 
 NBL_CONSTEXPR nbl::hlsl::float32_t3 LightEminence = nbl::hlsl::float32_t3(30.0f, 25.0f, 15.0f);

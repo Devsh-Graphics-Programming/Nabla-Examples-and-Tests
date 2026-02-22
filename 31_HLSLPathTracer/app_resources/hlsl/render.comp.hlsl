@@ -2,6 +2,8 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include "nbl/builtin/hlsl/sampling/warps/spherical.hlsl"
+#include "nbl/builtin/hlsl/sampling/hierarchical_image.hlsl"
 #ifdef PERSISTENT_WORKGROUPS
 #include "nbl/builtin/hlsl/math/morton.hlsl"
 #endif
@@ -34,6 +36,10 @@
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf;
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
 
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] Texture2D<float> lumaMap;
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] SamplerState lumaSampler;
+[[vk::binding(4, 2)]] Texture2D<float2> warpMap;
+
 [[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
 
@@ -58,6 +64,9 @@ NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
 #endif
 #ifdef RECTANGLE_LIGHT
 NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_RECTANGLE;
+#endif
+#ifdef ENVMAP_LIGHT
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_NONE;
 #endif
 
 NBL_CONSTEXPR path_tracing::PTPolygonMethod POLYGON_METHOD = path_tracing::PPM_SOLID_ANGLE;
@@ -96,14 +105,70 @@ using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_con
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
 using ray_type = Ray<float>;
+
+#ifdef ENVMAP_LIGHT
+struct EnvmapAccessor
+{
+  template <typename ValT, typename IndexT 
+    NBL_FUNC_REQUIRES(
+      concepts::same_as<IndexT, float32_t2> && 
+      concepts::same_as<ValT, spectral_t>
+    )
+  void get(IndexT index, NBL_REF_ARG(ValT) val)
+  {
+    val = envMap.SampleLevel(envSampler, index, 0);
+  }
+};
+
+struct LuminanceAccessor
+{
+  template <typename ValT, typename IndexT 
+    NBL_FUNC_REQUIRES(
+      concepts::same_as<IndexT, float32_t2> && 
+      concepts::same_as<ValT, float32_t>
+    )
+  void get(IndexT index, NBL_REF_ARG(ValT) val)
+  {
+    val = lumaMap.SampleLevel(lumaSampler, index, 0);
+  }
+
+};
+
+struct WarpAccessor
+{
+     matrix<float, 4, 2> sampleUvs(uint32_t2 sampleCoord) NBL_CONST_MEMBER_FUNC
+     {
+        const float32_t2 dir0 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(0, 1), 0));
+        const float32_t2 dir1 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 1), 0));
+        const float32_t2 dir2 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 0), 0));
+        const float32_t2 dir3 = warpMap.Load(int32_t3(sampleCoord, 0));
+        return matrix<float, 4, 2>(
+          dir0,
+          dir1,
+          dir2,
+          dir3
+        );
+     }
+};
+
+using hierarchical_image_type = sampling::HierarchicalImage<float, LuminanceAccessor, WarpAccessor, sampling::warp::Spherical>;
+using light_type = EnvmapLight<EnvmapAccessor, hierarchical_image_type>;
+#else
 using light_type = Light<spectral_t>;
+#endif
+
 using bxdfnode_type = BxDFNode<spectral_t>;
 using scene_type = Scene<LIGHT_TYPE>;
 using randgen_type = RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = RayGen::Basic<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
+
+#ifdef ENVMAP_LIGHT
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_ENVMAP, LIGHT_TYPE, POLYGON_METHOD>;
+#else
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
+#endif
 
 #ifdef RWMC_ENABLED
 using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
@@ -131,15 +196,22 @@ static const Shape<float, PST_RECTANGLE> rectangles[scene_type::SCENE_LIGHT_COUN
 };
 #endif
 
-static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
-    light_type::create(LightEminence,
-#ifdef SPHERE_LIGHT
-        scene_type::SCENE_SPHERE_COUNT,
+#ifdef ENVMAP_LIGHT
+static const EnvmapAccessor envmapAccessor;
+static const LuminanceAccessor luminanceAccessor;
+static const WarpAccessor warpAccessor;
+static const hierarchical_image_type hierarchicalImage = hierarchical_image_type::create(luminanceAccessor, warpAccessor, uint32_t2(2048, 1024), pc.avgLuma);
+static const light_type light = light_type::create(envmapAccessor, hierarchicalImage);
 #else
-        0u,
+static const light_type light =
+light_type::create(LightEminence,
+#ifdef SPHERE_LIGHT
+  scene_type::SCENE_SPHERE_COUNT,
+#else
+  0u,
 #endif
-        IM_PROCEDURAL, LIGHT_TYPE)
-};
+  IM_PROCEDURAL, LIGHT_TYPE);
+#endif
 
 static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
@@ -233,7 +305,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     
     scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
     pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, renderPushConstants.invMVP);
-    pathtracer.nee.lights = lights;
+    pathtracer.nee.lights[0] = light;
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
