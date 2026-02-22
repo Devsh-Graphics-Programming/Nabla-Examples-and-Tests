@@ -69,13 +69,13 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     }
 
     color.a *= float(storedQuantizedAlpha) / 255.f;
-    
+    color.rgb *= color.a; // premul alpha
     return color;
 }
 
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
-float4 resolveAlphaMain(float4 position : SV_Position) : SV_TARGET
+float4 fragShaderResolveAlphas(float4 position : SV_Position) : SV_TARGET
 {
     return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(position.xy);
 }

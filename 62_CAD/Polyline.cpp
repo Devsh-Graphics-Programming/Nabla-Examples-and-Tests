@@ -387,7 +387,7 @@ CPolyline CPolyline::generateParallelPolyline(float64_t offset, const float64_t 
 		{
 			// TODO: try merging lines if they have same tangent (resultin in less points)
 			std::vector<float64_t2> newLinePoints;
-			newLinePoints.reserve(m_linePoints.size());
+			newLinePoints.reserve(section.count + 1);
 			for (uint32_t j = 0; j < section.count + 1; ++j)
 			{
 				const uint32_t linePointIdx = section.index + j;
