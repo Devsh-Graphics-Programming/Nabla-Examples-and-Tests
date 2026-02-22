@@ -32,7 +32,6 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 		{
 			auto retval = device_base_t::getPreferredDeviceFeatures();
 			retval.accelerationStructureHostCommands = true;
-			retval.pipelineExecutableInfo = true;
 			return retval;
 		}
 
@@ -176,19 +175,8 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				params.layout = pipelineLayout.get();
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
-				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-				{
-					params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
-					params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
-				}
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline))
 					return logFail("Failed to create compute pipeline");
-
-				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-				{
-					auto report = m_device->getPipelineExecutableReport(renderPipeline.get(), true);
-					m_logger->log("Ray Query Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
-				}
 			}
 
 			// write descriptors

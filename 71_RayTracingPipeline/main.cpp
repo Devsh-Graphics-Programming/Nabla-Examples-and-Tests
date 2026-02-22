@@ -337,7 +337,7 @@ public:
 
 			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
 			{
-				auto report = m_device->getPipelineExecutableReport(m_rayTracingPipeline.get(), true);
+				auto report = system::to_string(m_device->getPipelineExecutableProperties(m_rayTracingPipeline.get(), true));
 				m_logger->log("Ray Tracing Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
 			}
 			const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
