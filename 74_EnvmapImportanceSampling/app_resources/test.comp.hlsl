@@ -71,11 +71,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
   
   float32_t2 xi = convertToFloat01(xi_uint);
 
-  // uint32_t2 xi_uint = (threadID.x / 1000, threadID.x % 1000);
-  //
-  // float32_t2 xi = float32_t2(xi_uint) / float32_t2(1000, 1000);
-
-
   xi.x = hlsl::clamp(xi.x, eps, 1.f - eps);
   xi.y = hlsl::clamp(xi.y, eps, 1.f - eps);
 
