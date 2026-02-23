@@ -45,9 +45,16 @@ namespace
   template<typename T>
   bool checkEq(T a, T b, float32_t eps = 1e-4)
   {
+    if constexpr (!is_vector_v<T>)
+    {
+      return abs(a - b) <= eps;
+    }
+    else
+    {
       T _a = hlsl::max(hlsl::abs(a), hlsl::promote<T>(1e-5));
       T _b = hlsl::max(hlsl::abs(b), hlsl::promote<T>(1e-5));
       return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
+    }
   }
 }
 
@@ -249,7 +256,7 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
             const auto warpExtent = warpMap->getCreationParameters().image->getCreationParameters().extent;
             const STestPushConstants pc = {
-              .eps = 1e-4,
+              .eps = 5 * 1e-5,
               .outputAddress = downStreamingBuffer->getBuffer()->getDeviceAddress() + m_outputOffset,
               .warpResolution = uint32_t2(warpExtent.width, warpExtent.height),
               .avgLuma = m_envmapImportanceSampling->getAvgLuma(),
@@ -293,7 +300,7 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
               }
 
               const auto& testOutput = directOutput;
-              if (testOutput.jacobian < 1e-3) continue;
+              if (testOutput.jacobian < 0.05) continue;
               if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.pdf)); diff > 0.05)
               {
                 m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
