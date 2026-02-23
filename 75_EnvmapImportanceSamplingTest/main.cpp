@@ -322,20 +322,20 @@ class EnvmapImportanceSamplingTest final : public application_templates::BasicMu
 
 							if (!checkEq(cachedOutput.L, directOutput.L) || !checkEq(cachedOutput.uv, directOutput.uv) || !checkEq(cachedOutput.pdf, directOutput.pdf) || !checkEq(cachedOutput.deferredPdf, directOutput.deferredPdf))
 							{
-								logFail("Failed similarity test between direct sampling and cached sampling. Direct Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}, Cached Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}", directOutput.uv.x, directOutput.uv.y, directOutput.L.x, directOutput.L.y, directOutput.L.z, directOutput.pdf, directOutput.deferredPdf, cachedOutput.uv.x, cachedOutput.uv.y, cachedOutput.L.x, cachedOutput.L.y, cachedOutput.L.z, cachedOutput.pdf, cachedOutput.pdf);
+								logFail("Failed similarity test between direct sampling and cached sampling for image %s. Direct Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}, Cached Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}", nextPath.c_str(), directOutput.uv.x, directOutput.uv.y, directOutput.L.x, directOutput.L.y, directOutput.L.z, directOutput.pdf, directOutput.deferredPdf, cachedOutput.uv.x, cachedOutput.uv.y, cachedOutput.L.x, cachedOutput.L.y, cachedOutput.L.z, cachedOutput.pdf, cachedOutput.pdf);
 							}
 
 							const auto& testOutput = directOutput;
 							if (testOutput.jacobian < 0.05) continue;
 							if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.pdf)); diff > 0.05)
 							{
-								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
+								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
 								continue;
 							}
 							
 							if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.deferredPdf)); diff > 0.05)
 							{
-								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, "dummy", sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.deferredPdf, diff);
+								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.deferredPdf, diff);
 							}
 						}
 					}
