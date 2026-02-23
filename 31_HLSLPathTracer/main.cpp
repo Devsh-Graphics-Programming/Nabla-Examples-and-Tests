@@ -344,7 +344,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return shader;
 				};
 
-				const auto deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
+				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
 				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
 				{
 					IGPUComputePipeline::SCreationParams params = {};
@@ -353,7 +353,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					params.shader.entryPoint = "main";
 					params.shader.entries = nullptr;
 					params.cached.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
 
 					return params;
 				};
@@ -701,8 +701,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				cascade->setObjectDebugName("Cascade");
 				m_cascadeView = createHDRIImageView(cascade, CascadeCount, IGPUImageView::ET_2D_ARRAY);
 				m_cascadeView->setObjectDebugName("Cascade View");
-
-				// TODO: change cascade layout to general
 			}
 
 			// create sequence buffer view
@@ -1251,14 +1249,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						}
 				};
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
-			}
 
-			// resolve
-			if(useRWMC)
-			{
-				// TODO: shouldn't it be computed only at initialization stage and on window resize?
-				// Round up division
-				const uint32_t2 dispatchSize = uint32_t2(
+				// resolve
+				const uint32_t2 dispatchSize = uint32_t2(	// Round up division
 					(m_window->getWidth() + ResolveWorkgroupSizeX - 1) / ResolveWorkgroupSizeX,
 					(m_window->getHeight() + ResolveWorkgroupSizeY - 1) / ResolveWorkgroupSizeY
 				);
@@ -1400,7 +1393,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
-			//m_api->endCapture();
 		}
 
 		inline bool keepRunning() override

@@ -11,7 +11,7 @@ using namespace hlsl;
 struct SCascadeAccessor
 {
     using output_scalar_t = float32_t;
-    NBL_CONSTEXPR_STATIC_INLINE int32_t Components = 4;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t Components = 3;
     using output_t = vector<output_scalar_t, Components>;
     NBL_CONSTEXPR_STATIC_INLINE int32_t image_dimension = 2;
 
@@ -33,7 +33,7 @@ struct SCascadeAccessor
             return;
         }
 
-        value = cascade.Load(int32_t3(uv, int32_t(layer)));
+        value = cascade.Load(int32_t3(uv, int32_t(layer))).rgb;
     }
 
     int16_t2 cascadeImageDimension;
