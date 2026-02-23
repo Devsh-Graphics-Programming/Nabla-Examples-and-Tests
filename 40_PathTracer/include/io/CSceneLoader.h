@@ -24,7 +24,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
-			inline operator bool() const
+			explicit inline operator bool() const
 			{
 				if (!assMan)
 					return false;
@@ -63,7 +63,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 				inline SSensor& operator=(const SSensor&) = default;
 				inline SSensor& operator=(SSensor&&) = default;
 
-				inline operator bool() const
+				explicit inline operator bool() const
 				{
 					return bool(constants) && mutableDefaults.valid(constants) && bool(dynamicDefaults);
 				}
@@ -74,7 +74,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					constexpr static inline uint32_t MaxHeight = MaxWidth;
 					constexpr static inline uint32_t MaxCascadeCount = 15;
 
-					inline operator bool() const
+					explicit inline operator bool() const
 					{
 						if (width <= 0 || width >= MaxWidth)
 							return false;
@@ -209,7 +209,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					};
 					
 					//
-					inline operator bool() const
+					explicit inline operator bool() const
 					{
 						// TODO more checks
 						return !hlsl::isnan(moveSpeed);
@@ -238,7 +238,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 
 			};
 
-			inline operator bool() const
+			explicit inline operator bool() const
 			{
 				if (!scene || sensors.empty())
 					return false;
