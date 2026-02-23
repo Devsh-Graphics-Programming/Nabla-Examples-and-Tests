@@ -66,7 +66,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(24_ColorSpaceTest)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	add_subdirectory(26_Blur)
-	add_subdirectory(27_MPMCScheduler)	
+	add_subdirectory(27_MPMCScheduler)
 	add_subdirectory(28_FFTBloom)
 	add_subdirectory(29_Arithmetic2Bench)
 	# add_subdirectory(36_CUDAInterop)
@@ -74,6 +74,7 @@ if(NBL_BUILD_EXAMPLES)
 	# Showcase compute pathtracing
 	add_subdirectory(30_ComputeShaderPathTracer)
 
+	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
@@ -111,6 +112,7 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 
 	add_subdirectory(74_QuantizedSequenceTests)
+	add_subdirectory(75_EnvmapImportanceSamplingTest)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
