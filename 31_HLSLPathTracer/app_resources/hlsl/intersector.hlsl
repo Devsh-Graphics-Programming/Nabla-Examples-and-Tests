@@ -37,7 +37,7 @@ struct Intersector
     };
     using closest_hit_type = SIntersectData;
 
-    static closest_hit_type traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    static closest_hit_type traceClosestHit(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         object_handle_type objectID;
         objectID.id = -1;

@@ -41,7 +41,7 @@ struct Payload
     // #endif
 };
 
-enum PTPolygonMethod : uint16_t
+enum NEEPolygonMethod : uint16_t
 {
     PPM_AREA,
     PPM_SOLID_ANGLE,
@@ -64,7 +64,7 @@ struct ObjectID
     ProceduralShapeType shapeType : 2u;
 };
 
-template<typename T, PTPolygonMethod PPM>
+template<typename T, NEEPolygonMethod PPM>
 struct Ray
 {
     using this_t = Ray<T,PPM>;
