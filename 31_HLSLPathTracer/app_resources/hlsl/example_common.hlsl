@@ -31,11 +31,11 @@ struct Payload
 {
     using this_t = Payload<T>;
     using scalar_type = T;
-    using vector3_type = vector<T, 3>;
+    using spectral_type = vector<T, 3>;
 
-    vector3_type accumulation;
+    spectral_type accumulation;
     scalar_type otherTechniqueHeuristic;
-    vector3_type throughput;
+    spectral_type throughput;
     // #ifdef KILL_DIFFUSE_SPECULAR_PATHS
     // bool hasDiffuse;
     // #endif
@@ -79,6 +79,7 @@ struct Ray
     scalar_type intersectionT;
 
     Payload<T> payload;
+    using spectral_type = typename Payload<T>::spectral_type;
 
     void initData(const vector3_type _origin, const vector3_type _direction, const vector3_type _normalAtOrigin, bool _wasBSDFAtOrigin)
     {
@@ -88,22 +89,23 @@ struct Ray
 
     void initPayload()
     {
-        payload.accumulation = hlsl::promote<vector3_type>(0.0);
+        payload.accumulation = hlsl::promote<spectral_type>(0.0);
         payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
-        payload.throughput = hlsl::promote<vector3_type>(1.0);
+        payload.throughput = hlsl::promote<spectral_type>(1.0);
     }
 
-    vector3_type foundEmissiveMIS(scalar_type pdfSq)
+    spectral_type foundEmissiveMIS(scalar_type pdfSq)
     {
         return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
     }
 
-    void addPayloadContribution(const vector3_type contribution)
+    void addPayloadContribution(const spectral_type contribution)
     {
         payload.accumulation += contribution;
     }
+    spectral_type getPayloadAccumulatiion() { return payload.accumulation; }
 
-    void setPayloadMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
+    void setPayloadMISWeights(const spectral_type throughput, const scalar_type otherTechniqueHeuristic)
     {
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
@@ -112,7 +114,7 @@ struct Ray
     void setT(scalar_type t) { intersectionT = t; }
     scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
 
-    vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
+    spectral_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
 template<typename T>
@@ -158,6 +160,7 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     {
         payload.accumulation += contribution;
     }
+    vector3_type getPayloadAccumulatiion() { return payload.accumulation; }
 
     void setPayloadMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
     {
