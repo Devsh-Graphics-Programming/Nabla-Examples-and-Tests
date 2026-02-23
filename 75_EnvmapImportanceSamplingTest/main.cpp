@@ -58,7 +58,7 @@ namespace
   }
 }
 
-class EnvmapImportanceSampleApp final : public application_templates::BasicMultiQueueApplication, public BuiltinResourcesApplication
+class EnvmapImportanceSamplingTest final : public application_templates::BasicMultiQueueApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = application_templates::BasicMultiQueueApplication;
 		using asset_base_t = BuiltinResourcesApplication;
@@ -70,7 +70,7 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
-		inline EnvmapImportanceSampleApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+		inline EnvmapImportanceSamplingTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 			IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
 		
 		virtual bool isComputeOnly() const {return false;}
@@ -456,4 +456,4 @@ class EnvmapImportanceSampleApp final : public application_templates::BasicMulti
 
 };
 
-NBL_MAIN_FUNC(EnvmapImportanceSampleApp)
+NBL_MAIN_FUNC(EnvmapImportanceSamplingTest)
