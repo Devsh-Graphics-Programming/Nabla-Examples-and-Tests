@@ -974,10 +974,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGui::Text("\nRWMC settings:");
 					ImGui::Checkbox("Enable RWMC", &useRWMC);
-					ImGui::SliderFloat("start", &rwmcStart, 1.0f, 32.0f);
-					ImGui::SliderFloat("base", &rwmcBase, 1.0f, 32.0f);
-					ImGui::SliderFloat("minReliableLuma", &rwmcMinReliableLuma, 0.1f, 1024.0f);
-					ImGui::SliderFloat("kappa", &rwmcKappa, 0.1f, 1024.0f);
+					ImGui::SliderFloat("start", &rwmcParams.start, 1.0f, 32.0f);
+					ImGui::SliderFloat("base", &rwmcParams.base, 1.0f, 32.0f);
+					ImGui::SliderFloat("minReliableLuma", &rwmcParams.minReliableLuma, 0.1f, 1024.0f);
+					ImGui::SliderFloat("kappa", &rwmcParams.kappa, 0.1f, 1024.0f);
 
 					ImGui::End();
 				}
@@ -1049,10 +1049,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			// set initial rwmc settings
 			
-			rwmcStart = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			rwmcBase = 8.0f;
-			rwmcMinReliableLuma = 1.0f;
-			rwmcKappa = 5.0f;
+			rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+			rwmcParams.base = 8.0f;
+			rwmcParams.minReliableLuma = 1.0f;
+			rwmcParams.kappa = 5.0f;
 			return true;
 		}
 
@@ -1130,10 +1130,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+					rwmcPushConstants.renderPushConstants.sampleCount = rwmcParams.sampleCount = spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-					const float rcpLog2Base = 1.0f / std::log2(rwmcBase);
-					const float baseRootOfStart = std::exp2(std::log2(rwmcStart) * rcpLog2Base);
+					const float rcpLog2Base = 1.0f / std::log2(rwmcParams.base);
+					const float baseRootOfStart = std::exp2(std::log2(rwmcParams.start) * rcpLog2Base);
 					const float log2BaseRootOfStart = std::log2(baseRootOfStart);
 					const float brightSampleLumaBias = (log2BaseRootOfStart + static_cast<float>(CascadeCount - 1u)) / rcpLog2Base;
 					float32_t2 packLogs = float32_t2(baseRootOfStart, rcpLog2Base);
@@ -1265,7 +1265,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa);
+				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(rwmcParams);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1580,10 +1580,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		int spp = 32;
 		int depth = 3;
-		float rwmcMinReliableLuma;
-		float rwmcKappa;
-		float rwmcStart;
-		float rwmcBase;
+		rwmc::SResolveParameters::SCreateParams rwmcParams;
 		bool usePersistentWorkGroups = false;
 		bool useRWMC = false;
 

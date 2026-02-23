@@ -5,7 +5,6 @@
 
 struct ResolvePushConstants
 {
-	uint32_t sampleCount;
 	nbl::hlsl::rwmc::SResolveParameters resolveParameters;
 };
 
