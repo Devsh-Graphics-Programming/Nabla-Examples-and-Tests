@@ -47,10 +47,18 @@ struct MaterialSystem
         return bool(IsBSDFPacked & (1u << matID));
     }
 
-    bool hasEmission(material_id_type matID)
+    bxdfnode_type getBxDFNode(material_id_type matID) NBL_CONST_MEMBER_FUNC
     {
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
-        return matType == MaterialType::EMISSIVE;
+        return bxdfs[matID];
+    }
+
+    scalar_type setMonochromeEta(material_id_type matID, measure_type throughputCIE_Y)
+    {
+        bxdfnode_type bxdf = bxdfs[matID];
+        const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
+        const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
+        bxdfs[matID].params.eta = monochromeEta;
+        return monochromeEta;
     }
 
     // these are specific for the bxdfs used for this example
@@ -233,6 +241,12 @@ struct MaterialSystem
             }
         }
         return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
+    }
+
+    bool hasEmission(material_id_type matID)
+    {
+        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        return matType == MaterialType::EMISSIVE;
     }
 
     measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction)

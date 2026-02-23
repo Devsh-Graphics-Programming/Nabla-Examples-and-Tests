@@ -328,10 +328,20 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
 
     struct SampleQuotientReturn
     {
+        using sample_type = sample_type;
+        using quotient_pdf_type = quotient_pdf_type;
+        using scalar_type = scalar_type;
+        using object_handle_type = ObjectID;
+
         sample_type sample_;
         quotient_pdf_type quotient_pdf;
         scalar_type newRayMaxT;
-        ObjectID lightObjectID;
+        object_handle_type lightObjectID;
+
+        sample_type getSample() NBL_CONST_MEMBER_FUNC { return sample_; }
+        quotient_pdf_type getQuotientPdf() NBL_CONST_MEMBER_FUNC { return quotient_pdf; }
+        scalar_type getT() NBL_CONST_MEMBER_FUNC { return newRayMaxT; }
+        object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
     using sample_quotient_return_type = SampleQuotientReturn;
 

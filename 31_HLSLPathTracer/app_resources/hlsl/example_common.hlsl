@@ -60,8 +60,8 @@ struct ObjectID
     }
 
     uint32_t id;
-    uint32_t mode;
-    ProceduralShapeType shapeType;
+    uint32_t mode : 2u;
+    ProceduralShapeType shapeType : 2u;
 };
 
 template<typename T, PTPolygonMethod PPM>

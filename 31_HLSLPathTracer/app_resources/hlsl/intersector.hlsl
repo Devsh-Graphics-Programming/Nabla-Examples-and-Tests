@@ -22,14 +22,18 @@ struct Intersector
 
     struct SIntersectData
     {
+        using object_handle_type = object_handle_type;
+        using vector3_type = vector3_type;
+        using interaction_type = anisotropic_interaction_type;
+
         object_handle_type objectID;
         vector3_type position;
-        anisotropic_interaction_type aniso_interaction;
+        interaction_type aniso_interaction;
 
         bool foundHit() NBL_CONST_MEMBER_FUNC { return !hlsl::isnan(position.x); }
         object_handle_type getObjectID() NBL_CONST_MEMBER_FUNC { return objectID; }
         vector3_type getPosition() NBL_CONST_MEMBER_FUNC { return position; }
-        anisotropic_interaction_type getInteraction() NBL_CONST_MEMBER_FUNC { return aniso_interaction; }
+        interaction_type getInteraction() NBL_CONST_MEMBER_FUNC { return aniso_interaction; }
     };
     using closest_hit_type = SIntersectData;
 
