@@ -315,7 +315,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     using ray_type = Ray;
     using scene_type = Scene;
     using light_type = Light;
-    using light_id_type = uint32_t;
+    using light_id_type = LightID;
     using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
     using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
@@ -366,7 +366,7 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
 
     scalar_type deferred_pdf(light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const light_type light = lights[lightID];
+        const light_type light = lights[lightID.id];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
         return sampling.template deferredPdf<ray_type>(ray) / scalar_type(lightCount);
     }
@@ -374,8 +374,9 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
     template<class MaterialSystem>
     sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(MaterialSystem) materialSystem, NBL_CONST_REF_ARG(scene_type) scene, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint16_t depth)
     {
-        const light_id_type lightID = 0u;
-        const light_type light = lights[lightID];
+        light_id_type lightID;
+        lightID.id = 0u;
+        const light_type light = lights[lightID.id];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
 
         sample_quotient_return_type retval;

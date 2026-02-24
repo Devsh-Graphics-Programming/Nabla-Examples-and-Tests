@@ -64,6 +64,20 @@ struct ObjectID
     ProceduralShapeType shapeType : 2u;
 };
 
+struct LightID
+{
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t INVALID_ID = 0xffffu;
+
+    uint16_t id;
+};
+
+struct MaterialID
+{
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t INVALID_ID = 0xffffu;
+
+    uint16_t id;
+};
+
 template<typename T, NEEPolygonMethod PPM>
 struct Ray
 {
@@ -179,12 +193,10 @@ struct Light
 {
     using spectral_type = Spectrum;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
-
     static Light<spectral_type> create(uint32_t emissiveMatID, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
     {
         Light<spectral_type> retval;
-        retval.emissiveMatID = emissiveMatID;
+        retval.emissiveMatID.id = uint16_t(emissiveMatID);
         retval.objectID = ObjectID::create(objId, mode, shapeType);
         return retval;
     }
@@ -192,12 +204,12 @@ struct Light
     static Light<spectral_type> create(uint32_t emissiveMatID, NBL_CONST_REF_ARG(ObjectID) objectID)
     {
         Light<spectral_type> retval;
-        retval.emissiveMatID = emissiveMatID;
+        retval.emissiveMatID.id = uint16_t(emissiveMatID);
         retval.objectID = objectID;
         return retval;
     }
 
-    uint32_t emissiveMatID;
+    MaterialID emissiveMatID;
     ObjectID objectID;
 };
 
@@ -257,8 +269,6 @@ struct BxDFNode
     using scalar_type = typename vector_traits<Spectrum>::scalar_type;
     using vector2_type = vector<scalar_type, 2>;
     using params_type = SBxDFCreationParams<scalar_type, spectral_type>;
-
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
     // for diffuse bxdfs
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) albedo)

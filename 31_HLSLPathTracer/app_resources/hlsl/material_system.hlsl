@@ -17,7 +17,7 @@ struct MaterialSystem
     using scalar_type = typename DiffuseBxDF::scalar_type;      // types should be same across all 3 bxdfs
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
-    using material_id_type = uint32_t;
+    using material_id_type = MaterialID;
     using measure_type = typename DiffuseBxDF::spectral_type;
     using sample_type = typename DiffuseBxDF::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
@@ -43,29 +43,29 @@ struct MaterialSystem
 
     bool isBSDF(material_id_type matID)
     {
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
-        return bool(IsBSDFPacked & (1u << matID));
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
+        return bool(IsBSDFPacked & (1u << matID.id));
     }
 
     bxdfnode_type getBxDFNode(material_id_type matID) NBL_CONST_MEMBER_FUNC
     {
-        return bxdfs[matID];
+        return bxdfs[matID.id];
     }
 
     scalar_type setMonochromeEta(material_id_type matID, measure_type throughputCIE_Y)
     {
-        bxdfnode_type bxdf = bxdfs[matID];
+        bxdfnode_type bxdf = bxdfs[matID.id];
         const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
         const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
-        bxdfs[matID].params.eta = monochromeEta;
+        bxdfs[matID.id].params.eta = monochromeEta;
         return monochromeEta;
     }
 
     // these are specific for the bxdfs used for this example
     void fillBxdfParams(material_id_type matID)
     {
-        create_params_t cparams = bxdfs[matID].params;
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        create_params_t cparams = bxdfs[matID.id].params;
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
@@ -123,12 +123,12 @@ struct MaterialSystem
     measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction, NBL_CONST_REF_ARG(isocache_type) _cache)
     {
         fillBxdfParams(matID);
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
             {
-                return bxdfs[matID].albedo * diffuseBxDF.eval(_sample, interaction);
+                return bxdfs[matID.id].albedo * diffuseBxDF.eval(_sample, interaction);
             }
             break;
             case MaterialType::CONDUCTOR:
@@ -159,7 +159,7 @@ struct MaterialSystem
     sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) _cache)
     {
         fillBxdfParams(matID);
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
@@ -206,13 +206,13 @@ struct MaterialSystem
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
         {
             fillBxdfParams(matID);
-            MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+            MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
             switch(matType)
             {
                 case MaterialType::DIFFUSE:
                 {
                     quotient_pdf_type ret = diffuseBxDF.quotient_and_pdf(_sample, interaction);
-                    ret.quotient *= bxdfs[matID].albedo;
+                    ret.quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
                 break;
@@ -245,14 +245,14 @@ struct MaterialSystem
 
     bool hasEmission(material_id_type matID)
     {
-        MaterialType matType = (MaterialType)bxdfs[matID].materialType;
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         return matType == MaterialType::EMISSIVE;
     }
 
     measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction)
     {
         if (hasEmission(matID))
-            return bxdfs[matID].albedo;
+            return bxdfs[matID.id].albedo;
         return hlsl::promote<measure_type>(0.0);
     }
 

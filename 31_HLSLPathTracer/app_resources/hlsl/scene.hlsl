@@ -11,6 +11,7 @@ struct SceneBase
     using scalar_type = float;
     using vector3_type = vector<scalar_type, 3>;
     using light_type = Light<vector3_type>;
+    using light_id_type = LightID;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 10u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
@@ -20,8 +21,8 @@ struct SceneBase
 
     struct MatLightID
     {
-        using light_id_type = uint32_t;
-        using material_id_type = uint32_t;
+        using light_id_type = LightID;
+        using material_id_type = MaterialID;
 
         light_id_type lightID;
         material_id_type matID;
@@ -29,28 +30,31 @@ struct SceneBase
         static MatLightID createFromPacked(uint32_t packedID)
         {
             MatLightID retval;
-            retval.lightID = glsl::bitfieldExtract(packedID, 16, 16);
-            retval.matID = glsl::bitfieldExtract(packedID, 0, 16);
+            retval.lightID.id = uint16_t(glsl::bitfieldExtract(packedID, 16, 16));
+            retval.matID.id = uint16_t(glsl::bitfieldExtract(packedID, 0, 16));
             return retval;
         }
 
-        bool isBxDF() { return matID != BxDFNode<vector3_type>::INVALID_ID; }
-        bool isLight() { return lightID != light_type::INVALID_ID; }
+        light_id_type getLightID() NBL_CONST_MEMBER_FUNC { return lightID; }
+        material_id_type getMaterialID() NBL_CONST_MEMBER_FUNC { return matID; }
+
+        bool isLight() NBL_CONST_MEMBER_FUNC { return lightID.id != light_id_type::INVALID_ID; }
+        bool isMaterial() NBL_CONST_MEMBER_FUNC { return matID.id != material_id_type::INVALID_ID; }
     };
     using mat_light_id_type = MatLightID;
 };
 
 const Shape<float, PST_SPHERE> SceneBase::scene_spheres[SCENE_SPHERE_COUNT] = {
-    Shape<float, PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, SceneBase::light_type::INVALID_ID),
-    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, -1.0), 0.5, 8u, SceneBase::light_type::INVALID_ID)
+    Shape<float, PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, 1.0), 0.5, 7u, SceneBase::light_id_type::INVALID_ID),
+    Shape<float, PST_SPHERE>::create(float3(-4.0, 0.0, -1.0), 0.5, 8u, SceneBase::light_id_type::INVALID_ID)
 };
 
 template<ProceduralShapeType LightShape>
