@@ -304,11 +304,8 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
 // PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_TRIANGLE
 
 
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, IntersectMode Mode, ProceduralShapeType PST, NEEPolygonMethod PPM>
-struct NextEventEstimator;
-
 template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM>
-struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
+struct NextEventEstimator
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;

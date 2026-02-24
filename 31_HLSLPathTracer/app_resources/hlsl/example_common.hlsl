@@ -19,13 +19,6 @@ enum ProceduralShapeType : uint16_t
     PST_RECTANGLE
 };
 
-enum IntersectMode : uint32_t
-{
-    IM_RAY_QUERY,
-    IM_RAY_TRACING,
-    IM_PROCEDURAL
-};
-
 template<typename T>
 struct Payload
 {
@@ -50,17 +43,17 @@ enum NEEPolygonMethod : uint16_t
 
 struct ObjectID
 {
-    static ObjectID create(uint32_t id, uint32_t mode, ProceduralShapeType shapeType)
+    static ObjectID create(uint16_t id, ProceduralShapeType shapeType)
     {
         ObjectID retval;
         retval.id = id;
-        retval.mode = mode;
         retval.shapeType = shapeType;
         return retval;
     }
 
-    uint32_t id;
-    uint32_t mode : 2u;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t INVALID_ID = 0x3fffu;
+
+    uint16_t id : 14u;
     ProceduralShapeType shapeType : 2u;
 };
 
@@ -196,11 +189,11 @@ struct Light
 {
     using spectral_type = Spectrum;
 
-    static Light<spectral_type> create(uint32_t emissiveMatID, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
+    static Light<spectral_type> create(uint32_t emissiveMatID, uint32_t objId, ProceduralShapeType shapeType)
     {
         Light<spectral_type> retval;
         retval.emissiveMatID.id = uint16_t(emissiveMatID);
-        retval.objectID = ObjectID::create(objId, mode, shapeType);
+        retval.objectID = ObjectID::create(uint16_t(objId), shapeType);
         return retval;
     }
 
@@ -244,7 +237,7 @@ struct Tolerance
     }
 };
 
-enum MaterialType : uint32_t    // enum class?
+enum MaterialType : uint32_t
 {
     DIFFUSE = 0u,
     CONDUCTOR,

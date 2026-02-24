@@ -60,7 +60,7 @@ struct SceneRectangleLight : SceneBase
 };
 
 const Shape<float, PST_RECTANGLE> SceneRectangleLight::light_rectangles[1] = {
-    Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, 9u, 0u)
+    Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, SceneBase::SCENE_BXDF_COUNT-1u, 0u)
 };
 
 using scene_type = SceneRectangleLight;
@@ -69,7 +69,7 @@ NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_RECTANGLE;
 using light_type = Light<spectral_t>;
 
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
-    light_type::create(9u, 0u, IM_PROCEDURAL, LIGHT_TYPE)
+    light_type::create(SceneBase::SCENE_BXDF_COUNT-1u, 0u, LIGHT_TYPE)
 };
 
 #endif

@@ -60,7 +60,7 @@ struct SceneTriangleLight : SceneBase
 };
 
 const Shape<float, PST_TRIANGLE> SceneTriangleLight::light_triangles[1] = {
-    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, 9u, 0u)
+    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, SceneBase::SCENE_BXDF_COUNT-1u, 0u)
 };
 
 using scene_type = SceneTriangleLight;
@@ -69,7 +69,7 @@ NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
 using light_type = Light<spectral_t>;
 
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
-    light_type::create(9u, 0u, IM_PROCEDURAL, LIGHT_TYPE)
+    light_type::create(SceneBase::SCENE_BXDF_COUNT-1u, 0u, LIGHT_TYPE)
 };
 
 #endif

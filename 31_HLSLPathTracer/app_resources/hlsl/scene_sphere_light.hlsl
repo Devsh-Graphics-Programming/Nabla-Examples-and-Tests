@@ -63,7 +63,7 @@ struct SceneSphereLight : SceneBase
 };
 
 const Shape<float, PST_SPHERE> SceneSphereLight::light_spheres[1] = {
-    Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, 9u, 0u)
+    Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, SceneBase::SCENE_BXDF_COUNT-1u/*last in mat arr*/, 0u)
 };
 
 using scene_type = SceneSphereLight;
@@ -72,7 +72,7 @@ NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_SPHERE;
 using light_type = Light<spectral_t>;
 
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
-    light_type::create(9u, scene_type::SCENE_SPHERE_COUNT, IM_PROCEDURAL, LIGHT_TYPE)
+    light_type::create(SceneBase::SCENE_BXDF_COUNT-1u/*last in mat arr*/, scene_type::SCENE_SPHERE_COUNT, LIGHT_TYPE)
 };
 
 #endif

@@ -40,7 +40,7 @@ struct Intersector
     static closest_hit_type traceClosestHit(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         object_handle_type objectID;
-        objectID.id = -1;
+        objectID.id = object_handle_type::INVALID_ID;
 
         // prodedural shapes
         NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
@@ -52,8 +52,7 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = i;
-                objectID.mode = IM_PROCEDURAL;
+                objectID.id = uint16_t(i);
                 objectID.shapeType = PST_SPHERE;
             }
         }
@@ -66,8 +65,7 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = i;
-                objectID.mode = IM_PROCEDURAL;
+                objectID.id = uint16_t(i);
                 objectID.shapeType = PST_TRIANGLE;
             }
         }
@@ -80,19 +78,16 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = i;
-                objectID.mode = IM_PROCEDURAL;
+                objectID.id = uint16_t(i);
                 objectID.shapeType = PST_RECTANGLE;
             }
         }
-
-        // TODO: trace AS
 
         closest_hit_type retval;
         retval.objectID = objectID;
         retval.position = hlsl::promote<vector3_type>(bit_cast<scalar_type>(numeric_limits<scalar_type>::quiet_NaN));
 
-        bool foundHit = objectID.id != -1;
+        bool foundHit = objectID.id != object_handle_type::INVALID_ID;
         if (foundHit)
         {
             retval.position = ray.origin + ray.direction * ray.intersectionT;

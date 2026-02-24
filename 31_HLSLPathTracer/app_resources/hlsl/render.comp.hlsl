@@ -100,7 +100,7 @@ using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
-using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
 using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_t3, CascadeCount> >;
