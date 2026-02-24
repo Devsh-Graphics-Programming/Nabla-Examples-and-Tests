@@ -23,11 +23,13 @@ struct RandomUniformND
         return retval;
     }
 
-    return_type operator()(uint32_t protoDimension, uint32_t _sample, uint32_t i)
+    // baseDimension: offset index of the sequence
+    // sampleIndex: iteration number of current pixel (samples per pixel)
+    return_type operator()(uint32_t baseDimension, uint32_t sampleIndex)
     {
         using sequence_type = sampling::QuantizedSequence<uint32_t2,3>;
-        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MaxDepthLog2, MaxSamplesLog2);
-        sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + (address + i) * sizeof(sequence_type));
+        uint32_t address = glsl::bitfieldInsert<uint32_t>(baseDimension, sampleIndex, MaxDepthLog2, MaxSamplesLog2);
+        sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + address * sizeof(sequence_type));
         return tmpSeq.template decode<float32_t>(random::DimAdaptorRecursive<rng_type, N>::__call(rng));
     }
 
