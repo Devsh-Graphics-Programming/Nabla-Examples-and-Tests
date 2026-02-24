@@ -31,14 +31,14 @@
 [[vk::push_constant]] RenderPushConstants pc;
 #endif
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
-[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState envSampler;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D<float3> envMap;      // unused
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState envSampler;
 
-[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf;
-[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<uint2> scramblebuf;
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState scrambleSampler;
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
-[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
+[[vk::image_format("rgba16f")]] [[vk::binding(2, 0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 
 #include "example_common.hlsl"
 #include "scene.hlsl"

@@ -220,39 +220,36 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return gpuDS;
 					};
 
-				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet2Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 4> descriptorSetBindings = {};
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
-				descriptorSet0Bindings[0] = {
+				descriptorSetBindings[0] = {
 					.binding = 0u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
-
-				descriptorSet0Bindings[1] = {
+				descriptorSetBindings[1] = {
 					.binding = 1u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSetBindings[2] = {
+					.binding = 2u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
-
-				descriptorSet2Bindings[0] = {
-					.binding = 0u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.count = 1u,
-					.immutableSamplers = nullptr
-				};
-				descriptorSet2Bindings[1] = {
-					.binding = 2u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				descriptorSetBindings[3] = {
+					.binding = 3u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -268,18 +265,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.immutableSamplers = &defaultSampler
 				};
 
-				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
-				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet2Bindings);
+				auto cpuDescriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSetBindings);
 
-				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
-				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
+				auto gpuDescriptorSetLayout = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout);
 				auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(presentDescriptorSetBindings);
 
-				auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
-				auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
+				auto cpuDescriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout));
 
-				m_descriptorSet0 = convertDSCPU2GPU(cpuDescriptorSet0);
-				m_descriptorSet2 = convertDSCPU2GPU(cpuDescriptorSet2);
+				m_descriptorSet = convertDSCPU2GPU(cpuDescriptorSet);
 
 				smart_refctd_ptr<IDescriptorPool> presentDSPool;
 				{
@@ -369,9 +362,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						};
 						auto ptPipelineLayout = m_device->createPipelineLayout(
 							{ &pcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+							core::smart_refctd_ptr(gpuDescriptorSetLayout),
 							nullptr,
-							core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+							nullptr,
 							nullptr
 						);
 						if (!ptPipelineLayout)
@@ -384,9 +377,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						};
 						auto rwmcPtPipelineLayout = m_device->createPipelineLayout(
 							{ &rwmcPcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+							core::smart_refctd_ptr(gpuDescriptorSetLayout),
 							nullptr,
-							core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+							nullptr,
 							nullptr
 						);
 						if (!rwmcPtPipelineLayout)
@@ -435,7 +428,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					auto pipelineLayout = m_device->createPipelineLayout(
 						{ &pcRange, 1 },
-						core::smart_refctd_ptr(gpuDescriptorSetLayout0)
+						core::smart_refctd_ptr(gpuDescriptorSetLayout)
 					);
 
 					if (!pipelineLayout) {
@@ -843,29 +836,29 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
-					.dstSet = m_descriptorSet0.get(),
-					.binding = 0,
+					.dstSet = m_descriptorSet.get(),
+					.binding = 2,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[0]
 				};
 				writeDescriptorSets[1] = {
-					.dstSet = m_descriptorSet0.get(),
-					.binding = 1,
+					.dstSet = m_descriptorSet.get(),
+					.binding = 3,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[1]
 				};
 				writeDescriptorSets[2] = {
-					.dstSet = m_descriptorSet2.get(),
+					.dstSet = m_descriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[2]
 				};
 				writeDescriptorSets[3] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 2,
+					.dstSet = m_descriptorSet.get(),
+					.binding = 1,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[3]
@@ -1214,8 +1207,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				IGPUComputePipeline* pipeline = pickPTPipeline();
 
 				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
 
 				const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
 				const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
@@ -1261,7 +1253,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
 
 				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
 				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
 
 				cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
@@ -1524,7 +1516,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_descriptorSet2, m_presentDescriptorSet;
+		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet, m_presentDescriptorSet;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 

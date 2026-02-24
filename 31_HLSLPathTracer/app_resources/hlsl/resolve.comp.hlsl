@@ -1,8 +1,8 @@
 #include <nbl/builtin/hlsl/rwmc/resolve.hlsl>
 #include "resolve_common.hlsl"
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
-[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
+[[vk::image_format("rgba16f")]] [[vk::binding(2, 0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 [[vk::push_constant]] ResolvePushConstants pc;
 
 using namespace nbl;
