@@ -1123,14 +1123,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-					const float rcpLog2Base = 1.0f / std::log2(guiControlled.rwmcParams.base);
-					const float baseRootOfStart = std::exp2(std::log2(guiControlled.rwmcParams.start) * rcpLog2Base);
-					const float log2BaseRootOfStart = std::log2(baseRootOfStart);
-					const float brightSampleLumaBias = (log2BaseRootOfStart + static_cast<float>(CascadeCount - 1u)) / rcpLog2Base;
-					float32_t2 packLogs = float32_t2(baseRootOfStart, rcpLog2Base);
-					float32_t2 packPrecomputed = float32_t2(log2BaseRootOfStart, brightSampleLumaBias);
-					rwmcPushConstants.splattingParameters.PackedBaseRootAndRcpLog2Base = hlsl::packHalf2x16(packLogs);
-					rwmcPushConstants.splattingParameters.PackedLog2BaseRootAndBrightSampleLumaBias = hlsl::packHalf2x16(packPrecomputed);
+					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
 				}
 				else
 				{
