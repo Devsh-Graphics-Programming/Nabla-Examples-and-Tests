@@ -382,19 +382,19 @@ struct NextEventEstimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, 
         sample_quotient_return_type retval;
         scalar_type pdf, newRayMaxT;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-        ray_dir_info_type rayL;
-        if (hlsl::isinf(pdf))
-        {
-            retval.quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
-            retval.sample_ = sample_type::createInvalid();
-            return retval;
-        }
 
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
         
+        ray_dir_info_type rayL;
         rayL.setDirection(sampleL);
         retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
+
+        if (hlsl::isinf(pdf))
+        {
+            retval.quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
+            return retval;
+        }
 
         if (retval.sample_.getNdotL() > numeric_limits<scalar_type>::min && retval.sample_.isValid())
         {

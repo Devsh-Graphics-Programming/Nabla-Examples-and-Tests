@@ -221,7 +221,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					};
 
 				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet3Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet2Bindings = {};
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSet0Bindings[0] = {
@@ -242,7 +242,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.immutableSamplers = nullptr
 				};
 
-				descriptorSet3Bindings[0] = {
+				descriptorSet2Bindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -250,7 +250,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
-				descriptorSet3Bindings[1] = {
+				descriptorSet2Bindings[1] = {
 					.binding = 2u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -269,7 +269,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
-				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
+				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet2Bindings);
 
 				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
 				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
@@ -941,7 +941,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
 
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
-					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, zNear, zFar));
+					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), aspectRatio, guiControlled.zNear, guiControlled.zFar));
 
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -958,24 +958,24 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::Text("Press Home to reset camera.");
 					ImGui::Text("Press End to reset light.");
 
-					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
-					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-					ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::SliderInt("SPP", &spp, 1, MaxSamplesBuffer);
-					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 4);
-					ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
+					ImGui::SliderFloat("Move speed", &guiControlled.moveSpeed, 0.1f, 10.f);
+					ImGui::SliderFloat("Rotate speed", &guiControlled.rotateSpeed, 0.1f, 10.f);
+					ImGui::SliderFloat("Fov", &guiControlled.fov, 20.f, 150.f);
+					ImGui::SliderFloat("zNear", &guiControlled.zNear, 0.1f, 100.f);
+					ImGui::SliderFloat("zFar", &guiControlled.zFar, 110.f, 10000.f);
+					ImGui::Combo("Shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+					ImGui::SliderInt("SPP", &guiControlled.spp, 1, MaxSamplesBuffer);
+					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
+					ImGui::Checkbox("Persistent WorkGroups", &guiControlled.usePersistentWorkGroups);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
 					ImGui::Text("\nRWMC settings:");
-					ImGui::Checkbox("Enable RWMC", &useRWMC);
-					ImGui::SliderFloat("start", &rwmcParams.start, 1.0f, 32.0f);
-					ImGui::SliderFloat("base", &rwmcParams.base, 1.0f, 32.0f);
-					ImGui::SliderFloat("minReliableLuma", &rwmcParams.minReliableLuma, 0.1f, 1024.0f);
-					ImGui::SliderFloat("kappa", &rwmcParams.kappa, 0.1f, 1024.0f);
+					ImGui::Checkbox("Enable RWMC", &guiControlled.useRWMC);
+					ImGui::SliderFloat("start", &guiControlled.rwmcParams.start, 1.0f, 32.0f);
+					ImGui::SliderFloat("base", &guiControlled.rwmcParams.base, 1.0f, 32.0f);
+					ImGui::SliderFloat("minReliableLuma", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f);
+					ImGui::SliderFloat("kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f);
 
 					ImGui::End();
 				}
@@ -1007,7 +1007,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						);
 					}
 
-					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					if (E_LIGHT_GEOMETRY::ELG_SPHERE == guiControlled.PTPipeline)
 					{
 						m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::SCALEU;
 						m_transformParams.isSphere = true;
@@ -1019,7 +1019,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 					EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &m_lightModelMatrix[0][0], m_transformParams);
 
-					if (E_LIGHT_GEOMETRY::ELG_SPHERE == PTPipeline)
+					if (E_LIGHT_GEOMETRY::ELG_SPHERE == guiControlled.PTPipeline)
 					{
 						// keep uniform scale for sphere
 						float32_t uniformScale = (m_lightModelMatrix[0][0] + m_lightModelMatrix[1][1] + m_lightModelMatrix[2][2]) / 3.0f;
@@ -1034,7 +1034,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// Set Camera
 			{
 				core::vectorSIMDf cameraPosition(0, 5, -10);
-				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, WindowDimensions.x / WindowDimensions.y, zNear, zFar);
+				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), WindowDimensions.x / WindowDimensions.y, guiControlled.zNear, guiControlled.zFar);
 				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 			}
 			m_showUI = true;
@@ -1047,10 +1047,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			// set initial rwmc settings
 			
-			rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			rwmcParams.base = 8.0f;
-			rwmcParams.minReliableLuma = 1.0f;
-			rwmcParams.kappa = 5.0f;
+			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+			guiControlled.rwmcParams.base = 8.0f;
+			guiControlled.rwmcParams.minReliableLuma = 1.0f;
+			guiControlled.rwmcParams.kappa = 5.0f;
 			return true;
 		}
 
@@ -1123,15 +1123,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
 				const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
 
-				if (useRWMC)
+				if (guiControlled.useRWMC)
 				{
 					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					rwmcPushConstants.renderPushConstants.depth = depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = rwmcParams.sampleCount = spp;
+					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
+					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
-					const float rcpLog2Base = 1.0f / std::log2(rwmcParams.base);
-					const float baseRootOfStart = std::exp2(std::log2(rwmcParams.start) * rcpLog2Base);
+					const float rcpLog2Base = 1.0f / std::log2(guiControlled.rwmcParams.base);
+					const float baseRootOfStart = std::exp2(std::log2(guiControlled.rwmcParams.start) * rcpLog2Base);
 					const float log2BaseRootOfStart = std::log2(baseRootOfStart);
 					const float brightSampleLumaBias = (log2BaseRootOfStart + static_cast<float>(CascadeCount - 1u)) / rcpLog2Base;
 					float32_t2 packLogs = float32_t2(baseRootOfStart, rcpLog2Base);
@@ -1143,8 +1143,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				{
 					pc.invMVP = invMVP;
 					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					pc.sampleCount = spp;
-					pc.depth = depth;
+					pc.sampleCount = guiControlled.spp;
+					pc.depth = guiControlled.depth;
 					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				}
 			};
@@ -1178,7 +1178,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 
 			// transit m_cascadeView layout to GENERAL, block until previous shader is done with reading from the cascade
-			if(useRWMC)
+			if(guiControlled.useRWMC)
 			{
 				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 						{
@@ -1207,7 +1207,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			{
 				// TODO: shouldn't it be computed only at initialization stage and on window resize?
-				const uint32_t dispatchSize = usePersistentWorkGroups ?
+				const uint32_t dispatchSize = guiControlled.usePersistentWorkGroups ?
 					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize) :
 					1 + (WindowDimensions.x * WindowDimensions.y - 1) / RenderWorkgroupSize;
 
@@ -1217,8 +1217,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 
-				const uint32_t pushConstantsSize = useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
-				const void* pushConstantsPtr = useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
+				const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
+				const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
 				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
 
 				cmdbuf->dispatch(dispatchSize, 1u, 1u);
@@ -1226,7 +1226,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
 			// TODO: create this and every other barrier once outside of the loop?
-			if(useRWMC)
+			if(guiControlled.useRWMC)
 			{
 				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 						{
@@ -1258,7 +1258,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(rwmcParams);
+				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1410,8 +1410,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline void update()
 		{
-			m_camera.setMoveSpeed(moveSpeed);
-			m_camera.setRotateSpeed(rotateSpeed);
+			m_camera.setMoveSpeed(guiControlled.moveSpeed);
+			m_camera.setRotateSpeed(guiControlled.rotateSpeed);
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
@@ -1501,10 +1501,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		IGPUComputePipeline* pickPTPipeline()
 		{
 			IGPUComputePipeline* pipeline;
-			if (useRWMC)
-				pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[PTPipeline].get() : m_PTHLSLPipelinesRWMC[PTPipeline].get();
+			if (guiControlled.useRWMC)
+				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[guiControlled.PTPipeline].get() : m_PTHLSLPipelinesRWMC[guiControlled.PTPipeline].get();
 			else
-				pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelines[PTPipeline].get() : m_PTHLSLPipelines[PTPipeline].get();
+				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelines[guiControlled.PTPipeline].get() : m_PTHLSLPipelines[guiControlled.PTPipeline].get();
 
 			return pipeline;
 		}
@@ -1565,16 +1565,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-		float viewWidth = 10.f;
-		float camYAngle = 165.f / 180.f * 3.14159f;
-		float camXAngle = 32.f / 180.f * 3.14159f;
-		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int spp = 32;
-		int depth = 3;
-		rwmc::SResolveParameters::SCreateParams rwmcParams;
-		bool usePersistentWorkGroups = false;
-		bool useRWMC = false;
+		struct GUIControllables
+		{
+			float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
+			float viewWidth = 10.f;
+			float camYAngle = 165.f / 180.f * 3.14159f;
+			float camXAngle = 32.f / 180.f * 3.14159f;
+			int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+			int spp = 32;
+			int depth = 3;
+			rwmc::SResolveParameters::SCreateParams rwmcParams;
+			bool usePersistentWorkGroups = false;
+			bool useRWMC = false;
+		};
+		GUIControllables guiControlled;
 
 		hlsl::float32_t4x4 m_lightModelMatrix = {
 			0.3f, 0.0f, 0.0f, 0.0f,
