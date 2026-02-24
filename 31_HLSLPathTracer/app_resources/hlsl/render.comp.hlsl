@@ -94,7 +94,8 @@ using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_mic
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
-using ray_type = Ray<float,POLYGON_METHOD>;
+using payload_type = Payload<float>;
+using ray_type = Ray<payload_type,POLYGON_METHOD>;
 using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;

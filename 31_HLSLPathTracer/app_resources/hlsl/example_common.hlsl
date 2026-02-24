@@ -26,7 +26,7 @@ enum IntersectMode : uint32_t
     IM_PROCEDURAL
 };
 
-template<typename T>    // TODO make type T Spectrum
+template<typename T>
 struct Payload
 {
     using this_t = Payload<T>;
@@ -78,12 +78,13 @@ struct MaterialID
     uint16_t id;
 };
 
-template<typename T, NEEPolygonMethod PPM>
+template<typename Payload, NEEPolygonMethod PPM>
 struct Ray
 {
-    using this_t = Ray<T,PPM>;
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
+    using this_t = Ray<Payload,PPM>;
+    using payload_type = Payload;
+    using scalar_type = typename payload_type::scalar_type;
+    using vector3_type = vector<scalar_type, 3>;
 
     // immutable
     vector3_type origin;
@@ -92,8 +93,8 @@ struct Ray
     // mutable
     scalar_type intersectionT;
 
-    Payload<T> payload;
-    using spectral_type = typename Payload<T>::spectral_type;
+    payload_type payload;
+    using spectral_type = typename payload_type::spectral_type;
 
     void initData(const vector3_type _origin, const vector3_type _direction, const vector3_type _normalAtOrigin, bool _wasBSDFAtOrigin)
     {
@@ -131,12 +132,13 @@ struct Ray
     spectral_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
-template<typename T>
-struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+template<typename Payload>
+struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
-    using this_t = Ray<T,PPM_APPROX_PROJECTED_SOLID_ANGLE>;
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
+    using this_t = Ray<Payload,PPM_APPROX_PROJECTED_SOLID_ANGLE>;
+    using payload_type = Payload;
+    using scalar_type = typename payload_type::scalar_type;
+    using vector3_type = vector<scalar_type, 3>;
 
     // immutable
     vector3_type origin;
@@ -148,7 +150,8 @@ struct Ray<T, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     // mutable
     scalar_type intersectionT;
 
-    Payload<T> payload;
+    payload_type payload;
+    using spectral_type = typename payload_type::spectral_type;
 
     void initData(const vector3_type _origin, const vector3_type _direction, const vector3_type _normalAtOrigin, bool _wasBSDFAtOrigin)
     {
