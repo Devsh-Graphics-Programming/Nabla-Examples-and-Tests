@@ -39,7 +39,7 @@ struct SceneBase
         material_id_type getMaterialID() NBL_CONST_MEMBER_FUNC { return matID; }
 
         bool isLight() NBL_CONST_MEMBER_FUNC { return lightID.id != light_id_type::INVALID_ID; }
-        bool isMaterial() NBL_CONST_MEMBER_FUNC { return matID.id != material_id_type::INVALID_ID; }
+        bool canContinuePath() NBL_CONST_MEMBER_FUNC { return matID.id != material_id_type::INVALID_ID; }
     };
     using mat_light_id_type = MatLightID;
 };

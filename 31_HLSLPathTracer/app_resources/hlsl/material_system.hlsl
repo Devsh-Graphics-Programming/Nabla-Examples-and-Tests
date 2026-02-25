@@ -250,7 +250,7 @@ struct MaterialSystem
         return matType == MaterialType::EMISSIVE;
     }
 
-    measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(isotropic_interaction_type) interaction)
+    measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
         if (hasEmission(matID))
             return bxdfs[matID.id].albedo;

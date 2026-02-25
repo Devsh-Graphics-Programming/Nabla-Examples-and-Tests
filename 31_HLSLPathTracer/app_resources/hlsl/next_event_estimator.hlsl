@@ -397,7 +397,7 @@ struct NextEventEstimator
         {
             newRayMaxT *= tolerance_method_type::getEnd(depth);
             pdf *= 1.0 / scalar_type(lightCount);
-            const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction.isotropic);
+            const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
             retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
             retval.newRayMaxT = newRayMaxT;

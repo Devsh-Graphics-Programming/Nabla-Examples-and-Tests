@@ -64,7 +64,8 @@ struct SceneTriangleLight : SceneBase
         ray_dir_info_t V;
         V.setDirection(-ray.direction);
         interaction_type interaction = interaction_type::create(V, N);
-        interaction.luminosityContributionHint = hlsl::normalize(colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput());
+        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput();
+        interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
         return interaction;
     }
 };
