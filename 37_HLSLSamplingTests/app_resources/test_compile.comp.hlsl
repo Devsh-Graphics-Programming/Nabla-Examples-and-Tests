@@ -12,7 +12,8 @@ using namespace nbl::hlsl;
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<float32_t4> output;
 
-[numthreads(1, 1, 1)] void main()
+[numthreads(1, 1, 1)] 
+void main()
 {
     float32_t2 u2 = float32_t2(0.5, 0.5);
     float32_t3 u3 = float32_t3(0.5, 0.5, 0.5);

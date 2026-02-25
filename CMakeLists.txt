@@ -76,6 +76,7 @@ if(NBL_BUILD_EXAMPLES)
 
 	add_subdirectory(34_DebugDraw)
 
+	add_subdirectory(37_HLSLSamplingTests)
 	add_subdirectory(38_EXRSplit)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		# if (NBL_BUILD_OPTIX)
@@ -111,7 +112,6 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 
 	add_subdirectory(74_QuantizedSequenceTests)
-	add_subdirectory(75_HLSLSamplingTests)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
