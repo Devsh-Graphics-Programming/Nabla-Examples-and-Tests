@@ -91,7 +91,6 @@ struct Intersector
         if (foundHit)
         {
             retval.position = ray.origin + ray.direction * ray.intersectionT;
-            typename scene_type::mat_light_id_type matLightID = scene.getMatLightIDs(objectID);
             isotropic_interaction_type iso_interaction = scene.template getInteraction<ray_type>(objectID, retval.position, ray);
             retval.aniso_interaction = anisotropic_interaction_type::create(iso_interaction);
         }

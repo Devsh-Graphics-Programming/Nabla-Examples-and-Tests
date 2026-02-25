@@ -35,10 +35,10 @@ struct MaterialSystem
     using iri_conductor_op_type = IridescentConductorBxDF;
     using iri_dielectric_op_type = IridescentDielectricBxDF;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t IsBSDFPacked = uint32_t(bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIFFUSE) &
-                                                        uint32_t(bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::CONDUCTOR) &
-                                                        uint32_t(bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIELECTRIC) &
-                                                        uint32_t(bxdf::traits<iri_conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_CONDUCTOR) &
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t IsBSDFPacked = uint32_t(bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIFFUSE) |
+                                                        uint32_t(bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::CONDUCTOR) |
+                                                        uint32_t(bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::DIELECTRIC) |
+                                                        uint32_t(bxdf::traits<iri_conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_CONDUCTOR) |
                                                         uint32_t(bxdf::traits<iri_dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_DIELECTRIC);
 
     bool isBSDF(material_id_type matID)
@@ -47,8 +47,9 @@ struct MaterialSystem
         return bool(IsBSDFPacked & (1u << matID.id));
     }
 
-    bxdfnode_type getBxDFNode(material_id_type matID) NBL_CONST_MEMBER_FUNC
+    bxdfnode_type getBxDFNode(material_id_type matID, NBL_REF_ARG(anisotropic_interaction_type) interaction) NBL_CONST_MEMBER_FUNC
     {
+        interaction.isotropic.b_isMaterialBSDF = isBSDF(matID);
         return bxdfs[matID.id];
     }
 

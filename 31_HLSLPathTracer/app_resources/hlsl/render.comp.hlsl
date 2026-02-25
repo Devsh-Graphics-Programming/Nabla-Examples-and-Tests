@@ -78,15 +78,15 @@ float32_t2 getTexCoords()
 
 using spectral_t = vector<float, 3>;
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
-using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
+using iso_interaction = PTIsotropicInteraction<ray_dir_info_t, spectral_t>;
+using aniso_interaction = PTAnisotropicInteraction<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 
-using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
-using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
+using iso_config_t = PTIsoConfiguration<sample_t, iso_interaction, spectral_t>;
+using iso_microfacet_config_t = PTIsoMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
 
 using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
 using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;

@@ -16,7 +16,7 @@ struct SceneRectangleLight : SceneBase
     using mat_light_id_type = base_t::mat_light_id_type;
 
     using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-    using interaction_type = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
+    using interaction_type = PTIsotropicInteraction<ray_dir_info_t, spectral_t>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
