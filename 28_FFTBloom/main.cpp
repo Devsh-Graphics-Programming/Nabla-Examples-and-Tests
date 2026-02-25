@@ -753,7 +753,7 @@ public:
 				const char* kernelNames[] = {"Kernel First Axis FFT", "Kernel Second Axis FFT", "Kernel Spectrum Normalize"};
 				for (auto i = 0u; i < 3; i++)
 				{
-					auto report = system::to_string(m_device->getPipelineExecutableProperties(pipelines[i].get(), true));
+					auto report = system::to_string(pipelines[i]->getExecutableInfo());
 					m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, kernelNames[i], report.c_str());
 				}
 			}
@@ -971,7 +971,7 @@ public:
 			const char* imageNames[] = {"Image First Axis FFT", "FFT Convolve IFFT", "Image First Axis IFFT"};
 			for (auto i = 0u; i < 3; i++)
 			{
-				auto report = system::to_string(m_device->getPipelineExecutableProperties(pipelines[i].get(), true));
+				auto report = system::to_string(pipelines[i]->getExecutableInfo());
 				m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, imageNames[i], report.c_str());
 			}
 		}

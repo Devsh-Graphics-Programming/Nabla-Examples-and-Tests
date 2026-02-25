@@ -526,7 +526,7 @@ private:
 
 		if (m_device->getEnabledFeatures().pipelineExecutableInfo)
 		{
-			auto report = system::to_string(m_device->getPipelineExecutableProperties(pipeline.get(), true));
+			auto report = system::to_string(pipeline->getExecutableInfo());
 			m_logger->log("Arithmetic Bench Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
 		}
 		return pipeline;

@@ -390,7 +390,7 @@ public:
 
                 if (m_device->getEnabledFeatures().pipelineExecutableInfo && pipeline)
                 {
-                    auto report = system::to_string(m_device->getPipelineExecutableProperties(pipeline.get(), true));
+                    auto report = system::to_string(pipeline->getExecutableInfo());
                     m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, ShaderKey.value, report.c_str());
                 }
             };
@@ -654,7 +654,7 @@ public:
 
                 if (m_device->getEnabledFeatures().pipelineExecutableInfo)
                 {
-                    auto report = system::to_string(m_device->getPipelineExecutableProperties(m_iterateDiffusionPipeline.get(), true));
+                    auto report = system::to_string(m_iterateDiffusionPipeline->getExecutableInfo());
                     m_logger->log("iterateDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
                 }
             }
@@ -673,7 +673,7 @@ public:
 
                 if (m_device->getEnabledFeatures().pipelineExecutableInfo)
                 {
-                    auto report = system::to_string(m_device->getPipelineExecutableProperties(m_diffusionPipeline.get(), true));
+                    auto report = system::to_string(m_diffusionPipeline->getExecutableInfo());
                     m_logger->log("applyDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
                 }
             }

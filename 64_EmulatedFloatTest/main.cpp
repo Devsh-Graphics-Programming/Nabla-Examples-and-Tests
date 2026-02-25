@@ -334,7 +334,7 @@ private:
 
                     if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
                     {
-                        auto report = system::to_string(base.m_device->getPipelineExecutableProperties(m_pipeline.get(), true));
+                        auto report = system::to_string(m_pipeline->getExecutableInfo());
                         base.m_logger->log("EF64Submitter Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
                     }
                 }
@@ -1003,7 +1003,7 @@ private:
 
                     if (base.m_device->getEnabledFeatures().pipelineExecutableInfo)
                     {
-                        auto report = system::to_string(base.m_device->getPipelineExecutableProperties(m_pipeline.get(), true));
+                        auto report = system::to_string(m_pipeline->getExecutableInfo());
                         base.m_logger->log("EF64Benchmark Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
                     }
                 }

@@ -380,7 +380,7 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 
 						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
 						{
-							auto report = system::to_string(m_device->getPipelineExecutableProperties(m_PTPipelines[index].get(), true));
+							auto report = system::to_string(m_PTPipelines[index]->getExecutableInfo());
 							m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, PTShaderPaths[index].c_str(), report.c_str());
 						}
 					}

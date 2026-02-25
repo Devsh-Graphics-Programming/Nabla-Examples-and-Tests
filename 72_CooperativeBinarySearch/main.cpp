@@ -111,7 +111,7 @@ public:
 
             if (m_device->getEnabledFeatures().pipelineExecutableInfo)
             {
-                auto report = system::to_string(m_device->getPipelineExecutableProperties(m_pipeline.get(), true));
+                auto report = system::to_string(m_pipeline->getExecutableInfo());
                 m_logger->log("Cooperative Binary Search Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
             }
         }
