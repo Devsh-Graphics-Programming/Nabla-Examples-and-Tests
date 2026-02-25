@@ -98,6 +98,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
 			// TODO: need union/superset
+			retval.rayTracingPositionFetch = true;
 			retval.shaderStorageImageReadWithoutFormat = true;
 			return retval;
 		}
