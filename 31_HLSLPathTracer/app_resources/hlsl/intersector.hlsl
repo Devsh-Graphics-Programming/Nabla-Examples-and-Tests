@@ -92,12 +92,7 @@ struct Intersector
         {
             retval.position = ray.origin + ray.direction * ray.intersectionT;
             typename scene_type::mat_light_id_type matLightID = scene.getMatLightIDs(objectID);
-            vector3_type N = scene.getNormal(objectID, retval.position);
-            N = nbl::hlsl::normalize(N);
-            ray_dir_info_type V;
-            V.setDirection(-ray.direction);
-            isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
-            iso_interaction.luminosityContributionHint = hlsl::normalize(colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput());
+            isotropic_interaction_type iso_interaction = scene.template getInteraction<ray_type>(objectID, retval.position, ray);
             retval.aniso_interaction = anisotropic_interaction_type::create(iso_interaction);
         }
 

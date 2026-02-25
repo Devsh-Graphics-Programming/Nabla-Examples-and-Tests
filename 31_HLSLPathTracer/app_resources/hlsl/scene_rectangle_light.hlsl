@@ -15,6 +15,9 @@ struct SceneRectangleLight : SceneBase
     using object_handle_type = ObjectID;
     using mat_light_id_type = base_t::mat_light_id_type;
 
+    using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+    using interaction_type = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
+
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = base_t::SCENE_LIGHT_COUNT;
@@ -52,10 +55,17 @@ struct SceneRectangleLight : SceneBase
             return mat_light_id_type::createFromPacked(getRectangle(objectID.id).bsdfLightIDs);
     }
 
-    vector3_type getNormal(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    template<class Ray>
+    interaction_type getInteraction(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection, NBL_CONST_REF_ARG(Ray) ray)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_RECTANGLE);
-        return objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getRectangle(objectID.id).getNormalTimesArea();
+        vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getRectangle(objectID.id).getNormalTimesArea();
+        N = hlsl::normalize(N);
+        ray_dir_info_t V;
+        V.setDirection(-ray.direction);
+        interaction_type interaction = interaction_type::create(V, N);
+        interaction.luminosityContributionHint = hlsl::normalize(colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput());
+        return interaction;
     }
 };
 
