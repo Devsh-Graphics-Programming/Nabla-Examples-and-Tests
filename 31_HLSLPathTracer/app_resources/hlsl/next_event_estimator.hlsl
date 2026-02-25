@@ -361,7 +361,7 @@ struct NextEventEstimator
         return shape_sampling_type::create(rect);
     }
 
-    scalar_type deferred_pdf(light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    scalar_type deferred_pdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         const light_type light = lights[lightID.id];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
@@ -369,7 +369,7 @@ struct NextEventEstimator
     }
 
     template<class MaterialSystem>
-    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(MaterialSystem) materialSystem, NBL_CONST_REF_ARG(scene_type) scene, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint16_t depth)
+    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, const vector3_type xi, uint16_t depth)
     {
         light_id_type lightID;
         lightID.id = 0u;

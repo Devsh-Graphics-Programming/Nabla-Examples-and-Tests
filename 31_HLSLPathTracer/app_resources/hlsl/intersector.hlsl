@@ -37,7 +37,7 @@ struct Intersector
     };
     using closest_hit_type = SIntersectData;
 
-    static closest_hit_type traceClosestHit(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    static closest_hit_type traceClosestHit(NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(ray_type) ray)
     {
         object_handle_type objectID;
         objectID.id = object_handle_type::INVALID_ID;
@@ -99,7 +99,7 @@ struct Intersector
         return retval;
     }
 
-    static scalar_type traceShadowRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(object_handle_type) objectID)
+    static scalar_type traceShadowRay(NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(object_handle_type) objectID)
     {
         // prodedural shapes
         NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
