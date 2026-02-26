@@ -108,10 +108,14 @@ struct Ray
         payload.throughput = hlsl::promote<spectral_type>(1.0);
     }
 
+    bool shouldDoMIS()
+    {
+        return payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min;
+    }
+
     spectral_type foundEmissiveMIS(scalar_type pdfSq)
     {
-        return hlsl::mix(hlsl::promote<spectral_type>(1.0), payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic),
-            payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min);
+        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
     }
 
     void addPayloadContribution(const spectral_type contribution)
@@ -171,6 +175,11 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         payload.accumulation = hlsl::promote<vector3_type>(0.0);
         payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
         payload.throughput = hlsl::promote<vector3_type>(1.0);
+    }
+
+    bool shouldDoMIS()
+    {
+        return payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min;
     }
 
     vector3_type foundEmissiveMIS(scalar_type pdfSq)

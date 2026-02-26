@@ -201,6 +201,42 @@ struct MaterialSystem
         return sample_type::create(L, hlsl::promote<vector3_type>(0.0));
     }
 
+    scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
+    {
+        fillBxdfParams(matID);
+        MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
+        switch(matType)
+        {
+            case MaterialType::DIFFUSE:
+            {
+                return diffuseBxDF.pdf(_sample, interaction.isotropic);
+            }
+            break;
+            case MaterialType::CONDUCTOR:
+            {
+                return conductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+            }
+            break;
+            case MaterialType::DIELECTRIC:
+            {
+                return dielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+            }
+            break;
+            case MaterialType::IRIDESCENT_CONDUCTOR:
+            {
+                return iridescentConductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+            }
+            break;
+            case MaterialType::IRIDESCENT_DIELECTRIC:
+            {
+                return iridescentDielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+            }
+            break;
+            default:
+                return scalar_type(0.0);
+        }
+    }
+
     quotient_pdf_type quotient_and_pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
