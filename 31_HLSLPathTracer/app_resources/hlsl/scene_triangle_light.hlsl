@@ -55,18 +55,23 @@ struct SceneTriangleLight : SceneBase
             return mat_light_id_type::createFromPacked(getTriangle(objectID.id).bsdfLightIDs);
     }
 
-    template<class Ray>
-    interaction_type getInteraction(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(vector3_type) intersection, NBL_CONST_REF_ARG(Ray) ray)
+    template<class Intersection, class Ray>
+    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
-        vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getTriangle(objectID.id).getNormalTimesArea();
+        Intersection intersection;
+        intersection.objectID = objectID;
+        intersection.position = rayIntersected.origin + rayIntersected.direction * rayIntersected.intersectionT;
+
+        vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection.position) : getTriangle(objectID.id).getNormalTimesArea();
         N = hlsl::normalize(N);
         ray_dir_info_t V;
-        V.setDirection(-ray.direction);
+        V.setDirection(-rayIntersected.direction);
         interaction_type interaction = interaction_type::create(V, N);
-        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * ray.getPayloadThroughput();
+        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * rayIntersected.getPayloadThroughput();
         interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
-        return interaction;
+        intersection.aniso_interaction = Intersection::interaction_type::create(interaction);
+        return intersection;
     }
 };
 

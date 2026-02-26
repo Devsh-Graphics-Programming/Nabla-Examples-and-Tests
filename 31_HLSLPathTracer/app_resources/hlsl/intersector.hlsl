@@ -89,11 +89,7 @@ struct Intersector
 
         bool foundHit = objectID.id != object_handle_type::INVALID_ID;
         if (foundHit)
-        {
-            retval.position = ray.origin + ray.direction * ray.intersectionT;
-            isotropic_interaction_type iso_interaction = scene.template getInteraction<ray_type>(objectID, retval.position, ray);
-            retval.aniso_interaction = anisotropic_interaction_type::create(iso_interaction);
-        }
+            retval = scene.template getIntersection<closest_hit_type, ray_type>(objectID, ray);
 
         return retval;
     }
