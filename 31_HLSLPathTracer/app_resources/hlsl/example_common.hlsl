@@ -110,7 +110,8 @@ struct Ray
 
     spectral_type foundEmissiveMIS(scalar_type pdfSq)
     {
-        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+        return hlsl::mix(hlsl::promote<spectral_type>(1.0), payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic),
+            payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min);
     }
 
     void addPayloadContribution(const spectral_type contribution)
