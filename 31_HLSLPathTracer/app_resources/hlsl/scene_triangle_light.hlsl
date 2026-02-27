@@ -77,7 +77,7 @@ struct SceneTriangleLight : SceneBase
 };
 
 const Shape<float, PST_TRIANGLE> SceneTriangleLight::light_triangles[1] = {
-    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, SceneBase::SCENE_BXDF_COUNT-1u, 0u)
+    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, SceneBase::SCENE_BXDF_COUNT-1u, 1u)
 };
 
 using scene_type = SceneTriangleLight;
@@ -85,7 +85,12 @@ using scene_type = SceneTriangleLight;
 NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
 using light_type = Light<spectral_t>;
 
+// light id 0 is reserved for env light
+// however, we start indexing light array without env light, so index 0 is first shape light
+// use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
+// which caused frame times to increase from 16ms to 85ms
 static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
+    // imaginary index env light 0 here,
     light_type::create(SceneBase::SCENE_BXDF_COUNT-1u, 0u, LIGHT_TYPE)
 };
 

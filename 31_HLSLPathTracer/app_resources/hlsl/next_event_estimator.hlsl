@@ -363,7 +363,9 @@ struct NextEventEstimator
 
     scalar_type deferred_pdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        const light_type light = lights[lightID.id];
+        if (lightID.id == 0u)
+            return scalar_type(0.0);    // env light pdf=0
+        const light_type light = lights[0u];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
         return sampling.template deferredPdf<ray_type>(ray) / scalar_type(lightCount);
     }
@@ -371,9 +373,11 @@ struct NextEventEstimator
     template<class MaterialSystem>
     sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, uint16_t depth)
     {
-        light_id_type lightID;
-        lightID.id = 0u;
-        const light_type light = lights[lightID.id];
+        // light id 0 is reserved for env light
+        // however, we start indexing light array without env light, so index 0 is first shape light
+        // use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
+        // which caused frame times to increase from 16ms to 85ms
+        const light_type light = lights[0u];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
 
         sample_quotient_return_type retval;
@@ -387,6 +391,9 @@ struct NextEventEstimator
         rayL.setDirection(sampleL);
         retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
+        // returned pdf is for MIS weight only
+        // normally, pdf=inf indicates a point light
+        // but here pdf=inf when solidAngle=0, so quotient of finite area emission =0 due to division by inf
         if (hlsl::isinf(pdf))
         {
             retval.quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
