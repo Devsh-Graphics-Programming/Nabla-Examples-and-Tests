@@ -181,6 +181,13 @@ public:
     inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
         : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+    inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+    {
+        auto retval = device_base_t::getPreferredDeviceFeatures();
+        retval.pipelineExecutableInfo = true;
+        return retval;
+    }
+
     inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
     {
         if (!m_surface)
@@ -374,8 +381,18 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = entryPoint;
                 params.shader.shader = shader.get();
-                
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
                 m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline);
+
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo && pipeline)
+                {
+                    auto report = system::to_string(pipeline->getExecutableInfo());
+                    m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, ShaderKey.value, report.c_str());
+                }
             };
 
         {
@@ -627,16 +644,38 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = "iterateDiffusion";
                 params.shader.shader = diffusion.get();
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline))
+					m_logger->log("Failed to create iterateDiffusion pipeline!\n");
 
-                m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    auto report = system::to_string(m_iterateDiffusionPipeline->getExecutableInfo());
+                    m_logger->log("iterateDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+                }
             }
             {
                 IGPUComputePipeline::SCreationParams params = {};
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = "applyDiffusion";
                 params.shader.shader = diffusion.get();
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline))
+					m_logger->log("Failed to create applyDiffusion pipeline!\n");
 
-                m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    auto report = system::to_string(m_diffusionPipeline->getExecutableInfo());
+                    m_logger->log("applyDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+                }
             }
 
             {

@@ -71,6 +71,13 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 
 		inline bool isComputeOnly() const override { return false; }
 
+		virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getPreferredDeviceFeatures();
+			retval.pipelineExecutableInfo = true;
+			return retval;
+		}
+
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
@@ -361,8 +368,20 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 						params.shader.entries = nullptr;
 						params.cached.requireFullSubgroups = true;
 						params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+						{
+							params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+							params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+						}
+
 						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
 							return logFail("Failed to create compute pipeline!\n");
+						}
+
+						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+						{
+							auto report = system::to_string(m_PTPipelines[index]->getExecutableInfo());
+							m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, PTShaderPaths[index].c_str(), report.c_str());
 						}
 					}
 				}
@@ -500,7 +519,7 @@ class ComputeShaderPathtracer final : public SimpleWindowedApplication, public B
 						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
 						std::exit(-1);
 					}
-				};
+				}
 				{
 					asset::ICPUImage::SCreationParams info;
 					info.format = asset::E_FORMAT::EF_R32G32_UINT;
