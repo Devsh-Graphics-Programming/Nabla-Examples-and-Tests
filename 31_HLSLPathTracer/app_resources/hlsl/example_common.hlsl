@@ -96,7 +96,7 @@ struct Ray
     }
 
     template<class Interaction>
-    void initInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
+    void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
     {
         // empty, only for projected solid angle
     }
@@ -124,7 +124,7 @@ struct Ray
     }
     spectral_type getPayloadAccumulatiion() { return payload.accumulation; }
 
-    void setPayloadMISWeights(const spectral_type throughput, const scalar_type otherTechniqueHeuristic)
+    void updateThroughputAndMISWeights(const spectral_type throughput, const scalar_type otherTechniqueHeuristic)
     {
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
@@ -164,7 +164,7 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     }
 
     template<class Interaction>
-    void initInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
+    void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
     {
         normalAtOrigin = interaction.getN();
         wasBSDFAtOrigin = interaction.isMaterialBSDF();
@@ -193,7 +193,7 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     }
     vector3_type getPayloadAccumulatiion() { return payload.accumulation; }
 
-    void setPayloadMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
+    void updateThroughputAndMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
     {
         payload.throughput = throughput;
         payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
