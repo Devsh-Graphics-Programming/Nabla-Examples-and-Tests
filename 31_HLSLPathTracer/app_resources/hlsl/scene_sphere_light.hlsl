@@ -68,6 +68,7 @@ struct SceneSphereLight : SceneBase
 
         vector3_type N = getSphere(objectID.id).getNormal(intersection.position);
         N = hlsl::normalize(N);
+        intersection.geometricNormal = N;
         ray_dir_info_t V;
         V.setDirection(-rayIntersected.direction);
         interaction_type interaction = interaction_type::create(V, N);

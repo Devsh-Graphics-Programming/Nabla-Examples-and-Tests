@@ -65,6 +65,7 @@ struct SceneRectangleLight : SceneBase
 
         vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection.position) : getRectangle(objectID.id).getNormalTimesArea();
         N = hlsl::normalize(N);
+        intersection.geometricNormal = N;
         ray_dir_info_t V;
         V.setDirection(-rayIntersected.direction);
         interaction_type interaction = interaction_type::create(V, N);

@@ -29,11 +29,13 @@ struct Intersector
         object_handle_type objectID;
         vector3_type position;
         interaction_type aniso_interaction;
+        vector3_type geometricNormal;
 
         bool foundHit() NBL_CONST_MEMBER_FUNC { return !hlsl::isnan(position.x); }
         object_handle_type getObjectID() NBL_CONST_MEMBER_FUNC { return objectID; }
         vector3_type getPosition() NBL_CONST_MEMBER_FUNC { return position; }
         interaction_type getInteraction() NBL_CONST_MEMBER_FUNC { return aniso_interaction; }
+        vector3_type getGeometricNormal() NBL_CONST_MEMBER_FUNC { return geometricNormal; }
     };
     using closest_hit_type = SIntersectData;
 
