@@ -109,7 +109,7 @@ using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_
 using accumulator_type = path_tracing::DefaultAccumulator<float32_t3>;
 #endif
 
-using pathtracer_type = path_tracing::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
+using pathtracer_type = path_tracing::Unidirectional<randgen_type, ray_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
 
 RenderPushConstants retireveRenderPushConstants()
 {
@@ -165,7 +165,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up path tracer
     pathtracer_type pathtracer;
-    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
 
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
@@ -182,11 +181,14 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     scene_type scene;
     scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
 
+    raygen_type rayGen;
+    rayGen.pixOffsetParam = pixOffsetParam;
+    rayGen.camPos = camPos;
+    rayGen.NDC = NDC;
+    rayGen.invMVP = renderPushConstants.invMVP;
+
     pathtracer.scene = scene;
-    pathtracer.rayGen.pixOffsetParam = pixOffsetParam; 
-    pathtracer.rayGen.camPos = camPos;
-    pathtracer.rayGen.NDC = NDC;
-    pathtracer.rayGen.invMVP = renderPushConstants.invMVP;
+    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
     pathtracer.nee.lights = lights;
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
@@ -202,7 +204,12 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     // path tracing loop
     for(int i = 0; i < renderPushConstants.sampleCount; ++i)
-        pathtracer.sampleMeasure(i, renderPushConstants.depth, accumulator);
+    {
+        float32_t3 uvw = pathtracer.randGen(0u, i);
+        ray_type ray = rayGen.generate(uvw);
+        ray.initPayload();
+        pathtracer.sampleMeasure(ray, i, renderPushConstants.depth, accumulator);
+    }
 
 #ifdef RWMC_ENABLED
     for (uint32_t i = 0; i < CascadeCount; ++i)
