@@ -1,0 +1,8 @@
+{
+  "row_view": true,
+  "cases": [
+    "../media/ply/Spanner-ply.ply",
+    "../media/yellowflower.obj",
+    "../media/Stanford_Bunny.stl"
+  ]
+}
