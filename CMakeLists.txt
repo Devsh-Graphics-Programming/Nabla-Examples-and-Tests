@@ -74,6 +74,7 @@ if(NBL_BUILD_EXAMPLES)
 	# Showcase compute pathtracing
 	add_subdirectory(30_ComputeShaderPathTracer)
 
+	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
