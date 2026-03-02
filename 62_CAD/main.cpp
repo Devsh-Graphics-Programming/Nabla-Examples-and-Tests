@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -1966,7 +1966,7 @@ protected:
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
 			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				// Degenerate and Corner cases for hatches
 				{
@@ -2032,7 +2032,7 @@ protected:
 					}
 				}
 			}
-			if (hatchDebugStep > 0)
+			if (true)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -2043,6 +2043,41 @@ protected:
 					// assert(polylines[i].checkSectionsContunuity());
 					//drawResourcesFiller.drawPolyline(polylines[i], lineStyle, intendedNextSubmit);
 				}
+
+#if 1
+				auto circleThing = [&](float64_t2 offset)
+				{
+					CPolyline polyline;
+					std::vector<shapes::QuadraticBezier<double>> beziers;
+
+					beziers.push_back({ float64_t2(0, -1), float64_t2(-1, -1),float64_t2(-1, 0) });
+					beziers.push_back({ float64_t2(0, -1), float64_t2(1, -1),float64_t2(1, 0) });
+					beziers.push_back({ float64_t2(-1, 0), float64_t2(-1, 1),float64_t2(0, 1) });
+					beziers.push_back({ float64_t2(1, 0), float64_t2(1, 1),float64_t2(0, 1) });
+
+					for (uint32_t i = 0; i < beziers.size(); i++)
+					{
+						beziers[i].P0 = (beziers[i].P0 * 50.0) + offset;
+						beziers[i].P1 = (beziers[i].P1 * 50.0) + offset;
+						beziers[i].P2 = (beziers[i].P2 * 50.0) + offset;
+					}
+
+					polyline.addQuadBeziers(beziers);
+
+					polylines.push_back(polyline);
+				};
+
+				float64_t2 offsettMain = { 50.0, 50.0 };
+				float64_t2 offsett = {30.0 * cos(m_timeElapsed * 0.002), 20.0 * sin(m_timeElapsed * 0.002)};
+				float64_t2 offsett2 = {30.0 * cos(m_timeElapsed * 0.002 + 1.0) , 20.0 * sin(m_timeElapsed * 0.002 + 1.0)};
+
+				circleThing(float64_t2(-50, 0) - offsett + offsettMain);
+				circleThing(float64_t2(50, 0)  - offsett2 + offsettMain);
+				circleThing(float64_t2(0, -50) + offsett + offsettMain);
+				circleThing(float64_t2(0, 50) + offsett2 + offsettMain);
+
+#endif
+
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
@@ -2060,7 +2095,7 @@ protected:
 				//).c_str());
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2103,7 +2138,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
@@ -2135,7 +2170,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2173,7 +2208,7 @@ protected:
 					polyline.addQuadBeziers(beziers);
 				}
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				{
@@ -2287,7 +2322,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -2325,7 +2360,7 @@ protected:
 				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				CPolyline polyline;
 				std::vector<shapes::QuadraticBezier<double>> beziers;
