@@ -386,22 +386,19 @@ struct NextEventEstimator
 
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
-        
-        ray_dir_info_type rayL;
-        rayL.setDirection(sampleL);
-        retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
         // returned pdf is for MIS weight only
         // normally, pdf=inf indicates a point light
         // but here pdf=inf when solidAngle=0, so quotient of finite area emission =0 due to division by inf
-        if (hlsl::isinf(pdf))
+        // also for NdotL, normally would have to check conditionalMaxOrAbs(NdotL,0.0f,isBSDF) > min
+        // because BSDFs should receive light from the backside
+        // however, unnecessary for this example because scene has only watertight geometry
+        if (pdf > numeric_limits<scalar_type>::min && !hlsl::isinf(pdf) && NdotL > numeric_limits<scalar_type>::min)
         {
-            retval.quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
-            return retval;
-        }
+            ray_dir_info_type rayL;
+            rayL.setDirection(sampleL);
+            retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
-        if (retval.sample_.getNdotL() > numeric_limits<scalar_type>::min && retval.sample_.isValid())
-        {
             newRayMaxT *= tolerance_method_type::getEnd(depth);
             pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
@@ -413,6 +410,9 @@ struct NextEventEstimator
         else
         {
             retval.quotient_pdf = quotient_pdf_type::create(0.0, 0.0);
+            ray_dir_info_type rayL;
+            rayL.makeInvalid();
+            retval.sample_ = sample_type::create(rayL,hlsl::promote<vector3_type>(0.0));
         }
 
         return retval;
