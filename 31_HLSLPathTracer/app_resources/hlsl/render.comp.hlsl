@@ -190,9 +190,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.scene = scene;
     pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
     pathtracer.nee.lights = lights;
-    pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
-    pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
     pathtracer.bxdfPdfThreshold = 0.0001;
     pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
     pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];

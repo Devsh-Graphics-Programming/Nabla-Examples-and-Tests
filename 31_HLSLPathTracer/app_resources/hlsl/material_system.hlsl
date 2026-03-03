@@ -300,7 +300,6 @@ struct MaterialSystem
     IridescentDielectricBxDF iridescentDielectricBxDF;
 
     bxdfnode_type bxdfs[Scene::SCENE_BXDF_COUNT];
-    uint32_t bxdfCount;
 };
 
 #endif

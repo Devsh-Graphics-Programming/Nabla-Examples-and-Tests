@@ -367,7 +367,7 @@ struct NextEventEstimator
             return scalar_type(0.0);    // env light pdf=0
         const light_type light = lights[0u];
         const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
-        return sampling.template deferredPdf<ray_type>(ray) / scalar_type(lightCount);
+        return sampling.template deferredPdf<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
     template<class MaterialSystem>
@@ -403,7 +403,7 @@ struct NextEventEstimator
         if (retval.sample_.getNdotL() > numeric_limits<scalar_type>::min && retval.sample_.isValid())
         {
             newRayMaxT *= tolerance_method_type::getEnd(depth);
-            pdf *= 1.0 / scalar_type(lightCount);
+            pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
             retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
@@ -412,7 +412,7 @@ struct NextEventEstimator
         }
         else
         {
-            retval.quotient_pdf = quotient_pdf_type::create(1.0, 0.0);
+            retval.quotient_pdf = quotient_pdf_type::create(0.0, 0.0);
         }
 
         return retval;
@@ -425,7 +425,6 @@ struct NextEventEstimator
     }
 
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
-    uint32_t lightCount;
 };
 
 #endif
