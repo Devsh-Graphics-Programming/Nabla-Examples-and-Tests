@@ -131,27 +131,22 @@ struct MaterialSystem
             {
                 return bxdfs[matID.id].albedo * diffuseBxDF.eval(_sample, interaction.isotropic);
             }
-            break;
             case MaterialType::CONDUCTOR:
             {
                 return conductorBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::DIELECTRIC:
             {
                 return dielectricBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
                 return iridescentConductorBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
                 return iridescentDielectricBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             default:
                 return hlsl::promote<measure_type>(0.0);
         }
@@ -167,27 +162,22 @@ struct MaterialSystem
             {
                 return diffuseBxDF.generate(interaction, u.xy);
             }
-            break;
             case MaterialType::CONDUCTOR:
             {
                 return conductorBxDF.generate(interaction, u.xy, _cache);
             }
-            break;
             case MaterialType::DIELECTRIC:
             {
                 return dielectricBxDF.generate(interaction, u, _cache);
             }
-            break;
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
                 return iridescentConductorBxDF.generate(interaction, u.xy, _cache);
             }
-            break;
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
                 return iridescentDielectricBxDF.generate(interaction, u, _cache);
             }
-            break;
             default:
             {
                 ray_dir_info_type L;
@@ -195,10 +185,6 @@ struct MaterialSystem
                 return sample_type::create(L, hlsl::promote<vector3_type>(0.0));
             }
         }
-
-        ray_dir_info_type L;
-        L.makeInvalid();
-        return sample_type::create(L, hlsl::promote<vector3_type>(0.0));
     }
 
     scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
@@ -211,27 +197,22 @@ struct MaterialSystem
             {
                 return diffuseBxDF.pdf(_sample, interaction.isotropic);
             }
-            break;
             case MaterialType::CONDUCTOR:
             {
                 return conductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::DIELECTRIC:
             {
                 return dielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
                 return iridescentConductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
                 return iridescentDielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
             }
-            break;
             default:
                 return scalar_type(0.0);
         }
@@ -252,29 +233,24 @@ struct MaterialSystem
                     ret.quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
-                break;
                 case MaterialType::CONDUCTOR:
                 {
                     return conductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
                 }
-                break;
                 case MaterialType::DIELECTRIC:
                 {
                     return dielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
                 }
-                break;
                 case MaterialType::IRIDESCENT_CONDUCTOR:
                 {
                     return iridescentConductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
                 }
-                break;
                 case MaterialType::IRIDESCENT_DIELECTRIC:
                 {
                     return iridescentDielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
                 }
-                break;
                 default:
-                    return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
+                    break;
             }
         }
         return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
