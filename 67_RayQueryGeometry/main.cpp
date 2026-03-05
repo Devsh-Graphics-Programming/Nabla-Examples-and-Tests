@@ -563,11 +563,12 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
 
 					
-				} else if (std::holds_alternative<GeometryCollectionData>(cpuObjects[blas_i].data))
+				}
+				else if (std::holds_alternative<GeometryCollectionData>(cpuObjects[blas_i].data))
 				{
 					
 					const auto data = std::get<GeometryCollectionData>(cpuObjects[blas_i].data);
-
+					// TODO: make this codepath use blas exports
 					const auto& geometries = *data->getGeometries();
 					const auto geometryCount = geometries.size();
 
