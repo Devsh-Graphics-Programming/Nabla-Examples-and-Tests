@@ -133,9 +133,9 @@ struct MaterialSystem
         }
     }
 
-    measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
+    measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
-        // fillBxdfParams(matID, _cache);
+        cache_type _cache = getCacheFromSampleInteraction(matID, _sample, interaction);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
@@ -199,9 +199,9 @@ struct MaterialSystem
         }
     }
 
-    scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
+    scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
-        // fillBxdfParams(matID, _cache);
+        cache_type _cache = getCacheFromSampleInteraction(matID, _sample, interaction);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
@@ -235,7 +235,6 @@ struct MaterialSystem
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
         {
-            // fillBxdfParams(matID, _cache);
             MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
             switch(matType)
             {
