@@ -151,14 +151,6 @@ private:
     bool parseCommandLineOptions(const system::path& effectiveInputCWD, const system::path& effectiveOutputCWD, const system::path& defaultBenchmarkTestListPath);
     std::string makeCaptionModelPath() const;
 
-    static std::string sanitizeCaseNameForFilename(std::string name);
-    system::path getGeometryHashReferencePath(const std::string& caseName) const;
-    static std::string geometryHashToHex(const core::blake3_hash_t& hash);
-    static bool tryParseNibble(char c, uint8_t& out);
-    static bool tryParseGeometryHashHex(std::string hex, core::blake3_hash_t& outHash);
-    bool readGeometryHashReference(const system::path& refPath, core::blake3_hash_t& outHash) const;
-    bool writeGeometryHashReference(const system::path& refPath, const core::blake3_hash_t& hash) const;
-
     bool startCase(size_t index);
     bool advanceToNextCase();
     void reloadInteractive();
@@ -170,7 +162,6 @@ private:
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
     bool loadRowView(RowViewReloadMode mode);
     bool writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath);
-    bool runHashConsistencyChecks();
 
     void setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bound);
 
@@ -193,7 +184,6 @@ private:
     void logRowViewAssetLoad(const system::path& path, double ms, bool cached) const;
     void logRowViewLoadTotal(double ms, size_t hits, size_t misses) const;
 
-    core::blake3_hash_t hashGeometry(const ICPUPolygonGeometry* geo);
     bool validateWrittenAsset(const system::path& path);
     bool captureScreenshot(const system::path& path, core::smart_refctd_ptr<asset::ICPUImageView>& outImage);
     bool appendGeometriesFromBundle(const asset::SAssetBundle& bundle, core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& out) const;
@@ -248,16 +238,11 @@ private:
     nbl::system::path m_screenshotPrefixPath;
     nbl::system::path m_rowViewScreenshotPath;
     nbl::system::path m_testListPath;
-    nbl::system::path m_geometryHashReferenceDir;
-    nbl::system::path m_caseGeometryHashReferencePath;
     std::optional<nbl::system::path> m_loaderPerfLogPath;
     std::optional<nbl::system::path> m_rowAddPath;
     uint32_t m_rowDuplicateCount = 0u;
     smart_refctd_ptr<system::ILogger> m_assetLoadLogger;
     smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
-    bool m_updateGeometryHashReferences = false;
-    bool m_forceLoaderContentHashes = true;
-    bool m_hashTestOnly = false;
     asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
 
     RunMode m_runMode = RunMode::Batch;
@@ -274,8 +259,6 @@ private:
     nbl::system::path m_writtenScreenshotPath;
 
     core::smart_refctd_ptr<const ICPUPolygonGeometry> m_currentCpuGeom;
-    core::blake3_hash_t m_referenceGeometryHash = {};
-    bool m_hasReferenceGeometryHash = false;
 
     core::smart_refctd_ptr<asset::ICPUImageView> m_loadedScreenshot;
     core::smart_refctd_ptr<asset::ICPUImageView> m_writtenScreenshot;

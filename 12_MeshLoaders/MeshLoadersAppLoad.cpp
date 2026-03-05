@@ -768,8 +768,6 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
-    if (!m_forceLoaderContentHashes)
-        params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES);
     return params;
 }
 

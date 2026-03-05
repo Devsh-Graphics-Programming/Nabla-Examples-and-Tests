@@ -6,7 +6,6 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Default input list: `inputs.json`
 - Default mode: `batch`
 - Default tuning: `heuristic`
-- Loader content hashes: enabled by default
 - Output meshes: `saved/`
 - Output screenshots: `screenshots/`
 
@@ -18,8 +17,6 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - Opens file dialog and loads one model.
 - `ci`
   - Runs strict pass/fail validation per case.
-- `hash-test`
-  - Headless `IPreHashed` integrity check per geometry (invalid before recompute, valid after recompute).
 
 ## Row view concept
 - `row_view` means one scene containing all cases from the test list.
@@ -32,10 +29,6 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - run with `--interactive`
 - Validate load/write correctness:
   - run with `--ci`
-- Refresh geometry references:
-  - run with `--update-references` (usually with `--ci`)
-- Validate content hash consistency only (no write/screenshot roundtrip):
-  - run with `--hash-test`
 
 ## Optional benchmark datasets via CMake
 - Use this when you want larger/public inputs downloaded automatically.
@@ -44,7 +37,6 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Configure options:
   - `NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS=ON`
   - `NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST=ON|OFF` (default: `OFF`)
-  - `NBL_MESHLOADERS_ENABLE_HASH_CTESTS=ON|OFF` (default: `OFF`)
   - `NBL_MESHLOADERS_BENCHMARK_DATASET_DIR=<path>` (optional, default: build dir)
   - `NBL_MESHLOADERS_BENCHMARK_DATASET_REPO=<git-url>` (optional, default: public repo above)
   - `NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH=<path>` (optional, default: `inputs_benchmark.json`)
@@ -62,23 +54,18 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Run benchmark CI directly via `ctest`:
   - `ctest --output-on-failure -C Debug -R NBL_MESHLOADERS_CI_BENCHMARK`
   - runs both benchmark CI modes: `heuristic` and `hybrid`
-  - benchmark CTest uses `--update-references` for payload-driven case names
 - Run default CI directly via `ctest` (no benchmark datasets enabled):
   - `ctest --output-on-failure -C Debug -R ^NBL_MESHLOADERS_CI$`
   - uses default `inputs.json` (3 inputs)
-- Run hash consistency tests directly via `ctest`:
-  - `ctest --output-on-failure -C Debug -R NBL_MESHLOADERS_HASH_TEST`
-  - requires `NBL_MESHLOADERS_ENABLE_HASH_CTESTS=ON` at configure time
-  - runs both tuning modes: `heuristic` and `hybrid`
-  - if benchmark datasets are enabled, hash tests use benchmark payload test list
+- Hash parity tests now live in Nabla tool:
+  - `ctest --output-on-failure -C Debug -R NBL_HCP`
+  - tool: `tools/hcp` (headless, dummy-blob based parity checks)
 
 ## CLI
 - `--ci`
   - strict validation run
 - `--interactive`
   - file-dialog run
-- `--hash-test`
-  - headless load + prehash consistency check, then exit
 - `--testlist <path>`
   - custom JSON list
 - `--savegeometry`
@@ -91,12 +78,8 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - duplicate last row-view case
 - `--loader-perf-log <path>`
   - redirect loader diagnostics
-- `--runtime-tuning <none|heuristic|hybrid>`
+- `--runtime-tuning <sequential|heuristic|hybrid>`
   - IO runtime tuning mode
-- `--loader-content-hashes`
-  - compatibility switch; already enabled by default
-- `--update-references`
-  - regenerate `references/*.geomhash`
 
 ## Controls (non-CI)
 - Arrow keys: move camera
@@ -124,8 +107,6 @@ Rules:
 - relative paths resolve against JSON file directory
 
 ## What CI validates
-- Per-case geometry hash:
-  - deterministic `BLAKE3` hash compared with `references/*.geomhash`
 - Per-case image consistency:
   - `*_loaded.png` vs `*_written.png` code-unit diff
   - thresholds come from `MaxImageDiffCodeUnits` and `MaxImageDiffCodeUnitValue` in `MeshLoadersApp.hpp`

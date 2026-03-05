@@ -4,10 +4,7 @@
 
 #include "MeshLoadersApp.hpp"
 
-#include "nbl/asset/IPreHashed.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "nbl/asset/interchange/SGeometryContentHashCommon.h"
-#include "nbl/core/hash/blake.h"
 #include "nbl/examples/common/ImageComparison.h"
 
 std::string MeshLoadersApp::makeUniqueCaseName(const system::path& path)
@@ -83,181 +80,6 @@ void MeshLoadersApp::logRowViewLoadTotal(const double ms, const size_t hits, con
         ms,
         static_cast<unsigned long long>(hits),
         static_cast<unsigned long long>(misses));
-}
-
-core::blake3_hash_t MeshLoadersApp::hashGeometry(const ICPUPolygonGeometry* geo)
-{
-    if (!geo)
-        return asset::IPreHashed::INVALID_HASH;
-
-    auto* mutableGeo = const_cast<ICPUPolygonGeometry*>(geo);
-    CPolygonGeometryManipulator::recomputeContentHashes(mutableGeo);
-
-    core::vector<core::smart_refctd_ptr<ICPUBuffer>> buffers;
-    asset::SPolygonGeometryContentHash::collectBuffers(mutableGeo, buffers);
-    if (buffers.empty())
-        return asset::IPreHashed::INVALID_HASH;
-
-    core::blake3_hasher hasher;
-    if (const auto* indexing = geo->getIndexingCallback(); indexing)
-    {
-        hasher << indexing->degree();
-        hasher << indexing->rate();
-        hasher << indexing->knownTopology();
-    }
-    for (const auto& buffer : buffers)
-    {
-        if (!buffer)
-            continue;
-        hasher << buffer->getContentHash();
-    }
-    return static_cast<core::blake3_hash_t>(hasher);
-}
-
-bool MeshLoadersApp::runHashConsistencyChecks()
-{
-    using clock_t = std::chrono::high_resolution_clock;
-
-    if (m_cases.empty())
-        return logFail("Hash test requires at least one test case.");
-
-    IAssetLoader::SAssetLoadParams params = makeLoadParams();
-    params.logger = nullptr;
-    params.loaderFlags = static_cast<IAssetLoader::E_LOADER_PARAMETER_FLAGS>(params.loaderFlags | IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES);
-
-    double totalLoadMs = 0.0;
-    uint64_t totalGeometryCount = 0ull;
-    uint64_t totalBufferCount = 0ull;
-    uint64_t totalInvalidBefore = 0ull;
-
-    for (const auto& testCase : m_cases)
-    {
-        m_assetMgr->clearAllAssetCache();
-
-        AssetLoadCallResult loadResult = {};
-        if (!loadAssetCallFromPath(testCase.path, params, loadResult))
-            failExit("Hash test failed to load input %s.", testCase.path.string().c_str());
-        totalLoadMs += loadResult.getAssetMs;
-
-        if (loadResult.bundle.getContents().empty())
-            failExit("Hash test loaded empty asset for %s.", testCase.path.string().c_str());
-
-        core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-        if (!appendGeometriesFromBundle(loadResult.bundle, geometries))
-            failExit("Hash test found no polygon geometry in %s.", testCase.path.string().c_str());
-
-        uint64_t caseBufferCount = 0ull;
-        uint64_t caseInvalidBefore = 0ull;
-
-        for (size_t geoIx = 0u; geoIx < geometries.size(); ++geoIx)
-        {
-            auto* geometry = const_cast<ICPUPolygonGeometry*>(geometries[geoIx].get());
-            if (!geometry)
-                failExit("Hash test failed to access geometry %llu in %s.", static_cast<unsigned long long>(geoIx), testCase.path.string().c_str());
-
-            core::vector<core::smart_refctd_ptr<ICPUBuffer>> buffers;
-            asset::SPolygonGeometryContentHash::collectBuffers(geometry, buffers);
-            if (buffers.empty())
-                continue;
-
-            for (const auto& buffer : buffers)
-            {
-                if (!buffer)
-                    continue;
-                if (buffer->getContentHash() != asset::IPreHashed::INVALID_HASH)
-                    failExit("Hash test expected invalid prehash for %s geo=%llu.", testCase.path.string().c_str(), static_cast<unsigned long long>(geoIx));
-                ++caseInvalidBefore;
-            }
-
-            const auto recomputeStart = clock_t::now();
-            const auto aggregateHash = hashGeometry(geometry);
-            const auto recomputeMs = toMs(clock_t::now() - recomputeStart);
-            if (aggregateHash == asset::IPreHashed::INVALID_HASH)
-                failExit("Hash test recompute failed for %s geo=%llu.", testCase.path.string().c_str(), static_cast<unsigned long long>(geoIx));
-
-            for (size_t bufferIx = 0u; bufferIx < buffers.size(); ++bufferIx)
-            {
-                const auto& buffer = buffers[bufferIx];
-                if (!buffer)
-                    continue;
-
-                if (buffer->getContentHash() == asset::IPreHashed::INVALID_HASH)
-                    failExit("Hash test buffer still invalid for %s geo=%llu buffer=%llu.", testCase.path.string().c_str(), static_cast<unsigned long long>(geoIx), static_cast<unsigned long long>(bufferIx));
-
-                const auto* const ptr = buffer->getPointer();
-                const size_t size = buffer->getSize();
-                if (!ptr || size == 0ull)
-                    continue;
-
-                const auto expected = core::blake3_hash_buffer(ptr, size);
-                if (expected != buffer->getContentHash())
-                {
-                    failExit(
-                        "Hash test mismatch for %s geo=%llu buffer=%llu expected=%s actual=%s",
-                        testCase.path.string().c_str(),
-                        static_cast<unsigned long long>(geoIx),
-                        static_cast<unsigned long long>(bufferIx),
-                        geometryHashToHex(expected).c_str(),
-                        geometryHashToHex(buffer->getContentHash()).c_str());
-                }
-            }
-
-            const auto aggregateHashRepeat = hashGeometry(geometry);
-            if (aggregateHashRepeat != aggregateHash)
-            {
-                failExit(
-                    "Hash test aggregate instability for %s geo=%llu first=%s second=%s",
-                    testCase.path.string().c_str(),
-                    static_cast<unsigned long long>(geoIx),
-                    geometryHashToHex(aggregateHash).c_str(),
-                    geometryHashToHex(aggregateHashRepeat).c_str());
-            }
-
-            if (m_logger)
-            {
-                m_logger->log(
-                    "Hash test geometry: %s geo=%llu buffers=%llu recompute=%.3f ms aggregate=%s",
-                    ILogger::ELL_INFO,
-                    testCase.path.string().c_str(),
-                    static_cast<unsigned long long>(geoIx),
-                    static_cast<unsigned long long>(buffers.size()),
-                    recomputeMs,
-                    geometryHashToHex(aggregateHash).c_str());
-            }
-
-            caseBufferCount += buffers.size();
-            ++totalGeometryCount;
-        }
-
-        totalBufferCount += caseBufferCount;
-        totalInvalidBefore += caseInvalidBefore;
-
-        if (m_logger)
-        {
-            m_logger->log(
-                "Hash test case: %s load=%.3f ms geos=%llu buffers=%llu invalid_before=%llu",
-                ILogger::ELL_INFO,
-                testCase.path.string().c_str(),
-                loadResult.getAssetMs,
-                static_cast<unsigned long long>(geometries.size()),
-                static_cast<unsigned long long>(caseBufferCount),
-                static_cast<unsigned long long>(caseInvalidBefore));
-        }
-    }
-
-    if (m_logger)
-    {
-        m_logger->log(
-            "Hash test summary: cases=%llu geos=%llu buffers=%llu invalid_before=%llu load=%.3f ms",
-            ILogger::ELL_INFO,
-            static_cast<unsigned long long>(m_cases.size()),
-            static_cast<unsigned long long>(totalGeometryCount),
-            static_cast<unsigned long long>(totalBufferCount),
-            static_cast<unsigned long long>(totalInvalidBefore),
-            totalLoadMs);
-    }
-
-    return true;
 }
 
 bool MeshLoadersApp::validateWrittenAsset(const system::path& path)
@@ -423,13 +245,6 @@ void MeshLoadersApp::advanceCase()
     {
         if (!captureScreenshot(m_writtenScreenshotPath, m_writtenScreenshot))
             failExit("Failed to capture written screenshot.");
-
-        if (m_hasReferenceGeometryHash)
-        {
-            const auto writtenHash = hashGeometry(m_currentCpuGeom.get());
-            if (writtenHash != m_referenceGeometryHash)
-                failExit("Geometry hash mismatch for %s. Current=%s Reference=%s ReferenceFile=%s", m_caseName.c_str(), geometryHashToHex(writtenHash).c_str(), geometryHashToHex(m_referenceGeometryHash).c_str(), m_caseGeometryHashReferencePath.empty() ? "<none>" : m_caseGeometryHashReferencePath.string().c_str());
-        }
 
         uint64_t diffCodeUnitCount = 0u;
         uint32_t maxDiffCodeUnitValue = 0u;

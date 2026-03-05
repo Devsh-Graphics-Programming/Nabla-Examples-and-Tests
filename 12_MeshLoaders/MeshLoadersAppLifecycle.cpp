@@ -13,7 +13,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -146,9 +145,6 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
     parser.add_argument("--ci")
         .help("Run in CI mode: load test list, write .ply, capture screenshots, compare data, and exit.")
         .flag();
-    parser.add_argument("--hash-test")
-        .help("Run headless prehash consistency check: invalid before recompute, valid after recompute, then exit.")
-        .flag();
     parser.add_argument("--interactive")
         .help("Use file dialog to select a single model.")
         .flag();
@@ -164,15 +160,9 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
     parser.add_argument("--loader-perf-log")
         .nargs(1)
         .help("Write loader diagnostics to a file instead of stdout.");
-    parser.add_argument("--loader-content-hashes")
-        .help("Force loaders to compute CPU buffer content hashes before returning. Enabled by default.")
-        .flag();
     parser.add_argument("--runtime-tuning")
         .nargs(1)
-        .help("Runtime tuning mode for loaders: none|heuristic|hybrid. Default: heuristic.");
-    parser.add_argument("--update-references")
-        .help("Update or create geometry hash references for CI validation.")
-        .flag();
+        .help("Runtime tuning mode for loaders: sequential|heuristic|hybrid. Default: heuristic.");
 
     try
     {
@@ -189,11 +179,6 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
         m_runMode = RunMode::Interactive;
     if (parser["--ci"] == true)
         m_runMode = RunMode::CI;
-    if (parser["--hash-test"] == true)
-    {
-        m_hashTestOnly = true;
-        m_runMode = RunMode::CI;
-    }
     const bool hasExplicitTestListArg = parser.present("--testlist").has_value();
 
     if (parser.present("--savepath"))
@@ -254,22 +239,18 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
             tmp = effectiveOutputCWD / tmp;
         m_loaderPerfLogPath = tmp;
     }
-    if (parser["--update-references"] == true)
-        m_updateGeometryHashReferences = true;
-    if (parser["--loader-content-hashes"] == true)
-        m_forceLoaderContentHashes = true;
     if (parser.present("--runtime-tuning"))
     {
         auto mode = parser.get<std::string>("--runtime-tuning");
         std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (mode == "none")
-            m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::None;
+        if (mode == "sequential" || mode == "none")
+            m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Sequential;
         else if (mode == "heuristic")
             m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
         else if (mode == "hybrid")
             m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Hybrid;
         else
-            return logFail("Invalid --runtime-tuning value. Expected: none|heuristic|hybrid.");
+            return logFail("Invalid --runtime-tuning value. Expected: sequential|heuristic|hybrid.");
     }
 
     return true;
@@ -294,23 +275,6 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 #endif
     if (!parseCommandLineOptions(effectiveInputCWD, effectiveOutputCWD, defaultBenchmarkTestListPath))
         return false;
-
-    const path inputReferencesDir = effectiveInputCWD / "references";
-    const path outputReferencesDir = effectiveOutputCWD / "references";
-    std::error_code referenceDirEc;
-    const bool hasInputReferencesDir = std::filesystem::is_directory(inputReferencesDir, referenceDirEc) && !referenceDirEc;
-    referenceDirEc.clear();
-    const bool hasOutputReferencesDir = std::filesystem::is_directory(outputReferencesDir, referenceDirEc) && !referenceDirEc;
-    m_geometryHashReferenceDir = hasOutputReferencesDir || !hasInputReferencesDir ? outputReferencesDir : inputReferencesDir;
-    if (hasOutputReferencesDir && !hasInputReferencesDir)
-        m_logger->log("Geometry hash references resolved to output directory: %s", system::ILogger::ELL_INFO, m_geometryHashReferenceDir.string().c_str());
-    if (m_runMode == RunMode::CI || m_updateGeometryHashReferences)
-    {
-        std::error_code ec;
-        std::filesystem::create_directories(m_geometryHashReferenceDir, ec);
-        if (ec)
-            return logFail("Failed to create geometry hash reference directory: %s", m_geometryHashReferenceDir.string().c_str());
-    }
 
     if (m_saveGeom)
         std::filesystem::create_directories(m_saveGeomPrefixPath);
@@ -342,31 +306,21 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         return logFail("Failed to create renderer!");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
-        if (!m_hashTestOnly)
-        {
-            auto* renderpass = scRes->getRenderpass();
-            ext::debug_draw::DrawAABB::SCreationParameters params = {};
-            params.assetManager = m_assetMgr;
-            params.transfer = getTransferUpQueue();
-            params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
-            params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
-            params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
-            params.utilities = m_utils;
-            m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
-        }
+    {
+        auto* renderpass = scRes->getRenderpass();
+        ext::debug_draw::DrawAABB::SCreationParameters params = {};
+        params.assetManager = m_assetMgr;
+        params.transfer = getTransferUpQueue();
+        params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
+        params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+        params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+        params.utilities = m_utils;
+        m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
+    }
 #endif
 
     if (!initTestCases())
         return false;
-
-    if (m_hashTestOnly)
-    {
-        if (!runHashConsistencyChecks())
-            return false;
-        m_shouldQuit = true;
-        onAppInitializedFinish();
-        return true;
-    }
 
     if (isRowViewActive())
     {
@@ -780,98 +734,6 @@ system::path MeshLoadersApp::resolveSavePath(const system::path& modelPath) cons
     return m_saveGeomPrefixPath / (stem + "_written" + ext);
 }
 
-std::string MeshLoadersApp::sanitizeCaseNameForFilename(std::string name)
-{
-    for (auto& ch : name)
-    {
-        const unsigned char uch = static_cast<unsigned char>(ch);
-        if (!(std::isalnum(uch) || ch == '_' || ch == '-' || ch == '.'))
-            ch = '_';
-    }
-    if (name.empty())
-        name = "unnamed_case";
-    return name;
-}
-
-system::path MeshLoadersApp::getGeometryHashReferencePath(const std::string& caseName) const
-{
-    return m_geometryHashReferenceDir / (sanitizeCaseNameForFilename(caseName) + ".geomhash");
-}
-
-std::string MeshLoadersApp::geometryHashToHex(const core::blake3_hash_t& hash)
-{
-    static constexpr char HexDigits[] = "0123456789abcdef";
-    std::string out;
-    out.resize(sizeof(hash.data) * 2ull);
-    for (size_t i = 0ull; i < sizeof(hash.data); ++i)
-    {
-        const uint8_t v = hash.data[i];
-        out[2ull * i + 0ull] = HexDigits[(v >> 4) & 0xfu];
-        out[2ull * i + 1ull] = HexDigits[v & 0xfu];
-    }
-    return out;
-}
-
-bool MeshLoadersApp::tryParseNibble(const char c, uint8_t& out)
-{
-    if (c >= '0' && c <= '9')
-    {
-        out = static_cast<uint8_t>(c - '0');
-        return true;
-    }
-    if (c >= 'a' && c <= 'f')
-    {
-        out = static_cast<uint8_t>(10 + c - 'a');
-        return true;
-    }
-    if (c >= 'A' && c <= 'F')
-    {
-        out = static_cast<uint8_t>(10 + c - 'A');
-        return true;
-    }
-    return false;
-}
-
-bool MeshLoadersApp::tryParseGeometryHashHex(std::string hex, core::blake3_hash_t& outHash)
-{
-    hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c) != 0; }), hex.end());
-    if (hex.size() != sizeof(outHash.data) * 2ull)
-        return false;
-
-    for (size_t i = 0ull; i < sizeof(outHash.data); ++i)
-    {
-        uint8_t hi = 0u;
-        uint8_t lo = 0u;
-        if (!tryParseNibble(hex[2ull * i + 0ull], hi) || !tryParseNibble(hex[2ull * i + 1ull], lo))
-            return false;
-        outHash.data[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return true;
-}
-
-bool MeshLoadersApp::readGeometryHashReference(const system::path& refPath, core::blake3_hash_t& outHash) const
-{
-    std::ifstream in(refPath);
-    if (!in.is_open())
-        return false;
-    std::string line;
-    std::getline(in, line);
-    return tryParseGeometryHashHex(std::move(line), outHash);
-}
-
-bool MeshLoadersApp::writeGeometryHashReference(const system::path& refPath, const core::blake3_hash_t& hash) const
-{
-    std::error_code ec;
-    std::filesystem::create_directories(refPath.parent_path(), ec);
-    if (ec)
-        return false;
-    std::ofstream out(refPath, std::ios::binary | std::ios::trunc);
-    if (!out.is_open())
-        return false;
-    out << geometryHashToHex(hash) << '\n';
-    return out.good();
-}
-
 bool MeshLoadersApp::startCase(const size_t index)
 {
     if (index >= m_cases.size())
@@ -883,8 +745,6 @@ bool MeshLoadersApp::startCase(const size_t index)
     m_loadedScreenshot = nullptr;
     m_writtenScreenshot = nullptr;
     m_referenceCamera.reset();
-    m_hasReferenceGeometryHash = false;
-    m_caseGeometryHashReferencePath.clear();
 
     const auto& testCase = m_cases[m_caseIndex];
     m_caseName = testCase.name.empty() ? testCase.path.stem().string() : testCase.name;
@@ -894,42 +754,6 @@ bool MeshLoadersApp::startCase(const size_t index)
 
     if (!loadModel(testCase.path, true, true))
         return false;
-
-    if (m_currentCpuGeom)
-    {
-        const auto loadedGeometryHash = hashGeometry(m_currentCpuGeom.get());
-        m_referenceGeometryHash = loadedGeometryHash;
-        m_hasReferenceGeometryHash = true;
-        m_caseGeometryHashReferencePath = getGeometryHashReferencePath(m_caseName);
-
-        if (m_updateGeometryHashReferences)
-        {
-            const bool referenceExisted = std::filesystem::exists(m_caseGeometryHashReferencePath);
-            if (!writeGeometryHashReference(m_caseGeometryHashReferencePath, loadedGeometryHash))
-                return logFail("Failed to write geometry hash reference: %s", m_caseGeometryHashReferencePath.string().c_str());
-            if (!referenceExisted)
-                m_logger->log("Geometry hash reference did not exist for %s. Created new reference at %s", ILogger::ELL_WARNING, m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
-            else
-                m_logger->log("Geometry hash reference updated for %s at %s", ILogger::ELL_INFO, m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
-        }
-        else if (m_runMode == RunMode::CI)
-        {
-            if (!std::filesystem::exists(m_caseGeometryHashReferencePath))
-                return logFail("Missing geometry hash reference for %s at %s. Run once with --update-references.", m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
-
-            core::blake3_hash_t onDiskHash = {};
-            if (!readGeometryHashReference(m_caseGeometryHashReferencePath, onDiskHash))
-                return logFail("Invalid geometry hash reference for %s at %s", m_caseName.c_str(), m_caseGeometryHashReferencePath.string().c_str());
-
-            m_referenceGeometryHash = onDiskHash;
-            m_hasReferenceGeometryHash = true;
-            if (loadedGeometryHash != onDiskHash)
-            {
-                m_logger->log("Loaded geometry hash mismatch for %s. Current=%s Reference=%s", ILogger::ELL_ERROR, m_caseName.c_str(), geometryHashToHex(loadedGeometryHash).c_str(), geometryHashToHex(onDiskHash).c_str());
-                return logFail("Loaded asset differs from stored geometry hash reference for %s.", m_caseName.c_str());
-            }
-        }
-    }
 
     return true;
 }
