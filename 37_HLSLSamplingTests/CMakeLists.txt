@@ -1,0 +1,123 @@
+set(NBL_INCLUDE_SEARCH_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+include(common RESULT_VARIABLE RES)
+if(NOT RES)
+    message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
+endif()
+
+nbl_create_executable_project("" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+
+target_sources(${EXECUTABLE_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/CLinearTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleJacobianTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSamplerBenchmark.h"
+)
+
+if(NBL_EMBED_BUILTIN_RESOURCES)
+    set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
+    set(RESOURCE_DIR "app_resources")
+
+    get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
+    get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
+    get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
+
+    file(GLOB_RECURSE BUILTIN_RESOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}" CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}/*")
+    foreach(RES_FILE ${BUILTIN_RESOURCE_FILES})
+      LIST_BUILTIN_RESOURCE(RESOURCES_TO_EMBED "${RES_FILE}")
+    endforeach()
+
+    ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
+
+    LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
+endif()
+
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+
+set(JSON [=[
+[
+  {
+    "INPUT": "app_resources/test_compile.comp.hlsl",
+    "KEY": "shader"
+  },
+  {
+    "INPUT": "app_resources/linear_test.comp.hlsl",
+    "KEY": "linear_test"
+  },
+  {
+    "INPUT": "app_resources/linear_test.comp.hlsl",
+    "KEY": "linear_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"] /* ALSO SET IN main.cpp */
+  },
+  {
+    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
+    "KEY": "uniform_hemisphere_test"
+  },
+  {
+    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
+    "KEY": "uniform_hemisphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
+    "KEY": "uniform_sphere_test"
+  },
+  {
+    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
+    "KEY": "uniform_sphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
+    "KEY": "projected_hemisphere_test"
+  },
+  {
+    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
+    "KEY": "projected_hemisphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
+    "KEY": "projected_sphere_test"
+  },
+  {
+    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
+    "KEY": "projected_sphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
+    "KEY": "spherical_triangle_jacobian"
+  },
+  {
+    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
+    "KEY": "spherical_triangle_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  }
+]
+]=])
+
+NBL_CREATE_NSC_COMPILE_RULES(
+  TARGET ${EXECUTABLE_NAME}SPIRV
+  LINK_TO ${EXECUTABLE_NAME}
+  BINARY_DIR ${OUTPUT_DIRECTORY}
+  MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -T cs_6_8
+  OUTPUT_VAR KEYS
+  INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+  NAMESPACE nbl::this_example::builtin::build
+  INPUTS ${JSON}
+)
+
+NBL_CREATE_RESOURCE_ARCHIVE(
+  NAMESPACE nbl::this_example::builtin::build
+  TARGET ${EXECUTABLE_NAME}_builtinsBuild
+  LINK_TO ${EXECUTABLE_NAME}
+  BIND ${OUTPUT_DIRECTORY}
+  BUILTINS ${KEYS}
+)
