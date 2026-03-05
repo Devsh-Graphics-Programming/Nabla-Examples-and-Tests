@@ -9,6 +9,16 @@ endif()
 
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
+target_sources(${EXECUTABLE_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/CLinearTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleJacobianTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSamplerBenchmark.h"
+)
+
 if(NBL_EMBED_BUILTIN_RESOURCES)
     set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
     set(RESOURCE_DIR "app_resources")
@@ -33,10 +43,61 @@ set(JSON [=[
 [
   {
     "INPUT": "app_resources/test_compile.comp.hlsl",
-    "KEY": "shader",
-    "COMPILE_OPTIONS": ["-T", "cs_6_8"],
-    "DEPENDS": [],
-    "CAPS": []
+    "KEY": "shader"
+  },
+  {
+    "INPUT": "app_resources/linear_test.comp.hlsl",
+    "KEY": "linear_test"
+  },
+  {
+    "INPUT": "app_resources/linear_test.comp.hlsl",
+    "KEY": "linear_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"] /* ALSO SET IN main.cpp */
+  },
+  {
+    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
+    "KEY": "uniform_hemisphere_test"
+  },
+  {
+    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
+    "KEY": "uniform_hemisphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
+    "KEY": "uniform_sphere_test"
+  },
+  {
+    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
+    "KEY": "uniform_sphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
+    "KEY": "projected_hemisphere_test"
+  },
+  {
+    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
+    "KEY": "projected_hemisphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
+    "KEY": "projected_sphere_test"
+  },
+  {
+    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
+    "KEY": "projected_sphere_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
+    "KEY": "spherical_triangle_jacobian"
+  },
+  {
+    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
+    "KEY": "spherical_triangle_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
   }
 ]
 ]=])
@@ -46,9 +107,17 @@ NBL_CREATE_NSC_COMPILE_RULES(
   LINK_TO ${EXECUTABLE_NAME}
   BINARY_DIR ${OUTPUT_DIRECTORY}
   MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -T cs_6_8
   OUTPUT_VAR KEYS
   INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
   NAMESPACE nbl::this_example::builtin::build
   INPUTS ${JSON}
+)
+
+NBL_CREATE_RESOURCE_ARCHIVE(
+  NAMESPACE nbl::this_example::builtin::build
+  TARGET ${EXECUTABLE_NAME}_builtinsBuild
+  LINK_TO ${EXECUTABLE_NAME}
+  BIND ${OUTPUT_DIRECTORY}
+  BUILTINS ${KEYS}
 )
