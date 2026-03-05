@@ -722,4 +722,21 @@ struct PTIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum NBL_
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;
 };
 
+template<class IsoCache, class AnisoCache, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class IridescentDielectricBxDF>
+struct PTMaterialSystemCache
+{
+    using this_t = PTMaterialSystemCache<IsoCache, AnisoCache, DiffuseBxDF, ConductorBxDF, DielectricBxDF, IridescentConductorBxDF, IridescentDielectricBxDF>;
+    using anisocache_type = AnisoCache;
+    using isocache_type = IsoCache;
+
+    anisocache_type aniso_cache;
+
+    // TODO: union or serialize somehow?
+    DiffuseBxDF diffuseBxDF;
+    ConductorBxDF conductorBxDF;
+    DielectricBxDF dielectricBxDF;
+    IridescentConductorBxDF iridescentConductorBxDF;
+    IridescentDielectricBxDF iridescentDielectricBxDF;
+};
+
 #endif

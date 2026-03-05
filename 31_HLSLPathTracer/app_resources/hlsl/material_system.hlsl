@@ -26,6 +26,7 @@ struct MaterialSystem
     using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
     using isocache_type = typename anisocache_type::isocache_type;
+    using cache_type = PTMaterialSystemCache<isocache_type, anisocache_type, DiffuseBxDF, ConductorBxDF, DielectricBxDF, IridescentConductorBxDF, IridescentDielectricBxDF>;
     using create_params_t = SBxDFCreationParams<scalar_type, measure_type>;
 
     using bxdfnode_type = BxDFNode;
@@ -62,8 +63,19 @@ struct MaterialSystem
         return monochromeEta;
     }
 
+    cache_type getCacheFromSampleInteraction(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
+    {
+        const scalar_type monochromeEta = setMonochromeEta(matID, interaction.getLuminosityContributionHint());
+        using monochrome_type = typename dielectric_op_type::monochrome_type;
+        bxdf::fresnel::OrientedEtas<monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<monochrome_type>::create(interaction.getNdotV(), hlsl::promote<monochrome_type>(monochromeEta));
+        cache_type _cache;
+        _cache.aniso_cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, _sample, orientedEta);
+        fillBxdfParams(matID, _cache);
+        return _cache;
+    }
+
     // these are specific for the bxdfs used for this example
-    void fillBxdfParams(material_id_type matID)
+    void fillBxdfParams(material_id_type matID, NBL_REF_ARG(cache_type) _cache)
     {
         create_params_t cparams = bxdfs[matID.id].params;
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
@@ -74,26 +86,26 @@ struct MaterialSystem
                 using creation_t = typename diffuse_op_type::creation_type;
                 creation_t params;
                 params.A = cparams.A.x;
-                diffuseBxDF = diffuse_op_type::create(params);
+                _cache.diffuseBxDF = diffuse_op_type::create(params);
             }
             break;
             case MaterialType::CONDUCTOR:
             {
-                conductorBxDF.ndf = conductor_op_type::ndf_type::create(cparams.A.x);
-                conductorBxDF.fresnel = conductor_op_type::fresnel_type::create(cparams.ior0,cparams.ior1);
+                _cache.conductorBxDF.ndf = conductor_op_type::ndf_type::create(cparams.A.x);
+                _cache.conductorBxDF.fresnel = conductor_op_type::fresnel_type::create(cparams.ior0,cparams.ior1);
             }
             break;
             case MaterialType::DIELECTRIC:
             {
                 using oriented_eta_t = bxdf::fresnel::OrientedEtas<typename dielectric_op_type::monochrome_type>;
                 oriented_eta_t orientedEta = oriented_eta_t::create(1.0, hlsl::promote<typename dielectric_op_type::monochrome_type>(cparams.eta));
-                dielectricBxDF.ndf = dielectric_op_type::ndf_type::create(cparams.A.x);
-                dielectricBxDF.fresnel = dielectric_op_type::fresnel_type::create(orientedEta);
+                _cache.dielectricBxDF.ndf = dielectric_op_type::ndf_type::create(cparams.A.x);
+                _cache.dielectricBxDF.fresnel = dielectric_op_type::fresnel_type::create(orientedEta);
             }
             break;
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                iridescentConductorBxDF.ndf = iri_conductor_op_type::ndf_type::create(cparams.A.x);
+                _cache.iridescentConductorBxDF.ndf = iri_conductor_op_type::ndf_type::create(cparams.A.x);
                 using creation_params_t = typename iri_conductor_op_type::fresnel_type::creation_params_type;
                 creation_params_t params;
                 params.Dinc = cparams.A.y;
@@ -101,19 +113,19 @@ struct MaterialSystem
                 params.ior2 = cparams.ior0;
                 params.ior3 = cparams.ior1;
                 params.iork3 = cparams.iork;
-                iridescentConductorBxDF.fresnel = iri_conductor_op_type::fresnel_type::create(params);
+                _cache.iridescentConductorBxDF.fresnel = iri_conductor_op_type::fresnel_type::create(params);
             }
             break;
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                iridescentDielectricBxDF.ndf = iri_dielectric_op_type::ndf_type::create(cparams.A.x);
+                _cache.iridescentDielectricBxDF.ndf = iri_dielectric_op_type::ndf_type::create(cparams.A.x);
                 using creation_params_t = typename iri_dielectric_op_type::fresnel_type::creation_params_type;
                 creation_params_t params;
                 params.Dinc = cparams.A.y;
                 params.ior1 = hlsl::promote<float32_t3>(1.0);
                 params.ior2 = cparams.ior0;
                 params.ior3 = cparams.ior1;
-                iridescentDielectricBxDF.fresnel = iri_dielectric_op_type::fresnel_type::create(params);
+                _cache.iridescentDielectricBxDF.fresnel = iri_dielectric_op_type::fresnel_type::create(params);
             }
             break;
             default:
@@ -121,62 +133,62 @@ struct MaterialSystem
         }
     }
 
-    measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
+    measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
     {
-        fillBxdfParams(matID);
+        // fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
             {
-                return bxdfs[matID.id].albedo * diffuseBxDF.eval(_sample, interaction.isotropic);
+                return bxdfs[matID.id].albedo * _cache.diffuseBxDF.eval(_sample, interaction.isotropic);
             }
             case MaterialType::CONDUCTOR:
             {
-                return conductorBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.conductorBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::DIELECTRIC:
             {
-                return dielectricBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.dielectricBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return iridescentConductorBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.iridescentConductorBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return iridescentDielectricBxDF.eval(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.iridescentDielectricBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             default:
                 return hlsl::promote<measure_type>(0.0);
         }
     }
 
-    sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) _cache)
+    sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(cache_type) _cache)
     {
-        fillBxdfParams(matID);
+        fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
             {
-                return diffuseBxDF.generate(interaction, u.xy);
+                return _cache.diffuseBxDF.generate(interaction, u.xy);
             }
             case MaterialType::CONDUCTOR:
             {
-                return conductorBxDF.generate(interaction, u.xy, _cache);
+                return _cache.conductorBxDF.generate(interaction, u.xy, _cache.aniso_cache);
             }
             case MaterialType::DIELECTRIC:
             {
-                return dielectricBxDF.generate(interaction, u, _cache);
+                return _cache.dielectricBxDF.generate(interaction, u, _cache.aniso_cache);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return iridescentConductorBxDF.generate(interaction, u.xy, _cache);
+                return _cache.iridescentConductorBxDF.generate(interaction, u.xy, _cache.aniso_cache);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return iridescentDielectricBxDF.generate(interaction, u, _cache);
+                return _cache.iridescentDielectricBxDF.generate(interaction, u, _cache.aniso_cache);
             }
             default:
             {
@@ -187,67 +199,67 @@ struct MaterialSystem
         }
     }
 
-    scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
+    scalar_type pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
     {
-        fillBxdfParams(matID);
+        // fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
             case MaterialType::DIFFUSE:
             {
-                return diffuseBxDF.pdf(_sample, interaction.isotropic);
+                return _cache.diffuseBxDF.pdf(_sample, interaction.isotropic);
             }
             case MaterialType::CONDUCTOR:
             {
-                return conductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.conductorBxDF.pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::DIELECTRIC:
             {
-                return dielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.dielectricBxDF.pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return iridescentConductorBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.iridescentConductorBxDF.pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return iridescentDielectricBxDF.pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                return _cache.iridescentDielectricBxDF.pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             default:
                 return scalar_type(0.0);
         }
     }
 
-    quotient_pdf_type quotient_and_pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(anisocache_type) _cache)
+    quotient_pdf_type quotient_and_pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
         {
-            fillBxdfParams(matID);
+            // fillBxdfParams(matID, _cache);
             MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
             switch(matType)
             {
                 case MaterialType::DIFFUSE:
                 {
-                    quotient_pdf_type ret = diffuseBxDF.quotient_and_pdf(_sample, interaction.isotropic);
+                    quotient_pdf_type ret = _cache.diffuseBxDF.quotient_and_pdf(_sample, interaction.isotropic);
                     ret.quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
                 case MaterialType::CONDUCTOR:
                 {
-                    return conductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                    return _cache.conductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::DIELECTRIC:
                 {
-                    return dielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                    return _cache.dielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_CONDUCTOR:
                 {
-                    return iridescentConductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                    return _cache.iridescentConductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_DIELECTRIC:
                 {
-                    return iridescentDielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.iso_cache);
+                    return _cache.iridescentDielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 default:
                     break;
@@ -268,12 +280,6 @@ struct MaterialSystem
             return bxdfs[matID.id].albedo;
         return hlsl::promote<measure_type>(0.0);
     }
-
-    DiffuseBxDF diffuseBxDF;
-    ConductorBxDF conductorBxDF;
-    DielectricBxDF dielectricBxDF;
-    IridescentConductorBxDF iridescentConductorBxDF;
-    IridescentDielectricBxDF iridescentDielectricBxDF;
 
     bxdfnode_type bxdfs[Scene::SCENE_BXDF_COUNT];
 };
