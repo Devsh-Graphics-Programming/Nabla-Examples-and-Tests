@@ -127,8 +127,8 @@ Rules:
 - Per-case geometry hash:
   - deterministic `BLAKE3` hash compared with `references/*.geomhash`
 - Per-case image consistency:
-  - `*_loaded.png` vs `*_written.png` byte diff
-  - thresholds come from `MaxImageDiffBytes` and `MaxImageDiffValue` in `MeshLoadersApp.hpp`
+  - `*_loaded.png` vs `*_written.png` code-unit diff
+  - thresholds come from `MaxImageDiffCodeUnits` and `MaxImageDiffCodeUnitValue` in `MeshLoadersApp.hpp`
 - Any mismatch ends with non-zero exit code
 
 ## Performance logs to trust

@@ -197,7 +197,11 @@ private:
     bool validateWrittenAsset(const system::path& path);
     bool captureScreenshot(const system::path& path, core::smart_refctd_ptr<asset::ICPUImageView>& outImage);
     bool appendGeometriesFromBundle(const asset::SAssetBundle& bundle, core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& out) const;
-    bool compareImages(const asset::ICPUImageView* a, const asset::ICPUImageView* b, uint64_t& diffCount, uint16_t& maxDiff);
+    bool compareImages(
+        const asset::ICPUImageView* a,
+        const asset::ICPUImageView* b,
+        uint64_t& diffCodeUnitCount,
+        uint32_t& maxDiffCodeUnitValue);
 
     void advanceCase();
     bool shouldKeepRunning() const override;
@@ -206,8 +210,8 @@ private:
     constexpr static inline uint32_t CiFramesBeforeCapture = 10u;
     constexpr static inline uint32_t NonCiFramesPerCase = 120u;
     constexpr static inline uint32_t RowViewFramesBeforeCapture = 10u;
-    constexpr static inline uint64_t MaxImageDiffBytes = 16u;
-    constexpr static inline uint16_t MaxImageDiffValue = 1u;
+    constexpr static inline uint64_t MaxImageDiffCodeUnits = 16u;
+    constexpr static inline uint32_t MaxImageDiffCodeUnitValue = 1u;
 
     smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
     smart_refctd_ptr<ISemaphore> m_semaphore;

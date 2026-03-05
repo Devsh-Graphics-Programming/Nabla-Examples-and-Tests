@@ -364,9 +364,13 @@ bool MeshLoadersApp::appendGeometriesFromBundle(const asset::SAssetBundle& bundl
     return !out.empty();
 }
 
-bool MeshLoadersApp::compareImages(const asset::ICPUImageView* a, const asset::ICPUImageView* b, uint64_t& diffCount, uint16_t& maxDiff)
+bool MeshLoadersApp::compareImages(
+    const asset::ICPUImageView* a,
+    const asset::ICPUImageView* b,
+    uint64_t& diffCodeUnitCount,
+    uint32_t& maxDiffCodeUnitValue)
 {
-    return nbl::examples::image::compareCpuImageViewsByCodeUnit(a, b, diffCount, maxDiff);
+    return nbl::examples::image::compareCpuImageViewsByCodeUnit(a, b, diffCodeUnitCount, maxDiffCodeUnitValue);
 }
 
 void MeshLoadersApp::advanceCase()
@@ -427,14 +431,14 @@ void MeshLoadersApp::advanceCase()
                 failExit("Geometry hash mismatch for %s. Current=%s Reference=%s ReferenceFile=%s", m_caseName.c_str(), geometryHashToHex(writtenHash).c_str(), geometryHashToHex(m_referenceGeometryHash).c_str(), m_caseGeometryHashReferencePath.empty() ? "<none>" : m_caseGeometryHashReferencePath.string().c_str());
         }
 
-        uint64_t diffCount = 0u;
-        uint16_t maxDiff = 0u;
-        if (!compareImages(m_loadedScreenshot.get(), m_writtenScreenshot.get(), diffCount, maxDiff))
+        uint64_t diffCodeUnitCount = 0u;
+        uint32_t maxDiffCodeUnitValue = 0u;
+        if (!compareImages(m_loadedScreenshot.get(), m_writtenScreenshot.get(), diffCodeUnitCount, maxDiffCodeUnitValue))
             failExit("Image compare failed for %s.", m_caseName.c_str());
-        if (diffCount > MaxImageDiffBytes || maxDiff > MaxImageDiffValue)
-            failExit("Image diff detected for %s. Bytes: %llu MaxDiff: %u", m_caseName.c_str(), static_cast<unsigned long long>(diffCount), maxDiff);
-        if (diffCount != 0u)
-            m_logger->log("Image diff within tolerance for %s. Bytes: %llu MaxDiff: %u", ILogger::ELL_WARNING, m_caseName.c_str(), static_cast<unsigned long long>(diffCount), maxDiff);
+        if (diffCodeUnitCount > MaxImageDiffCodeUnits || maxDiffCodeUnitValue > MaxImageDiffCodeUnitValue)
+            failExit("Image diff detected for %s. CodeUnits: %llu MaxCodeUnitDiff: %u", m_caseName.c_str(), static_cast<unsigned long long>(diffCodeUnitCount), maxDiffCodeUnitValue);
+        if (diffCodeUnitCount != 0u)
+            m_logger->log("Image diff within tolerance for %s. CodeUnits: %llu MaxCodeUnitDiff: %u", ILogger::ELL_WARNING, m_caseName.c_str(), static_cast<unsigned long long>(diffCodeUnitCount), maxDiffCodeUnitValue);
 
         advanceToNextCase();
     }
