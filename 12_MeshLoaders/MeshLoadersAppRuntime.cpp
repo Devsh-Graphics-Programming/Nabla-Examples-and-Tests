@@ -12,7 +12,7 @@ std::string MeshLoadersApp::makeUniqueCaseName(const system::path& path)
     auto base = path.stem().string();
     if (base.empty())
         base = "case";
-    auto& counter = m_caseNameCounts[base];
+    auto& counter = m_runtime.caseNameCounts[base];
     std::string name = (counter == 0u) ? base : (base + "_" + std::to_string(counter));
     ++counter;
     return name;
@@ -197,58 +197,58 @@ bool MeshLoadersApp::compareImages(
 
 void MeshLoadersApp::advanceCase()
 {
-    if (m_runMode == RunMode::Interactive || m_cases.empty())
+    if (m_runtime.mode == RunMode::Interactive || m_runtime.cases.empty())
         return;
     if (isRowViewActive())
         return;
 
-    const uint32_t frameLimit = m_runMode == RunMode::CI ? CiFramesBeforeCapture : NonCiFramesPerCase;
-    ++m_phaseFrameCounter;
-    if (m_phaseFrameCounter < frameLimit)
+    const uint32_t frameLimit = m_runtime.mode == RunMode::CI ? CiFramesBeforeCapture : NonCiFramesPerCase;
+    ++m_runtime.phaseFrameCounter;
+    if (m_runtime.phaseFrameCounter < frameLimit)
         return;
 
-    if (m_phase == Phase::RenderOriginal)
+    if (m_runtime.phase == Phase::RenderOriginal)
     {
-        if (!captureScreenshot(m_loadedScreenshotPath, m_loadedScreenshot))
+        if (!captureScreenshot(m_output.loadedScreenshotPath, m_render.loadedScreenshot))
             failExit("Failed to capture loaded screenshot.");
 
-        if (m_saveGeom)
+        if (m_output.saveGeom)
         {
-            if (!m_currentCpuGeom)
+            if (!m_render.currentCpuGeom)
                 failExit("No geometry to write.");
-            if (!writeGeometry(m_currentCpuGeom, m_writtenPath.string()))
+            if (!writeGeometry(m_render.currentCpuGeom, m_output.writtenPath.string()))
                 failExit("Geometry write failed.");
         }
 
-        if (m_runMode == RunMode::CI)
+        if (m_runtime.mode == RunMode::CI)
         {
-            if (!loadModel(m_writtenPath, false, false))
-                failExit("Failed to load written asset %s.", m_writtenPath.string().c_str());
-            if (!m_currentCpuGeom)
+            if (!loadModel(m_output.writtenPath, false, false))
+                failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+            if (!m_render.currentCpuGeom)
                 failExit("Written geometry missing.");
-            m_phase = Phase::RenderWritten;
-            m_phaseFrameCounter = 0u;
+            m_runtime.phase = Phase::RenderWritten;
+            m_runtime.phaseFrameCounter = 0u;
             return;
         }
 
-        if (m_saveGeom)
+        if (m_output.saveGeom)
         {
-            if (!validateWrittenAsset(m_writtenPath))
-                failExit("Failed to load written asset %s.", m_writtenPath.string().c_str());
+            if (!validateWrittenAsset(m_output.writtenPath))
+                failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
         }
 
         advanceToNextCase();
         return;
     }
 
-    if (m_phase == Phase::RenderWritten)
+    if (m_runtime.phase == Phase::RenderWritten)
     {
-        if (!captureScreenshot(m_writtenScreenshotPath, m_writtenScreenshot))
+        if (!captureScreenshot(m_output.writtenScreenshotPath, m_render.writtenScreenshot))
             failExit("Failed to capture written screenshot.");
 
         uint64_t diffCodeUnitCount = 0u;
         uint32_t maxDiffCodeUnitValue = 0u;
-        if (!compareImages(m_loadedScreenshot.get(), m_writtenScreenshot.get(), diffCodeUnitCount, maxDiffCodeUnitValue))
+        if (!compareImages(m_render.loadedScreenshot.get(), m_render.writtenScreenshot.get(), diffCodeUnitCount, maxDiffCodeUnitValue))
             failExit("Image compare failed for %s.", m_caseName.c_str());
         if (diffCodeUnitCount > MaxImageDiffCodeUnits || maxDiffCodeUnitValue > MaxImageDiffCodeUnitValue)
             failExit("Image diff detected for %s. CodeUnits: %llu MaxCodeUnitDiff: %u", m_caseName.c_str(), static_cast<unsigned long long>(diffCodeUnitCount), maxDiffCodeUnitValue);
@@ -258,5 +258,6 @@ void MeshLoadersApp::advanceCase()
         advanceToNextCase();
     }
 }
+
 
 

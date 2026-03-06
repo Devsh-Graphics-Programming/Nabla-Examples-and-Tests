@@ -8,6 +8,7 @@
 #include "MeshLoadersApp.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cstdarg>
 #include <cstdio>
@@ -19,6 +20,75 @@
 #endif
 
 #include "nbl/system/CFileLogger.h"
+
+namespace
+{
+
+void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
+{
+    parser.add_argument("--savegeometry")
+        .help("Save the mesh on exit or reload")
+        .flag();
+
+    parser.add_argument("--savepath")
+        .nargs(1)
+        .help("Specify the file to which the mesh will be saved");
+    parser.add_argument("--ci")
+        .help("Run in CI mode: load test list, write .ply, capture screenshots, compare data, and exit.")
+        .flag();
+    parser.add_argument("--interactive")
+        .help("Use file dialog to select a single model.")
+        .flag();
+    parser.add_argument("--testlist")
+        .nargs(1)
+        .help("JSON file with test cases. Relative paths are resolved against local input CWD.");
+    parser.add_argument("--row-add")
+        .nargs(1)
+        .help("Add a model path to row view on startup without using a dialog.");
+    parser.add_argument("--row-duplicate")
+        .nargs(1)
+        .help("Duplicate the last case N times on startup.");
+    parser.add_argument("--loader-perf-log")
+        .nargs(1)
+        .help("Write loader diagnostics to a file instead of stdout.");
+    parser.add_argument("--runtime-tuning")
+        .nargs(1)
+        .help("Runtime tuning mode for loaders: sequential|heuristic|hybrid. Default: heuristic.");
+}
+
+std::optional<uint32_t> parseUInt32Argument(const std::string_view value)
+{
+    uint32_t parsed = 0u;
+    const auto parseResult = std::from_chars(value.data(), value.data() + value.size(), parsed, 10);
+    if (parseResult.ec != std::errc() || parseResult.ptr != value.data() + value.size())
+        return std::nullopt;
+    return parsed;
+}
+
+bool parseRuntimeTuningMode(const std::string_view modeRaw, asset::SFileIOPolicy::SRuntimeTuning::Mode& outMode)
+{
+    std::string mode(modeRaw);
+    std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (mode == "sequential" || mode == "none")
+    {
+        outMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Sequential;
+        return true;
+    }
+    if (mode == "heuristic")
+    {
+        outMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
+        return true;
+    }
+    if (mode == "hybrid")
+    {
+        outMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Hybrid;
+        return true;
+    }
+    return false;
+}
+
+}
 
 system::path MeshLoadersApp::resolveRuntimeCWD(const system::path& preferred)
 {
@@ -128,41 +198,14 @@ MeshLoadersApp::MeshLoadersApp(
 
 bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputCWD, const system::path& effectiveOutputCWD, const system::path& defaultBenchmarkTestListPath)
 {
-    m_runMode = RunMode::Batch;
-    m_saveGeomPrefixPath = effectiveOutputCWD / "saved";
-    m_screenshotPrefixPath = effectiveOutputCWD / "screenshots";
-    m_testListPath = effectiveInputCWD / "inputs.json";
-    m_forceRowViewForCurrentTestList = false;
+    m_runtime.mode = RunMode::Batch;
+    m_output.saveGeomPrefixPath = effectiveOutputCWD / "saved";
+    m_output.screenshotPrefixPath = effectiveOutputCWD / "screenshots";
+    m_output.testListPath = effectiveInputCWD / "inputs.json";
+    m_runtime.forceRowViewForCurrentTestList = false;
 
     argparse::ArgumentParser parser("12_meshloaders");
-    parser.add_argument("--savegeometry")
-        .help("Save the mesh on exit or reload")
-        .flag();
-
-    parser.add_argument("--savepath")
-        .nargs(1)
-        .help("Specify the file to which the mesh will be saved");
-    parser.add_argument("--ci")
-        .help("Run in CI mode: load test list, write .ply, capture screenshots, compare data, and exit.")
-        .flag();
-    parser.add_argument("--interactive")
-        .help("Use file dialog to select a single model.")
-        .flag();
-    parser.add_argument("--testlist")
-        .nargs(1)
-        .help("JSON file with test cases. Relative paths are resolved against local input CWD.");
-    parser.add_argument("--row-add")
-        .nargs(1)
-        .help("Add a model path to row view on startup without using a dialog.");
-    parser.add_argument("--row-duplicate")
-        .nargs(1)
-        .help("Duplicate the last case N times on startup.");
-    parser.add_argument("--loader-perf-log")
-        .nargs(1)
-        .help("Write loader diagnostics to a file instead of stdout.");
-    parser.add_argument("--runtime-tuning")
-        .nargs(1)
-        .help("Runtime tuning mode for loaders: sequential|heuristic|hybrid. Default: heuristic.");
+    setupMeshLoadersArgumentParser(parser);
 
     try
     {
@@ -174,11 +217,11 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
     }
 
     if (parser["--savegeometry"] == true)
-        m_saveGeom = true;
+        m_output.saveGeom = true;
     if (parser["--interactive"] == true)
-        m_runMode = RunMode::Interactive;
+        m_runtime.mode = RunMode::Interactive;
     if (parser["--ci"] == true)
-        m_runMode = RunMode::CI;
+        m_runtime.mode = RunMode::CI;
     const bool hasExplicitTestListArg = parser.present("--testlist").has_value();
 
     if (parser.present("--savepath"))
@@ -188,7 +231,7 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
             return logFail("Invalid path has been specified in --savepath argument");
         if (!std::filesystem::exists(tmp.parent_path()))
             return logFail("Path specified in --savepath argument doesn't exist");
-        m_specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
+        m_output.specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
     }
 
     if (hasExplicitTestListArg)
@@ -198,16 +241,16 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
             return logFail("Invalid path has been specified in --testlist argument");
         if (tmp.is_relative())
             tmp = effectiveInputCWD / tmp;
-        m_testListPath = tmp;
+        m_output.testListPath = tmp;
     }
-    else if (m_runMode == RunMode::Batch && !defaultBenchmarkTestListPath.empty())
+    else if (m_runtime.mode == RunMode::Batch && !defaultBenchmarkTestListPath.empty())
     {
         std::error_code benchmarkPathEc;
         if (std::filesystem::exists(defaultBenchmarkTestListPath, benchmarkPathEc) && !benchmarkPathEc)
         {
-            m_testListPath = defaultBenchmarkTestListPath;
-            m_forceRowViewForCurrentTestList = true;
-            m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_testListPath.string().c_str());
+            m_output.testListPath = defaultBenchmarkTestListPath;
+            m_runtime.forceRowViewForCurrentTestList = true;
+            m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_output.testListPath.string().c_str());
         }
     }
 
@@ -216,19 +259,15 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
         auto tmp = path(parser.get<std::string>("--row-add"));
         if (tmp.is_relative())
             tmp = effectiveInputCWD / tmp;
-        m_rowAddPath = tmp;
+        m_output.rowAddPath = tmp;
     }
     if (parser.present("--row-duplicate"))
     {
         auto countStr = parser.get<std::string>("--row-duplicate");
-        try
-        {
-            m_rowDuplicateCount = static_cast<uint32_t>(std::stoul(countStr));
-        }
-        catch (const std::exception&)
-        {
+        const auto parsedCount = parseUInt32Argument(countStr);
+        if (!parsedCount.has_value())
             return logFail("Invalid --row-duplicate value.");
-        }
+        m_output.rowDuplicateCount = *parsedCount;
     }
     if (parser.present("--loader-perf-log"))
     {
@@ -237,19 +276,12 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
             return logFail("Invalid --loader-perf-log value.");
         if (tmp.is_relative())
             tmp = effectiveOutputCWD / tmp;
-        m_loaderPerfLogPath = tmp;
+        m_output.loaderPerfLogPath = tmp;
     }
     if (parser.present("--runtime-tuning"))
     {
         auto mode = parser.get<std::string>("--runtime-tuning");
-        std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (mode == "sequential" || mode == "none")
-            m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Sequential;
-        else if (mode == "heuristic")
-            m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
-        else if (mode == "hybrid")
-            m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Hybrid;
-        else
+        if (!parseRuntimeTuningMode(mode, m_runtimeTuningMode))
             return logFail("Invalid --runtime-tuning value. Expected: sequential|heuristic|hybrid.");
     }
 
@@ -276,19 +308,19 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (!parseCommandLineOptions(effectiveInputCWD, effectiveOutputCWD, defaultBenchmarkTestListPath))
         return false;
 
-    if (m_saveGeom)
-        std::filesystem::create_directories(m_saveGeomPrefixPath);
-    std::filesystem::create_directories(m_screenshotPrefixPath);
+    if (m_output.saveGeom)
+        std::filesystem::create_directories(m_output.saveGeomPrefixPath);
+    std::filesystem::create_directories(m_output.screenshotPrefixPath);
     m_assetLoadLogger = m_logger;
-    if (m_loaderPerfLogPath)
+    if (m_output.loaderPerfLogPath)
     {
-        if (!initLoaderPerfLogger(*m_loaderPerfLogPath))
+        if (!initLoaderPerfLogger(*m_output.loaderPerfLogPath))
             return false;
-        m_logger->log("Loader diagnostics will be written to %s", ILogger::ELL_INFO, m_loaderPerfLogPath->string().c_str());
+        m_logger->log("Loader diagnostics will be written to %s", ILogger::ELL_INFO, m_output.loaderPerfLogPath->string().c_str());
     }
 
-    m_semaphore = m_device->createSemaphore(m_realFrameIx);
-    if (!m_semaphore)
+    m_render.semaphore = m_device->createSemaphore(m_render.realFrameIx);
+    if (!m_render.semaphore)
         return logFail("Failed to Create a Semaphore!");
 
     auto pool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -296,13 +328,13 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     {
         if (!pool)
             return logFail("Couldn't create Command Pool!");
-        if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i,1 }))
+        if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_render.cmdBufs.data() + i,1 }))
             return logFail("Couldn't create Command Buffer!");
     }
 
     auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-    m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, {});
-    if (!m_renderer)
+    m_render.renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, {});
+    if (!m_render.renderer)
         return logFail("Failed to create renderer!");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
@@ -324,24 +356,24 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
     if (isRowViewActive())
     {
-        m_nonInteractiveTest = false;
+        m_runtime.nonInteractiveTest = false;
         if (!loadRowView(RowViewReloadMode::Full))
             return false;
-        if (m_rowAddPath)
-            if (!addRowViewCaseFromPath(*m_rowAddPath))
+        if (m_output.rowAddPath)
+            if (!addRowViewCaseFromPath(*m_output.rowAddPath))
                 return false;
-        if (m_rowDuplicateCount > 0u && !m_cases.empty())
+        if (m_output.rowDuplicateCount > 0u && !m_runtime.cases.empty())
         {
-            const auto lastPath = m_cases.back().path;
-            for (uint32_t i = 0u; i < m_rowDuplicateCount; ++i)
+            const auto lastPath = m_runtime.cases.back().path;
+            for (uint32_t i = 0u; i < m_output.rowDuplicateCount; ++i)
                 if (!addRowViewCaseFromPath(lastPath))
                     return false;
         }
     }
     else
     {
-        if (m_runMode != RunMode::Interactive)
-            m_nonInteractiveTest = true;
+        if (m_runtime.mode != RunMode::Interactive)
+            m_runtime.nonInteractiveTest = true;
         if (!startCase(0u))
             return false;
     }
@@ -357,9 +389,9 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
     m_inputSystem->getDefaultMouse(&mouse);
     m_inputSystem->getDefaultKeyboard(&keyboard);
 
-    const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
+    const auto resourceIx = m_render.realFrameIx % MaxFramesInFlight;
 
-    auto* const cb = m_cmdBufs.data()[resourceIx].get();
+    auto* const cb = m_render.cmdBufs.data()[resourceIx].get();
     cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
     cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
     // clear to black for both things
@@ -395,7 +427,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
                 cb->setScissor(0u,1u,&currentRenderArea);
             }
             // late latch input
-            if (!m_nonInteractiveTest)
+            if (!m_runtime.nonInteractiveTest)
             {
                 struct SPendingInputActions
                 {
@@ -451,11 +483,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
             const auto& viewMatrix = camera.getViewMatrix();
             const auto& viewProjMatrix = camera.getConcatenatedMatrix();
             {
-                     m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
+                     m_render.renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
             }
 #ifdef NBL_BUILD_DEBUG_DRAW
             {
-                const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+                const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx + 1u };
                 ext::debug_draw::DrawAABB::DrawParameters drawParams;
                 drawParams.commandBuffer = cb;
                 drawParams.cameraMat = viewProjMatrix;
@@ -468,8 +500,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
 
     IQueue::SSubmitInfo::SSemaphoreInfo retval =
     {
-        .semaphore = m_semaphore.get(),
-        .value = ++m_realFrameIx,
+        .semaphore = m_render.semaphore.get(),
+        .value = ++m_render.realFrameIx,
         .stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
     };
     const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
@@ -495,7 +527,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
     if (getGraphicsQueue()->submit(infos) != IQueue::RESULT::SUCCESS)
     {
         retval.semaphore = nullptr; // so that we don't wait on semaphore that will never signal
-        m_realFrameIx--;
+        m_render.realFrameIx--;
     }
 
     std::string caption = "[Nabla Engine] Mesh Loaders";
@@ -505,11 +537,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
         caption += "]";
         m_window->setCaption(caption);
     }
-    if (isRowViewActive() && !m_rowViewScreenshotCaptured && m_realFrameIx >= RowViewFramesBeforeCapture)
+    if (isRowViewActive() && !m_runtime.rowViewScreenshotCaptured && m_render.realFrameIx >= RowViewFramesBeforeCapture)
     {
-        if (!captureScreenshot(m_rowViewScreenshotPath, m_loadedScreenshot))
+        if (!captureScreenshot(m_output.rowViewScreenshotPath, m_render.loadedScreenshot))
             failExit("Failed to capture row view screenshot.");
-        m_rowViewScreenshotCaptured = true;
+        m_runtime.rowViewScreenshotCaptured = true;
     }
     advanceCase();
     return retval;
@@ -522,7 +554,7 @@ bool MeshLoadersApp::onAppTerminated()
 
 bool MeshLoadersApp::shouldKeepRunning() const
 {
-    return !m_shouldQuit;
+    return !m_runtime.shouldQuit;
 }
 
 const video::IGPURenderpass::SCreationParams::SSubpassDependency* MeshLoadersApp::getDefaultSubpassDependencies() const
@@ -577,22 +609,22 @@ const video::IGPURenderpass::SCreationParams::SSubpassDependency* MeshLoadersApp
 
 bool MeshLoadersApp::initTestCases()
 {
-    m_cases.clear();
-    m_caseNameCounts.clear();
-    if (m_runMode == RunMode::Interactive)
+    m_runtime.cases.clear();
+    m_runtime.caseNameCounts.clear();
+    if (m_runtime.mode == RunMode::Interactive)
     {
         system::path picked;
         if (!pickModelPath(picked))
             return logFail("No file selected.");
-        m_cases.push_back({ makeUniqueCaseName(picked), picked });
+        m_runtime.cases.push_back({ makeUniqueCaseName(picked), picked });
         return true;
     }
-    return loadTestList(m_testListPath);
+    return loadTestList(m_output.testListPath);
 }
 
 bool MeshLoadersApp::pickModelPath(system::path& outPath)
 {
-    if (m_fileDialogOpen)
+    if (m_runtime.fileDialogOpen)
     {
         if (m_logger)
             m_logger->log("File dialog is already open. Ignoring request.", ILogger::ELL_WARNING);
@@ -605,8 +637,8 @@ bool MeshLoadersApp::pickModelPath(system::path& outPath)
         ~DialogGuard() { flag = false; }
     };
 
-    m_fileDialogOpen = true;
-    DialogGuard guard{m_fileDialogOpen};
+    m_runtime.fileDialogOpen = true;
+    DialogGuard guard{m_runtime.fileDialogOpen};
 
     pfd::open_file file(
         "Choose a supported Model File",
@@ -631,7 +663,7 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
 {
     if (!std::filesystem::exists(jsonPath))
         return logFail("Missing test list: %s", jsonPath.string().c_str());
-    m_rowViewEnabled = true;
+    m_runtime.rowViewEnabled = true;
 
     std::ifstream stream(jsonPath);
     if (!stream.is_open())
@@ -650,16 +682,16 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
     if (!doc.contains("cases") || !doc["cases"].is_array())
         return logFail("Test list JSON missing \"cases\" array.");
 
-    m_caseNameCounts.clear();
+    m_runtime.caseNameCounts.clear();
 
     if (doc.contains("row_view"))
     {
         if (!doc["row_view"].is_boolean())
             return logFail("\"row_view\" must be a boolean.");
-        m_rowViewEnabled = doc["row_view"].get<bool>();
+        m_runtime.rowViewEnabled = doc["row_view"].get<bool>();
     }
-    if (m_forceRowViewForCurrentTestList && m_runMode == RunMode::Batch)
-        m_rowViewEnabled = true;
+    if (m_runtime.forceRowViewForCurrentTestList && m_runtime.mode == RunMode::Batch)
+        m_runtime.rowViewEnabled = true;
 
     const auto baseDir = jsonPath.parent_path();
     for (const auto& entry : doc["cases"])
@@ -685,10 +717,10 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
         if (!std::filesystem::exists(path))
             return logFail("Missing test input: %s", path.string().c_str());
 
-        m_cases.push_back({ makeUniqueCaseName(path), path });
+        m_runtime.cases.push_back({ makeUniqueCaseName(path), path });
     }
 
-    if (m_cases.empty())
+    if (m_runtime.cases.empty())
         return logFail("No test cases in test list.");
 
     return true;
@@ -696,7 +728,7 @@ bool MeshLoadersApp::loadTestList(const system::path& jsonPath)
 
 bool MeshLoadersApp::isRowViewActive() const
 {
-    return m_rowViewEnabled && m_runMode != RunMode::CI && m_runMode != RunMode::Interactive;
+    return m_runtime.rowViewEnabled && m_runtime.mode != RunMode::CI && m_runtime.mode != RunMode::Interactive;
 }
 
 std::string MeshLoadersApp::normalizeExtension(const system::path& path)
@@ -719,8 +751,8 @@ bool MeshLoadersApp::isWriteExtensionSupported(const std::string& ext) const
 
 system::path MeshLoadersApp::resolveSavePath(const system::path& modelPath) const
 {
-    if (m_specifiedGeomSavePath)
-        return path(*m_specifiedGeomSavePath);
+    if (m_output.specifiedGeomSavePath)
+        return path(*m_output.specifiedGeomSavePath);
     const auto stem = modelPath.stem().string();
     auto ext = normalizeExtension(modelPath);
     if (ext.empty())
@@ -731,26 +763,26 @@ system::path MeshLoadersApp::resolveSavePath(const system::path& modelPath) cons
             m_logger->log("No writer for %s, writing .ply instead.", ILogger::ELL_WARNING, ext.c_str());
         ext = ".ply";
     }
-    return m_saveGeomPrefixPath / (stem + "_written" + ext);
+    return m_output.saveGeomPrefixPath / (stem + "_written" + ext);
 }
 
 bool MeshLoadersApp::startCase(const size_t index)
 {
-    if (index >= m_cases.size())
+    if (index >= m_runtime.cases.size())
         return false;
 
-    m_caseIndex = index;
-    m_phase = Phase::RenderOriginal;
-    m_phaseFrameCounter = 0u;
-    m_loadedScreenshot = nullptr;
-    m_writtenScreenshot = nullptr;
+    m_runtime.caseIndex = index;
+    m_runtime.phase = Phase::RenderOriginal;
+    m_runtime.phaseFrameCounter = 0u;
+    m_render.loadedScreenshot = nullptr;
+    m_render.writtenScreenshot = nullptr;
     m_referenceCamera.reset();
 
-    const auto& testCase = m_cases[m_caseIndex];
+    const auto& testCase = m_runtime.cases[m_runtime.caseIndex];
     m_caseName = testCase.name.empty() ? testCase.path.stem().string() : testCase.name;
-    m_writtenPath = resolveSavePath(testCase.path);
-    m_loadedScreenshotPath = m_screenshotPrefixPath / ("meshloaders_" + m_caseName + "_loaded.png");
-    m_writtenScreenshotPath = m_screenshotPrefixPath / ("meshloaders_" + m_caseName + "_written.png");
+    m_output.writtenPath = resolveSavePath(testCase.path);
+    m_output.loadedScreenshotPath = m_output.screenshotPrefixPath / ("meshloaders_" + m_caseName + "_loaded.png");
+    m_output.writtenScreenshotPath = m_output.screenshotPrefixPath / ("meshloaders_" + m_caseName + "_written.png");
 
     if (!loadModel(testCase.path, true, true))
         return false;
@@ -760,15 +792,15 @@ bool MeshLoadersApp::startCase(const size_t index)
 
 bool MeshLoadersApp::advanceToNextCase()
 {
-    const auto nextIndex = m_caseIndex + 1u;
-    if (nextIndex >= m_cases.size())
+    const auto nextIndex = m_runtime.caseIndex + 1u;
+    if (nextIndex >= m_runtime.cases.size())
     {
-        m_shouldQuit = true;
+        m_runtime.shouldQuit = true;
         return false;
     }
     if (!startCase(nextIndex))
     {
-        m_shouldQuit = true;
+        m_runtime.shouldQuit = true;
         return false;
     }
     return true;
@@ -781,10 +813,10 @@ void MeshLoadersApp::reloadInteractive()
         failExit("No file selected.");
     if (!loadModel(picked, true, true))
         failExit("Failed to load asset %s.", picked.string().c_str());
-    if (m_currentCpuGeom && m_saveGeom)
+    if (m_render.currentCpuGeom && m_output.saveGeom)
     {
         const auto savePath = resolveSavePath(picked);
-        if (!writeGeometry(m_currentCpuGeom, savePath.string()))
+        if (!writeGeometry(m_render.currentCpuGeom, savePath.string()))
             failExit("Geometry write failed.");
     }
 }
@@ -801,24 +833,24 @@ bool MeshLoadersApp::addRowViewCaseFromPath(const system::path& picked)
 {
     if (picked.empty())
         return false;
-    m_cases.push_back({ makeUniqueCaseName(picked), picked });
-    m_shouldQuit = false;
+    m_runtime.cases.push_back({ makeUniqueCaseName(picked), picked });
+    m_runtime.shouldQuit = false;
     return loadRowView(RowViewReloadMode::Incremental);
 }
 
 bool MeshLoadersApp::reloadFromTestList()
 {
-    m_cases.clear();
-    if (!loadTestList(m_testListPath))
+    m_runtime.cases.clear();
+    if (!loadTestList(m_output.testListPath))
         return false;
-    m_shouldQuit = false;
-    m_rowViewScreenshotCaptured = false;
+    m_runtime.shouldQuit = false;
+    m_runtime.rowViewScreenshotCaptured = false;
     if (isRowViewActive())
     {
-        m_nonInteractiveTest = false;
+        m_runtime.nonInteractiveTest = false;
         return loadRowView(RowViewReloadMode::Full);
     }
-    m_nonInteractiveTest = (m_runMode != RunMode::Interactive);
+    m_runtime.nonInteractiveTest = (m_runtime.mode != RunMode::Interactive);
     return startCase(0u);
 }
 
@@ -826,20 +858,21 @@ void MeshLoadersApp::resetRowViewScene()
 {
     if (!isRowViewActive())
         return;
-    m_cases.clear();
-    m_rowViewCache.clear();
-    m_renderer->m_instances.clear();
-    m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+    m_runtime.cases.clear();
+    m_rowView.cache.clear();
+    m_render.renderer->m_instances.clear();
+    m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
 #ifdef NBL_BUILD_DEBUG_DRAW
     m_aabbInstances.clear();
     m_obbInstances.clear();
 #endif
     m_modelPath = "Row view (empty)";
-    m_rowViewScreenshotCaptured = false;
-    m_shouldQuit = false;
-    m_nonInteractiveTest = false;
+    m_runtime.rowViewScreenshotCaptured = false;
+    m_runtime.shouldQuit = false;
+    m_runtime.nonInteractiveTest = false;
     m_logger->log("Row view reset to empty. Press A to add a model.", ILogger::ELL_INFO);
 }
+
 
 
 

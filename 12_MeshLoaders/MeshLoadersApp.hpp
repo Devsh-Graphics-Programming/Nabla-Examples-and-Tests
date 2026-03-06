@@ -121,6 +121,57 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         uintmax_t inputSize = 0u;
     };
 
+    struct RuntimeState
+    {
+        bool nonInteractiveTest = false;
+        bool rowViewEnabled = true;
+        bool forceRowViewForCurrentTestList = false;
+        bool rowViewScreenshotCaptured = false;
+        bool fileDialogOpen = false;
+
+        RunMode mode = RunMode::Batch;
+        Phase phase = Phase::RenderOriginal;
+        uint32_t phaseFrameCounter = 0u;
+        size_t caseIndex = 0u;
+        core::vector<TestCase> cases;
+        std::unordered_map<std::string, uint32_t> caseNameCounts;
+        bool shouldQuit = false;
+    };
+
+    struct OutputState
+    {
+        bool saveGeom = true;
+        std::optional<const std::string> specifiedGeomSavePath;
+        nbl::system::path saveGeomPrefixPath;
+        nbl::system::path screenshotPrefixPath;
+        nbl::system::path rowViewScreenshotPath;
+        nbl::system::path testListPath;
+        std::optional<nbl::system::path> loaderPerfLogPath;
+        std::optional<nbl::system::path> rowAddPath;
+        uint32_t rowDuplicateCount = 0u;
+
+        nbl::system::path writtenPath;
+        nbl::system::path loadedScreenshotPath;
+        nbl::system::path writtenScreenshotPath;
+    };
+
+    struct RenderState
+    {
+        smart_refctd_ptr<CSimpleDebugRenderer> renderer;
+        smart_refctd_ptr<ISemaphore> semaphore;
+        uint64_t realFrameIx = 0u;
+        std::array<smart_refctd_ptr<IGPUCommandBuffer>, 3u> cmdBufs;
+
+        core::smart_refctd_ptr<const ICPUPolygonGeometry> currentCpuGeom;
+        core::smart_refctd_ptr<asset::ICPUImageView> loadedScreenshot;
+        core::smart_refctd_ptr<asset::ICPUImageView> writtenScreenshot;
+    };
+
+    struct RowViewState
+    {
+        std::unordered_map<std::string, CachedGeometryEntry> cache;
+    };
+
 public:
     MeshLoadersApp(const path& localInputCWD, const path& localOutputCWD, const path& sharedInputCWD, const path& sharedOutputCWD);
 
@@ -203,10 +254,10 @@ private:
     constexpr static inline uint64_t MaxImageDiffCodeUnits = 16u;
     constexpr static inline uint32_t MaxImageDiffCodeUnitValue = 1u;
 
-    smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
-    smart_refctd_ptr<ISemaphore> m_semaphore;
-    uint64_t m_realFrameIx = 0;
-    std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+    RenderState m_render;
+    RuntimeState m_runtime;
+    OutputState m_output;
+    RowViewState m_rowView;
 
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -226,42 +277,9 @@ private:
     std::vector<ext::debug_draw::InstanceData> m_obbInstances;
 #endif
 
-    bool m_nonInteractiveTest = false;
-    bool m_rowViewEnabled = true;
-    bool m_forceRowViewForCurrentTestList = false;
-    bool m_rowViewScreenshotCaptured = false;
-    bool m_fileDialogOpen = false;
-
-    bool m_saveGeom = true;
-    std::optional<const std::string> m_specifiedGeomSavePath;
-    nbl::system::path m_saveGeomPrefixPath;
-    nbl::system::path m_screenshotPrefixPath;
-    nbl::system::path m_rowViewScreenshotPath;
-    nbl::system::path m_testListPath;
-    std::optional<nbl::system::path> m_loaderPerfLogPath;
-    std::optional<nbl::system::path> m_rowAddPath;
-    uint32_t m_rowDuplicateCount = 0u;
     smart_refctd_ptr<system::ILogger> m_assetLoadLogger;
     smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
     asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
-
-    RunMode m_runMode = RunMode::Batch;
-    Phase m_phase = Phase::RenderOriginal;
-    uint32_t m_phaseFrameCounter = 0u;
-    size_t m_caseIndex = 0u;
-    core::vector<TestCase> m_cases;
-    std::unordered_map<std::string, uint32_t> m_caseNameCounts;
-    std::unordered_map<std::string, CachedGeometryEntry> m_rowViewCache;
-    bool m_shouldQuit = false;
-
-    nbl::system::path m_writtenPath;
-    nbl::system::path m_loadedScreenshotPath;
-    nbl::system::path m_writtenScreenshotPath;
-
-    core::smart_refctd_ptr<const ICPUPolygonGeometry> m_currentCpuGeom;
-
-    core::smart_refctd_ptr<asset::ICPUImageView> m_loadedScreenshot;
-    core::smart_refctd_ptr<asset::ICPUImageView> m_writtenScreenshot;
 
     std::optional<CameraState> m_referenceCamera;
 };

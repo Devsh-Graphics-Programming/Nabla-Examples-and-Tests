@@ -24,8 +24,8 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
     m_modelPath = modelPath.string();
 
     // free up
-    m_renderer->m_instances.clear();
-    m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+    m_render.renderer->m_instances.clear();
+    m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
     m_assetMgr->clearAllAssetCache();
 
     //! load the geometry
@@ -63,7 +63,7 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         outerMs,
         nonLoaderMs);
 
-    m_currentCpuGeom = geometries[0];
+    m_render.currentCpuGeom = geometries[0];
 
     using aabb_t = hlsl::shapes::AABB<3, double>;
     auto printAABB = [&](const aabb_t& aabb, const char* extraMsg = "")->void
@@ -199,11 +199,11 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         }
 
         printAABB(bound, "Total");
-        if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
+        if (!m_render.renderer->addGeometries({ &converted.front().get(),converted.size() }))
             failExit("Failed to add geometries to renderer.");
         if (m_logger)
         {
-            const auto& gpuGeos = m_renderer->getGeometries();
+            const auto& gpuGeos = m_render.renderer->getGeometries();
             for (size_t geoIx = 0u; geoIx < gpuGeos.size(); ++geoIx)
             {
                 const auto& gpuGeo = gpuGeos[geoIx];
@@ -219,8 +219,8 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         }
 
         auto worlTformsIt = worldTforms.begin();
-        for (const auto& geo : m_renderer->getGeometries())
-            m_renderer->m_instances.push_back({
+        for (const auto& geo : m_render.renderer->getGeometries())
+            m_render.renderer->m_instances.push_back({
                 .world = *(worlTformsIt++),
                 .packedGeo = &geo
             });
@@ -242,43 +242,43 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
 
 bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 {
-    if (m_cases.empty())
+    if (m_runtime.cases.empty())
         failExit("No test cases loaded for row view.");
 
     using clock_t = std::chrono::high_resolution_clock;
     RowViewPerfStats stats = {};
     stats.incremental = (mode == RowViewReloadMode::Incremental);
-    stats.cases = m_cases.size();
+    stats.cases = m_runtime.cases.size();
     const auto totalStart = clock_t::now();
 
     const auto clearStart = clock_t::now();
     if (mode == RowViewReloadMode::Full)
     {
-        m_renderer->m_instances.clear();
-        m_renderer->clearGeometries({ .semaphore = m_semaphore.get(),.value = m_realFrameIx });
+        m_render.renderer->m_instances.clear();
+        m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
     }
     stats.clearMs = toMs(clock_t::now() - clearStart);
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     core::vector<hlsl::shapes::AABB<3, double>> aabbs;
-    geometries.reserve(m_cases.size());
-    aabbs.reserve(m_cases.size());
+    geometries.reserve(m_runtime.cases.size());
+    aabbs.reserve(m_runtime.cases.size());
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpuToConvert;
     core::vector<CachedGeometryEntry*> convertEntries;
 
-    m_rowViewCache.reserve(m_cases.size());
+    m_rowView.cache.reserve(m_runtime.cases.size());
 
     IAssetLoader::SAssetLoadParams params = makeLoadParams();
 
-    for (const auto& testCase : m_cases)
+    for (const auto& testCase : m_runtime.cases)
     {
         const auto& path = testCase.path;
         if (!std::filesystem::exists(path))
             failExit("Missing input: %s", path.string().c_str());
 
         const auto cacheKey = makeCacheKey(path);
-        auto& entry = m_rowViewCache[cacheKey];
+        auto& entry = m_rowView.cache[cacheKey];
         double assetLoadMs = 0.0;
         bool cached = true;
         if (!entry.cpu)
@@ -428,18 +428,18 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         stats.convertMs = toMs(clock_t::now() - convertStart);
     }
 
-    size_t existingCount = m_renderer->getGeometries().size();
-    const bool incremental = (mode == RowViewReloadMode::Incremental) && (existingCount <= m_cases.size());
+    size_t existingCount = m_render.renderer->getGeometries().size();
+    const bool incremental = (mode == RowViewReloadMode::Incremental) && (existingCount <= m_runtime.cases.size());
     if (!incremental && mode == RowViewReloadMode::Incremental)
         return loadRowView(RowViewReloadMode::Full);
 
     if (mode == RowViewReloadMode::Full)
     {
         core::vector<const IGPUPolygonGeometry*> allGeometries;
-        allGeometries.reserve(m_cases.size());
-        for (const auto& testCase : m_cases)
+        allGeometries.reserve(m_runtime.cases.size());
+        for (const auto& testCase : m_runtime.cases)
         {
-            const auto& entry = m_rowViewCache[makeCacheKey(testCase.path)];
+            const auto& entry = m_rowView.cache[makeCacheKey(testCase.path)];
             if (!entry.gpu)
                 failExit("Missing GPU geometry for %s.", testCase.path.string().c_str());
             allGeometries.push_back(entry.gpu.get());
@@ -447,27 +447,27 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         stats.addCount = allGeometries.size();
         const auto addStart = clock_t::now();
         if (!allGeometries.empty())
-            if (!m_renderer->addGeometries({ allGeometries.data(),allGeometries.size() }))
+            if (!m_render.renderer->addGeometries({ allGeometries.data(),allGeometries.size() }))
                 failExit("Failed to add geometries to renderer.");
         stats.addGeoMs = toMs(clock_t::now() - addStart);
     }
     else
     {
-        const size_t addCount = (existingCount < m_cases.size()) ? (m_cases.size() - existingCount) : 0u;
+        const size_t addCount = (existingCount < m_runtime.cases.size()) ? (m_runtime.cases.size() - existingCount) : 0u;
         stats.addCount = addCount;
         if (addCount > 0u)
         {
             core::vector<const IGPUPolygonGeometry*> newGeometries;
             newGeometries.reserve(addCount);
-            for (size_t i = existingCount; i < m_cases.size(); ++i)
+            for (size_t i = existingCount; i < m_runtime.cases.size(); ++i)
             {
-                const auto& entry = m_rowViewCache[makeCacheKey(m_cases[i].path)];
+                const auto& entry = m_rowView.cache[makeCacheKey(m_runtime.cases[i].path)];
                 if (!entry.gpu)
-                    failExit("Missing GPU geometry for %s.", m_cases[i].path.string().c_str());
+                    failExit("Missing GPU geometry for %s.", m_runtime.cases[i].path.string().c_str());
                 newGeometries.push_back(entry.gpu.get());
             }
             const auto addStart = clock_t::now();
-            if (!m_renderer->addGeometries({ newGeometries.data(),newGeometries.size() }))
+            if (!m_render.renderer->addGeometries({ newGeometries.data(),newGeometries.size() }))
                 failExit("Failed to add geometries to renderer.");
             stats.addGeoMs = toMs(clock_t::now() - addStart);
         }
@@ -528,7 +528,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     m_aabbInstances.resize(geometries.size());
     if (m_drawBBMode == DBBM_OBB)
         m_obbInstances.resize(geometries.size());
-    m_renderer->m_instances.clear();
+    m_render.renderer->m_instances.clear();
 
     for (uint32_t i = 0; i < geometries.size(); i++)
     {
@@ -588,9 +588,9 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     printAABB(bound, "Total");
     for (uint32_t i = 0; i < worldTforms.size(); i++)
     {
-        m_renderer->m_instances.push_back({
+        m_render.renderer->m_instances.push_back({
             .world = worldTforms[i],
-            .packedGeo = &m_renderer->getGeometry(i)
+            .packedGeo = &m_render.renderer->getGeometry(i)
             });
     }
     stats.instanceMs = toMs(clock_t::now() - instanceStart);
@@ -600,8 +600,8 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     stats.cameraMs = toMs(clock_t::now() - cameraStart);
 
     m_modelPath = "Row view (all meshes)";
-    m_rowViewScreenshotPath = m_screenshotPrefixPath / "meshloaders_row_view.png";
-    m_rowViewScreenshotCaptured = false;
+    m_output.rowViewScreenshotPath = m_output.screenshotPrefixPath / "meshloaders_row_view.png";
+    m_runtime.rowViewScreenshotCaptured = false;
     stats.totalMs = toMs(clock_t::now() - totalStart);
     logRowViewPerf(stats);
     return true;
@@ -764,7 +764,7 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
 {
     IAssetLoader::SAssetLoadParams params = {};
     params.logger = getAssetLoadLogger();
-    if ((m_runMode == RunMode::CI || isRowViewActive()) && !m_loaderPerfLogger)
+    if ((m_runtime.mode == RunMode::CI || isRowViewActive()) && !m_loaderPerfLogger)
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
@@ -808,5 +808,6 @@ bool MeshLoadersApp::initLoaderPerfLogger(const system::path& logPath)
     m_assetLoadLogger = m_loaderPerfLogger;
     return true;
 }
+
 
 
