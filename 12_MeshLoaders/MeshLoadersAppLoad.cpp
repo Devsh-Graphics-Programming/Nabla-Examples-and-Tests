@@ -44,6 +44,8 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
     if (asset.getContents().empty())
         failExit("Failed to load asset %s.", m_modelPath.c_str());
 
+    m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
+
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     const auto extractStart = clock_t::now();
     if (!appendGeometriesFromBundle(asset, geometries))
@@ -607,11 +609,14 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     return true;
 }
 
-bool MeshLoadersApp::writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath)
+bool MeshLoadersApp::writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath)
 {
     using clock_t = std::chrono::high_resolution_clock;
     const auto writeOuterStart = clock_t::now();
-    IAsset* assetPtr = const_cast<IAsset*>(static_cast<const IAsset*>(geometry.get()));
+    if (!asset)
+        return false;
+
+    IAsset* assetPtr = const_cast<IAsset*>(asset.get());
     const auto ext = normalizeExtension(system::path(savePath));
     auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
     if (ext != ".obj")

@@ -95,16 +95,8 @@ bool MeshLoadersApp::validateWrittenAsset(const system::path& path)
         return false;
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-    switch (asset.getAssetType())
-    {
-    case IAsset::E_TYPE::ET_GEOMETRY:
-        for (const auto& item : asset.getContents())
-            if (auto polyGeo = IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
-                geometries.push_back(polyGeo);
-        break;
-    default:
+    if (!appendGeometriesFromBundle(asset, geometries))
         return false;
-    }
     return !geometries.empty();
 }
 
@@ -214,9 +206,9 @@ void MeshLoadersApp::advanceCase()
 
         if (m_output.saveGeom)
         {
-            if (!m_render.currentCpuGeom)
-                failExit("No geometry to write.");
-            if (!writeGeometry(m_render.currentCpuGeom, m_output.writtenPath.string()))
+            if (!m_render.currentCpuAsset)
+                failExit("No single root asset to write.");
+            if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
                 failExit("Geometry write failed.");
         }
 

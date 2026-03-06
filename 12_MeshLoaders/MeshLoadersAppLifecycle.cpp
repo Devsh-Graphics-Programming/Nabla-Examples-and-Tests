@@ -813,10 +813,10 @@ void MeshLoadersApp::reloadInteractive()
         failExit("No file selected.");
     if (!loadModel(picked, true, true))
         failExit("Failed to load asset %s.", picked.string().c_str());
-    if (m_render.currentCpuGeom && m_output.saveGeom)
+    if (m_render.currentCpuAsset && m_output.saveGeom)
     {
         const auto savePath = resolveSavePath(picked);
-        if (!writeGeometry(m_render.currentCpuGeom, savePath.string()))
+        if (!writeAssetRoot(m_render.currentCpuAsset, savePath.string()))
             failExit("Geometry write failed.");
     }
 }

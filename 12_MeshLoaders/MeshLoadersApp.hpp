@@ -162,6 +162,7 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         uint64_t realFrameIx = 0u;
         std::array<smart_refctd_ptr<IGPUCommandBuffer>, 3u> cmdBufs;
 
+        core::smart_refctd_ptr<const IAsset> currentCpuAsset;
         core::smart_refctd_ptr<const ICPUPolygonGeometry> currentCpuGeom;
         core::smart_refctd_ptr<asset::ICPUImageView> loadedScreenshot;
         core::smart_refctd_ptr<asset::ICPUImageView> writtenScreenshot;
@@ -212,7 +213,7 @@ private:
 
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
     bool loadRowView(RowViewReloadMode mode);
-    bool writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath);
+    bool writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath);
 
     void setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bound);
 
