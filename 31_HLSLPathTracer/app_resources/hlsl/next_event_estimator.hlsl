@@ -418,6 +418,13 @@ struct NextEventEstimator
         return retval;
     }
 
+    light_id_type get_env_light_id()
+    {
+        light_id_type env_light_id;
+        env_light_id.id = 0u;
+        return env_light_id;
+    }
+
     spectral_type get_environment_radiance(NBL_CONST_REF_ARG(ray_type) ray)
     {
         // can also sample environment map using ray direction
