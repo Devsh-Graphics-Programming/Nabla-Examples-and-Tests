@@ -115,7 +115,7 @@ struct Ray
 
     spectral_type foundEmissiveMIS(scalar_type pdfSq)
     {
-        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+        return scalar_type(1.0) / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
     }
 
     void addPayloadContribution(const spectral_type contribution)
@@ -182,9 +182,9 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         return payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min;
     }
 
-    vector3_type foundEmissiveMIS(scalar_type pdfSq)
+    spectral_type foundEmissiveMIS(scalar_type pdfSq)
     {
-        return payload.throughput / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
+        return scalar_type(1.0) / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
     }
 
     void addPayloadContribution(const vector3_type contribution)
