@@ -23,7 +23,7 @@ struct SSensorUniforms
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxPathDepthLog2 = MAX_PATH_DEPTH_LOG2;
 
 	hlsl::float32_t2 rcpPixelSize;
-	hlsl::rwmc::SplattingParameters splatting;
+	hlsl::rwmc::SSplattingParameters splatting;
 	hlsl::uint16_t2 renderSize;
 	// bitfield
 	uint16_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
