@@ -29,8 +29,8 @@ void main()
 
     // Bilinear
     sampling::Bilinear<float32_t> bilinear = sampling::Bilinear<float32_t>::create(float32_t4(1, 2, 3, 4));
-    float32_t rcpPdf;
-    float32_t2 bilSample = bilinear.generate(rcpPdf, u2);
+    float32_t2 bilSample = bilinear.generate(u2);
+    float32_t rcpPdf = 1.0 / bilinear.backwardPdf(bilSample);
     acc.xy += bilSample;
     acc.z += rcpPdf;
 
@@ -53,20 +53,23 @@ void main()
 
     // SphericalTriangle
     shapes::SphericalTriangle<float32_t> shapeTri;
-    shapeTri.vertex0 = float32_t3(1, 0, 0);
-    shapeTri.vertex1 = float32_t3(0, 1, 0);
-    shapeTri.vertex2 = float32_t3(0, 0, 1);
+    shapeTri.vertices[0] = float32_t3(1, 0, 0);
+    shapeTri.vertices[1] = float32_t3(0, 1, 0);
+    shapeTri.vertices[2] = float32_t3(0, 0, 1);
     sampling::SphericalTriangle<float32_t> sphTri = sampling::SphericalTriangle<float32_t>::create(shapeTri);
     float32_t stRcpPdf;
     acc.xyz += sphTri.generate(stRcpPdf, u2);
     acc.w += stRcpPdf;
 
     // SphericalRectangle
-    shapes::SphericalRectangle<float32_t> shapeRect;
-    shapeRect.r0 = float32_t3(-0.5, -0.5, -1.0);
+    shapes::SphericalRectangle<float32_t> shapeRect = shapes::SphericalRectangle<float32_t>::create(
+        float32_t3(0.0, 0.0, -1.0),
+        float32_t3(1.0, 0.0, 0.0),
+        float32_t3(0.0, 1.0, 0.0)
+    );
     sampling::SphericalRectangle<float32_t> sphRect = sampling::SphericalRectangle<float32_t>::create(shapeRect);
     float32_t srS;
-    acc.xy += sphRect.generate(float32_t2(1.0, 1.0), u2, srS);
+    acc.xy += sphRect.generate(float32_t3(0.0, 0.0, 0.0), u2, srS);
     acc.z += srS;
 
     // ProjectedSphericalTriangle — skipped: pre-existing bug in computeBilinearPatch(receiverNormal, isBSDF)

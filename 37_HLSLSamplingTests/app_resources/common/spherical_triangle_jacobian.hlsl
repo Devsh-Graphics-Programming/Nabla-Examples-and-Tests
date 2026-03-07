@@ -35,9 +35,9 @@ struct SphericalTriangleJacobianTestExecutor
 	void operator()(NBL_CONST_REF_ARG(SphericalTriangleJacobianInputValues) input, NBL_REF_ARG(SphericalTriangleJacobianTestResults) output)
 	{
 		shapes::SphericalTriangle<float32_t> shape;
-		shape.vertex0 = input.vertex0;
-		shape.vertex1 = input.vertex1;
-		shape.vertex2 = input.vertex2;
+		shape.vertices[0] = input.vertex0;
+		shape.vertices[1] = input.vertex1;
+		shape.vertices[2] = input.vertex2;
 		shape.cos_sides = float32_t3(
 			nbl::hlsl::dot(input.vertex1, input.vertex2),
 			nbl::hlsl::dot(input.vertex2, input.vertex0),
