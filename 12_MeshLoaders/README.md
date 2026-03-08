@@ -94,7 +94,7 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 {
   "row_view": true,
   "cases": [
-    "../media/yellowflower.obj",
+    "../media/cornell_box_multimaterial.obj",
     { "name": "spanner", "path": "../media/ply/Spanner-ply.ply" },
     { "path": "../media/Stanford_Bunny.stl" }
   ]

@@ -78,10 +78,9 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
 
     struct CachedGeometryEntry
     {
-        smart_refctd_ptr<const ICPUPolygonGeometry> cpu;
-        video::asset_cached_t<asset::ICPUPolygonGeometry> gpu;
-        hlsl::shapes::AABB<3, double> aabb = hlsl::shapes::AABB<3, double>::create();
-        bool hasAabb = false;
+        core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpu;
+        core::vector<video::asset_cached_t<asset::ICPUPolygonGeometry>> gpu;
+        core::vector<hlsl::shapes::AABB<3, double>> aabbs;
     };
 
     struct RowViewPerfStats
@@ -281,6 +280,8 @@ private:
     smart_refctd_ptr<system::ILogger> m_assetLoadLogger;
     smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
     asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
+    bool m_forceLoaderContentHashes = false;
+    bool m_updateGeometryHashReferences = false;
 
     std::optional<CameraState> m_referenceCamera;
 };

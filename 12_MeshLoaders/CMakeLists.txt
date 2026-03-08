@@ -67,7 +67,14 @@ if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 				)
 				FetchContent_GetProperties(nbl_meshloaders_benchmark_dataset)
 				if (NOT nbl_meshloaders_benchmark_dataset_POPULATED)
+					if (POLICY CMP0169)
+						cmake_policy(PUSH)
+						cmake_policy(SET CMP0169 OLD)
+					endif()
 					FetchContent_Populate(nbl_meshloaders_benchmark_dataset)
+					if (POLICY CMP0169)
+						cmake_policy(POP)
+					endif()
 				endif ()
 			endif ()
 		endif ()
@@ -102,6 +109,7 @@ if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 	set(_NBL_MESHLOADERS_BENCHMARK_CI_COMMON_ARGS
 		--ci
 		--testlist "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}"
+		--loader-content-hashes
 	)
 
 	add_test(NAME NBL_MESHLOADERS_CI_BENCHMARK_HEURISTIC

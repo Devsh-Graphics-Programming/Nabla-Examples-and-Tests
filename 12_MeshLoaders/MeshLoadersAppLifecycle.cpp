@@ -51,6 +51,12 @@ void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
     parser.add_argument("--loader-perf-log")
         .nargs(1)
         .help("Write loader diagnostics to a file instead of stdout.");
+    parser.add_argument("--loader-content-hashes")
+        .help("Force loaders to compute CPU buffer content hashes before returning.")
+        .flag();
+    parser.add_argument("--update-references")
+        .help("Accept official benchmark/reference CLI without changing current local flow.")
+        .flag();
     parser.add_argument("--runtime-tuning")
         .nargs(1)
         .help("Runtime tuning mode for loaders: sequential|heuristic|hybrid. Default: heuristic.");
@@ -278,6 +284,10 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
             tmp = effectiveOutputCWD / tmp;
         m_output.loaderPerfLogPath = tmp;
     }
+    if (parser["--loader-content-hashes"] == true)
+        m_forceLoaderContentHashes = true;
+    if (parser["--update-references"] == true)
+        m_updateGeometryHashReferences = true;
     if (parser.present("--runtime-tuning"))
     {
         auto mode = parser.get<std::string>("--runtime-tuning");

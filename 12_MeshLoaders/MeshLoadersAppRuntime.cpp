@@ -204,16 +204,22 @@ void MeshLoadersApp::advanceCase()
         if (!captureScreenshot(m_output.loadedScreenshotPath, m_render.loadedScreenshot))
             failExit("Failed to capture loaded screenshot.");
 
+        const bool canWriteCurrentAsset = m_output.saveGeom && static_cast<bool>(m_render.currentCpuAsset);
         if (m_output.saveGeom)
         {
-            if (!m_render.currentCpuAsset)
-                failExit("No single root asset to write.");
-            if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
+            if (!canWriteCurrentAsset)
+                m_logger->log("Skipping write/reload for %s because the loaded case expands to multiple root geometries.", ILogger::ELL_INFO, m_caseName.c_str());
+            else if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
                 failExit("Geometry write failed.");
         }
 
         if (m_runtime.mode == RunMode::CI)
         {
+            if (!canWriteCurrentAsset)
+            {
+                advanceToNextCase();
+                return;
+            }
             if (!loadModel(m_output.writtenPath, false, false))
                 failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
             if (!m_render.currentCpuGeom)
@@ -223,7 +229,7 @@ void MeshLoadersApp::advanceCase()
             return;
         }
 
-        if (m_output.saveGeom)
+        if (canWriteCurrentAsset)
         {
             if (!validateWrittenAsset(m_output.writtenPath))
                 failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());

@@ -2,7 +2,7 @@
   "row_view": true,
   "cases": [
     "../media/ply/Spanner-ply.ply",
-    "../media/yellowflower.obj",
+    "../media/cornell_box_multimaterial.obj",
     "../media/Stanford_Bunny.stl"
   ]
 }

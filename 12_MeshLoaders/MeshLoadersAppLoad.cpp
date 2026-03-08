@@ -12,6 +12,96 @@
 #include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
 #include "nbl/examples/common/GeometryAABBUtilities.h"
 
+namespace
+{
+using display_aabb_t = hlsl::shapes::AABB<3, double>;
+struct DisplayLayout
+{
+    core::vector<hlsl::float32_t3x4> worldTransforms = {};
+    display_aabb_t bound = display_aabb_t::create();
+};
+static hlsl::float32_t3x4 makeIdentityWorld()
+{
+    auto tmp = hlsl::float32_t4x3(
+        hlsl::float32_t3(1, 0, 0),
+        hlsl::float32_t3(0, 1, 0),
+        hlsl::float32_t3(0, 0, 1),
+        hlsl::float32_t3(0, 0, 0));
+    return hlsl::transpose(tmp);
+}
+static DisplayLayout buildDisplayLayout(const core::vector<display_aabb_t>& aabbs, const bool arrangeInRow)
+{
+    DisplayLayout retval = {};
+    retval.worldTransforms.reserve(aabbs.size());
+    if (!arrangeInRow)
+    {
+        const auto identity = makeIdentityWorld();
+        for (const auto& aabb : aabbs)
+        {
+            retval.worldTransforms.push_back(identity);
+            retval.bound = hlsl::shapes::util::union_(aabb, retval.bound);
+        }
+        return retval;
+    }
+    double targetExtent = 0.0;
+    core::vector<double> maxDims;
+    maxDims.reserve(aabbs.size());
+    for (const auto& aabb : aabbs)
+    {
+        const auto extent = aabb.getExtent();
+        const double maxDim = std::max({extent.x, extent.y, extent.z, 0.001});
+        maxDims.push_back(maxDim);
+        if (maxDim > targetExtent)
+            targetExtent = maxDim;
+    }
+    core::vector<double> scales;
+    scales.reserve(aabbs.size());
+    for (const auto maxDim : maxDims)
+        scales.push_back(targetExtent / maxDim);
+    double maxWidth = 0.0;
+    double totalWidth = 0.0;
+    core::vector<double> widths;
+    widths.reserve(aabbs.size());
+    for (size_t i = 0u; i < aabbs.size(); ++i)
+    {
+        const auto extent = aabbs[i].getExtent();
+        const double width = std::max(0.001, extent.x * scales[i]);
+        widths.push_back(width);
+        totalWidth += width;
+        if (width > maxWidth)
+            maxWidth = width;
+    }
+    const double spacing = std::max(0.05 * maxWidth, 0.01);
+    const double totalSpan = totalWidth + spacing * double(widths.size() > 0u ? widths.size() - 1u : 0u);
+    double cursor = -0.5 * totalSpan;
+    auto tmp = hlsl::float32_t4x3(
+        hlsl::float32_t3(1, 0, 0),
+        hlsl::float32_t3(0, 1, 0),
+        hlsl::float32_t3(0, 0, 1),
+        hlsl::float32_t3(0, 0, 0));
+    for (size_t i = 0u; i < aabbs.size(); ++i)
+    {
+        const auto& aabb = aabbs[i];
+        const double scale = scales[i];
+        const auto center = (aabb.minVx + aabb.maxVx) * 0.5;
+        const double width = widths[i];
+        const double targetCenterX = cursor + 0.5 * width;
+        cursor += width + spacing;
+        const double tx = targetCenterX - scale * center.x;
+        const double ty = -scale * center.y;
+        const double tz = -scale * center.z;
+        tmp[0] = hlsl::float32_t3(static_cast<float>(scale), 0.f, 0.f);
+        tmp[1] = hlsl::float32_t3(0.f, static_cast<float>(scale), 0.f);
+        tmp[2] = hlsl::float32_t3(0.f, 0.f, static_cast<float>(scale));
+        tmp[3] = hlsl::float32_t3(static_cast<float>(tx), static_cast<float>(ty), static_cast<float>(tz));
+        const auto world = hlsl::transpose(tmp);
+        retval.worldTransforms.push_back(world);
+        retval.bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(world), aabb), retval.bound);
+    }
+    return retval;
+}
+}
+
 bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera)
 {
     if (modelPath.empty())
@@ -41,10 +131,9 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         m_modelPath.c_str(),
         loadMs,
         static_cast<unsigned long long>(loadResult.inputSize));
-    if (asset.getContents().empty())
-        failExit("Failed to load asset %s.", m_modelPath.c_str());
-
-    m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
+	if (asset.getContents().empty())
+		failExit("Failed to load asset %s.", m_modelPath.c_str());
+	m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     const auto extractStart = clock_t::now();
@@ -72,7 +161,21 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         {
             m_logger->log("%s AABB is (%f,%f,%f) -> (%f,%f,%f)", ILogger::ELL_INFO, extraMsg, aabb.minVx.x, aabb.minVx.y, aabb.minVx.z, aabb.maxVx.x, aabb.maxVx.y, aabb.maxVx.z);
         };
-    auto bound = aabb_t::create();
+    core::vector<aabb_t> aabbs;
+    aabbs.reserve(geometries.size());
+    for (uint32_t i = 0u; i < geometries.size(); ++i)
+    {
+        auto aabb = getGeometryAABB(geometries[i].get());
+        if (!isValidAABB(aabb))
+        {
+            m_logger->log("Invalid geometry AABB for %s (geo=%u). Using fallback unit AABB for framing.", ILogger::ELL_WARNING, m_modelPath.c_str(), i);
+            aabb = nbl::examples::geometry::fallbackUnitAABB();
+        }
+        aabbs.push_back(aabb);
+    }
+    const auto layout = buildDisplayLayout(aabbs, geometries.size() > 1u);
+    const auto& worldTforms = layout.worldTransforms;
+    auto bound = layout.bound;
     // convert the geometries
     {
         smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
@@ -143,12 +246,6 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
                 failExit("Failed to await submission feature.");
         }
 
-        auto tmp = hlsl::float32_t4x3(
-            hlsl::float32_t3(1, 0, 0),
-            hlsl::float32_t3(0, 1, 0),
-            hlsl::float32_t3(0, 0, 1),
-            hlsl::float32_t3(0, 0, 0));
-        core::vector<hlsl::float32_t3x4> worldTforms;
         const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
         m_aabbInstances.resize(converted.size());
         if (m_drawBBMode == DBBM_OBB)
@@ -156,17 +253,11 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         for (uint32_t i = 0; i < converted.size(); i++)
         {
             const auto& cpuGeom = geometries[i].get();
-            auto promoted = getGeometryAABB(cpuGeom);
-            if (!isValidAABB(promoted))
-            {
-                m_logger->log("Invalid geometry AABB for %s (geo=%u). Using fallback unit AABB for framing.", ILogger::ELL_WARNING, m_modelPath.c_str(), i);
-                promoted = nbl::examples::geometry::fallbackUnitAABB();
-            }
+            const auto& promoted = aabbs[i];
             printAABB(promoted, "Geometry");
-            const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
+            const auto promotedWorld = hlsl::float64_t3x4(worldTforms[i]);
             const auto transformed = nbl::hlsl::math::linalg::pseudo_mul(promotedWorld, promoted);
             printAABB(transformed, "Transformed");
-            bound = hlsl::shapes::util::union_(transformed, bound);
 
 #ifdef NBL_BUILD_DEBUG_DRAW
             auto& aabbInst = m_aabbInstances[i];
@@ -220,10 +311,10 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
             }
         }
 
-        auto worlTformsIt = worldTforms.begin();
+        auto worldTformsIt = worldTforms.begin();
         for (const auto& geo : m_render.renderer->getGeometries())
             m_render.renderer->m_instances.push_back({
-                .world = *(worlTformsIt++),
+                .world = *(worldTformsIt++),
                 .packedGeo = &geo
             });
     }
@@ -263,11 +354,10 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     core::vector<hlsl::shapes::AABB<3, double>> aabbs;
-    geometries.reserve(m_runtime.cases.size());
-    aabbs.reserve(m_runtime.cases.size());
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpuToConvert;
-    core::vector<CachedGeometryEntry*> convertEntries;
+    struct ConvertTarget { CachedGeometryEntry* entry = nullptr; size_t geometryIx = 0u; };
+    core::vector<ConvertTarget> convertTargets;
 
     m_rowView.cache.reserve(m_runtime.cases.size());
 
@@ -283,7 +373,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         auto& entry = m_rowView.cache[cacheKey];
         double assetLoadMs = 0.0;
         bool cached = true;
-        if (!entry.cpu)
+        if (entry.cpu.empty())
         {
             stats.cpuMisses++;
             cached = false;
@@ -299,57 +389,66 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             const auto extractStart = clock_t::now();
             core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
             if (appendGeometriesFromBundle(asset, found))
-            {
-                if (!found.empty())
-                    entry.cpu = found.front();
-            }
+                entry.cpu = std::move(found);
             stats.extractMs += toMs(clock_t::now() - extractStart);
-            if (!entry.cpu)
+            if (entry.cpu.empty())
                 failExit("No geometry found in asset %s.", path.string().c_str());
+            entry.gpu.resize(entry.cpu.size());
 
             const auto aabbStart = clock_t::now();
-            entry.aabb = getGeometryAABB(entry.cpu.get());
-            entry.hasAabb = isValidAABB(entry.aabb);
-            if (!entry.hasAabb)
+            entry.aabbs.clear();
+            entry.aabbs.reserve(entry.cpu.size());
+            for (uint32_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
             {
-                m_logger->log("Invalid row-view geometry AABB for %s. Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str());
-                entry.aabb = nbl::examples::geometry::fallbackUnitAABB();
-                entry.hasAabb = true;
+                auto aabb = getGeometryAABB(entry.cpu[geoIx].get());
+                if (!isValidAABB(aabb))
+                {
+                    m_logger->log("Invalid row-view geometry AABB for %s (geo=%u). Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str(), geoIx);
+                    aabb = nbl::examples::geometry::fallbackUnitAABB();
+                }
+                entry.aabbs.push_back(aabb);
             }
             stats.aabbMs += toMs(clock_t::now() - aabbStart);
         }
         else
         {
             stats.cpuHits++;
-            if (!entry.hasAabb)
+            if (entry.gpu.size() != entry.cpu.size())
+                entry.gpu.resize(entry.cpu.size());
+            if (entry.aabbs.size() != entry.cpu.size())
             {
                 const auto aabbStart = clock_t::now();
-                entry.aabb = getGeometryAABB(entry.cpu.get());
-                entry.hasAabb = isValidAABB(entry.aabb);
-                if (!entry.hasAabb)
+                entry.aabbs.clear();
+                entry.aabbs.reserve(entry.cpu.size());
+                for (uint32_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
                 {
-                    m_logger->log("Invalid row-view geometry AABB for %s. Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str());
-                    entry.aabb = nbl::examples::geometry::fallbackUnitAABB();
-                    entry.hasAabb = true;
+                    auto aabb = getGeometryAABB(entry.cpu[geoIx].get());
+                    if (!isValidAABB(aabb))
+                    {
+                        m_logger->log("Invalid row-view geometry AABB for %s (geo=%u). Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str(), geoIx);
+                        aabb = nbl::examples::geometry::fallbackUnitAABB();
+                    }
+                    entry.aabbs.push_back(aabb);
                 }
                 stats.aabbMs += toMs(clock_t::now() - aabbStart);
             }
         }
         logRowViewAssetLoad(path, assetLoadMs, cached);
 
-        if (!entry.gpu)
+        for (size_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
         {
-            stats.gpuMisses++;
-            cpuToConvert.push_back(entry.cpu);
-            convertEntries.push_back(&entry);
-        }
-        else
-        {
-            stats.gpuHits++;
+            if (!entry.gpu[geoIx])
+            {
+                stats.gpuMisses++;
+                cpuToConvert.push_back(entry.cpu[geoIx]);
+                convertTargets.push_back({.entry = &entry,.geometryIx = geoIx});
+            }
+            else
+                stats.gpuHits++;
         }
 
-        geometries.push_back(entry.cpu);
-        aabbs.push_back(entry.aabb);
+        geometries.insert(geometries.end(), entry.cpu.begin(), entry.cpu.end());
+        aabbs.insert(aabbs.end(), entry.aabbs.begin(), entry.aabbs.end());
     }
 
     if (geometries.empty())
@@ -425,27 +524,32 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
         const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
         for (size_t i = 0u; i < converted.size(); ++i)
-            convertEntries[i]->gpu = converted[i];
+            convertTargets[i].entry->gpu[convertTargets[i].geometryIx] = converted[i];
 
         stats.convertMs = toMs(clock_t::now() - convertStart);
     }
 
+    const size_t totalGeometryCount = geometries.size();
     size_t existingCount = m_render.renderer->getGeometries().size();
-    const bool incremental = (mode == RowViewReloadMode::Incremental) && (existingCount <= m_runtime.cases.size());
+    const bool incremental = (mode == RowViewReloadMode::Incremental) && (existingCount <= totalGeometryCount);
     if (!incremental && mode == RowViewReloadMode::Incremental)
         return loadRowView(RowViewReloadMode::Full);
 
+    core::vector<const IGPUPolygonGeometry*> allGeometries;
+    allGeometries.reserve(totalGeometryCount);
+    for (const auto& testCase : m_runtime.cases)
+    {
+        const auto& entry = m_rowView.cache[makeCacheKey(testCase.path)];
+        for (size_t geoIx = 0u; geoIx < entry.gpu.size(); ++geoIx)
+        {
+            if (!entry.gpu[geoIx])
+                failExit("Missing GPU geometry for %s.", testCase.path.string().c_str());
+            allGeometries.push_back(entry.gpu[geoIx].get());
+        }
+    }
+
     if (mode == RowViewReloadMode::Full)
     {
-        core::vector<const IGPUPolygonGeometry*> allGeometries;
-        allGeometries.reserve(m_runtime.cases.size());
-        for (const auto& testCase : m_runtime.cases)
-        {
-            const auto& entry = m_rowView.cache[makeCacheKey(testCase.path)];
-            if (!entry.gpu)
-                failExit("Missing GPU geometry for %s.", testCase.path.string().c_str());
-            allGeometries.push_back(entry.gpu.get());
-        }
         stats.addCount = allGeometries.size();
         const auto addStart = clock_t::now();
         if (!allGeometries.empty())
@@ -455,21 +559,12 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     }
     else
     {
-        const size_t addCount = (existingCount < m_runtime.cases.size()) ? (m_runtime.cases.size() - existingCount) : 0u;
+        const size_t addCount = (existingCount < totalGeometryCount) ? (totalGeometryCount - existingCount) : 0u;
         stats.addCount = addCount;
         if (addCount > 0u)
         {
-            core::vector<const IGPUPolygonGeometry*> newGeometries;
-            newGeometries.reserve(addCount);
-            for (size_t i = existingCount; i < m_runtime.cases.size(); ++i)
-            {
-                const auto& entry = m_rowView.cache[makeCacheKey(m_runtime.cases[i].path)];
-                if (!entry.gpu)
-                    failExit("Missing GPU geometry for %s.", m_runtime.cases[i].path.string().c_str());
-                newGeometries.push_back(entry.gpu.get());
-            }
             const auto addStart = clock_t::now();
-            if (!m_render.renderer->addGeometries({ newGeometries.data(),newGeometries.size() }))
+            if (!m_render.renderer->addGeometries({ allGeometries.data() + existingCount,addCount }))
                 failExit("Failed to add geometries to renderer.");
             stats.addGeoMs = toMs(clock_t::now() - addStart);
         }
@@ -480,53 +575,13 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         {
             m_logger->log("%s AABB is (%f,%f,%f) -> (%f,%f,%f)", ILogger::ELL_INFO, extraMsg, aabb.minVx.x, aabb.minVx.y, aabb.minVx.z, aabb.maxVx.x, aabb.maxVx.y, aabb.maxVx.z);
         };
-    auto bound = aabb_t::create();
-
     const auto layoutStart = clock_t::now();
-    double targetExtent = 0.0;
-    core::vector<double> maxDims;
-    maxDims.reserve(aabbs.size());
-    for (const auto& aabb : aabbs)
-    {
-        const auto extent = aabb.getExtent();
-        const double maxDim = std::max({ extent.x, extent.y, extent.z, 0.001 });
-        maxDims.push_back(maxDim);
-        if (maxDim > targetExtent)
-            targetExtent = maxDim;
-    }
-
-    core::vector<double> scales;
-    scales.reserve(aabbs.size());
-    for (const auto maxDim : maxDims)
-        scales.push_back(targetExtent / maxDim);
-
-    double maxWidth = 0.0;
-    double totalWidth = 0.0;
-    core::vector<double> widths;
-    widths.reserve(aabbs.size());
-    for (size_t i = 0; i < aabbs.size(); ++i)
-    {
-        const auto extent = aabbs[i].getExtent();
-        const double width = std::max(0.001, extent.x * scales[i]);
-        widths.push_back(width);
-        totalWidth += width;
-        if (width > maxWidth)
-            maxWidth = width;
-    }
-    const double spacing = std::max(0.05 * maxWidth, 0.01);
-    const double totalSpan = totalWidth + spacing * double(widths.size() > 0 ? widths.size() - 1 : 0);
-    double cursor = -0.5 * totalSpan;
+    const auto layout = buildDisplayLayout(aabbs, true);
     stats.layoutMs = toMs(clock_t::now() - layoutStart);
 
     const auto instanceStart = clock_t::now();
-    auto tmp = hlsl::float32_t4x3(
-        hlsl::float32_t3(1, 0, 0),
-        hlsl::float32_t3(0, 1, 0),
-        hlsl::float32_t3(0, 0, 1),
-        hlsl::float32_t3(0, 0, 0)
-    );
-    core::vector<hlsl::float32_t3x4> worldTforms;
-    worldTforms.reserve(geometries.size());
+    const auto& worldTforms = layout.worldTransforms;
+    const auto& bound = layout.bound;
     m_aabbInstances.resize(geometries.size());
     if (m_drawBBMode == DBBM_OBB)
         m_obbInstances.resize(geometries.size());
@@ -538,24 +593,9 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         const auto aabb = aabbs[i];
         printAABB(aabb, "Geometry");
 
-        const double scale = scales[i];
-        const auto center = (aabb.minVx + aabb.maxVx) * 0.5;
-        const double width = widths[i];
-        const double targetCenterX = cursor + 0.5 * width;
-        cursor += width + spacing;
-
-        const double tx = targetCenterX - scale * center.x;
-        const double ty = -scale * center.y;
-        const double tz = -scale * center.z;
-        tmp[0] = hlsl::float32_t3(static_cast<float>(scale), 0.f, 0.f);
-        tmp[1] = hlsl::float32_t3(0.f, static_cast<float>(scale), 0.f);
-        tmp[2] = hlsl::float32_t3(0.f, 0.f, static_cast<float>(scale));
-        tmp[3] = hlsl::float32_t3(static_cast<float>(tx), static_cast<float>(ty), static_cast<float>(tz));
-
-        const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
+        const auto promotedWorld = hlsl::float64_t3x4(worldTforms[i]);
         const auto transformed = nbl::hlsl::math::linalg::pseudo_mul(promotedWorld, aabb);
         printAABB(transformed, "Transformed");
-        bound = hlsl::shapes::util::union_(transformed, bound);
 
 #ifdef NBL_BUILD_DEBUG_DRAW
         auto& aabbInst = m_aabbInstances[i];
@@ -773,6 +813,9 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
+    const bool needLoaderContentHashes = m_forceLoaderContentHashes || m_runtime.mode == RunMode::CI;
+    if (!needLoaderContentHashes)
+        params.loaderFlags |= IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES;
     return params;
 }
 
