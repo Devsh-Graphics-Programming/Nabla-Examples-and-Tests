@@ -813,7 +813,7 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
-    const bool needLoaderContentHashes = m_forceLoaderContentHashes || m_runtime.mode == RunMode::CI;
+    const bool needLoaderContentHashes = m_forceLoaderContentHashes;
     if (!needLoaderContentHashes)
         params.loaderFlags |= IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES;
     return params;
