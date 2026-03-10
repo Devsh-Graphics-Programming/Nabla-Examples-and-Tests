@@ -61,7 +61,9 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
     enum class Phase
     {
         RenderOriginal,
-        RenderWritten
+        CaptureOriginalPending,
+        RenderWritten,
+        CaptureWrittenPending
     };
 
     enum class RowViewReloadMode
@@ -123,6 +125,24 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         uintmax_t inputSize = 0u;
     };
 
+    struct PendingScreenshotCapture
+    {
+        nbl::system::path path;
+        core::smart_refctd_ptr<const IGPUImageView> sourceView;
+        core::smart_refctd_ptr<IGPUCommandBuffer> commandBuffer;
+        core::smart_refctd_ptr<IGPUBuffer> texelBuffer;
+        core::smart_refctd_ptr<ISemaphore> completionSemaphore;
+        asset::IImage::SCreationParams imageParams = {};
+        asset::IImage::SSubresourceRange subresourceRange = {};
+        asset::E_FORMAT viewFormat = asset::EF_UNKNOWN;
+        uint64_t completionValue = 0u;
+
+        inline bool active() const
+        {
+            return static_cast<bool>(completionSemaphore);
+        }
+    };
+
     struct RuntimeState
     {
         bool nonInteractiveTest = false;
@@ -168,6 +188,7 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         core::smart_refctd_ptr<const ICPUPolygonGeometry> currentCpuGeom;
         core::smart_refctd_ptr<asset::ICPUImageView> loadedScreenshot;
         core::smart_refctd_ptr<asset::ICPUImageView> writtenScreenshot;
+        PendingScreenshotCapture pendingScreenshot;
     };
 
     struct RowViewState
@@ -236,7 +257,8 @@ private:
     void logRowViewLoadTotal(double ms, size_t hits, size_t misses) const;
 
     bool validateWrittenAsset(const system::path& path);
-    bool captureScreenshot(const system::path& path, core::smart_refctd_ptr<asset::ICPUImageView>& outImage);
+    bool requestScreenshotCapture(const system::path& path);
+    bool finalizeScreenshotCapture(core::smart_refctd_ptr<asset::ICPUImageView>& outImage, bool& ready);
     bool compareImages(
         const asset::ICPUImageView* a,
         const asset::ICPUImageView* b,

@@ -673,11 +673,22 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
         caption += "]";
         m_window->setCaption(caption);
     }
-    if (isRowViewActive() && !m_runtime.rowViewScreenshotCaptured && m_render.realFrameIx >= RowViewFramesBeforeCapture)
+    const uint64_t rowViewCaptureRequestFrame = (RowViewFramesBeforeCapture > 1u) ? (RowViewFramesBeforeCapture - 1u) : RowViewFramesBeforeCapture;
+    if (isRowViewActive() && !m_runtime.rowViewScreenshotCaptured && m_render.realFrameIx >= rowViewCaptureRequestFrame)
     {
-        if (!captureScreenshot(m_output.rowViewScreenshotPath, m_render.loadedScreenshot))
-            failExit("Failed to capture row view screenshot.");
-        m_runtime.rowViewScreenshotCaptured = true;
+        if (!m_render.pendingScreenshot.active())
+        {
+            if (!requestScreenshotCapture(m_output.rowViewScreenshotPath))
+                failExit("Failed to request row view screenshot capture.");
+        }
+        else
+        {
+            bool ready = false;
+            if (!finalizeScreenshotCapture(m_render.loadedScreenshot, ready))
+                failExit("Failed to finalize row view screenshot.");
+            if (ready)
+                m_runtime.rowViewScreenshotCaptured = true;
+        }
     }
     advanceCase();
     return retval;
@@ -913,6 +924,7 @@ bool MeshLoadersApp::startCase(const size_t index)
         m_runtime.phaseFrameCounter = 0u;
         m_render.loadedScreenshot = nullptr;
         m_render.writtenScreenshot = nullptr;
+        m_render.pendingScreenshot = {};
         m_referenceCamera.reset();
     };
 
@@ -987,6 +999,7 @@ bool MeshLoadersApp::addRowViewCaseFromPath(const system::path& picked)
 bool MeshLoadersApp::reloadFromTestList()
 {
     m_runtime.cases.clear();
+    m_render.pendingScreenshot = {};
     if (!loadTestList(m_output.testListPath))
         return false;
     m_runtime.shouldQuit = false;
@@ -1005,6 +1018,7 @@ void MeshLoadersApp::resetRowViewScene()
     if (!isRowViewActive())
         return;
     m_runtime.cases.clear();
+    m_render.pendingScreenshot = {};
     m_rowView.cache.clear();
     m_render.renderer->m_instances.clear();
     m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
