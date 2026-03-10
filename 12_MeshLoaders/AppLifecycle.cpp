@@ -94,16 +94,40 @@ bool parseRuntimeTuningMode(const std::string_view modeRaw, asset::SFileIOPolicy
     return false;
 }
 
-}
+struct ParsedCommandLineOptions
+{
+    bool saveGeom = true;
+    bool interactive = false;
+    bool ci = false;
+    bool forceRowViewForCurrentTestList = false;
+    bool forceLoaderContentHashes = true;
+    bool updateGeometryHashReferences = false;
+    system::path saveGeomPrefixPath;
+    system::path screenshotPrefixPath;
+    system::path testListPath;
+    std::optional<std::string> specifiedGeomSavePath;
+    std::optional<system::path> loaderPerfLogPath;
+    std::optional<system::path> rowAddPath;
+    uint32_t rowDuplicateCount = 0u;
+    asset::SFileIOPolicy::SRuntimeTuning::Mode runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
+};
 
-system::path MeshLoadersApp::resolveRuntimeCWD(const system::path& preferred)
+struct CaseArtifacts
+{
+    std::string caseName;
+    system::path writtenPath;
+    system::path loadedScreenshotPath;
+    system::path writtenScreenshotPath;
+};
+
+system::path resolveRuntimeCWD(const system::path& preferred)
 {
     if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
         return path(std::filesystem::current_path());
     return preferred;
 }
 
-system::path MeshLoadersApp::resolveDefaultTestListPath(const system::path& effectiveInputCWD, const core::vector<std::string>& argv)
+system::path resolveDefaultTestListPath(const system::path& effectiveInputCWD, const core::vector<std::string>& argv)
 {
     const auto tryExisting = [](std::filesystem::path candidate) -> std::optional<system::path>
     {
@@ -133,9 +157,8 @@ system::path MeshLoadersApp::resolveDefaultTestListPath(const system::path& effe
     return (effectiveInputCWD / "inputs.json").lexically_normal();
 }
 
-std::string MeshLoadersApp::makeCaptionModelPath() const
+std::string makeCaptionModelPath(const std::string& modelPath, const core::vector<std::string>& argv)
 {
-    const auto& modelPath = m_modelPath;
     if (modelPath.empty())
         return {};
 
@@ -221,24 +244,42 @@ std::string MeshLoadersApp::makeCaptionModelPath() const
     return targetPath.generic_string();
 }
 
-MeshLoadersApp::MeshLoadersApp(
-    const path& localInputCWD,
-    const path& localOutputCWD,
-    const path& sharedInputCWD,
-    const path& sharedOutputCWD)
-    : nbl::examples::MonoWindowApplication({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
-    , IApplicationFramework(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
-    , device_base_t({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+template<typename ResolveSavePathFn>
+CaseArtifacts makeCaseArtifacts(
+    const std::string& preferredName,
+    const system::path& casePath,
+    const system::path& screenshotPrefixPath,
+    ResolveSavePathFn&& resolveSavePath)
 {
+    const auto caseName = preferredName.empty() ? casePath.stem().string() : preferredName;
+    return {
+        .caseName = caseName,
+        .writtenPath = resolveSavePath(casePath),
+        .loadedScreenshotPath = screenshotPrefixPath / ("meshloaders_" + caseName + "_loaded.png"),
+        .writtenScreenshotPath = screenshotPrefixPath / ("meshloaders_" + caseName + "_written.png")
+    };
 }
 
-bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputCWD, const system::path& effectiveOutputCWD, const system::path& defaultBenchmarkTestListPath)
+template<typename AddCaseFn>
+bool appendRowViewDuplicates(const uint32_t duplicateCount, const system::path& lastPath, AddCaseFn&& addCase)
 {
-    m_runtime.mode = RunMode::Batch;
-    m_output.saveGeomPrefixPath = effectiveOutputCWD / "saved";
-    m_output.screenshotPrefixPath = effectiveOutputCWD / "screenshots";
-    m_output.testListPath = resolveDefaultTestListPath(effectiveInputCWD, argv);
-    m_runtime.forceRowViewForCurrentTestList = false;
+    for (uint32_t i = 0u; i < duplicateCount; ++i)
+        if (!addCase(lastPath))
+            return false;
+    return true;
+}
+
+bool parseMeshLoadersCommandLine(
+    const core::vector<std::string>& argv,
+    const system::path& effectiveInputCWD,
+    const system::path& effectiveOutputCWD,
+    const system::path& defaultBenchmarkTestListPath,
+    ParsedCommandLineOptions& out,
+    std::string& error)
+{
+    out.saveGeomPrefixPath = effectiveOutputCWD / "saved";
+    out.screenshotPrefixPath = effectiveOutputCWD / "screenshots";
+    out.testListPath = resolveDefaultTestListPath(effectiveInputCWD, argv);
 
     argparse::ArgumentParser parser("12_meshloaders");
     setupMeshLoadersArgumentParser(parser);
@@ -249,44 +290,53 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
     }
     catch (const std::exception& e)
     {
-        return logFail(e.what());
+        error = e.what();
+        return false;
     }
 
     if (parser["--savegeometry"] == true)
-        m_output.saveGeom = true;
+        out.saveGeom = true;
     if (parser["--interactive"] == true)
-        m_runtime.mode = RunMode::Interactive;
+        out.interactive = true;
     if (parser["--ci"] == true)
-        m_runtime.mode = RunMode::CI;
+        out.ci = true;
     const bool hasExplicitTestListArg = parser.present("--testlist").has_value();
 
     if (parser.present("--savepath"))
     {
         auto tmp = path(parser.get<std::string>("--savepath"));
         if (tmp.empty() || !tmp.has_filename())
-            return logFail("Invalid path has been specified in --savepath argument");
+        {
+            error = "Invalid path has been specified in --savepath argument";
+            return false;
+        }
         if (!std::filesystem::exists(tmp.parent_path()))
-            return logFail("Path specified in --savepath argument doesn't exist");
-        m_output.specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
+        {
+            error = "Path specified in --savepath argument doesn't exist";
+            return false;
+        }
+        out.specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
     }
 
     if (hasExplicitTestListArg)
     {
         auto tmp = path(parser.get<std::string>("--testlist"));
         if (tmp.empty())
-            return logFail("Invalid path has been specified in --testlist argument");
+        {
+            error = "Invalid path has been specified in --testlist argument";
+            return false;
+        }
         if (tmp.is_relative())
             tmp = effectiveInputCWD / tmp;
-        m_output.testListPath = tmp;
+        out.testListPath = tmp;
     }
-    else if (m_runtime.mode == RunMode::Batch && !defaultBenchmarkTestListPath.empty())
+    else if (!out.interactive && !out.ci && !defaultBenchmarkTestListPath.empty())
     {
         std::error_code benchmarkPathEc;
         if (std::filesystem::exists(defaultBenchmarkTestListPath, benchmarkPathEc) && !benchmarkPathEc)
         {
-            m_output.testListPath = defaultBenchmarkTestListPath;
-            m_runtime.forceRowViewForCurrentTestList = true;
-            m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_output.testListPath.string().c_str());
+            out.testListPath = defaultBenchmarkTestListPath;
+            out.forceRowViewForCurrentTestList = true;
         }
     }
 
@@ -295,37 +345,56 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
         auto tmp = path(parser.get<std::string>("--row-add"));
         if (tmp.is_relative())
             tmp = effectiveInputCWD / tmp;
-        m_output.rowAddPath = tmp;
+        out.rowAddPath = tmp;
     }
     if (parser.present("--row-duplicate"))
     {
-        auto countStr = parser.get<std::string>("--row-duplicate");
-        const auto parsedCount = parseUInt32Argument(countStr);
+        const auto parsedCount = parseUInt32Argument(parser.get<std::string>("--row-duplicate"));
         if (!parsedCount.has_value())
-            return logFail("Invalid --row-duplicate value.");
-        m_output.rowDuplicateCount = *parsedCount;
+        {
+            error = "Invalid --row-duplicate value.";
+            return false;
+        }
+        out.rowDuplicateCount = *parsedCount;
     }
     if (parser.present("--loader-perf-log"))
     {
         auto tmp = path(parser.get<std::string>("--loader-perf-log"));
         if (tmp.empty())
-            return logFail("Invalid --loader-perf-log value.");
+        {
+            error = "Invalid --loader-perf-log value.";
+            return false;
+        }
         if (tmp.is_relative())
             tmp = effectiveOutputCWD / tmp;
-        m_output.loaderPerfLogPath = tmp;
+        out.loaderPerfLogPath = tmp;
     }
     if (parser["--loader-content-hashes"] == true)
-        m_forceLoaderContentHashes = true;
+        out.forceLoaderContentHashes = true;
     if (parser["--update-references"] == true)
-        m_updateGeometryHashReferences = true;
+        out.updateGeometryHashReferences = true;
     if (parser.present("--runtime-tuning"))
     {
-        auto mode = parser.get<std::string>("--runtime-tuning");
-        if (!parseRuntimeTuningMode(mode, m_runtimeTuningMode))
-            return logFail("Invalid --runtime-tuning value. Expected: sequential|heuristic|hybrid.");
+        if (!parseRuntimeTuningMode(parser.get<std::string>("--runtime-tuning"), out.runtimeTuningMode))
+        {
+            error = "Invalid --runtime-tuning value. Expected: sequential|heuristic|hybrid.";
+            return false;
+        }
     }
 
     return true;
+}
+}
+
+MeshLoadersApp::MeshLoadersApp(
+    const path& localInputCWD,
+    const path& localOutputCWD,
+    const path& sharedInputCWD,
+    const path& sharedOutputCWD)
+    : nbl::examples::MonoWindowApplication({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+    , IApplicationFramework(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+    , device_base_t({1280, 720}, EF_D32_SFLOAT, localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD)
+{
 }
 
 bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
@@ -338,15 +407,38 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
         return false;
 
-    const path effectiveInputCWD = resolveRuntimeCWD(localInputCWD);
-    const path effectiveOutputCWD = resolveRuntimeCWD(localOutputCWD);
+    const path effectiveInputCWD = ::resolveRuntimeCWD(localInputCWD);
+    const path effectiveOutputCWD = ::resolveRuntimeCWD(localOutputCWD);
 #if defined(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH)
     const path defaultBenchmarkTestListPath = path(NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH);
 #else
     const path defaultBenchmarkTestListPath;
 #endif
-    if (!parseCommandLineOptions(effectiveInputCWD, effectiveOutputCWD, defaultBenchmarkTestListPath))
-        return false;
+    ParsedCommandLineOptions parsed = {};
+    std::string parseError;
+    if (!parseMeshLoadersCommandLine(argv, effectiveInputCWD, effectiveOutputCWD, defaultBenchmarkTestListPath, parsed, parseError))
+        return logFail(parseError.c_str());
+    auto applyParsedCommandLineOptions = [this](ParsedCommandLineOptions&& options) -> void
+    {
+        m_runtime.mode = options.interactive ? RunMode::Interactive : (options.ci ? RunMode::CI : RunMode::Batch);
+        m_runtime.forceRowViewForCurrentTestList = options.forceRowViewForCurrentTestList;
+        m_output.saveGeom = options.saveGeom;
+        m_output.saveGeomPrefixPath = std::move(options.saveGeomPrefixPath);
+        m_output.screenshotPrefixPath = std::move(options.screenshotPrefixPath);
+        m_output.testListPath = std::move(options.testListPath);
+        if (options.specifiedGeomSavePath)
+            m_output.specifiedGeomSavePath.emplace(std::move(*options.specifiedGeomSavePath));
+        m_output.loaderPerfLogPath = std::move(options.loaderPerfLogPath);
+        m_output.rowAddPath = std::move(options.rowAddPath);
+        m_output.rowDuplicateCount = options.rowDuplicateCount;
+        m_forceLoaderContentHashes = options.forceLoaderContentHashes;
+        m_updateGeometryHashReferences = options.updateGeometryHashReferences;
+        m_runtimeTuningMode = options.runtimeTuningMode;
+    };
+    applyParsedCommandLineOptions(std::move(parsed));
+
+    if (m_runtime.forceRowViewForCurrentTestList)
+        m_logger->log("Using benchmark test list for default batch startup: %s", ILogger::ELL_INFO, m_output.testListPath.string().c_str());
 
     if (m_output.saveGeom)
         std::filesystem::create_directories(m_output.saveGeomPrefixPath);
@@ -394,29 +486,33 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (!initTestCases())
         return false;
 
-    if (isRowViewActive())
+    auto runInitialContent = [&]() -> bool
     {
-        m_runtime.nonInteractiveTest = false;
-        if (!loadRowView(RowViewReloadMode::Full))
-            return false;
-        if (m_output.rowAddPath)
-            if (!addRowViewCaseFromPath(*m_output.rowAddPath))
-                return false;
-        if (m_output.rowDuplicateCount > 0u && !m_runtime.cases.empty())
+        if (isRowViewActive())
         {
-            const auto lastPath = m_runtime.cases.back().path;
-            for (uint32_t i = 0u; i < m_output.rowDuplicateCount; ++i)
-                if (!addRowViewCaseFromPath(lastPath))
+            m_runtime.nonInteractiveTest = false;
+            if (!loadRowView(RowViewReloadMode::Full))
+                return false;
+            if (m_output.rowAddPath)
+                if (!addRowViewCaseFromPath(*m_output.rowAddPath))
                     return false;
+            if (m_output.rowDuplicateCount > 0u && !m_runtime.cases.empty())
+            {
+                const auto lastPath = m_runtime.cases.back().path;
+                if (!appendRowViewDuplicates(m_output.rowDuplicateCount, lastPath, [this](const system::path& path) {
+                    return addRowViewCaseFromPath(path);
+                    }))
+                    return false;
+            }
+            return true;
         }
-    }
-    else
-    {
+
         if (m_runtime.mode != RunMode::Interactive)
             m_runtime.nonInteractiveTest = true;
-        if (!startCase(0u))
-            return false;
-    }
+        return startCase(0u);
+    };
+    if (!runInitialContent())
+        return false;
 
     camera.mapKeysToArrows();
 
@@ -573,7 +669,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
     std::string caption = "[Nabla Engine] Mesh Loaders";
     {
         caption += ", displaying [";
-        caption += makeCaptionModelPath();
+        caption += ::makeCaptionModelPath(m_modelPath, argv);
         caption += "]";
         m_window->setCaption(caption);
     }
@@ -811,18 +907,28 @@ bool MeshLoadersApp::startCase(const size_t index)
     if (index >= m_runtime.cases.size())
         return false;
 
+    auto resetCasePresentationState = [&]() -> void
+    {
+        m_runtime.phase = Phase::RenderOriginal;
+        m_runtime.phaseFrameCounter = 0u;
+        m_render.loadedScreenshot = nullptr;
+        m_render.writtenScreenshot = nullptr;
+        m_referenceCamera.reset();
+    };
+
     m_runtime.caseIndex = index;
-    m_runtime.phase = Phase::RenderOriginal;
-    m_runtime.phaseFrameCounter = 0u;
-    m_render.loadedScreenshot = nullptr;
-    m_render.writtenScreenshot = nullptr;
-    m_referenceCamera.reset();
+    resetCasePresentationState();
 
     const auto& testCase = m_runtime.cases[m_runtime.caseIndex];
-    m_caseName = testCase.name.empty() ? testCase.path.stem().string() : testCase.name;
-    m_output.writtenPath = resolveSavePath(testCase.path);
-    m_output.loadedScreenshotPath = m_output.screenshotPrefixPath / ("meshloaders_" + m_caseName + "_loaded.png");
-    m_output.writtenScreenshotPath = m_output.screenshotPrefixPath / ("meshloaders_" + m_caseName + "_written.png");
+    const auto artifacts = makeCaseArtifacts(
+        testCase.name,
+        testCase.path,
+        m_output.screenshotPrefixPath,
+        [this](const system::path& path) { return resolveSavePath(path); });
+    m_caseName = artifacts.caseName;
+    m_output.writtenPath = artifacts.writtenPath;
+    m_output.loadedScreenshotPath = artifacts.loadedScreenshotPath;
+    m_output.writtenScreenshotPath = artifacts.writtenScreenshotPath;
 
     if (!loadModel(testCase.path, true, true))
         return false;

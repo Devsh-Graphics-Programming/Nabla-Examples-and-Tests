@@ -1,6 +1,7 @@
 set(SRCs
 	main.cpp
 	App.hpp
+	BundleGeometryItems.h
 	AppLifecycle.cpp
 	AppLoad.cpp
 	AppRuntime.cpp

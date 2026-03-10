@@ -86,12 +86,6 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         bool layoutAsSingleTile = false;
     };
 
-    struct LoadedGeometryInstance
-    {
-        smart_refctd_ptr<const ICPUPolygonGeometry> geometry;
-        hlsl::float32_t3x4 world = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
-    };
-
     struct RowViewPerfStats
     {
         double totalMs = 0.0;
@@ -207,10 +201,6 @@ private:
     static std::string normalizeExtension(const system::path& path);
     bool isWriteExtensionSupported(const std::string& ext) const;
     system::path resolveSavePath(const system::path& modelPath) const;
-    static system::path resolveRuntimeCWD(const system::path& preferred);
-    static system::path resolveDefaultTestListPath(const system::path& effectiveInputCWD, const core::vector<std::string>& argv);
-    bool parseCommandLineOptions(const system::path& effectiveInputCWD, const system::path& effectiveOutputCWD, const system::path& defaultBenchmarkTestListPath);
-    std::string makeCaptionModelPath() const;
 
     bool startCase(size_t index);
     bool advanceToNextCase();
@@ -247,8 +237,6 @@ private:
 
     bool validateWrittenAsset(const system::path& path);
     bool captureScreenshot(const system::path& path, core::smart_refctd_ptr<asset::ICPUImageView>& outImage);
-    bool appendGeometriesFromBundle(const asset::SAssetBundle& bundle, core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& out) const;
-    bool appendGeometryInstancesFromBundle(const asset::SAssetBundle& bundle, core::vector<LoadedGeometryInstance>& out) const;
     bool compareImages(
         const asset::ICPUImageView* a,
         const asset::ICPUImageView* b,

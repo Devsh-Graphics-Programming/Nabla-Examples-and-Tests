@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "App.hpp"
+#include "BundleGeometryItems.h"
 
 #include <array>
 #include <algorithm>
@@ -27,6 +28,87 @@ struct RowLayoutGroup
     bool preserveInternalTransforms = false;
     bool addAggregateDebugAABB = false;
 };
+struct PreparedGeometryBatch
+{
+    core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+    core::vector<hlsl::float32_t3x4> worlds;
+};
+static std::optional<core::vector<video::asset_cached_t<asset::ICPUPolygonGeometry>>> convertPolygonGeometries(
+    video::ILogicalDevice* device,
+    video::IQueue* transferQueue,
+    video::IQueue* graphicsQueue,
+    video::IUtilities* utilities,
+    system::ILogger* logger,
+    const core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& geometries)
+{
+    if (geometries.empty())
+        return core::vector<video::asset_cached_t<asset::ICPUPolygonGeometry>>{};
+
+    smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = device });
+    const auto transferFamily = transferQueue->getFamilyIndex();
+
+    struct SInputs : CAssetConverter::SInputs
+    {
+        virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t, const asset::ICPUBuffer*, const CAssetConverter::patch_t<asset::ICPUBuffer>&) const
+        {
+            return sharedBufferOwnership;
+        }
+
+        core::vector<uint32_t> sharedBufferOwnership;
+    } inputs = {};
+    core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(), CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
+    {
+        inputs.logger = logger;
+        std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = { &geometries.front().get(),geometries.size() };
+        std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
+        core::unordered_set<uint32_t> families;
+        families.insert(transferFamily);
+        families.insert(graphicsQueue->getFamilyIndex());
+        if (families.size() > 1)
+            for (const auto fam : families)
+                inputs.sharedBufferOwnership.push_back(fam);
+    }
+
+    auto reservation = converter->reserve(inputs);
+    if (!reservation)
+        return std::nullopt;
+
+    {
+        auto semaphore = device->createSemaphore(0u);
+
+        constexpr auto MultiBuffering = 2;
+        std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers = {};
+        {
+            auto pool = device->createCommandPool(transferFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+            pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers, core::smart_refctd_ptr<system::ILogger>(logger));
+        }
+        commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+        std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferSubmits;
+        for (auto i = 0; i < MultiBuffering; i++)
+            commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
+
+        SIntendedSubmitInfo transfer = {};
+        transfer.queue = transferQueue;
+        transfer.scratchCommandBuffers = commandBufferSubmits;
+        transfer.scratchSemaphore = {
+            .semaphore = semaphore.get(),
+            .value = 0u,
+            .stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+        };
+
+        CAssetConverter::SConvertParams cpar = {};
+        cpar.utilities = utilities;
+        cpar.transfer = &transfer;
+
+        auto future = reservation.convert(cpar);
+        if (future.copy() != IQueue::RESULT::SUCCESS)
+            return std::nullopt;
+    }
+
+    const auto convertedSpan = reservation.getGPUObjects<ICPUPolygonGeometry>();
+    return core::vector<video::asset_cached_t<asset::ICPUPolygonGeometry>>(convertedSpan.begin(), convertedSpan.end());
+}
 static hlsl::float32_t3x4 makeIdentityWorld()
 {
     auto tmp = hlsl::float32_t4x3(
@@ -56,6 +138,23 @@ static ext::debug_draw::InstanceData makeAABBInstance(
     instance.transform = math::linalg::promoted_mul(
         makeAffine4x4(world),
         ext::debug_draw::DrawAABB::getTransformFromAABB(shapes::AABB<3, float>(aabb.minVx, aabb.maxVx)));
+    return instance;
+}
+static ext::debug_draw::InstanceData makeOBBInstance(
+    const ICPUPolygonGeometry* geometry,
+    const hlsl::float32_t3x4& world,
+    const hlsl::float32_t4& color)
+{
+    ext::debug_draw::InstanceData instance = {};
+    instance.color = color;
+    const auto obb = CPolygonGeometryManipulator::calculateOBB(
+        geometry->getPositionView().getElementCount(),
+        [geometry](size_t vertex_i) {
+            hlsl::float32_t3 pt;
+            geometry->getPositionView().decodeElement(vertex_i, pt);
+            return pt;
+        });
+    instance.transform = math::linalg::promoted_mul(makeAffine4x4(world), obb.transform);
     return instance;
 }
 #endif
@@ -130,6 +229,40 @@ static DisplayLayout buildDisplayLayout(const core::vector<display_aabb_t>& aabb
     }
     return retval;
 }
+static bool extractPreparedGeometryBatch(const asset::SAssetBundle& bundle, PreparedGeometryBatch& out, const bool preserveTransforms)
+{
+    core::vector<meshloaders::BundleGeometryItem> items;
+    if (!meshloaders::collectBundleGeometryItems(bundle, items, preserveTransforms))
+        return false;
+    out.geometries.reserve(items.size());
+    out.worlds.reserve(items.size());
+    for (auto& item : items)
+    {
+        out.worlds.push_back(item.world);
+        out.geometries.push_back(std::move(item.geometry));
+    }
+    return !out.geometries.empty();
+}
+template<typename GetAABB, typename WarnInvalid>
+static void collectGeometryAABBs(
+    const core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& geometries,
+    core::vector<display_aabb_t>& out,
+    GetAABB&& getAABB,
+    WarnInvalid&& warnInvalid)
+{
+    out.clear();
+    out.reserve(geometries.size());
+    for (uint32_t i = 0u; i < geometries.size(); ++i)
+    {
+        auto aabb = getAABB(geometries[i].get());
+        if (!nbl::examples::geometry::isValidAABB(aabb))
+        {
+            warnInvalid(i);
+            aabb = nbl::examples::geometry::fallbackUnitAABB();
+        }
+        out.push_back(aabb);
+    }
+}
 }
 
 bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera)
@@ -165,22 +298,13 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
 		failExit("Failed to load asset %s.", m_modelPath.c_str());
 	m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
 
-    core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-    core::vector<LoadedGeometryInstance> geometryInstances;
+    PreparedGeometryBatch batch = {};
     const auto extractStart = clock_t::now();
     const bool renderAsScene = asset.getAssetType() == IAsset::E_TYPE::ET_SCENE;
-    if (renderAsScene)
-    {
-        if (!appendGeometryInstancesFromBundle(asset, geometryInstances))
-            failExit("Asset loaded but not a supported type for %s.", m_modelPath.c_str());
-        geometries.reserve(geometryInstances.size());
-        for (const auto& instance : geometryInstances)
-            geometries.push_back(instance.geometry);
-    }
-    else if (!appendGeometriesFromBundle(asset, geometries))
+    if (!extractPreparedGeometryBatch(asset, batch, renderAsScene))
         failExit("Asset loaded but not a supported type for %s.", m_modelPath.c_str());
     const auto extractMs = toMs(clock_t::now() - extractStart);
-    if (geometries.empty())
+    if (batch.geometries.empty())
         failExit("No geometry found in asset %s.", m_modelPath.c_str());
 
     const auto outerMs = toMs(clock_t::now() - loadOuterStart);
@@ -194,7 +318,7 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         outerMs,
         nonLoaderMs);
 
-    m_render.currentCpuGeom = geometries[0];
+    m_render.currentCpuGeom = batch.geometries[0];
 
     using aabb_t = hlsl::shapes::AABB<3, double>;
     auto printAABB = [&](const aabb_t& aabb, const char* extraMsg = "")->void
@@ -202,112 +326,49 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
             m_logger->log("%s AABB is (%f,%f,%f) -> (%f,%f,%f)", ILogger::ELL_INFO, extraMsg, aabb.minVx.x, aabb.minVx.y, aabb.minVx.z, aabb.maxVx.x, aabb.maxVx.y, aabb.maxVx.z);
         };
     core::vector<aabb_t> aabbs;
-    aabbs.reserve(geometries.size());
-    for (uint32_t i = 0u; i < geometries.size(); ++i)
-    {
-        auto aabb = getGeometryAABB(geometries[i].get());
-        if (!isValidAABB(aabb))
-        {
-            m_logger->log("Invalid geometry AABB for %s (geo=%u). Using fallback unit AABB for framing.", ILogger::ELL_WARNING, m_modelPath.c_str(), i);
-            aabb = nbl::examples::geometry::fallbackUnitAABB();
-        }
-        aabbs.push_back(aabb);
-    }
+    collectGeometryAABBs(
+        batch.geometries,
+        aabbs,
+        [this](const ICPUPolygonGeometry* geometry) { return getGeometryAABB(geometry); },
+        [this](const uint32_t geoIx) {
+            m_logger->log("Invalid geometry AABB for %s (geo=%u). Using fallback unit AABB for framing.", ILogger::ELL_WARNING, m_modelPath.c_str(), geoIx);
+        });
     core::vector<hlsl::float32_t3x4> worldTforms;
-    worldTforms.reserve(geometries.size());
+    worldTforms.reserve(batch.geometries.size());
     auto bound = display_aabb_t::create();
     if (renderAsScene)
     {
-        for (uint32_t i = 0u; i < geometryInstances.size(); ++i)
+        for (uint32_t i = 0u; i < batch.worlds.size(); ++i)
         {
-            const auto& world = geometryInstances[i].world;
+            const auto& world = batch.worlds[i];
             worldTforms.push_back(world);
             bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(world), aabbs[i]), bound);
         }
     }
     else
     {
-        const auto layout = buildDisplayLayout(aabbs, geometries.size() > 1u);
+        const auto layout = buildDisplayLayout(aabbs, batch.geometries.size() > 1u);
         worldTforms = layout.worldTransforms;
         bound = layout.bound;
     }
     // convert the geometries
     {
-        smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
-
-        const auto transferFamily = getTransferUpQueue()->getFamilyIndex();
-
-        struct SInputs : CAssetConverter::SInputs
-        {
-            virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const CAssetConverter::patch_t<asset::ICPUBuffer>& patch) const
-            {
-                return sharedBufferOwnership;
-            }
-
-            core::vector<uint32_t> sharedBufferOwnership;
-        } inputs = {};
-        core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(), CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
-        {
-            inputs.logger = m_logger.get();
-            std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = { &geometries.front().get(),geometries.size() };
-            std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
-            // set up shared ownership so we don't have to 
-            core::unordered_set<uint32_t> families;
-            families.insert(transferFamily);
-            families.insert(getGraphicsQueue()->getFamilyIndex());
-            if (families.size() > 1)
-                for (const auto fam : families)
-                    inputs.sharedBufferOwnership.push_back(fam);
-        }
-
-        // reserve
-        auto reservation = converter->reserve(inputs);
-        if (!reservation)
-        {
-            failExit("Failed to reserve GPU objects for CPU->GPU conversion.");
-        }
-
-        // convert
-        {
-            auto semaphore = m_device->createSemaphore(0u);
-
-            constexpr auto MultiBuffering = 2;
-            std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers = {};
-            {
-                auto pool = m_device->createCommandPool(transferFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-                pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers, smart_refctd_ptr(m_logger));
-            }
-            commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-            std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferSubmits;
-            for (auto i = 0; i < MultiBuffering; i++)
-                commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
-
-            SIntendedSubmitInfo transfer = {};
-            transfer.queue = getTransferUpQueue();
-            transfer.scratchCommandBuffers = commandBufferSubmits;
-            transfer.scratchSemaphore = {
-                .semaphore = semaphore.get(),
-                .value = 0u,
-                .stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-            };
-
-            CAssetConverter::SConvertParams cpar = {};
-            cpar.utilities = m_utils.get();
-            cpar.transfer = &transfer;
-
-            auto future = reservation.convert(cpar);
-            if (future.copy() != IQueue::RESULT::SUCCESS)
-                failExit("Failed to await submission feature.");
-        }
-
-        const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
-        m_aabbInstances.resize(converted.size());
+        const auto converted = convertPolygonGeometries(
+            m_device.get(),
+            getTransferUpQueue(),
+            getGraphicsQueue(),
+            m_utils.get(),
+            m_logger.get(),
+            batch.geometries);
+        if (!converted.has_value())
+            failExit("Failed to convert CPU geometries to GPU.");
+        const auto& convertedGeometries = *converted;
+        m_aabbInstances.resize(convertedGeometries.size());
         if (m_drawBBMode == DBBM_OBB)
-            m_obbInstances.resize(converted.size());
-        for (uint32_t i = 0; i < converted.size(); i++)
+            m_obbInstances.resize(convertedGeometries.size());
+        for (uint32_t i = 0; i < convertedGeometries.size(); i++)
         {
-            const auto& cpuGeom = geometries[i].get();
+            const auto& cpuGeom = batch.geometries[i].get();
             const auto& promoted = aabbs[i];
             printAABB(promoted, "Geometry");
             const auto promotedWorld = hlsl::float64_t3x4(worldTforms[i]);
@@ -315,39 +376,17 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
             printAABB(transformed, "Transformed");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
-            auto& aabbInst = m_aabbInstances[i];
-            const auto tmpAabb = shapes::AABB<3, float>(promoted.minVx, promoted.maxVx);
-
-            hlsl::float32_t3x4 aabbTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
-            const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-            const auto world4x4 = float32_t4x4{
-                tmpWorld[0],
-                tmpWorld[1],
-                tmpWorld[2],
-                float32_t4(0, 0, 0, 1)
-            };
-
-            aabbInst.color = { 1, 1, 1, 1 };
-            aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
+            m_aabbInstances[i] = makeAABBInstance(promoted, worldTforms[i], hlsl::float32_t4(1, 1, 1, 1));
 
             if (m_drawBBMode == DBBM_OBB)
             {
-                auto& obbInst = m_obbInstances[i];
-                const auto obb = CPolygonGeometryManipulator::calculateOBB(
-                    cpuGeom->getPositionView().getElementCount(),
-                    [geo = cpuGeom, &world4x4](size_t vertex_i) {
-                        hlsl::float32_t3 pt;
-                        geo->getPositionView().decodeElement(vertex_i, pt);
-                        return pt;
-                    });
-                obbInst.color = { 0, 0, 1, 1 };
-                obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+                m_obbInstances[i] = makeOBBInstance(cpuGeom, worldTforms[i], hlsl::float32_t4(0, 0, 1, 1));
             }
 #endif
         }
 
         printAABB(bound, "Total");
-        if (!m_render.renderer->addGeometries({ &converted.front().get(),converted.size() }))
+        if (!m_render.renderer->addGeometries({ &convertedGeometries.front().get(),convertedGeometries.size() }))
             failExit("Failed to add geometries to renderer.");
         if (m_logger)
         {
@@ -434,6 +473,58 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             entry.tileAABB = nbl::examples::geometry::fallbackUnitAABB();
         }
     };
+    auto assignCachedEntryGeometryBatch = [&](CachedGeometryEntry& entry, PreparedGeometryBatch&& batch) -> void
+    {
+        entry.cpu = std::move(batch.geometries);
+        entry.world = std::move(batch.worlds);
+        if (!entry.layoutAsSingleTile)
+            entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
+        entry.gpu.resize(entry.cpu.size());
+    };
+    auto refreshCachedEntryAABBs = [&](CachedGeometryEntry& entry, const system::path& path) -> void
+    {
+        collectGeometryAABBs(
+            entry.cpu,
+            entry.aabbs,
+            [this](const ICPUPolygonGeometry* geometry) { return getGeometryAABB(geometry); },
+            [this, &path](const uint32_t geoIx) {
+                m_logger->log("Invalid row-view geometry AABB for %s (geo=%u). Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str(), geoIx);
+            });
+        rebuildTileAABB(entry, path);
+    };
+    auto appendCachedEntryToLayoutInputs = [&](
+        const CachedGeometryEntry& entry,
+        core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>>& geometryOut,
+        core::vector<hlsl::shapes::AABB<3, double>>& aabbOut,
+        core::vector<hlsl::float32_t3x4>& worldOut,
+        core::vector<RowLayoutGroup>& groupOut) -> void
+    {
+        const size_t firstGeometry = geometryOut.size();
+        geometryOut.insert(geometryOut.end(), entry.cpu.begin(), entry.cpu.end());
+        aabbOut.insert(aabbOut.end(), entry.aabbs.begin(), entry.aabbs.end());
+        worldOut.insert(worldOut.end(), entry.world.begin(), entry.world.end());
+        if (entry.layoutAsSingleTile)
+        {
+            groupOut.push_back({
+                .firstGeometry = firstGeometry,
+                .geometryCount = entry.cpu.size(),
+                .layoutAABB = entry.tileAABB,
+                .preserveInternalTransforms = true,
+                .addAggregateDebugAABB = true
+                });
+            return;
+        }
+        for (size_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
+        {
+            groupOut.push_back({
+                .firstGeometry = firstGeometry + geoIx,
+                .geometryCount = 1u,
+                .layoutAABB = entry.aabbs[geoIx],
+                .preserveInternalTransforms = false,
+                .addAggregateDebugAABB = false
+                });
+        }
+    };
 
     for (const auto& testCase : m_runtime.cases)
     {
@@ -461,48 +552,15 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             const auto extractStart = clock_t::now();
             entry.world.clear();
             entry.layoutAsSingleTile = (asset.getAssetType() == IAsset::E_TYPE::ET_SCENE);
-            if (asset.getAssetType() == IAsset::E_TYPE::ET_SCENE)
-            {
-                core::vector<LoadedGeometryInstance> found;
-                if (appendGeometryInstancesFromBundle(asset, found))
-                {
-                    entry.cpu.reserve(found.size());
-                    entry.world.reserve(found.size());
-                    for (auto& instance : found)
-                    {
-                        entry.cpu.push_back(instance.geometry);
-                        entry.world.push_back(instance.world);
-                    }
-                }
-            }
-            else
-            {
-                core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
-                if (appendGeometriesFromBundle(asset, found))
-                {
-                    entry.cpu = std::move(found);
-                    entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
-                }
-            }
+            PreparedGeometryBatch batch = {};
+            if (extractPreparedGeometryBatch(asset, batch, entry.layoutAsSingleTile))
+                assignCachedEntryGeometryBatch(entry, std::move(batch));
             stats.extractMs += toMs(clock_t::now() - extractStart);
             if (entry.cpu.empty())
                 failExit("No geometry found in asset %s.", path.string().c_str());
-            entry.gpu.resize(entry.cpu.size());
 
             const auto aabbStart = clock_t::now();
-            entry.aabbs.clear();
-            entry.aabbs.reserve(entry.cpu.size());
-            for (uint32_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
-            {
-                auto aabb = getGeometryAABB(entry.cpu[geoIx].get());
-                if (!isValidAABB(aabb))
-                {
-                    m_logger->log("Invalid row-view geometry AABB for %s (geo=%u). Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str(), geoIx);
-                    aabb = nbl::examples::geometry::fallbackUnitAABB();
-                }
-                entry.aabbs.push_back(aabb);
-            }
-            rebuildTileAABB(entry, path);
+            refreshCachedEntryAABBs(entry, path);
             stats.aabbMs += toMs(clock_t::now() - aabbStart);
         }
         else
@@ -515,21 +573,9 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             if (entry.aabbs.size() != entry.cpu.size())
             {
                 const auto aabbStart = clock_t::now();
-                entry.aabbs.clear();
-                entry.aabbs.reserve(entry.cpu.size());
-                for (uint32_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
-                {
-                    auto aabb = getGeometryAABB(entry.cpu[geoIx].get());
-                    if (!isValidAABB(aabb))
-                    {
-                        m_logger->log("Invalid row-view geometry AABB for %s (geo=%u). Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str(), geoIx);
-                        aabb = nbl::examples::geometry::fallbackUnitAABB();
-                    }
-                    entry.aabbs.push_back(aabb);
-                }
+                refreshCachedEntryAABBs(entry, path);
                 stats.aabbMs += toMs(clock_t::now() - aabbStart);
             }
-            rebuildTileAABB(entry, path);
         }
         logRowViewAssetLoad(path, assetLoadMs, cached);
 
@@ -545,33 +591,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 stats.gpuHits++;
         }
 
-        const size_t firstGeometry = geometries.size();
-        geometries.insert(geometries.end(), entry.cpu.begin(), entry.cpu.end());
-        aabbs.insert(aabbs.end(), entry.aabbs.begin(), entry.aabbs.end());
-        sourceWorlds.insert(sourceWorlds.end(), entry.world.begin(), entry.world.end());
-        if (entry.layoutAsSingleTile)
-        {
-            layoutGroups.push_back({
-                .firstGeometry = firstGeometry,
-                .geometryCount = entry.cpu.size(),
-                .layoutAABB = entry.tileAABB,
-                .preserveInternalTransforms = true,
-                .addAggregateDebugAABB = true
-                });
-        }
-        else
-        {
-            for (size_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
-            {
-                layoutGroups.push_back({
-                    .firstGeometry = firstGeometry + geoIx,
-                    .geometryCount = 1u,
-                    .layoutAABB = entry.aabbs[geoIx],
-                    .preserveInternalTransforms = false,
-                    .addAggregateDebugAABB = false
-                    });
-            }
-        }
+        appendCachedEntryToLayoutInputs(entry, geometries, aabbs, sourceWorlds, layoutGroups);
     }
 
     if (geometries.empty())
@@ -582,72 +602,18 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     {
         stats.convertCount = cpuToConvert.size();
         const auto convertStart = clock_t::now();
-
-        smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
-        const auto transferFamily = getTransferUpQueue()->getFamilyIndex();
-
-        struct SInputs : CAssetConverter::SInputs
-        {
-            virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t, const asset::ICPUBuffer*, const CAssetConverter::patch_t<asset::ICPUBuffer>&) const
-            {
-                return sharedBufferOwnership;
-            }
-
-            core::vector<uint32_t> sharedBufferOwnership;
-        } inputs = {};
-        core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(cpuToConvert.size(), CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
-        {
-            inputs.logger = m_logger.get();
-            std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = { &cpuToConvert.front().get(),cpuToConvert.size() };
-            std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
-            core::unordered_set<uint32_t> families;
-            families.insert(transferFamily);
-            families.insert(getGraphicsQueue()->getFamilyIndex());
-            if (families.size() > 1)
-                for (const auto fam : families)
-                    inputs.sharedBufferOwnership.push_back(fam);
-        }
-
-        auto reservation = converter->reserve(inputs);
-        if (!reservation)
-            failExit("Failed to reserve GPU objects for CPU->GPU conversion.");
-
-        {
-            auto semaphore = m_device->createSemaphore(0u);
-
-            constexpr auto MultiBuffering = 2;
-            std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers = {};
-            {
-                auto pool = m_device->createCommandPool(transferFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-                pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers, smart_refctd_ptr(m_logger));
-            }
-            commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-            std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferSubmits;
-            for (auto i = 0; i < MultiBuffering; i++)
-                commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
-
-            SIntendedSubmitInfo transfer = {};
-            transfer.queue = getTransferUpQueue();
-            transfer.scratchCommandBuffers = commandBufferSubmits;
-            transfer.scratchSemaphore = {
-                .semaphore = semaphore.get(),
-                .value = 0u,
-                .stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-            };
-
-            CAssetConverter::SConvertParams cpar = {};
-            cpar.utilities = m_utils.get();
-            cpar.transfer = &transfer;
-
-            auto future = reservation.convert(cpar);
-            if (future.copy() != IQueue::RESULT::SUCCESS)
-                failExit("Failed to await submission feature.");
-        }
-
-        const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
-        for (size_t i = 0u; i < converted.size(); ++i)
-            convertTargets[i].entry->gpu[convertTargets[i].geometryIx] = converted[i];
+        const auto converted = convertPolygonGeometries(
+            m_device.get(),
+            getTransferUpQueue(),
+            getGraphicsQueue(),
+            m_utils.get(),
+            m_logger.get(),
+            cpuToConvert);
+        if (!converted.has_value())
+            failExit("Failed to convert CPU geometries to GPU.");
+        const auto& convertedGeometries = *converted;
+        for (size_t i = 0u; i < convertedGeometries.size(); ++i)
+            convertTargets[i].entry->gpu[convertTargets[i].geometryIx] = convertedGeometries[i];
 
         stats.convertMs = toMs(clock_t::now() - convertStart);
     }
@@ -760,18 +726,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         m_aabbInstances.push_back(makeAABBInstance(aabb, worldTforms[i], hlsl::float32_t4(1, 1, 1, 1)));
 
         if (m_drawBBMode == DBBM_OBB)
-        {
-            auto& obbInst = m_obbInstances[i];
-            const auto obb = CPolygonGeometryManipulator::calculateOBB(
-                cpuGeom->getPositionView().getElementCount(),
-                [geo = cpuGeom](size_t vertex_i) {
-                    hlsl::float32_t3 pt;
-                    geo->getPositionView().decodeElement(vertex_i, pt);
-                    return pt;
-                });
-            obbInst.color = { 0, 0, 1, 1 };
-            obbInst.transform = math::linalg::promoted_mul(makeAffine4x4(worldTforms[i]), obb.transform);
-        }
+            m_obbInstances[i] = makeOBBInstance(cpuGeom, worldTforms[i], hlsl::float32_t4(0, 0, 1, 1));
 #endif
     }
 #ifdef NBL_BUILD_DEBUG_DRAW
