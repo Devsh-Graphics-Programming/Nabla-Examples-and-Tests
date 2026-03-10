@@ -8,19 +8,21 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Default tuning: `heuristic`
 - Output meshes: `saved/`
 - Output screenshots: `screenshots/`
+- Default startup resolves `inputs.json` from the example directory layout and is not tied to the current working directory
 
 ## Mode cheat sheet
 - `batch`
   - Uses test list and runs normal workflow.
-  - If test list has `row_view: true`, renders all cases in one scene.
+  - If test list has `row_view: true`, geometry assets are laid out in one inspection scene.
 - `interactive`
   - Opens file dialog and loads one model.
 - `ci`
   - Runs strict pass/fail validation per case.
 
 ## Row view concept
-- `row_view` means one scene containing all cases from the test list.
-- Each case is normalized and laid out left-to-right so camera framing is stable for comparisons.
+- `row_view` means one inspection scene containing all geometry cases from the test list.
+- `geometry` and `geometry collection` assets are normalized and laid out left-to-right so camera framing is stable for comparisons.
+- `scene` assets keep their authored instance transforms and are rendered as scenes rather than being rewritten into row layout.
 
 ## Common workflows
 - Quick visual check:
@@ -57,9 +59,6 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Run default CI directly via `ctest` (no benchmark datasets enabled):
   - `ctest --output-on-failure -C Debug -R ^NBL_MESHLOADERS_CI$`
   - uses default `inputs.json` (3 inputs)
-- Hash parity tests now live in Nabla tool:
-  - `ctest --output-on-failure -C Debug -R NBL_HCP`
-  - tool: `tools/hcp` (headless, dummy-blob based parity checks)
 
 ## CLI
 - `--ci`
@@ -68,16 +67,22 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - file-dialog run
 - `--testlist <path>`
   - custom JSON list
+  - relative JSON path resolves against local input CWD
+  - relative case paths inside the JSON resolve against the JSON file directory
 - `--savegeometry`
   - keep writing output meshes
 - `--savepath <path>`
   - force output path
 - `--row-add <path>`
   - add model to row view at startup
+  - scene assets added this way still keep authored transforms
 - `--row-duplicate <count>`
   - duplicate last row-view case
 - `--loader-perf-log <path>`
   - redirect loader diagnostics
+- `--loader-content-hashes`
+  - keep loader content hashes enabled
+  - this is already the default for this example
 - `--runtime-tuning <sequential|heuristic|hybrid>`
   - IO runtime tuning mode
 
@@ -86,8 +91,8 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Left mouse drag: rotate camera
 - `Home`: reset view
 - `A`: add model to row view
-- `X`: clear row view (empty scene)
-- `R`: reload row view from test list
+- `X`: clear row view inspection scene
+- `R`: reload current test list or interactive model
 
 ## Input list format (`inputs.json`)
 ```json
@@ -105,11 +110,13 @@ Rules:
 - `cases` is required and must be an array
 - case item can be string path or object with `path` and optional `name`
 - relative paths resolve against JSON file directory
+- default startup uses `inputs.json` resolved from the example directory layout rather than the process working directory
+- `row_view: true` affects geometry assets only. Scene assets keep their authored transforms.
 
 ## What CI validates
 - Per-case image consistency:
   - `*_loaded.png` vs `*_written.png` code-unit diff
-  - thresholds come from `MaxImageDiffCodeUnits` and `MaxImageDiffCodeUnitValue` in `MeshLoadersApp.hpp`
+  - thresholds come from `MaxImageDiffCodeUnits` and `MaxImageDiffCodeUnitValue` in `App.hpp`
 - Any mismatch ends with non-zero exit code
 
 ## Performance logs to trust

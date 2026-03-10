@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "MeshLoadersApp.hpp"
+#include "App.hpp"
 
 #include <array>
 #include <algorithm>
@@ -136,8 +136,18 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
 	m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+    core::vector<LoadedGeometryInstance> geometryInstances;
     const auto extractStart = clock_t::now();
-    if (!appendGeometriesFromBundle(asset, geometries))
+    const bool renderAsScene = asset.getAssetType() == IAsset::E_TYPE::ET_SCENE;
+    if (renderAsScene)
+    {
+        if (!appendGeometryInstancesFromBundle(asset, geometryInstances))
+            failExit("Asset loaded but not a supported type for %s.", m_modelPath.c_str());
+        geometries.reserve(geometryInstances.size());
+        for (const auto& instance : geometryInstances)
+            geometries.push_back(instance.geometry);
+    }
+    else if (!appendGeometriesFromBundle(asset, geometries))
         failExit("Asset loaded but not a supported type for %s.", m_modelPath.c_str());
     const auto extractMs = toMs(clock_t::now() - extractStart);
     if (geometries.empty())
@@ -173,9 +183,24 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         }
         aabbs.push_back(aabb);
     }
-    const auto layout = buildDisplayLayout(aabbs, geometries.size() > 1u);
-    const auto& worldTforms = layout.worldTransforms;
-    auto bound = layout.bound;
+    core::vector<hlsl::float32_t3x4> worldTforms;
+    worldTforms.reserve(geometries.size());
+    auto bound = display_aabb_t::create();
+    if (renderAsScene)
+    {
+        for (uint32_t i = 0u; i < geometryInstances.size(); ++i)
+        {
+            const auto& world = geometryInstances[i].world;
+            worldTforms.push_back(world);
+            bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(world), aabbs[i]), bound);
+        }
+    }
+    else
+    {
+        const auto layout = buildDisplayLayout(aabbs, geometries.size() > 1u);
+        worldTforms = layout.worldTransforms;
+        bound = layout.bound;
+    }
     // convert the geometries
     {
         smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get() });
@@ -354,6 +379,8 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     core::vector<hlsl::shapes::AABB<3, double>> aabbs;
+    core::vector<hlsl::float32_t3x4> sourceWorlds;
+    core::vector<uint8_t> preserveWorlds;
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpuToConvert;
     struct ConvertTarget { CachedGeometryEntry* entry = nullptr; size_t geometryIx = 0u; };
@@ -387,9 +414,33 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 failExit("Failed to load asset %s.", path.string().c_str());
 
             const auto extractStart = clock_t::now();
-            core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
-            if (appendGeometriesFromBundle(asset, found))
-                entry.cpu = std::move(found);
+            entry.world.clear();
+            entry.preserveWorld.clear();
+            if (asset.getAssetType() == IAsset::E_TYPE::ET_SCENE)
+            {
+                core::vector<LoadedGeometryInstance> found;
+                if (appendGeometryInstancesFromBundle(asset, found))
+                {
+                    entry.cpu.reserve(found.size());
+                    entry.world.reserve(found.size());
+                    entry.preserveWorld.assign(found.size(), 1u);
+                    for (auto& instance : found)
+                    {
+                        entry.cpu.push_back(instance.geometry);
+                        entry.world.push_back(instance.world);
+                    }
+                }
+            }
+            else
+            {
+                core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> found;
+                if (appendGeometriesFromBundle(asset, found))
+                {
+                    entry.cpu = std::move(found);
+                    entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
+                    entry.preserveWorld.assign(entry.cpu.size(), 0u);
+                }
+            }
             stats.extractMs += toMs(clock_t::now() - extractStart);
             if (entry.cpu.empty())
                 failExit("No geometry found in asset %s.", path.string().c_str());
@@ -415,6 +466,10 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             stats.cpuHits++;
             if (entry.gpu.size() != entry.cpu.size())
                 entry.gpu.resize(entry.cpu.size());
+            if (entry.world.size() != entry.cpu.size())
+                entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
+            if (entry.preserveWorld.size() != entry.cpu.size())
+                entry.preserveWorld.assign(entry.cpu.size(), 0u);
             if (entry.aabbs.size() != entry.cpu.size())
             {
                 const auto aabbStart = clock_t::now();
@@ -449,6 +504,8 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
         geometries.insert(geometries.end(), entry.cpu.begin(), entry.cpu.end());
         aabbs.insert(aabbs.end(), entry.aabbs.begin(), entry.aabbs.end());
+        sourceWorlds.insert(sourceWorlds.end(), entry.world.begin(), entry.world.end());
+        preserveWorlds.insert(preserveWorlds.end(), entry.preserveWorld.begin(), entry.preserveWorld.end());
     }
 
     if (geometries.empty())
@@ -576,12 +633,37 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
             m_logger->log("%s AABB is (%f,%f,%f) -> (%f,%f,%f)", ILogger::ELL_INFO, extraMsg, aabb.minVx.x, aabb.minVx.y, aabb.minVx.z, aabb.maxVx.x, aabb.maxVx.y, aabb.maxVx.z);
         };
     const auto layoutStart = clock_t::now();
-    const auto layout = buildDisplayLayout(aabbs, true);
+    core::vector<hlsl::float32_t3x4> worldTforms;
+    worldTforms.resize(geometries.size());
+    auto bound = aabb_t::create();
+    core::vector<aabb_t> rowAABBs;
+    core::vector<uint32_t> rowIndices;
+    rowAABBs.reserve(aabbs.size());
+    rowIndices.reserve(aabbs.size());
+    for (uint32_t i = 0u; i < aabbs.size(); ++i)
+    {
+        if (i < preserveWorlds.size() && preserveWorlds[i])
+        {
+            worldTforms[i] = sourceWorlds[i];
+            bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(worldTforms[i]), aabbs[i]), bound);
+            continue;
+        }
+        rowIndices.push_back(i);
+        rowAABBs.push_back(aabbs[i]);
+    }
+    if (!rowIndices.empty())
+    {
+        const auto layout = buildDisplayLayout(rowAABBs, true);
+        for (uint32_t i = 0u; i < rowIndices.size(); ++i)
+        {
+            const uint32_t geometryIx = rowIndices[i];
+            worldTforms[geometryIx] = layout.worldTransforms[i];
+            bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(worldTforms[geometryIx]), aabbs[geometryIx]), bound);
+        }
+    }
     stats.layoutMs = toMs(clock_t::now() - layoutStart);
 
     const auto instanceStart = clock_t::now();
-    const auto& worldTforms = layout.worldTransforms;
-    const auto& bound = layout.bound;
     m_aabbInstances.resize(geometries.size());
     if (m_drawBBMode == DBBM_OBB)
         m_obbInstances.resize(geometries.size());
@@ -813,9 +895,6 @@ IAssetLoader::SAssetLoadParams MeshLoadersApp::makeLoadParams() const
         params.logger = nullptr;
     params.cacheFlags = IAssetLoader::ECF_DUPLICATE_TOP_LEVEL;
     params.ioPolicy.runtimeTuning.mode = m_runtimeTuningMode;
-    const bool needLoaderContentHashes = m_forceLoaderContentHashes;
-    if (!needLoaderContentHashes)
-        params.loaderFlags |= IAssetLoader::ELPF_DONT_COMPUTE_CONTENT_HASHES;
     return params;
 }
 

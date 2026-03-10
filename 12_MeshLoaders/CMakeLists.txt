@@ -1,9 +1,9 @@
 set(SRCs
 	main.cpp
-	MeshLoadersApp.hpp
-	MeshLoadersAppLifecycle.cpp
-	MeshLoadersAppLoad.cpp
-	MeshLoadersAppRuntime.cpp
+	App.hpp
+	AppLifecycle.cpp
+	AppLoad.cpp
+	AppRuntime.cpp
 	inputs.json
 	README.md
 )

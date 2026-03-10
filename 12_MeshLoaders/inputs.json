@@ -1,8 +1,8 @@
 {
   "row_view": true,
   "cases": [
-    "../media/ply/Spanner-ply.ply",
     "../media/cornell_box_multimaterial.obj",
+    "../media/ply/Spanner-ply.ply",
     "../media/Stanford_Bunny.stl"
   ]
 }

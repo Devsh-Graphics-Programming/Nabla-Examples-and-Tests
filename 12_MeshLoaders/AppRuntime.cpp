@@ -2,10 +2,11 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "MeshLoadersApp.hpp"
+#include "App.hpp"
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/examples/common/ImageComparison.h"
+#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 
 std::string MeshLoadersApp::makeUniqueCaseName(const system::path& path)
 {
@@ -197,6 +198,74 @@ bool MeshLoadersApp::appendGeometriesFromBundle(const asset::SAssetBundle& bundl
         return false;
     }
 
+    return !out.empty();
+}
+
+bool MeshLoadersApp::appendGeometryInstancesFromBundle(const asset::SAssetBundle& bundle, core::vector<LoadedGeometryInstance>& out) const
+{
+    if (bundle.getContents().empty())
+        return false;
+    const auto identity = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
+    auto appendCollection = [&](const ICPUGeometryCollection* collection, const hlsl::float32_t3x4& baseTransform, const bool preserveReferenceTransforms) -> void
+    {
+        if (!collection)
+            return;
+        const auto& refs = collection->getGeometries();
+        for (const auto& ref : refs)
+        {
+            if (!ref.geometry || ref.geometry->getPrimitiveType() != IGeometryBase::EPrimitiveType::Polygon)
+                continue;
+            const auto assetRef = core::smart_refctd_ptr_static_cast<const IAsset>(ref.geometry);
+            auto poly = IAsset::castDown<const ICPUPolygonGeometry>(assetRef);
+            if (!poly)
+                continue;
+            LoadedGeometryInstance instance = {.geometry = std::move(poly),.world = baseTransform};
+            if (preserveReferenceTransforms && ref.hasTransform())
+                instance.world = hlsl::math::linalg::promoted_mul(baseTransform, ref.transform);
+            out.push_back(std::move(instance));
+        }
+    };
+    switch (bundle.getAssetType())
+    {
+    case IAsset::E_TYPE::ET_GEOMETRY:
+        for (const auto& item : bundle.getContents())
+        {
+            auto polyGeo = IAsset::castDown<const ICPUPolygonGeometry>(item);
+            if (polyGeo)
+                out.push_back({.geometry = std::move(polyGeo),.world = identity});
+        }
+        break;
+    case IAsset::E_TYPE::ET_GEOMETRY_COLLECTION:
+        for (const auto& item : bundle.getContents())
+        {
+            auto collection = IAsset::castDown<const ICPUGeometryCollection>(item);
+            appendCollection(collection.get(), identity, false);
+        }
+        break;
+    case IAsset::E_TYPE::ET_SCENE:
+        for (const auto& item : bundle.getContents())
+        {
+            auto scene = IAsset::castDown<const ICPUScene>(item);
+            if (!scene)
+                continue;
+            const auto& instances = scene->getInstances();
+            const auto& morphTargets = instances.getMorphTargets();
+            const auto& initialTransforms = instances.getInitialTransforms();
+            for (uint32_t instanceIx = 0u; instanceIx < morphTargets.size(); ++instanceIx)
+            {
+                const auto* targets = morphTargets[instanceIx].get();
+                if (!targets)
+                    continue;
+                const auto instanceTransform = initialTransforms.empty() ? identity : initialTransforms[instanceIx];
+                const auto& targetList = targets->getTargets();
+                for (const auto& target : targetList)
+                    appendCollection(target.geoCollection.get(), instanceTransform, true);
+            }
+        }
+        break;
+    default:
+        return false;
+    }
     return !out.empty();
 }
 

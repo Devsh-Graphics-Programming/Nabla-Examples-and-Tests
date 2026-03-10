@@ -5,7 +5,7 @@
 #include "argparse/argparse.hpp"
 #include "portable-file-dialogs/portable-file-dialogs.h"
 #include "nlohmann/json.hpp"
-#include "MeshLoadersApp.hpp"
+#include "App.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -41,7 +41,7 @@ void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
         .flag();
     parser.add_argument("--testlist")
         .nargs(1)
-        .help("JSON file with test cases. Relative paths are resolved against local input CWD.");
+        .help("JSON file with test cases. Relative JSON path resolves against local input CWD. Relative case paths inside the JSON resolve against the JSON file directory.");
     parser.add_argument("--row-add")
         .nargs(1)
         .help("Add a model path to row view on startup without using a dialog.");
@@ -52,7 +52,7 @@ void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
         .nargs(1)
         .help("Write loader diagnostics to a file instead of stdout.");
     parser.add_argument("--loader-content-hashes")
-        .help("Force loaders to compute CPU buffer content hashes before returning.")
+        .help("Keep loader content hashes enabled. This is already the default for this example.")
         .flag();
     parser.add_argument("--update-references")
         .help("Accept official benchmark/reference CLI without changing current local flow.")
@@ -101,6 +101,36 @@ system::path MeshLoadersApp::resolveRuntimeCWD(const system::path& preferred)
     if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
         return path(std::filesystem::current_path());
     return preferred;
+}
+
+system::path MeshLoadersApp::resolveDefaultTestListPath(const system::path& effectiveInputCWD, const core::vector<std::string>& argv)
+{
+    const auto tryExisting = [](std::filesystem::path candidate) -> std::optional<system::path>
+    {
+        std::error_code ec;
+        candidate = candidate.lexically_normal();
+        if (!candidate.empty() && std::filesystem::exists(candidate, ec) && !ec)
+            return system::path(candidate.generic_string());
+        return std::nullopt;
+    };
+
+    if (auto resolved = tryExisting(effectiveInputCWD / "inputs.json"); resolved.has_value())
+        return *resolved;
+
+    if (!argv.empty() && !argv[0].empty())
+    {
+        std::error_code ec;
+        auto exePath = std::filesystem::absolute(std::filesystem::path(argv[0]), ec);
+        if (!ec)
+        {
+            if (auto resolved = tryExisting(exePath.parent_path() / ".." / "inputs.json"); resolved.has_value())
+                return *resolved;
+            if (auto resolved = tryExisting(exePath.parent_path() / "inputs.json"); resolved.has_value())
+                return *resolved;
+        }
+    }
+
+    return (effectiveInputCWD / "inputs.json").lexically_normal();
 }
 
 std::string MeshLoadersApp::makeCaptionModelPath() const
@@ -207,7 +237,7 @@ bool MeshLoadersApp::parseCommandLineOptions(const system::path& effectiveInputC
     m_runtime.mode = RunMode::Batch;
     m_output.saveGeomPrefixPath = effectiveOutputCWD / "saved";
     m_output.screenshotPrefixPath = effectiveOutputCWD / "screenshots";
-    m_output.testListPath = effectiveInputCWD / "inputs.json";
+    m_output.testListPath = resolveDefaultTestListPath(effectiveInputCWD, argv);
     m_runtime.forceRowViewForCurrentTestList = false;
 
     argparse::ArgumentParser parser("12_meshloaders");
