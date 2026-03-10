@@ -52,6 +52,7 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 
 	//
 	params.initDynamics = {
+		.invView = mutDefaults.absoluteTransform,
 		.ndcToRay = float32_t2x3(mutDefaults.raygen),
 		.nearClip = mutDefaults.nearClip,
 		.tMax = mutDefaults.farClip,
