@@ -142,6 +142,24 @@ bool MeshLoadersApp::appendGeometriesFromBundle(const asset::SAssetBundle& bundl
     if (bundle.getContents().empty())
         return false;
 
+    auto appendCollection = [&](const ICPUGeometryCollection* collection) -> void
+    {
+        if (!collection)
+            return;
+        const auto& refs = collection->getGeometries();
+        for (const auto& ref : refs)
+        {
+            if (!ref.geometry)
+                continue;
+            if (ref.geometry->getPrimitiveType() != IGeometryBase::EPrimitiveType::Polygon)
+                continue;
+            const auto assetRef = core::smart_refctd_ptr_static_cast<const IAsset>(ref.geometry);
+            auto poly = IAsset::castDown<const ICPUPolygonGeometry>(assetRef);
+            if (poly)
+                out.push_back(poly);
+        }
+    };
+
     switch (bundle.getAssetType())
     {
     case IAsset::E_TYPE::ET_GEOMETRY:
@@ -155,19 +173,23 @@ bool MeshLoadersApp::appendGeometriesFromBundle(const asset::SAssetBundle& bundl
         for (const auto& item : bundle.getContents())
         {
             auto collection = IAsset::castDown<const ICPUGeometryCollection>(item);
-            if (!collection)
+            appendCollection(collection.get());
+        }
+        break;
+    case IAsset::E_TYPE::ET_SCENE:
+        for (const auto& item : bundle.getContents())
+        {
+            auto scene = IAsset::castDown<const ICPUScene>(item);
+            if (!scene)
                 continue;
-            const auto& refs = collection->getGeometries();
-            for (const auto& ref : refs)
+            const auto& instances = scene->getInstances().getMorphTargets();
+            for (const auto& morphTargets : instances)
             {
-                if (!ref.geometry)
+                if (!morphTargets)
                     continue;
-                if (ref.geometry->getPrimitiveType() != IGeometryBase::EPrimitiveType::Polygon)
-                    continue;
-                const auto assetRef = core::smart_refctd_ptr_static_cast<const IAsset>(ref.geometry);
-                auto poly = IAsset::castDown<const ICPUPolygonGeometry>(assetRef);
-                if (poly)
-                    out.push_back(poly);
+                const auto& targets = *morphTargets->getTargets();
+                for (const auto& target : targets)
+                    appendCollection(target.geoCollection.get());
             }
         }
         break;
