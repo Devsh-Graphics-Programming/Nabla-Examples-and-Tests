@@ -94,13 +94,215 @@ bool MeshLoadersApp::validateWrittenAsset(const system::path& path)
 
     IAssetLoader::SAssetLoadParams params = makeLoadParams();
     auto asset = m_assetMgr->getAsset(path.string(), params);
-    if (asset.getContents().empty())
-        return false;
+    return validateWrittenBundle(asset);
+}
 
+bool MeshLoadersApp::validateWrittenBundle(const asset::SAssetBundle& bundle)
+{
     core::vector<meshloaders::BundleGeometryItem> geometries;
-    if (!meshloaders::collectBundleGeometryItems(asset, geometries, false))
+    if (!meshloaders::collectBundleGeometryItems(bundle, geometries, false))
         return false;
     return !geometries.empty();
+}
+
+bool MeshLoadersApp::startBackgroundAssetWorker()
+{
+    auto& worker = m_backgroundAssetWorker;
+    if (worker.thread.joinable())
+        return true;
+
+    worker.stop = false;
+    worker.thread = std::thread(&MeshLoadersApp::backgroundAssetWorkerMain, this);
+    return true;
+}
+
+void MeshLoadersApp::stopBackgroundAssetWorker()
+{
+    auto& worker = m_backgroundAssetWorker;
+    {
+        std::lock_guard lock(worker.mutex);
+        worker.stop = true;
+    }
+    worker.cv.notify_all();
+    if (worker.thread.joinable())
+        worker.thread.join();
+
+    std::lock_guard lock(worker.mutex);
+    worker.request.reset();
+    worker.result.reset();
+    worker.busy = false;
+    worker.stop = false;
+}
+
+void MeshLoadersApp::backgroundAssetWorkerMain()
+{
+    auto workerSystem = core::smart_refctd_ptr(m_system);
+    auto workerAssetMgr = workerSystem ? core::make_smart_refctd_ptr<asset::IAssetManager>(core::smart_refctd_ptr(workerSystem)) : nullptr;
+
+    for (;;)
+    {
+        WrittenAssetRequest request = {};
+        {
+            std::unique_lock lock(m_backgroundAssetWorker.mutex);
+            m_backgroundAssetWorker.cv.wait(lock, [this] {
+                return m_backgroundAssetWorker.stop || m_backgroundAssetWorker.request.has_value();
+            });
+            if (m_backgroundAssetWorker.stop && !m_backgroundAssetWorker.request.has_value())
+                break;
+            request = std::move(*m_backgroundAssetWorker.request);
+            m_backgroundAssetWorker.request.reset();
+        }
+
+        WrittenAssetResult result = {};
+        result.path = request.path;
+        result.extension = normalizeExtension(request.path);
+
+        if (!workerSystem || !workerAssetMgr)
+        {
+            result.error = "Background asset worker is unavailable.";
+        }
+        else if (!request.asset)
+        {
+            result.error = "Background asset worker received an empty asset.";
+        }
+        else
+        {
+            using clock_t = std::chrono::high_resolution_clock;
+            const auto writeOuterStart = clock_t::now();
+            auto* const assetPtr = const_cast<IAsset*>(request.asset.get());
+            auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
+            if (result.extension != ".obj")
+                flags = static_cast<asset::E_WRITER_FLAGS>(flags | asset::EWF_BINARY);
+            IAssetWriter::SAssetWriteParams writeParams{ assetPtr, flags };
+            writeParams.logger = request.loadParams.logger;
+
+            const auto openStart = clock_t::now();
+            system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
+            workerSystem->createFile(writeFileFuture, request.path, system::IFile::ECF_WRITE);
+            core::smart_refctd_ptr<system::IFile> writeFile;
+            writeFileFuture.acquire().move_into(writeFile);
+            result.openMs = toMs(clock_t::now() - openStart);
+            if (!writeFile)
+            {
+                result.error = "Background asset worker failed to open the output file.";
+            }
+            else
+            {
+                const auto writeStart = clock_t::now();
+                if (!workerAssetMgr->writeAsset(writeFile.get(), writeParams))
+                {
+                    result.error = "Background asset worker failed to write the asset.";
+                }
+                result.writeMs = toMs(clock_t::now() - writeStart);
+                writeFile = nullptr;
+            }
+
+            if (result.error.empty())
+            {
+                const auto statStart = clock_t::now();
+                if (std::filesystem::exists(request.path))
+                    result.outputSize = std::filesystem::file_size(request.path);
+                result.statMs = toMs(clock_t::now() - statStart);
+                result.totalWriteMs = toMs(clock_t::now() - writeOuterStart);
+                result.nonWriterMs = std::max(0.0, result.totalWriteMs - result.writeMs);
+
+                workerAssetMgr->clearAllAssetCache();
+                if (std::filesystem::exists(request.path))
+                    result.loadResult.inputSize = std::filesystem::file_size(request.path);
+                else
+                    result.loadResult.inputSize = 0u;
+
+                const auto loadStart = clock_t::now();
+                result.loadResult.bundle = workerAssetMgr->getAsset(request.path.string(), request.loadParams);
+                result.loadResult.getAssetMs = toMs(clock_t::now() - loadStart);
+                if (result.loadResult.bundle.getContents().empty())
+                    result.error = "Background asset worker failed to load the written asset.";
+            }
+        }
+
+        result.success = result.error.empty();
+        {
+            std::lock_guard lock(m_backgroundAssetWorker.mutex);
+            m_backgroundAssetWorker.result = std::move(result);
+            m_backgroundAssetWorker.busy = false;
+        }
+        m_backgroundAssetWorker.cv.notify_all();
+    }
+}
+
+bool MeshLoadersApp::startWrittenAssetWork(smart_refctd_ptr<const IAsset> asset, const system::path& path)
+{
+    if (!asset || path.empty())
+        return false;
+    if (!startBackgroundAssetWorker())
+        return false;
+
+    std::unique_lock lock(m_backgroundAssetWorker.mutex);
+    if (m_backgroundAssetWorker.busy || m_backgroundAssetWorker.request.has_value() || m_backgroundAssetWorker.result.has_value())
+        return false;
+
+    m_backgroundAssetWorker.request = WrittenAssetRequest{
+        .asset = std::move(asset),
+        .path = path,
+        .loadParams = makeLoadParams()
+    };
+    m_backgroundAssetWorker.busy = true;
+    lock.unlock();
+    m_backgroundAssetWorker.cv.notify_one();
+    return true;
+}
+
+bool MeshLoadersApp::finalizeWrittenAssetWork(WrittenAssetResult& result, bool& ready, bool waitForCompletion)
+{
+    ready = false;
+    if (!m_backgroundAssetWorker.thread.joinable())
+        return false;
+
+    std::unique_lock lock(m_backgroundAssetWorker.mutex);
+    if (waitForCompletion)
+    {
+        m_backgroundAssetWorker.cv.wait(lock, [this] {
+            return !m_backgroundAssetWorker.busy && !m_backgroundAssetWorker.request.has_value();
+        });
+    }
+    if (m_backgroundAssetWorker.result.has_value())
+    {
+        result = std::move(*m_backgroundAssetWorker.result);
+        m_backgroundAssetWorker.result.reset();
+        ready = true;
+        return true;
+    }
+    return m_backgroundAssetWorker.busy || m_backgroundAssetWorker.request.has_value();
+}
+
+void MeshLoadersApp::logWrittenAssetWork(const WrittenAssetResult& result) const
+{
+    m_logger->log(
+        "Asset write call perf: path=%s ext=%s time=%.3f ms size=%llu",
+        ILogger::ELL_INFO,
+        result.path.string().c_str(),
+        result.extension.c_str(),
+        result.writeMs,
+        static_cast<unsigned long long>(result.outputSize));
+    m_logger->log(
+        "Asset write outer perf: path=%s ext=%s open=%.3f ms writeAsset=%.3f ms stat=%.3f ms total=%.3f ms non_writer=%.3f ms size=%llu",
+        ILogger::ELL_INFO,
+        result.path.string().c_str(),
+        result.extension.c_str(),
+        result.openMs,
+        result.writeMs,
+        result.statMs,
+        result.totalWriteMs,
+        result.nonWriterMs,
+        static_cast<unsigned long long>(result.outputSize));
+    m_logger->log(
+        "Writer perf: path=%s ext=%s time=%.3f ms size=%llu",
+        ILogger::ELL_INFO,
+        result.path.string().c_str(),
+        result.extension.c_str(),
+        result.writeMs,
+        static_cast<unsigned long long>(result.outputSize));
+    m_logger->log("Mesh successfully saved!", ILogger::ELL_INFO);
 }
 
 bool MeshLoadersApp::requestScreenshotCapture(const system::path& path)
@@ -230,11 +432,24 @@ bool MeshLoadersApp::requestScreenshotCapture(const system::path& path)
     return true;
 }
 
-bool MeshLoadersApp::finalizeScreenshotCapture(core::smart_refctd_ptr<asset::ICPUImageView>& outImage, bool& ready)
+bool MeshLoadersApp::finalizeScreenshotCapture(core::smart_refctd_ptr<asset::ICPUImageView>& outImage, bool& ready, bool waitForCompletion)
 {
     ready = false;
     if (!m_render.pendingScreenshot.active())
         return false;
+
+    if (waitForCompletion)
+    {
+        const ISemaphore::SWaitInfo waitInfo = {
+            .semaphore = m_render.pendingScreenshot.completionSemaphore.get(),
+            .value = m_render.pendingScreenshot.completionValue
+        };
+        if (m_device->blockForSemaphores({ &waitInfo, 1u }) != ISemaphore::WAIT_RESULT::SUCCESS)
+        {
+            m_render.pendingScreenshot = {};
+            return false;
+        }
+    }
 
     if (m_render.pendingScreenshot.completionSemaphore->getCounterValue() < m_render.pendingScreenshot.completionValue)
         return true;
@@ -341,13 +556,88 @@ void MeshLoadersApp::advanceCase()
     if (isRowViewActive())
         return;
 
-    const auto finalizePendingCapture = [this](core::smart_refctd_ptr<asset::ICPUImageView>& outImage, const char* const failureMessage) -> bool
+    const auto finalizePendingCapture = [this](core::smart_refctd_ptr<asset::ICPUImageView>& outImage, const char* const failureMessage, const bool waitForCompletion = false) -> bool
     {
         bool ready = false;
-        if (!finalizeScreenshotCapture(outImage, ready))
+        if (!finalizeScreenshotCapture(outImage, ready, waitForCompletion))
             failExit("%s", failureMessage);
         return ready;
     };
+
+    const auto handleWrittenAssetReady = [this](WrittenAssetResult&& result) -> void
+    {
+        if (!result.success)
+            failExit("%s", result.error.c_str());
+        logWrittenAssetWork(result);
+
+        if (m_runtime.mode == RunMode::CI)
+        {
+            if (!loadPreparedModel(m_output.writtenPath, std::move(result.loadResult), false, false))
+                failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+            if (!m_render.currentCpuGeom)
+                failExit("Written geometry missing.");
+            m_runtime.phase = Phase::RenderWritten;
+            m_runtime.phaseFrameCounter = 0u;
+            return;
+        }
+
+        if (!validateWrittenBundle(result.loadResult.bundle))
+            failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+
+        advanceToNextCase();
+    };
+
+    if (m_runtime.mode == RunMode::CI && m_runtime.phase == Phase::RenderOriginal)
+    {
+        ++m_runtime.phaseFrameCounter;
+        if (m_runtime.phaseFrameCounter == 0u)
+            return;
+
+        if (!requestScreenshotCapture(m_output.loadedScreenshotPath))
+            failExit("Failed to request loaded screenshot capture.");
+        if (!finalizePendingCapture(m_render.loadedScreenshot, "Failed to finalize loaded screenshot.", true))
+            failExit("Loaded screenshot capture did not complete.");
+
+        const bool canWriteCurrentAsset = m_output.saveGeom && static_cast<bool>(m_render.currentCpuAsset);
+        if (m_output.saveGeom && !canWriteCurrentAsset)
+            m_logger->log("Skipping write/reload for %s because the loaded case expands to multiple root geometries.", ILogger::ELL_INFO, m_caseName.c_str());
+        if (!canWriteCurrentAsset)
+        {
+            advanceToNextCase();
+            return;
+        }
+
+        WrittenAssetResult result = {};
+        bool ready = false;
+        if (!finalizeWrittenAssetWork(result, ready, true) || !ready)
+            failExit("Written asset preparation did not complete.");
+        handleWrittenAssetReady(std::move(result));
+        return;
+    }
+
+    if (m_runtime.mode == RunMode::CI && m_runtime.phase == Phase::RenderWritten)
+    {
+        ++m_runtime.phaseFrameCounter;
+        if (m_runtime.phaseFrameCounter == 0u)
+            return;
+
+        if (!requestScreenshotCapture(m_output.writtenScreenshotPath))
+            failExit("Failed to request written screenshot capture.");
+        if (!finalizePendingCapture(m_render.writtenScreenshot, "Failed to finalize written screenshot.", true))
+            failExit("Written screenshot capture did not complete.");
+
+        uint64_t diffCodeUnitCount = 0u;
+        uint32_t maxDiffCodeUnitValue = 0u;
+        if (!compareImages(m_render.loadedScreenshot.get(), m_render.writtenScreenshot.get(), diffCodeUnitCount, maxDiffCodeUnitValue))
+            failExit("Image compare failed for %s.", m_caseName.c_str());
+        if (diffCodeUnitCount > MaxImageDiffCodeUnits || maxDiffCodeUnitValue > MaxImageDiffCodeUnitValue)
+            failExit("Image diff detected for %s. CodeUnits: %llu MaxCodeUnitDiff: %u", m_caseName.c_str(), static_cast<unsigned long long>(diffCodeUnitCount), maxDiffCodeUnitValue);
+        if (diffCodeUnitCount != 0u)
+            m_logger->log("Image diff within tolerance for %s. CodeUnits: %llu MaxCodeUnitDiff: %u", ILogger::ELL_WARNING, m_caseName.c_str(), static_cast<unsigned long long>(diffCodeUnitCount), maxDiffCodeUnitValue);
+
+        advanceToNextCase();
+        return;
+    }
 
     if (m_runtime.phase == Phase::CaptureOriginalPending)
     {
@@ -359,8 +649,43 @@ void MeshLoadersApp::advanceCase()
         {
             if (!canWriteCurrentAsset)
                 m_logger->log("Skipping write/reload for %s because the loaded case expands to multiple root geometries.", ILogger::ELL_INFO, m_caseName.c_str());
-            else if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
-                failExit("Geometry write failed.");
+            else
+            {
+                WrittenAssetResult result = {};
+                bool ready = false;
+                const bool workerStateValid = finalizeWrittenAssetWork(result, ready);
+                if (!workerStateValid)
+                {
+                    if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
+                        failExit("Geometry write failed.");
+
+                    if (m_runtime.mode == RunMode::CI)
+                    {
+                        if (!loadModel(m_output.writtenPath, false, false))
+                            failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+                        if (!m_render.currentCpuGeom)
+                            failExit("Written geometry missing.");
+                        m_runtime.phase = Phase::RenderWritten;
+                        m_runtime.phaseFrameCounter = 0u;
+                        return;
+                    }
+
+                    if (!validateWrittenAsset(m_output.writtenPath))
+                        failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+
+                    advanceToNextCase();
+                    return;
+                }
+
+                if (!ready)
+                {
+                    m_runtime.phase = Phase::WrittenAssetPending;
+                    return;
+                }
+
+                handleWrittenAssetReady(std::move(result));
+                return;
+            }
         }
 
         if (m_runtime.mode == RunMode::CI)
@@ -386,6 +711,18 @@ void MeshLoadersApp::advanceCase()
         }
 
         advanceToNextCase();
+        return;
+    }
+
+    if (m_runtime.phase == Phase::WrittenAssetPending)
+    {
+        WrittenAssetResult result = {};
+        bool ready = false;
+        if (!finalizeWrittenAssetWork(result, ready))
+            failExit("Background written asset work failed unexpectedly.");
+        if (!ready)
+            return;
+        handleWrittenAssetReady(std::move(result));
         return;
     }
 

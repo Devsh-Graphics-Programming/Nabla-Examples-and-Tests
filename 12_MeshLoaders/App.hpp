@@ -10,9 +10,12 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #ifdef NBL_BUILD_DEBUG_DRAW
@@ -62,6 +65,7 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
     {
         RenderOriginal,
         CaptureOriginalPending,
+        WrittenAssetPending,
         RenderWritten,
         CaptureWrittenPending
     };
@@ -141,6 +145,39 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         {
             return static_cast<bool>(completionSemaphore);
         }
+    };
+
+    struct WrittenAssetRequest
+    {
+        core::smart_refctd_ptr<const IAsset> asset;
+        nbl::system::path path;
+        IAssetLoader::SAssetLoadParams loadParams = {};
+    };
+
+    struct WrittenAssetResult
+    {
+        bool success = false;
+        std::string error;
+        nbl::system::path path;
+        std::string extension;
+        double openMs = 0.0;
+        double writeMs = 0.0;
+        double statMs = 0.0;
+        double totalWriteMs = 0.0;
+        double nonWriterMs = 0.0;
+        uintmax_t outputSize = 0u;
+        AssetLoadCallResult loadResult = {};
+    };
+
+    struct BackgroundAssetWorker
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::thread thread;
+        std::optional<WrittenAssetRequest> request;
+        std::optional<WrittenAssetResult> result;
+        bool busy = false;
+        bool stop = false;
     };
 
     struct RuntimeState
@@ -232,6 +269,7 @@ private:
     void resetRowViewScene();
 
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
+    bool loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera);
     bool loadRowView(RowViewReloadMode mode);
     bool writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath);
 
@@ -257,8 +295,15 @@ private:
     void logRowViewLoadTotal(double ms, size_t hits, size_t misses) const;
 
     bool validateWrittenAsset(const system::path& path);
+    static bool validateWrittenBundle(const asset::SAssetBundle& bundle);
     bool requestScreenshotCapture(const system::path& path);
-    bool finalizeScreenshotCapture(core::smart_refctd_ptr<asset::ICPUImageView>& outImage, bool& ready);
+    bool finalizeScreenshotCapture(core::smart_refctd_ptr<asset::ICPUImageView>& outImage, bool& ready, bool waitForCompletion=false);
+    bool startWrittenAssetWork(smart_refctd_ptr<const IAsset> asset, const system::path& path);
+    bool finalizeWrittenAssetWork(WrittenAssetResult& result, bool& ready, bool waitForCompletion=false);
+    void logWrittenAssetWork(const WrittenAssetResult& result) const;
+    bool startBackgroundAssetWorker();
+    void stopBackgroundAssetWorker();
+    void backgroundAssetWorkerMain();
     bool compareImages(
         const asset::ICPUImageView* a,
         const asset::ICPUImageView* b,
@@ -279,6 +324,7 @@ private:
     RuntimeState m_runtime;
     OutputState m_output;
     RowViewState m_rowView;
+    BackgroundAssetWorker m_backgroundAssetWorker;
 
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;

@@ -468,6 +468,8 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     m_render.renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, {});
     if (!m_render.renderer)
         return logFail("Failed to create renderer!");
+    if (!startBackgroundAssetWorker())
+        return logFail("Failed to start background asset worker.");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
     {
@@ -696,6 +698,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
 
 bool MeshLoadersApp::onAppTerminated()
 {
+    stopBackgroundAssetWorker();
     return device_base_t::onAppTerminated();
 }
 
@@ -944,6 +947,12 @@ bool MeshLoadersApp::startCase(const size_t index)
 
     if (!loadModel(testCase.path, true, true))
         return false;
+
+    if (m_runtime.mode != RunMode::Interactive && m_output.saveGeom && m_render.currentCpuAsset)
+    {
+        if (!startWrittenAssetWork(m_render.currentCpuAsset, m_output.writtenPath))
+            m_logger->log("Background written-asset preparation did not start for %s. Falling back to synchronous flow.", ILogger::ELL_WARNING, m_caseName.c_str());
+    }
 
     return true;
 }

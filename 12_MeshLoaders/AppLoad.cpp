@@ -271,21 +271,23 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         failExit("Empty model path.");
     if (!std::filesystem::exists(modelPath))
         failExit("Missing input: %s", modelPath.string().c_str());
-    using clock_t = std::chrono::high_resolution_clock;
-    const auto loadOuterStart = clock_t::now();
-
-    m_modelPath = modelPath.string();
-
-    // free up
-    m_render.renderer->m_instances.clear();
-    m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
-    m_assetMgr->clearAllAssetCache();
-
-    //! load the geometry
     IAssetLoader::SAssetLoadParams params = makeLoadParams();
     AssetLoadCallResult loadResult = {};
     if (!loadAssetCallFromPath(modelPath, params, loadResult))
         failExit("Failed to open input file %s.", modelPath.string().c_str());
+    return loadPreparedModel(modelPath, std::move(loadResult), updateCamera, storeCamera);
+}
+
+bool MeshLoadersApp::loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera)
+{
+    using clock_t = std::chrono::high_resolution_clock;
+
+    m_modelPath = modelPath.string();
+
+    m_render.renderer->m_instances.clear();
+    m_render.renderer->clearGeometries({ .semaphore = m_render.semaphore.get(),.value = m_render.realFrameIx });
+    m_assetMgr->clearAllAssetCache();
+
     const auto loadMs = loadResult.getAssetMs;
     auto asset = std::move(loadResult.bundle);
     m_logger->log(
@@ -294,9 +296,9 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
         m_modelPath.c_str(),
         loadMs,
         static_cast<unsigned long long>(loadResult.inputSize));
-	if (asset.getContents().empty())
-		failExit("Failed to load asset %s.", m_modelPath.c_str());
-	m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
+    if (asset.getContents().empty())
+        failExit("Failed to load asset %s.", m_modelPath.c_str());
+    m_render.currentCpuAsset = (asset.getContents().size() == 1u) ? asset.getContents()[0] : nullptr;
 
     PreparedGeometryBatch batch = {};
     const auto extractStart = clock_t::now();
@@ -307,8 +309,8 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
     if (batch.geometries.empty())
         failExit("No geometry found in asset %s.", m_modelPath.c_str());
 
-    const auto outerMs = toMs(clock_t::now() - loadOuterStart);
-    const auto nonLoaderMs = std::max(0.0, outerMs - loadMs);
+    const auto outerMs = loadMs + extractMs;
+    const auto nonLoaderMs = extractMs;
     m_logger->log(
         "Asset load outer perf: path=%s getAsset=%.3f ms extract=%.3f ms total=%.3f ms non_loader=%.3f ms",
         ILogger::ELL_INFO,
