@@ -52,7 +52,8 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 
 	//
 	params.initDynamics = {
-		.ndcToRay = {}, // TODO
+		.ndcToRay = float32_t2x3(mutDefaults.raygen),
+		.nearClip = mutDefaults.nearClip,
 		.tMax = mutDefaults.farClip,
 		.minSPP = core::min(dynDefaults.samplesNeeded,16), // for later enhancement
 		.maxSPP = dynDefaults.samplesNeeded
