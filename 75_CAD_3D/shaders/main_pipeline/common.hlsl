@@ -6,6 +6,7 @@
 struct PSInput
 {
     [[vk::location(0)]] float4 position : SV_Position;
+    [[vk::location(1)]] float3 normal : COLOR1;
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated

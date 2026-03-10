@@ -146,6 +146,7 @@ void DrawResourcesFiller::drawTriangleMesh(
 
 	const size_t vertexBuffByteSize = mesh.getVertexBuffByteSize();
 	const size_t indexBuffByteSize = mesh.getIndexBuffByteSize();
+	const size_t triangleDataByteSize = vertexBuffByteSize + indexBuffByteSize;
 	const auto& indexBuffer = mesh.getIndices();
 	const auto& vertexBuffer = mesh.getVertices();
 	assert(indexBuffer.size() == vertexBuffer.size()); // TODO: figure out why it was needed then decide if this constraint needs to be kept
@@ -153,7 +154,7 @@ void DrawResourcesFiller::drawTriangleMesh(
 	DrawCallData drawCallData = {};
 
 	// Copy VertexBuffer
-	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(vertexBuffByteSize, alignof(CTriangleMesh::vertex_t));
+	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(triangleDataByteSize, alignof(CTriangleMesh::vertex_t));
 	drawCallData.triangleMeshVerticesBaseAddress = geometryBufferOffset;
 	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 	memcpy(dst, vertexBuffer.data(), vertexBuffByteSize);

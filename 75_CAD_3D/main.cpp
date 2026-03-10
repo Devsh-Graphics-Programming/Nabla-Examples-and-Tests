@@ -109,9 +109,11 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 					.viewType = IGPUImageView::ET_2D,
 					.format = getImage(i)->getCreationParameters().format
 				});
-				m_framebuffers[i] = device->createFramebuffer({{
+				m_framebuffers[i] = device->createFramebuffer({ {
 					.renderpass = core::smart_refctd_ptr(m_renderpass),
 					.colorAttachments = &imageView.get(),
+					// TODO:
+					//.depthStencilAttachments = &depthImageView.get(),
 					.width = sharedParams.width,
 					.height = sharedParams.height
 				}});
@@ -392,12 +394,31 @@ public:
 			}},
 			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
 		};
-		
+
+		// TODO:
+		//IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+		//	{{
+		//		{
+		//			.format = asset::EF_D32_SFLOAT,
+		//			.samples = IGPUImage::ESCF_1_BIT,
+		//			.mayAlias = false
+		//		},
+		//		/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+		//		/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+		//		/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED},
+		//		/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
+		//	}},
+		//	IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+		//};
+
 		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
 			{},
 			IGPURenderpass::SCreationParams::SubpassesEnd
 		};
+
 		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+		// TODO:
+		//subpasses[0].depthStencilAttachment = {{.render = {.attachmentIndex=0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}};
 		
 		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
 		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
@@ -429,6 +450,8 @@ public:
 		smart_refctd_ptr<IGPURenderpass> renderpass;
 		IGPURenderpass::SCreationParams params = {};
 		params.colorAttachments = colorAttachments;
+		// TODO:
+		//params.depthStencilAttachments = depthAttachments;
 		params.subpasses = subpasses;
 		params.dependencies = dependencies;
 		renderpass = m_device->createRenderpass(params);
@@ -700,7 +723,7 @@ public:
 		return true;
 	}
 	
-	void _submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
+	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
 		drawResourcesFiller.pushAllUploads(intendedSubmitInfo);
 
@@ -716,7 +739,11 @@ public:
 		{
 			// TODO: create a proper camera
 
-			auto view = hlsl::math::linalg::rhLookAt<float64_t>({ 300.0f, 300.0f, 300.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f });
+			// animated camera which rotates around and always looks at the center
+			const double animationFactor = m_timeElapsed * 0.0003;
+			const float32_t3 cameraPosition = { 300.0f * std::cos(animationFactor), 300.0f, 300.0f * std::sin(animationFactor) };
+
+			auto view = hlsl::math::linalg::rhLookAt<float64_t>(cameraPosition, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f });
 			const float64_t aspectRatio = static_cast<float64_t>(m_window->getWidth()) / static_cast<float64_t>(m_window->getHeight());
 			auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float64_t>(hlsl::radians(60.0f), aspectRatio, 0.1f, 2000.0f);
 
@@ -818,7 +845,8 @@ public:
 
 			PushConstants pc = {
 				.triangleMeshVerticesBaseAddress = drawCall.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
-				.triangleMeshMainObjectIndex = drawCall.triangleMeshMainObjectIndex
+				.triangleMeshMainObjectIndex = drawCall.triangleMeshMainObjectIndex,
+				.viewProjectionMatrix = viewProjection
 			};
 			cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
@@ -857,102 +885,6 @@ public:
 				// the stages for a wait semaphore operation are about what stage you WAIT in, not what stage you wait for
 				presentWait.stageMask = PIPELINE_STAGE_FLAGS::NONE; // top of pipe, there's no explicit presentation engine stage
 				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
-			}
-			else
-			{
-				m_logger->log("regular submit failed.", ILogger::ELL_ERROR);
-			}
-		}
-	}
-
-	// TODO: remove
-	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
-	{
-		m_currentRecordingCommandBufferInfo = intendedSubmitInfo.getCommandBufferForRecording(); // drawResourcesFiller.pushAllUploads might've overflow submitted and changed the current recording command buffer
-
-		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
-		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
-
-		asset::SViewport vp =
-		{
-			.x = 0u,
-			.y = 0u,
-			.width = static_cast<float>(m_window->getWidth()),
-			.height = static_cast<float>(m_window->getHeight()),
-			.minDepth = 1.f,
-			.maxDepth = 0.f,
-		};
-		cb->setViewport(0u, 1u, &vp);
-
-		VkRect2D scissor =
-		{
-			.offset = { 0, 0 },
-			.extent = { m_window->getWidth(), m_window->getHeight() },
-		};
-		cb->setScissor(0u, 1u, &scissor);
-
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		VkRect2D currentRenderArea;
-		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
-		{
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			currentRenderArea =
-			{
-				.offset = {0,0},
-				.extent = {m_window->getWidth(),m_window->getHeight()}
-			};
-			beginInfo = {
-				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get() : renderpassFinal.get(),
-				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-				.colorClearValues = &clearValue,
-				.depthStencilClearValues = nullptr,
-				.renderArea = currentRenderArea
-			};
-		}
-		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-
-		cb->bindGraphicsPipeline(m_graphicsPipeline.get());
-
-		{
-			PushConstants pc = {
-				.triangleMeshVerticesBaseAddress = 1,
-				.triangleMeshMainObjectIndex = 2
-			};
-			cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
-
-			cb->draw(3, 1, 0, 0);
-		}
-
-		cb->endRenderPass();
-
-		if (!inBetweenSubmit)
-			cb->endDebugMarker();
-
-		drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
-
-		if (inBetweenSubmit)
-		{
-			if (intendedSubmitInfo.overflowSubmit(m_currentRecordingCommandBufferInfo) != IQueue::RESULT::SUCCESS)
-			{
-				m_logger->log("overflow submit failed.", ILogger::ELL_ERROR);
-			}
-		}
-		else
-		{
-			const auto nextFrameIx = m_realFrameIx + 1u;
-			const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
-				.semaphore = m_renderSemaphore.get(),
-				.value = nextFrameIx,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-			};
-			if (intendedSubmitInfo.submit(m_currentRecordingCommandBufferInfo, { &thisFrameRendered,1 }) == IQueue::RESULT::SUCCESS)
-			{
-				m_realFrameIx = nextFrameIx;
-
-				IQueue::SSubmitInfo::SSemaphoreInfo presentWait = thisFrameRendered;
-				// the stages for a wait semaphore operation are about what stage you WAIT in, not what stage you wait for
-				presentWait.stageMask = PIPELINE_STAGE_FLAGS::NONE; // top of pipe, there's no explicit presentation engine stage
-				m_surface->present(m_currentImageAcquire.imageIndex, { &presentWait,1 });
 			}
 			else
 			{
@@ -1010,24 +942,18 @@ protected:
 		drawResourcesFiller.reset();
 
 		core::vector<TriangleMeshVertex> vertices = {
-			//{ float64_t2(0.0, 0.0), 100.0 }, //0
-			//{ float64_t2(-200.0, -200.0), 10.0 }, //1
-			//{ float64_t2(200.0, -200.0), 10.0 }, //2
-			//{ float64_t2(200.0, 200.0), -20.0 }, //3
-			//{ float64_t2(-200.0, 200.0), 10.0 }, //4
-
-			{ float64_t3(0.0, 0.0, 100.0) },
-			{ float64_t3(-200.0, -200.0, 10.0) },
-			{ float64_t3(200.0, -100.0, 10.0) },
-			{ float64_t3(0.0, 0.0, 100.0) },
-			{ float64_t3(200.0, -100.0, 10.0) },
-			{ float64_t3(200.0, 200.0, -20.0) },
-			{ float64_t3(0.0, 0.0, 100.0) },
-			{ float64_t3(200.0, 200.0, -20.0) },
-			{ float64_t3(-200.0, 200.0, 10.0) },
-			{ float64_t3(0.0, 0.0, 100.0) },
-			{ float64_t3(-200.0, 200.0, 10.0) },
-			{ float64_t3(-200.0, -200.0, 10.0) },
+			{ float64_t3(0.0, 100.0, 0.0) },
+			{ float64_t3(-200.0, 10.0, -200.0) },
+			{ float64_t3(200.0, 10.0, -100.0) },
+			{ float64_t3(0.0, 100.0, 0.0) },
+			{ float64_t3(200.0, 10.0, -100.0) },
+			{ float64_t3(200.0, -20.0, 200.0) },
+			{ float64_t3(0.0, 100.0, 0.0) },
+			{ float64_t3(200.0, -20.0, 200.0) },
+			{ float64_t3(-200.0, 10.0, 200.0) },
+			{ float64_t3(0.0, 100.0, 0.0) },
+			{ float64_t3(-200.0, 10.0, 200.0) },
+			{ float64_t3(-200.0, 10.0, -200.0) },
 		};
 
 		core::vector<uint32_t> indices = {
@@ -1038,14 +964,22 @@ protected:
 		};
 
 		CTriangleMesh mesh;
-		mesh.setVertices(std::move(vertices));
+		mesh.setVertices(core::vector<TriangleMeshVertex>(vertices));
 		mesh.setIndices(std::move(indices));
 
+		// pyramid A
+		drawResourcesFiller.drawTriangleMesh(mesh, intendedNextSubmit);
+
+		// pyramid B
+		float64_t3 offset = { 500.0f, 0.0f, 0.0f };
+		for (auto& vertex : vertices)
+			vertex.pos += offset;
+		mesh.setVertices(std::move(vertices));
 		drawResourcesFiller.drawTriangleMesh(mesh, intendedNextSubmit);
 	}
 
 protected:
-	clock_t::time_point start;
+	clock_t::time_point start; // TODO: am i missing somehting? why is it never initialized
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 
 	double m_timeElapsed = 0.0;
@@ -1066,7 +1000,7 @@ protected:
 	// pointer to one of the command buffer infos from above, this is the only command buffer used to record current submit in current frame, it will be updated by SIntendedSubmitInfo
 	IQueue::SSubmitInfo::SCommandBufferInfo const * m_currentRecordingCommandBufferInfo; // pointer can change, value cannot
 
-	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_globalsBuffer;
 	DrawResourcesFiller drawResourcesFiller; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
 	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
@@ -1079,13 +1013,8 @@ protected:
 
 	uint64_t m_realFrameIx = 0u;
 
-	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
-	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout1;
-	smart_refctd_ptr<IGPUPipelineLayout>		m_pipelineLayout;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		resolveAlphaGraphicsPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		m_debugGraphicsPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		m_graphicsPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline>		m_streamedImagesGraphicsPipeline;
+	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;

@@ -6,6 +6,7 @@ endif()
 set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/CTriangleMesh.h"
 )
 set(EXAMPLE_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/boost/superproject/libs/math/include")
@@ -38,14 +39,6 @@ endif()
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
 set(SM 6_8)
-set(REQUIRED_CAPS [=[
-{
-  "kind": "features",
-  "name": "fragmentShaderPixelInterlock",
-  "type": "bool",
-  "values": [1]
-}
-]=])
 
 set(JSON [=[
 [

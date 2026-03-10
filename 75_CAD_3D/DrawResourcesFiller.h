@@ -23,7 +23,6 @@ using namespace nbl::core;
 using namespace nbl::asset;
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 20u);
 
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
@@ -46,6 +45,28 @@ public:
 	// We pack multiple data types in a single buffer, we need to makes sure each offset starts aligned to avoid mis-aligned accesses
 	static constexpr size_t GPUStructsMaxNaturalAlignment = 8u;
 	static constexpr size_t MinimumDrawResourcesMemorySize = 512u * 1 << 20u; // 512MB
+
+	/**
+	 * @brief Attempts to allocate draw resources within a given VRAM budget, retrying with progressively smaller sizes on failure.
+	 *
+	 * This function preserves the initial image-to-buffer memory ratio. If the initial sizes are too small,
+	 * it scales them up to meet a minimum required threshold. On allocation failure, it reduces the memory
+	 * sizes by a specified percentage and retries, until it either succeeds or the number of attempts exceeds `maxTries`.
+	 *
+	 * @param logicalDevice Pointer to the logical device used for allocation.
+	 * @param maxImageMemorySize Initial image memory size (in bytes) to attempt allocation with.
+	 * @param maxBufferMemorySize Initial buffer memory size (in bytes) to attempt allocation with.
+	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
+	 * @param reductionPercent The percentage by which to reduce the memory sizes after each failed attempt (e.g., 10 means reduce by 10%).
+	 * @param maxTries Maximum number of attempts to try reducing and allocating memory.
+	 *
+	 * @return true if the allocation succeeded at any iteration; false if all attempts failed.
+	 */
+	bool allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder, uint32_t reductionPercent = 10u, uint32_t maxTries = 32u);
+
+	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
+	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
+	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief general parent struct for 1.ReservedCompute and 2.CPUGenerated Resources
 	struct ResourceBase
@@ -132,38 +153,6 @@ public:
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 
-	/**
-	 * @brief Attempts to allocate a single contiguous device-local memory block for draw resources, divided into image and buffer sections.
-	 * 
-	 * The function allocates a single memory block and splits it into image and buffer arenas.
-	 * 
-	 * @param logicalDevice Pointer to the logical device used for memory allocation and resource creation.
-	 * @param requiredImageMemorySize The size in bytes of the memory required for images.
-	 * @param requiredBufferMemorySize The size in bytes of the memory required for buffers.
-	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
-	 * 
-	 * @return true if the memory allocation and resource setup succeeded; false otherwise.
-	 */
-	bool allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder);
-	
-	/**
-	 * @brief Attempts to allocate draw resources within a given VRAM budget, retrying with progressively smaller sizes on failure.
-	 * 
-	 * This function preserves the initial image-to-buffer memory ratio. If the initial sizes are too small,
-	 * it scales them up to meet a minimum required threshold. On allocation failure, it reduces the memory
-	 * sizes by a specified percentage and retries, until it either succeeds or the number of attempts exceeds `maxTries`.
-	 * 
-	 * @param logicalDevice Pointer to the logical device used for allocation.
-	 * @param maxImageMemorySize Initial image memory size (in bytes) to attempt allocation with.
-	 * @param maxBufferMemorySize Initial buffer memory size (in bytes) to attempt allocation with.
-	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
-	 * @param reductionPercent The percentage by which to reduce the memory sizes after each failed attempt (e.g., 10 means reduce by 10%).
-	 * @param maxTries Maximum number of attempts to try reducing and allocating memory.
-	 * 
-	 * @return true if the allocation succeeded at any iteration; false if all attempts failed.
-	 */
-	bool allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder, uint32_t reductionPercent = 10u, uint32_t maxTries = 32u);
-
 	// Must be called at the end of each frame.
 	// right before submitting the main draw that uses the currently queued geometry, images, or other objects/resources.
 	// Registers the semaphore/value that will signal completion of this frame�s draw,
@@ -174,13 +163,6 @@ public:
 	void drawTriangleMesh(
 		const CTriangleMesh& mesh,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
-	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
-	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
-	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
-
-	/// @brief Records GPU copy commands for all staged buffer resourcesCollection into the active command buffer.
-	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 
 	/// @brief  resets staging buffers and images
 	void reset()
@@ -195,6 +177,24 @@ public:
 	/// @return how far resourcesGPUBuffer was copied to by `finalizeAllCopiesToGPU` in `resourcesCollection` 
 	const size_t getCopiedResourcesSize() { return copiedResourcesSize; }
 	const core::vector<DrawCallData>& getDrawCalls() const { return drawCalls; }
+
+private:
+	/**
+	 * @brief Attempts to allocate a single contiguous device-local memory block for draw resources, divided into image and buffer sections.
+	 *
+	 * The function allocates a single memory block and splits it into image and buffer arenas.
+	 *
+	 * @param logicalDevice Pointer to the logical device used for memory allocation and resource creation.
+	 * @param requiredImageMemorySize The size in bytes of the memory required for images.
+	 * @param requiredBufferMemorySize The size in bytes of the memory required for buffers.
+	 * @param memoryTypeIndexTryOrder Ordered list of memory type indices to attempt allocation with, in the order they should be tried.
+	 *
+	 * @return true if the memory allocation and resource setup succeeded; false otherwise.
+	 */
+	bool allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize, std::span<uint32_t> memoryTypeIndexTryOrder);
+
+	/// @brief Records GPU copy commands for all staged buffer resourcesCollection into the active command buffer.
+	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 
 private:
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;

@@ -49,6 +49,7 @@ public:
 		m_indices.clear();
 	}
 
+private:
 	core::vector<vertex_t> m_vertices;
 	core::vector<index_t> m_indices;
 };
