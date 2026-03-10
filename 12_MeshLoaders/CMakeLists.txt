@@ -46,41 +46,35 @@ add_dependencies(${EXECUTABLE_NAME} nlohmann_json::nlohmann_json)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INCLUDE_DIRECTORIES>)
 
 if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
-	set(NBL_MESHLOADERS_MEDIA_INPUTS_JSON "${CMAKE_CURRENT_SOURCE_DIR}/../media/${NBL_MESHLOADERS_MEDIA_PAYLOAD_RELATIVE_PATH}")
-	if (EXISTS "${NBL_MESHLOADERS_MEDIA_INPUTS_JSON}")
-		set(NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON "${NBL_MESHLOADERS_MEDIA_INPUTS_JSON}" CACHE FILEPATH "Committed benchmark testlist for 12_MeshLoaders." FORCE)
-		message(STATUS "[meshloaders-bench] Using examples media payload: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
-	else()
-		set(NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/${NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH}" CACHE FILEPATH "Committed benchmark testlist for 12_MeshLoaders." FORCE)
-		if (NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
-			if (EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}" AND NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/.git")
-				message(STATUS "[meshloaders-bench] Dataset dir exists without .git, skipping fetch and using local files: ${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}")
-			else()
-				include(FetchContent)
-				FetchContent_Declare(nbl_meshloaders_benchmark_dataset
-					GIT_REPOSITORY "${NBL_MESHLOADERS_BENCHMARK_DATASET_REPO}"
-					GIT_TAG "master"
-					GIT_SHALLOW TRUE
-					GIT_PROGRESS TRUE
-					SOURCE_DIR "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}"
-					BINARY_DIR "${CMAKE_BINARY_DIR}/CMakeFiles/nbl_meshloaders_benchmark_dataset-build"
-				)
-				FetchContent_GetProperties(nbl_meshloaders_benchmark_dataset)
-				if (NOT nbl_meshloaders_benchmark_dataset_POPULATED)
-					if (POLICY CMP0169)
-						cmake_policy(PUSH)
-						cmake_policy(SET CMP0169 OLD)
-					endif()
-					FetchContent_Populate(nbl_meshloaders_benchmark_dataset)
-					if (POLICY CMP0169)
-						cmake_policy(POP)
-					endif()
-				endif ()
+	set(NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/${NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH}" CACHE FILEPATH "Committed benchmark testlist for 12_MeshLoaders." FORCE)
+	if (NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+		if (EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}" AND NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/.git")
+			message(STATUS "[meshloaders-bench] Dataset dir exists without .git, skipping fetch and using local files: ${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}")
+		else()
+			include(FetchContent)
+			FetchContent_Declare(nbl_meshloaders_benchmark_dataset
+				GIT_REPOSITORY "${NBL_MESHLOADERS_BENCHMARK_DATASET_REPO}"
+				GIT_TAG "4e8af0a9b706aca95ae16f04733f5c2bed6fdb9d"
+				GIT_SHALLOW TRUE
+				GIT_PROGRESS TRUE
+				SOURCE_DIR "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}"
+				BINARY_DIR "${CMAKE_BINARY_DIR}/CMakeFiles/nbl_meshloaders_benchmark_dataset-build"
+			)
+			FetchContent_GetProperties(nbl_meshloaders_benchmark_dataset)
+			if (NOT nbl_meshloaders_benchmark_dataset_POPULATED)
+				if (POLICY CMP0169)
+					cmake_policy(PUSH)
+					cmake_policy(SET CMP0169 OLD)
+				endif()
+				FetchContent_Populate(nbl_meshloaders_benchmark_dataset)
+				if (POLICY CMP0169)
+					cmake_policy(POP)
+				endif()
 			endif ()
 		endif ()
 	endif ()
 	if (NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
-		message(FATAL_ERROR "Benchmark payload JSON not found: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}. Commit a full payload file into dataset repo and point NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH to it.")
+		message(FATAL_ERROR "Benchmark payload JSON not found: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}. Check NBL_MESHLOADERS_BENCHMARK_DATASET_DIR and NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH.")
 	endif ()
 	file(READ "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}" _meshloaders_payload_probe LIMIT 256)
 	string(FIND "${_meshloaders_payload_probe}" "version https://git-lfs.github.com/spec/v1" _meshloaders_payload_lfs_ix)
