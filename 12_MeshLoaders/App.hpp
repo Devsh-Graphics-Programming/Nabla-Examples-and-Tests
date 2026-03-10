@@ -82,7 +82,8 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         core::vector<video::asset_cached_t<asset::ICPUPolygonGeometry>> gpu;
         core::vector<hlsl::shapes::AABB<3, double>> aabbs;
         core::vector<hlsl::float32_t3x4> world;
-        core::vector<uint8_t> preserveWorld;
+        hlsl::shapes::AABB<3, double> tileAABB = hlsl::shapes::AABB<3, double>::create();
+        bool layoutAsSingleTile = false;
     };
 
     struct LoadedGeometryInstance

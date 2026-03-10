@@ -13,16 +13,16 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 ## Mode cheat sheet
 - `batch`
   - Uses test list and runs normal workflow.
-  - If test list has `row_view: true`, geometry assets are laid out in one inspection scene.
+  - If test list has `row_view: true`, assets are laid out in one inspection scene.
 - `interactive`
   - Opens file dialog and loads one model.
 - `ci`
   - Runs strict pass/fail validation per case.
 
 ## Row view concept
-- `row_view` means one inspection scene containing all geometry cases from the test list.
+- `row_view` means one inspection scene containing all cases from the test list.
 - `geometry` and `geometry collection` assets are normalized and laid out left-to-right so camera framing is stable for comparisons.
-- `scene` assets keep their authored instance transforms and are rendered as scenes rather than being rewritten into row layout.
+- `scene` assets are laid out as one row tile while keeping their authored internal instance transforms.
 
 ## Common workflows
 - Quick visual check:
@@ -75,7 +75,7 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - force output path
 - `--row-add <path>`
   - add model to row view at startup
-  - scene assets added this way still keep authored transforms
+  - scene assets added this way keep their internal transforms inside one row tile
 - `--row-duplicate <count>`
   - duplicate last row-view case
 - `--loader-perf-log <path>`
@@ -111,7 +111,7 @@ Rules:
 - case item can be string path or object with `path` and optional `name`
 - relative paths resolve against JSON file directory
 - default startup uses `inputs.json` resolved from the example directory layout rather than the process working directory
-- `row_view: true` affects geometry assets only. Scene assets keep their authored transforms.
+- `row_view: true` keeps geometry assets in direct row layout and places each scene asset as one row tile with authored internal transforms preserved inside that tile.
 
 ## What CI validates
 - Per-case image consistency:

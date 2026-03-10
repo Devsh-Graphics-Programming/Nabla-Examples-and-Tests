@@ -7,7 +7,6 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
-
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 #include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
 #include "nbl/examples/common/GeometryAABBUtilities.h"
@@ -20,6 +19,14 @@ struct DisplayLayout
     core::vector<hlsl::float32_t3x4> worldTransforms = {};
     display_aabb_t bound = display_aabb_t::create();
 };
+struct RowLayoutGroup
+{
+    size_t firstGeometry = 0u;
+    size_t geometryCount = 0u;
+    display_aabb_t layoutAABB = display_aabb_t::create();
+    bool preserveInternalTransforms = false;
+    bool addAggregateDebugAABB = false;
+};
 static hlsl::float32_t3x4 makeIdentityWorld()
 {
     auto tmp = hlsl::float32_t4x3(
@@ -29,6 +36,29 @@ static hlsl::float32_t3x4 makeIdentityWorld()
         hlsl::float32_t3(0, 0, 0));
     return hlsl::transpose(tmp);
 }
+static hlsl::float32_t4x4 makeAffine4x4(const hlsl::float32_t3x4& world)
+{
+    return hlsl::float32_t4x4{
+        world[0],
+        world[1],
+        world[2],
+        hlsl::float32_t4(0, 0, 0, 1)
+    };
+}
+#ifdef NBL_BUILD_DEBUG_DRAW
+static ext::debug_draw::InstanceData makeAABBInstance(
+    const display_aabb_t& aabb,
+    const hlsl::float32_t3x4& world,
+    const hlsl::float32_t4& color)
+{
+    ext::debug_draw::InstanceData instance = {};
+    instance.color = color;
+    instance.transform = math::linalg::promoted_mul(
+        makeAffine4x4(world),
+        ext::debug_draw::DrawAABB::getTransformFromAABB(shapes::AABB<3, float>(aabb.minVx, aabb.maxVx)));
+    return instance;
+}
+#endif
 static DisplayLayout buildDisplayLayout(const core::vector<display_aabb_t>& aabbs, const bool arrangeInRow)
 {
     DisplayLayout retval = {};
@@ -380,7 +410,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
     core::vector<hlsl::shapes::AABB<3, double>> aabbs;
     core::vector<hlsl::float32_t3x4> sourceWorlds;
-    core::vector<uint8_t> preserveWorlds;
+    core::vector<RowLayoutGroup> layoutGroups;
 
     core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> cpuToConvert;
     struct ConvertTarget { CachedGeometryEntry* entry = nullptr; size_t geometryIx = 0u; };
@@ -389,6 +419,21 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     m_rowView.cache.reserve(m_runtime.cases.size());
 
     IAssetLoader::SAssetLoadParams params = makeLoadParams();
+    auto rebuildTileAABB = [&](CachedGeometryEntry& entry, const system::path& path) -> void
+    {
+        entry.tileAABB = display_aabb_t::create();
+        if (!entry.layoutAsSingleTile)
+            return;
+        for (uint32_t geoIx = 0u; geoIx < entry.aabbs.size(); ++geoIx)
+            entry.tileAABB = hlsl::shapes::util::union_(
+                nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(entry.world[geoIx]), entry.aabbs[geoIx]),
+                entry.tileAABB);
+        if (!isValidAABB(entry.tileAABB))
+        {
+            m_logger->log("Invalid row-view scene AABB for %s. Using fallback unit AABB.", ILogger::ELL_WARNING, path.string().c_str());
+            entry.tileAABB = nbl::examples::geometry::fallbackUnitAABB();
+        }
+    };
 
     for (const auto& testCase : m_runtime.cases)
     {
@@ -415,7 +460,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
             const auto extractStart = clock_t::now();
             entry.world.clear();
-            entry.preserveWorld.clear();
+            entry.layoutAsSingleTile = (asset.getAssetType() == IAsset::E_TYPE::ET_SCENE);
             if (asset.getAssetType() == IAsset::E_TYPE::ET_SCENE)
             {
                 core::vector<LoadedGeometryInstance> found;
@@ -423,7 +468,6 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 {
                     entry.cpu.reserve(found.size());
                     entry.world.reserve(found.size());
-                    entry.preserveWorld.assign(found.size(), 1u);
                     for (auto& instance : found)
                     {
                         entry.cpu.push_back(instance.geometry);
@@ -438,7 +482,6 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 {
                     entry.cpu = std::move(found);
                     entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
-                    entry.preserveWorld.assign(entry.cpu.size(), 0u);
                 }
             }
             stats.extractMs += toMs(clock_t::now() - extractStart);
@@ -459,6 +502,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 }
                 entry.aabbs.push_back(aabb);
             }
+            rebuildTileAABB(entry, path);
             stats.aabbMs += toMs(clock_t::now() - aabbStart);
         }
         else
@@ -468,8 +512,6 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 entry.gpu.resize(entry.cpu.size());
             if (entry.world.size() != entry.cpu.size())
                 entry.world.assign(entry.cpu.size(), hlsl::math::linalg::identity<hlsl::float32_t3x4>());
-            if (entry.preserveWorld.size() != entry.cpu.size())
-                entry.preserveWorld.assign(entry.cpu.size(), 0u);
             if (entry.aabbs.size() != entry.cpu.size())
             {
                 const auto aabbStart = clock_t::now();
@@ -487,6 +529,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 }
                 stats.aabbMs += toMs(clock_t::now() - aabbStart);
             }
+            rebuildTileAABB(entry, path);
         }
         logRowViewAssetLoad(path, assetLoadMs, cached);
 
@@ -502,10 +545,33 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                 stats.gpuHits++;
         }
 
+        const size_t firstGeometry = geometries.size();
         geometries.insert(geometries.end(), entry.cpu.begin(), entry.cpu.end());
         aabbs.insert(aabbs.end(), entry.aabbs.begin(), entry.aabbs.end());
         sourceWorlds.insert(sourceWorlds.end(), entry.world.begin(), entry.world.end());
-        preserveWorlds.insert(preserveWorlds.end(), entry.preserveWorld.begin(), entry.preserveWorld.end());
+        if (entry.layoutAsSingleTile)
+        {
+            layoutGroups.push_back({
+                .firstGeometry = firstGeometry,
+                .geometryCount = entry.cpu.size(),
+                .layoutAABB = entry.tileAABB,
+                .preserveInternalTransforms = true,
+                .addAggregateDebugAABB = true
+                });
+        }
+        else
+        {
+            for (size_t geoIx = 0u; geoIx < entry.cpu.size(); ++geoIx)
+            {
+                layoutGroups.push_back({
+                    .firstGeometry = firstGeometry + geoIx,
+                    .geometryCount = 1u,
+                    .layoutAABB = entry.aabbs[geoIx],
+                    .preserveInternalTransforms = false,
+                    .addAggregateDebugAABB = false
+                    });
+            }
+        }
     }
 
     if (geometries.empty())
@@ -636,37 +702,48 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
     core::vector<hlsl::float32_t3x4> worldTforms;
     worldTforms.resize(geometries.size());
     auto bound = aabb_t::create();
-    core::vector<aabb_t> rowAABBs;
-    core::vector<uint32_t> rowIndices;
-    rowAABBs.reserve(aabbs.size());
-    rowIndices.reserve(aabbs.size());
-    for (uint32_t i = 0u; i < aabbs.size(); ++i)
+    core::vector<aabb_t> tileAABBs;
+    tileAABBs.reserve(layoutGroups.size());
+    for (const auto& group : layoutGroups)
+        tileAABBs.push_back(group.layoutAABB);
+    const auto layout = buildDisplayLayout(tileAABBs, true);
+#ifdef NBL_BUILD_DEBUG_DRAW
+    struct AggregateDebugAABB
     {
-        if (i < preserveWorlds.size() && preserveWorlds[i])
-        {
-            worldTforms[i] = sourceWorlds[i];
-            bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(worldTforms[i]), aabbs[i]), bound);
-            continue;
-        }
-        rowIndices.push_back(i);
-        rowAABBs.push_back(aabbs[i]);
-    }
-    if (!rowIndices.empty())
+        aabb_t aabb = aabb_t::create();
+        hlsl::float32_t3x4 world = makeIdentityWorld();
+    };
+    core::vector<AggregateDebugAABB> sceneDebugAABBs;
+    sceneDebugAABBs.reserve(layoutGroups.size());
+#endif
+    for (uint32_t groupIx = 0u; groupIx < layoutGroups.size(); ++groupIx)
     {
-        const auto layout = buildDisplayLayout(rowAABBs, true);
-        for (uint32_t i = 0u; i < rowIndices.size(); ++i)
+        const auto& group = layoutGroups[groupIx];
+        const auto& tileWorld = layout.worldTransforms[groupIx];
+#ifdef NBL_BUILD_DEBUG_DRAW
+        if (group.addAggregateDebugAABB)
+            sceneDebugAABBs.push_back({.aabb = group.layoutAABB,.world = tileWorld});
+#endif
+        for (uint32_t localIx = 0u; localIx < group.geometryCount; ++localIx)
         {
-            const uint32_t geometryIx = rowIndices[i];
-            worldTforms[geometryIx] = layout.worldTransforms[i];
-            bound = hlsl::shapes::util::union_(nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(worldTforms[geometryIx]), aabbs[geometryIx]), bound);
+            const uint32_t geometryIx = static_cast<uint32_t>(group.firstGeometry + localIx);
+            worldTforms[geometryIx] = group.preserveInternalTransforms ?
+                hlsl::math::linalg::promoted_mul(tileWorld, sourceWorlds[geometryIx]) :
+                tileWorld;
+            bound = hlsl::shapes::util::union_(
+                nbl::hlsl::math::linalg::pseudo_mul(hlsl::float64_t3x4(worldTforms[geometryIx]), aabbs[geometryIx]),
+                bound);
         }
     }
     stats.layoutMs = toMs(clock_t::now() - layoutStart);
 
     const auto instanceStart = clock_t::now();
-    m_aabbInstances.resize(geometries.size());
+#ifdef NBL_BUILD_DEBUG_DRAW
+    m_aabbInstances.clear();
+    m_aabbInstances.reserve(geometries.size() + sceneDebugAABBs.size());
     if (m_drawBBMode == DBBM_OBB)
         m_obbInstances.resize(geometries.size());
+#endif
     m_render.renderer->m_instances.clear();
 
     for (uint32_t i = 0; i < geometries.size(); i++)
@@ -680,18 +757,7 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
         printAABB(transformed, "Transformed");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
-        auto& aabbInst = m_aabbInstances[i];
-        const auto tmpAabb = shapes::AABB<3, float>(aabb.minVx, aabb.maxVx);
-        hlsl::float32_t3x4 aabbTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
-        const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-        const auto world4x4 = float32_t4x4{
-            tmpWorld[0],
-            tmpWorld[1],
-            tmpWorld[2],
-            float32_t4(0, 0, 0, 1)
-        };
-        aabbInst.color = { 1,1,1,1 };
-        aabbInst.transform = math::linalg::promoted_mul(world4x4, aabbTransform);
+        m_aabbInstances.push_back(makeAABBInstance(aabb, worldTforms[i], hlsl::float32_t4(1, 1, 1, 1)));
 
         if (m_drawBBMode == DBBM_OBB)
         {
@@ -704,10 +770,14 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
                     return pt;
                 });
             obbInst.color = { 0, 0, 1, 1 };
-            obbInst.transform = math::linalg::promoted_mul(world4x4, obb.transform);
+            obbInst.transform = math::linalg::promoted_mul(makeAffine4x4(worldTforms[i]), obb.transform);
         }
 #endif
     }
+#ifdef NBL_BUILD_DEBUG_DRAW
+    for (const auto& sceneAABB : sceneDebugAABBs)
+        m_aabbInstances.push_back(makeAABBInstance(sceneAABB.aabb, sceneAABB.world, hlsl::float32_t4(1, 0.65f, 0, 1)));
+#endif
 
     printAABB(bound, "Total");
     for (uint32_t i = 0; i < worldTforms.size(); i++)
@@ -808,8 +878,7 @@ void MeshLoadersApp::setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bo
     const double halfZ = std::max(halfExtent.z, 0.001);
     const double safeRadius = std::max({ halfX, halfY, halfZ });
 
-    // Keep startup camera horizontal and in front of the scene.
-    const hlsl::float64_t3 dir(0.0, 0.0, 1.0);
+    const hlsl::float64_t3 dir(0.0, 0.0, -1.0);
     const double planeHalfX = halfX;
     const double planeHalfY = halfY;
     const double depthHalf = halfZ;
