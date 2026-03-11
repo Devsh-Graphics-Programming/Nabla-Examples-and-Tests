@@ -51,6 +51,18 @@ void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
     parser.add_argument("--loader-perf-log")
         .nargs(1)
         .help("Write loader diagnostics to a file instead of stdout.");
+    parser.add_argument("--perf-dump-dir")
+        .nargs(1)
+        .help("Write structured performance run artifacts to this directory.");
+    parser.add_argument("--perf-ref-dir")
+        .nargs(1)
+        .help("Lookup directory for structured performance reference artifacts.");
+    parser.add_argument("--perf-strict")
+        .help("Fail the run if a matching structured performance reference exists and comparison exceeds thresholds.")
+        .flag();
+    parser.add_argument("--perf-profile-override")
+        .nargs(1)
+        .help("Override the automatically generated performance profile id.");
     parser.add_argument("--loader-content-hashes")
         .help("Keep loader content hashes enabled. This is already the default for this example.")
         .flag();
@@ -107,6 +119,10 @@ struct ParsedCommandLineOptions
     system::path testListPath;
     std::optional<std::string> specifiedGeomSavePath;
     std::optional<system::path> loaderPerfLogPath;
+    std::optional<system::path> perfDumpDir;
+    std::optional<system::path> perfReferenceDir;
+    std::optional<std::string> perfProfileOverride;
+    bool perfStrict = false;
     std::optional<system::path> rowAddPath;
     uint32_t rowDuplicateCount = 0u;
     asset::SFileIOPolicy::SRuntimeTuning::Mode runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
@@ -369,6 +385,42 @@ bool parseMeshLoadersCommandLine(
             tmp = effectiveOutputCWD / tmp;
         out.loaderPerfLogPath = tmp;
     }
+    if (parser.present("--perf-dump-dir"))
+    {
+        auto tmp = path(parser.get<std::string>("--perf-dump-dir"));
+        if (tmp.empty())
+        {
+            error = "Invalid --perf-dump-dir value.";
+            return false;
+        }
+        if (tmp.is_relative())
+            tmp = effectiveOutputCWD / tmp;
+        out.perfDumpDir = tmp;
+    }
+    if (parser.present("--perf-ref-dir"))
+    {
+        auto tmp = path(parser.get<std::string>("--perf-ref-dir"));
+        if (tmp.empty())
+        {
+            error = "Invalid --perf-ref-dir value.";
+            return false;
+        }
+        if (tmp.is_relative())
+            tmp = effectiveOutputCWD / tmp;
+        out.perfReferenceDir = tmp;
+    }
+    if (parser["--perf-strict"] == true)
+        out.perfStrict = true;
+    if (parser.present("--perf-profile-override"))
+    {
+        const auto value = parser.get<std::string>("--perf-profile-override");
+        if (value.empty())
+        {
+            error = "Invalid --perf-profile-override value.";
+            return false;
+        }
+        out.perfProfileOverride = value;
+    }
     if (parser["--loader-content-hashes"] == true)
         out.forceLoaderContentHashes = true;
     if (parser["--update-references"] == true)
@@ -431,6 +483,11 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         m_output.loaderPerfLogPath = std::move(options.loaderPerfLogPath);
         m_output.rowAddPath = std::move(options.rowAddPath);
         m_output.rowDuplicateCount = options.rowDuplicateCount;
+        m_perf.options.dumpDir = std::move(options.perfDumpDir);
+        m_perf.options.referenceDir = std::move(options.perfReferenceDir);
+        m_perf.options.profileOverride = std::move(options.perfProfileOverride);
+        m_perf.options.strict = options.perfStrict;
+        m_perf.enabled = m_perf.options.dumpDir.has_value() || m_perf.options.referenceDir.has_value() || m_perf.options.strict;
         m_forceLoaderContentHashes = options.forceLoaderContentHashes;
         m_updateGeometryHashReferences = options.updateGeometryHashReferences;
         m_runtimeTuningMode = options.runtimeTuningMode;
@@ -489,6 +546,8 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
     if (!initTestCases())
         return false;
+    if (performanceEnabled())
+        beginPerformanceRun();
 
     auto runInitialContent = [&]() -> bool
     {
@@ -700,6 +759,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
 
 bool MeshLoadersApp::onAppTerminated()
 {
+    if (performanceEnabled() && !m_perf.finalized)
+    {
+        endPerformanceCase();
+        finalizePerformanceRun();
+    }
     stopBackgroundLoadWorker();
     stopBackgroundAssetWorker();
     return device_base_t::onAppTerminated();
@@ -956,6 +1020,8 @@ bool MeshLoadersApp::startCase(const size_t index)
     resetCasePresentationState();
 
     const auto& testCase = m_runtime.cases[m_runtime.caseIndex];
+    if (performanceEnabled())
+        beginPerformanceCase(testCase);
     const auto artifacts = makeCaseArtifacts(
         testCase.name,
         testCase.path,
@@ -967,20 +1033,23 @@ bool MeshLoadersApp::startCase(const size_t index)
     m_output.writtenScreenshotPath = artifacts.writtenScreenshotPath;
 
     bool loaded = false;
+    LoadStageMetrics loadMetrics = {};
     if (m_runtime.mode == RunMode::CI)
     {
         PreparedAssetLoad preparedLoad = {};
         bool preparedReady = false;
         const bool loadWorkerStateValid = finalizePreparedAssetLoad(preparedLoad, preparedReady, true);
         if (loadWorkerStateValid && preparedReady && preparedLoad.success && preparedLoad.caseIndex == index && preparedLoad.path == testCase.path)
-            loaded = loadPreparedModel(testCase.path, std::move(preparedLoad.loadResult), true, true);
+            loaded = loadPreparedModel(testCase.path, std::move(preparedLoad.loadResult), true, true, &loadMetrics);
         else
-            loaded = loadModel(testCase.path, true, true);
+            loaded = loadModel(testCase.path, true, true, &loadMetrics);
     }
     else
-        loaded = loadModel(testCase.path, true, true);
+        loaded = loadModel(testCase.path, true, true, &loadMetrics);
     if (!loaded)
         return false;
+    if (performanceEnabled() && loadMetrics.valid)
+        recordOriginalLoadMetrics(loadMetrics);
 
     if (m_runtime.mode != RunMode::Interactive && m_output.saveGeom && m_render.currentCpuAsset)
     {
@@ -1006,9 +1075,16 @@ bool MeshLoadersApp::advanceToNextCase()
     const auto nextIndex = m_runtime.caseIndex + 1u;
     if (nextIndex >= m_runtime.cases.size())
     {
+        if (performanceEnabled())
+        {
+            endPerformanceCase();
+            finalizePerformanceRun();
+        }
         m_runtime.shouldQuit = true;
         return false;
     }
+    if (performanceEnabled())
+        endPerformanceCase();
     if (!startCase(nextIndex))
     {
         m_runtime.shouldQuit = true;

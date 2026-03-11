@@ -15,6 +15,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
@@ -147,6 +148,49 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         }
     };
 
+public:
+    struct LoadStageMetrics
+    {
+        double getAssetMs = 0.0;
+        double extractMs = 0.0;
+        double totalMs = 0.0;
+        double nonLoaderMs = 0.0;
+        uintmax_t inputSize = 0u;
+        bool valid = false;
+    };
+
+    struct WriteStageMetrics
+    {
+        double openMs = 0.0;
+        double writeMs = 0.0;
+        double statMs = 0.0;
+        double totalMs = 0.0;
+        double nonWriterMs = 0.0;
+        uintmax_t outputSize = 0u;
+        bool usedMemoryTransport = false;
+        bool usedDiskFallback = false;
+        bool persistedDiskArtifact = false;
+        bool valid = false;
+    };
+
+    struct CasePerformanceMetrics
+    {
+        std::string caseName;
+        nbl::system::path inputPath;
+        LoadStageMetrics originalLoad = {};
+        WriteStageMetrics write = {};
+        LoadStageMetrics writtenLoad = {};
+    };
+
+private:
+    struct PerformanceOptions
+    {
+        std::optional<nbl::system::path> dumpDir;
+        std::optional<nbl::system::path> referenceDir;
+        std::optional<std::string> profileOverride;
+        bool strict = false;
+    };
+
     struct WrittenAssetRequest
     {
         core::smart_refctd_ptr<const IAsset> asset;
@@ -169,6 +213,9 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         double totalWriteMs = 0.0;
         double nonWriterMs = 0.0;
         uintmax_t outputSize = 0u;
+        bool usedMemoryTransport = false;
+        bool usedDiskFallback = false;
+        bool persistedDiskArtifact = false;
         AssetLoadCallResult loadResult = {};
     };
 
@@ -203,6 +250,22 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         std::optional<PreparedAssetLoad> result;
         bool busy = false;
         bool stop = false;
+    };
+
+    struct PerformanceState
+    {
+        PerformanceOptions options = {};
+        bool enabled = false;
+        bool finalized = false;
+        std::chrono::steady_clock::time_point runStart = {};
+        size_t currentCaseIndex = ~size_t(0u);
+        std::string profileId;
+        std::string workloadId;
+        nbl::system::path dumpPath = {};
+        nbl::system::path referencePath = {};
+        bool referenceMatched = false;
+        core::vector<std::string> comparisonFailures = {};
+        core::vector<CasePerformanceMetrics> completedCases = {};
     };
 
     struct RuntimeState
@@ -295,9 +358,12 @@ private:
     void resetRowViewScene();
 
     bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera);
+    bool loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera, LoadStageMetrics* perfMetrics);
     bool loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera);
+    bool loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera, LoadStageMetrics* perfMetrics);
     bool loadRowView(RowViewReloadMode mode);
     bool writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath);
+    bool writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath, WriteStageMetrics* perfMetrics);
 
     void setupCameraFromAABB(const hlsl::shapes::AABB<3, double>& bound);
 
@@ -335,6 +401,15 @@ private:
     void backgroundLoadWorkerMain();
     bool startPreparedAssetLoad(size_t caseIndex, const system::path& path);
     bool finalizePreparedAssetLoad(PreparedAssetLoad& result, bool& ready, bool waitForCompletion=false);
+    bool performanceEnabled() const;
+    void beginPerformanceRun();
+    void beginPerformanceCase(const TestCase& testCase);
+    void recordOriginalLoadMetrics(const LoadStageMetrics& metrics);
+    void recordWrittenLoadMetrics(const LoadStageMetrics& metrics);
+    void recordWriteMetrics(const WriteStageMetrics& metrics);
+    void recordWriteMetrics(const WrittenAssetResult& result);
+    void endPerformanceCase();
+    void finalizePerformanceRun();
     bool compareImages(
         const asset::ICPUImageView* a,
         const asset::ICPUImageView* b,
@@ -357,6 +432,7 @@ private:
     RowViewState m_rowView;
     BackgroundAssetWorker m_backgroundAssetWorker;
     BackgroundLoadWorker m_backgroundLoadWorker;
+    PerformanceState m_perf;
 
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;

@@ -230,6 +230,7 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
             writeParams.logger = request.loadParams.logger;
 
             bool useDiskTransport = !request.useMemoryTransport;
+            result.usedMemoryTransport = request.useMemoryTransport;
             if (request.useMemoryTransport)
             {
                 auto memoryFile = core::make_smart_refctd_ptr<system::CGrowableMemoryFile>(system::path(request.path));
@@ -273,7 +274,10 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
                         if (!persistMemoryFileToDisk(workerSystem.get(), request.path, memoryFile.get()))
                         {
                             if (request.allowDiskFallback)
+                            {
                                 useDiskTransport = true;
+                                result.usedDiskFallback = true;
+                            }
                             else
                                 result.error = "Background asset worker failed to persist the in-memory written asset.";
                             if (useDiskTransport)
@@ -284,12 +288,17 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
                                 result.nonWriterMs = 0.0;
                             }
                         }
+                        else
+                            result.persistedDiskArtifact = true;
                     }
                 }
                 else
                 {
                     if (request.allowDiskFallback)
+                    {
                         useDiskTransport = true;
+                        result.usedDiskFallback = true;
+                    }
                     else
                         result.error = "Background asset worker could not create the in-memory transport.";
                 }
@@ -297,6 +306,8 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
 
             if (useDiskTransport && result.error.empty())
             {
+                result.usedDiskFallback = result.usedDiskFallback || request.useMemoryTransport;
+                result.persistedDiskArtifact = true;
                 const auto openStart = clock_t::now();
                 system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
                 workerSystem->createFile(writeFileFuture, request.path, system::IFile::ECF_WRITE);
@@ -793,11 +804,16 @@ void MeshLoadersApp::advanceCase()
         if (!result.success)
             failExit("%s", result.error.c_str());
         logWrittenAssetWork(result);
+        if (performanceEnabled())
+            recordWriteMetrics(result);
 
         if (m_runtime.mode == RunMode::CI)
         {
-            if (!loadPreparedModel(m_output.writtenPath, std::move(result.loadResult), false, false))
+            LoadStageMetrics writtenLoadMetrics = {};
+            if (!loadPreparedModel(m_output.writtenPath, std::move(result.loadResult), false, false, &writtenLoadMetrics))
                 failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+            if (performanceEnabled() && writtenLoadMetrics.valid)
+                recordWrittenLoadMetrics(writtenLoadMetrics);
             if (!m_render.currentCpuGeom)
                 failExit("Written geometry missing.");
             m_runtime.phase = Phase::RenderWritten;
@@ -882,13 +898,19 @@ void MeshLoadersApp::advanceCase()
                 {
                     if (m_runtime.mode == RunMode::CI)
                         failExit("Background written asset preparation is unavailable.");
-                    if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
+                    WriteStageMetrics writeMetrics = {};
+                    if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string(), &writeMetrics))
                         failExit("Geometry write failed.");
+                    if (performanceEnabled() && writeMetrics.valid)
+                        recordWriteMetrics(writeMetrics);
 
                     if (m_runtime.mode == RunMode::CI)
                     {
-                        if (!loadModel(m_output.writtenPath, false, false))
+                        LoadStageMetrics writtenLoadMetrics = {};
+                        if (!loadModel(m_output.writtenPath, false, false, &writtenLoadMetrics))
                             failExit("Failed to load written asset %s.", m_output.writtenPath.string().c_str());
+                        if (performanceEnabled() && writtenLoadMetrics.valid)
+                            recordWrittenLoadMetrics(writtenLoadMetrics);
                         if (!m_render.currentCpuGeom)
                             failExit("Written geometry missing.");
                         m_runtime.phase = Phase::RenderWritten;

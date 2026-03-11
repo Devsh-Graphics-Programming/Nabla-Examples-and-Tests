@@ -4,6 +4,7 @@ set(SRCs
 	BundleGeometryItems.h
 	AppLifecycle.cpp
 	AppLoad.cpp
+	AppPerf.cpp
 	AppRuntime.cpp
 	inputs.json
 	README.md
@@ -15,6 +16,8 @@ set(NBL_MESHLOADERS_BENCHMARK_DATASET_DIR "${CMAKE_BINARY_DIR}/meshloaders_bench
 set(NBL_MESHLOADERS_BENCHMARK_DATASET_REPO "https://github.com/Devsh-Graphics-Programming/Nabla-Benchmark-Datasets.git" CACHE STRING "Git repository URL for 12_MeshLoaders benchmark datasets.")
 set(NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH "inputs_benchmark.json" CACHE STRING "Relative path to committed benchmark payload JSON inside dataset repo.")
 set(NBL_MESHLOADERS_MEDIA_PAYLOAD_RELATIVE_PATH "inputs_benchmark.json" CACHE STRING "Preferred benchmark payload relative path inside examples_tests/media.")
+set(NBL_MESHLOADERS_PERF_DUMP_DIR "${CMAKE_BINARY_DIR}/meshloaders_perf_runs" CACHE PATH "Directory where 12_MeshLoaders writes structured performance run artifacts.")
+set(NBL_MESHLOADERS_PERF_REFERENCE_DIR "" CACHE PATH "Directory containing structured performance reference artifacts for 12_MeshLoaders.")
 
 set(NBL_INCLUDE_SEARCH_DIRECTORIES
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -34,6 +37,7 @@ if (NBL_BUILD_MITSUBA_LOADER)
 endif()
 
 nbl_create_executable_project("${SRCs}" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "${NBL_LIBRARIES}")
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_MESHLOADERS_BUILD_CONFIG="$<CONFIG>")
 
 if (NBL_BUILD_DEBUG_DRAW)
 	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
@@ -83,6 +87,9 @@ if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 		message(FATAL_ERROR "Benchmark payload JSON must be a normal Git file, not an LFS pointer: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
 	endif ()
 	message(STATUS "[meshloaders-bench] Benchmark inputs payload: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+	if (NBL_MESHLOADERS_PERF_REFERENCE_DIR STREQUAL "")
+		set(NBL_MESHLOADERS_PERF_REFERENCE_DIR "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/meshloaders/perf_refs" CACHE PATH "Directory containing structured performance reference artifacts for 12_MeshLoaders." FORCE)
+	endif()
 	if (NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST)
 		file(TO_CMAKE_PATH "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}" _NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON_CMAKE)
 		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH="${_NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON_CMAKE}")
@@ -105,6 +112,9 @@ if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 		--ci
 		--testlist "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}"
 		--loader-content-hashes
+		--perf-dump-dir "${NBL_MESHLOADERS_PERF_DUMP_DIR}"
+		--perf-ref-dir "${NBL_MESHLOADERS_PERF_REFERENCE_DIR}"
+		--perf-strict
 	)
 
 	add_test(NAME NBL_MESHLOADERS_CI_BENCHMARK_HEURISTIC

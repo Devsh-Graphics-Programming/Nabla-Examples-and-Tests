@@ -56,6 +56,8 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
 - Run benchmark CI directly via `ctest`:
   - `ctest --output-on-failure -C Debug -R NBL_MESHLOADERS_CI_BENCHMARK`
   - runs both benchmark CI modes: `heuristic` and `hybrid`
+  - when benchmark datasets are enabled, benchmark `ctest` also writes structured performance run artifacts
+  - if a matching reference exists for the current workload and machine profile, strict comparison is enabled automatically
 - Run default CI directly via `ctest` (no benchmark datasets enabled):
   - `ctest --output-on-failure -C Debug -R ^NBL_MESHLOADERS_CI$`
   - uses default `inputs.json` (3 inputs)
@@ -85,6 +87,15 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - this is already the default for this example
 - `--runtime-tuning <sequential|heuristic|hybrid>`
   - IO runtime tuning mode
+- `--perf-dump-dir <path>`
+  - write structured performance run JSON artifacts
+- `--perf-ref-dir <path>`
+  - lookup directory for structured performance references
+- `--perf-strict`
+  - fail on performance regression only when a matching reference exists
+  - if no matching reference exists, the run stays record-only
+- `--perf-profile-override <name>`
+  - override the automatically derived machine profile id
 
 ## Controls (non-CI)
 - Arrow keys: move camera
@@ -118,6 +129,22 @@ Rules:
   - `*_loaded.png` vs `*_written.png` code-unit diff
   - thresholds come from `MaxImageDiffCodeUnits` and `MaxImageDiffCodeUnitValue` in `App.hpp`
 - Any mismatch ends with non-zero exit code
+
+## Structured Perf Runs
+- Structured performance output is keyed by:
+  - `workload_id`
+    - derived from the benchmark/test input definition and runtime mode
+  - `profile_id`
+    - derived from the current CPU-centric machine/runtime profile or overridden explicitly
+- Reference lookup uses:
+  - `<perf-ref-dir>/<workload_id>/<profile_id>.json`
+- If no matching reference exists:
+  - no comparison is performed
+  - the run only writes its current JSON artifact
+- If a matching reference exists:
+  - per-case `original_load`, `write`, and `written_load` stage metrics are compared
+  - strict mode fails only on actual regression, not on missing references
+- JSON artifacts avoid host-specific absolute paths and store portable case/test-list identifiers instead
 
 ## Performance logs to trust
 - `Asset load call perf` for `getAsset`

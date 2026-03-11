@@ -267,6 +267,11 @@ static void collectGeometryAABBs(
 
 bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera)
 {
+    return loadModel(modelPath, updateCamera, storeCamera, nullptr);
+}
+
+bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera, bool storeCamera, LoadStageMetrics* const perfMetrics)
+{
     if (modelPath.empty())
         failExit("Empty model path.");
     if (!std::filesystem::exists(modelPath))
@@ -275,10 +280,15 @@ bool MeshLoadersApp::loadModel(const system::path& modelPath, bool updateCamera,
     AssetLoadCallResult loadResult = {};
     if (!loadAssetCallFromPath(modelPath, params, loadResult))
         failExit("Failed to open input file %s.", modelPath.string().c_str());
-    return loadPreparedModel(modelPath, std::move(loadResult), updateCamera, storeCamera);
+    return loadPreparedModel(modelPath, std::move(loadResult), updateCamera, storeCamera, perfMetrics);
 }
 
 bool MeshLoadersApp::loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera)
+{
+    return loadPreparedModel(modelPath, std::move(loadResult), updateCamera, storeCamera, nullptr);
+}
+
+bool MeshLoadersApp::loadPreparedModel(const system::path& modelPath, AssetLoadCallResult&& loadResult, bool updateCamera, bool storeCamera, LoadStageMetrics* const perfMetrics)
 {
     using clock_t = std::chrono::high_resolution_clock;
 
@@ -319,6 +329,17 @@ bool MeshLoadersApp::loadPreparedModel(const system::path& modelPath, AssetLoadC
         extractMs,
         outerMs,
         nonLoaderMs);
+    if (perfMetrics)
+    {
+        *perfMetrics = LoadStageMetrics{
+            .getAssetMs = loadMs,
+            .extractMs = extractMs,
+            .totalMs = outerMs,
+            .nonLoaderMs = nonLoaderMs,
+            .inputSize = loadResult.inputSize,
+            .valid = true
+        };
+    }
 
     m_render.currentCpuGeom = batch.geometries[0];
 
@@ -760,6 +781,11 @@ bool MeshLoadersApp::loadRowView(const RowViewReloadMode mode)
 
 bool MeshLoadersApp::writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath)
 {
+    return writeAssetRoot(std::move(asset), savePath, nullptr);
+}
+
+bool MeshLoadersApp::writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const std::string& savePath, WriteStageMetrics* const perfMetrics)
+{
     using clock_t = std::chrono::high_resolution_clock;
     const auto writeOuterStart = clock_t::now();
     if (!asset)
@@ -811,6 +837,21 @@ bool MeshLoadersApp::writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const 
         static_cast<unsigned long long>(size));
     m_logger->log("Writer perf: path=%s ext=%s time=%.3f ms size=%llu", ILogger::ELL_INFO, savePath.c_str(), ext.c_str(), writeMs, static_cast<unsigned long long>(size));
     m_logger->log("Mesh successfully saved!", ILogger::ELL_INFO);
+    if (perfMetrics)
+    {
+        *perfMetrics = WriteStageMetrics{
+            .openMs = openMs,
+            .writeMs = writeMs,
+            .statMs = statMs,
+            .totalMs = outerMs,
+            .nonWriterMs = nonWriterMs,
+            .outputSize = size,
+            .usedMemoryTransport = false,
+            .usedDiskFallback = false,
+            .persistedDiskArtifact = true,
+            .valid = true
+        };
+    }
     return true;
 }
 
