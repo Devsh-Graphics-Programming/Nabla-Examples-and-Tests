@@ -1,0 +1,97 @@
+#ifndef _PATHTRACER_EXAMPLE_SCENE_TRIANGLE_LIGHT_INCLUDED_
+#define _PATHTRACER_EXAMPLE_SCENE_TRIANGLE_LIGHT_INCLUDED_
+
+#include "scene_base.hlsl"
+
+using namespace nbl;
+using namespace hlsl;
+
+struct SceneTriangleLight : SceneBase
+{
+    using scalar_type = float;
+    using vector3_type = vector<scalar_type, 3>;
+    using this_t = SceneTriangleLight;
+    using base_t = SceneBase;
+    using object_handle_type = ObjectID;
+    using mat_light_id_type = base_t::mat_light_id_type;
+
+    using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+    using interaction_type = PTIsotropicInteraction<ray_dir_info_t, spectral_t>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
+
+    static const Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        return base_t::scene_spheres[idx];
+    }
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(idx < TriangleCount);
+        return light_triangles[idx];
+    }
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        Shape<scalar_type, PST_RECTANGLE> dummy;
+        return dummy;
+    }
+    
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        light_triangles[0].updateTransform(generalPurposeLightMatrix);
+    }
+
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
+        if (objectID.shapeType == PST_SPHERE)
+            return mat_light_id_type::createFromPacked(getSphere(objectID.id).bsdfLightIDs);
+        else    
+            return mat_light_id_type::createFromPacked(getTriangle(objectID.id).bsdfLightIDs);
+    }
+
+    template<class Intersection, class Ray>
+    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected)
+    {
+        assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
+        Intersection intersection;
+        intersection.objectID = objectID;
+        intersection.position = rayIntersected.origin + rayIntersected.direction * rayIntersected.intersectionT;
+
+        vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection.position) : getTriangle(objectID.id).getNormalTimesArea();
+        N = hlsl::normalize(N);
+        intersection.geometricNormal = N;
+        ray_dir_info_t V;
+        V.setDirection(-rayIntersected.direction);
+        interaction_type interaction = interaction_type::create(V, N);
+        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * rayIntersected.getPayloadThroughput();
+        interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
+        intersection.aniso_interaction = Intersection::interaction_type::create(interaction);
+        return intersection;
+    }
+};
+
+const Shape<float, PST_TRIANGLE> SceneTriangleLight::light_triangles[1] = {
+    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, SceneBase::SCENE_BXDF_COUNT-1u, 1u)
+};
+
+using scene_type = SceneTriangleLight;
+
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
+using light_type = Light<spectral_t>;
+
+// light id 0 is reserved for env light
+// however, we start indexing light array without env light, so index 0 is first shape light
+// use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
+// which caused frame times to increase from 16ms to 85ms
+static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
+    // imaginary index env light 0 here,
+    light_type::create(SceneBase::SCENE_BXDF_COUNT-1u, 0u, LIGHT_TYPE)
+};
+
+#endif
