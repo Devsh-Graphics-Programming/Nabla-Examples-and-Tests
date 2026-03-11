@@ -31,7 +31,7 @@ void raygen()
 
     RayDesc rayDesc;
     rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView, origin);
-    rayDesc.Direction = hlsl::normalize(math::linalg::promoted_mul(pc.sensorDynamics.invView, float32_t4(direction, 0)));
+    rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView), direction));
     rayDesc.TMin = pc.sensorDynamics.nearClip;
     rayDesc.TMax = pc.sensorDynamics.tMax;
 
@@ -42,7 +42,7 @@ void raygen()
     spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
 
     gAlbedo[launchID] = float32_t4(payload.albedo, 1.0);
-    gNormal[launchID] = float32_t4(payload.worldNormal, 1.0);
+    gNormal[launchID] = float32_t4(payload.worldNormal * 0.5 + 0.5, 1.0);
 }
 
 [shader("closesthit")]
@@ -56,7 +56,7 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
     float32_t3 vertex1 = spirv::HitTriangleVertexPositionsKHR[1];
     float32_t3 vertex2 = spirv::HitTriangleVertexPositionsKHR[2];
     const float32_t3 vertexNormal = hlsl::cross(vertex1 - vertex0, vertex2 - vertex0);
-    const float32_t3 worldNormal = normalize(mul(vertexNormal, transpose(spirv::WorldToObjectKHR)).xyz);
+    const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(transpose(spirv::ObjectToWorldKHR)), vertexNormal));
 
     payload.instanceID = instanceCustomIndex;
     payload.primitiveID = primID;
@@ -69,5 +69,5 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
 void miss(inout DebugPayload payload)
 {
     payload.albedo = float32_t3(0.1,0.1,0.1);
-    payload.worldNormal = float32_t3(0,0,0);
+    payload.worldNormal = -spirv::WorldRayDirectionKHR;
 }
