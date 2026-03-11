@@ -7,8 +7,33 @@
 
 #include "nbl/examples/common/ImageComparison.h"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
+#include "nbl/system/CGrowableMemoryFile.h"
 
 #include <cstring>
+
+namespace
+{
+
+bool persistMemoryFileToDisk(system::ISystem* const system, const system::path& path, const system::CGrowableMemoryFile* const file)
+{
+    if (!system || !file)
+        return false;
+
+    system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
+    system->createFile(writeFileFuture, path, system::IFile::ECF_WRITE);
+    core::smart_refctd_ptr<system::IFile> writeFile;
+    writeFileFuture.acquire().move_into(writeFile);
+    if (!writeFile)
+        return false;
+
+    const auto* const data = file->data();
+    const auto size = file->getSize();
+    system::IFile::success_t success;
+    writeFile->write(success, data, 0ull, size);
+    return static_cast<bool>(success);
+}
+
+}
 
 std::string MeshLoadersApp::makeUniqueCaseName(const system::path& path)
 {
@@ -134,6 +159,36 @@ void MeshLoadersApp::stopBackgroundAssetWorker()
     worker.stop = false;
 }
 
+bool MeshLoadersApp::startBackgroundLoadWorker()
+{
+    auto& worker = m_backgroundLoadWorker;
+    if (worker.thread.joinable())
+        return true;
+
+    worker.stop = false;
+    worker.thread = std::thread(&MeshLoadersApp::backgroundLoadWorkerMain, this);
+    return true;
+}
+
+void MeshLoadersApp::stopBackgroundLoadWorker()
+{
+    auto& worker = m_backgroundLoadWorker;
+    {
+        std::lock_guard lock(worker.mutex);
+        worker.stop = true;
+    }
+    worker.cv.notify_all();
+    if (worker.thread.joinable())
+        worker.thread.join();
+
+    std::lock_guard lock(worker.mutex);
+    worker.requestCaseIndex.reset();
+    worker.requestPath.clear();
+    worker.result.reset();
+    worker.busy = false;
+    worker.stop = false;
+}
+
 void MeshLoadersApp::backgroundAssetWorkerMain()
 {
     auto workerSystem = core::smart_refctd_ptr(m_system);
@@ -170,53 +225,120 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
             using clock_t = std::chrono::high_resolution_clock;
             const auto writeOuterStart = clock_t::now();
             auto* const assetPtr = const_cast<IAsset*>(request.asset.get());
-            auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
-            if (result.extension != ".obj")
-                flags = static_cast<asset::E_WRITER_FLAGS>(flags | asset::EWF_BINARY);
+            const auto flags = getWriterFlagsForPath(request.asset.get(), request.path);
             IAssetWriter::SAssetWriteParams writeParams{ assetPtr, flags };
             writeParams.logger = request.loadParams.logger;
 
-            const auto openStart = clock_t::now();
-            system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
-            workerSystem->createFile(writeFileFuture, request.path, system::IFile::ECF_WRITE);
-            core::smart_refctd_ptr<system::IFile> writeFile;
-            writeFileFuture.acquire().move_into(writeFile);
-            result.openMs = toMs(clock_t::now() - openStart);
-            if (!writeFile)
+            bool useDiskTransport = !request.useMemoryTransport;
+            if (request.useMemoryTransport)
             {
-                result.error = "Background asset worker failed to open the output file.";
-            }
-            else
-            {
-                const auto writeStart = clock_t::now();
-                if (!workerAssetMgr->writeAsset(writeFile.get(), writeParams))
+                auto memoryFile = core::make_smart_refctd_ptr<system::CGrowableMemoryFile>(system::path(request.path));
+                bool memoryTransportSucceeded = false;
+
+                if (memoryFile)
                 {
-                    result.error = "Background asset worker failed to write the asset.";
+                    const auto writeStart = clock_t::now();
+                    if (!workerAssetMgr->writeAsset(memoryFile.get(), writeParams))
+                    {
+                        if (request.allowDiskFallback)
+                            useDiskTransport = true;
+                        else
+                            result.error = "Background asset worker failed to write the asset to the in-memory transport.";
+                    }
+                    else
+                    {
+                        result.writeMs = toMs(clock_t::now() - writeStart);
+                        result.outputSize = memoryFile->getSize();
+                        result.totalWriteMs = toMs(clock_t::now() - writeOuterStart);
+                        result.nonWriterMs = std::max(0.0, result.totalWriteMs - result.writeMs);
+
+                        workerAssetMgr->clearAllAssetCache();
+                        result.loadResult.inputSize = memoryFile->getSize();
+                        const auto loadStart = clock_t::now();
+                        result.loadResult.bundle = workerAssetMgr->getAsset(memoryFile.get(), request.path.string(), request.loadParams);
+                        result.loadResult.getAssetMs = toMs(clock_t::now() - loadStart);
+                        if (result.loadResult.bundle.getContents().empty())
+                        {
+                            if (request.allowDiskFallback)
+                                useDiskTransport = true;
+                            else
+                                result.error = "Background asset worker failed to load the in-memory written asset.";
+                        }
+                        else
+                            memoryTransportSucceeded = true;
+                    }
+
+                    if (memoryTransportSucceeded && request.persistDiskArtifact)
+                    {
+                        if (!persistMemoryFileToDisk(workerSystem.get(), request.path, memoryFile.get()))
+                        {
+                            if (request.allowDiskFallback)
+                                useDiskTransport = true;
+                            else
+                                result.error = "Background asset worker failed to persist the in-memory written asset.";
+                            if (useDiskTransport)
+                            {
+                                result.loadResult = {};
+                                result.outputSize = 0u;
+                                result.totalWriteMs = 0.0;
+                                result.nonWriterMs = 0.0;
+                            }
+                        }
+                    }
                 }
-                result.writeMs = toMs(clock_t::now() - writeStart);
-                writeFile = nullptr;
+                else
+                {
+                    if (request.allowDiskFallback)
+                        useDiskTransport = true;
+                    else
+                        result.error = "Background asset worker could not create the in-memory transport.";
+                }
             }
 
-            if (result.error.empty())
+            if (useDiskTransport && result.error.empty())
             {
-                const auto statStart = clock_t::now();
-                if (std::filesystem::exists(request.path))
-                    result.outputSize = std::filesystem::file_size(request.path);
-                result.statMs = toMs(clock_t::now() - statStart);
-                result.totalWriteMs = toMs(clock_t::now() - writeOuterStart);
-                result.nonWriterMs = std::max(0.0, result.totalWriteMs - result.writeMs);
-
-                workerAssetMgr->clearAllAssetCache();
-                if (std::filesystem::exists(request.path))
-                    result.loadResult.inputSize = std::filesystem::file_size(request.path);
+                const auto openStart = clock_t::now();
+                system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
+                workerSystem->createFile(writeFileFuture, request.path, system::IFile::ECF_WRITE);
+                core::smart_refctd_ptr<system::IFile> writeFile;
+                writeFileFuture.acquire().move_into(writeFile);
+                result.openMs = toMs(clock_t::now() - openStart);
+                if (!writeFile)
+                {
+                    result.error = "Background asset worker failed to open the output file.";
+                }
                 else
-                    result.loadResult.inputSize = 0u;
+                {
+                    const auto writeStart = clock_t::now();
+                    if (!workerAssetMgr->writeAsset(writeFile.get(), writeParams))
+                    {
+                        result.error = "Background asset worker failed to write the asset.";
+                    }
+                    result.writeMs = toMs(clock_t::now() - writeStart);
+                    writeFile = nullptr;
+                }
 
-                const auto loadStart = clock_t::now();
-                result.loadResult.bundle = workerAssetMgr->getAsset(request.path.string(), request.loadParams);
-                result.loadResult.getAssetMs = toMs(clock_t::now() - loadStart);
-                if (result.loadResult.bundle.getContents().empty())
-                    result.error = "Background asset worker failed to load the written asset.";
+                if (result.error.empty())
+                {
+                    const auto statStart = clock_t::now();
+                    if (std::filesystem::exists(request.path))
+                        result.outputSize = std::filesystem::file_size(request.path);
+                    result.statMs = toMs(clock_t::now() - statStart);
+                    result.totalWriteMs = toMs(clock_t::now() - writeOuterStart);
+                    result.nonWriterMs = std::max(0.0, result.totalWriteMs - result.writeMs);
+
+                    workerAssetMgr->clearAllAssetCache();
+                    if (std::filesystem::exists(request.path))
+                        result.loadResult.inputSize = std::filesystem::file_size(request.path);
+                    else
+                        result.loadResult.inputSize = 0u;
+
+                    const auto loadStart = clock_t::now();
+                    result.loadResult.bundle = workerAssetMgr->getAsset(request.path.string(), request.loadParams);
+                    result.loadResult.getAssetMs = toMs(clock_t::now() - loadStart);
+                    if (result.loadResult.bundle.getContents().empty())
+                        result.error = "Background asset worker failed to load the written asset.";
+                }
             }
         }
 
@@ -227,6 +349,61 @@ void MeshLoadersApp::backgroundAssetWorkerMain()
             m_backgroundAssetWorker.busy = false;
         }
         m_backgroundAssetWorker.cv.notify_all();
+    }
+}
+
+void MeshLoadersApp::backgroundLoadWorkerMain()
+{
+    auto workerSystem = core::smart_refctd_ptr(m_system);
+    auto workerAssetMgr = workerSystem ? core::make_smart_refctd_ptr<asset::IAssetManager>(core::smart_refctd_ptr(workerSystem)) : nullptr;
+
+    for (;;)
+    {
+        std::optional<size_t> caseIndex;
+        system::path requestPath;
+        IAssetLoader::SAssetLoadParams requestParams = {};
+        {
+            std::unique_lock lock(m_backgroundLoadWorker.mutex);
+            m_backgroundLoadWorker.cv.wait(lock, [this] {
+                return m_backgroundLoadWorker.stop || m_backgroundLoadWorker.requestCaseIndex.has_value();
+            });
+            if (m_backgroundLoadWorker.stop && !m_backgroundLoadWorker.requestCaseIndex.has_value())
+                break;
+            caseIndex = m_backgroundLoadWorker.requestCaseIndex;
+            requestPath = m_backgroundLoadWorker.requestPath;
+            requestParams = m_backgroundLoadWorker.requestParams;
+            m_backgroundLoadWorker.requestCaseIndex.reset();
+            m_backgroundLoadWorker.requestPath.clear();
+        }
+
+        PreparedAssetLoad result = {};
+        result.caseIndex = *caseIndex;
+        result.path = requestPath;
+        if (!workerAssetMgr)
+        {
+            result.error = "Background load worker is unavailable.";
+        }
+        else if (!std::filesystem::exists(requestPath))
+        {
+            result.error = "Background load worker did not find the requested input.";
+        }
+        else
+        {
+            workerAssetMgr->clearAllAssetCache();
+            result.loadResult.inputSize = std::filesystem::file_size(requestPath);
+            const auto loadStart = std::chrono::high_resolution_clock::now();
+            result.loadResult.bundle = workerAssetMgr->getAsset(requestPath.string(), requestParams);
+            result.loadResult.getAssetMs = toMs(std::chrono::high_resolution_clock::now() - loadStart);
+            if (result.loadResult.bundle.getContents().empty())
+                result.error = "Background load worker failed to load the requested asset.";
+        }
+        result.success = result.error.empty();
+        {
+            std::lock_guard lock(m_backgroundLoadWorker.mutex);
+            m_backgroundLoadWorker.result = std::move(result);
+            m_backgroundLoadWorker.busy = false;
+        }
+        m_backgroundLoadWorker.cv.notify_all();
     }
 }
 
@@ -244,7 +421,10 @@ bool MeshLoadersApp::startWrittenAssetWork(smart_refctd_ptr<const IAsset> asset,
     m_backgroundAssetWorker.request = WrittenAssetRequest{
         .asset = std::move(asset),
         .path = path,
-        .loadParams = makeLoadParams()
+        .loadParams = makeLoadParams(),
+        .useMemoryTransport = true,
+        .allowDiskFallback = (m_runtime.mode != RunMode::CI),
+        .persistDiskArtifact = (m_runtime.mode != RunMode::CI)
     };
     m_backgroundAssetWorker.busy = true;
     lock.unlock();
@@ -273,6 +453,50 @@ bool MeshLoadersApp::finalizeWrittenAssetWork(WrittenAssetResult& result, bool& 
         return true;
     }
     return m_backgroundAssetWorker.busy || m_backgroundAssetWorker.request.has_value();
+}
+
+bool MeshLoadersApp::startPreparedAssetLoad(const size_t caseIndex, const system::path& path)
+{
+    if (path.empty())
+        return false;
+    if (!startBackgroundLoadWorker())
+        return false;
+
+    std::unique_lock lock(m_backgroundLoadWorker.mutex);
+    if (m_backgroundLoadWorker.busy || m_backgroundLoadWorker.requestCaseIndex.has_value())
+        return false;
+
+    m_backgroundLoadWorker.result.reset();
+    m_backgroundLoadWorker.requestCaseIndex = caseIndex;
+    m_backgroundLoadWorker.requestPath = path;
+    m_backgroundLoadWorker.requestParams = makeLoadParams();
+    m_backgroundLoadWorker.busy = true;
+    lock.unlock();
+    m_backgroundLoadWorker.cv.notify_one();
+    return true;
+}
+
+bool MeshLoadersApp::finalizePreparedAssetLoad(PreparedAssetLoad& result, bool& ready, bool waitForCompletion)
+{
+    ready = false;
+    if (!m_backgroundLoadWorker.thread.joinable())
+        return false;
+
+    std::unique_lock lock(m_backgroundLoadWorker.mutex);
+    if (waitForCompletion)
+    {
+        m_backgroundLoadWorker.cv.wait(lock, [this] {
+            return !m_backgroundLoadWorker.busy && !m_backgroundLoadWorker.requestCaseIndex.has_value();
+        });
+    }
+    if (m_backgroundLoadWorker.result.has_value())
+    {
+        result = std::move(*m_backgroundLoadWorker.result);
+        m_backgroundLoadWorker.result.reset();
+        ready = true;
+        return true;
+    }
+    return m_backgroundLoadWorker.busy || m_backgroundLoadWorker.requestCaseIndex.has_value();
 }
 
 void MeshLoadersApp::logWrittenAssetWork(const WrittenAssetResult& result) const
@@ -656,6 +880,8 @@ void MeshLoadersApp::advanceCase()
                 const bool workerStateValid = finalizeWrittenAssetWork(result, ready);
                 if (!workerStateValid)
                 {
+                    if (m_runtime.mode == RunMode::CI)
+                        failExit("Background written asset preparation is unavailable.");
                     if (!writeAssetRoot(m_render.currentCpuAsset, m_output.writtenPath.string()))
                         failExit("Geometry write failed.");
 

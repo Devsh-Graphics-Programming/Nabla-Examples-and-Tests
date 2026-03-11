@@ -767,9 +767,7 @@ bool MeshLoadersApp::writeAssetRoot(smart_refctd_ptr<const IAsset> asset, const 
 
     IAsset* assetPtr = const_cast<IAsset*>(asset.get());
     const auto ext = normalizeExtension(system::path(savePath));
-    auto flags = asset::EWF_MESH_IS_RIGHT_HANDED;
-    if (ext != ".obj")
-        flags = static_cast<asset::E_WRITER_FLAGS>(flags | asset::EWF_BINARY);
+    const auto flags = getWriterFlagsForPath(asset.get(), system::path(savePath));
     IAssetWriter::SAssetWriteParams params{ assetPtr, flags };
     params.logger = getAssetLoadLogger();
     m_logger->log("Saving mesh to %s", ILogger::ELL_INFO, savePath.c_str());

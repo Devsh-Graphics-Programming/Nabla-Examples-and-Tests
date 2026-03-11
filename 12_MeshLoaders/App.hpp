@@ -152,6 +152,9 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         core::smart_refctd_ptr<const IAsset> asset;
         nbl::system::path path;
         IAssetLoader::SAssetLoadParams loadParams = {};
+        bool useMemoryTransport = false;
+        bool allowDiskFallback = false;
+        bool persistDiskArtifact = false;
     };
 
     struct WrittenAssetResult
@@ -176,6 +179,28 @@ class MeshLoadersApp final : public MeshLoadersWindowedApplication, public Built
         std::thread thread;
         std::optional<WrittenAssetRequest> request;
         std::optional<WrittenAssetResult> result;
+        bool busy = false;
+        bool stop = false;
+    };
+
+    struct PreparedAssetLoad
+    {
+        size_t caseIndex = ~size_t(0u);
+        bool success = false;
+        std::string error;
+        nbl::system::path path;
+        AssetLoadCallResult loadResult = {};
+    };
+
+    struct BackgroundLoadWorker
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::thread thread;
+        std::optional<size_t> requestCaseIndex;
+        nbl::system::path requestPath;
+        IAssetLoader::SAssetLoadParams requestParams = {};
+        std::optional<PreparedAssetLoad> result;
         bool busy = false;
         bool stop = false;
     };
@@ -257,6 +282,7 @@ private:
     bool isRowViewActive() const;
 
     static std::string normalizeExtension(const system::path& path);
+    asset::writer_flags_t getWriterFlagsForPath(const IAsset* asset, const system::path& path) const;
     bool isWriteExtensionSupported(const std::string& ext) const;
     system::path resolveSavePath(const system::path& modelPath) const;
 
@@ -304,6 +330,11 @@ private:
     bool startBackgroundAssetWorker();
     void stopBackgroundAssetWorker();
     void backgroundAssetWorkerMain();
+    bool startBackgroundLoadWorker();
+    void stopBackgroundLoadWorker();
+    void backgroundLoadWorkerMain();
+    bool startPreparedAssetLoad(size_t caseIndex, const system::path& path);
+    bool finalizePreparedAssetLoad(PreparedAssetLoad& result, bool& ready, bool waitForCompletion=false);
     bool compareImages(
         const asset::ICPUImageView* a,
         const asset::ICPUImageView* b,
@@ -325,6 +356,7 @@ private:
     OutputState m_output;
     RowViewState m_rowView;
     BackgroundAssetWorker m_backgroundAssetWorker;
+    BackgroundLoadWorker m_backgroundLoadWorker;
 
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;

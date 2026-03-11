@@ -470,6 +470,8 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         return logFail("Failed to create renderer!");
     if (!startBackgroundAssetWorker())
         return logFail("Failed to start background asset worker.");
+    if (!startBackgroundLoadWorker())
+        return logFail("Failed to start background load worker.");
 
 #ifdef NBL_BUILD_DEBUG_DRAW
     {
@@ -698,6 +700,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo MeshLoadersApp::renderFrame(const std::chron
 
 bool MeshLoadersApp::onAppTerminated()
 {
+    stopBackgroundLoadWorker();
     stopBackgroundAssetWorker();
     return device_base_t::onAppTerminated();
 }
@@ -888,6 +891,24 @@ std::string MeshLoadersApp::normalizeExtension(const system::path& path)
     return ext;
 }
 
+asset::writer_flags_t MeshLoadersApp::getWriterFlagsForPath(const IAsset* const asset, const system::path& path) const
+{
+    if (!asset)
+        return asset::EWF_NONE;
+
+    const auto extension = system::extension_wo_dot(path);
+    auto flags = asset::writer_flags_t(asset::EWF_NONE);
+    if (const auto writerInfo = m_assetMgr->getAssetWriterFlagInfo(asset->getAssetType(), extension); writerInfo.has_value())
+    {
+        flags = writerInfo->forced;
+        const auto preferred = asset::writer_flags_t(asset::EWF_MESH_IS_RIGHT_HANDED | asset::EWF_BINARY);
+        flags |= preferred & writerInfo->supported;
+        return flags;
+    }
+
+    return asset::writer_flags_t(asset::EWF_MESH_IS_RIGHT_HANDED);
+}
+
 bool MeshLoadersApp::isWriteExtensionSupported(const std::string& ext) const
 {
     if (ext == ".ply" || ext == ".stl")
@@ -945,13 +966,36 @@ bool MeshLoadersApp::startCase(const size_t index)
     m_output.loadedScreenshotPath = artifacts.loadedScreenshotPath;
     m_output.writtenScreenshotPath = artifacts.writtenScreenshotPath;
 
-    if (!loadModel(testCase.path, true, true))
+    bool loaded = false;
+    if (m_runtime.mode == RunMode::CI)
+    {
+        PreparedAssetLoad preparedLoad = {};
+        bool preparedReady = false;
+        const bool loadWorkerStateValid = finalizePreparedAssetLoad(preparedLoad, preparedReady, true);
+        if (loadWorkerStateValid && preparedReady && preparedLoad.success && preparedLoad.caseIndex == index && preparedLoad.path == testCase.path)
+            loaded = loadPreparedModel(testCase.path, std::move(preparedLoad.loadResult), true, true);
+        else
+            loaded = loadModel(testCase.path, true, true);
+    }
+    else
+        loaded = loadModel(testCase.path, true, true);
+    if (!loaded)
         return false;
 
     if (m_runtime.mode != RunMode::Interactive && m_output.saveGeom && m_render.currentCpuAsset)
     {
         if (!startWrittenAssetWork(m_render.currentCpuAsset, m_output.writtenPath))
+        {
+            if (m_runtime.mode == RunMode::CI)
+                return logFail("Background written-asset preparation did not start for %s.", m_caseName.c_str());
             m_logger->log("Background written-asset preparation did not start for %s. Falling back to synchronous flow.", ILogger::ELL_WARNING, m_caseName.c_str());
+        }
+    }
+    if (m_runtime.mode == RunMode::CI)
+    {
+        const auto nextIndex = index + 1u;
+        if (nextIndex < m_runtime.cases.size())
+            startPreparedAssetLoad(nextIndex, m_runtime.cases[nextIndex].path);
     }
 
     return true;
