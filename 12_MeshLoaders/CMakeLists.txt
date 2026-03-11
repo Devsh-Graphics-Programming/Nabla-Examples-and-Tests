@@ -43,7 +43,6 @@ if (NBL_BUILD_DEBUG_DRAW)
 	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
 endif()
 
-
 add_dependencies(${EXECUTABLE_NAME} argparse)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 

@@ -4,7 +4,7 @@
 
 #include "App.hpp"
 
-#include "git_info.h"
+#include "nbl/examples/git/info.h"
 
 #include "nlohmann/json.hpp"
 #include "nbl/core/hash/blake.h"
@@ -405,10 +405,10 @@ void MeshLoadersApp::finalizePerformanceRun()
     root["runtime_tuning"] = runtimeTuningModeName(m_runtimeTuningMode);
     root["provenance"] = {
         {"created_at_utc", currentTimestampIsoUtc()},
-        {"nabla_commit", gtml::nabla_git_info.commitHash},
-        {"nabla_dirty", dirtyStateJson(gtml::nabla_git_info.hasUncommittedChanges)},
-        {"examples_commit", gtml::examples_git_info.commitHash},
-        {"examples_dirty", dirtyStateJson(gtml::examples_git_info.hasUncommittedChanges)}
+        {"nabla_commit", std::string(nbl::gtml::nabla_git_info.commitHash())},
+        {"nabla_dirty", dirtyStateJson(nbl::gtml::nabla_git_info.hasUncommittedChanges())},
+        {"examples_commit", std::string(nbl::examples::gtml::examples_git_info.commitHash())},
+        {"examples_dirty", dirtyStateJson(nbl::examples::gtml::examples_git_info.hasUncommittedChanges())}
     };
 
     const auto systemInfo = m_system->getSystemInfo();
