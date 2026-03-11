@@ -64,6 +64,32 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 	public:
 		CSwapchainResources() = default;
 
+		// TODO: this is a prototype, depth images should be probably not created in the initialize function
+		void initialize(const smart_refctd_ptr<IWindow>& window, const core::smart_refctd_ptr<video::ILogicalDevice>& device)	
+		{
+			asset::E_FORMAT depthFormat = asset::EF_D32_SFLOAT;
+
+			for (auto& depthImage : depthImages)
+			{
+				IGPUImage::SCreationParams imgInfo;
+				imgInfo.format = depthFormat;
+				imgInfo.type = IGPUImage::ET_2D;
+				imgInfo.extent.width = window->getWidth();
+				imgInfo.extent.height = window->getHeight();
+				imgInfo.extent.depth = 1u;
+				imgInfo.mipLevels = 1u;
+				imgInfo.arrayLayers = 1u;
+				imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+				imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+				imgInfo.usage = asset::IImage::E_USAGE_FLAGS::EUF_RENDER_ATTACHMENT_BIT;
+
+				depthImage = device->createImage(std::move(imgInfo));
+				auto memReq = depthImage->getMemoryReqs();
+				memReq.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				device->allocate(memReq, depthImage.get());
+			}
+		}
+
 		inline E_FORMAT deduceRenderpassFormat(ISurface* surface, IPhysicalDevice* physDev)
 		{
 			ISwapchain::SCreationParams swapchainParams = {.surface=smart_refctd_ptr<ISurface>(surface), };
@@ -109,11 +135,24 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 					.viewType = IGPUImageView::ET_2D,
 					.format = getImage(i)->getCreationParameters().format
 				});
+				auto depthImageView = device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+					.image = core::smart_refctd_ptr<IGPUImage>(depthImages[i]),
+					.viewType = IGPUImageView::ET_2D,
+					.format = depthImages[i]->getCreationParameters().format,
+					.subresourceRange = {
+							.aspectMask = asset::IImage::EAF_DEPTH_BIT,
+							.baseMipLevel = 0,
+							.levelCount = 1,
+							.baseArrayLayer = 0,
+							.layerCount = 1
+						}
+					});
 				m_framebuffers[i] = device->createFramebuffer({ {
 					.renderpass = core::smart_refctd_ptr(m_renderpass),
+					.depthStencilAttachments = &depthImageView.get(),
 					.colorAttachments = &imageView.get(),
-					// TODO:
-					//.depthStencilAttachments = &depthImageView.get(),
 					.width = sharedParams.width,
 					.height = sharedParams.height
 				}});
@@ -126,6 +165,7 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 		// Per-swapchain
 		core::smart_refctd_ptr<IGPURenderpass> m_renderpass;
 		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
+		std::array<core::smart_refctd_ptr<IGPUImage>, ISwapchain::MaxImages> depthImages = {};
 };
 
 class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
@@ -395,21 +435,20 @@ public:
 			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
 		};
 
-		// TODO:
-		//IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
-		//	{{
-		//		{
-		//			.format = asset::EF_D32_SFLOAT,
-		//			.samples = IGPUImage::ESCF_1_BIT,
-		//			.mayAlias = false
-		//		},
-		//		/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
-		//		/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
-		//		/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED},
-		//		/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
-		//	}},
-		//	IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
-		//};
+		IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+			{{
+				{
+					.format = asset::EF_D32_SFLOAT,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+				/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+				/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+				/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED},
+				/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
+			}},
+			IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+		};
 
 		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
 			{},
@@ -417,8 +456,7 @@ public:
 		};
 
 		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-		// TODO:
-		//subpasses[0].depthStencilAttachment = {{.render = {.attachmentIndex=0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}};
+		subpasses[0].depthStencilAttachment = {{.render = {.attachmentIndex=0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}};
 		
 		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
 		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
@@ -450,8 +488,7 @@ public:
 		smart_refctd_ptr<IGPURenderpass> renderpass;
 		IGPURenderpass::SCreationParams params = {};
 		params.colorAttachments = colorAttachments;
-		// TODO:
-		//params.depthStencilAttachments = depthAttachments;
+		params.depthStencilAttachments = depthAttachments;
 		params.subpasses = subpasses;
 		params.dependencies = dependencies;
 		renderpass = m_device->createRenderpass(params);
@@ -508,6 +545,7 @@ public:
 			return logFail("Could not create Window & Surface!");
 		
 		auto scResources = std::make_unique<CSwapchainResources>();
+		scResources->initialize(m_window, m_device);
 		const auto format = scResources->deduceRenderpassFormat(m_surface->getSurface(), m_physicalDevice); // TODO: DO I need to recreate render passes if swapchain gets recreated with different format?
 		renderpassInitial = createRenderpass(format, IGPURenderpass::LOAD_OP::CLEAR, IImage::LAYOUT::UNDEFINED, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
@@ -567,7 +605,8 @@ public:
 			.rasterization = {
 				.polygonMode = EPM_FILL,
 				.faceCullingMode = EFCM_NONE,
-				.depthWriteEnable = false,
+				.depthWriteEnable = true,
+				.depthCompareOp = asset::E_COMPARE_OP::ECO_LESS
 			},
 			.blend = {},
 		};
@@ -614,6 +653,16 @@ public:
 		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
 		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
 		
+		// camera
+		{
+			const core::vectorSIMDf cameraPosition(300.0f, 300.0f, 300.0f);
+			const core::vectorSIMDf cameraTarget(0.0f, 0.0f, 0.0f);
+			const float32_t aspectRatio = static_cast<float32_t>(m_window->getWidth()) / static_cast<float32_t>(m_window->getHeight());
+			float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), aspectRatio, 0.1f, 10000.0f);
+			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+			camera.setMoveSpeed(30.0f);
+		}
+
 		return true;
 	}
 
@@ -621,24 +670,20 @@ public:
 	inline void workLoopBody() override
 	{
 		auto now = std::chrono::high_resolution_clock::now();
-		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		auto dtMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime);
+		double dt = dtMilliseconds.count();
 		lastTime = now;
 		m_timeElapsed += dt;
 
 		m_inputSystem->getDefaultMouse(&mouse);
 		m_inputSystem->getDefaultKeyboard(&keyboard);
 
-		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-			{
-			}
-		, m_logger.get());
-		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
-				{
-				}
-			}
-		, m_logger.get());
+		{
+			camera.beginInputProcessing(dtMilliseconds);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			camera.endInputProcessing(dtMilliseconds);
+		}
 
 		if (!beginFrameRender())
 			return;
@@ -708,11 +753,17 @@ public:
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
+			IGPUCommandBuffer::SClearDepthStencilValue depthClear =
+			{
+				.depth = 1.0f,
+				.stencil = 0
+			};
+
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
-				.depthStencilClearValues = nullptr,
+				.depthStencilClearValues = &depthClear,
 				.renderArea = currentRenderArea
 			};
 		}
@@ -734,21 +785,6 @@ public:
 		
 		const auto& resourcesCollection = drawResourcesFiller.getResourcesCollection();
 		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
-
-		float64_t4x4 viewProjection;
-		{
-			// TODO: create a proper camera
-
-			// animated camera which rotates around and always looks at the center
-			const double animationFactor = m_timeElapsed * 0.0003;
-			const float32_t3 cameraPosition = { 300.0f * std::cos(animationFactor), 300.0f, 300.0f * std::sin(animationFactor) };
-
-			auto view = hlsl::math::linalg::rhLookAt<float64_t>(cameraPosition, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f });
-			const float64_t aspectRatio = static_cast<float64_t>(m_window->getWidth()) / static_cast<float64_t>(m_window->getHeight());
-			auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float64_t>(hlsl::radians(60.0f), aspectRatio, 0.1f, 2000.0f);
-
-			viewProjection = hlsl::mul(proj, nbl::hlsl::math::linalg::promote_affine<4, 4>(view));
-		}
 
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
@@ -846,7 +882,7 @@ public:
 			PushConstants pc = {
 				.triangleMeshVerticesBaseAddress = drawCall.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
 				.triangleMeshMainObjectIndex = drawCall.triangleMeshMainObjectIndex,
-				.viewProjectionMatrix = viewProjection
+				.viewProjectionMatrix = static_cast<float64_t4x4>(camera.getConcatenatedMatrix())
 			};
 			cb->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
@@ -1020,6 +1056,8 @@ protected:
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
+
+	Camera camera;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
