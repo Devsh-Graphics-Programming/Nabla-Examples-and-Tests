@@ -189,6 +189,7 @@ private:
         std::optional<nbl::system::path> referenceDir;
         std::optional<std::string> profileOverride;
         bool strict = false;
+        bool updateReference = false;
     };
 
     struct WrittenAssetRequest
@@ -456,7 +457,6 @@ private:
     smart_refctd_ptr<system::ILogger> m_loaderPerfLogger;
     asset::SFileIOPolicy::SRuntimeTuning::Mode m_runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
     bool m_forceLoaderContentHashes = true;
-    bool m_updateGeometryHashReferences = false;
 
     std::optional<CameraState> m_referenceCamera;
 };

@@ -63,11 +63,11 @@ void setupMeshLoadersArgumentParser(argparse::ArgumentParser& parser)
     parser.add_argument("--perf-profile-override")
         .nargs(1)
         .help("Override the automatically generated performance profile id.");
+    parser.add_argument("--perf-update-reference")
+        .help("Write the current structured performance run to the matching reference path.")
+        .flag();
     parser.add_argument("--loader-content-hashes")
         .help("Keep loader content hashes enabled. This is already the default for this example.")
-        .flag();
-    parser.add_argument("--update-references")
-        .help("Accept official benchmark/reference CLI without changing current local flow.")
         .flag();
     parser.add_argument("--runtime-tuning")
         .nargs(1)
@@ -113,7 +113,6 @@ struct ParsedCommandLineOptions
     bool ci = false;
     bool forceRowViewForCurrentTestList = false;
     bool forceLoaderContentHashes = true;
-    bool updateGeometryHashReferences = false;
     system::path saveGeomPrefixPath;
     system::path screenshotPrefixPath;
     system::path testListPath;
@@ -123,6 +122,7 @@ struct ParsedCommandLineOptions
     std::optional<system::path> perfReferenceDir;
     std::optional<std::string> perfProfileOverride;
     bool perfStrict = false;
+    bool perfUpdateReference = false;
     std::optional<system::path> rowAddPath;
     uint32_t rowDuplicateCount = 0u;
     asset::SFileIOPolicy::SRuntimeTuning::Mode runtimeTuningMode = asset::SFileIOPolicy::SRuntimeTuning::Mode::Heuristic;
@@ -141,6 +141,27 @@ system::path resolveRuntimeCWD(const system::path& preferred)
     if (preferred.empty() || preferred == path("/") || preferred == path("\\"))
         return path(std::filesystem::current_path());
     return preferred;
+}
+
+system::path makeShortRuntimePath(const system::path& inputPath)
+{
+    if (inputPath.empty())
+        return inputPath;
+
+    std::filesystem::path pathValue(inputPath.string());
+    pathValue = pathValue.lexically_normal();
+    if (!pathValue.is_absolute())
+        return system::path(pathValue.generic_string());
+
+    std::error_code ec;
+    const auto cwd = std::filesystem::current_path(ec);
+    if (!ec)
+    {
+        const auto relativePath = std::filesystem::relative(pathValue, cwd, ec);
+        if (!ec && !relativePath.empty() && !relativePath.is_absolute() && relativePath.generic_string().size() < pathValue.generic_string().size())
+            return system::path(relativePath.lexically_normal().generic_string());
+    }
+    return system::path(pathValue.generic_string());
 }
 
 system::path resolveDefaultTestListPath(const system::path& effectiveInputCWD, const core::vector<std::string>& argv)
@@ -395,7 +416,7 @@ bool parseMeshLoadersCommandLine(
         }
         if (tmp.is_relative())
             tmp = effectiveOutputCWD / tmp;
-        out.perfDumpDir = tmp;
+        out.perfDumpDir = makeShortRuntimePath(tmp);
     }
     if (parser.present("--perf-ref-dir"))
     {
@@ -407,7 +428,7 @@ bool parseMeshLoadersCommandLine(
         }
         if (tmp.is_relative())
             tmp = effectiveOutputCWD / tmp;
-        out.perfReferenceDir = tmp;
+        out.perfReferenceDir = makeShortRuntimePath(tmp);
     }
     if (parser["--perf-strict"] == true)
         out.perfStrict = true;
@@ -421,10 +442,10 @@ bool parseMeshLoadersCommandLine(
         }
         out.perfProfileOverride = value;
     }
+    if (parser["--perf-update-reference"] == true)
+        out.perfUpdateReference = true;
     if (parser["--loader-content-hashes"] == true)
         out.forceLoaderContentHashes = true;
-    if (parser["--update-references"] == true)
-        out.updateGeometryHashReferences = true;
     if (parser.present("--runtime-tuning"))
     {
         if (!parseRuntimeTuningMode(parser.get<std::string>("--runtime-tuning"), out.runtimeTuningMode))
@@ -432,6 +453,16 @@ bool parseMeshLoadersCommandLine(
             error = "Invalid --runtime-tuning value. Expected: sequential|heuristic|hybrid.";
             return false;
         }
+    }
+    if (out.perfStrict && out.perfUpdateReference)
+    {
+        error = "Use either --perf-strict or --perf-update-reference, not both.";
+        return false;
+    }
+    if (out.perfUpdateReference && !out.perfReferenceDir.has_value())
+    {
+        error = "--perf-update-reference requires --perf-ref-dir.";
+        return false;
     }
 
     return true;
@@ -487,9 +518,9 @@ bool MeshLoadersApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         m_perf.options.referenceDir = std::move(options.perfReferenceDir);
         m_perf.options.profileOverride = std::move(options.perfProfileOverride);
         m_perf.options.strict = options.perfStrict;
-        m_perf.enabled = m_perf.options.dumpDir.has_value() || m_perf.options.referenceDir.has_value() || m_perf.options.strict;
+        m_perf.options.updateReference = options.perfUpdateReference;
+        m_perf.enabled = m_perf.options.dumpDir.has_value() || m_perf.options.referenceDir.has_value() || m_perf.options.strict || m_perf.options.updateReference;
         m_forceLoaderContentHashes = options.forceLoaderContentHashes;
-        m_updateGeometryHashReferences = options.updateGeometryHashReferences;
         m_runtimeTuningMode = options.runtimeTuningMode;
     };
     applyParsedCommandLineOptions(std::move(parsed));

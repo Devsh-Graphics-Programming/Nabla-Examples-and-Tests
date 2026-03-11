@@ -111,8 +111,8 @@ if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
 		--ci
 		--testlist "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}"
 		--loader-content-hashes
-		--perf-dump-dir "${NBL_MESHLOADERS_PERF_DUMP_DIR}"
-		--perf-ref-dir "${NBL_MESHLOADERS_PERF_REFERENCE_DIR}"
+		--perf-dump-dir "../../../build/dynamic/meshloaders_perf_runs"
+		--perf-ref-dir "../../../build/dynamic/meshloaders_benchmark_datasets/meshloaders/perf_refs"
 		--perf-strict
 	)
 

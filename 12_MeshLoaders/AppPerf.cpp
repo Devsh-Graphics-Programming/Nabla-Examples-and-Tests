@@ -277,6 +277,43 @@ perf_json_t buildCaseJson(const MeshLoadersApp::CasePerformanceMetrics& metrics,
     };
 }
 
+bool writePerfJson(system::ISystem* const system, const system::path& path, const perf_json_t& json)
+{
+    if (!system)
+        return false;
+
+    const auto parentDir = path.parent_path();
+    if (!parentDir.empty())
+        std::filesystem::create_directories(parentDir);
+    if (std::filesystem::exists(path))
+    {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        if (ec && !system->deleteFile(path))
+            return false;
+    }
+
+    system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
+    system->createFile(writeFileFuture, path, system::IFile::ECF_WRITE);
+    core::smart_refctd_ptr<system::IFile> writeFile;
+    writeFileFuture.acquire().move_into(writeFile);
+    if (!writeFile)
+        return false;
+
+    const auto serialized = json.dump(2);
+    size_t written = 0ull;
+    while (written < serialized.size())
+    {
+        system::IFile::success_t success;
+        writeFile->write(success, serialized.data() + written, written, serialized.size() - written);
+        const auto processed = success.getBytesProcessed();
+        if (!success || processed == 0ull)
+            return false;
+        written += processed;
+    }
+    return true;
+}
+
 }
 
 bool MeshLoadersApp::performanceEnabled() const
@@ -442,7 +479,7 @@ void MeshLoadersApp::finalizePerformanceRun()
     {
         m_perf.referencePath = *m_perf.options.referenceDir / m_perf.workloadId / (m_perf.profileId + ".json");
         root["reference"]["lookup_key"] = m_perf.workloadId + "/" + m_perf.profileId + ".json";
-        if (std::filesystem::exists(m_perf.referencePath))
+        if (!m_perf.options.updateReference && std::filesystem::exists(m_perf.referencePath))
         {
             m_perf.referenceMatched = true;
             std::ifstream stream(m_perf.referencePath);
@@ -483,6 +520,7 @@ void MeshLoadersApp::finalizePerformanceRun()
     }
     root["reference"]["matched"] = m_perf.referenceMatched;
     root["reference"]["strict"] = m_perf.options.strict;
+    root["reference"]["updated"] = m_perf.options.updateReference;
     root["reference"]["comparison_failures"] = m_perf.comparisonFailures;
 
     if (m_perf.options.dumpDir)
@@ -490,13 +528,20 @@ void MeshLoadersApp::finalizePerformanceRun()
         const auto dumpDir = *m_perf.options.dumpDir / m_perf.workloadId;
         std::filesystem::create_directories(dumpDir);
         m_perf.dumpPath = dumpDir / (currentTimestampTag() + "__" + m_perf.profileId + ".json");
-        std::ofstream out(m_perf.dumpPath);
-        out << root.dump(2);
+        if (!writePerfJson(m_system.get(), m_perf.dumpPath, root))
+            failExit("Failed to write performance dump file: %s", m_perf.dumpPath.string().c_str());
+    }
+    if (m_perf.options.updateReference)
+    {
+        if (!writePerfJson(m_system.get(), m_perf.referencePath, root))
+            failExit("Failed to write performance reference file: %s", m_perf.referencePath.string().c_str());
     }
 
     if (m_logger)
     {
-        if (!m_perf.referenceMatched)
+        if (m_perf.options.updateReference)
+            m_logger->log("Performance reference updated for workload=%s profile=%s.", ILogger::ELL_INFO, m_perf.workloadId.c_str(), m_perf.profileId.c_str());
+        else if (!m_perf.referenceMatched)
             m_logger->log("Performance reference not found for workload=%s profile=%s.", ILogger::ELL_INFO, m_perf.workloadId.c_str(), m_perf.profileId.c_str());
         else if (m_perf.comparisonFailures.empty())
             m_logger->log("Performance reference comparison passed for workload=%s profile=%s.", ILogger::ELL_INFO, m_perf.workloadId.c_str(), m_perf.profileId.c_str());

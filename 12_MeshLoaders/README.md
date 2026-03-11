@@ -89,13 +89,20 @@ Example for loading and writing `OBJ`, `PLY` and `STL` meshes.
   - IO runtime tuning mode
 - `--perf-dump-dir <path>`
   - write structured performance run JSON artifacts
+  - relative paths resolve against local output CWD
 - `--perf-ref-dir <path>`
   - lookup directory for structured performance references
+  - relative paths resolve against local output CWD
+  - absolute paths may be shortened internally when a shorter relative runtime path is available
 - `--perf-strict`
   - fail on performance regression only when a matching reference exists
   - if no matching reference exists, the run stays record-only
 - `--perf-profile-override <name>`
   - override the automatically derived machine profile id
+- `--perf-update-reference`
+  - write the current structured performance run to the matching reference path
+  - requires `--perf-ref-dir`
+  - cannot be combined with `--perf-strict`
 
 ## Controls (non-CI)
 - Arrow keys: move camera
@@ -150,6 +157,9 @@ Rules:
 - If a matching reference exists:
   - per-case `original_load`, `write`, and `written_load` stage metrics are compared
   - strict mode fails only on actual regression, not on missing references
+- If `--perf-update-reference` is used:
+  - the current run is written directly to `<perf-ref-dir>/<workload_id>/<profile_id>.json`
+  - existing comparison is skipped for that run
 - JSON artifacts avoid host-specific absolute paths and store portable case/test-list identifiers instead
 
 ## Performance logs to trust
