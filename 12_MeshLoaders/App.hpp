@@ -332,7 +332,7 @@ public:
 protected:
     core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
     {
-        return system::ILogger::DefaultLogMask() | system::ILogger::ELL_INFO;
+        return core::bitflag(system::ILogger::ELL_WARNING) | system::ILogger::ELL_ERROR;
     }
 
     const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;

@@ -1065,7 +1065,7 @@ bool MeshLoadersApp::startCase(const size_t index)
 
     bool loaded = false;
     LoadStageMetrics loadMetrics = {};
-    if (m_runtime.mode == RunMode::CI)
+    if (m_runtime.mode == RunMode::CI && !performanceEnabled())
     {
         PreparedAssetLoad preparedLoad = {};
         bool preparedReady = false;
@@ -1094,7 +1094,7 @@ bool MeshLoadersApp::startCase(const size_t index)
     if (m_runtime.mode == RunMode::CI)
     {
         const auto nextIndex = index + 1u;
-        if (nextIndex < m_runtime.cases.size())
+        if (!performanceEnabled() && nextIndex < m_runtime.cases.size())
             startPreparedAssetLoad(nextIndex, m_runtime.cases[nextIndex].path);
     }
 

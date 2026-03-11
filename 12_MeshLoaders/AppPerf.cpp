@@ -285,13 +285,7 @@ bool writePerfJson(system::ISystem* const system, const system::path& path, cons
     const auto parentDir = path.parent_path();
     if (!parentDir.empty())
         std::filesystem::create_directories(parentDir);
-    if (std::filesystem::exists(path))
-    {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
-        if (ec && !system->deleteFile(path))
-            return false;
-    }
+    system->deleteFile(path);
 
     system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> writeFileFuture;
     system->createFile(writeFileFuture, path, system::IFile::ECF_WRITE);
