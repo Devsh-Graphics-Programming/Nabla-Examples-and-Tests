@@ -5,6 +5,9 @@
 if(NBL_BUILD_EXAMPLES)
 	project(NablaExamples)
 	enable_testing()
+	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+		NBL_ADD_GIT_TRACKING_META_LIBRARY(examples "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
 
 	if(NBL_BUILD_ANDROID)
 		nbl_android_create_media_storage_apk()
