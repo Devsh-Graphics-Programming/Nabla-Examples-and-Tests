@@ -30,67 +30,59 @@ struct LuminanceAccessor
     val = lumaMap.SampleLevel(lumaSampler, index, 0);
   }
 
-  float32_t texelFetch(uint32_t2 coord, uint32_t level)
+  float32_t load(uint32_t2 coord, uint32_t level)
   {
     return lumaMap.Load(uint32_t3(coord, level));
   }
 
-  float32_t4 texelGather(uint32_t2 coord, uint32_t level)
+};
+
+struct WarpmapAccessor
+{
+  void gatherUv(float32_t2 xi, NBL_REF_ARG(matrix<float, 4, 2>) uvs, NBL_REF_ARG(float32_t2) interpolant) NBL_CONST_MEMBER_FUNC
   {
-    return float32_t4(
-      lumaMap.Load(uint32_t3(coord, level), uint32_t2(0, 1)),
-      lumaMap.Load(uint32_t3(coord, level), uint32_t2(1, 1)),
-      lumaMap.Load(uint32_t3(coord, level), uint32_t2(1, 0)),
-      lumaMap.Load(uint32_t3(coord, level), uint32_t2(0, 0))
-    );
+    float32_t2 texelCoord = xi * float32_t2(pc.warpWidth - 1, pc.warpHeight - 1);
+    interpolant = frac(texelCoord);
+    uint32_t2 uv = texelCoord / float32_t2(pc.warpWidth, pc.warpHeight);
+    const float32_t4 reds = warpMap.GatherRed(warpSampler, uv);
+    const float32_t4 greens = warpMap.GatherGreen(warpSampler, uv);
+
+    uvs = transpose(matrix<float, 2, 4>(
+      reds, 
+      greens
+    ));
+
   }
 };
 
-struct WarpAccessor
+
+template <typename WarpSamplerT>
+TestOutput GenerateTestOutput(NBL_CONST_REF_ARG(WarpSamplerT) hImage, float32_t2 xi)
 {
-     matrix<float, 4, 2> sampleUvs(uint32_t2 sampleCoord) NBL_CONST_MEMBER_FUNC
-     {
-        const float32_t2 dir0 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(0, 1), 0));
-        const float32_t2 dir1 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 1), 0));
-        const float32_t2 dir2 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 0), 0));
-        const float32_t2 dir3 = warpMap.Load(int32_t3(sampleCoord, 0));
-        return matrix<float, 4, 2>(
-          dir0,
-          dir1,
-          dir2,
-          dir3
-        );
-     }
-};
+  using sample_type = typename WarpSamplerT::sample_type;
 
-
-template <typename HierarchicalImageT>
-TestOutput GenerateTestOutput(NBL_CONST_REF_ARG(HierarchicalImageT) hImage, float32_t2 xi)
-{
-  float pdf;
-  float32_t2 uv;
-
-  const float3 L = hImage.generate_and_pdf(pdf, uv, xi);
+  const sample_type sample = hImage.generate(xi);
+  const float3 L = sample.value();
 
   float eps_x = pc.eps;
   float eps_y = pc.eps;
 
-  float32_t2 d_uv;
-  float32_t d_pdf;
-  const float3 L_plus_du = hImage.generate_and_pdf(d_pdf, d_uv, xi + float32_t2(0.5f * eps_x, 0));
-  const float3 L_plus_dv = hImage.generate_and_pdf(d_pdf, d_uv, xi + float32_t2(0, 0.5f * eps_y));
+  const sample_type sample_plus_du = hImage.generate(xi + float32_t2(0.5f * eps_x, 0));
+  const float3 L_plus_du = sample_plus_du.value();
+  const sample_type sample_plus_dv = hImage.generate(xi + float32_t2(0, 0.5f * eps_y));
+  const float3 L_plus_dv = sample_plus_dv.value();
 
-  const float3 L_minus_du = hImage.generate_and_pdf(d_pdf, d_uv, xi - float32_t2(0.5f * eps_x, 0));
-  const float3 L_minus_dv = hImage.generate_and_pdf(d_pdf, d_uv, xi - float32_t2(0, 0.5f * eps_y));
+  const sample_type sample_minus_du = hImage.generate(xi - float32_t2(0.5f * eps_x, 0));
+  const float3 L_minus_du = sample_minus_du.value();
+  const sample_type sample_minus_dv = hImage.generate(xi - float32_t2(0, 0.5f * eps_y));
+  const float3 L_minus_dv = sample_minus_dv.value();
 
   float jacobian = length(cross(L_plus_du - L_minus_du, L_plus_dv - L_minus_dv)) / (eps_x * eps_y);
 
   TestOutput testOutput;
-  testOutput.uv = uv;
   testOutput.L = L;
   testOutput.jacobian = jacobian;
-  testOutput.pdf = pdf;
-  testOutput.deferredPdf = hImage.deferredPdf(L);
+  testOutput.pdf = sample.pdf();
   return testOutput;
 }
 
@@ -104,12 +96,9 @@ float32_t2 convertToFloat01(uint32_t2 xi_uint)
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
   const LuminanceAccessor luminanceAccessor;
-  const WarpAccessor warpAccessor;
-  using luminance_sampler_type = nbl::hlsl::sampling::LuminanceMapSampler<float32_t, LuminanceAccessor>;
+  const WarpmapAccessor warpmapAccessor;
 
-  using direct_hierarchical_image_type = sampling::HierarchicalImage<float, LuminanceAccessor, luminance_sampler_type, sampling::warp::Spherical<float> >;
-
-  const luminance_sampler_type luminanceSampler = luminance_sampler_type::create(luminanceAccessor, pc.warpResolution, true, pc.warpResolution);
+  using direct_hierarchical_image_type = sampling::HierarchicalWarpSampler<float, LuminanceAccessor, sampling::warp::Spherical<float> >;
 
   float32_t eps = pc.eps;
 
@@ -124,11 +113,13 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
   test_sample_t testSample;
   testSample.xi = xi;
 
-  const direct_hierarchical_image_type directHImage = direct_hierarchical_image_type::create(luminanceAccessor, luminanceSampler, pc.warpResolution, pc.avgLuma);
+  uint32_t2 warpResolution = { pc.warpWidth, pc.warpHeight };
+  const direct_hierarchical_image_type directHImage = direct_hierarchical_image_type::create(luminanceAccessor, pc.avgLuma, warpResolution, warpResolution.x != warpResolution.y);
+
   testSample.directOutput = GenerateTestOutput(directHImage, xi);
 
-  using cached_hierarchical_image_type = sampling::HierarchicalImage<float, LuminanceAccessor, WarpAccessor, sampling::warp::Spherical<float> >;
-  const cached_hierarchical_image_type cachedHImage = cached_hierarchical_image_type::create(luminanceAccessor, warpAccessor, pc.warpResolution, pc.avgLuma);
+  using cached_hierarchical_image_type = sampling::WarpmapSampler<float, LuminanceAccessor, WarpmapAccessor, sampling::warp::Spherical<float> >;
+  const cached_hierarchical_image_type cachedHImage = cached_hierarchical_image_type::create(luminanceAccessor, warpmapAccessor, warpResolution, pc.avgLuma);
   testSample.cachedOutput = GenerateTestOutput(cachedHImage, xi);
   vk::RawBufferStore<test_sample_t>(pc.outputAddress + threadID.x * sizeof(test_sample_t), testSample);
 }

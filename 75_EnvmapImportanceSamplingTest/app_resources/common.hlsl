@@ -11,16 +11,16 @@ NBL_CONSTEXPR uint32_t WorkgroupSize = 128;
 
 struct STestPushConstants
 {
+  uint32_t warpWidth : 16;
+  uint32_t warpHeight : 16;
   float32_t eps;
   uint64_t outputAddress;
-  uint32_t2 warpResolution;
   float32_t avgLuma;
 };
 
 struct TestOutput
 {
   float32_t3 L;
-  float32_t2 uv;
   float32_t jacobian;
   float32_t pdf;
   float32_t deferredPdf;

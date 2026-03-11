@@ -4,7 +4,7 @@
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/examples/examples.hpp"
 
-#include "nbl/core/sampling/EnvmapSampler.h"
+#include "nbl/video/sampling/EnvmapSampler.h"
 
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
@@ -137,6 +137,8 @@ class EnvmapImportanceSamplingTest final : public application_templates::BasicMu
 
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
+				// No specific sampler configuration matter for warpmap. We use cornered sampling so wrapping configuration is irrelevant. Then, we do our own interpolation so filtering configuration does not matter.
+				// Luma map needs to NEAREST filter so we use that filter in our defaultSampler
 				auto defaultSampler = m_device->createSampler({
 					.TextureWrapU = ETC_CLAMP_TO_EDGE,
 					.TextureWrapV = ETC_CLAMP_TO_EDGE,
@@ -257,6 +259,7 @@ class EnvmapImportanceSamplingTest final : public application_templates::BasicMu
 
 						const auto lumaMap = m_envmapImportanceSampling->getLumaMapView();
 						const auto warpMap = m_envmapImportanceSampling->getWarpMapView();
+						const auto warpExtent = warpMap->getCreationParameters().image->getCreationParameters().extent;
 
 						auto downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
 
@@ -280,11 +283,11 @@ class EnvmapImportanceSamplingTest final : public application_templates::BasicMu
 
 						m_utils->getLogicalDevice()->updateDescriptorSets(writes, {});
 
-						const auto warpExtent = warpMap->getCreationParameters().image->getCreationParameters().extent;
 						const STestPushConstants pc = {
+							.warpWidth = warpExtent.width,
+							.warpHeight = warpExtent.height,
 							.eps = 5 * 1e-5,
 							.outputAddress = downStreamingBuffer->getBuffer()->getDeviceAddress() + m_outputOffset,
-							.warpResolution = uint32_t2(warpExtent.width, warpExtent.height),
 							.avgLuma = m_envmapImportanceSampling->getAvgLuma(),
 						};
 
@@ -320,22 +323,22 @@ class EnvmapImportanceSamplingTest final : public application_templates::BasicMu
 							const auto& directOutput = testSample.directOutput;
 							const auto& cachedOutput = testSample.cachedOutput;
 
-							if (!checkEq(cachedOutput.L, directOutput.L) || !checkEq(cachedOutput.uv, directOutput.uv) || !checkEq(cachedOutput.pdf, directOutput.pdf) || !checkEq(cachedOutput.deferredPdf, directOutput.deferredPdf))
+							if (!checkEq(cachedOutput.L, directOutput.L) || !checkEq(cachedOutput.pdf, directOutput.pdf) || !checkEq(cachedOutput.deferredPdf, directOutput.deferredPdf))
 							{
-								logFail("Failed similarity test between direct sampling and cached sampling for image %s. Direct Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}, Cached Sampling = {uv = (%f, %f), L = (%f, %f %f), pdf = %f, deferredPdf = %f}", nextPath.c_str(), directOutput.uv.x, directOutput.uv.y, directOutput.L.x, directOutput.L.y, directOutput.L.z, directOutput.pdf, directOutput.deferredPdf, cachedOutput.uv.x, cachedOutput.uv.y, cachedOutput.L.x, cachedOutput.L.y, cachedOutput.L.z, cachedOutput.pdf, cachedOutput.pdf);
+								logFail("Failed similarity test between direct sampling and cached sampling for image %s. Direct Sampling = {L = (%f, %f %f), pdf = %f, deferredPdf = %f}, Cached Sampling = {L = (%f, %f %f), pdf = %f, deferredPdf = %f}", nextPath.c_str(), directOutput.L.x, directOutput.L.y, directOutput.L.z, directOutput.pdf, directOutput.deferredPdf, cachedOutput.L.x, cachedOutput.L.y, cachedOutput.L.z, cachedOutput.pdf, cachedOutput.pdf);
 							}
 
 							const auto& testOutput = directOutput;
 							if (testOutput.jacobian < 0.05) continue;
 							if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.pdf)); diff > 0.05)
 							{
-								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.pdf, diff);
+								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), Jacobian = %f, pdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.jacobian, testOutput.pdf, diff);
 								continue;
 							}
 							
 							if (const auto diff = abs(1.0f - (testOutput.jacobian * testOutput.deferredPdf)); diff > 0.05)
 							{
-								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), uv = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.uv.x, testOutput.uv.y, testOutput.jacobian, testOutput.deferredPdf, diff);
+								m_logger->log("Failed similarity test of jacobian and pdf for image %s for sample number %d. xi = (%f, %f), Jacobian = %f, deferredPdf = %f, difference = %f", ILogger::ELL_ERROR, nextPath.c_str(), sample_i, testSample.xi.x, testSample.xi.y, testOutput.jacobian, testOutput.deferredPdf, diff);
 							}
 						}
 					}
