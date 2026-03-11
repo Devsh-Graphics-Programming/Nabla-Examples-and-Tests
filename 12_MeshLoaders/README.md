@@ -136,6 +136,12 @@ Rules:
     - derived from the benchmark/test input definition and runtime mode
   - `profile_id`
     - derived from the current CPU-centric machine/runtime profile or overridden explicitly
+- Structured performance artifacts also carry provenance:
+  - `created_at_utc`
+  - `nabla_commit`
+  - `nabla_dirty`
+  - `examples_commit`
+  - `examples_dirty`
 - Reference lookup uses:
   - `<perf-ref-dir>/<workload_id>/<profile_id>.json`
 - If no matching reference exists:

@@ -4,6 +4,8 @@
 
 #include "App.hpp"
 
+#include "git_info.h"
+
 #include "nlohmann/json.hpp"
 #include "nbl/core/hash/blake.h"
 
@@ -73,6 +75,21 @@ std::string currentTimestampTag()
     return oss.str();
 }
 
+std::string currentTimestampIsoUtc()
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto time = std::chrono::system_clock::to_time_t(now);
+    std::tm tm = {};
+#ifdef _WIN32
+    gmtime_s(&tm, &time);
+#else
+    gmtime_r(&time, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
 std::string runModeName(const uint32_t modeValue)
 {
     switch (modeValue)
@@ -125,6 +142,13 @@ std::string buildConfigName()
 #else
     return "Release";
 #endif
+}
+
+perf_json_t dirtyStateJson(const std::optional<bool>& dirty)
+{
+    if (!dirty.has_value())
+        return nullptr;
+    return perf_json_t(dirty.value());
 }
 
 std::filesystem::path normalizePathForPerf(const std::filesystem::path& path)
@@ -379,6 +403,13 @@ void MeshLoadersApp::finalizePerformanceRun()
     root["workload_id"] = m_perf.workloadId;
     root["run_mode"] = runModeName(static_cast<uint32_t>(m_runtime.mode));
     root["runtime_tuning"] = runtimeTuningModeName(m_runtimeTuningMode);
+    root["provenance"] = {
+        {"created_at_utc", currentTimestampIsoUtc()},
+        {"nabla_commit", gtml::nabla_git_info.commitHash},
+        {"nabla_dirty", dirtyStateJson(gtml::nabla_git_info.hasUncommittedChanges)},
+        {"examples_commit", gtml::examples_git_info.commitHash},
+        {"examples_dirty", dirtyStateJson(gtml::examples_git_info.hasUncommittedChanges)}
+    };
 
     const auto systemInfo = m_system->getSystemInfo();
     root["environment"] = {
