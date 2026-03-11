@@ -119,6 +119,7 @@ if(NBL_BUILD_EXAMPLES)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
+	list(REMOVE_ITEM TARGETS examples_check_git)
 
 	# we want to loop only over the examples so we exclude examples' interface libraries created in common subdirectory
 	list(REMOVE_ITEM TARGETS ${NBL_EXAMPLES_API_TARGET} ${NBL_EXAMPLES_API_LIBRARIES})
