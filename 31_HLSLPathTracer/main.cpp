@@ -35,6 +35,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			ELG_SPHERE,
 			ELG_TRIANGLE,
 			ELG_RECTANGLE,
+			ELG_ENVMAP,
 			ELG_COUNT
 		};
 
@@ -47,6 +48,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		    "SPHERE_LIGHT",
 		    "TRIANGLE_LIGHT",
 		    "RECTANGLE_LIGHT"
+        "ENVMAP_LIGHT"
 		};
 		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
