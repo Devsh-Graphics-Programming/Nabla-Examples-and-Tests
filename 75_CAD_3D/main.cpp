@@ -442,10 +442,10 @@ public:
 					.samples = IGPUImage::ESCF_1_BIT,
 					.mayAlias = false
 				},
-				/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+				/*.loadOp = */{loadOp},
 				/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
-				/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED},
-				/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
+				/*.initialLayout = */{initialLayout},
+				/*.finalLayout = */{IImage::LAYOUT::ATTACHMENT_OPTIMAL}
 			}},
 			IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
 		};
@@ -606,11 +606,13 @@ public:
 				.polygonMode = EPM_FILL,
 				.faceCullingMode = EFCM_NONE,
 				.depthWriteEnable = true,
-				.depthCompareOp = asset::E_COMPARE_OP::ECO_LESS
+				.depthCompareOp = asset::E_COMPARE_OP::ECO_GREATER
 			},
 			.blend = {},
 		};
 		mainGraphicsPipelineParams.renderpass = compatibleRenderPass.get();
+
+		assert(mainGraphicsPipelineParams.cached.rasterization.depthTestEnable());
 
 		// Create Main Graphics Pipelines 
 		{
@@ -660,7 +662,7 @@ public:
 			const float32_t aspectRatio = static_cast<float32_t>(m_window->getWidth()) / static_cast<float32_t>(m_window->getHeight());
 			float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), aspectRatio, 0.1f, 10000.0f);
 			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
-			camera.setMoveSpeed(30.0f);
+			camera.setMoveSpeed(50.0f);
 		}
 
 		return true;
@@ -755,7 +757,7 @@ public:
 
 			IGPUCommandBuffer::SClearDepthStencilValue depthClear =
 			{
-				.depth = 1.0f,
+				.depth = 0.0f,
 				.stencil = 0
 			};
 
@@ -856,6 +858,10 @@ public:
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		VkRect2D currentRenderArea;
 		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
+		IGPUCommandBuffer::SClearDepthStencilValue depthClearValue = {
+				.depth = 1.0f,
+				.stencil = 0
+		};
 		{
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			currentRenderArea =
@@ -863,11 +869,12 @@ public:
 				.offset = {0,0},
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
+
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
-				.depthStencilClearValues = nullptr,
+				.depthStencilClearValues = &depthClearValue,
 				.renderArea = currentRenderArea
 			};
 		}
