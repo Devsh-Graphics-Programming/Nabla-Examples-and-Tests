@@ -4,6 +4,18 @@
 
 if(NBL_BUILD_EXAMPLES)
 	project(NablaExamples)
+	enable_testing()
+	set(NBL_EXAMPLES_OPTIONAL_COMMON_TARGETS)
+	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+		NBL_ADD_GIT_TRACKING_META_LIBRARY(
+			TARGET NblExamplesGitInfo
+			NAMESPACE nbl::examples::gtml
+			HEADER_PATH nbl/examples/git/info.h
+			REPOS
+				examples "${CMAKE_CURRENT_SOURCE_DIR}"
+		)
+		list(APPEND NBL_EXAMPLES_OPTIONAL_COMMON_TARGETS NblExamplesGitInfo)
+	endif()
 
 	if(NBL_BUILD_ANDROID)
 		nbl_android_create_media_storage_apk()
@@ -115,6 +127,7 @@ if(NBL_BUILD_EXAMPLES)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
+	list(REMOVE_ITEM TARGETS NblExamplesGitInfo)
 
 	# we want to loop only over the examples so we exclude examples' interface libraries created in common subdirectory
 	list(REMOVE_ITEM TARGETS ${NBL_EXAMPLES_API_TARGET} ${NBL_EXAMPLES_API_LIBRARIES})
@@ -122,8 +135,11 @@ if(NBL_BUILD_EXAMPLES)
 	# we link common example api library and force examples to reuse its PCH
 	foreach(T IN LISTS TARGETS)
 		get_target_property(TYPE ${T} TYPE)
-		if(NOT ${TYPE} MATCHES INTERFACE)
+		if(NOT ${TYPE} MATCHES "INTERFACE|UTILITY")
 			target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
+			if(NBL_EXAMPLES_OPTIONAL_COMMON_TARGETS)
+				target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_OPTIONAL_COMMON_TARGETS})
+			endif()
 			target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 			set_target_properties(${T} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
 			target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
