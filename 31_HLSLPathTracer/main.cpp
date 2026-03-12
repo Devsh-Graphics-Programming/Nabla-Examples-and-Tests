@@ -4,6 +4,7 @@
 
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
+#include "nbl/video/sampling/EnvmapSampler.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
@@ -252,6 +253,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				descriptorSetBindings[3] = {
 					.binding = 3u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSetBindings[4] = {
+					.binding = 4u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSetBindings[5] = {
+				  .binding = 5u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -833,8 +850,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
 				writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
 				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[4].desc = m_outImgView;
-				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[4].desc = m_envmapSampler->getLumaMapView();
+				writeDSInfos[4].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[4].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[5].desc = m_envmapSampler->getWarpMapView();
+				writeDSInfos[5].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[6].desc = m_outImgView;
+				writeDSInfos[6].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
 				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
@@ -866,6 +889,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.info = &writeDSInfos[3]
 				};
 				writeDescriptorSets[4] = {
+					.dstSet = m_descriptorSet.get(),
+					.binding = 1,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_descriptorSet.get(),
+					.binding = 1,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
+				};
+				writeDescriptorSets[6] = {
 					.dstSet = m_presentDescriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
@@ -1125,6 +1162,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					rwmcPushConstants.renderPushConstants.avgLuma = m_envmapSampler->getAvgLuma();
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
 				}
 				else
@@ -1134,6 +1172,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					pc.sampleCount = guiControlled.spp;
 					pc.depth = guiControlled.depth;
 					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					pc.avgLuma = m_envmapSampler->getAvgLuma();
 				}
 			};
 			updatePathtracerPushConstants();
@@ -1499,6 +1538,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+
+		smart_refctd_ptr<EnvmapSampler> m_envmapSampler;
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;

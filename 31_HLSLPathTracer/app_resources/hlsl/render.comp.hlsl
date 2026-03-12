@@ -40,6 +40,11 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(2, 0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D<float> lumaMap;
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState lumaSampler;
+[[vk::combinedImageSampler]] [[vk::binding(5, 0)]] Texture2D<float2> warpMap;
+[[vk::combinedImageSampler]] [[vk::binding(5, 0)]] SamplerState warpSampler;
+
 #include "example_common.hlsl"
 #include "rand_gen.hlsl"
 #include "intersector.hlsl"

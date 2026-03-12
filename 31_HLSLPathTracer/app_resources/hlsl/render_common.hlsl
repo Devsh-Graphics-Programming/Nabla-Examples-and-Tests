@@ -7,11 +7,12 @@ using namespace hlsl;
 
 struct RenderPushConstants
 {
-	float32_t4x4 invMVP;
-	float32_t3x4 generalPurposeLightMatrix;
-    int sampleCount;
-    int depth;
-    uint64_t pSampleSequence;
+  float32_t4x4 invMVP;
+  float32_t3x4 generalPurposeLightMatrix;
+  int sampleCount;
+  int depth;
+  uint64_t pSampleSequence;
+  float avgLuma;
 };
 
 NBL_CONSTEXPR float32_t3 LightEminence = float32_t3(30.0f, 25.0f, 15.0f);
