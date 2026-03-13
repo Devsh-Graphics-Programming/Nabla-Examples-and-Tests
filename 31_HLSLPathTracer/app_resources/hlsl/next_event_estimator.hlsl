@@ -132,14 +132,14 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
     template<class Aniso>
     vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
-        scalar_type rcpPdf;
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
         sampling::SphericalTriangle<scalar_type> sst = sampling::SphericalTriangle<scalar_type>::create(st);
 
-        const vector3_type L = sst.generate(rcpPdf, xi.xy);
+        typename sampling::SphericalTriangle<scalar_type>::cache_type cache;
+        const vector3_type L = sst.generate(xi.xy, cache);
 
-        pdf = rcpPdf > numeric_limits<scalar_type>::min ? (1.0 / rcpPdf) : numeric_limits<scalar_type>::max;
+        pdf = cache.pdf;
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);
@@ -281,8 +281,9 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         vector3_type L = hlsl::promote<vector3_type>(0.0);
         scalar_type solidAngle = sphR0.solidAngle(origin);
 
-        sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0);
-        vector<T, 2> sphUv = ssph.generate(origin, xi.xy, solidAngle);
+        sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0, origin);
+        typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
+        vector<T, 2> sphUv = ssph.generate(xi.xy, cache);
         if (solidAngle > numeric_limits<scalar_type>::min)
         {
             vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;

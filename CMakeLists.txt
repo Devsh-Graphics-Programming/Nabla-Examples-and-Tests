@@ -77,6 +77,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
+	add_subdirectory(37_HLSLSamplingTests)
 	add_subdirectory(38_EXRSplit)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		# if (NBL_BUILD_OPTIX)
