@@ -70,6 +70,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return retval;
 		}
 
+	    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getPreferredDeviceFeatures();
+			retval.pipelineExecutableInfo = true;
+			return retval;
+		}
+
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
@@ -338,7 +345,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
-				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				const bool pipelineExecutableInfo = m_device->getEnabledFeatures().pipelineExecutableInfo;
+				auto getComputePipelineCreationParams = [deviceMinSubgroupSize, pipelineExecutableInfo](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
 				{
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = pipelineLayout;
@@ -347,7 +355,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					params.shader.entries = nullptr;
 					params.cached.requireFullSubgroups = true;
 					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
-
+					if (pipelineExecutableInfo)
+					{
+						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+					}
 					return params;
 				};
 
@@ -391,6 +403,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
+
+							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+							{
+								auto report = system::to_string(m_PTHLSLPipelines[index]->getExecutableInfo());
+								m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
+							}
 						}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
@@ -398,6 +416,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
 								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
+
+							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+							{
+								auto report = system::to_string(m_PTHLSLPersistentWGPipelines[index]->getExecutableInfo());
+								m_logger->log("%s PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
+							}
 						}
 
 						// rwmc pipelines
@@ -407,6 +431,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
 								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
+
+							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+							{
+								auto report = system::to_string(m_PTHLSLPipelinesRWMC[index]->getExecutableInfo());
+								m_logger->log("%s RWMC Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
+							}
 						}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
@@ -414,6 +444,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
 								return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
+
+							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+							{
+								auto report = system::to_string(m_PTHLSLPersistentWGPipelinesRWMC[index]->getExecutableInfo());
+								m_logger->log("%s RWMC PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
+							}
 						}
 					}
 				}
@@ -441,6 +477,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePipeline))
 							return logFail("Failed to create HLSL resolve compute pipeline!\n");
+
+						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+						{
+							auto report = system::to_string(m_resolvePipeline->getExecutableInfo());
+							m_logger->log("Resolve Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+						}
 					}
 				}
 
