@@ -4,6 +4,7 @@ set(NBL_INCLUDE_SERACH_DIRECTORIES
 	"${NBL_EXT_MITSUBA_LOADER_INCLUDE_DIRS}"
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
+	"${NBL_ROOT_PATH}/3rdparty/portable-file-dialogs"
 )
 set(NBL_LIBRARIES
 	"${NBL_EXT_MITSUBA_LOADER_LIB}"
@@ -12,12 +13,29 @@ set(NBL_LIBRARIES
 	"${NBL_EXT_IMGUI_UI_LIB}"
 )
 set(NBL_EXAMPLE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/common.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/io/CSceneLoader.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/gui/CSceneWindow.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/gui/CSessionWindow.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/gui/CUIManager.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/SAASequence.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/CScene.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/CRenderer.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/CSession.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/resolve/CBasicRWMCResolver.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/resolve/IResolver.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/present/CWindowPresenter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/present/IPresenter.h"
+
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CRenderer.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/resolve/CBasicRWMCResolver.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/present/CWindowPresenter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gui/CUIManager.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gui/CSceneWindow.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gui/CSessionWindow.cpp"
 )
 nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 

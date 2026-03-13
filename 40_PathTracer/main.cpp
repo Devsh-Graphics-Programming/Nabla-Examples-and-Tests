@@ -9,7 +9,11 @@
 #include "renderer/resolve/CBasicRWMCResolver.h"
 #include "renderer/present/CWindowPresenter.h"
 
+#include "gui/CUIManager.h"
+#include "nbl/ui/ICursorControl.h"
+
 #include "nlohmann/json.hpp"
+
 
 
 using namespace nbl::core;
@@ -25,7 +29,7 @@ using namespace nbl::this_example;
 // TODO: move to argument parsing class
 struct AppArguments
 {
-	bool headless = false;
+	bool headless; // set in onAppInitialized() for now
 };
 
 
@@ -216,378 +220,381 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			// TODO: tmp code
 			{
 				m_api->startCapture();
-				auto scene_daily_pt = m_renderer->createScene({
+				m_currentScenePath = (sharedInputCWD / "mitsuba/daily_pt.xml").string();
+				m_currentScene = m_renderer->createScene({
 						.load = m_sceneLoader->load({
-						.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
-						.workingDirectory = localOutputCWD 
+						.relPath = m_currentScenePath,
+						.workingDirectory = localOutputCWD
 					}),
 					.converter = nullptr
 				});
+				auto scene_daily_pt = m_currentScene;
+
 				// the UI would have you load the zip first, then present a dropdown of what to load
 				// but still need to support archive mount for cmdline load
 		#if 0 // this particular zip goes down an unsupported path in our zip loader
 				auto scene_bedroom = m_sceneLoader->load({
-					.relPath = sharedInputCWD/"mitsuba/bedroom.zip/scene.xml",
+					.relPath = sharedInputCWD / "mitsuba/bedroom.zip/scene.xml",
 					.workingDirectory = localOutputCWD
 				});
 		#endif
 				m_api->endCapture();
-
-				// quick test code
-				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
-				{
-					sensors[1].mutableDefaults.cropWidth = 640;
-					sensors[1].mutableDefaults.cropHeight = 360;
-					sensors[1].mutableDefaults.cropOffsetX = 0;
-					sensors[1].mutableDefaults.cropOffsetY = 0;
-				}
-				{
-					sensors[2].mutableDefaults.cropWidth = 5120;
-					sensors[2].mutableDefaults.cropHeight = 2880;
-					sensors[2].mutableDefaults.cropOffsetX = 128;
-					sensors[2].mutableDefaults.cropOffsetY = 128;
-				}
-				for (auto i=1; i<3; i++)
-				{
-					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
-					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
-				}
-				sensors.erase(sensors.begin());
-				for (const auto& sensor : sensors)
-					m_sessionQueue.push(
-						scene_daily_pt->createSession({
-							{.mode=CSession::RenderMode::Debug},&sensor
-						})
-					);
 			}
-
-			return true;
-
-#if 0 // ui
-		// gui descriptor setup
-		{
-			using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
+	
+			// Initialize UI Manager (non-headless only)
+			if (!m_args.headless)
 			{
-				IGPUSampler::SParams params;
-				params.AnisotropicFilter = 1u;
-				params.TextureWrapU = ETC_REPEAT;
-				params.TextureWrapV = ETC_REPEAT;
-				params.TextureWrapW = ETC_REPEAT;
+				m_uiManager = gui::CUIManager::create({ .assetManager = smart_refctd_ptr(m_assetMgr),.utilities = smart_refctd_ptr(m_utils),.transferQueue = getGraphicsQueue(),.logger = smart_refctd_ptr(m_logger) });
+				if (!m_uiManager)
+					return logFail("Failed to create CUIManager");
+	
+				gui::CUIManager::SInitParams uiInitParams = {
+					.renderpass = m_presenter->getRenderpass(),
+					.onSensorSelected = [this](size_t sensorIdx) {
+						// Create a new session from the selected sensor (GUI mode)
+						if (m_currentScene)
+						{
+							const auto sensors = m_currentScene->getSensors();
+							if (sensorIdx < sensors.size())
+							{
+								auto newSession = m_currentScene->createSession({
+									{.mode = CSession::RenderMode::Debug},
+									&sensors[sensorIdx]
+								});
+								if (newSession)
+								{
+									m_pendingSession = std::move(newSession);
+								}
+							}
+						}
+					},
+					.onLoadSceneRequested = [this](const std::string& path) {
+						if (path.empty())
+							return;
+	
+						m_logger->log("Loading scene: %s", ILogger::ELL_INFO, path.c_str());
+	
+						// Load the scene
+						auto loadResult = m_sceneLoader->load({
+							.relPath = path,
+							.workingDirectory = localOutputCWD
+						});
 
-				m_ui.samplers.gui = m_device->createSampler(params);
-				m_ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
-			}
+						if (!loadResult)
+						{
+							m_logger->log("Failed to load scene: %s", ILogger::ELL_ERROR, path.c_str());
+							return;
+						}
 
-			std::array<core::smart_refctd_ptr<IGPUSampler>, 69u> immutableSamplers;
-			for (auto& it : immutableSamplers)
-				it = smart_refctd_ptr(m_ui.samplers.scene);
+						// Create the scene
+						auto newScene = m_renderer->createScene({
+							.load = std::move(loadResult),
+							.converter = nullptr
+						});
 
-			immutableSamplers[nbl::ext::imgui::UI::FontAtlasTexId] = smart_refctd_ptr(m_ui.samplers.gui);
+						if (!newScene)
+						{
+							m_logger->log("Failed to create scene from: %s", ILogger::ELL_ERROR, path.c_str());
+							return;
+						}
 
-			nbl::ext::imgui::UI::SCreationParameters params;
+						// Update current scene
+						m_currentScene = std::move(newScene);
+						m_currentScenePath = path;
 
-			params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
-			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
-			params.assetManager = m_assetMgr;
-			params.pipelineCache = nullptr;
-			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
-			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
-			params.streamingBuffer = nullptr;
-			params.subpassIx = 0u;
-			params.transfer = getGraphicsQueue();
-			params.utilities = m_utils;
-			{
-				m_ui.manager = ext::imgui::UI::create(std::move(params));
+						// Update UI
+						if (m_uiManager)
+							m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
 
-				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
-				const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
-				const auto& params = m_ui.manager->getCreationParameters();
+						m_logger->log("Scene loaded successfully: %s", ILogger::ELL_INFO, path.c_str());
+					},
+					.onReloadSceneRequested = [this]() {
+						if (m_currentScenePath.empty())
+						{
+							m_logger->log("No scene to reload", ILogger::ELL_WARNING);
+							return;
+						}
 
-				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = (uint32_t)nbl::ext::imgui::UI::DefaultSamplerIx::COUNT;
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = MaxUITextureCount;
-				descriptorPoolInfo.maxSets = 1u;
-				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
+						m_logger->log("Reloading scene: %s", ILogger::ELL_INFO, m_currentScenePath.c_str());
 
-				m_guiDescriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
-				assert(m_guiDescriptorSetPool);
+						// Reload the scene
+						auto loadResult = m_sceneLoader->load({
+							.relPath = m_currentScenePath,
+							.workingDirectory = localOutputCWD
+						});
 
-				m_guiDescriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &m_ui.descriptorSet);
-				assert(m_ui.descriptorSet);
-			}
-		}
+						if (!loadResult)
+						{
+							m_logger->log("Failed to reload scene: %s", ILogger::ELL_ERROR, m_currentScenePath.c_str());
+							return;
+						}
 
-		m_ui.manager->registerListener(
-			[this]() -> void {
-				ImGuiIO& io = ImGui::GetIO();
+						auto newScene = m_renderer->createScene({
+							.load = std::move(loadResult),
+							.converter = nullptr
+						});
 
-				m_camera.setProjectionMatrix([&]()
-					{
-						static matrix4SIMD projection;
+						if (!newScene)
+						{
+							m_logger->log("Failed to create scene from: %s", ILogger::ELL_ERROR, m_currentScenePath.c_str());
+							return;
+						}
 
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
-							core::radians(m_cameraSetting.fov),
-							io.DisplaySize.x / io.DisplaySize.y,
-							m_cameraSetting.zNear,
-							m_cameraSetting.zFar);
+						m_currentScene = std::move(newScene);
 
-						return projection;
-					}());
+						if (m_uiManager)
+							m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
 
-				ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
-				ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
+						m_logger->log("Scene reloaded successfully", ILogger::ELL_INFO);
+					},
+					// Session callbacks
+					.onRenderModeChanged = [this](CSession::RenderMode mode, CSession* session) {
+						// Recreate session with new mode
+						if (session)
+						{
+							const CSession::SConstructionParams& params = session->getConstructionParams();
+							auto creationParams = params; // Copy params
+							creationParams.mode = mode;	
 
-				// create a window and insert the inspector
-				ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
-				ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-				ImGui::Begin("Controls");
+							// TODO: Actually recreate the session. For now just log.
+							m_logger->log("Render mode changed to %d (Recreation TODO)", ILogger::ELL_INFO, mode);
+						}
+					},
+					.onResolutionChanged = [this](uint16_t w, uint16_t h) {
+						m_logger->log("Resolution changed to %dx%d (TODO)", ILogger::ELL_INFO, w, h);
+					},
+					.onMutablesChanged = [this](const SSensorDynamics& dyn, CSession* session) {
+						session->update(dyn);
+					m_logger->log("Mutables changed (Reset TODO)", ILogger::ELL_INFO);
+				    },
+				        .onDynamicsChanged = [this](const SSensorDynamics& dyn, CSession* session) {
+				        	session->update(dyn);
+				    },
+				    .onBufferSelected = [this](int id) {
+    					    m_logger->log("Buffer %d selected (TODO)", ILogger::ELL_INFO, id);
+                    }
+                };
 
-				ImGui::SameLine();
+    			if (!m_uiManager->init(uiInitParams))
+    				return logFail("Failed to initialize CUIManager");
 
-				ImGui::Text("Camera");
 
-				ImGui::SliderFloat("Move speed", &m_cameraSetting.moveSpeed, 0.1f, 10.f);
-				ImGui::SliderFloat("Rotate speed", &m_cameraSetting.rotateSpeed, 0.1f, 10.f);
-				ImGui::SliderFloat("Fov", &m_cameraSetting.fov, 20.f, 150.f);
-				ImGui::SliderFloat("zNear", &m_cameraSetting.zNear, 0.1f, 100.f);
-				ImGui::SliderFloat("zFar", &m_cameraSetting.zFar, 110.f, 10000.f);
-				Light m_oldLight = m_light;
-				int light_type = m_light.type;
-				ImGui::ListBox("LightType", &light_type, s_lightTypeNames, ELT_COUNT);
-				m_light.type = static_cast<E_LIGHT_TYPE>(light_type);
-				if (m_light.type == ELT_DIRECTIONAL)
-				{
-					ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
-				}
-				else if (m_light.type == ELT_POINT)
-				{
-					ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
-				}
-				else if (m_light.type == ELT_SPOT)
-				{
-					ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
-					ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
+    			// Set up UI with the initially loaded scene
+    			if (m_currentScene)
+    				m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
 
-					float32_t dOuterCutoff = hlsl::degrees(acos(m_light.outerCutoff));
-					if (ImGui::SliderFloat("Light Outer Cutoff", &dOuterCutoff, 0.0f, 45.0f))
-					{
-						m_light.outerCutoff = cos(hlsl::radians(dOuterCutoff));
-					}
-				}
-				ImGui::Checkbox("Use Indirect Command", &m_useIndirectCommand);
-				if (m_light != m_oldLight)
-				{
-					m_frameAccumulationCounter = 0;
-				}
+    			// Create initial session from first sensor so GUI has something to display
+    			if (m_currentScene && !m_currentScene->getSensors().empty())
+    			{
+    				const auto& sensors = m_currentScene->getSensors();
+    				auto initialSession = m_currentScene->createSession({
+    					{.mode = CSession::RenderMode::Debug},
+    					&sensors.front()
+    					});
 
-				ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
+    				m_pendingSession = std::move(initialSession);
+    			}
+    		}
 
-				ImGui::End();
-			}
-		);
-#endif
-		}
+    		return true;
+    	}
 
-#if 0 // gui
-	bool updateGUIDescriptorSet()
-	{
-		// texture atlas, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
-		static std::array<IGPUDescriptorSet::SDescriptorInfo, MaxUITextureCount> descriptorInfo;
-		static IGPUDescriptorSet::SWriteDescriptorSet writes[MaxUITextureCount];
+    	inline void workLoopBody() override
+    	{
+    		if (m_args.headless)
+    		{
+    			CSession* session = m_resolver->getActiveSession();
+    			while (!session || session->getProgress() >= 1.f)
+    			{
+    				if (m_sessionQueue.empty())
+    					return;
+    				session = m_sessionQueue.front().get();
+    				// init
+    				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [&session](SIntendedSubmitInfo& info)->bool
+    					{
+    						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+    					}
+    				);
+    				m_resolver->changeSession(std::move(m_sessionQueue.front()));
+    				m_sessionQueue.pop();
+    			}
 
-		descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-		descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = smart_refctd_ptr<IGPUImageView>(m_ui.manager->getFontAtlasView());
+    			// Headless rendering
+    			m_api->startCapture();
+    			IQueue::SSubmitInfo::SSemaphoreInfo rendered = {};
+    			{
+    				auto deferredSubmit = m_renderer->render(session);
+    				if (deferredSubmit)
+    				{
+    					IGPUCommandBuffer* const cb = deferredSubmit;
+    					if (session->getProgress() >= 1.f)
+    						m_resolver->resolve(cb, nullptr);
+    					rendered = deferredSubmit({});
+    				}
+    			}
+    			m_api->endCapture();
+    		}
+    		else
+    		{
+    			// GUI mode: check for pending session from double-click
+    			if (m_pendingSession)
+    			{
+    				auto pendingSession = m_pendingSession.get();
+    				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [pendingSession](SIntendedSubmitInfo& info)->bool
+    					{
+    						return pendingSession->init(info.getCommandBufferForRecording()->cmdbuf);
+    					}
+    				);
+    				m_resolver->changeSession(std::move(m_pendingSession));
 
-		for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
-		{
-			writes[i].dstSet = m_ui.descriptorSet.get();
-			writes[i].binding = 0u;
-			writes[i].arrayElement = i;
-			writes[i].count = 1u;
-		}
-		writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
+    				// Reposition UI windows after session change (window will resize)
+    				if (m_uiManager)
+    					m_uiManager->resetWindowPositions();
+    			}
+    			CSession* session = m_resolver->getActiveSession();
 
-		return m_device->updateDescriptorSets(writes, {});
-	}
-#endif
+    			// Render session if we have one
+    			IQueue::SSubmitInfo::SSemaphoreInfo rendered = {};
+    			if (session)
+    			{
+    				m_api->startCapture();
+    				{
+    					auto deferredSubmit = m_renderer->render(session);
+    					if (deferredSubmit)
+    					{
+    						IGPUCommandBuffer* const cb = deferredSubmit;
+    						m_resolver->resolve(cb, nullptr);
+    						rendered = deferredSubmit({});
+    					}
+    				}
+    				m_api->endCapture();
+    			}
 
-		inline void workLoopBody() override
-		{
-			CSession* session;
-			volatile bool skip = false; // skip using the debugger
-			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
-			{
-				skip = false;
-				if (m_sessionQueue.empty())
-				{
-					if (!m_args.headless)
-						handleInputs();
-					return;
-				}
-				session = m_sessionQueue.front().get();
-				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
-					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
-					}
-				);
-				m_resolver->changeSession(std::move(m_sessionQueue.front()));
-				m_sessionQueue.pop();
-			}
+    			// Acquire swapchain image (may resize window based on session resolution)
+    			m_presenter->acquire(session);
 
-			m_api->startCapture();
-			IQueue::SSubmitInfo::SSemaphoreInfo rendered = {};
-			{
-				auto deferredSubmit = m_renderer->render(session);
-				if (deferredSubmit)
-				{
-					IGPUCommandBuffer* const cb = deferredSubmit;
-					if (!m_args.headless || session->getProgress()>=1.f)
-					{
-						m_resolver->resolve(cb,nullptr);
-					}
-					rendered = deferredSubmit({});
-				}
-			}
-			m_api->endCapture();
+    			// Handle inputs AFTER acquire so ImGui viewport has correct size
+    			handleInputs();
+    			if (!keepRunning())
+    				return;
 
-			if (m_args.headless)
-				return;
-			handleInputs();
-			if (!keepRunning())
-				return;
+    			if (m_uiManager)
+    			{
+    				m_uiManager->setSession(session);
+    				m_uiManager->drawWindows();
 
-			m_presenter->acquire(session);
-			auto* const cb = m_presenter->beginRenderpass();
-			{
-				// can do additional stuff like ImGUI work here
-			}
-			m_presenter->endRenderpassAndPresent(rendered);
-#if 0 // gui
+    				const ISemaphore::SWaitInfo drawFinished = {
+    					.semaphore = m_presenter->getSemaphore(),
+    					.value = m_presenter->getPresentCount() + 1
+    				};
 
-// ...
-		const auto uiParams = m_ui.manager->getCreationParameters();
-		auto* uiPipeline = m_ui.manager->getPipeline();
-		cmdbuf->bindGraphicsPipeline(uiPipeline);
-		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, uiPipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get());
-		ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
-		m_ui.manager->render(cmdbuf, waitInfo);
+    				// Render ImGui
+    				auto* const cb = m_presenter->beginRenderpass();
+    				if (!m_uiManager->render(cb, drawFinished))
+    					m_logger->log("UI Render failed", ILogger::ELL_ERROR);
+    				m_presenter->endRenderpassAndPresent(rendered);
+    			}
+    		}
+    	}
 
-			{
-				{
+    	inline void handleInputs()
+    	{
+    		if (m_args.headless)
+    			return;
 
-					updateGUIDescriptorSet();
+    		m_inputSystem->getDefaultMouse(&m_mouse);
+    		m_inputSystem->getDefaultKeyboard(&m_keyboard);
 
-				}
-			}
-#endif
-		}
+    		struct
+    		{
+    			std::vector<SMouseEvent> mouse{};
+    			std::vector<SKeyboardEvent> keyboard{};
+    		} capturedEvents;
 
-		inline void handleInputs()
-		{
-			if (m_args.headless)
-				return;
+    		static std::chrono::microseconds previousEventTimestamp{};
+    		m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+    			{
+    				for (const auto& e : events) // here capture
+    				{
+    					if (e.timeStamp < previousEventTimestamp)
+    						continue;
 
-			m_inputSystem->getDefaultMouse(&m_mouse);
-			m_inputSystem->getDefaultKeyboard(&m_keyboard);
+    					previousEventTimestamp = e.timeStamp;
+    					capturedEvents.mouse.emplace_back(e);
 
-			struct
-			{
-				std::vector<SMouseEvent> mouse{};
-				std::vector<SKeyboardEvent> keyboard{};
-			} capturedEvents;
+    				}
+    			}, m_logger.get()
+    				);
+    		m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+    			{
+    				for (const auto& e : events) // here capture
+    				{
+    					if (e.timeStamp < previousEventTimestamp)
+    						continue;
 
-//			const auto& io = ImGui::GetIO();
-			static std::chrono::microseconds previousEventTimestamp{};
-			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-				{
-					for (const auto& e : events) // here capture
-					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
+    					previousEventTimestamp = e.timeStamp;
+    					capturedEvents.keyboard.emplace_back(e);
+    				}
+    			}, m_logger.get()
+    				);
 
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.mouse.emplace_back(e);
+    		if (m_uiManager)
+    		{
+    			const SRange<const SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+    			const SRange<const SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
-					}
-				}, m_logger.get()
-			);
-			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-				{
-					for (const auto& e : events) // here capture
-					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
+    			auto* window = m_presenter->getWindow();
+    			const auto cursorPosition = window->getCursorControl()->getPosition();
+    			const auto mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(window->getX(), window->getY());
 
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.keyboard.emplace_back(e);
-					}
-				}, m_logger.get()
-			);
-#if 0 // ui
-			const SRange<const SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
-			const SRange<const SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
-			const auto cursorPosition = m_window->getCursorControl()->getPosition();
-			const auto mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY());
+    			const nbl::ext::imgui::UI::SUpdateParameters params =
+    			{
+    				.mousePosition = mousePosition,
+    				.displaySize = { window->getWidth(), window->getHeight() },
+    				.mouseEvents = mouseEvents,
+    				.keyboardEvents = keyboardEvents
+    			};
+    			m_uiManager->update(params);
+    		}
+    	}
 
-			const nbl::ext::imgui::UI::SUpdateParameters params =
-			{
-				.mousePosition = mousePosition,
-				.displaySize = { m_window->getWidth(), m_window->getHeight() },
-				.mouseEvents = mouseEvents,
-				.keyboardEvents = keyboardEvents
-			};
-			m_ui.manager->update(params);
-#endif
-		}
+    	inline bool keepRunning() override
+    	{
+    		if (m_args.headless)
+    		{
+    			if (auto* const currentSession = m_resolver->getActiveSession(); m_sessionQueue.empty() && (!currentSession || currentSession->getProgress() >= 1.f))
+    				return false;
+    			return true;
+    		}
+    		else
+    			return !m_presenter->irrecoverable();
+    	}
 
-		inline bool keepRunning() override
-		{
-			if (m_args.headless)
-			{
-				if (auto* const currentSession=m_resolver->getActiveSession(); m_sessionQueue.empty() && (!currentSession || currentSession->getProgress()>=1.f))
-					return false;
-				return true;
-			}
-			else 
-				return !m_presenter->irrecoverable();
-		}
+    	inline bool onAppTerminated() override
+    	{
+    		return device_base_t::onAppTerminated();
+    	}
 
-		inline bool onAppTerminated() override
-		{
-			return device_base_t::onAppTerminated();
-		}
-
-	private:
-		AppArguments m_args = {};
-		//
-		smart_refctd_ptr<InputSystem> m_inputSystem;
-		InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
-		InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
-		// 
-		smart_refctd_ptr<CWindowPresenter> m_presenter;
-		//
-		smart_refctd_ptr<CRenderer> m_renderer;
-		smart_refctd_ptr<CBasicRWMCResolver> m_resolver;
-		//
-		smart_refctd_ptr<CSceneLoader> m_sceneLoader;
-		//
-		nbl::core::queue<smart_refctd_ptr<CSession>> m_sessionQueue;
-
-#if 0 // gui
-	struct C_UI
-	{
-		nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
-
-		struct
-		{
-			core::smart_refctd_ptr<video::IGPUSampler> gui, scene;
-		} samplers;
-
-		core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
-	} m_ui;
-	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
-#endif
+    private:
+    	AppArguments m_args = {};
+    	//
+    	smart_refctd_ptr<InputSystem> m_inputSystem;
+    	InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
+    	InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
+    	// 
+        smart_refctd_ptr<CWindowPresenter> m_presenter;
+        //  
+        smart_refctd_ptr<CRenderer> m_renderer;
+        smart_refctd_ptr<CBasicRWMCResolver> m_resolver;
+        //
+        smart_refctd_ptr<CSceneLoader> m_sceneLoader;
+        //
+        nbl::core::queue<smart_refctd_ptr<CSession>> m_sessionQueue; // for headless mode
+        smart_refctd_ptr<CSession> m_pendingSession; // for GUI mode (set by double-clicking sensor)
+        //
+        smart_refctd_ptr<CScene> m_currentScene;
+        std::string m_currentScenePath;
+        smart_refctd_ptr<gui::CUIManager> m_uiManager;
 
 };
 NBL_MAIN_FUNC(PathTracingApp)
