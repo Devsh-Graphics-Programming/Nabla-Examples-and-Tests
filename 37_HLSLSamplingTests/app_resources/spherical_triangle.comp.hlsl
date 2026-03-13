@@ -1,10 +1,11 @@
 #pragma shader_stage(compute)
 
-#include "common/spherical_triangle_jacobian.hlsl"
+#include "common/spherical_triangle.hlsl"
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<SphericalTriangleJacobianInputValues> inputTestValues;
-[[vk::binding(1, 0)]] RWStructuredBuffer<SphericalTriangleJacobianTestResults> outputTestValues;
+[[vk::binding(0, 0)]] RWStructuredBuffer<SphericalTriangleInputValues> inputTestValues;
+[[vk::binding(1, 0)]] RWStructuredBuffer<SphericalTriangleTestResults> outputTestValues;
 
 [numthreads(64, 1, 1)]
 [shader("compute")]
@@ -22,24 +23,24 @@ void main()
 	shape.csc_sides = float32_t3(1.0f, 1.0f, 1.0f);
 	sampling::SphericalTriangle<float32_t> sampler = sampling::SphericalTriangle<float32_t>::create(shape);
 
-	const float32_t2 baseU = frac(float32_t(invID) * float32_t2(0.6180339887f, 0.7548776662f));
+	nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));
+	const float32_t toFloat = asfloat(0x2f800004u);
 	uint32_t3 accDir = (uint32_t3)0;
 	uint32_t accPdf = 0u;
-	[loop]
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
-		float32_t2 u = frac(baseU + float32_t(i) * float32_t2(0.6180339887f, 0.7548776662f));
-		float32_t rcpPdf;
-		float32_t3 generated = sampler.generate(rcpPdf, u);
+		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
+		sampling::SphericalTriangle<float32_t>::cache_type cache;
+		float32_t3 generated = sampler.generate(u, cache);
 		accDir ^= asuint(generated);
-		accPdf ^= asuint(rcpPdf);
+		accPdf ^= asuint(sampler.forwardPdf(cache));
 	}
-	SphericalTriangleJacobianTestResults result = (SphericalTriangleJacobianTestResults)0;
+	SphericalTriangleTestResults result = (SphericalTriangleTestResults)0;
 	result.generated = asfloat(accDir);
-	result.forwardRcpPdf = asfloat(accPdf);
+	result.forwardPdf = asfloat(accPdf);
 	outputTestValues[invID] = result;
 #else
-	SphericalTriangleJacobianTestExecutor executor;
+	SphericalTriangleTestExecutor executor;
 	executor(inputTestValues[invID], outputTestValues[invID]);
 #endif
 }

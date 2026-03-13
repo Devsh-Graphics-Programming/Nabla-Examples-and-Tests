@@ -9,14 +9,47 @@ endif()
 
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
+set(DEPENDS
+    app_resources/test_compile.comp.hlsl
+    app_resources/linear_test.comp.hlsl
+    app_resources/uniform_hemisphere_test.comp.hlsl
+    app_resources/uniform_sphere_test.comp.hlsl
+    app_resources/projected_hemisphere_test.comp.hlsl
+    app_resources/projected_sphere_test.comp.hlsl
+    app_resources/spherical_triangle.comp.hlsl
+    app_resources/concentric_mapping_test.comp.hlsl
+    app_resources/bilinear_test.comp.hlsl
+    app_resources/box_muller_transform_test.comp.hlsl
+    app_resources/projected_spherical_triangle_test.comp.hlsl
+    app_resources/spherical_rectangle_test.comp.hlsl
+    app_resources/common/linear.hlsl
+    app_resources/common/uniform_hemisphere.hlsl
+    app_resources/common/uniform_sphere.hlsl
+    app_resources/common/projected_hemisphere.hlsl
+    app_resources/common/projected_sphere.hlsl
+    app_resources/common/spherical_triangle.hlsl
+    app_resources/common/bilinear.hlsl
+    app_resources/common/box_muller_transform.hlsl
+    app_resources/common/projected_spherical_triangle.hlsl
+    app_resources/common/spherical_rectangle.hlsl
+    app_resources/common/concentric_mapping.hlsl
+)
+list(TRANSFORM DEPENDS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+
 target_sources(${EXECUTABLE_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/CLinearTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CUniformHemisphereTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CUniformSphereTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedHemisphereTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphereTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleJacobianTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CConcentricMappingTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CBilinearTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CBoxMullerTransformTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphericalTriangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalRectangleTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CSamplerBenchmark.h"
+    ${DEPENDS}
 )
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
@@ -91,12 +124,57 @@ set(JSON [=[
     "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
   },
   {
-    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
-    "KEY": "spherical_triangle_jacobian"
+    "INPUT": "app_resources/spherical_triangle.comp.hlsl",
+    "KEY": "spherical_triangle"
   },
   {
-    "INPUT": "app_resources/spherical_triangle_jacobian.comp.hlsl",
+    "INPUT": "app_resources/spherical_triangle.comp.hlsl",
     "KEY": "spherical_triangle_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/concentric_mapping_test.comp.hlsl",
+    "KEY": "concentric_mapping_test"
+  },
+  {
+    "INPUT": "app_resources/concentric_mapping_test.comp.hlsl",
+    "KEY": "concentric_mapping_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/bilinear_test.comp.hlsl",
+    "KEY": "bilinear_test"
+  },
+  {
+    "INPUT": "app_resources/bilinear_test.comp.hlsl",
+    "KEY": "bilinear_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/box_muller_transform_test.comp.hlsl",
+    "KEY": "box_muller_transform_test"
+  },
+  {
+    "INPUT": "app_resources/box_muller_transform_test.comp.hlsl",
+    "KEY": "box_muller_transform_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/projected_spherical_triangle_test.comp.hlsl",
+    "KEY": "projected_spherical_triangle_test"
+  },
+  {
+    "INPUT": "app_resources/projected_spherical_triangle_test.comp.hlsl",
+    "KEY": "projected_spherical_triangle_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/spherical_rectangle_test.comp.hlsl",
+    "KEY": "spherical_rectangle_test"
+  },
+  {
+    "INPUT": "app_resources/spherical_rectangle_test.comp.hlsl",
+    "KEY": "spherical_rectangle_bench",
     "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
   }
 ]

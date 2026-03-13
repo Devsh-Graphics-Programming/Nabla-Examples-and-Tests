@@ -35,7 +35,25 @@ private:
 	{
 		bool pass = true;
 		pass &= verifyTestValue("ProjectedHemisphere::generate", expected.generated, actual.generated, iteration, seed, testType, 5e-5, 5e-5);
-		pass &= verifyTestValue("ProjectedHemisphere::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 5e-5, 5e-5);
+		pass &= verifyTestValue("ProjectedHemisphere::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 5e-5, 5e-5);
+		pass &= verifyTestValue("ProjectedHemisphere::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 5e-5, 5e-5);
+		pass &= verifyTestValue("ProjectedHemisphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("ProjectedHemisphere::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 5e-5, 5e-5);
+		pass &= verifyTestValue("ProjectedHemisphere::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-1, 1e-2);
+		pass &= verifyTestValue("ProjectedHemisphere::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 5e-4, 1e-4);
+		pass &= verifyTestValue("ProjectedHemisphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+
+		if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
+		{
+			pass = false;
+			printTestFail("ProjectedHemisphere::forwardPdf (positive & finite)", 1.0f, actual.forwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+		if (!(actual.backwardPdf > 0.0f) || !std::isfinite(actual.backwardPdf))
+		{
+			pass = false;
+			printTestFail("ProjectedHemisphere::backwardPdf (positive & finite)", 1.0f, actual.backwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+
 		return pass;
 	}
 };

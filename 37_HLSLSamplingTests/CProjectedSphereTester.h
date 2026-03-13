@@ -35,8 +35,27 @@ private:
 	{
 		bool pass = true;
 		pass &= verifyTestValue("ProjectedSphere::generate", expected.generated, actual.generated, iteration, seed, testType, 5e-5, 5e-5);
-		pass &= verifyTestValue("ProjectedSphere::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("ProjectedSphere::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("ProjectedSphere::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("ProjectedSphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ProjectedSphere::modifiedU", expected.modifiedU, actual.modifiedU, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("ProjectedSphere::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 5e-5, 5e-5);
+		pass &= verifyTestValue("ProjectedSphere::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		// roundtripError covers only xy (z is intentionally lossy in generateInverse)
+		pass &= verifyTestValue("ProjectedSphere::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
+		pass &= verifyTestValue("ProjectedSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+
+		if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
+		{
+			pass = false;
+			printTestFail("ProjectedSphere::forwardPdf (positive & finite)", 1.0f, actual.forwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+		if (!(actual.backwardPdf > 0.0f) || !std::isfinite(actual.backwardPdf))
+		{
+			pass = false;
+			printTestFail("ProjectedSphere::backwardPdf (positive & finite)", 1.0f, actual.backwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+
 		return pass;
 	}
 };

@@ -27,11 +27,16 @@ using namespace nbl::examples;
 
 // ITester-based testers
 #include "CLinearTester.h"
+#include "CBilinearTester.h"
 #include "CUniformHemisphereTester.h"
 #include "CUniformSphereTester.h"
 #include "CProjectedHemisphereTester.h"
 #include "CProjectedSphereTester.h"
-#include "CSphericalTriangleJacobianTester.h"
+#include "CConcentricMappingTester.h"
+#include "CSphericalTriangleTester.h"
+#include "CBoxMullerTransformTester.h"
+#include "CProjectedSphericalTriangleTester.h"
+#include "CSphericalRectangleTester.h"
 
 #include "CSamplerBenchmark.h"
 
@@ -74,8 +79,9 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 		return data;
 	}
 
-		public:
-	HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) : system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+public:
+	HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+		: system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -115,35 +121,57 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 		// ================================================================
 
 		// --- BasicSampler (level 1) --- generate(domain_type) -> codomain_type
-		static_assert(sampling::concepts::BasicSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::BasicSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::BasicSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::BasicSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::BasicSampler<sampling::ProjectedSphere<float>>);
+		// Note: all samplers almost satisfy BasicSampler, but they have cache parameters in generate().
+		static_assert(sampling::concepts::BasicSampler<sampling::ConcentricMapping<float32_t>>);
 
-		// TODO: remaining samplers need generate(domain_type)->codomain_type overload to satisfy BasicSampler:
-		//   Bilinear					- generate takes (rcpPdf, u), needs single-arg overload
-		//   SphericalTriangle			- generate takes (rcpPdf, u), needs single-arg overload
-		//   SphericalRectangle			- generate takes (extents, uv, S), needs single-arg overload
-		//   BoxMullerTransform			- uses operator() instead of generate
-		//   ProjectedSphericalTriangle - generate takes (rcpPdf, normal, isBSDF, u)
-		//   Concentric_mapping			- is a free function, needs to be wrapped in a struct with concept type aliases
+		// --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(cache_type) -> density_type
+		static_assert(sampling::concepts::TractableSampler<sampling::Linear<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::Bilinear<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::UniformHemisphere<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::UniformSphere<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedHemisphere<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphere<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::SphericalTriangle<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::SphericalRectangle<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::BoxMullerTransform<float>>);
+		static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
 
-		// TODO: higher-level concepts require method refactoring:
-		// --- InvertibleSampler (level 3) --- needs generate(domain_type)->sample_type, forwardPdf, backwardPdf
-		//static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalRectangle<float>>);
-		//static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalTriangle<float>>);
-		// static_assert(sampling::concepts::InvertibleSampler<sampling::BoxMullerTransform<float>>);
-		// static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedSphericalTriangle<float>>);
-		// --- BijectiveSampler (level 4) --- needs + invertGenerate(codomain_type)->inverse_sample_type
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::Linear<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::Bilinear<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedSphere<float>>);
-		//static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float>>);
-		// static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
+		// --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(cache_type), backwardWeight(codomain_type)
+		static_assert(sampling::concepts::ResamplableSampler<sampling::Linear<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::Bilinear<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::UniformHemisphere<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::UniformSphere<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedHemisphere<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphere<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalTriangle<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalTriangle<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::BoxMullerTransform<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
+		static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
+
+		// --- InvertibleSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(cache_type), backwardWeight(codomain_type)
+		static_assert(sampling::concepts::InvertibleSampler<sampling::Linear<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::Bilinear<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::UniformHemisphere<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::UniformSphere<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedHemisphere<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedSphere<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalTriangle<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedSphericalTriangle<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalRectangle<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::BoxMullerTransform<float>>);
+		static_assert(sampling::concepts::InvertibleSampler<sampling::ConcentricMapping<float32_t>>);
+
+		// --- BijectiveSampler (level 4) --- InvertibleSampler + generateInverse(codomain_type, out cache_type) -> domain_type
+		static_assert(sampling::concepts::BijectiveSampler<sampling::Linear<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::Bilinear<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedSphere<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float>>);
+		static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
 
 		m_logger->log("All sampling concept tests passed.", ILogger::ELL_INFO);
 
@@ -155,13 +183,20 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 		const uint32_t testBatchCount = 64; // 64 * workgroupSize = 4096 tests per sampler
 
 
-		// --- BasicSampler tests ---
+		// --- Sampler tests ---
 		{
 			m_logger->log("Running Linear sampler tests...", ILogger::ELL_INFO);
 			auto data = createSetupData<CLinearTester>(nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()));
 			CLinearTester tester(testBatchCount, workgroupSize);
 			tester.setupPipeline(data);
 			pass &= tester.performTestsAndVerifyResults("LinearTestLog.txt");
+		}
+		{
+			m_logger->log("Running Bilinear sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CBilinearTester>(nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()));
+			CBilinearTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("BilinearTestLog.txt");
 		}
 		{
 			m_logger->log("Running UniformHemisphere sampler tests...", ILogger::ELL_INFO);
@@ -191,14 +226,40 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 			tester.setupPipeline(data);
 			pass &= tester.performTestsAndVerifyResults("ProjectedSphereTestLog.txt");
 		}
-
-		// --- Jacobian tests for bijective samplers ---
 		{
-			m_logger->log("Running SphericalTriangle Jacobian tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CSphericalTriangleJacobianTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_jacobian">(m_device.get()));
-			CSphericalTriangleJacobianTester tester(testBatchCount, workgroupSize);
+			m_logger->log("Running ConcentricMapping sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CConcentricMappingTester>(nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()));
+			CConcentricMappingTester tester(testBatchCount, workgroupSize);
 			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("SphericalTriangleJacobianTestLog.txt");
+			pass &= tester.performTestsAndVerifyResults("ConcentricMappingTestLog.txt");
+		}
+		{
+			m_logger->log("Running BoxMullerTransform sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CBoxMullerTransformTester>(nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()));
+			CBoxMullerTransformTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("BoxMullerTransformTestLog.txt");
+		}
+		{
+			m_logger->log("Running ProjectedSphericalTriangle sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CProjectedSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()));
+			CProjectedSphericalTriangleTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("ProjectedSphericalTriangleTestLog.txt");
+		}
+		{
+			m_logger->log("Running SphericalRectangle sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CSphericalRectangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()));
+			CSphericalRectangleTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("SphericalRectangleTestLog.txt");
+		}
+		{
+			m_logger->log("Running SphericalTriangle tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()));
+			CSphericalTriangleTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("SphericalTriangleTestLog.txt");
 		}
 
 		if (pass)
@@ -212,26 +273,44 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 		if constexpr (DoBenchmark)
 		{
 			m_logger->log("=== GPU Sampler Benchmarks ===", ILogger::ELL_PERFORMANCE);
-			constexpr uint32_t totalItems = testBatchCount * workgroupSize;
-			constexpr uint32_t benchIters = 4096; // internal to shader, set in CMakeLists.txt
-			constexpr uint32_t benchSamplesPerDispatch = totalItems * benchIters;
+			constexpr uint32_t totalSamplesPerWorkgroup = testBatchCount * workgroupSize;
+			constexpr uint32_t iteratationsPerThread = 4096; // internal to shader, set in CMakeLists.txt
+			constexpr uint32_t benchSamplesPerDispatch = totalSamplesPerWorkgroup * iteratationsPerThread;
 
 			{
 				CSamplerBenchmark bench;
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(LinearInputValues) * totalItems,
-					sizeof(LinearTestResults) * totalItems));
+					sizeof(LinearInputValues) * totalSamplesPerWorkgroup,
+					sizeof(LinearTestResults) * totalSamplesPerWorkgroup));
 				bench.run("Linear");
+			}
+			{
+				CSamplerBenchmark bench;
+				bench.setup(createBenchmarkSetupData(
+					nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()),
+					testBatchCount, benchSamplesPerDispatch,
+					sizeof(BilinearInputValues) * totalSamplesPerWorkgroup,
+					sizeof(BilinearTestResults) * totalSamplesPerWorkgroup));
+				bench.run("Bilinear");
+			}
+			{
+				CSamplerBenchmark bench;
+				bench.setup(createBenchmarkSetupData(
+					nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()),
+					testBatchCount, benchSamplesPerDispatch,
+					sizeof(BoxMullerTransformInputValues) * totalSamplesPerWorkgroup,
+					sizeof(BoxMullerTransformTestResults) * totalSamplesPerWorkgroup));
+				bench.run("BoxMullerTransform");
 			}
 			{
 				CSamplerBenchmark bench;
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(UniformHemisphereInputValues) * totalItems,
-					sizeof(UniformHemisphereTestResults) * totalItems));
+					sizeof(UniformHemisphereInputValues) * totalSamplesPerWorkgroup,
+					sizeof(UniformHemisphereTestResults) * totalSamplesPerWorkgroup));
 				bench.run("UniformHemisphere");
 			}
 			{
@@ -239,8 +318,8 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(UniformSphereInputValues) * totalItems,
-					sizeof(UniformSphereTestResults) * totalItems));
+					sizeof(UniformSphereInputValues) * totalSamplesPerWorkgroup,
+					sizeof(UniformSphereTestResults) * totalSamplesPerWorkgroup));
 				bench.run("UniformSphere");
 			}
 			{
@@ -248,8 +327,8 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(ProjectedHemisphereInputValues) * totalItems,
-					sizeof(ProjectedHemisphereTestResults) * totalItems));
+					sizeof(ProjectedHemisphereInputValues) * totalSamplesPerWorkgroup,
+					sizeof(ProjectedHemisphereTestResults) * totalSamplesPerWorkgroup));
 				bench.run("ProjectedHemisphere");
 			}
 			{
@@ -257,18 +336,36 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(ProjectedSphereInputValues) * totalItems,
-					sizeof(ProjectedSphereTestResults) * totalItems));
+					sizeof(ProjectedSphereInputValues) * totalSamplesPerWorkgroup,
+					sizeof(ProjectedSphereTestResults) * totalSamplesPerWorkgroup));
 				bench.run("ProjectedSphere");
+			}
+			{
+				CSamplerBenchmark bench;
+				bench.setup(createBenchmarkSetupData(
+					nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()),
+					testBatchCount, benchSamplesPerDispatch,
+					sizeof(SphericalRectangleInputValues) * totalSamplesPerWorkgroup,
+					sizeof(SphericalRectangleTestResults) * totalSamplesPerWorkgroup));
+				bench.run("SphericalRectangle");
 			}
 			{
 				CSamplerBenchmark bench;
 				bench.setup(createBenchmarkSetupData(
 					nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()),
 					testBatchCount, benchSamplesPerDispatch,
-					sizeof(SphericalTriangleJacobianInputValues) * totalItems,
-					sizeof(SphericalTriangleJacobianTestResults) * totalItems));
+					sizeof(SphericalTriangleInputValues) * totalSamplesPerWorkgroup,
+					sizeof(SphericalTriangleTestResults) * totalSamplesPerWorkgroup));
 				bench.run("SphericalTriangle");
+			}
+			{
+				CSamplerBenchmark bench;
+				bench.setup(createBenchmarkSetupData(
+					nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()),
+					testBatchCount, benchSamplesPerDispatch,
+					sizeof(ProjectedSphericalTriangleInputValues) * totalSamplesPerWorkgroup,
+					sizeof(ProjectedSphericalTriangleTestResults) * totalSamplesPerWorkgroup));
+				bench.run("ProjectedSphericalTriangle");
 			}
 		}
 

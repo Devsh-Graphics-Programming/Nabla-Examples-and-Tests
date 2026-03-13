@@ -1,12 +1,12 @@
-#ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_SPHERICAL_TRIANGLE_JACOBIAN_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_SPHERICAL_TRIANGLE_JACOBIAN_INCLUDED_
+#ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_SPHERICAL_TRIANGLE_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_SPHERICAL_TRIANGLE_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 
 using namespace nbl::hlsl;
 
-struct SphericalTriangleJacobianInputValues
+struct SphericalTriangleInputValues
 {
 	float32_t3 vertex0;
 	float32_t3 vertex1;
@@ -14,12 +14,13 @@ struct SphericalTriangleJacobianInputValues
 	float32_t2 u;
 };
 
-struct SphericalTriangleJacobianTestResults
+struct SphericalTriangleTestResults
 {
 	float32_t3 generated;
-	float32_t forwardRcpPdf;
 	float32_t2 inverted;
-	float32_t inversePdf;
+	float32_t cachedPdf;
+	float32_t forwardPdf;
+	float32_t backwardPdf;
 	float32_t roundtripError;
 	float32_t jacobianProduct;
 	// Minimum signed distance to a triangle edge (sin of angular distance to nearest great circle).
@@ -30,9 +31,9 @@ struct SphericalTriangleJacobianTestResults
 	float32_t invertedInDomain;
 };
 
-struct SphericalTriangleJacobianTestExecutor
+struct SphericalTriangleTestExecutor
 {
-	void operator()(NBL_CONST_REF_ARG(SphericalTriangleJacobianInputValues) input, NBL_REF_ARG(SphericalTriangleJacobianTestResults) output)
+	void operator()(NBL_CONST_REF_ARG(SphericalTriangleInputValues) input, NBL_REF_ARG(SphericalTriangleTestResults) output)
 	{
 		shapes::SphericalTriangle<float32_t> shape;
 		shape.vertices[0] = input.vertex0;
@@ -51,17 +52,27 @@ struct SphericalTriangleJacobianTestExecutor
 		sampling::SphericalTriangle<float32_t> sampler = sampling::SphericalTriangle<float32_t>::create(shape);
 
 		// Forward: u -> v
-		output.generated = sampler.generate(output.forwardRcpPdf, input.u);
+		{
+			sampling::SphericalTriangle<float32_t>::cache_type cache;
+			output.generated = sampler.generate(input.u, cache);
+			output.cachedPdf = cache.pdf;
+			output.forwardPdf = sampler.forwardPdf(cache);
+		}
+
 
 		// Inverse: v -> u'
-		output.inverted = sampler.generateInverse(output.inversePdf, output.generated);
-
+		{
+			sampling::SphericalTriangle<float32_t>::cache_type cache;
+			output.inverted = sampler.generateInverse(output.generated, cache);
+			// Backward: evaluate pdf at generated point (no cache needed)
+			output.backwardPdf = sampler.backwardPdf(output.generated);
+		}
 		// Roundtrip error: ||u - u'||
 		float32_t2 diff = input.u - output.inverted;
 		output.roundtripError = nbl::hlsl::length(diff);
 
-		// Jacobian product: rcpPdf * pdf should equal 1 for bijective samplers
-		output.jacobianProduct = output.forwardRcpPdf * output.inversePdf;
+		// Jacobian product: (1/forwardPdf) * backwardPdf should equal 1 for bijective samplers
+		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 
 		// Domain preservation:
 		// A point is inside the spherical triangle iff it is on the "inside" half-plane

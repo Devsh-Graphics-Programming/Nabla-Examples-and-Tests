@@ -14,18 +14,38 @@ struct ProjectedSphereInputValues
 struct ProjectedSphereTestResults
 {
 	float32_t3 generated;
-	float32_t pdf;
+	float32_t cachedPdf;
+	float32_t forwardPdf;
 	float32_t3 modifiedU;
+	float32_t3 inverted;
+	float32_t backwardPdf;
+	// Only xy round-trips accurately; z information is intentionally lost in generateInverse
+	// (it maps to 0 or 1 based on sign of generated.z, not the exact original value).
+	float32_t roundtripError;
+	float32_t jacobianProduct;
 };
 
 struct ProjectedSphereTestExecutor
 {
 	void operator()(NBL_CONST_REF_ARG(ProjectedSphereInputValues) input, NBL_REF_ARG(ProjectedSphereTestResults) output)
 	{
-		float32_t3 sample = input.u;
-		output.generated = sampling::ProjectedSphere<float32_t>::generate(sample);
-		output.pdf = sampling::ProjectedSphere<float32_t>::pdf(nbl::hlsl::abs(output.generated.z));
-		output.modifiedU = sample;
+		sampling::ProjectedSphere<float32_t> sampler;
+		{
+			sampling::ProjectedSphere<float32_t>::cache_type cache;
+			float32_t3 sample = input.u;
+			output.generated = sampler.generate(sample, cache);
+			output.cachedPdf = cache.pdf;
+			output.forwardPdf = sampler.forwardPdf(cache);
+			output.modifiedU = sample;
+		}
+		{
+			sampling::ProjectedSphere<float32_t>::cache_type cache;
+			output.inverted = sampler.generateInverse(output.generated, cache);
+			output.backwardPdf = sampler.backwardPdf(output.generated);
+		}
+		float32_t2 xyDiff = output.modifiedU.xy - output.inverted.xy;
+		output.roundtripError = nbl::hlsl::length(xyDiff);
+		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };
 

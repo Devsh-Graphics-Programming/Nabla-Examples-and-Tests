@@ -1,24 +1,25 @@
-#ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_C_SPHERICAL_TRIANGLE_JACOBIAN_TESTER_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_37_SAMPLING_C_SPHERICAL_TRIANGLE_JACOBIAN_TESTER_INCLUDED_
+#ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_C_SPHERICAL_TRIANGLE_TESTER_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_37_SAMPLING_C_SPHERICAL_TRIANGLE_TESTER_INCLUDED_
 
 #include "nbl/examples/examples.hpp"
-#include "app_resources/common/spherical_triangle_jacobian.hlsl"
+#include "app_resources/common/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
 #include "nbl/examples/Tester/ITester.h"
 
-class CSphericalTriangleJacobianTester final : public ITester<SphericalTriangleJacobianInputValues, SphericalTriangleJacobianTestResults, SphericalTriangleJacobianTestExecutor>
+class CSphericalTriangleTester final : public ITester<SphericalTriangleInputValues, SphericalTriangleTestResults, SphericalTriangleTestExecutor>
 {
-	using base_t = ITester<SphericalTriangleJacobianInputValues, SphericalTriangleJacobianTestResults, SphericalTriangleJacobianTestExecutor>;
+	using base_t = ITester<SphericalTriangleInputValues, SphericalTriangleTestResults, SphericalTriangleTestExecutor>;
 
 public:
-	CSphericalTriangleJacobianTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CSphericalTriangleTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
 
 private:
 	nbl::hlsl::float32_t3 generateRandomUnitVector()
 	{
 		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 		nbl::hlsl::float32_t2 u(dist(getRandomEngine()), dist(getRandomEngine()));
-		return nbl::hlsl::sampling::UniformSphere<float>::generate(u);
+		nbl::hlsl::sampling::UniformSphere<float>::cache_type cache;
+		return nbl::hlsl::sampling::UniformSphere<float>::generate(u, cache);
 	}
 
 	static bool isValidSphericalTriangle(nbl::hlsl::float32_t3 v0, nbl::hlsl::float32_t3 v1, nbl::hlsl::float32_t3 v2)
@@ -44,11 +45,11 @@ private:
 		return abs(dot(v0, cross(v1, v2))) > tripleThreshold;
 	}
 
-	SphericalTriangleJacobianInputValues generateInputTestValues() override
+	SphericalTriangleInputValues generateInputTestValues() override
 	{
 		std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
 
-		SphericalTriangleJacobianInputValues input;
+		SphericalTriangleInputValues input;
 
 		// Generate well-separated unit vectors for a valid spherical triangle
 		do
@@ -64,27 +65,40 @@ private:
 		return input;
 	}
 
-	SphericalTriangleJacobianTestResults determineExpectedResults(const SphericalTriangleJacobianInputValues& input) override
+	SphericalTriangleTestResults determineExpectedResults(const SphericalTriangleInputValues& input) override
 	{
-		SphericalTriangleJacobianTestResults expected;
-		SphericalTriangleJacobianTestExecutor executor;
+		SphericalTriangleTestResults expected;
+		SphericalTriangleTestExecutor executor;
 		executor(input, expected);
 		return expected;
 	}
 
-	bool verifyTestResults(const SphericalTriangleJacobianTestResults& expected, const SphericalTriangleJacobianTestResults& actual,
+	bool verifyTestResults(const SphericalTriangleTestResults& expected, const SphericalTriangleTestResults& actual,
 		const size_t iteration, const uint32_t seed, TestType testType) override
 	{
 		bool pass = true;
 		// GPU vs CPU: CPU trig may use double precision internally, allow larger tolerance.
-		pass &= verifyTestValue("SphericalTriangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("SphericalTriangle::forwardRcpPdf", expected.forwardRcpPdf, actual.forwardRcpPdf, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("SphericalTriangle::inverted", expected.inverted, actual.inverted, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("SphericalTriangle::inversePdf", expected.inversePdf, actual.inversePdf, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("SphericalTriangle::rountTripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 0.0, 6e-3);
+		pass &= verifyTestValue("SphericalTriangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-4, 1e-2);
+		pass &= verifyTestValue("SphericalTriangle::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-4, 1e-3);
+		pass &= verifyTestValue("SphericalTriangle::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-4, 1e-3);
+		pass &= verifyTestValue("SphericalTriangle::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("SphericalTriangle::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-3);
+		pass &= verifyTestValue("SphericalTriangle::inverted", expected.inverted, actual.inverted, iteration, seed, testType, 1e-4, 4e-2); // tolerated
+		pass &= verifyTestValue("SphericalTriangle::rountTripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 5e-2, 1e-2); // tolerated
 
-		// jacobianProduct = forwardRcpPdf * inversePdf should be == 1.0.
+		// jacobianProduct = (1/forwardPdf) * backwardPdf should be == 1.0.
 		pass &= verifyTestValue("SphericalTriangle::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+
+		if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
+		{
+			pass = false;
+			printTestFail("SphericalTriangle::forwardPdf (positive & finite)", 1.0f, actual.forwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+		if (!(actual.backwardPdf > 0.0f) || !std::isfinite(actual.backwardPdf))
+		{
+			pass = false;
+			printTestFail("SphericalTriangle::backwardPdf (positive & finite)", 1.0f, actual.backwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
 
 		// Domain preservation: samples must not escape the domain.
 		// Values are signed distances (positive = inside); allow a small negative

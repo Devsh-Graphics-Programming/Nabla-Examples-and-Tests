@@ -1,4 +1,4 @@
-// Compile test: instantiate sampling types to verify DXC compilation
+// Compile test: instantiate all sampling types and their concept-required methods to verify DXC compilation
 #include <nbl/builtin/hlsl/sampling/concentric_mapping.hlsl>
 #include <nbl/builtin/hlsl/sampling/linear.hlsl>
 #include <nbl/builtin/hlsl/sampling/bilinear.hlsl>
@@ -12,71 +12,148 @@ using namespace nbl::hlsl;
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<float32_t4> output;
 
-[numthreads(1, 1, 1)] 
+[numthreads(1, 1, 1)]
+[shader("compute")]
 void main()
 {
     float32_t2 u2 = float32_t2(0.5, 0.5);
     float32_t3 u3 = float32_t3(0.5, 0.5, 0.5);
     float32_t4 acc = float32_t4(0, 0, 0, 0);
 
-    // concentric mapping (free function)
-    float32_t2 concentric = sampling::concentricMapping<float32_t>(u2);
+    // ConcentricMapping — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+	sampling::ConcentricMapping<float32_t>::cache_type cache;
+	float32_t2 concentric = sampling::ConcentricMapping<float32_t>::generate(u2, cache);
     acc.xy += concentric;
+	acc.xy += sampling::ConcentricMapping<float32_t>::generateInverse(concentric, cache);
+	acc.x += sampling::ConcentricMapping<float32_t>::forwardPdf(cache);
+	acc.x += sampling::ConcentricMapping<float32_t>::backwardPdf(concentric);
+	acc.x += sampling::ConcentricMapping<float32_t>::forwardWeight(cache);
+	acc.x += sampling::ConcentricMapping<float32_t>::backwardWeight(concentric);
 
-    // Linear
+    // Linear — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
     sampling::Linear<float32_t> lin = sampling::Linear<float32_t>::create(u2);
-    acc.x += lin.generate(0.5f);
+    sampling::Linear<float32_t>::cache_type linCache;
+    float32_t linSample = lin.generate(0.5f, linCache);
+    acc.x += linSample;
+    acc.x += lin.forwardPdf(linCache);
+    acc.x += lin.forwardWeight(linCache);
+    acc.x += lin.generateInverse(linSample, linCache);
+    acc.x += lin.backwardPdf(linSample);
+    acc.x += lin.backwardWeight(linSample);
 
-    // Bilinear
+    // Bilinear — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
     sampling::Bilinear<float32_t> bilinear = sampling::Bilinear<float32_t>::create(float32_t4(1, 2, 3, 4));
-    float32_t2 bilSample = bilinear.generate(u2);
-    float32_t rcpPdf = 1.0 / bilinear.backwardPdf(bilSample);
+    sampling::Bilinear<float32_t>::cache_type bilCache;
+    float32_t2 bilSample = bilinear.generate(u2, bilCache);
     acc.xy += bilSample;
-    acc.z += rcpPdf;
+    acc.x += bilinear.forwardPdf(bilCache);
+    acc.x += bilinear.forwardWeight(bilCache);
+    acc.xy += bilinear.generateInverse(bilSample, bilCache);
+    acc.x += bilinear.backwardPdf(bilSample);
+    acc.x += bilinear.backwardWeight(bilSample);
 
-    // UniformHemisphere
-    acc.xyz += sampling::UniformHemisphere<float32_t>::generate(u2);
+    // UniformHemisphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    sampling::UniformHemisphere<float32_t> uniHemi;
+    sampling::UniformHemisphere<float32_t>::cache_type uniHemiCache;
+    float32_t3 uniHemiSample = uniHemi.generate(u2, uniHemiCache);
+    acc.xyz += uniHemiSample;
+    acc.x += uniHemi.forwardPdf(uniHemiCache);
+    acc.x += uniHemi.forwardWeight(uniHemiCache);
+    acc.xy += uniHemi.generateInverse(uniHemiSample, uniHemiCache);
+    acc.x += uniHemi.backwardPdf(uniHemiSample);
+    acc.x += uniHemi.backwardWeight(uniHemiSample);
 
-    // UniformSphere
-    acc.xyz += sampling::UniformSphere<float32_t>::generate(u2);
+    // UniformSphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    sampling::UniformSphere<float32_t> uniSph;
+    sampling::UniformSphere<float32_t>::cache_type uniSphCache;
+    float32_t3 uniSphSample = uniSph.generate(u2, uniSphCache);
+    acc.xyz += uniSphSample;
+    acc.x += uniSph.forwardPdf(uniSphCache);
+    acc.x += uniSph.forwardWeight(uniSphCache);
+    acc.xy += uniSph.generateInverse(uniSphSample, uniSphCache);
+    acc.x += uniSph.backwardPdf(uniSphSample);
+    acc.x += uniSph.backwardWeight(uniSphSample);
 
-    // ProjectedHemisphere
-    acc.xyz += sampling::ProjectedHemisphere<float32_t>::generate(u2);
+    // ProjectedHemisphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    sampling::ProjectedHemisphere<float32_t>::cache_type projHemiCache;
+    float32_t3 projHemi = sampling::ProjectedHemisphere<float32_t>::generate(u2, projHemiCache);
+    acc.xyz += projHemi;
+    acc.x += sampling::ProjectedHemisphere<float32_t>::forwardPdf(projHemiCache);
+    acc.x += sampling::ProjectedHemisphere<float32_t>::forwardWeight(projHemiCache);
+    acc.xy += sampling::ProjectedHemisphere<float32_t>::generateInverse(projHemi, projHemiCache);
+    acc.x += sampling::ProjectedHemisphere<float32_t>::backwardPdf(projHemi);
+    acc.x += sampling::ProjectedHemisphere<float32_t>::backwardWeight(projHemi);
 
-    // ProjectedSphere
-    acc.xyz += sampling::ProjectedSphere<float32_t>::generate(u3);
+    // ProjectedSphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    sampling::ProjectedSphere<float32_t> projSphSampler;
+    sampling::ProjectedSphere<float32_t>::cache_type projSphCache;
+    float32_t3 projSphereSample = u3;
+    float32_t3 projSphere = projSphSampler.generate(projSphereSample, projSphCache);
+    acc.xyz += projSphere;
+    acc.x += projSphSampler.forwardPdf(projSphCache);
+    acc.x += projSphSampler.forwardWeight(projSphCache);
+    acc.xyz += projSphSampler.generateInverse(projSphere, projSphCache);
+    acc.x += projSphSampler.backwardPdf(projSphere);
+    acc.x += projSphSampler.backwardWeight(projSphere);
 
-    // BoxMullerTransform
+    // BoxMullerTransform — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
     sampling::BoxMullerTransform<float32_t> bmt;
     bmt.stddev = 1.0;
-    acc.xy += bmt(u2);
+    sampling::BoxMullerTransform<float32_t>::cache_type bmtCache;
+    float32_t2 bmtSample = bmt.generate(u2, bmtCache);
+    acc.xy += bmtSample;
+    acc.x += bmt.forwardPdf(bmtCache);
+    acc.x += bmt.forwardWeight(bmtCache);
+    acc.x += bmt.backwardPdf(bmtSample);
+    acc.x += bmt.backwardWeight(bmtSample);
+	acc.xy += bmt.separateBackwardPdf(bmtSample);
 
-    // SphericalTriangle
+    // SphericalTriangle — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
     shapes::SphericalTriangle<float32_t> shapeTri;
     shapeTri.vertices[0] = float32_t3(1, 0, 0);
     shapeTri.vertices[1] = float32_t3(0, 1, 0);
     shapeTri.vertices[2] = float32_t3(0, 0, 1);
+    // Octant triangle: all dot products between vertices are 0, so cos_sides=0, csc_sides=1
+    shapeTri.cos_sides = float32_t3(0, 0, 0);
+    shapeTri.csc_sides = float32_t3(1, 1, 1);
     sampling::SphericalTriangle<float32_t> sphTri = sampling::SphericalTriangle<float32_t>::create(shapeTri);
-    float32_t stRcpPdf;
-    acc.xyz += sphTri.generate(stRcpPdf, u2);
-    acc.w += stRcpPdf;
+    sampling::SphericalTriangle<float32_t>::cache_type sphTriCache;
+    float32_t3 stSample = sphTri.generate(u2, sphTriCache);
+    acc.xyz += stSample;
+    acc.x += sphTri.forwardPdf(sphTriCache);
+    acc.x += sphTri.forwardWeight(sphTriCache);
+    acc.xy += sphTri.generateInverse(stSample, sphTriCache);
+    acc.x += sphTri.backwardPdf(stSample);
+    acc.x += sphTri.backwardWeight(stSample);
 
-    // SphericalRectangle
-    shapes::SphericalRectangle<float32_t> shapeRect = shapes::SphericalRectangle<float32_t>::create(
-        float32_t3(0.0, 0.0, -1.0),
-        float32_t3(1.0, 0.0, 0.0),
-        float32_t3(0.0, 1.0, 0.0)
-    );
-    sampling::SphericalRectangle<float32_t> sphRect = sampling::SphericalRectangle<float32_t>::create(shapeRect);
-    float32_t srS;
-    acc.xy += sphRect.generate(float32_t3(0.0, 0.0, 0.0), u2, srS);
-    acc.z += srS;
+    // SphericalRectangle — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    shapes::CompressedSphericalRectangle<float32_t> csr;
+    csr.origin = float32_t3(0.0, 0.0, -1.0);
+    csr.right = float32_t3(1.0, 0.0, 0.0);
+    csr.up = float32_t3(0.0, 1.0, 0.0);
+    shapes::SphericalRectangle<float32_t> shapeRect = shapes::SphericalRectangle<float32_t>::create(csr);
+    const float32_t3 srObserver = float32_t3(0.0, 0.0, 0.0);
+    sampling::SphericalRectangle<float32_t> sphRect = sampling::SphericalRectangle<float32_t>::create(shapeRect, srObserver);
+    sampling::SphericalRectangle<float32_t>::cache_type sphRectCache;
+    float32_t2 srSample = sphRect.generate(u2, sphRectCache);
+    acc.xy += srSample;
+    acc.x += sphRect.forwardPdf(sphRectCache);
+    acc.x += sphRect.forwardWeight(sphRectCache);
+    acc.x += sphRect.backwardPdf(srSample);
+    acc.x += sphRect.backwardWeight(srSample);
 
-    // ProjectedSphericalTriangle — skipped: pre-existing bug in computeBilinearPatch(receiverNormal, isBSDF)
-    sampling::ProjectedSphericalTriangle<float32_t> projTri = sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri);
-    float32_t ptRcpPdf;
-    // acc.xyz += projTri.generate(ptRcpPdf, float32_t3(0.0f, 0.0f, 1.0f), true, u2);
-    acc.w += ptRcpPdf;
+    // ProjectedSphericalTriangle — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+    sampling::ProjectedSphericalTriangle<float32_t> projTri;
+    projTri.sphtri = sphTri;
+    projTri.receiverNormal = float32_t3(0.0, 0.0, 1.0);
+    projTri.receiverWasBSDF = false;
+    sampling::ProjectedSphericalTriangle<float32_t>::cache_type projTriCache;
+    float32_t3 ptSample = projTri.generate(u2, projTriCache);
+    acc.xyz += ptSample;
+    acc.x += projTri.forwardPdf(projTriCache);
+    acc.x += projTri.forwardWeight(projTriCache);
+    acc.x += projTri.backwardPdf(ptSample);
+    acc.x += projTri.backwardWeight(ptSample);
 
     output[0] = acc;
 }

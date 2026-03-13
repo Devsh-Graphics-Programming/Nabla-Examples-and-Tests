@@ -36,6 +36,25 @@ private:
 		bool pass = true;
 		pass &= verifyTestValue("UniformSphere::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("UniformSphere::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
+		pass &= verifyTestValue("UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+
+		if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
+		{
+			pass = false;
+			printTestFail("UniformSphere::forwardPdf (positive & finite)", 1.0f, actual.forwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+		if (!(actual.backwardPdf > 0.0f) || !std::isfinite(actual.backwardPdf))
+		{
+			pass = false;
+			printTestFail("UniformSphere::backwardPdf (positive & finite)", 1.0f, actual.backwardPdf, iteration, seed, testType, 0.0, 0.0);
+		}
+
 		return pass;
 	}
 };
