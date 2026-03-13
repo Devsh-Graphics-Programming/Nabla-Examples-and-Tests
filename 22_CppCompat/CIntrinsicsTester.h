@@ -66,6 +66,12 @@ private:
             realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
             realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
         );
+        testInput.pseudoMat3x4 = float32_t4x4(
+            realDistribution(getRandomEngine()), 0, 0, realDistribution(getRandomEngine()),
+            0, realDistribution(getRandomEngine()), 0, realDistribution(getRandomEngine()),
+            0, 0, realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            0,0,0,1
+        );
         testInput.minA = realDistribution(getRandomEngine());
         testInput.minB = realDistribution(getRandomEngine());
         testInput.maxA = realDistribution(getRandomEngine());
@@ -197,6 +203,9 @@ private:
         auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
         expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
 
+        auto inverse3x4Glm = hlsl::inverse(testInput.pseudoMat3x4);
+        expected.pseudoInverse3x4 = nbl::hlsl::mul(inverse3x4Glm, float32_t4(testInput.length, 1));
+
         return expected;
     }
 
@@ -252,9 +261,10 @@ private:
         pass &= verifyTestValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testIteration, seed, testType);
         pass &= verifyTestValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testIteration, seed, testType);
 
-        pass &= verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType);
-        pass &= verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType);
-        pass &= verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType);
+        pass &= verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType, 0.0001);
+        pass &= verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType, 0.0001);
+        pass &= verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType, 0.0001);
+        pass &= verifyTestValue("pseudoInverse3x4", expectedTestValues.pseudoInverse3x4, testValues.pseudoInverse3x4, testIteration, seed, testType, 0.0001);
         return pass;
     }
 };

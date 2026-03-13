@@ -20,6 +20,11 @@ void raygen()
     gAlbedo[launchID] = float32_t4(float32_t3(launchID)/float32_t3(launchSize),1.f);
 }
 
+[shader("closesthit")]
+void closesthit(inout BeautyPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+{
+}
+
 [shader("miss")]
 void miss(inout BeautyPayload payload)
 {
