@@ -340,7 +340,23 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 			auto& main = tmpTLASes.emplace_back();
 			main = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
 			{
-				ICPUScene::CDefaultTLASExporter exporter(cpuScene->getInstances());
+				auto& cpuInstances = cpuScene->getInstances();
+				// need to convert weird topologies to lists
+				for (auto i=0u; i<cpuInstances.size(); i++)
+				if (const auto* const targets=cpuInstances.getMorphTargets()[i].get(); targets)
+				for (auto& target : targets->getTargets())
+				{
+					auto* const collection = target.geoCollection.get();
+					for (auto& ref : *collection->getGeometries())
+					{
+                        const auto* geo = ref.geometry.get();
+                        if (geo->getPrimitiveType()!=IGeometryBase::EPrimitiveType::Polygon)
+                            continue;
+						// TODO: test without and see why asset converter complains!
+						ref.geometry = CPolygonGeometryManipulator::createTriangleListIndexing(static_cast<const ICPUPolygonGeometry*>(geo));
+					}
+				}
+				ICPUScene::CDefaultTLASExporter exporter(cpuInstances);
 				auto exported = exporter();
 				if (!exported)
 				{
