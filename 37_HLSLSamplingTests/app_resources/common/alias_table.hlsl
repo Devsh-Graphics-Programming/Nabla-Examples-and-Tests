@@ -1,0 +1,86 @@
+#ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_ALIAS_TABLE_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_ALIAS_TABLE_INCLUDED_
+
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/sampling/alias_table.hlsl>
+
+using namespace nbl::hlsl;
+
+NBL_CONSTEXPR uint32_t AliasTestTableSize = 4;
+
+// Fixed-size array accessors for HLSL/C++ dual compilation
+struct AliasTestProbAccessor
+{
+	using value_type = float32_t;
+	float32_t get(uint32_t i) { return data[i]; }
+	float32_t data[4];
+};
+
+struct AliasTestAliasAccessor
+{
+	using value_type = uint32_t;
+	uint32_t get(uint32_t i) { return data[i]; }
+	uint32_t data[4];
+};
+
+struct AliasTestPdfAccessor
+{
+	using value_type = float32_t;
+	float32_t get(uint32_t i) { return data[i]; }
+	float32_t data[4];
+};
+
+using AliasTestSampler = sampling::AliasTable<float32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
+
+struct AliasTableInputValues
+{
+	float32_t u;
+};
+
+struct AliasTableTestResults
+{
+	uint32_t generatedIndex;
+	float32_t forwardPdf;
+	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+};
+
+// Pre-computed alias table for weights {1, 2, 3, 4}:
+//   pdf  = {0.1, 0.2, 0.3, 0.4}
+//   prob = {0.4, 0.8, 1.0, 0.8}
+//   alias = {3, 3, 2, 2}
+struct AliasTableTestExecutor
+{
+	void operator()(NBL_CONST_REF_ARG(AliasTableInputValues) input, NBL_REF_ARG(AliasTableTestResults) output)
+	{
+		AliasTestProbAccessor probAcc;
+		probAcc.data[0] = 0.4f;
+		probAcc.data[1] = 0.8f;
+		probAcc.data[2] = 1.0f;
+		probAcc.data[3] = 0.8f;
+
+		AliasTestAliasAccessor aliasAcc;
+		aliasAcc.data[0] = 3u;
+		aliasAcc.data[1] = 3u;
+		aliasAcc.data[2] = 2u;
+		aliasAcc.data[3] = 2u;
+
+		AliasTestPdfAccessor pdfAcc;
+		pdfAcc.data[0] = 0.1f;
+		pdfAcc.data[1] = 0.2f;
+		pdfAcc.data[2] = 0.3f;
+		pdfAcc.data[3] = 0.4f;
+
+		AliasTestSampler sampler = AliasTestSampler::create(probAcc, aliasAcc, pdfAcc, AliasTestTableSize);
+
+		AliasTestSampler::cache_type cache;
+		output.generatedIndex = sampler.generate(input.u, cache);
+		output.forwardPdf = sampler.forwardPdf(cache);
+		output.backwardPdf = sampler.backwardPdf(output.generatedIndex);
+		output.forwardWeight = sampler.forwardWeight(cache);
+		output.backwardWeight = sampler.backwardWeight(output.generatedIndex);
+	}
+};
+
+#endif

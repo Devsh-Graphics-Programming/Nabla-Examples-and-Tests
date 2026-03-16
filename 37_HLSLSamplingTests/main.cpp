@@ -4,7 +4,7 @@
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
-using namespace core;
+//using namespace core;
 using namespace system;
 using namespace asset;
 using namespace video;
@@ -21,6 +21,8 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
+#include "nbl/builtin/hlsl/sampling/alias_table.hlsl"
+#include "nbl/builtin/hlsl/sampling/cumulative_probability.hlsl"
 
 // concepts header — include AFTER sampler headers, and only in the test
 #include "nbl/builtin/hlsl/sampling/concepts.hlsl"
@@ -37,8 +39,12 @@ using namespace nbl::examples;
 #include "CBoxMullerTransformTester.h"
 #include "CProjectedSphericalTriangleTester.h"
 #include "CSphericalRectangleTester.h"
+#include "CDiscreteTableTester.h"
+#include "CAliasTableGPUTester.h"
+#include "CCumulativeProbabilityGPUTester.h"
 
 #include "CSamplerBenchmark.h"
+#include "CDiscreteSamplerBenchmark.h"
 
 constexpr bool DoBenchmark = true;
 
@@ -83,9 +89,9 @@ public:
 	HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	inline bool onAppInitialized(core::smart_refctd_ptr<ISystem>&& system) override
 	{
-		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!device_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
 			return false;
 
 		if (!asset_base_t::onAppInitialized(std::move(system)))
@@ -123,8 +129,12 @@ public:
 		// --- BasicSampler (level 1) --- generate(domain_type) -> codomain_type
 		// Note: all samplers almost satisfy BasicSampler, but they have cache parameters in generate().
 		static_assert(sampling::concepts::BasicSampler<sampling::ConcentricMapping<float32_t>>);
+		static_assert(sampling::concepts::BasicSampler<TestAliasTable>);
+		static_assert(sampling::concepts::BasicSampler<TestCumulativeProbabilitySampler>);
 
 		// --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(cache_type) -> density_type
+		static_assert(sampling::concepts::TractableSampler<TestAliasTable>);
+		static_assert(sampling::concepts::TractableSampler<TestCumulativeProbabilitySampler>);
 		static_assert(sampling::concepts::TractableSampler<sampling::Linear<float>>);
 		static_assert(sampling::concepts::TractableSampler<sampling::Bilinear<float>>);
 		static_assert(sampling::concepts::TractableSampler<sampling::UniformHemisphere<float>>);
@@ -138,6 +148,8 @@ public:
 		static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
 
 		// --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(cache_type), backwardWeight(codomain_type)
+		static_assert(sampling::concepts::ResamplableSampler<TestAliasTable>);
+		static_assert(sampling::concepts::ResamplableSampler<TestCumulativeProbabilitySampler>);
 		static_assert(sampling::concepts::ResamplableSampler<sampling::Linear<float>>);
 		static_assert(sampling::concepts::ResamplableSampler<sampling::Bilinear<float>>);
 		static_assert(sampling::concepts::ResamplableSampler<sampling::UniformHemisphere<float>>);
@@ -262,6 +274,29 @@ public:
 			pass &= tester.performTestsAndVerifyResults("SphericalTriangleTestLog.txt");
 		}
 
+		// --- Discrete table construction (CPU) ---
+		{
+			m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
+			CDiscreteTableTester tableTester(m_logger.get());
+			pass &= tableTester.run();
+		}
+		// --- Alias table sampler (GPU) ---
+		{
+			m_logger->log("Running AliasTable GPU sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CAliasTableGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()));
+			CAliasTableGPUTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("AliasTableTestLog.txt");
+		}
+		// --- Cumulative probability sampler (GPU) ---
+		{
+			m_logger->log("Running CumulativeProbability GPU sampler tests...", ILogger::ELL_INFO);
+			auto data = createSetupData<CCumulativeProbabilityGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()));
+			CCumulativeProbabilityGPUTester tester(testBatchCount, workgroupSize);
+			tester.setupPipeline(data);
+			pass &= tester.performTestsAndVerifyResults("CumulativeProbabilityTestLog.txt");
+		}
+
 		if (pass)
 			m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
 		else
@@ -366,6 +401,24 @@ public:
 					sizeof(ProjectedSphericalTriangleInputValues) * totalSamplesPerWorkgroup,
 					sizeof(ProjectedSphericalTriangleTestResults) * totalSamplesPerWorkgroup));
 				bench.run("ProjectedSphericalTriangle");
+			}
+			// Discrete sampler benchmark: alias table vs cumulative probability (BDA)
+			{
+				CDiscreteSamplerBenchmark::SetupData dsData;
+				dsData.device = m_device;
+				dsData.api = m_api;
+				dsData.assetMgr = m_assetMgr;
+				dsData.logger = m_logger;
+				dsData.physicalDevice = m_physicalDevice;
+				dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+				dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
+				dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
+				dsData.dispatchGroupCount = testBatchCount;
+				dsData.tableSize = 1024;
+
+				CDiscreteSamplerBenchmark discreteBench;
+				discreteBench.setup(dsData);
+				discreteBench.run();
 			}
 		}
 

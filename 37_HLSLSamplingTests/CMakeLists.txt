@@ -22,6 +22,8 @@ set(DEPENDS
     app_resources/box_muller_transform_test.comp.hlsl
     app_resources/projected_spherical_triangle_test.comp.hlsl
     app_resources/spherical_rectangle_test.comp.hlsl
+    app_resources/alias_table_test.comp.hlsl
+    app_resources/cumulative_probability_test.comp.hlsl
     app_resources/common/linear.hlsl
     app_resources/common/uniform_hemisphere.hlsl
     app_resources/common/uniform_sphere.hlsl
@@ -33,6 +35,9 @@ set(DEPENDS
     app_resources/common/projected_spherical_triangle.hlsl
     app_resources/common/spherical_rectangle.hlsl
     app_resources/common/concentric_mapping.hlsl
+    app_resources/common/discrete_sampler_bench.hlsl
+    app_resources/common/alias_table.hlsl
+    app_resources/common/cumulative_probability.hlsl
 )
 list(TRANSFORM DEPENDS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
@@ -48,7 +53,11 @@ target_sources(${EXECUTABLE_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/CBoxMullerTransformTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphericalTriangleTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalRectangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CDiscreteTableTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CAliasTableGPUTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CCumulativeProbabilityGPUTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CSamplerBenchmark.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CDiscreteSamplerBenchmark.h"
     ${DEPENDS}
 )
 
@@ -175,6 +184,24 @@ set(JSON [=[
   {
     "INPUT": "app_resources/spherical_rectangle_test.comp.hlsl",
     "KEY": "spherical_rectangle_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/alias_table_test.comp.hlsl",
+    "KEY": "alias_table_test"
+  },
+  {
+    "INPUT": "app_resources/alias_table_test.comp.hlsl",
+    "KEY": "alias_table_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/cumulative_probability_test.comp.hlsl",
+    "KEY": "cumulative_probability_test"
+  },
+  {
+    "INPUT": "app_resources/cumulative_probability_test.comp.hlsl",
+    "KEY": "cumulative_probability_bench",
     "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
   }
 ]
