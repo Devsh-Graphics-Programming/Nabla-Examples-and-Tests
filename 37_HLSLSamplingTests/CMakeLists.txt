@@ -94,7 +94,7 @@ set(JSON [=[
   {
     "INPUT": "app_resources/linear_test.comp.hlsl",
     "KEY": "linear_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"] /* ALSO SET IN main.cpp */
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"] /* ALSO SET IN main.cpp and CDiscreteSamplerBenchmark.h */
   },
   {
     "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",

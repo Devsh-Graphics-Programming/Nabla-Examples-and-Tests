@@ -24,9 +24,9 @@ public:
 		core::smart_refctd_ptr<asset::IAssetManager> assetMgr;
 		core::smart_refctd_ptr<system::ILogger> logger;
 		video::IPhysicalDevice* physicalDevice;
-		uint32_t computeFamilyIndex;
 		std::string aliasShaderKey;
 		std::string cumProbShaderKey;
+		uint32_t computeFamilyIndex;
 		uint32_t dispatchGroupCount;
 		uint32_t tableSize;
 	};
@@ -69,18 +69,12 @@ public:
 		std::vector<uint32_t> aliasIdx(N);
 		std::vector<float> aliasPdf(N);
 		std::vector<uint32_t> workspace(N);
-		nbl::core::sampling::AliasTableBuilder<float>::build(
-			weights.data(), N,
-			aliasProb.data(), aliasIdx.data(), aliasPdf.data(), workspace.data()
-		);
+		nbl::core::sampling::AliasTableBuilder<float>::build(weights.data(), N, aliasProb.data(), aliasIdx.data(), aliasPdf.data(), workspace.data());
 
 		// Build cumulative probability table
 		std::vector<float> cumProb(N - 1);
 		std::vector<float> cumProbPdf(N);
-		nbl::core::sampling::CumulativeProbabilityBuilder<float>::build(
-			weights.data(), N,
-			cumProb.data(), cumProbPdf.data()
-		);
+		nbl::core::sampling::CumulativeProbabilityBuilder<float>::build(weights.data(), N, cumProb.data(), cumProbPdf.data());
 
 		// Create BDA buffers and upload data
 		auto createBdaBuffer = [&](const void* srcData, size_t bytes) -> core::smart_refctd_ptr<video::IGPUBuffer>
@@ -88,7 +82,7 @@ public:
 			video::IGPUBuffer::SCreationParams bp = {};
 			bp.size = bytes;
 			bp.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) |
-			           video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			auto buf = m_device->createBuffer(std::move(bp));
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buf->getMemoryReqs();
@@ -123,7 +117,7 @@ public:
 			video::IGPUBuffer::SCreationParams bp = {};
 			bp.size = totalThreads * sizeof(uint32_t);
 			bp.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) |
-			           video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_outputBuf = m_device->createBuffer(std::move(bp));
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputBuf->getMemoryReqs();
 			reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
@@ -195,12 +189,7 @@ public:
 	}
 
 private:
-	void runSingle(
-		const char* name,
-		const core::smart_refctd_ptr<video::IGPUComputePipeline>& pipeline,
-		const core::smart_refctd_ptr<video::IGPUPipelineLayout>& layout,
-		bool isAlias,
-		uint32_t warmupIterations, uint32_t benchmarkIterations)
+	void runSingle(const char* name, const core::smart_refctd_ptr<video::IGPUComputePipeline>& pipeline, const core::smart_refctd_ptr<video::IGPUPipelineLayout>& layout, bool isAlias, uint32_t warmupIterations, uint32_t benchmarkIterations)
 	{
 		m_device->waitIdle();
 
@@ -254,11 +243,9 @@ private:
 		auto submitSerial = [&](const video::IQueue::SSubmitInfo::SCommandBufferInfo* cmds, uint32_t count)
 		{
 			const video::IQueue::SSubmitInfo::SSemaphoreInfo waitSem[] = {
-				{.semaphore = semaphore.get(), .value = semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}
-			};
+				{.semaphore = semaphore.get(), .value = semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
 			const video::IQueue::SSubmitInfo::SSemaphoreInfo signalSem[] = {
-				{.semaphore = semaphore.get(), .value = ++semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}
-			};
+				{.semaphore = semaphore.get(), .value = ++semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
 			video::IQueue::SSubmitInfo submit = {};
 			submit.commandBuffers = {cmds, count};
 			submit.waitSemaphores = waitSem;
@@ -278,7 +265,7 @@ private:
 
 		uint64_t timestamps[2] = {};
 		const auto flags = core::bitflag(video::IQueryPool::RESULTS_FLAGS::_64_BIT) |
-		                   core::bitflag(video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
+			core::bitflag(video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
 		m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, timestamps, sizeof(uint64_t), flags);
 
 		constexpr uint32_t benchIters = 4096; // must match -DBENCH_ITERS in CMakeLists.txt
@@ -290,38 +277,36 @@ private:
 		const float64_t msamples_per_s = (float64_t(totalSamples) / elapsed_ns) * 1e3;
 		const float64_t elapsed_ms = elapsed_ns * 1e-6;
 
-		m_logger->log("[Benchmark] %s: %.5f ns/sample  |  %.2f MSamples/s  |  %.3f ms total",
-			system::ILogger::ELL_PERFORMANCE,
-			name, ns_per_sample, msamples_per_s, elapsed_ms);
+		m_logger->log("[Benchmark] %s: %.5f ns/sample  |  %.2f MSamples/s  |  %.3f ms total", system::ILogger::ELL_PERFORMANCE, name, ns_per_sample, msamples_per_s, elapsed_ms);
 	}
 
-	core::smart_refctd_ptr<video::ILogicalDevice>       m_device;
-	core::smart_refctd_ptr<system::ILogger>             m_logger;
-	core::smart_refctd_ptr<video::IGPUCommandPool>      m_cmdpool;
-	core::smart_refctd_ptr<video::IGPUCommandBuffer>    m_benchCmdbuf;
-	core::smart_refctd_ptr<video::IGPUCommandBuffer>    m_timestampBeforeCmdbuf;
-	core::smart_refctd_ptr<video::IGPUCommandBuffer>    m_timestampAfterCmdbuf;
-	core::smart_refctd_ptr<video::IQueryPool>           m_queryPool;
+	core::smart_refctd_ptr<video::ILogicalDevice> m_device;
+	core::smart_refctd_ptr<system::ILogger> m_logger;
+	core::smart_refctd_ptr<video::IGPUCommandPool> m_cmdpool;
+	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_benchCmdbuf;
+	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_timestampBeforeCmdbuf;
+	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_timestampAfterCmdbuf;
+	core::smart_refctd_ptr<video::IQueryPool> m_queryPool;
 
 	// Alias table
-	core::smart_refctd_ptr<video::IGPUPipelineLayout>   m_aliasPplnLayout;
-	core::smart_refctd_ptr<video::IGPUComputePipeline>  m_aliasPipeline;
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_aliasProbBuf;
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_aliasIdxBuf;
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_aliasPdfBuf;
+	core::smart_refctd_ptr<video::IGPUPipelineLayout> m_aliasPplnLayout;
+	core::smart_refctd_ptr<video::IGPUComputePipeline> m_aliasPipeline;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_aliasProbBuf;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_aliasIdxBuf;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_aliasPdfBuf;
 
 	// Cumulative probability
-	core::smart_refctd_ptr<video::IGPUPipelineLayout>   m_cumProbPplnLayout;
-	core::smart_refctd_ptr<video::IGPUComputePipeline>  m_cumProbPipeline;
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_cumProbBuf;
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_cumProbPdfBuf;
+	core::smart_refctd_ptr<video::IGPUPipelineLayout> m_cumProbPplnLayout;
+	core::smart_refctd_ptr<video::IGPUComputePipeline> m_cumProbPipeline;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_cumProbBuf;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_cumProbPdfBuf;
 
 	// Shared
-	core::smart_refctd_ptr<video::IGPUBuffer>           m_outputBuf;
-	video::IQueue*                                      m_queue = nullptr;
-	video::IPhysicalDevice*                             m_physicalDevice = nullptr;
-	uint32_t                                            m_dispatchGroupCount = 0;
-	uint32_t                                            m_tableSize = 0;
+	core::smart_refctd_ptr<video::IGPUBuffer> m_outputBuf;
+	video::IQueue* m_queue = nullptr;
+	video::IPhysicalDevice* m_physicalDevice = nullptr;
+	uint32_t m_dispatchGroupCount = 0;
+	uint32_t m_tableSize = 0;
 };
 
 #endif
