@@ -137,10 +137,19 @@ bool DrawResourcesFiller::allocateDrawResourcesWithinAvailableVRAM(ILogicalDevic
 
 void DrawResourcesFiller::drawTriangleMesh(
 	const CTriangleMesh& mesh,
+	const DTMSettingsInfo& dtmSettingsInfo,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
-	// TODO: main objects
-	// beginMainObject();
+	setActiveDTMSettings(dtmSettingsInfo);
+	beginMainObject(MainObjectType::DTM);
+
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex(intendedNextSubmit);
+	if (mainObjectIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("drawTriangleMesh: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
 
 	// TODO: for now we add whole mesh at once, instead we should add triangle by triangle and see check if we overflow memory
 
@@ -165,11 +174,11 @@ void DrawResourcesFiller::drawTriangleMesh(
 	drawCallData.indexBufferOffset = geometryBufferOffset;
 	memcpy(dst, indexBuffer.data(), indexBuffByteSize);
 
-	drawCallData.triangleMeshMainObjectIndex = 0u; // TODO: fix when implementing main objects
+	drawCallData.triangleMeshMainObjectIndex = mainObjectIdx;
 	drawCallData.indexCount = mesh.getIndexCount();
 	drawCalls.push_back(drawCallData);
 
-	//endMainObject();
+	endMainObject();
 }
 
 bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit)
@@ -220,6 +229,8 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 			return true;
 		};
 
+	copyCPUFilledDrawBuffer(resources.mainObjects);
+	copyCPUFilledDrawBuffer(resources.dtmSettings);
 	copyCPUFilledDrawBuffer(resources.drawObjects);
 	copyCPUFilledDrawBuffer(resources.indexBuffer);
 	copyCPUFilledDrawBuffer(resources.geometryInfo);
@@ -233,4 +244,68 @@ void DrawResourcesFiller::markFrameUsageComplete(uint64_t drawSubmitWaitValue)
 	currentFrameIndex++;
 	// TODO[LATER]: take into account that currentFrameIndex was submitted with drawSubmitWaitValue; Use that value when deallocating the resources marked with this frame index
 	//				Currently, for evictions the worst case value will be waited for, as there is no way yet to know which semaphoroe value will signal the completion of the (to be evicted) resource's usage
+}
+
+uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeMainObjectIndex != InvalidMainObjectIdx)
+		return activeMainObjectIndex;
+
+	if (activeMainObjectType == MainObjectType::NONE)
+	{
+		assert(false); // You're probably trying to acquire mainObjectIndex outside of startMainObject, endMainObject scope
+		return InvalidMainObjectIdx;
+	}
+
+	const bool needsDTMSettings = activeMainObjectType == MainObjectType::DTM;
+
+	MainObject mainObject = {};
+	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
+	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
+	return activeMainObjectIndex;
+}
+
+uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeDTMSettingsIndex == InvalidDTMSettingsIdx)
+		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
+
+	return activeDTMSettingsIndex;
+}
+
+uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
+	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
+	return outDTMSettingIdx;
+}
+
+uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	DTMSettings dtmSettings;
+
+	switch (dtmSettingsInfo.heightShadingInfo.heightShadingMode)
+	{
+	case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+		dtmSettings.heightShadingSettings.intervalLength = std::numeric_limits<float>::infinity();
+		break;
+	case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+		dtmSettings.heightShadingSettings.intervalLength = dtmSettingsInfo.heightShadingInfo.intervalLength;
+		break;
+	case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+		dtmSettings.heightShadingSettings.intervalLength = 0.0f;
+		break;
+	}
+	dtmSettings.heightShadingSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.heightShadingInfo.intervalIndexToHeightMultiplier;
+	dtmSettings.heightShadingSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
+	dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings);
+
+	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
+	{
+		const DTMSettings& itr = resourcesCollection.dtmSettings.vector[i];
+		if (itr == dtmSettings)
+			return i;
+	}
+
+	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }

@@ -559,13 +559,60 @@ public:
 
 		allocateResources();
 
-		const asset::SPushConstantRange range = {
+		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
+		{
+			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				}
+			};
+			m_descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
+			if (!m_descriptorSetLayout0)
+				return logFail("Failed to Create Descriptor Layout 0");
+
+			const asset::SPushConstantRange range = {
 			.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 			.offset = 0,
 			.size = sizeof(PushConstants)
-		};
+			};
 
-		m_pipelineLayout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, nullptr);
+			const video::IGPUDescriptorSetLayout* const layouts[1u] = { m_descriptorSetLayout0.get() };
+
+			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
+			{
+				const uint32_t setCounts[2u] = { 1u, 1u };
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, layouts, setCounts);
+				if (!descriptorPool)
+					return logFail("Failed to Create Descriptor Pool");
+			}
+
+			// Update descriptor sets
+			{
+				m_descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(m_descriptorSetLayout0));
+
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[1] = {};
+				descriptorInfosSet0[0u].info.buffer.offset = 0u;
+				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
+				descriptorInfosSet0[0u].desc = m_globalsBuffer;
+
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[1] = {};
+
+				// globals
+				descriptorUpdates[0u].dstSet = m_descriptorSet0.get();
+				descriptorUpdates[0u].binding = 0u;
+				descriptorUpdates[0u].arrayElement = 0u;
+				descriptorUpdates[0u].count = 1u;
+				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
+
+				m_device->updateDescriptorSets(1, descriptorUpdates, 0u, nullptr);
+			}
+
+			m_pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(m_descriptorSetLayout0), nullptr, nullptr, nullptr);
+		}
 
 		smart_refctd_ptr<IShader> mainPipelineFragmentShaders = {};
 		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
@@ -683,7 +730,29 @@ public:
 		{
 			camera.beginInputProcessing(dtMilliseconds);
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+					camera.keyboardProcess(events);
+
+				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+				{
+					auto ev = *eventIt;
+
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_1)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_2)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_3)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					}
+				}
+			}
+		, m_logger.get());
 			camera.endInputProcessing(dtMilliseconds);
 		}
 
@@ -791,8 +860,10 @@ public:
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
-			.drawObjects			= baseAddress + resourcesCollection.drawObjects.bufferOffset,
-			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
+			.mainObjects = baseAddress + resourcesCollection.mainObjects.bufferOffset,
+			.drawObjects = baseAddress + resourcesCollection.drawObjects.bufferOffset,
+			.geometryBuffer = baseAddress + resourcesCollection.geometryInfo.bufferOffset,
+			.dtmSettings = baseAddress + resourcesCollection.dtmSettings.bufferOffset,
 		};
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer};
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
@@ -880,6 +951,9 @@ public:
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		
+		IGPUDescriptorSet* descriptorSets[] = { m_descriptorSet0.get() };
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, m_pipelineLayout.get(), 0u, 1u, descriptorSets);
+
 		cb->bindGraphicsPipeline(m_graphicsPipeline.get());
 
 		for (auto& drawCall : drawResourcesFiller.getDrawCalls())
@@ -1010,15 +1084,63 @@ protected:
 		mesh.setVertices(core::vector<TriangleMeshVertex>(vertices));
 		mesh.setIndices(std::move(indices));
 
+		DTMSettingsInfo dtmInfo{};
+
+		// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+		// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+		// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+		// 3 - CONTINOUS_INTERVALS
+		float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+		switch (m_shadingModeExample)
+		{
+			case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+			{
+				dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+
+				break;
+			}
+			case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+			{
+				dtmInfo.heightShadingInfo.intervalLength = 10.0f;
+				dtmInfo.heightShadingInfo.intervalIndexToHeightMultiplier = dtmInfo.heightShadingInfo.intervalLength;
+				dtmInfo.heightShadingInfo.isCenteredShading = false;
+				dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+				break;
+			}
+			case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+			{
+				dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+				dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+				break;
+			}
+		}
+
 		// pyramid A
-		drawResourcesFiller.drawTriangleMesh(mesh, intendedNextSubmit);
+		drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 
 		// pyramid B
 		float64_t3 offset = { 500.0f, 0.0f, 0.0f };
 		for (auto& vertex : vertices)
 			vertex.pos += offset;
 		mesh.setVertices(std::move(vertices));
-		drawResourcesFiller.drawTriangleMesh(mesh, intendedNextSubmit);
+		drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 	}
 
 protected:
@@ -1056,6 +1178,8 @@ protected:
 
 	uint64_t m_realFrameIx = 0u;
 
+	smart_refctd_ptr<IGPUDescriptorSetLayout> m_descriptorSetLayout0;
+	smart_refctd_ptr<IGPUDescriptorSet>	m_descriptorSet0;
 	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
 
@@ -1065,6 +1189,8 @@ protected:
 	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
 
 	Camera camera;
+
+	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

@@ -37,6 +37,9 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
 
     outV.position = _static_cast<float4>(pos);
+    
+    // TODO: we want to separate height from the Y coordinate I guess?
+    outV.height = _static_cast<float>(pos.y);
 
     //pos = mul(pc.viewProjectionMatrix, pos);
     // TODO: use pc.viewProjectionMatrix and multiply it with pfloat64_t4 pos instead fix portable_matrix with portable_float multiplication

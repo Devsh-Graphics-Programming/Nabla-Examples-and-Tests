@@ -127,8 +127,11 @@ public:
 	// TODO: rename to staged resources buffers or something like that
 	struct ResourcesCollection
 	{
+		// auto-submission level 0 resources (settings that mainObj references)
+		CPUGeneratedResource<DTMSettings> dtmSettings;
+
 		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
-		//CPUGeneratedResource<MainObject> mainObjects;
+		CPUGeneratedResource<MainObject> mainObjects;
 
 		// auto-submission level 2 buffers
 		CPUGeneratedResource<DrawObject> drawObjects;
@@ -140,6 +143,8 @@ public:
 		size_t calculateTotalConsumption() const
 		{
 			return
+				dtmSettings.getAlignedStorageSize() +
+				mainObjects.getAlignedStorageSize() +
 				drawObjects.getAlignedStorageSize() +
 				indexBuffer.getAlignedStorageSize() +
 				geometryInfo.getAlignedStorageSize();
@@ -162,11 +167,16 @@ public:
 	
 	void drawTriangleMesh(
 		const CTriangleMesh& mesh,
+		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief  resets staging buffers and images
 	void reset()
 	{
+		resetDrawObjects();
+		resetMainObjects();
+		resetDTMSettings();
+
 		drawCalls.clear();
 	}
 
@@ -196,6 +206,60 @@ private:
 	/// @brief Records GPU copy commands for all staged buffer resourcesCollection into the active command buffer.
 	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 
+	// Gets resource index to the active main object data
+	// TODO: submit if overflow
+	uint32_t acquireActiveMainObjectIndex(SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit);
+
+	inline void beginMainObject(MainObjectType type)
+	{
+		activeMainObjectType = type;
+		activeMainObjectIndex = InvalidMainObjectIdx;
+	}
+
+	inline void endMainObject()
+	{
+		activeMainObjectType = MainObjectType::NONE;
+		activeMainObjectIndex = InvalidMainObjectIdx;
+	}
+
+	inline void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
+	{
+		activeDTMSettings = dtmSettingsInfo;
+		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	}
+
+	inline const size_t calculateRemainingResourcesSize() const
+	{
+		assert(resourcesGPUBuffer->getSize() >= resourcesCollection.calculateTotalConsumption());
+		return resourcesGPUBuffer->getSize() - resourcesCollection.calculateTotalConsumption();
+	}
+
+	void resetMainObjects()
+	{
+		resourcesCollection.mainObjects.vector.clear();
+		activeMainObjectIndex = InvalidMainObjectIdx;
+	}
+
+	// these resources are data related to chunks of a whole mainObject
+	void resetDrawObjects()
+	{
+		resourcesCollection.drawObjects.vector.clear();
+		resourcesCollection.indexBuffer.vector.clear();
+		resourcesCollection.geometryInfo.vector.clear();
+	}
+
+	void resetDTMSettings()
+	{
+		resourcesCollection.dtmSettings.vector.clear();
+		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	}
+
 private:
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 
@@ -217,4 +281,11 @@ private:
 	size_t copiedResourcesSize;
 
 	SubmitFunc submitDraws;
+
+	// Active Resources we need to keep track of and push to resources buffer if needed.
+	MainObjectType activeMainObjectType;
+	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+
+	DTMSettingsInfo activeDTMSettings;
+	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 };

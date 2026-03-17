@@ -6,6 +6,70 @@
 
 using namespace nbl;
 
+struct DTMHeightShadingSettingsInfo
+{
+	// Height Shading Mode
+	E_HEIGHT_SHADING_MODE heightShadingMode;
+
+	// Used as fixed interval length for "DISCRETE_FIXED_LENGTH_INTERVALS" shading mode
+	float intervalLength;
+
+	// Converts an interval index to its corresponding height value
+	// For example, if this value is 10.0, then an interval index of 2 corresponds to a height of 20.0.
+	// This computed height is later used to determine the interpolated color for shading.
+	// It makes sense for this variable to be always equal to `intervalLength` but sometimes it's a different scaling so that last index corresponds to largestHeight
+	float intervalIndexToHeightMultiplier;
+
+	// Used for "DISCRETE_FIXED_LENGTH_INTERVALS" shading mode
+	// If `isCenteredShading` is true, the intervals are centered around `minHeight`, meaning the
+	// first interval spans [minHeight - intervalLength / 2.0, minHeight + intervalLength / 2.0].
+	// Otherwise, intervals are aligned from `minHeight` upward, so the first interval spans
+	// [minHeight, minHeight + intervalLength].
+	bool isCenteredShading;
+
+	void addHeightColorMapEntry(float height, float32_t4 color)
+	{
+		heightColorSet.emplace(height, color);
+	}
+
+	bool fillShaderDTMSettingsHeightColorMap(DTMSettings& dtmSettings) const
+	{
+		const uint32_t mapSize = heightColorSet.size();
+		if (mapSize > DTMHeightShadingSettings::HeightColorMapMaxEntries)
+			return false;
+		dtmSettings.heightShadingSettings.heightColorEntryCount = mapSize;
+
+		int index = 0;
+		for (auto it = heightColorSet.begin(); it != heightColorSet.end(); ++it)
+		{
+			dtmSettings.heightShadingSettings.heightColorMapHeights[index] = it->height;
+			dtmSettings.heightShadingSettings.heightColorMapColors[index] = it->color;
+			++index;
+		}
+
+		return true;
+	}
+
+private:
+	struct HeightColor
+	{
+		float height;
+		float32_t4 color;
+
+		bool operator<(const HeightColor& other) const
+		{
+			return height < other.height;
+		}
+	};
+
+	std::set<HeightColor> heightColorSet;
+};
+
+struct DTMSettingsInfo
+{
+	DTMHeightShadingSettingsInfo heightShadingInfo;
+};
+
 class CTriangleMesh final
 {
 public:
