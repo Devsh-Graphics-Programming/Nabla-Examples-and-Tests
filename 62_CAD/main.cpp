@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -1680,6 +1680,8 @@ public:
 			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.minLineWidth = 0.0f; // minimum line width in screenspace pixels (will clamp if it's lower)
+		globalData.minLineThicknessToEnableAA = 0.0f; // lines/curves with screenspace (pixel) widths lower than this will skip AA
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultProjectionToNDC = projectionToNDC;
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);

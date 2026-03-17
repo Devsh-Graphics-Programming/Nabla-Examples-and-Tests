@@ -621,7 +621,8 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				}
 				if (file)
 				{
-					auto visualization = forest->printDotGraph();
+					CFrontendIR::SDotPrinter printer = {forest.get(),forest->getMaterials()};
+					auto visualization = printer();
 					// file write does not take an internal copy of pointer given, need to keep source alive till end
 					IFile::success_t succ;
 					file->write(succ,visualization.c_str(),0,visualization.size());
