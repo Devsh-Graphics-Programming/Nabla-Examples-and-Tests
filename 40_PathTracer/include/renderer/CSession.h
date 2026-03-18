@@ -30,6 +30,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		struct SCachedCreationParams
 		{
 			RenderMode mode = RenderMode::Beauty;
+			core::smart_refctd_ptr<video::IUtilities> utilities;
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
@@ -39,7 +40,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		};
 
 		//
-		bool init(video::IGPUCommandBuffer* cb);
+		bool init(video::IGPUCommandBuffer* cb, video::IQueue* queue, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer);
 
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
@@ -78,6 +79,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
 				// stores all the sensor data required
 				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
+				core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer;
 			};
 			SImmutables immutables = {};
 			SSensorDynamics currentSensorState = {}, prevSensorState = {};

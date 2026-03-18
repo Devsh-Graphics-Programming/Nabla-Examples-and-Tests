@@ -19,13 +19,14 @@ struct SSensorDynamics
 	hlsl::float32_t2x3 ndcToRay;
 	hlsl::float32_t nearClip;
 	hlsl::float32_t tMax;
+	uint64_t pSampleSequence;
 	// we can adaptively sample per-pixel, but 
 	uint32_t minSPP : MAX_SPP_LOG2;
 	uint32_t maxSPP : MAX_SPP_LOG2;
 	uint32_t unused : BOOST_PP_SUB(32,BOOST_PP_MUL(MAX_SPP_LOG2,2));
 };
 	
-struct SPrevisPushConstants : SSensorDynamics
+struct SPrevisPushConstants
 {
 	SSensorDynamics sensorDynamics;
 };

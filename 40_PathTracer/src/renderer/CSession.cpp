@@ -12,11 +12,12 @@ using namespace nbl::hlsl;
 using namespace nbl::video;
 
 //
-bool CSession::init(video::IGPUCommandBuffer* cb)
+bool CSession::init(video::IGPUCommandBuffer* cb, video::IQueue* queue, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer)
 {
 	auto renderer = m_params.scene->getRenderer();
 	auto& logger = renderer->getCreationParams().logger;
 	auto device = renderer->getDevice();
+	auto utilities = m_params.utilities;
 
 	auto& immutables = m_active.immutables;
 
@@ -36,7 +37,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		};
 
 		//
-		auto dedicatedAllocate = [&](IDeviceMemoryBacked* memBacked, const std::string_view debugName)->bool
+		auto dedicatedAllocate = [&](IDeviceMemoryBacked* memBacked, const std::string_view debugName, bool deviceAddress = false)->bool
 		{
 			if (!memBacked)
 			{
@@ -47,7 +48,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 
 			auto mreqs = memBacked->getMemoryReqs();
 			mreqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			if (!device->allocate(mreqs,memBacked,IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
+			if (!device->allocate(mreqs,memBacked,deviceAddress ? IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT : IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
 			{
 				logger.log("Could not allocate memory for Sensor \"%s\"'s \"%s\" in CSession::init()",ILogger::ELL_ERROR,m_params.name.c_str(),debugName.data());
 				return false;
@@ -60,7 +61,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(m_params.uniforms);
 			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
-			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT |usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
 			auto ubo = device->createBuffer(std::move(params));
 			if (!dedicatedAllocate(ubo.get(),"Sensor UBO"))
 				return false;
@@ -140,6 +141,8 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		auto scrambleKeyView = immutables.scrambleKey.views[E_FORMAT::EF_R32G32_UINT];
 		addImageWrite(SensorDSBindings::ScrambleKey,scrambleKeyView);
 
+		immutables.sampleSequenceBuffer = sampleSequenceBuffer;
+
 		// create the render-sized images
 		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImageWithViews
 		{
@@ -216,7 +219,107 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		return false;
 	}
 
-// TODO: fill scramble Key with noise
+	m_active.prevSensorState.pSampleSequence = m_active.currentSensorState.pSampleSequence = immutables.sampleSequenceBuffer->getDeviceAddress();
+
+    // fill scramble Key with noise
+	{
+		asset::ICPUImage::SCreationParams info;
+		info.format = asset::E_FORMAT::EF_R32G32_UINT;
+		info.type = asset::ICPUImage::ET_2D;
+		info.extent.width = SSensorUniforms::ScrambleKeyTextureSize;
+		info.extent.height = SSensorUniforms::ScrambleKeyTextureSize;
+		info.extent.depth = 1u;
+		info.mipLevels = 1u;
+		info.arrayLayers = 1u;
+		info.samples = asset::ICPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+		info.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+		info.usage = asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_SAMPLED_BIT;
+
+		auto scrambleMapCPU = ICPUImage::create(std::move(info));
+		const uint32_t texelFormatByteSize = getTexelOrBlockBytesize(scrambleMapCPU->getCreationParameters().format);
+		const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
+		auto texelBuffer = ICPUBuffer::create({ texelBufferSize });
+
+		core::RandomSampler rng(0xbadc0ffeu);
+		auto out = reinterpret_cast<uint32_t*>(texelBuffer->getPointer());
+		for (auto index = 0u; index < texelBufferSize / 4; index++) {
+			out[index] = rng.nextSample();
+		}
+
+		auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+		ICPUImage::SBufferCopy& region = regions->front();
+		region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = 1u;
+		region.bufferOffset = 0u;
+		region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(info.extent.width, texelFormatByteSize);
+		region.bufferImageHeight = 0u;
+		region.imageOffset = { 0u, 0u, 0u };
+		region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
+
+		scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+		// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+		scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
+		
+		struct SInputs final : CAssetConverter::SInputs
+		{
+			// we also need to override this to have concurrent sharing
+			inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				if (familyIndices.size() > 1)
+					return familyIndices;
+				return {};
+			}
+
+			inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return image->getCreationParameters().mipLevels;
+			}
+			inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return 0b0u;
+			}
+
+			std::vector<uint32_t> familyIndices;
+		} inputs = {};
+
+		auto converter = CAssetConverter::create({ .device = device });
+		inputs.readCache = converter.get();
+		inputs.logger = logger.get().get();
+		{
+			const core::set<uint32_t> uniqueFamilyIndices = { queue->getFamilyIndex() };
+			inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
+		}
+		
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cb };
+		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = device->createSemaphore(0);
+		imgFillSemaphore->setObjectDebugName("Scramble Key Fill Semaphore");
+		SIntendedSubmitInfo transfer = {
+			.queue = queue,
+			.waitSemaphores = {},
+			.prevCommandBuffers = {},
+			.scratchCommandBuffers = commandBufferInfo,
+			.scratchSemaphore = {
+				.semaphore = imgFillSemaphore.get(),
+				.value = 0,
+				// because of layout transitions
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			}
+		};
+		CAssetConverter::SConvertParams params = {};
+		params.transfer = &transfer;
+		params.utilities = utilities.get();
+		const ICPUImage* cpuImgs[] = { scrambleMapCPU.get() };
+		std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = cpuImgs;
+		// assert that we don't need to provide patches
+		assert(cpuImgs[0]->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+		auto reservation = converter->reserve(inputs);
+
+		immutables.scrambleKey.image = reservation.getGPUObjects<ICPUImage>().front().value;
+		if (!immutables.scrambleKey.image)
+			logger.log("Failed to convert scramble key image into an IGPUImage handle", ILogger::ELL_ERROR);
+	}
 
 	return true;
 }

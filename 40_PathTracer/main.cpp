@@ -8,6 +8,7 @@
 #include "renderer/CRenderer.h"
 #include "renderer/resolve/CBasicRWMCResolver.h"
 #include "renderer/present/CWindowPresenter.h"
+#include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 
 #include "nlohmann/json.hpp"
 
@@ -213,6 +214,38 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				}	
 			});
 
+			// filling a buffer this massive inside autosubmit is a pain
+			{
+				OwenSampler sampler(SSensorUniforms::MaxBufferDimensions, 0xdeadbeefu);
+
+				constexpr uint32_t quantizedDimensions = SSensorUniforms::MaxBufferDimensions / 3u;
+				constexpr size_t bufferSize = quantizedDimensions * SSensorUniforms::MaxSamplesBuffer;
+				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
+				std::vector<sequence_type> data(bufferSize);
+
+				for (auto dim = 0u; dim < SSensorUniforms::MaxBufferDimensions; dim++)
+					for (uint32_t i = 0; i < SSensorUniforms::MaxSamplesBuffer; i++)
+					{
+						const uint32_t quant_dim = dim / 3u;
+						const uint32_t offset = dim % 3u;
+						auto& seq = data[i * quantizedDimensions + quant_dim];
+						const uint32_t sample = sampler.sample(dim, i);
+						seq.set(offset, sample);
+					}
+
+				IGPUBuffer::SCreationParams createParams = {};
+				createParams.usage = nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_STORAGE_BUFFER_BIT | nbl::asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				createParams.size = sizeof(sequence_type) * bufferSize;
+
+				m_utils->createFilledDeviceLocalBufferOnDedMem(
+					SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
+					std::move(createParams),
+					data.data()
+				).move_into(m_sampleSequenceBuffer);
+
+				m_sampleSequenceBuffer->setObjectDebugName("Sequence buffer");
+			}
+
 			// TODO: tmp code
 			{
 				m_api->startCapture();
@@ -256,7 +289,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
-							{.mode=CSession::RenderMode::Debug},&sensor
+							{.mode=CSession::RenderMode::Debug, .utilities = smart_refctd_ptr(m_utils)},&sensor
 						})
 					);
 			}
@@ -426,9 +459,9 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				}
 				session = m_sessionQueue.front().get();
 				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
+				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session, this](SIntendedSubmitInfo& info)->bool
 					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+						return session->init(info.getCommandBufferForRecording()->cmdbuf, info.queue, smart_refctd_ptr(m_sampleSequenceBuffer));
 					}
 				);
 				m_resolver->changeSession(std::move(m_sessionQueue.front()));
@@ -573,6 +606,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		smart_refctd_ptr<CSceneLoader> m_sceneLoader;
 		//
 		nbl::core::queue<smart_refctd_ptr<CSession>> m_sessionQueue;
+
+		smart_refctd_ptr<IGPUBuffer> m_sampleSequenceBuffer;
 
 #if 0 // gui
 	struct C_UI

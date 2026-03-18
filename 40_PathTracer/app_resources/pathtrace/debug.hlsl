@@ -1,7 +1,9 @@
 #include "renderer/shaders/pathtrace/common.hlsl"
+#include "renderer/shaders/pathtrace/rand_gen.hlsl"
 
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
+#include "nbl/builtin/hlsl/path_tracing/gaussian_filter.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -24,9 +26,19 @@ void raygen()
     const uint32_t3 launchID = spirv::LaunchIdKHR;
     const uint32_t3 launchSize = spirv::LaunchSizeKHR;
 
+    uint2 scrambleDim;
+    gScrambleKey.GetDimensions(scrambleDim.x, scrambleDim.y);
+    float32_t2 pixOffsetParam = (float32_t2)1.0 / float32_t2(scrambleDim);
+
     float32_t2 coord = (float32_t3(launchID) / float32_t3(launchSize)).xy;
+    using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
+    randgen_type randgen = randgen_type::create(gScrambleKey[coord].rg, pc.sensorDynamics.pSampleSequence);
+
     float32_t3 NDC = float32_t3(coord * 2.0 - 1.0, -1.0);
-    float32_t3 direction = normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, NDC), -1.0));
+    float32_t3 randVec = randgen(0u, 0u);
+    path_tracing::GaussianFilter<float> filter = path_tracing::GaussianFilter<float>::create(2.5, 1.5); // stochastic reconstruction filter
+    NDC.xy += pixOffsetParam * filter.sample(randVec.xy);
+    float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, NDC), -1.0));
     float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip);
 
     RayDesc rayDesc;
