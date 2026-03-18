@@ -37,7 +37,7 @@ struct LinearTestExecutor
 
 		{
 			sampling::Linear<float32_t>::cache_type cache;
-			output.generateInversed = _sampler.generateInverse(output.generated, cache);
+			output.generateInversed = _sampler.generateInverse(output.generated);
 			output.backwardPdf = _sampler.backwardPdf(output.generated);
 		}
 		output.roundtripError = abs(input.u - output.generateInversed);

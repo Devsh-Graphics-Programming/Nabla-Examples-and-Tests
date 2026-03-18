@@ -59,11 +59,9 @@ struct SphericalTriangleTestExecutor
 			output.forwardPdf = sampler.forwardPdf(cache);
 		}
 
-
 		// Inverse: v -> u'
 		{
-			sampling::SphericalTriangle<float32_t>::cache_type cache;
-			output.inverted = sampler.generateInverse(output.generated, cache);
+			output.inverted = sampler.generateInverse(output.generated);
 			// Backward: evaluate pdf at generated point (no cache needed)
 			output.backwardPdf = sampler.backwardPdf(output.generated);
 		}

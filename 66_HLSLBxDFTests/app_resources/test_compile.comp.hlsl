@@ -67,22 +67,22 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     L += s.L.direction;
 
     quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(s, isointer);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
     qp = beckmannAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
     qp = iridBRDF.quotient_and_pdf(s, anisointer, cache);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     qp = ggxAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     s = lambertianBSDF.generate(anisointer, u);
     L += s.L.direction;
@@ -91,13 +91,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     L += s.L.direction;
 
     qp = thinSmoothDielectricBSDF.quotient_and_pdf(s, isointer);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     s = ggxAnisoBSDF.generate(anisointer, u, cache);
     L += s.L.direction;
 
     qp = ggxAnisoBSDF.quotient_and_pdf(s, anisointer, cache);
-    L -= qp.quotient;
+    L -= qp.quotient();
 
     buff[ID.x] = L;
 }

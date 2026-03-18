@@ -37,9 +37,7 @@ private:
 		pass &= verifyTestValue("UniformSphere::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("UniformSphere::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("UniformSphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformSphere::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
 		pass &= verifyTestValue("UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);

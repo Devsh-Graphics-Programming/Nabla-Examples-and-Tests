@@ -33,8 +33,7 @@ struct ConcentricMappingTestExecutor
 			output.forwardPdf = sampling::ConcentricMapping<float32_t>::forwardPdf(cache);
 		}
 		{
-			sampling::ConcentricMapping<float32_t>::cache_type cache;
-			output.inverted = sampling::ConcentricMapping<float32_t>::generateInverse(output.mapped, cache);
+			output.inverted = sampling::ConcentricMapping<float32_t>::generateInverse(output.mapped);
 			output.backwardPdf = sampling::ConcentricMapping<float32_t>::backwardPdf(input.u);
 		}
 		float32_t2 diff = input.u - output.inverted;

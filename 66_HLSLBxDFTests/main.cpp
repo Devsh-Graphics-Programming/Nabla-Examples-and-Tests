@@ -87,9 +87,9 @@ public:
         }
         try
         {
-            testconfigs = json::parse(f);
+            testconfigs = ::json::parse(f);
         }
-        catch (json::parse_error& ex)
+        catch (::json::parse_error& ex)
         {
             m_logger->log("parse_error.%d failed to parse config file at byte %u: %s", ILogger::ELL_ERROR, ex.id, ex.byte, ex.what());
             return false;
@@ -496,7 +496,7 @@ private:
         m_assetMgr->writeAsset(filename, wp);
     }
 
-    json testconfigs;
+    ::json testconfigs;
 };
 
 NBL_MAIN_FUNC(HLSLBxDFTests)

@@ -40,7 +40,7 @@ struct ProjectedSphereTestExecutor
 		}
 		{
 			sampling::ProjectedSphere<float32_t>::cache_type cache;
-			output.inverted = sampler.generateInverse(output.generated, cache);
+			output.inverted = sampler.generateInverse(output.generated);
 			output.backwardPdf = sampler.backwardPdf(output.generated);
 		}
 		float32_t2 xyDiff = output.modifiedU.xy - output.inverted.xy;

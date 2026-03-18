@@ -24,7 +24,7 @@ void main()
 	sampling::ConcentricMapping<float32_t>::cache_type cache;
 	float32_t2 concentric = sampling::ConcentricMapping<float32_t>::generate(u2, cache);
     acc.xy += concentric;
-	acc.xy += sampling::ConcentricMapping<float32_t>::generateInverse(concentric, cache);
+	acc.xy += sampling::ConcentricMapping<float32_t>::generateInverse(concentric);
 	acc.x += sampling::ConcentricMapping<float32_t>::forwardPdf(cache);
 	acc.x += sampling::ConcentricMapping<float32_t>::backwardPdf(concentric);
 	acc.x += sampling::ConcentricMapping<float32_t>::forwardWeight(cache);
@@ -37,7 +37,7 @@ void main()
     acc.x += linSample;
     acc.x += lin.forwardPdf(linCache);
     acc.x += lin.forwardWeight(linCache);
-    acc.x += lin.generateInverse(linSample, linCache);
+    acc.x += lin.generateInverse(linSample);
     acc.x += lin.backwardPdf(linSample);
     acc.x += lin.backwardWeight(linSample);
 
@@ -48,7 +48,7 @@ void main()
     acc.xy += bilSample;
     acc.x += bilinear.forwardPdf(bilCache);
     acc.x += bilinear.forwardWeight(bilCache);
-    acc.xy += bilinear.generateInverse(bilSample, bilCache);
+    acc.xy += bilinear.generateInverse(bilSample);
     acc.x += bilinear.backwardPdf(bilSample);
     acc.x += bilinear.backwardWeight(bilSample);
 
@@ -59,7 +59,7 @@ void main()
     acc.xyz += uniHemiSample;
     acc.x += uniHemi.forwardPdf(uniHemiCache);
     acc.x += uniHemi.forwardWeight(uniHemiCache);
-    acc.xy += uniHemi.generateInverse(uniHemiSample, uniHemiCache);
+    acc.xy += uniHemi.generateInverse(uniHemiSample);
     acc.x += uniHemi.backwardPdf(uniHemiSample);
     acc.x += uniHemi.backwardWeight(uniHemiSample);
 
@@ -70,7 +70,7 @@ void main()
     acc.xyz += uniSphSample;
     acc.x += uniSph.forwardPdf(uniSphCache);
     acc.x += uniSph.forwardWeight(uniSphCache);
-    acc.xy += uniSph.generateInverse(uniSphSample, uniSphCache);
+    acc.xy += uniSph.generateInverse(uniSphSample);
     acc.x += uniSph.backwardPdf(uniSphSample);
     acc.x += uniSph.backwardWeight(uniSphSample);
 
@@ -80,7 +80,7 @@ void main()
     acc.xyz += projHemi;
     acc.x += sampling::ProjectedHemisphere<float32_t>::forwardPdf(projHemiCache);
     acc.x += sampling::ProjectedHemisphere<float32_t>::forwardWeight(projHemiCache);
-    acc.xy += sampling::ProjectedHemisphere<float32_t>::generateInverse(projHemi, projHemiCache);
+    acc.xy += sampling::ProjectedHemisphere<float32_t>::generateInverse(projHemi);
     acc.x += sampling::ProjectedHemisphere<float32_t>::backwardPdf(projHemi);
     acc.x += sampling::ProjectedHemisphere<float32_t>::backwardWeight(projHemi);
 
@@ -92,7 +92,7 @@ void main()
     acc.xyz += projSphere;
     acc.x += projSphSampler.forwardPdf(projSphCache);
     acc.x += projSphSampler.forwardWeight(projSphCache);
-    acc.xyz += projSphSampler.generateInverse(projSphere, projSphCache);
+    acc.xyz += projSphSampler.generateInverse(projSphere);
     acc.x += projSphSampler.backwardPdf(projSphere);
     acc.x += projSphSampler.backwardWeight(projSphere);
 
@@ -122,7 +122,7 @@ void main()
     acc.xyz += stSample;
     acc.x += sphTri.forwardPdf(sphTriCache);
     acc.x += sphTri.forwardWeight(sphTriCache);
-    acc.xy += sphTri.generateInverse(stSample, sphTriCache);
+    acc.xy += sphTri.generateInverse(stSample);
     acc.x += sphTri.backwardPdf(stSample);
     acc.x += sphTri.backwardWeight(stSample);
 

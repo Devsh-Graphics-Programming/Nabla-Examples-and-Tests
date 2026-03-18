@@ -16,7 +16,6 @@ struct UniformHemisphereTestResults
 	float32_t3 generated;
 	float32_t pdf;
 	float32_t2 inverted;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t roundtripError;
@@ -31,12 +30,11 @@ struct UniformHemisphereTestExecutor
 		{
 			sampling::UniformHemisphere<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = sampler.forwardPdf(cache);
 		}
 		{
 			sampling::UniformHemisphere<float32_t>::cache_type cache;
-			output.inverted = sampler.generateInverse(output.generated, cache);
+			output.inverted = sampler.generateInverse(output.generated);
 			output.backwardPdf = sampler.backwardPdf(output.generated);
 		}
 		float32_t2 diff = input.u - output.inverted;

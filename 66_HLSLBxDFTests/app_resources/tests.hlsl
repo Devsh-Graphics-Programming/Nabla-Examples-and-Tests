@@ -112,16 +112,16 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (sampledLi.pdf < 0.f)    // pdf should not be negative
+        if (sampledLi.pdf() < 0.f)    // pdf should not be negative
             return BTR_ERROR_NEGATIVE_VAL;
 
-        if (sampledLi.pdf < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
+        if (sampledLi.pdf() < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
-        if (checkLt<float32_t3>(Li, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient, hlsl::promote<float32_t3>(0.0)))
+        if (checkLt<float32_t3>(Li, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
-        if (!checkLt<float32_t3>(sampledLi.quotient, hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity))))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))) // importance sampler's job to prevent inf
             return BTR_ERROR_QUOTIENT_INF;
 
         // we've already checked above if:
@@ -129,10 +129,10 @@ struct TestJacobian : TestBxDF<BxDF>
         // 2. quotient is positive and (1) already checked
         // So if we must have `eval == quotient*pdf` , then eval must also be positive
         // However for mixture of, or singular delta BxDF the bsdf can be less due to removal of Dirac-Delta lobes from the eval method, which is why allow `BTR_NONE` in this case
-        if (checkZero<float32_t3>(Li, 1e-5) || checkZero<float32_t3>(sampledLi.quotient, 1e-5))
+		if (checkZero<float32_t3>(Li, 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
             return BTR_NONE;
 
-        if (hlsl::isnan(sampledLi.pdf))
+        if (hlsl::isnan(sampledLi.pdf()))
             return BTR_ERROR_GENERATED_SAMPLE_NAN_PDF;
 
         // get jacobian
@@ -142,7 +142,7 @@ struct TestJacobian : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (hlsl::isinf(sampledLi.pdf))
+        if (hlsl::isinf(sampledLi.pdf()))
         {
             // if pdf is infinite then density is infinite and no differential area inbetween samples
             if (!checkZero<float>(det, numeric_limits<float>::min * base_t::rc.eps * base_t::rc.eps))

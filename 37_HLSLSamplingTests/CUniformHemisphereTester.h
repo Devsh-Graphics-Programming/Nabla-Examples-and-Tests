@@ -37,9 +37,7 @@ private:
 		pass &= verifyTestValue("UniformHemisphere::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformHemisphere::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformHemisphere::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("UniformHemisphere::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformHemisphere::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("UniformHemisphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformHemisphere::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("UniformHemisphere::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
 		pass &= verifyTestValue("UniformHemisphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);

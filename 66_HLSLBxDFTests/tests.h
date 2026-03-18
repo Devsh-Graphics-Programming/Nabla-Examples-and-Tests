@@ -87,15 +87,15 @@ struct TestModifiedWhiteFurnace : TestBxDF<BxDF>
                 }
             }
 
-            if (hlsl::isinf(sampledLi.pdf)) // is from dirac delta distribution
+            if (hlsl::isinf(sampledLi.pdf())) // is from dirac delta distribution
             {
                 // might have to be by weight of dirac delta sample
-                deltaQuotientSum += sampledLi.quotient;
+                deltaQuotientSum += sampledLi.quotient();
                 deltaSampleCount++;
             }
             else
             {
-                continuousQuotientSum += sampledLi.quotient;
+                continuousQuotientSum += sampledLi.quotient();
                 continuousSampleCount++;
             }
         }
