@@ -122,6 +122,9 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
+
+			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
+			core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer;
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}

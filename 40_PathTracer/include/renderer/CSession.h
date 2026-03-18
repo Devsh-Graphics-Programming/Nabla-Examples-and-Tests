@@ -30,7 +30,6 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		struct SCachedCreationParams
 		{
 			RenderMode mode = RenderMode::Beauty;
-			core::smart_refctd_ptr<video::IUtilities> utilities;
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
@@ -40,7 +39,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		};
 
 		//
-		bool init(video::IGPUCommandBuffer* cb, video::IQueue* queue, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer);
+		bool init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer, core::smart_refctd_ptr<video::IGPUImage> scrambleKey);
 
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
