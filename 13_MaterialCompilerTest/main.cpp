@@ -5,8 +5,6 @@
 
 #include "nbl/examples/examples.hpp"
 
-//! Temporary, for faster iteration outside of PCH
-#include "nbl/asset/material_compiler3/CFrontendIR.h"
 
 
 using namespace nbl;
@@ -399,25 +397,16 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					const auto fresnelH = forest->createNamedFresnel("ThF4");
 					const auto* fresnel = forestPool.deref(fresnelH);
 
-					const auto brdfH = forestPool.emplace<CFrontendIR::CMul>();
+					const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
 					{
-						auto* mul = forestPool.deref(brdfH);
-						const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
-						{
-							auto* ct = forestPool.deref(ctH);
-							ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
-							// ignored for BRDFs, needed for BTDFs
-							ct->orientedRealEta = fresnel->orientedRealEta;
-						}
-						mul->lhs = ctH;
-						mul->rhs = fresnelH;
+						auto* ct = forestPool.deref(ctH);
+						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
+						// ignored for BRDFs, needed for BTDFs
+						ct->orientedRealEta = fresnel->orientedRealEta;
+						layer->brdfTop = forest->createMul(ctH,fresnelH);
 					}
-					layer->brdfTop = brdfH;
-					layer->brdfBottom = brdfH;
-
-					const auto btdfH = forestPool.emplace<CFrontendIR::CMul>();
+					// the BTDF
 					{
-						auto* mul = forestPool.deref(btdfH);
 						const auto thinInfiniteScatterH = forestPool.emplace<CFrontendIR::CThinInfiniteScatterCorrection>();
 						{
 							auto* thinInfiniteScatter = forestPool.deref(thinInfiniteScatterH);
@@ -425,10 +414,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							thinInfiniteScatter->reflectanceBottom = fresnelH;
 							// without extinction
 						}
-						mul->lhs = forestPool.emplace<CFrontendIR::CDeltaTransmission>();
-						mul->rhs = thinInfiniteScatterH;
+						layer->btdf = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),thinInfiniteScatterH);
 					}
-					layer->btdf = btdfH;
+					// the interface on top as Air->ThF4, we need interface on bottom to be ThF4->Air so reciprocate te Eta
+					layer->brdfBottom = forest->createMul(forest->reciprocate(ctH)._const_cast(),fresnelH);
 				
 					{
 						auto* imagEta = forestPool.deref(fresnel->orientedImagEta);
@@ -443,7 +432,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"ThinDielectric");
 				}
 
-				// compled materials with coatings with IOR 1.5
+				// complex materials with coatings with IOR 1.5
 				{
 					// make the nodes everyone shares
 					const auto roughDiffuseH = forestPool.emplace<CFrontendIR::CMul>();
@@ -474,12 +463,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						fresnel->orientedRealEta = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
 					}
 					// the delta layering should optimize out nicely due to the sampling property
-					const auto transH = forestPool.emplace<CFrontendIR::CMul>();
-					{
-						auto* mul = forestPool.deref(transH);
-						mul->lhs = forestPool.emplace<CFrontendIR::CDeltaTransmission>();
-						mul->rhs = fresnelH;
-					}
+					const auto transH = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),fresnelH);
 					// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
 					const auto bottomH = forestPool.emplace<CFrontendIR::CLayer>();
 					{
@@ -487,7 +471,8 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						bottomLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Rough Coating Copy");
 						// no brdf on the top of last layer, kill multiscattering
 						bottomLayer->btdf = transH;
-						bottomLayer->brdfBottom = dielectricH;
+						// need the interface to be Air on the bottom, not Glass
+						bottomLayer->brdfBottom = forest->reciprocate(dielectricH)._const_cast();
 					}
 
 					// twosided rough plastic
@@ -501,19 +486,19 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// no brdf on the bottom of first layer, kill multiscattering
 
 						const auto diffuseH = forestPool.emplace<CFrontendIR::CLayer>();
-						auto* midLayer = forestPool.deref(diffuseH);
+						topLayer->coated = diffuseH;
 						{
+							auto* midLayer = forestPool.deref(diffuseH);
 							midLayer->brdfTop = roughDiffuseH;
-							// no transmission in the mid-layer, the backend needs to decompose into separate front/back materials
+							// no transmission in the mid-layer, so the backend needs to decompose into separate front/back materials
 							midLayer->brdfBottom = roughDiffuseH;
 							midLayer->coated = bottomH;
 						}
-						topLayer->coated = diffuseH;
 					
 						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
 					}
 
-					// Diffuse transmitter normalized to whoel sphere
+					// Diffuse transmitter normalized to whole sphere
 					const auto roughDiffTransH = forestPool.emplace<CFrontendIR::CMul>();
 					{
 						// normalize the Oren Nayar over the full sphere
@@ -543,7 +528,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							midLayer->btdf = roughDiffTransH;
 							midLayer->brdfBottom = roughDiffTransH;
 
-							// we could even have a BSDF with a different Fresnel and Roughness on the bottom layer!
+							// we could even have a BSDF with a different Roughness on the bottom layer!
 							midLayer->coated = bottomH;
 						}
 						topLayer->coated = midH;
@@ -556,21 +541,26 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
 						auto* topLayer = forestPool.deref(rootH);
 						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Extinction Transmitter");
-
+// TODO: triple check this example Material
 						// we have a choice of where to stick the Beer Absorption:
 						// - on the BTDF of the outside layer, means that it will be applied to the transmission so twice according to VdotN and LdotN
 						// (but delta transmission makes special weight nodes behave in a special and only once because `L=-V` is forced in a single scattering)
 						// - inner layer BRDF or BTDF but thats intractable for most compiler backends because the `L` and `V` in the internal layers are not trivially known
 						//	 unless the previous layers are delta distributions (in which case we can equivalently hoist beer to the previous layer). 
 						const auto beerH = forestPool.emplace<CFrontendIR::CBeer>();
+						auto* beer = forestPool.deref(beerH);
 						{
-							auto* beer = forestPool.deref(beerH);
 							spectral_var_t::SCreationParams<3> params = {};
 							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
 							params.knots.params[0].scale = 0.3f;
 							params.knots.params[1].scale = 0.9f;
 							params.knots.params[2].scale = 0.7f;
 							beer->perpTransmittance = forestPool.emplace<spectral_var_t>(std::move(params));
+						}
+						{
+							spectral_var_t::SCreationParams<1> params = {};
+							params.knots.params[0].scale = 1.f;
+							beer->thickness = forestPool.emplace<spectral_var_t>(std::move(params));
 						}
 
 						topLayer->brdfTop = dielectricH;
@@ -592,13 +582,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							midLayer->btdf = roughDiffTransH;
 							// making extra work for our canonicalizer
 							{
-								const auto roughAbsorbH = forestPool.emplace<CFrontendIR::CMul>();
-								auto* transAbsorb = forestPool.deref(roughAbsorbH);
-								transAbsorb->lhs = roughDiffTransH;
-								{
-									transAbsorb->rhs = beerH;
-								}
-								midLayer->brdfBottom = roughAbsorbH;
+								midLayer->brdfBottom = forest->createMul(roughDiffTransH,beerH);
 							}
 
 							// we could even have a BSDF with a different Fresnel and Roughness on the bottom layer!
