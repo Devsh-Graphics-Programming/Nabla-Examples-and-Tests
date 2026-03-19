@@ -501,7 +501,6 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
                         const auto* geo = ref.geometry.get();
                         if (geo->getPrimitiveType()!=IGeometryBase::EPrimitiveType::Polygon)
                             continue;
-						// TODO: test without and see why asset converter complains!
 						ref.geometry = CPolygonGeometryManipulator::createTriangleListIndexing(static_cast<const ICPUPolygonGeometry*>(geo));
 					}
 				}

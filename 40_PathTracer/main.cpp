@@ -233,6 +233,9 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		#endif
 				m_api->endCapture();
 
+				if (!scene_daily_pt)
+					return logFail("Could not create scene");
+
 				// quick test code
 				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
 				{
