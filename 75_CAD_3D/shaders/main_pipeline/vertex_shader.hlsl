@@ -26,7 +26,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         float32_t3 triangleEdge0 = vertex1 - vertex0;
         float32_t3 triangleEdge1 = vertex2 - vertex0;
 
-        outV.normal = (normalize(cross(triangleEdge1, triangleEdge0)) + 1.0f) * 0.5f;
+        outV.setNormal((normalize(cross(triangleEdge1, triangleEdge0)) + 1.0f) * 0.5f);
     }
 
     pfloat64_t4 pos;
@@ -36,10 +36,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
     pos.w = _static_cast<pfloat64_t>(1.0f);
 
 
-    outV.position = _static_cast<float4>(pos);
-    
-    // TODO: we want to separate height from the Y coordinate I guess?
-    outV.height = _static_cast<float>(pos.y);
+    outV.setHeight(_static_cast<float>(pos.y));
 
     //pos = mul(pc.viewProjectionMatrix, pos);
     // TODO: use pc.viewProjectionMatrix and multiply it with pfloat64_t4 pos instead fix portable_matrix with portable_float multiplication
@@ -52,6 +49,8 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         viewProjMatrix[i][3] = _static_cast<float>(pc.viewProjectionMatrix[i].w);
     }
 
+    outV.setScreenSpaceVertexAttribs(_static_cast<float4>(pos).xyz);
+
     /*if (vertexID == 0)
     {
         printf("%f, %f, %f, %f", a[0][0], a[0][1], a[0][2], a[0][3]);
@@ -60,7 +59,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         printf("%f, %f, %f, %f", a[3][0], a[3][1], a[3][2], a[3][3]);
     }*/
 
-    outV.position = mul(viewProjMatrix, outV.position);
+    outV.position = mul(viewProjMatrix, _static_cast<float4>(pos));
 
     return outV;
 }

@@ -1,5 +1,7 @@
+#define FRAGMENT_SHADER_INPUT
 #pragma shader_stage(fragment)
 
+#include "dtm.hlsl"
 #include "common.hlsl"
 
 static const float32_t3 SunlightDirection = float32_t3(0.7071f, -0.7071f, 0.0f);
@@ -8,14 +10,22 @@ static const float32_t3 SunlightDirection = float32_t3(0.7071f, -0.7071f, 0.0f);
 float4 fragMain(PSInput input) : SV_Target
 {
 	static const float AmbientLightIntensity = 0.1f;
-	const float diffuseLightIntensity = max(dot(-SunlightDirection, input.normal), 0.0f);
+	const float diffuseLightIntensity = max(dot(-SunlightDirection, input.getNormal()), 0.0f);
 
-	MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
-	DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
-		
-	const float32_t3 HeightColor = input.height < 50.0f ? float32_t3(0.0, 1.0, 0.0) : (input.height < 75.0f ? float32_t3(1.0, 1.0, 0.0) : float32_t3(1.0, 0.0, 0.0));
-		
-	const float32_t3 fragColor = (AmbientLightIntensity + diffuseLightIntensity) * HeightColor;
+	const MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
+	const DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
+	
+	float32_t3 triangleVertices[3];
+    triangleVertices[0] = input.getScreenSpaceVertexAttribs(0);
+    triangleVertices[1] = input.getScreenSpaceVertexAttribs(1);
+    triangleVertices[2] = input.getScreenSpaceVertexAttribs(2);
 
-	return float32_t4(fragColor, 1.0f);
+	const float height = input.getHeight();
+	//const float32_t3 HeightColor = height < 0.0f ? float32_t3(0.0f, 0.0f, 1.0f) : height < 50.0f ? float32_t3(0.0, 1.0, 0.0) : (height < 75.0f ? float32_t3(1.0, 1.0, 0.0) : float32_t3(1.0, 0.0, 0.0));
+
+	const float32_t4 HeightColor = dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, triangleVertices, input.position.xy, height);
+
+	const float32_t4 fragColor = (AmbientLightIntensity + diffuseLightIntensity) * HeightColor;
+
+	return fragColor;
 }

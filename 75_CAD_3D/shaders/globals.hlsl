@@ -1,5 +1,5 @@
-#ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
-#define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
+#ifndef _CAD_3D_EXAMPLE_GLOBALS_HLSL_INCLUDED_
+#define _CAD_3D_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
 // TODO[Erfan]: Turn off in the future, but keep enabled to test
 // #define NBL_FORCE_EMULATED_FLOAT_64
