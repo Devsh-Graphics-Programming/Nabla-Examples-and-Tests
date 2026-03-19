@@ -863,6 +863,9 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	const auto& sessionParams = session->getConstructionParams();
 	auto* const device = getDevice();
 
+	// TODO: reset m_framesDispatched to 0 every time camera moves considerable amount
+	m_framesDispatched++;
+
 	if (m_frameIx>=SCachedConstructionParams::FramesInFlight)
 	{
 		const ISemaphore::SWaitInfo cbDonePending[] =
@@ -895,6 +898,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			case CSession::RenderMode::Debug:
 			{
 				SDebugPushConstants pc = {sessionResources.currentSensorState};
+				pc.sensorDynamics.rcpFramesDispatched = 1.0 / float(m_framesDispatched);
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}

@@ -19,6 +19,7 @@ struct SSensorDynamics
 	hlsl::float32_t2x3 ndcToRay;
 	hlsl::float32_t nearClip;
 	hlsl::float32_t tMax;
+	hlsl::float32_t rcpFramesDispatched;
 	uint64_t pSampleSequence;
 	// we can adaptively sample per-pixel, but 
 	uint32_t minSPP : MAX_SPP_LOG2;

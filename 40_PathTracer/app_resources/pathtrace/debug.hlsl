@@ -31,13 +31,16 @@ void raygen()
     float32_t2 pixOffsetParam = (float32_t2)1.0 / float32_t2(scrambleDim);
 
     float32_t2 coord = (float32_t3(launchID) / float32_t3(launchSize)).xy;
+    uint32_t2 texCoord = uint32_t2(launchID.x & 511, launchID.y & 511);
     using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
-    randgen_type randgen = randgen_type::create(gScrambleKey[coord].rg, pc.sensorDynamics.pSampleSequence);
+    randgen_type randgen = randgen_type::create(gScrambleKey[texCoord], pc.sensorDynamics.pSampleSequence);
     float32_t3 NDC = float32_t3(coord * 2.0 - 1.0, -1.0);
 
     float32_t3 acc_albedo = float32_t3(0,0,0);
     float32_t3 acc_normal = float32_t3(0,0,0);
-    for (uint32_t i = 0; i < pc.sensorDynamics.minSPP; i++)
+    uint32_t sampleCount = pc.sensorDynamics.maxSPP;
+    float rcpSampleCount = 1.0 / float(sampleCount);
+    for (uint32_t i = 0; i < sampleCount; i++)
     {
         float32_t3 randVec = randgen(0u, i);
         path_tracing::GaussianFilter<float> filter = path_tracing::GaussianFilter<float>::create(2.5, 1.5); // stochastic reconstruction filter
@@ -62,8 +65,26 @@ void raygen()
         acc_normal += payload.worldNormal * 0.5 + 0.5;
     }
 
-    gAlbedo[launchID] = float32_t4(acc_albedo / pc.sensorDynamics.minSPP, 1.0);
-    gNormal[launchID] = float32_t4(acc_normal / pc.sensorDynamics.minSPP, 1.0);
+    const bool firstFrame = pc.sensorDynamics.rcpFramesDispatched == 1.0;
+    // clear accumulations totally if beginning a new frame
+    if (firstFrame)
+    {
+        gAlbedo[launchID] = float32_t4(acc_albedo * rcpSampleCount, 1.0);
+        gNormal[launchID] = float32_t4(acc_normal * rcpSampleCount, 1.0);
+    }
+    else
+    {
+        float32_t3 prev_albedo = gAlbedo[launchID];
+        float32_t3 delta = (acc_albedo * rcpSampleCount - prev_albedo) * pc.sensorDynamics.rcpFramesDispatched;
+        if (hlsl::any(delta > hlsl::promote<float32_t3>(1.0/1024.0)))
+            gAlbedo[launchID] = float32_t4(prev_albedo + delta, 1.0);
+
+        float32_t3 prev_normal = gNormal[launchID];
+        delta = (acc_normal * rcpSampleCount - prev_normal) * pc.sensorDynamics.rcpFramesDispatched;
+        if (hlsl::any(delta > hlsl::promote<float32_t3>(1.0/512.0)))
+            gNormal[launchID] = float32_t4(prev_normal + delta, 1.0);
+    }
+    
 }
 
 [shader("closesthit")]
@@ -77,7 +98,7 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
     float32_t3 vertex1 = spirv::HitTriangleVertexPositionsKHR[1];
     float32_t3 vertex2 = spirv::HitTriangleVertexPositionsKHR[2];
     const float32_t3 vertexNormal = hlsl::cross(vertex1 - vertex0, vertex2 - vertex0);
-    const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(transpose(spirv::ObjectToWorldKHR)), vertexNormal));
+    const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(hlsl::transpose(spirv::ObjectToWorldKHR)), vertexNormal));
 
     payload.instanceID = instanceCustomIndex;
     payload.primitiveID = primID;
@@ -89,6 +110,6 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
 [shader("miss")]
 void miss(inout DebugPayload payload)
 {
-    payload.albedo = float32_t3(0.1,0.1,0.1);
+    payload.albedo = float32_t3(0,0,0);
     payload.worldNormal = -spirv::WorldRayDirectionKHR;
 }
