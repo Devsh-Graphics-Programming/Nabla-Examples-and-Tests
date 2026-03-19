@@ -33,28 +33,37 @@ void raygen()
     float32_t2 coord = (float32_t3(launchID) / float32_t3(launchSize)).xy;
     using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
     randgen_type randgen = randgen_type::create(gScrambleKey[coord].rg, pc.sensorDynamics.pSampleSequence);
-
     float32_t3 NDC = float32_t3(coord * 2.0 - 1.0, -1.0);
-    float32_t3 randVec = randgen(0u, 0u);
-    path_tracing::GaussianFilter<float> filter = path_tracing::GaussianFilter<float>::create(2.5, 1.5); // stochastic reconstruction filter
-    NDC.xy += pixOffsetParam * filter.sample(randVec.xy);
-    float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, NDC), -1.0));
-    float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip);
 
-    RayDesc rayDesc;
-    rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView, origin);
-    rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView), direction));
-    rayDesc.TMin = pc.sensorDynamics.nearClip;
-    rayDesc.TMax = pc.sensorDynamics.tMax;
+    float32_t3 acc_albedo = float32_t3(0,0,0);
+    float32_t3 acc_normal = float32_t3(0,0,0);
+    for (uint32_t i = 0; i < pc.sensorDynamics.minSPP; i++)
+    {
+        float32_t3 randVec = randgen(0u, i);
+        path_tracing::GaussianFilter<float> filter = path_tracing::GaussianFilter<float>::create(2.5, 1.5); // stochastic reconstruction filter
+        float32_t3 adjNDC = NDC;
+        adjNDC.xy += pixOffsetParam * filter.sample(randVec.xy);
+        float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, adjNDC), -1.0));
+        float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip);
 
-    [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
-    DebugPayload payload;
-    payload.albedo = float32_t3(0,0,0);
-    payload.worldNormal = float32_t3(0,0,0);
-    spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
+        RayDesc rayDesc;
+        rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView, origin);
+        rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView), direction));
+        rayDesc.TMin = pc.sensorDynamics.nearClip;
+        rayDesc.TMax = pc.sensorDynamics.tMax;
 
-    gAlbedo[launchID] = float32_t4(payload.albedo, 1.0);
-    gNormal[launchID] = float32_t4(payload.worldNormal * 0.5 + 0.5, 1.0);
+        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
+        DebugPayload payload;
+        payload.albedo = float32_t3(0,0,0);
+        payload.worldNormal = float32_t3(0,0,0);
+        spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
+
+        acc_albedo += payload.albedo;
+        acc_normal += payload.worldNormal * 0.5 + 0.5;
+    }
+
+    gAlbedo[launchID] = float32_t4(acc_albedo / pc.sensorDynamics.minSPP, 1.0);
+    gNormal[launchID] = float32_t4(acc_normal / pc.sensorDynamics.minSPP, 1.0);
 }
 
 [shader("closesthit")]
