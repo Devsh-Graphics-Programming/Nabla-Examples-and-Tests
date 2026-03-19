@@ -162,20 +162,20 @@ public:
 		static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
 		static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
 
-		// --- InvertibleSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(cache_type), backwardWeight(codomain_type)
-		static_assert(sampling::concepts::InvertibleSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::Bilinear<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedSphere<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalTriangle<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::ProjectedSphericalTriangle<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::SphericalRectangle<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::BoxMullerTransform<float>>);
-		static_assert(sampling::concepts::InvertibleSampler<sampling::ConcentricMapping<float32_t>>);
+		// --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(cache_type), backwardWeight(codomain_type)
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::Bilinear<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformHemisphere<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformSphere<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedHemisphere<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphere<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalTriangle<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalRectangle<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
+		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
 
-		// --- BijectiveSampler (level 4) --- InvertibleSampler + generateInverse(codomain_type, out cache_type) -> domain_type
+		// --- BijectiveSampler (level 4) --- BackwardTractableSampler + generateInverse(codomain_type) -> domain_type
 		static_assert(sampling::concepts::BijectiveSampler<sampling::Linear<float>>);
 		static_assert(sampling::concepts::BijectiveSampler<sampling::Bilinear<float>>);
 		static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
