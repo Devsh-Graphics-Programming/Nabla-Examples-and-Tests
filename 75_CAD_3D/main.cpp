@@ -865,6 +865,7 @@ public:
 			.geometryBuffer = baseAddress + resourcesCollection.geometryInfo.bufferOffset,
 			.dtmSettings = baseAddress + resourcesCollection.dtmSettings.bufferOffset,
 		};
+		globalData.antiAliasingFactor = 1.0f;
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer};
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);

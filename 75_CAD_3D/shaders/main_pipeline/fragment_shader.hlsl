@@ -21,9 +21,9 @@ float4 fragMain(PSInput input) : SV_Target
     triangleVertices[2] = input.getScreenSpaceVertexAttribs(2);
 
 	const float height = input.getHeight();
-	//const float32_t3 HeightColor = height < 0.0f ? float32_t3(0.0f, 0.0f, 1.0f) : height < 50.0f ? float32_t3(0.0, 1.0, 0.0) : (height < 75.0f ? float32_t3(1.0, 1.0, 0.0) : float32_t3(1.0, 0.0, 0.0));
+	const float heightDeriv = fwidth(height);
 
-	const float32_t4 HeightColor = dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, triangleVertices, input.position.xy, height);
+	const float32_t4 HeightColor = dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, heightDeriv, triangleVertices, input.position.xy, height);
 
 	const float32_t4 fragColor = (AmbientLightIntensity + diffuseLightIntensity) * HeightColor;
 

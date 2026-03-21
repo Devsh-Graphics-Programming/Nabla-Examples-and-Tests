@@ -65,9 +65,11 @@ static_assert(sizeof(Pointers) == 32u);
 struct Globals
 {
     Pointers pointers;
+    float32_t antiAliasingFactor;
+    float32_t __padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 32u);
+static_assert(sizeof(Globals) == 40u);
 #endif
 
 struct DrawObject
