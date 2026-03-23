@@ -15,8 +15,13 @@
 #include "app_resources/hlsl/resolve_common.hlsl"
 
 #include <cstddef>
+#include <cstdlib>
+#include <deque>
 #include <filesystem>
+#include <fstream>
 #include <future>
+#include <optional>
+#include <thread>
 
 using namespace nbl;
 using namespace core;
@@ -193,6 +198,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
 				};
 			}
+			initializePipelineCache();
 			ISampler::SParams samplerParams = {
 				.AnisotropicFilter = 0
 			};
@@ -395,9 +401,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						nullptr,
 						nullptr
 					);
-					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
+					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass(), 0u, {}, hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT, m_pipelineCache.object.get());
 					if (!m_presentPipeline)
 						return logFail("Could not create Graphics Pipeline!");
+					m_pipelineCache.dirty = true;
 
 				}
 			}
@@ -852,7 +859,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
 				params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 				params.assetManager = m_assetMgr;
-				params.pipelineCache = nullptr;
+				params.pipelineCache = m_pipelineCache.object;
 				params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.streamingBuffer = nullptr;
@@ -867,6 +874,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return logFail("Failed to load precompiled ImGui shaders");
 				{
 					m_ui.manager = ext::imgui::UI::create(std::move(params));
+					if (m_ui.manager)
+						m_pipelineCache.dirty = true;
 
 					// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 					const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
@@ -1039,6 +1048,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		inline void workLoopBody() override
 		{
 			pollPendingPipelines();
+			pumpPipelineWarmup();
 			if (!m_loggedFirstFrameLoop)
 			{
 				logStartupEvent("first_frame_loop");
@@ -1377,10 +1387,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					logStartupEvent("first_render_submit");
 					m_loggedFirstRenderSubmit = true;
 				}
-				if (m_hasPathtraceOutput && !m_pipelineWarmupStarted)
+				if (m_hasPathtraceOutput && !m_pipelineCache.warmupStarted)
 				{
 					kickoffPipelineWarmup();
-					m_pipelineWarmupStarted = true;
 				}
 
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
@@ -1399,6 +1408,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		inline bool onAppTerminated() override
 		{
 			waitForPendingPipelines();
+			savePipelineCache();
 			return device_base_t::onAppTerminated();
 		}
 
@@ -1520,7 +1530,203 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		void logStartupEvent(const char* const eventName)
 		{
 			const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_startupBeganAt).count();
-			m_logger->log("EX31_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
+			m_logger->log("PATH_TRACER_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
+		}
+
+		std::optional<path> tryGetPipelineCacheDirOverride() const
+		{
+			constexpr std::string_view prefix = "--pipeline-cache-dir=";
+			for (size_t i = 1ull; i < argv.size(); ++i)
+			{
+				const std::string_view arg = argv[i];
+				if (arg.rfind(prefix, 0ull) == 0ull)
+				{
+					const auto value = arg.substr(prefix.size());
+					if (!value.empty())
+						return path(std::string(value));
+					return std::nullopt;
+				}
+				if (arg == "--pipeline-cache-dir")
+				{
+					if (i + 1ull < argv.size())
+						return path(argv[i + 1ull]);
+					return std::nullopt;
+				}
+			}
+			return std::nullopt;
+		}
+
+		bool shouldClearPipelineCacheOnStartup() const
+		{
+			for (const auto& arg : argv)
+			{
+				if (arg == "--clear-pipeline-cache")
+					return true;
+			}
+			return false;
+		}
+
+		path getDefaultPipelineCacheDir() const
+		{
+			if (const auto* localAppData = std::getenv("LOCALAPPDATA"); localAppData && localAppData[0] != '\0')
+				return path(localAppData) / "nabla/examples/31_HLSLPathTracer/pipeline/cache";
+			return localOutputCWD / "pipeline/cache";
+		}
+
+		path getPipelineCacheRootDir() const
+		{
+			return tryGetPipelineCacheDirOverride().value_or(getDefaultPipelineCacheDir());
+		}
+
+		path getPipelineCacheBlobPath() const
+		{
+			const auto key = m_device->getPipelineCacheKey();
+			return getPipelineCacheRootDir() / "v1" / (std::string(key.deviceAndDriverUUID) + ".bin");
+		}
+
+		size_t getBackgroundPipelineBuildBudget() const
+		{
+			const auto concurrency = std::thread::hardware_concurrency();
+			if (concurrency <= 1u)
+				return 1ull;
+			return static_cast<size_t>(concurrency - 1u);
+		}
+
+		void initializePipelineCache()
+		{
+			m_pipelineCache.blobPath = getPipelineCacheBlobPath();
+			const auto pipelineCacheRootDir = getPipelineCacheRootDir();
+			std::error_code ec;
+			m_pipelineCache.loadedBytes = 0ull;
+			m_pipelineCache.loadedFromDisk = false;
+			m_pipelineCache.clearedOnStartup = shouldClearPipelineCacheOnStartup();
+			if (shouldClearPipelineCacheOnStartup())
+			{
+				const auto removedCount = std::filesystem::remove_all(pipelineCacheRootDir, ec);
+				if (ec)
+					m_logger->log("Failed to clear pipeline cache directory %s", ILogger::ELL_WARNING, pipelineCacheRootDir.string().c_str());
+				else
+					m_logger->log("PATH_TRACER_PIPELINE_CACHE clear removed_entries=%llu root=%s", ILogger::ELL_INFO, static_cast<unsigned long long>(removedCount), pipelineCacheRootDir.string().c_str());
+			}
+			std::filesystem::create_directories(m_pipelineCache.blobPath.parent_path(), ec);
+			if (ec)
+				m_logger->log("Failed to create pipeline cache directory %s", ILogger::ELL_WARNING, m_pipelineCache.blobPath.parent_path().string().c_str());
+
+			std::vector<uint8_t> initialData;
+			{
+				std::ifstream input(m_pipelineCache.blobPath, std::ios::binary | std::ios::ate);
+				if (input.is_open())
+				{
+					const auto size = input.tellg();
+					if (size > 0)
+					{
+						initialData.resize(static_cast<size_t>(size));
+						input.seekg(0, std::ios::beg);
+						input.read(reinterpret_cast<char*>(initialData.data()), static_cast<std::streamsize>(initialData.size()));
+						if (!input)
+							initialData.clear();
+					}
+				}
+			}
+
+			std::span<const uint8_t> initialDataSpan = {};
+			if (!initialData.empty())
+			{
+				initialDataSpan = { initialData.data(), initialData.size() };
+				m_pipelineCache.loadedBytes = initialData.size();
+				m_pipelineCache.loadedFromDisk = true;
+			}
+
+			m_pipelineCache.object = m_device->createPipelineCache(initialDataSpan);
+			if (!m_pipelineCache.object && !initialData.empty())
+			{
+				m_logger->log("Pipeline cache blob at %s was rejected. Falling back to empty cache.", ILogger::ELL_WARNING, m_pipelineCache.blobPath.string().c_str());
+				m_pipelineCache.object = m_device->createPipelineCache(std::span<const uint8_t>{});
+			}
+			if (!m_pipelineCache.object)
+			{
+				m_logger->log("Failed to create PATH_TRACER pipeline cache.", ILogger::ELL_WARNING);
+				return;
+			}
+
+			m_pipelineCache.object->setObjectDebugName("PATH_TRACER Pipeline Cache");
+			m_logger->log("PATH_TRACER pipeline cache path: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE init clear=%u loaded_from_disk=%u loaded_bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				m_pipelineCache.clearedOnStartup ? 1u : 0u,
+				m_pipelineCache.loadedFromDisk ? 1u : 0u,
+				m_pipelineCache.loadedBytes,
+				m_pipelineCache.blobPath.string().c_str()
+			);
+			if (!initialData.empty())
+				m_logger->log("Loaded PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+		}
+
+		void savePipelineCache()
+		{
+			if (!m_pipelineCache.object || !m_pipelineCache.dirty || m_pipelineCache.blobPath.empty())
+				return;
+
+			const auto saveStartedAt = clock_t::now();
+			auto cpuCache = m_pipelineCache.object->convertToCPUCache();
+			if (!cpuCache)
+				return;
+
+			const auto& entries = cpuCache->getEntries();
+			const auto found = entries.find(m_device->getPipelineCacheKey());
+			if (found == entries.end() || !found->second.bin || found->second.bin->empty())
+				return;
+
+			std::error_code ec;
+			std::filesystem::create_directories(m_pipelineCache.blobPath.parent_path(), ec);
+			if (ec)
+			{
+				m_logger->log("Failed to create pipeline cache directory %s", ILogger::ELL_WARNING, m_pipelineCache.blobPath.parent_path().string().c_str());
+				return;
+			}
+
+			auto tempPath = m_pipelineCache.blobPath;
+			tempPath += ".tmp";
+			{
+				std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+				if (!output.is_open())
+				{
+					m_logger->log("Failed to open pipeline cache temp file %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+				output.write(reinterpret_cast<const char*>(found->second.bin->data()), static_cast<std::streamsize>(found->second.bin->size()));
+				output.flush();
+				if (!output)
+				{
+					output.close();
+					std::filesystem::remove(tempPath, ec);
+					m_logger->log("Failed to write pipeline cache blob to %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+			}
+
+			std::filesystem::remove(m_pipelineCache.blobPath, ec);
+			ec.clear();
+			std::filesystem::rename(tempPath, m_pipelineCache.blobPath, ec);
+			if (ec)
+			{
+				std::filesystem::remove(tempPath, ec);
+				m_logger->log("Failed to finalize pipeline cache blob at %s", ILogger::ELL_WARNING, m_pipelineCache.blobPath.string().c_str());
+				return;
+			}
+
+			m_pipelineCache.dirty = false;
+			m_pipelineCache.savedBytes = found->second.bin->size();
+			const auto saveElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - saveStartedAt).count();
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE save bytes=%zu wall_ms=%lld path=%s",
+				ILogger::ELL_INFO,
+				m_pipelineCache.savedBytes,
+				static_cast<long long>(saveElapsedMs),
+				m_pipelineCache.blobPath.string().c_str()
+			);
+			m_logger->log("Saved PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
 		}
 
 		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
@@ -1556,6 +1762,39 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		using pipeline_future_method_array_t = std::array<pipeline_future_t, EPM_COUNT>;
 		using pipeline_array_t = std::array<pipeline_method_array_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
 		using pipeline_future_array_t = std::array<pipeline_future_method_array_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
+		struct SWarmupJob
+		{
+			enum class E_TYPE : uint8_t
+			{
+				Render,
+				Resolve
+			};
+
+			E_TYPE type = E_TYPE::Render;
+			E_LIGHT_GEOMETRY geometry = ELG_SPHERE;
+			bool persistentWorkGroups = false;
+			bool rwmc = false;
+			E_POLYGON_METHOD polygonMethod = EPM_PROJECTED_SOLID_ANGLE;
+		};
+
+		struct SPipelineCacheState
+		{
+			smart_refctd_ptr<IGPUPipelineCache> object;
+			path blobPath;
+			bool dirty = false;
+			bool loadedFromDisk = false;
+			bool clearedOnStartup = false;
+			size_t loadedBytes = 0ull;
+			size_t savedBytes = 0ull;
+			bool warmupStarted = false;
+			bool loggedWarmupComplete = false;
+			clock_t::time_point warmupBeganAt = clock_t::now();
+			size_t warmupBudget = 1ull;
+			size_t warmupQueuedJobs = 0ull;
+			size_t warmupLaunchedJobs = 0ull;
+			size_t warmupSkippedJobs = 0ull;
+			std::deque<SWarmupJob> warmupQueue;
+		};
 
 		static E_POLYGON_METHOD getEffectivePolygonMethod(const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD requestedMethod)
 		{
@@ -1618,6 +1857,101 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return persistentWorkGroups ? m_pendingPTHLSLPersistentWGPipelines : m_pendingPTHLSLPipelines;
 		}
 
+		size_t getPendingPipelineBuildCount() const
+		{
+			size_t count = 0ull;
+			const auto countPending = [&count](const pipeline_future_array_t& futures, const pipeline_array_t& pipelines) -> void
+			{
+				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+				{
+					for (auto method = 0u; method < EPM_COUNT; ++method)
+					{
+						if (futures[geometry][method].valid() && !pipelines[geometry][method])
+							++count;
+					}
+				}
+			};
+			countPending(m_pendingPTHLSLPipelines, m_PTHLSLPipelines);
+			countPending(m_pendingPTHLSLPersistentWGPipelines, m_PTHLSLPersistentWGPipelines);
+			countPending(m_pendingPTHLSLPipelinesRWMC, m_PTHLSLPipelinesRWMC);
+			countPending(m_pendingPTHLSLPersistentWGPipelinesRWMC, m_PTHLSLPersistentWGPipelinesRWMC);
+			if (m_pendingResolvePipeline.valid() && !m_resolvePipeline)
+				++count;
+			return count;
+		}
+
+		void enqueueWarmupJob(const SWarmupJob& job)
+		{
+			for (const auto& existing : m_pipelineCache.warmupQueue)
+			{
+				if (existing.type != job.type)
+					continue;
+				if (existing.type == SWarmupJob::E_TYPE::Resolve)
+					return;
+				if (
+					existing.geometry == job.geometry &&
+					existing.persistentWorkGroups == job.persistentWorkGroups &&
+					existing.rwmc == job.rwmc &&
+					getEffectivePolygonMethod(existing.geometry, existing.polygonMethod) == getEffectivePolygonMethod(job.geometry, job.polygonMethod)
+				)
+					return;
+			}
+			m_pipelineCache.warmupQueue.push_back(job);
+		}
+
+		bool launchWarmupJobIfNeeded(const SWarmupJob& job)
+		{
+			if (job.type == SWarmupJob::E_TYPE::Resolve)
+			{
+				if (m_resolvePipeline || m_pendingResolvePipeline.valid())
+					return false;
+				ensureResolvePipeline();
+				return m_pendingResolvePipeline.valid();
+			}
+
+			auto& pipelines = getRenderPipelineStorage(job.persistentWorkGroups, job.rwmc);
+			auto& pendingPipelines = getRenderFutureStorage(job.persistentWorkGroups, job.rwmc);
+			const auto methodIx = static_cast<size_t>(getEffectivePolygonMethod(job.geometry, job.polygonMethod));
+			if (pipelines[job.geometry][methodIx] || pendingPipelines[job.geometry][methodIx].valid())
+				return false;
+
+			ensureRenderPipeline(job.geometry, job.persistentWorkGroups, job.rwmc, job.polygonMethod);
+			return pendingPipelines[job.geometry][methodIx].valid();
+		}
+
+		void pumpPipelineWarmup()
+		{
+			if (!m_pipelineCache.warmupStarted)
+				return;
+
+			while (!m_pipelineCache.warmupQueue.empty() && getPendingPipelineBuildCount() < m_pipelineCache.warmupBudget)
+			{
+				const auto job = m_pipelineCache.warmupQueue.front();
+				m_pipelineCache.warmupQueue.pop_front();
+				if (launchWarmupJobIfNeeded(job))
+					++m_pipelineCache.warmupLaunchedJobs;
+				else
+					++m_pipelineCache.warmupSkippedJobs;
+			}
+
+			if (!m_pipelineCache.loggedWarmupComplete && m_pipelineCache.warmupQueue.empty() && getPendingPipelineBuildCount() == 0ull)
+			{
+				m_pipelineCache.loggedWarmupComplete = true;
+				const auto warmupElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.warmupBeganAt).count();
+				m_logger->log(
+					"PATH_TRACER_PIPELINE_CACHE warmup_complete wall_ms=%lld queued_jobs=%zu launched_jobs=%zu skipped_jobs=%zu max_parallel=%zu",
+					ILogger::ELL_INFO,
+					static_cast<long long>(warmupElapsedMs),
+					m_pipelineCache.warmupQueuedJobs,
+					m_pipelineCache.warmupLaunchedJobs,
+					m_pipelineCache.warmupSkippedJobs,
+					m_pipelineCache.warmupBudget
+				);
+				logStartupEvent("pipeline_warmup_complete");
+				savePipelineCache();
+			}
+		}
+
 		pipeline_future_t requestComputePipelineBuild(smart_refctd_ptr<IShader> shaderModule, IGPUPipelineLayout* const pipelineLayout, const char* const entryPoint)
 		{
 			if (!shaderModule)
@@ -1627,6 +1961,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				std::launch::async,
 				[
 					device = m_device,
+					pipelineCache = m_pipelineCache.object,
 					shader = std::move(shaderModule),
 					layout = smart_refctd_ptr<IGPUPipelineLayout>(pipelineLayout),
 					requiredSubgroupSize = m_requiredSubgroupSize,
@@ -1642,7 +1977,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					params.shader.entries = nullptr;
 					params.cached.requireFullSubgroups = true;
 					params.shader.requiredSubgroupSize = requiredSubgroupSize;
-					if (!device->createComputePipelines(nullptr, { &params, 1 }, &pipeline))
+					if (!device->createComputePipelines(pipelineCache.get(), { &params, 1 }, &pipeline))
 					{
 						if (logger)
 							logger->log("Failed to create precompiled path tracing pipeline for %s", ILogger::ELL_ERROR, entryPointName.c_str());
@@ -1660,6 +1995,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
 				return;
 			pipeline = future.get();
+			if (pipeline)
+				m_pipelineCache.dirty = true;
 		}
 
 		void pollPendingPipelines()
@@ -1691,13 +2028,24 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			{
 				for (auto method = 0u; method < EPM_COUNT; ++method)
 				{
+					const auto before0 = static_cast<bool>(m_PTHLSLPipelines[geometry][method]);
+					const auto before1 = static_cast<bool>(m_PTHLSLPersistentWGPipelines[geometry][method]);
+					const auto before2 = static_cast<bool>(m_PTHLSLPipelinesRWMC[geometry][method]);
+					const auto before3 = static_cast<bool>(m_PTHLSLPersistentWGPipelinesRWMC[geometry][method]);
 					waitAndStore(m_pendingPTHLSLPipelines[geometry][method], m_PTHLSLPipelines[geometry][method]);
 					waitAndStore(m_pendingPTHLSLPersistentWGPipelines[geometry][method], m_PTHLSLPersistentWGPipelines[geometry][method]);
 					waitAndStore(m_pendingPTHLSLPipelinesRWMC[geometry][method], m_PTHLSLPipelinesRWMC[geometry][method]);
 					waitAndStore(m_pendingPTHLSLPersistentWGPipelinesRWMC[geometry][method], m_PTHLSLPersistentWGPipelinesRWMC[geometry][method]);
+					m_pipelineCache.dirty = m_pipelineCache.dirty ||
+						(!before0 && static_cast<bool>(m_PTHLSLPipelines[geometry][method])) ||
+						(!before1 && static_cast<bool>(m_PTHLSLPersistentWGPipelines[geometry][method])) ||
+						(!before2 && static_cast<bool>(m_PTHLSLPipelinesRWMC[geometry][method])) ||
+						(!before3 && static_cast<bool>(m_PTHLSLPersistentWGPipelinesRWMC[geometry][method]));
 				}
 			}
+			const auto hadResolvePipeline = static_cast<bool>(m_resolvePipeline);
 			waitAndStore(m_pendingResolvePipeline, m_resolvePipeline);
+			m_pipelineCache.dirty = m_pipelineCache.dirty || (!hadResolvePipeline && static_cast<bool>(m_resolvePipeline));
 		}
 
 		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
@@ -1736,15 +2084,91 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void kickoffPipelineWarmup()
 		{
+			m_pipelineCache.warmupStarted = true;
+			m_pipelineCache.warmupQueue.clear();
+			m_pipelineCache.loggedWarmupComplete = false;
+			m_pipelineCache.warmupBeganAt = clock_t::now();
+			m_pipelineCache.warmupBudget = getBackgroundPipelineBuildBudget();
+			m_pipelineCache.warmupQueuedJobs = 0ull;
+			m_pipelineCache.warmupLaunchedJobs = 0ull;
+			m_pipelineCache.warmupSkippedJobs = 0ull;
+			const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+			const auto currentMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
+			const auto enqueueRenderVariants = [this, currentGeometry](const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD preferredMethod) -> void
+			{
+				const auto enqueueForMethods = [this, geometry](const std::initializer_list<E_POLYGON_METHOD> methods, const bool preferPersistent, const bool preferRWMC) -> void
+				{
+					const bool persistentOrder[2] = { preferPersistent, !preferPersistent };
+					const bool rwmcOrder[2] = { preferRWMC, !preferRWMC };
+					for (const auto method : methods)
+					{
+						for (const auto persistentWorkGroups : persistentOrder)
+						{
+							for (const auto rwmc : rwmcOrder)
+							{
+								enqueueWarmupJob({
+									.type = SWarmupJob::E_TYPE::Render,
+									.geometry = geometry,
+									.persistentWorkGroups = persistentWorkGroups,
+									.rwmc = rwmc,
+									.polygonMethod = method
+								});
+							}
+						}
+					}
+				};
+
+				const bool preferPersistent = geometry == currentGeometry ? guiControlled.usePersistentWorkGroups : false;
+				const bool preferRWMC = geometry == currentGeometry ? guiControlled.useRWMC : false;
+				switch (geometry)
+				{
+				case ELG_SPHERE:
+					enqueueForMethods({ EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+					break;
+				case ELG_TRIANGLE:
+				{
+					switch (preferredMethod)
+					{
+					case EPM_AREA:
+						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						break;
+					case EPM_SOLID_ANGLE:
+						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						break;
+					case EPM_PROJECTED_SOLID_ANGLE:
+					default:
+						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_AREA, EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						break;
+					}
+					break;
+				}
+				case ELG_RECTANGLE:
+					enqueueForMethods({ EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+					break;
+				default:
+					break;
+				}
+			};
+
+			enqueueRenderVariants(currentGeometry, currentMethod);
 			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 			{
-				for (const auto persistentWorkGroups : { false, true })
-				{
-					for (const auto rwmc : { false, true })
-						ensureRenderPipeline(static_cast<E_LIGHT_GEOMETRY>(geometry), persistentWorkGroups, rwmc, static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod));
-				}
+				const auto geometryEnum = static_cast<E_LIGHT_GEOMETRY>(geometry);
+				if (geometryEnum == currentGeometry)
+					continue;
+				enqueueRenderVariants(geometryEnum, currentMethod);
 			}
-			ensureResolvePipeline();
+			enqueueWarmupJob({ .type = SWarmupJob::E_TYPE::Resolve });
+			m_pipelineCache.warmupQueuedJobs = m_pipelineCache.warmupQueue.size();
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE warmup_start queued_jobs=%zu max_parallel=%zu current_geometry=%u current_method=%u",
+				ILogger::ELL_INFO,
+				m_pipelineCache.warmupQueuedJobs,
+				m_pipelineCache.warmupBudget,
+				static_cast<uint32_t>(currentGeometry),
+				static_cast<uint32_t>(currentMethod)
+			);
+			pumpPipelineWarmup();
 		}
 
 		IGPUComputePipeline* pickPTPipeline()
@@ -1856,7 +2280,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		bool m_loggedFirstFrameLoop = false;
 		bool m_loggedFirstRenderDispatch = false;
 		bool m_loggedFirstRenderSubmit = false;
-		bool m_pipelineWarmupStarted = false;
+		SPipelineCacheState m_pipelineCache;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 
