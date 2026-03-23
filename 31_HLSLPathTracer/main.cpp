@@ -10,6 +10,7 @@
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
+#include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -20,8 +21,16 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <thread>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 using namespace nbl;
 using namespace core;
@@ -77,6 +86,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool isComputeOnly() const override { return false; }
+
+		inline core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
+		{
+			return core::bitflag(system::ILogger::ELL_INFO) | system::ILogger::ELL_WARNING | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_ERROR;
+		}
 
 		inline video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 		{
@@ -313,22 +327,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
 				m_requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
-				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
-				{
-					for (const auto persistentWorkGroups : { false, true })
-					{
-						for (const auto rwmc : { false, true })
-						{
-							auto shader = loadRenderShader(static_cast<E_LIGHT_GEOMETRY>(geometry), persistentWorkGroups, rwmc);
-							if (!shader)
-								return logFail("Failed to load precompiled compute shader variant");
-							getRenderShaderStorage(persistentWorkGroups, rwmc)[geometry] = std::move(shader);
-						}
-					}
-				}
-				m_resolveShader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.resolve")>();
-				if (!m_resolveShader)
-					return logFail("Failed to load precompiled resolve compute shader");
 
 				{
 					const nbl::asset::SPushConstantRange pcRange = {
@@ -378,14 +376,50 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						return logFail("Failed to create resolve pipeline layout");
 				}
 
+				const auto ensureRenderShaderLoaded = [this](const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc) -> bool
+				{
+					auto& shaderSlot = getRenderShaderStorage(persistentWorkGroups, rwmc)[geometry];
+					if (shaderSlot)
+						return true;
+					shaderSlot = loadRenderShader(geometry, persistentWorkGroups, rwmc);
+					return static_cast<bool>(shaderSlot);
+				};
+				const auto ensureResolveShaderLoaded = [this]() -> bool
+				{
+					if (m_resolveShader)
+						return true;
+					m_resolveShader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.resolve")>();
+					return static_cast<bool>(m_resolveShader);
+				};
+
+				const auto startupGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+				if (!ensureRenderShaderLoaded(startupGeometry, guiControlled.usePersistentWorkGroups, guiControlled.useRWMC))
+					return logFail("Failed to load current precompiled compute shader variant");
+				if (guiControlled.useRWMC && !ensureResolveShaderLoaded())
+					return logFail("Failed to load precompiled resolve compute shader");
+
 				ensureRenderPipeline(
-					static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
+					startupGeometry,
 					guiControlled.usePersistentWorkGroups,
 					guiControlled.useRWMC,
 					static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
 				);
 				if (guiControlled.useRWMC)
 					ensureResolvePipeline();
+
+				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+				{
+					for (const auto persistentWorkGroups : { false, true })
+					{
+						for (const auto rwmc : { false, true })
+						{
+							if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), persistentWorkGroups, rwmc))
+								return logFail("Failed to load precompiled compute shader variant");
+						}
+					}
+				}
+				if (!ensureResolveShaderLoaded())
+					return logFail("Failed to load precompiled resolve compute shader");
 
 				// Create graphics pipeline
 				{
@@ -916,17 +950,101 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const ImGuiViewport* viewport = ImGui::GetMainViewport();
 					const ImVec2 viewportPos = viewport->Pos;
 					const ImVec2 viewportSize = viewport->Size;
+					const ImGuiStyle& style = ImGui::GetStyle();
 					const float panelMargin = 10.f;
-					const float panelWidth = ImClamp(viewportSize.x * 0.24f, 320.0f, 430.0f);
-					const float panelMaxHeight = ImMax(360.0f, viewportSize.y * 0.9f);
+					const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+					const auto requestedMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
+					const auto effectiveMethod = getEffectivePolygonMethod(currentGeometry, requestedMethod);
+					const size_t readyRenderPipelines = getReadyRenderPipelineCount();
+					const size_t totalRenderPipelines = getKnownRenderPipelineCount();
+					const size_t readyTotalPipelines = readyRenderPipelines + (m_resolvePipeline ? 1ull : 0ull);
+					const size_t totalKnownPipelines = totalRenderPipelines + 1ull;
+					const size_t runningPipelineBuilds = getRunningPipelineBuildCount();
+					const size_t queuedPipelineBuilds = getQueuedPipelineBuildCount();
+					const bool warmupInProgress = m_hasPathtraceOutput && !m_pipelineCache.loggedWarmupComplete;
+					const char* const effectiveEntryPoint = getRenderEntryPointName(
+						currentGeometry,
+						guiControlled.usePersistentWorkGroups,
+						requestedMethod
+					);
+					const auto calcMaxTextWidth = [](std::initializer_list<const char*> texts) -> float
+					{
+						float width = 0.f;
+						for (const char* text : texts)
+							width = std::max(width, ImGui::CalcTextSize(text).x);
+						return width;
+					};
+					const auto calcMaxArrayTextWidth = [](const char* const* items, const int count) -> float
+					{
+						float width = 0.f;
+						for (int i = 0; i < count; ++i)
+							width = std::max(width, ImGui::CalcTextSize(items[i]).x);
+						return width;
+					};
+					const float maxStandaloneTextWidth = calcMaxTextWidth({
+						"PATH_TRACER",
+						"Home camera  End light",
+						"cursor 0000 0000",
+						"Building pipeline...",
+						"Warmup 00/00"
+					});
+					const float maxLabelTextWidth = calcMaxTextWidth({
+						"move",
+						"rotate",
+						"fov",
+						"zNear",
+						"zFar",
+						"shader",
+						"method",
+						"spp",
+						"depth",
+						"persistent WG",
+						"enable",
+						"start",
+						"base",
+						"min rel.",
+						"kappa",
+						"eff. geometry",
+						"req. method",
+						"eff. method",
+						"entrypoint",
+						"config",
+						"cache",
+						"shader cache",
+						"parallel",
+						"progress"
+					});
+					const float comboPreviewWidth = std::max(
+						calcMaxArrayTextWidth(shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT),
+						calcMaxArrayTextWidth(polygonMethodNames, EPM_COUNT)
+					);
+					const float sliderPreviewWidth = calcMaxTextWidth({
+						"10000.000",
+						"1024.000",
+						"Projected Solid Angle",
+						"mainPersistentSolidAngle",
+						"RelWithDebInfo",
+						"loaded from disk",
+						"done 20/21  run 5  queue 0"
+					});
+					const float tableLabelColumnWidth = std::ceil(maxLabelTextWidth + style.FramePadding.x * 2.f + style.CellPadding.x * 2.f);
+					const float tableValueColumnMinWidth =
+						std::ceil(std::max(comboPreviewWidth, sliderPreviewWidth) + style.FramePadding.x * 2.f + style.ItemInnerSpacing.x + ImGui::GetFrameHeight() + 18.f);
+					const float sectionTableWidth = tableLabelColumnWidth + tableValueColumnMinWidth + style.CellPadding.x * 4.f + style.ItemSpacing.x;
+					const float contentWidth = std::max(maxStandaloneTextWidth, sectionTableWidth);
+					const float panelWidth = std::min(
+						std::ceil(contentWidth + style.WindowPadding.x * 2.f),
+						std::max(0.f, viewportSize.x - panelMargin * 2.f)
+					);
+					const float panelMaxHeight = ImMax(300.0f, viewportSize.y * 0.84f);
 					ImGui::SetNextWindowPos(ImVec2(viewportPos.x + panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always);
 					ImGui::SetNextWindowSizeConstraints(ImVec2(panelWidth, 0.0f), ImVec2(panelWidth, panelMaxHeight));
 					ImGui::SetNextWindowBgAlpha(0.72f);
-					ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.f, 12.f));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(5.f, 5.f));
 					ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
-					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f);
-					ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 6.f);
-					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.f, 8.f));
+					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 4.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.f, 2.f));
 					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.10f, 0.13f, 0.88f));
 					ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.32f, 0.39f, 0.47f, 0.65f));
 					ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.28f, 0.36f, 0.92f));
@@ -941,11 +1059,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						ImGuiWindowFlags_AlwaysAutoResize |
 						ImGuiWindowFlags_NoResize;
 
-					const auto beginSectionTable = []() -> bool
+					const auto beginSectionTable = [](const char* id) -> bool
 					{
-						return ImGui::BeginTable("##controls_table", 2, ImGuiTableFlags_SizingFixedFit);
+						return ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingFixedFit);
 					};
-					const auto tableLabelColumnWidth = ImMin(150.0f, panelWidth * 0.42f);
 					const auto setupSectionTable = [tableLabelColumnWidth]() -> void
 					{
 						ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, tableLabelColumnWidth);
@@ -994,22 +1111,35 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						ImGui::Checkbox("##value", value);
 						ImGui::PopID();
 					};
+					const auto textRow = [](const char* label, const std::string& value) -> void
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(label);
+						ImGui::TableSetColumnIndex(1);
+						ImGui::TextUnformatted(value.c_str());
+					};
 
 					if (ImGui::Begin("Path Tracer Controls", nullptr, panelFlags))
 					{
-						ImGui::TextUnformatted("Path Tracer");
+						ImGui::TextUnformatted("PATH_TRACER");
 						ImGui::Separator();
-						ImGui::TextDisabled("Home resets camera");
-						ImGui::TextDisabled("End resets light");
-						ImGui::Spacing();
+						ImGui::TextDisabled("Home camera  End light");
+						if (!m_hasPathtraceOutput)
+							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Building pipeline...");
+						else if (warmupInProgress)
+							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Warmup %zu/%zu", readyTotalPipelines, totalKnownPipelines);
+						else
+							ImGui::TextDisabled("All pipelines ready");
+						ImGui::Dummy(ImVec2(0.f, 2.f));
 
 						if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
 						{
-							if (beginSectionTable())
+							if (beginSectionTable("##camera_controls_table"))
 							{
 								setupSectionTable();
-								sliderFloatRow("move speed", &guiControlled.moveSpeed, 0.1f, 10.f, "%.2f");
-								sliderFloatRow("rotate speed", &guiControlled.rotateSpeed, 0.1f, 10.f, "%.2f");
+								sliderFloatRow("move", &guiControlled.moveSpeed, 0.1f, 10.f, "%.2f");
+								sliderFloatRow("rotate", &guiControlled.rotateSpeed, 0.1f, 10.f, "%.2f");
 								sliderFloatRow("fov", &guiControlled.fov, 20.f, 150.f, "%.0f");
 								sliderFloatRow("zNear", &guiControlled.zNear, 0.1f, 100.f, "%.2f");
 								sliderFloatRow("zFar", &guiControlled.zFar, 110.f, 10000.f, "%.0f");
@@ -1019,37 +1149,88 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
 						{
-							if (beginSectionTable())
+							if (beginSectionTable("##render_controls_table"))
 							{
 								setupSectionTable();
 								comboRow("shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-								comboRow("polygon method", &guiControlled.polygonMethod, polygonMethodNames, EPM_COUNT);
+								comboRow("method", &guiControlled.polygonMethod, polygonMethodNames, EPM_COUNT);
 								sliderIntRow("spp", &guiControlled.spp, 1, MaxSamplesBuffer);
 								sliderIntRow("depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
-								checkboxRow("persistent WGs", &guiControlled.usePersistentWorkGroups);
+								checkboxRow("persistent WG", &guiControlled.usePersistentWorkGroups);
 								ImGui::EndTable();
 							}
 						}
 
 						if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
 						{
-							if (beginSectionTable())
+							if (beginSectionTable("##rwmc_controls_table"))
 							{
 								setupSectionTable();
 								checkboxRow("enable", &guiControlled.useRWMC);
 								sliderFloatRow("start", &guiControlled.rwmcParams.start, 1.0f, 32.0f, "%.3f");
 								sliderFloatRow("base", &guiControlled.rwmcParams.base, 1.0f, 32.0f, "%.3f");
-								sliderFloatRow("min reliable", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f, "%.3f");
+								sliderFloatRow("min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f, "%.3f");
 								sliderFloatRow("kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f");
 								ImGui::EndTable();
 							}
 						}
 
-						ImGui::Spacing();
+						if (ImGui::CollapsingHeader("Diagnostics"))
+						{
+							if (beginSectionTable("##diagnostics_controls_table"))
+							{
+								setupSectionTable();
+								textRow("eff. geometry", shaderNames[currentGeometry]);
+								textRow("req. method", polygonMethodNames[requestedMethod]);
+								textRow("eff. method", polygonMethodNames[effectiveMethod]);
+								textRow("entrypoint", effectiveEntryPoint);
+								textRow("config", getBuildConfigName());
+								textRow("cache", m_pipelineCache.loadedFromDisk ? "loaded from disk" : "cold start");
+								textRow("shader cache", std::to_string(m_pipelineCache.trimmedShaders.loadedFromDiskCount + m_pipelineCache.trimmedShaders.generatedCount) + " ready");
+								textRow("parallel", std::to_string(m_pipelineCache.warmupBudget));
+								textRow(
+									"progress",
+									"done " + std::to_string(readyTotalPipelines) + "/" + std::to_string(totalKnownPipelines) +
+										"  run " + std::to_string(runningPipelineBuilds) +
+										"  queue " + std::to_string(queuedPipelineBuilds)
+								);
+								ImGui::EndTable();
+							}
+						}
+
+						ImGui::Dummy(ImVec2(0.f, 2.f));
 						ImGui::Separator();
 						ImGui::TextDisabled("cursor %.0f %.0f", io.MousePos.x, io.MousePos.y);
 					}
 					ImGui::End();
+
+					if (!m_hasPathtraceOutput || warmupInProgress)
+					{
+						ImGui::SetNextWindowPos(ImVec2(viewportPos.x + viewportSize.x - panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+						ImGui::SetNextWindowBgAlpha(0.62f);
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.f, 10.f));
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.f);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.07f, 0.09f, 0.12f, 0.90f));
+						const ImGuiWindowFlags overlayFlags =
+							ImGuiWindowFlags_NoDecoration |
+							ImGuiWindowFlags_NoSavedSettings |
+							ImGuiWindowFlags_NoMove |
+							ImGuiWindowFlags_NoNav |
+							ImGuiWindowFlags_AlwaysAutoResize |
+							ImGuiWindowFlags_NoInputs;
+						if (ImGui::Begin("##path_tracer_status_overlay", nullptr, overlayFlags))
+						{
+							if (!m_hasPathtraceOutput)
+								ImGui::TextUnformatted("Building pipeline...");
+							else
+								ImGui::Text("Warmup %zu/%zu", readyTotalPipelines, totalKnownPipelines);
+							ImGui::Text("Run %zu  Queue %zu", runningPipelineBuilds, queuedPipelineBuilds);
+							ImGui::Text("Cache: %s", m_pipelineCache.loadedFromDisk ? "disk" : "cold");
+						}
+						ImGui::End();
+						ImGui::PopStyleColor(1);
+						ImGui::PopStyleVar(2);
+					}
 					ImGui::PopStyleColor(5);
 					ImGui::PopStyleVar(5);
 				}
@@ -1495,6 +1676,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				{
 					kickoffPipelineWarmup();
 				}
+				maybeCheckpointPipelineCache();
 
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
@@ -1628,6 +1810,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return nullptr;
 			}
 
+			shader->setFilePathHint(std::string(ShaderKey.value, ShaderKey.value + sizeof(ShaderKey.value) - 1u));
 			return shader;
 		}
 
@@ -1670,6 +1853,59 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return false;
 		}
 
+		static constexpr const char* getBuildConfigName()
+		{
+#if defined(_NBL_DEBUG) || defined(_DEBUG)
+			return "Debug";
+#elif defined(_NBL_RELWITHDEBINFO)
+			return "RelWithDebInfo";
+#elif defined(NDEBUG)
+			return "Release";
+#else
+			return "Unknown";
+#endif
+		}
+
+		static size_t getPhysicalCoreCount()
+		{
+#if defined(_WIN32)
+			DWORD bufferSize = 0u;
+			GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &bufferSize);
+			if (bufferSize == 0u)
+				return 0ull;
+
+			std::vector<uint8_t> buffer(bufferSize);
+			if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data()), &bufferSize))
+				return 0ull;
+
+			size_t physicalCores = 0ull;
+			DWORD offset = 0u;
+			while (offset < bufferSize)
+			{
+				const auto* info = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
+				if (info->Relationship == RelationProcessorCore)
+					++physicalCores;
+				offset += info->Size;
+			}
+			return physicalCores;
+#else
+			return 0ull;
+#endif
+		}
+
+		static std::string hashToHex(const core::blake3_hash_t& hash)
+		{
+			static constexpr char digits[] = "0123456789abcdef";
+			std::string retval;
+			retval.resize(sizeof(hash.data) * 2ull);
+			for (size_t i = 0ull; i < sizeof(hash.data); ++i)
+			{
+				retval[i * 2ull + 0ull] = digits[(hash.data[i] >> 4u) & 0xfu];
+				retval[i * 2ull + 1ull] = digits[hash.data[i] & 0xfu];
+			}
+			return retval;
+		}
+
 		path getDefaultPipelineCacheDir() const
 		{
 			if (const auto* localAppData = std::getenv("LOCALAPPDATA"); localAppData && localAppData[0] != '\0')
@@ -1682,15 +1918,35 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return tryGetPipelineCacheDirOverride().value_or(getDefaultPipelineCacheDir());
 		}
 
+		static constexpr std::string_view PipelineCacheSchemaVersion = "v4";
+
 		path getPipelineCacheBlobPath() const
 		{
 			const auto key = m_device->getPipelineCacheKey();
-			return getPipelineCacheRootDir() / "v1" / (std::string(key.deviceAndDriverUUID) + ".bin");
+			return getPipelineCacheRootDir() / PipelineCacheSchemaVersion / "pipeline" / getBuildConfigName() / (std::string(key.deviceAndDriverUUID) + ".bin");
+		}
+
+		path getTrimmedShaderCacheDir() const
+		{
+			return getPipelineCacheRootDir() / PipelineCacheSchemaVersion / "trimmed" / getBuildConfigName();
+		}
+
+		path getTrimmedShaderCachePath(const IShader* shader, const char* const entryPoint) const
+		{
+			core::blake3_hasher hasher;
+			hasher << std::string_view(shader ? shader->getFilepathHint() : std::string_view{});
+			hasher << std::string_view(entryPoint);
+			return getTrimmedShaderCacheDir() / (hashToHex(static_cast<core::blake3_hash_t>(hasher)) + ".spv");
 		}
 
 		size_t getBackgroundPipelineBuildBudget() const
 		{
 			const auto concurrency = std::thread::hardware_concurrency();
+			const auto physicalCores = getPhysicalCoreCount();
+			if (concurrency > 1u)
+				return static_cast<size_t>(concurrency - 1u);
+			if (physicalCores > 1ull)
+				return physicalCores - 1ull;
 			if (concurrency <= 1u)
 				return 1ull;
 			return static_cast<size_t>(concurrency - 1u);
@@ -1699,11 +1955,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		void initializePipelineCache()
 		{
 			m_pipelineCache.blobPath = getPipelineCacheBlobPath();
+			m_pipelineCache.trimmedShaders.rootDir = getTrimmedShaderCacheDir();
+			if (!m_pipelineCache.trimmedShaders.trimmer)
+				m_pipelineCache.trimmedShaders.trimmer = core::make_smart_refctd_ptr<asset::ISPIRVEntryPointTrimmer>();
 			const auto pipelineCacheRootDir = getPipelineCacheRootDir();
 			std::error_code ec;
 			m_pipelineCache.loadedBytes = 0ull;
 			m_pipelineCache.loadedFromDisk = false;
 			m_pipelineCache.clearedOnStartup = shouldClearPipelineCacheOnStartup();
+			m_pipelineCache.newlyReadyPipelinesSinceLastSave = 0ull;
+			m_pipelineCache.checkpointedAfterFirstSubmit = false;
+			m_pipelineCache.lastSaveAt = clock_t::now();
 			if (shouldClearPipelineCacheOnStartup())
 			{
 				const auto removedCount = std::filesystem::remove_all(pipelineCacheRootDir, ec);
@@ -1715,6 +1977,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			std::filesystem::create_directories(m_pipelineCache.blobPath.parent_path(), ec);
 			if (ec)
 				m_logger->log("Failed to create pipeline cache directory %s", ILogger::ELL_WARNING, m_pipelineCache.blobPath.parent_path().string().c_str());
+			ec.clear();
+			std::filesystem::create_directories(m_pipelineCache.trimmedShaders.rootDir, ec);
+			if (ec)
+				m_logger->log("Failed to create trimmed shader cache directory %s", ILogger::ELL_WARNING, m_pipelineCache.trimmedShaders.rootDir.string().c_str());
 
 			std::vector<uint8_t> initialData;
 			{
@@ -1755,6 +2021,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			m_pipelineCache.object->setObjectDebugName("PATH_TRACER Pipeline Cache");
 			m_logger->log("PATH_TRACER pipeline cache path: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+			m_logger->log("PATH_TRACER trimmed shader cache path: %s", ILogger::ELL_INFO, m_pipelineCache.trimmedShaders.rootDir.string().c_str());
 			m_logger->log(
 				"PATH_TRACER_PIPELINE_CACHE init clear=%u loaded_from_disk=%u loaded_bytes=%zu path=%s",
 				ILogger::ELL_INFO,
@@ -1765,6 +2032,162 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			);
 			if (!initialData.empty())
 				m_logger->log("Loaded PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+		}
+
+		smart_refctd_ptr<IShader> tryLoadTrimmedShaderFromDisk(const IShader* sourceShader, const char* const entryPoint)
+		{
+			const auto cachePath = getTrimmedShaderCachePath(sourceShader, entryPoint);
+			std::ifstream input(cachePath, std::ios::binary | std::ios::ate);
+			if (!input.is_open())
+				return nullptr;
+
+			const auto size = input.tellg();
+			if (size <= 0)
+				return nullptr;
+
+			std::vector<uint8_t> bytes(static_cast<size_t>(size));
+			input.seekg(0, std::ios::beg);
+			input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+			if (!input)
+				return nullptr;
+
+			auto buffer = ICPUBuffer::create({ { bytes.size() }, bytes.data() });
+			if (!buffer)
+				return nullptr;
+			buffer->setContentHash(buffer->computeContentHash());
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				m_pipelineCache.trimmedShaders.loadedBytes += bytes.size();
+				++m_pipelineCache.trimmedShaders.loadedFromDiskCount;
+			}
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE load entrypoint=%s bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				entryPoint,
+				bytes.size(),
+				cachePath.string().c_str()
+			);
+			return core::make_smart_refctd_ptr<IShader>(std::move(buffer), IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(sourceShader->getFilepathHint()));
+		}
+
+		void saveTrimmedShaderToDisk(const IShader* shader, const char* const entryPoint, const path& cachePath)
+		{
+			const auto* content = shader->getContent();
+			if (!content || !content->getPointer() || cachePath.empty())
+				return;
+
+			std::error_code ec;
+			std::filesystem::create_directories(cachePath.parent_path(), ec);
+			if (ec)
+			{
+				m_logger->log("Failed to create trimmed shader cache directory %s", ILogger::ELL_WARNING, cachePath.parent_path().string().c_str());
+				return;
+			}
+
+			auto tempPath = cachePath;
+			tempPath += ".tmp";
+			{
+				std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+				if (!output.is_open())
+				{
+					m_logger->log("Failed to open trimmed shader cache temp file %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+				output.write(reinterpret_cast<const char*>(content->getPointer()), static_cast<std::streamsize>(content->getSize()));
+				output.flush();
+				if (!output)
+				{
+					output.close();
+					std::filesystem::remove(tempPath, ec);
+					m_logger->log("Failed to write trimmed shader cache blob to %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+			}
+
+			std::filesystem::remove(cachePath, ec);
+			ec.clear();
+			std::filesystem::rename(tempPath, cachePath, ec);
+			if (ec)
+			{
+				std::filesystem::remove(tempPath, ec);
+				m_logger->log("Failed to finalize trimmed shader cache blob at %s", ILogger::ELL_WARNING, cachePath.string().c_str());
+				return;
+			}
+
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				m_pipelineCache.trimmedShaders.savedBytes += content->getSize();
+				++m_pipelineCache.trimmedShaders.savedToDiskCount;
+			}
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE save entrypoint=%s bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				entryPoint,
+				content->getSize(),
+				cachePath.string().c_str()
+			);
+		}
+
+		smart_refctd_ptr<IShader> getPreparedShaderForEntryPoint(const smart_refctd_ptr<IShader>& shaderModule, const char* const entryPoint)
+		{
+			if (!shaderModule || shaderModule->getContentType() != IShader::E_CONTENT_TYPE::ECT_SPIRV)
+				return shaderModule;
+
+			const auto cachePath = getTrimmedShaderCachePath(shaderModule.get(), entryPoint);
+			const auto cacheKey = cachePath.string();
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				const auto found = m_pipelineCache.trimmedShaders.runtimeShaders.find(cacheKey);
+				if (found != m_pipelineCache.trimmedShaders.runtimeShaders.end())
+					return found->second;
+			}
+
+			const auto startedAt = clock_t::now();
+			auto preparedShader = tryLoadTrimmedShaderFromDisk(shaderModule.get(), entryPoint);
+			bool cameFromDisk = static_cast<bool>(preparedShader);
+			bool wasTrimmed = false;
+			if (!preparedShader)
+			{
+				const core::set entryPoints = { asset::ISPIRVEntryPointTrimmer::EntryPoint{ .name = entryPoint, .stage = hlsl::ShaderStage::ESS_COMPUTE } };
+				const auto result = m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				if (!result)
+				{
+					m_logger->log("Failed to prepare trimmed PATH_TRACER shader for %s. Falling back to the original module.", ILogger::ELL_WARNING, entryPoint);
+					return shaderModule;
+				}
+				if (result.spirv)
+				{
+					result.spirv->setContentHash(result.spirv->computeContentHash());
+					preparedShader = core::make_smart_refctd_ptr<IShader>(core::smart_refctd_ptr(result.spirv), IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(shaderModule->getFilepathHint()));
+				}
+				else
+					preparedShader = shaderModule;
+
+				saveTrimmedShaderToDisk(preparedShader.get(), entryPoint, cachePath);
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					++m_pipelineCache.trimmedShaders.generatedCount;
+				}
+				wasTrimmed = (preparedShader != shaderModule);
+			}
+
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				const auto [it, inserted] = m_pipelineCache.trimmedShaders.runtimeShaders.emplace(cacheKey, preparedShader);
+				if (!inserted)
+					preparedShader = it->second;
+			}
+
+			const auto wallMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - startedAt).count();
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE ready entrypoint=%s wall_ms=%lld from_disk=%u trimmed=%u",
+				ILogger::ELL_INFO,
+				entryPoint,
+				static_cast<long long>(wallMs),
+				cameFromDisk ? 1u : 0u,
+				wasTrimmed ? 1u : 0u
+			);
+			return preparedShader;
 		}
 
 		void savePipelineCache()
@@ -1822,6 +2245,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			m_pipelineCache.dirty = false;
 			m_pipelineCache.savedBytes = found->second.bin->size();
+			m_pipelineCache.newlyReadyPipelinesSinceLastSave = 0ull;
+			m_pipelineCache.lastSaveAt = clock_t::now();
 			const auto saveElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - saveStartedAt).count();
 			m_logger->log(
 				"PATH_TRACER_PIPELINE_CACHE save bytes=%zu wall_ms=%lld path=%s",
@@ -1831,6 +2256,31 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_pipelineCache.blobPath.string().c_str()
 			);
 			m_logger->log("Saved PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+		}
+
+		void maybeCheckpointPipelineCache()
+		{
+			if (!m_pipelineCache.object || !m_pipelineCache.dirty)
+				return;
+
+			if (m_loggedFirstRenderSubmit && !m_pipelineCache.checkpointedAfterFirstSubmit)
+			{
+				savePipelineCache();
+				m_pipelineCache.checkpointedAfterFirstSubmit = true;
+				return;
+			}
+
+			if (!m_pipelineCache.warmupStarted || m_pipelineCache.loggedWarmupComplete)
+				return;
+
+			if (m_pipelineCache.newlyReadyPipelinesSinceLastSave < 4ull)
+				return;
+
+			const auto elapsedSinceLastSave = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.lastSaveAt).count();
+			if (elapsedSinceLastSave < 1000ll)
+				return;
+
+			savePipelineCache();
 		}
 
 		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
@@ -1883,6 +2333,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		struct SPipelineCacheState
 		{
+			struct STrimmedShaderCache
+			{
+				smart_refctd_ptr<asset::ISPIRVEntryPointTrimmer> trimmer;
+				path rootDir;
+				size_t loadedFromDiskCount = 0ull;
+				size_t generatedCount = 0ull;
+				size_t savedToDiskCount = 0ull;
+				size_t loadedBytes = 0ull;
+				size_t savedBytes = 0ull;
+				core::unordered_map<std::string, smart_refctd_ptr<IShader>> runtimeShaders;
+				std::mutex mutex;
+			} trimmedShaders;
+
 			smart_refctd_ptr<IGPUPipelineCache> object;
 			path blobPath;
 			bool dirty = false;
@@ -1898,6 +2361,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			size_t warmupLaunchedJobs = 0ull;
 			size_t warmupSkippedJobs = 0ull;
 			std::deque<SWarmupJob> warmupQueue;
+			size_t newlyReadyPipelinesSinceLastSave = 0ull;
+			bool checkpointedAfterFirstSubmit = false;
+			clock_t::time_point lastSaveAt = clock_t::now();
 		};
 
 		static E_POLYGON_METHOD getEffectivePolygonMethod(const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD requestedMethod)
@@ -1961,7 +2427,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return persistentWorkGroups ? m_pendingPTHLSLPersistentWGPipelines : m_pendingPTHLSLPipelines;
 		}
 
-		size_t getPendingPipelineBuildCount() const
+		size_t getRunningPipelineBuildCount() const
 		{
 			size_t count = 0ull;
 			const auto countPending = [&count](const pipeline_future_array_t& futures, const pipeline_array_t& pipelines) -> void
@@ -1981,6 +2447,59 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			countPending(m_pendingPTHLSLPersistentWGPipelinesRWMC, m_PTHLSLPersistentWGPipelinesRWMC);
 			if (m_pendingResolvePipeline.valid() && !m_resolvePipeline)
 				++count;
+			return count;
+		}
+
+		size_t getQueuedPipelineBuildCount() const
+		{
+			return m_pipelineCache.warmupQueue.size();
+		}
+
+		size_t getKnownRenderPipelineCount() const
+		{
+			size_t count = 0ull;
+			bool seen[ELG_COUNT][2][2][EPM_COUNT] = {};
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				for (auto persistentWorkGroups = 0u; persistentWorkGroups < 2u; ++persistentWorkGroups)
+				{
+					for (auto rwmc = 0u; rwmc < 2u; ++rwmc)
+					{
+						for (auto method = 0u; method < EPM_COUNT; ++method)
+						{
+							const auto effectiveMethod = static_cast<size_t>(getEffectivePolygonMethod(
+								static_cast<E_LIGHT_GEOMETRY>(geometry),
+								static_cast<E_POLYGON_METHOD>(method)
+							));
+							if (seen[geometry][persistentWorkGroups][rwmc][effectiveMethod])
+								continue;
+							seen[geometry][persistentWorkGroups][rwmc][effectiveMethod] = true;
+							++count;
+						}
+					}
+				}
+			}
+			return count;
+		}
+
+		size_t getReadyRenderPipelineCount() const
+		{
+			size_t count = 0ull;
+			const auto countReady = [&count](const pipeline_array_t& pipelines) -> void
+			{
+				for (const auto& perGeometry : pipelines)
+				{
+					for (const auto& pipeline : perGeometry)
+					{
+						if (pipeline)
+							++count;
+					}
+				}
+			};
+			countReady(m_PTHLSLPipelines);
+			countReady(m_PTHLSLPersistentWGPipelines);
+			countReady(m_PTHLSLPipelinesRWMC);
+			countReady(m_PTHLSLPersistentWGPipelinesRWMC);
 			return count;
 		}
 
@@ -2028,7 +2547,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!m_pipelineCache.warmupStarted)
 				return;
 
-			while (!m_pipelineCache.warmupQueue.empty() && getPendingPipelineBuildCount() < m_pipelineCache.warmupBudget)
+			while (!m_pipelineCache.warmupQueue.empty() && getRunningPipelineBuildCount() < m_pipelineCache.warmupBudget)
 			{
 				const auto job = m_pipelineCache.warmupQueue.front();
 				m_pipelineCache.warmupQueue.pop_front();
@@ -2038,18 +2557,23 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					++m_pipelineCache.warmupSkippedJobs;
 			}
 
-			if (!m_pipelineCache.loggedWarmupComplete && m_pipelineCache.warmupQueue.empty() && getPendingPipelineBuildCount() == 0ull)
+			if (!m_pipelineCache.loggedWarmupComplete && m_pipelineCache.warmupQueue.empty() && getRunningPipelineBuildCount() == 0ull)
 			{
 				m_pipelineCache.loggedWarmupComplete = true;
 				const auto warmupElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.warmupBeganAt).count();
+				const auto readyRenderPipelines = getReadyRenderPipelineCount();
+				const auto totalRenderPipelines = getKnownRenderPipelineCount();
 				m_logger->log(
-					"PATH_TRACER_PIPELINE_CACHE warmup_complete wall_ms=%lld queued_jobs=%zu launched_jobs=%zu skipped_jobs=%zu max_parallel=%zu",
+					"PATH_TRACER_PIPELINE_CACHE warmup_complete wall_ms=%lld queued_jobs=%zu launched_jobs=%zu skipped_jobs=%zu max_parallel=%zu ready_render=%zu total_render=%zu resolve_ready=%u",
 					ILogger::ELL_INFO,
 					static_cast<long long>(warmupElapsedMs),
 					m_pipelineCache.warmupQueuedJobs,
 					m_pipelineCache.warmupLaunchedJobs,
 					m_pipelineCache.warmupSkippedJobs,
-					m_pipelineCache.warmupBudget
+					m_pipelineCache.warmupBudget,
+					readyRenderPipelines,
+					totalRenderPipelines,
+					m_resolvePipeline ? 1u : 0u
 				);
 				logStartupEvent("pipeline_warmup_complete");
 				savePipelineCache();
@@ -2064,19 +2588,25 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return std::async(
 				std::launch::async,
 				[
+					this,
 					device = m_device,
 					pipelineCache = m_pipelineCache.object,
 					shader = std::move(shaderModule),
 					layout = smart_refctd_ptr<IGPUPipelineLayout>(pipelineLayout),
 					requiredSubgroupSize = m_requiredSubgroupSize,
 					logger = m_logger.get(),
-					entryPointName = std::string(entryPoint)
+					entryPointName = std::string(entryPoint),
+					cacheLoadedFromDisk = m_pipelineCache.loadedFromDisk
 				]() -> smart_refctd_ptr<IGPUComputePipeline>
 				{
+					const auto startedAt = clock_t::now();
+					auto preparedShader = getPreparedShaderForEntryPoint(shader, entryPointName.c_str());
+					if (!preparedShader)
+						return nullptr;
 					smart_refctd_ptr<IGPUComputePipeline> pipeline;
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = layout.get();
-					params.shader.shader = shader.get();
+					params.shader.shader = preparedShader.get();
 					params.shader.entryPoint = entryPointName.c_str();
 					params.shader.entries = nullptr;
 					params.cached.requireFullSubgroups = true;
@@ -2086,6 +2616,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						if (logger)
 							logger->log("Failed to create precompiled path tracing pipeline for %s", ILogger::ELL_ERROR, entryPointName.c_str());
 						return nullptr;
+					}
+					if (logger)
+					{
+						const auto wallMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - startedAt).count();
+						logger->log(
+							"PATH_TRACER_PIPELINE_BUILD entrypoint=%s wall_ms=%lld cache_loaded_from_disk=%u",
+							ILogger::ELL_INFO,
+							entryPointName.c_str(),
+							static_cast<long long>(wallMs),
+							cacheLoadedFromDisk ? 1u : 0u
+						);
 					}
 					return pipeline;
 				}
@@ -2100,7 +2641,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return;
 			pipeline = future.get();
 			if (pipeline)
+			{
 				m_pipelineCache.dirty = true;
+				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
+			}
 		}
 
 		void pollPendingPipelines()
@@ -2145,11 +2689,18 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						(!before1 && static_cast<bool>(m_PTHLSLPersistentWGPipelines[geometry][method])) ||
 						(!before2 && static_cast<bool>(m_PTHLSLPipelinesRWMC[geometry][method])) ||
 						(!before3 && static_cast<bool>(m_PTHLSLPersistentWGPipelinesRWMC[geometry][method]));
+					m_pipelineCache.newlyReadyPipelinesSinceLastSave +=
+						(!before0 && static_cast<bool>(m_PTHLSLPipelines[geometry][method]) ? 1ull : 0ull) +
+						(!before1 && static_cast<bool>(m_PTHLSLPersistentWGPipelines[geometry][method]) ? 1ull : 0ull) +
+						(!before2 && static_cast<bool>(m_PTHLSLPipelinesRWMC[geometry][method]) ? 1ull : 0ull) +
+						(!before3 && static_cast<bool>(m_PTHLSLPersistentWGPipelinesRWMC[geometry][method]) ? 1ull : 0ull);
 				}
 			}
 			const auto hadResolvePipeline = static_cast<bool>(m_resolvePipeline);
 			waitAndStore(m_pendingResolvePipeline, m_resolvePipeline);
 			m_pipelineCache.dirty = m_pipelineCache.dirty || (!hadResolvePipeline && static_cast<bool>(m_resolvePipeline));
+			if (!hadResolvePipeline && static_cast<bool>(m_resolvePipeline))
+				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
 		}
 
 		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
@@ -2264,11 +2815,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 			enqueueWarmupJob({ .type = SWarmupJob::E_TYPE::Resolve });
 			m_pipelineCache.warmupQueuedJobs = m_pipelineCache.warmupQueue.size();
+			const auto logicalConcurrency = std::thread::hardware_concurrency();
+			const auto physicalCores = getPhysicalCoreCount();
 			m_logger->log(
-				"PATH_TRACER_PIPELINE_CACHE warmup_start queued_jobs=%zu max_parallel=%zu current_geometry=%u current_method=%u",
+				"PATH_TRACER_PIPELINE_CACHE warmup_start queued_jobs=%zu max_parallel=%zu logical_threads=%u physical_cores=%zu current_geometry=%u current_method=%u",
 				ILogger::ELL_INFO,
 				m_pipelineCache.warmupQueuedJobs,
 				m_pipelineCache.warmupBudget,
+				logicalConcurrency,
+				physicalCores,
 				static_cast<uint32_t>(currentGeometry),
 				static_cast<uint32_t>(currentMethod)
 			);
