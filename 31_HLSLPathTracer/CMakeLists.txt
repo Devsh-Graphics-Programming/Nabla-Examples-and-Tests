@@ -17,6 +17,93 @@ if(NBL_BUILD_IMGUI)
 
 	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
+	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen-flat")
+	get_filename_component(OUTPUT_DIRECTORY_ABSOLUTE "${OUTPUT_DIRECTORY}" ABSOLUTE)
+	target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT="${OUTPUT_DIRECTORY_ABSOLUTE}")
+
+	file(GLOB_RECURSE EXAMPLE_HLSL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl/*.hlsl")
+	target_sources(${EXECUTABLE_NAME} PRIVATE ${EXAMPLE_HLSL_SOURCES})
+	set_source_files_properties(${EXAMPLE_HLSL_SOURCES} PROPERTIES HEADER_FILE_ONLY ON)
+
+	set(SM 6_8)
+	set(COMPILE_OPTIONS
+		-I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+		-I "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl"
+		-I "${OUTPUT_DIRECTORY_ABSOLUTE}/$<CONFIG>"
+		-T "lib_${SM}"
+		-Wno-conversion
+		-Wno-sign-conversion
+		-Wno-float-conversion
+		-Wno-shorten-64-to-32
+		-Wno-shadow
+		-Wno-literal-range
+	)
+
+	set(SPIRV_FOLDER "SPIRV")
+	set(SPIRV_INTERNAL_FOLDER "${SPIRV_FOLDER}/Internal")
+	set(SPIRV_RULES_JSON_TEMPLATE [=[
+[
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl",
+		"KEY": "pt.compute.sphere"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.sphere.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl",
+		"KEY": "pt.compute.triangle"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.triangle.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl",
+		"KEY": "pt.compute.rectangle"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.rectangle.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/resolve.comp.hlsl",
+		"KEY": "pt.compute.resolve"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.misc.proxy.hlsl",
+		"KEY": "pt.misc"
+	}
+]
+]=])
+	string(CONFIGURE "${SPIRV_RULES_JSON_TEMPLATE}" SPIRV_RULES_JSON @ONLY)
+	set(ALL_SPIRV_KEYS "")
+	NBL_CREATE_NSC_COMPILE_RULES(
+		DISCARD_DEFAULT_GLOB
+		TARGET ${EXECUTABLE_NAME}SPIRV
+		BINARY_DIR ${OUTPUT_DIRECTORY}
+		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+		COMMON_OPTIONS ${COMPILE_OPTIONS}
+		OUTPUT_VAR ALL_SPIRV_KEYS
+		INCLUDE "nbl/this_example/builtin/build/spirv/generated/PathTracerKeys.hpp"
+		NAMESPACE nbl::this_example::builtin::build
+		INPUTS ${SPIRV_RULES_JSON}
+	)
+	set_target_properties(${EXECUTABLE_NAME}SPIRV PROPERTIES FOLDER "${SPIRV_FOLDER}")
+	set(SPIRV_KEYS ${ALL_SPIRV_KEYS})
+	list(FILTER SPIRV_KEYS INCLUDE REGEX "\\.spv$")
+
+	NBL_CREATE_RESOURCE_ARCHIVE(
+		NAMESPACE nbl::this_example::builtin::build
+		TARGET ${EXECUTABLE_NAME}_builtinsBuild
+		LINK_TO ${EXECUTABLE_NAME}
+		BIND ${OUTPUT_DIRECTORY}
+		BUILTINS ${SPIRV_KEYS}
+	)
+	set_target_properties(${EXECUTABLE_NAME}_builtinsBuild PROPERTIES FOLDER "${SPIRV_INTERNAL_FOLDER}")
+	add_dependencies(${EXECUTABLE_NAME}_builtinsBuild ${EXECUTABLE_NAME}SPIRV)
+
 	if(NBL_EMBED_BUILTIN_RESOURCES)
 		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
 		set(RESOURCE_DIR "app_resources")
@@ -34,6 +121,7 @@ if(NBL_BUILD_IMGUI)
 		ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
 
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
+		set_target_properties(${_BR_TARGET_} PROPERTIES FOLDER "${SPIRV_FOLDER}")
 	endif()
 endif()
 

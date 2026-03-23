@@ -7,11 +7,16 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
+
+#include <cstddef>
+#include <filesystem>
+#include <future>
 
 using namespace nbl;
 using namespace core;
@@ -42,14 +47,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
-		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
-		};
-		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
-		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
 			"ELG_SPHERE",
@@ -67,13 +64,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			video::SPhysicalDeviceLimits retval = device_base_t::getRequiredDeviceLimits();
 			retval.storagePushConstant16 = true;
-			return retval;
-		}
-
-	    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
-		{
-			auto retval = device_base_t::getPreferredDeviceFeatures();
-			retval.pipelineExecutableInfo = true;
 			return retval;
 		}
 
@@ -107,6 +97,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			m_startupBeganAt = clock_t::now();
+
 			// Init systems
 			{
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -122,7 +114,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
-
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
 			{
@@ -165,7 +156,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
 					return logFail("Could not create Window & Surface or initialize the Surface!");
 			}
-
 			// Create command pool and buffers
 			{
 				auto gQueue = getGraphicsQueue();
@@ -176,7 +166,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), MaxFramesInFlight }))
 					return logFail("Couldn't create Command Buffer!");
 			}
-
+			{
+				m_scratchSemaphore = m_device->createSemaphore(0);
+				if (!m_scratchSemaphore)
+					return logFail("Could not create Scratch Semaphore");
+				m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
+				m_intendedSubmit.queue = getGraphicsQueue();
+				m_intendedSubmit.waitSemaphores = {};
+				m_intendedSubmit.scratchCommandBuffers = {};
+				m_intendedSubmit.scratchSemaphore = {
+					.semaphore = m_scratchSemaphore.get(),
+					.value = 0,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
+			}
 			ISampler::SParams samplerParams = {
 				.AnisotropicFilter = 0
 			};
@@ -289,201 +292,69 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				}
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
-				// Create Shaders
-				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.workingDirectory = localInputCWD;
-					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-					{
-						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
-					// The down-cast should not fail!
-					assert(source);
-
-					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-					CHLSLCompiler::SOptions options = {};
-					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
-					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-					options.preprocessorOptions.logger = m_logger.get();
-					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-					
-					core::vector<IShaderCompiler::SMacroDefinition> defines;
-					defines.reserve(3);
-					if (!defineMacro.empty())
-						defines.push_back({ defineMacro, "" });
-					if(persistentWorkGroups)
-						defines.push_back({ "PERSISTENT_WORKGROUPS", "1" });
-					if(rwmc)
-						defines.push_back({ "RWMC_ENABLED", "" });
-
-					options.preprocessorOptions.extraDefines = defines;
-
-					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
-					
-					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
-					if (!shader)
-					{
-						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					return shader;
-				};
-
 				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
-				const bool pipelineExecutableInfo = m_device->getEnabledFeatures().pipelineExecutableInfo;
-				auto getComputePipelineCreationParams = [deviceMinSubgroupSize, pipelineExecutableInfo](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				m_requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
+				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 				{
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = pipelineLayout;
-					params.shader.shader = shader;
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.cached.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
-					if (pipelineExecutableInfo)
+					for (const auto rwmc : { false, true })
 					{
-						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
-						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
-					}
-					return params;
-				};
-
-				// Create compute pipelines
-				{
-					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++)
-					{
-						const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(RenderPushConstants)
-						};
-						auto ptPipelineLayout = m_device->createPipelineLayout(
-							{ &pcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout),
-							nullptr,
-							nullptr,
-							nullptr
-						);
-						if (!ptPipelineLayout)
-							return logFail("Failed to create Pathtracing pipeline layout");
-
-						const nbl::asset::SPushConstantRange rwmcPcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(RenderRWMCPushConstants)
-						};
-						auto rwmcPtPipelineLayout = m_device->createPipelineLayout(
-							{ &rwmcPcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout),
-							nullptr,
-							nullptr,
-							nullptr
-						);
-						if (!rwmcPtPipelineLayout)
-							return logFail("Failed to create RWMC Pathtracing pipeline layout");
-
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
-								return logFail("Failed to create HLSL compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPipelines[index]->getExecutableInfo());
-								m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
-								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPersistentWGPipelines[index]->getExecutableInfo());
-								m_logger->log("%s PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-
-						// rwmc pipelines
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPipelinesRWMC[index]->getExecutableInfo());
-								m_logger->log("%s RWMC Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPersistentWGPipelinesRWMC[index]->getExecutableInfo());
-								m_logger->log("%s RWMC PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
+						auto shader = loadRenderShader(static_cast<E_LIGHT_GEOMETRY>(geometry), rwmc);
+						if (!shader)
+							return logFail("Failed to load precompiled compute shader variant");
+						getRenderShaderStorage(false, rwmc)[geometry] = shader;
+						getRenderShaderStorage(true, rwmc)[geometry] = std::move(shader);
 					}
 				}
+				m_resolveShader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.resolve")>();
+				if (!m_resolveShader)
+					return logFail("Failed to load precompiled resolve compute shader");
 
-				// Create resolve pipelines
 				{
 					const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(ResolvePushConstants)
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(RenderPushConstants)
 					};
+					m_renderPipelineLayout = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						core::smart_refctd_ptr(gpuDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr
+					);
+					if (!m_renderPipelineLayout)
+						return logFail("Failed to create Pathtracing pipeline layout");
+				}
 
-					auto pipelineLayout = m_device->createPipelineLayout(
+				{
+					const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(RenderRWMCPushConstants)
+					};
+					m_rwmcRenderPipelineLayout = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						core::smart_refctd_ptr(gpuDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr
+					);
+					if (!m_rwmcRenderPipelineLayout)
+						return logFail("Failed to create RWMC Pathtracing pipeline layout");
+				}
+
+				{
+					const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0u,
+						.size = sizeof(ResolvePushConstants)
+					};
+					m_resolvePipelineLayout = m_device->createPipelineLayout(
 						{ &pcRange, 1 },
 						core::smart_refctd_ptr(gpuDescriptorSetLayout)
 					);
-
-					if (!pipelineLayout) {
+					if (!m_resolvePipelineLayout)
 						return logFail("Failed to create resolve pipeline layout");
-					}
-
-					{
-						auto shader = loadAndCompileHLSLShader(ResolveShaderPath);
-						auto params = getComputePipelineCreationParams(shader.get(), pipelineLayout.get());
-
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePipeline))
-							return logFail("Failed to create HLSL resolve compute pipeline!\n");
-
-						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-						{
-							auto report = system::to_string(m_resolvePipeline->getExecutableInfo());
-							m_logger->log("Resolve Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
-						}
-					}
 				}
 
 				// Create graphics pipeline
@@ -493,8 +364,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					if (!fsTriProtoPPln)
 						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-					// Load Fragment Shader
-					auto fragmentShader = loadAndCompileHLSLShader(PresentShaderPath);
+					auto fragmentShader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>();
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
@@ -742,65 +612,80 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			{
 				// TODO: do this better use asset manager to get the ICPUBuffer from `.bin`
 				auto createBufferFromCacheFile = [this](
-					system::path filename,
-					size_t bufferSize,
-					void *data,
+					const system::path& filePath,
+					size_t byteSize,
+					void* data,
 					smart_refctd_ptr<ICPUBuffer>& buffer
-				) -> std::pair<smart_refctd_ptr<IFile>, bool>
+				) -> bool
 				{
 					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
 					ISystem::future_t<size_t> owenSamplerFileReadFuture;
-					size_t owenSamplerFileBytesRead;
+					size_t owenSamplerFileBytesRead = 0ull;
 
-					m_system->createFile(owenSamplerFileFuture, localOutputCWD / filename, IFile::ECF_READ);
+					m_system->createFile(owenSamplerFileFuture, filePath, IFile::ECF_READ);
 					smart_refctd_ptr<IFile> owenSamplerFile;
 
 					if (owenSamplerFileFuture.wait())
 					{
 						owenSamplerFileFuture.acquire().move_into(owenSamplerFile);
 						if (!owenSamplerFile)
-							return { nullptr, false };
+							return false;
 
-						owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, bufferSize);
+						owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, byteSize);
 						if (owenSamplerFileReadFuture.wait())
 						{
 							owenSamplerFileReadFuture.acquire().move_into(owenSamplerFileBytesRead);
 
-							if (owenSamplerFileBytesRead < bufferSize)
-							{
-								buffer = asset::ICPUBuffer::create({ sizeof(uint32_t) * bufferSize });
-								return { owenSamplerFile, false };
-							}
+							if (owenSamplerFileBytesRead < byteSize)
+								return false;
 
-							buffer = asset::ICPUBuffer::create({ { sizeof(uint32_t) * bufferSize }, data });
+							buffer = asset::ICPUBuffer::create({ { byteSize }, data });
+							return true;
 						}
 					}
 
-					return { owenSamplerFile, true };
+					return false;
 				};
-				auto writeBufferIntoCacheFile = [this](smart_refctd_ptr<IFile> file, size_t bufferSize, void* data)
+				auto writeBufferIntoCacheFile = [this](const system::path& filePath, size_t byteSize, const void* data)
 				{
-					ISystem::future_t<size_t> owenSamplerFileWriteFuture;
-					size_t owenSamplerFileBytesWritten;
+					std::filesystem::create_directories(filePath.parent_path());
 
-					file->write(owenSamplerFileWriteFuture, data, 0, bufferSize);
+					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
+					ISystem::future_t<size_t> owenSamplerFileWriteFuture;
+					size_t owenSamplerFileBytesWritten = 0ull;
+
+					m_system->createFile(owenSamplerFileFuture, filePath, IFile::ECF_WRITE);
+					if (!owenSamplerFileFuture.wait())
+						return;
+
+					smart_refctd_ptr<IFile> file;
+					owenSamplerFileFuture.acquire().move_into(file);
+					if (!file)
+						return;
+
+					file->write(owenSamplerFileWriteFuture, const_cast<void*>(data), 0, byteSize);
 					if (owenSamplerFileWriteFuture.wait())
 						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
 				};
 
 				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
-				constexpr size_t bufferSize = quantizedDimensions * MaxSamplesBuffer;
 				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
-				std::array<sequence_type, bufferSize> data = {};
+				constexpr size_t sequenceCount = quantizedDimensions * MaxSamplesBuffer;
+				constexpr size_t sequenceByteSize = sequenceCount * sizeof(sequence_type);
+				std::array<sequence_type, sequenceCount> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
-				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
-				if (!cacheBufferResult.second)
+				const auto packagedOwenSamplerPath = sharedInputCWD / OwenSamplerFilePath;
+				const auto generatedOwenSamplerPath = sharedOutputCWD / OwenSamplerFilePath;
+				const bool cacheLoaded =
+					createBufferFromCacheFile(packagedOwenSamplerPath, sequenceByteSize, data.data(), sampleSeq) ||
+					createBufferFromCacheFile(generatedOwenSamplerPath, sequenceByteSize, data.data(), sampleSeq);
+				if (!cacheLoaded)
 				{
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = quantizedDimensions * MaxSamplesBuffer * sizeof(sequence_type);
+					params.size = sequenceByteSize;
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
 					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
@@ -813,20 +698,31 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							const uint32_t sample = sampler.sample(dim, i);
 							seq.set(offset, sample);
 						}
-					if (cacheBufferResult.first)
-						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
+					writeBufferIntoCacheFile(generatedOwenSamplerPath, sequenceByteSize, out);
 				}
 
 				IGPUBuffer::SCreationParams params = {};
 				params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				params.size = bufferSize;
+				params.size = sampleSeq->getSize();
 
-				// we don't want to overcomplicate the example with multi-queue
-				m_utils->createFilledDeviceLocalBufferOnDedMem(
-					SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
+				auto queue = getGraphicsQueue();
+				auto cmdbuf = m_cmdBufs[0].get();
+				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
+				m_intendedSubmit.queue = queue;
+				m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+				auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
+					m_intendedSubmit,
 					std::move(params),
 					sampleSeq->getPointer()
-				).move_into(m_sequenceBuffer);
+				);
+				bufferFuture.wait();
+				const auto uploadedBuffer = bufferFuture.get();
+				if (!uploadedBuffer || !uploadedBuffer->get())
+					return logFail("Failed to upload sequence buffer");
+				m_sequenceBuffer = smart_refctd_ptr<IGPUBuffer>(*uploadedBuffer);
 
 				m_sequenceBuffer->setObjectDebugName("Sequence buffer");
 			}
@@ -948,6 +844,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				params.subpassIx = 0u;
 				params.transfer = getTransferUpQueue();
 				params.utilities = m_utils;
+				params.spirv = nbl::ext::imgui::UI::SCreationParameters::PrecompiledShaders{
+					.vertex = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>(),
+					.fragment = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>()
+				};
+				if (!params.spirv->vertex || !params.spirv->fragment)
+					return logFail("Failed to load precompiled ImGui shaders");
 				{
 					m_ui.manager = ext::imgui::UI::create(std::move(params));
 
@@ -1086,6 +988,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			guiControlled.rwmcParams.base = 8.0f;
 			guiControlled.rwmcParams.minReliableLuma = 1.0f;
 			guiControlled.rwmcParams.kappa = 5.0f;
+			ensureRenderPipeline(
+				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
+				guiControlled.usePersistentWorkGroups,
+				guiControlled.useRWMC
+			);
+			if (guiControlled.useRWMC)
+				ensureResolvePipeline();
 			return true;
 		}
 
@@ -1112,6 +1021,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline void workLoopBody() override
 		{
+			pollPendingPipelines();
+			if (!m_loggedFirstFrameLoop)
+			{
+				logStartupEvent("first_frame_loop");
+				m_loggedFirstFrameLoop = true;
+			}
+
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
 			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 			// We block for semaphores for 2 reasons here:
@@ -1177,6 +1093,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				}
 			};
 			updatePathtracerPushConstants();
+			bool producedRenderableOutput = false;
 
 			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1240,15 +1157,18 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					1 + (WindowDimensions.x * WindowDimensions.y - 1) / RenderWorkgroupSize;
 
 				IGPUComputePipeline* pipeline = pickPTPipeline();
+				if (pipeline)
+				{
+					cmdbuf->bindComputePipeline(pipeline);
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
 
-				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
+					const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
+					const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
 
-				const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
-				const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
-				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
-
-				cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					producedRenderableOutput = !guiControlled.useRWMC;
+				}
 			}
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
@@ -1283,15 +1203,28 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					(m_window->getHeight() + ResolveWorkgroupSizeY - 1) / ResolveWorkgroupSizeY
 				);
 
-				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
+				IGPUComputePipeline* pipeline = ensureResolvePipeline();
+				if (pipeline)
+				{
+					resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
 
-				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
+					cmdbuf->bindComputePipeline(pipeline);
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(ResolvePushConstants), &resolvePushConstants);
 
-				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
-				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
+					cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
+					producedRenderableOutput = true;
+				}
+			}
 
-				cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
+			if (producedRenderableOutput)
+			{
+				m_hasPathtraceOutput = true;
+				if (!m_loggedFirstRenderDispatch)
+				{
+					logStartupEvent("first_render_dispatch");
+					m_loggedFirstRenderDispatch = true;
+				}
 			}
 
 			// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1358,9 +1291,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
-				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
-				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				if (m_hasPathtraceOutput)
+				{
+					cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
+					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
+					ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				}
 
 				if (m_showUI)
 				{
@@ -1417,6 +1353,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 				}
 
+				if (producedRenderableOutput && !m_loggedFirstRenderSubmit)
+				{
+					logStartupEvent("first_render_submit");
+					m_loggedFirstRenderSubmit = true;
+				}
+				if (m_hasPathtraceOutput && !m_pipelineWarmupStarted)
+				{
+					kickoffPipelineWarmup();
+					m_pipelineWarmupStarted = true;
+				}
+
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
@@ -1432,6 +1379,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool onAppTerminated() override
 		{
+			waitForPendingPipelines();
 			return device_base_t::onAppTerminated();
 		}
 
@@ -1524,16 +1472,214 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		}
 	
 	private:
+		template<core::StringLiteral ShaderKey>
+		smart_refctd_ptr<IShader> loadPrecompiledShader()
+		{
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = "app_resources";
+
+			const auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key, lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+			{
+				m_logger->log("Could not load precompiled shader: %s", ILogger::ELL_ERROR, key.c_str());
+				return nullptr;
+			}
+
+			auto shader = IAsset::castDown<IShader>(assets[0]);
+			if (!shader)
+			{
+				m_logger->log("Failed to cast %s asset to IShader!", ILogger::ELL_ERROR, key.c_str());
+				return nullptr;
+			}
+
+			return shader;
+		}
+
+		void logStartupEvent(const char* const eventName)
+		{
+			const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_startupBeganAt).count();
+			m_logger->log("EX31_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
+		}
+
+		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool rwmc)
+		{
+			switch (geometry)
+			{
+			case ELG_SPHERE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
+			case ELG_TRIANGLE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle")>();
+			case ELG_RECTANGLE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
+			default:
+				return nullptr;
+			}
+		}
+
+		using pipeline_future_t = std::future<smart_refctd_ptr<IGPUComputePipeline>>;
+		using shader_array_t = std::array<smart_refctd_ptr<IShader>, E_LIGHT_GEOMETRY::ELG_COUNT>;
+		using pipeline_array_t = std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT>;
+		using pipeline_future_array_t = std::array<pipeline_future_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
+
+		shader_array_t& getRenderShaderStorage(const bool persistentWorkGroups, const bool rwmc)
+		{
+			if (rwmc)
+				return persistentWorkGroups ? m_renderPersistentShadersRWMC : m_renderShadersRWMC;
+			return persistentWorkGroups ? m_renderPersistentShaders : m_renderShaders;
+		}
+
+		pipeline_array_t& getRenderPipelineStorage(const bool persistentWorkGroups, const bool rwmc)
+		{
+			if (rwmc)
+				return persistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC : m_PTHLSLPipelinesRWMC;
+			return persistentWorkGroups ? m_PTHLSLPersistentWGPipelines : m_PTHLSLPipelines;
+		}
+
+		pipeline_future_array_t& getRenderFutureStorage(const bool persistentWorkGroups, const bool rwmc)
+		{
+			if (rwmc)
+				return persistentWorkGroups ? m_pendingPTHLSLPersistentWGPipelinesRWMC : m_pendingPTHLSLPipelinesRWMC;
+			return persistentWorkGroups ? m_pendingPTHLSLPersistentWGPipelines : m_pendingPTHLSLPipelines;
+		}
+
+		pipeline_future_t requestComputePipelineBuild(smart_refctd_ptr<IShader> shaderModule, IGPUPipelineLayout* const pipelineLayout, const char* const entryPoint)
+		{
+			if (!shaderModule)
+				return {};
+
+			return std::async(
+				std::launch::async,
+				[
+					device = m_device,
+					shader = std::move(shaderModule),
+					layout = smart_refctd_ptr<IGPUPipelineLayout>(pipelineLayout),
+					requiredSubgroupSize = m_requiredSubgroupSize,
+					logger = m_logger.get(),
+					entryPointName = std::string(entryPoint)
+				]() -> smart_refctd_ptr<IGPUComputePipeline>
+				{
+					smart_refctd_ptr<IGPUComputePipeline> pipeline;
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = layout.get();
+					params.shader.shader = shader.get();
+					params.shader.entryPoint = entryPointName.c_str();
+					params.shader.entries = nullptr;
+					params.cached.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = requiredSubgroupSize;
+					if (!device->createComputePipelines(nullptr, { &params, 1 }, &pipeline))
+					{
+						if (logger)
+							logger->log("Failed to create precompiled path tracing pipeline for %s", ILogger::ELL_ERROR, entryPointName.c_str());
+						return nullptr;
+					}
+					return pipeline;
+				}
+			);
+		}
+
+		void pollPendingPipeline(pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline)
+		{
+			if (!future.valid() || pipeline)
+				return;
+			if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+				return;
+			pipeline = future.get();
+		}
+
+		void pollPendingPipelines()
+		{
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				pollPendingPipeline(m_pendingPTHLSLPipelines[geometry], m_PTHLSLPipelines[geometry]);
+				pollPendingPipeline(m_pendingPTHLSLPersistentWGPipelines[geometry], m_PTHLSLPersistentWGPipelines[geometry]);
+				pollPendingPipeline(m_pendingPTHLSLPipelinesRWMC[geometry], m_PTHLSLPipelinesRWMC[geometry]);
+				pollPendingPipeline(m_pendingPTHLSLPersistentWGPipelinesRWMC[geometry], m_PTHLSLPersistentWGPipelinesRWMC[geometry]);
+			}
+			pollPendingPipeline(m_pendingResolvePipeline, m_resolvePipeline);
+		}
+
+		void waitForPendingPipelines()
+		{
+			auto waitAndStore = [](pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline) -> void
+			{
+				if (!future.valid() || pipeline)
+					return;
+				future.wait();
+				pipeline = future.get();
+			};
+
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				waitAndStore(m_pendingPTHLSLPipelines[geometry], m_PTHLSLPipelines[geometry]);
+				waitAndStore(m_pendingPTHLSLPersistentWGPipelines[geometry], m_PTHLSLPersistentWGPipelines[geometry]);
+				waitAndStore(m_pendingPTHLSLPipelinesRWMC[geometry], m_PTHLSLPipelinesRWMC[geometry]);
+				waitAndStore(m_pendingPTHLSLPersistentWGPipelinesRWMC[geometry], m_PTHLSLPersistentWGPipelinesRWMC[geometry]);
+			}
+			waitAndStore(m_pendingResolvePipeline, m_resolvePipeline);
+		}
+
+		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
+		{
+			auto& pipelines = getRenderPipelineStorage(persistentWorkGroups, rwmc);
+			auto& pendingPipelines = getRenderFutureStorage(persistentWorkGroups, rwmc);
+			auto& pipeline = pipelines[geometry];
+			auto& future = pendingPipelines[geometry];
+
+			pollPendingPipeline(future, pipeline);
+			if (pipeline)
+				return pipeline.get();
+
+			if (!future.valid())
+			{
+				const auto& shaders = getRenderShaderStorage(persistentWorkGroups, rwmc);
+				auto* const layout = rwmc ? m_rwmcRenderPipelineLayout.get() : m_renderPipelineLayout.get();
+				future = requestComputePipelineBuild(shaders[geometry], layout, persistentWorkGroups ? "mainPersistent" : "main");
+			}
+
+			return nullptr;
+		}
+
+		IGPUComputePipeline* ensureResolvePipeline()
+		{
+			pollPendingPipeline(m_pendingResolvePipeline, m_resolvePipeline);
+			if (m_resolvePipeline)
+				return m_resolvePipeline.get();
+
+			if (!m_pendingResolvePipeline.valid())
+				m_pendingResolvePipeline = requestComputePipelineBuild(m_resolveShader, m_resolvePipelineLayout.get(), "resolve");
+
+			return nullptr;
+		}
+
+		void kickoffPipelineWarmup()
+		{
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				for (const auto persistentWorkGroups : { false, true })
+				{
+					for (const auto rwmc : { false, true })
+						ensureRenderPipeline(static_cast<E_LIGHT_GEOMETRY>(geometry), persistentWorkGroups, rwmc);
+				}
+			}
+			ensureResolvePipeline();
+		}
 
 		IGPUComputePipeline* pickPTPipeline()
 		{
-			IGPUComputePipeline* pipeline;
-			if (guiControlled.useRWMC)
-				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[guiControlled.PTPipeline].get() : m_PTHLSLPipelinesRWMC[guiControlled.PTPipeline].get();
-			else
-				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelines[guiControlled.PTPipeline].get() : m_PTHLSLPipelines[guiControlled.PTPipeline].get();
-
-			return pipeline;
+			return ensureRenderPipeline(
+				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
+				guiControlled.usePersistentWorkGroups,
+				guiControlled.useRWMC
+			);
 		}
 
 	private:
@@ -1542,12 +1688,26 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelines;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelines;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelinesRWMC;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelinesRWMC;
+		pipeline_array_t m_PTHLSLPipelines;
+		pipeline_array_t m_PTHLSLPersistentWGPipelines;
+		pipeline_array_t m_PTHLSLPipelinesRWMC;
+		pipeline_array_t m_PTHLSLPersistentWGPipelinesRWMC;
+		shader_array_t m_renderShaders;
+		shader_array_t m_renderPersistentShaders;
+		shader_array_t m_renderShadersRWMC;
+		shader_array_t m_renderPersistentShadersRWMC;
+		pipeline_future_array_t m_pendingPTHLSLPipelines;
+		pipeline_future_array_t m_pendingPTHLSLPersistentWGPipelines;
+		pipeline_future_array_t m_pendingPTHLSLPipelinesRWMC;
+		pipeline_future_array_t m_pendingPTHLSLPersistentWGPipelinesRWMC;
+		smart_refctd_ptr<IGPUPipelineLayout> m_renderPipelineLayout;
+		smart_refctd_ptr<IGPUPipelineLayout> m_rwmcRenderPipelineLayout;
+		smart_refctd_ptr<IGPUPipelineLayout> m_resolvePipelineLayout;
+		smart_refctd_ptr<IShader> m_resolveShader;
 		smart_refctd_ptr<IGPUComputePipeline> m_resolvePipeline;
+		pipeline_future_t m_pendingResolvePipeline;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
+		IPipelineBase::SUBGROUP_SIZE m_requiredSubgroupSize = IPipelineBase::SUBGROUP_SIZE::UNKNOWN;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
@@ -1590,7 +1750,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		video::CDumbPresentationOracle m_oracle;
 
-		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+		uint16_t gcIndex = {};
 
 		struct GUIControllables
 		{
@@ -1615,7 +1775,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		};
 		TransformRequestParams m_transformParams;
 
-		bool m_firstFrame = true;
+		clock_t::time_point m_startupBeganAt = clock_t::now();
+		bool m_hasPathtraceOutput = false;
+		bool m_loggedFirstFrameLoop = false;
+		bool m_loggedFirstRenderDispatch = false;
+		bool m_loggedFirstRenderSubmit = false;
+		bool m_pipelineWarmupStarted = false;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 

@@ -9,7 +9,6 @@ using namespace hlsl;
 template<typename T, ProceduralShapeType PST, NEEPolygonMethod PPM>
 struct ShapeSampling;
 
-// Sphere only supports solid angle
 template<typename T, NEEPolygonMethod PPM>
 struct ShapeSampling<T, PST_SPHERE, PPM>
 {
