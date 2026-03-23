@@ -9,6 +9,7 @@ using namespace hlsl;
 template<typename T, ProceduralShapeType PST, NEEPolygonMethod PPM>
 struct ShapeSampling;
 
+// Sphere only supports solid angle
 template<typename T, NEEPolygonMethod PPM>
 struct ShapeSampling<T, PST_SPHERE, PPM>
 {
@@ -64,15 +65,16 @@ struct ShapeSampling<T, PST_SPHERE, PPM>
     Shape<T, PST_SPHERE> sphere;
 };
 
-template<typename T>
-struct ShapeSampling<T, PST_TRIANGLE, PPM_AREA>
+// make Area sampling default spec for everything
+template<typename T, NEEPolygonMethod PPM>
+struct ShapeSampling<T, PST_TRIANGLE, PPM>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_TRIANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
+    static ShapeSampling<T, PST_TRIANGLE, PPM> create(NBL_CONST_REF_ARG(Shape<T, PST_TRIANGLE>) tri)
     {
-        ShapeSampling<T, PST_TRIANGLE, PPM_AREA> retval;
+        ShapeSampling<T, PST_TRIANGLE, PPM> retval;
         retval.tri = tri;
         return retval;
     }
@@ -194,15 +196,16 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     Shape<T, PST_TRIANGLE> tri;
 };
 
-template<typename T>
-struct ShapeSampling<T, PST_RECTANGLE, PPM_AREA>
+// make Area sampling default spec for everything
+template<typename T, NEEPolygonMethod PPM>
+struct ShapeSampling<T, PST_RECTANGLE, PPM>
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
 
-    static ShapeSampling<T, PST_RECTANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
+    static ShapeSampling<T, PST_RECTANGLE, PPM> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
     {
-        ShapeSampling<T, PST_RECTANGLE, PPM_AREA> retval;
+        ShapeSampling<T, PST_RECTANGLE, PPM> retval;
         retval.rect = rect;
         return retval;
     }
