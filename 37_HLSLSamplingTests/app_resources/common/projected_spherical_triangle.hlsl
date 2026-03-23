@@ -20,7 +20,6 @@ struct ProjectedSphericalTriangleInputValues
 struct ProjectedSphericalTriangleTestResults
 {
 	float32_t3 generated;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 };
@@ -29,31 +28,14 @@ struct ProjectedSphericalTriangleTestExecutor
 {
 	void operator()(NBL_CONST_REF_ARG(ProjectedSphericalTriangleInputValues) input, NBL_REF_ARG(ProjectedSphericalTriangleTestResults) output)
 	{
-		shapes::SphericalTriangle<float32_t> shape;
-		shape.vertices[0] = input.vertex0;
-		shape.vertices[1] = input.vertex1;
-		shape.vertices[2] = input.vertex2;
-		shape.cos_sides = float32_t3(
-			nbl::hlsl::dot(input.vertex1, input.vertex2),
-			nbl::hlsl::dot(input.vertex2, input.vertex0),
-			nbl::hlsl::dot(input.vertex0, input.vertex1));
-		float32_t3 csc_sides2 = float32_t3(1.0, 1.0, 1.0) - shape.cos_sides * shape.cos_sides;
-		shape.csc_sides = float32_t3(
-			nbl::hlsl::rsqrt(csc_sides2.x),
-			nbl::hlsl::rsqrt(csc_sides2.y),
-			nbl::hlsl::rsqrt(csc_sides2.z));
+		const float32_t3 verts[3] = { input.vertex0, input.vertex1, input.vertex2 };
+		shapes::SphericalTriangle<float32_t> shape = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(verts);
 
-		sampling::SphericalTriangle<float32_t> sphtri = sampling::SphericalTriangle<float32_t>::create(shape);
-
-		sampling::ProjectedSphericalTriangle<float32_t> sampler;
-		sampler.sphtri = sphtri;
-		sampler.receiverNormal = input.receiverNormal;
-		sampler.receiverWasBSDF = (bool)input.receiverWasBSDF;
+		sampling::ProjectedSphericalTriangle<float32_t> sampler = sampling::ProjectedSphericalTriangle<float32_t>::create(shape, input.receiverNormal, (bool)input.receiverWasBSDF);
 
 		{
 			sampling::ProjectedSphericalTriangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = sampler.forwardPdf(cache);
 		}
 		// Test backwardPdf at the triangle centroid: a deterministic interior point computed

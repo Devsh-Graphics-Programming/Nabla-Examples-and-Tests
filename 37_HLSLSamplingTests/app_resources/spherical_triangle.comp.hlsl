@@ -15,12 +15,8 @@ void main()
 #ifdef BENCH_ITERS
 	// Hardcode an axis-aligned octant triangle (valid, non-degenerate, all cos_sides=0).
 	// Use invID for baseU so u is a runtime value — prevents loop DCE after unrolling.
-	shapes::SphericalTriangle<float32_t> shape;
-	shape.vertices[0] = float32_t3(1.0f, 0.0f, 0.0f);
-	shape.vertices[1] = float32_t3(0.0f, 1.0f, 0.0f);
-	shape.vertices[2] = float32_t3(0.0f, 0.0f, 1.0f);
-	shape.cos_sides = float32_t3(0.0f, 0.0f, 0.0f);
-	shape.csc_sides = float32_t3(1.0f, 1.0f, 1.0f);
+	const float32_t3 verts[3] = { float32_t3(1.0f, 0.0f, 0.0f), float32_t3(0.0f, 1.0f, 0.0f), float32_t3(0.0f, 0.0f, 1.0f) };
+	shapes::SphericalTriangle<float32_t> shape = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(verts);
 	sampling::SphericalTriangle<float32_t> sampler = sampling::SphericalTriangle<float32_t>::create(shape);
 
 	nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));

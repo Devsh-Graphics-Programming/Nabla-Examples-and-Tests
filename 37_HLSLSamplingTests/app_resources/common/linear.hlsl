@@ -16,7 +16,6 @@ struct LinearTestResults
 {
 	float32_t generated;
 	float32_t generateInversed;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t roundtripError;
@@ -31,7 +30,6 @@ struct LinearTestExecutor
 		{
 			sampling::Linear<float32_t>::cache_type cache;
 			output.generated = _sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = _sampler.forwardPdf(cache);
 		}
 

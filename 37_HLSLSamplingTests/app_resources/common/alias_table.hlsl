@@ -11,26 +11,26 @@ NBL_CONSTEXPR uint32_t AliasTestTableSize = 4;
 // Fixed-size array accessors for HLSL/C++ dual compilation
 struct AliasTestProbAccessor
 {
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
 	float32_t data[4];
 };
 
 struct AliasTestAliasAccessor
 {
-	using value_type = uint32_t;
-	uint32_t get(uint32_t i) { return data[i]; }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_integral_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
 	uint32_t data[4];
 };
 
 struct AliasTestPdfAccessor
 {
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
 	float32_t data[4];
 };
 
-using AliasTestSampler = sampling::AliasTable<float32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
+using AliasTestSampler = sampling::AliasTable<float32_t, float32_t, uint32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
 
 struct AliasTableInputValues
 {

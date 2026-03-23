@@ -18,10 +18,9 @@ struct AliasTablePushConstants
 
 struct CumProbPushConstants
 {
-	uint64_t cumProbAddress;	// float cumProb[N-1]	
-	uint64_t pdfAddress;		// float pdf[N]
+	uint64_t cumProbAddress;	// float cumProb[N-1]
 	uint64_t outputAddress;		// uint32_t acc[threadCount]
-	uint32_t tableSize;			// N		
+	uint32_t tableSize;			// N
 };
 
 #endif

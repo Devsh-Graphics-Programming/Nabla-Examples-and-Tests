@@ -37,9 +37,7 @@ private:
 		pass &= verifyTestValue("ConcentricMapping::concentricMapping", expected.mapped, actual.mapped, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ConcentricMapping::invertConcentricMapping", expected.inverted, actual.inverted, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ConcentringMapping::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("ConcentricMapping::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ConcentringMapping::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("ConcentricMapping::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ConcentringMapping::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ConcentringMapping::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-5, 1e-5);
 

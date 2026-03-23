@@ -25,14 +25,13 @@ struct BoxMullerTransformTestExecutor
 {
 	void operator()(NBL_CONST_REF_ARG(BoxMullerTransformInputValues) input, NBL_REF_ARG(BoxMullerTransformTestResults) output)
 	{
-		sampling::BoxMullerTransform<float32_t> sampler;
-		sampler.stddev = input.stddev;
+		sampling::BoxMullerTransform<float32_t> sampler = sampling::BoxMullerTransform<float32_t>::create(input.stddev);
 
 		{
 			sampling::BoxMullerTransform<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = sampler.forwardPdf(cache);
+			output.cachedPdf = output.forwardPdf;
 		}
 
 		output.backwardPdf = sampler.backwardPdf(output.generated);

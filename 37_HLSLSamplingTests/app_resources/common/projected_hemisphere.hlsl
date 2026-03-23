@@ -30,7 +30,7 @@ struct ProjectedHemisphereTestExecutor
 		{
 			sampling::ProjectedHemisphere<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
+			output.cachedPdf = sampler.forwardPdf(cache);
 			output.forwardPdf = sampler.forwardPdf(cache);
 		}
 		{

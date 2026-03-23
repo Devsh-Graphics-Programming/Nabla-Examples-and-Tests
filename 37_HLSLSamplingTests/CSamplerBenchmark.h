@@ -61,7 +61,7 @@ public:
 			asset::IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
 			lp.workingDirectory = "app_resources";
-			auto bundle = data.assetMgr->getAsset(data.shaderKey.data(), lp);
+			auto bundle = data.assetMgr->getAsset(data.shaderKey, lp);
 			const auto assets = bundle.getContents();
 			if (assets.empty())
 			{
@@ -90,8 +90,15 @@ public:
 			pparams.layout = m_pplnLayout.get();
 			pparams.shader.entryPoint = "main";
 			pparams.shader.shader = shader.get();
+         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+         {
+            pparams.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS | IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+         }
 			if (!m_device->createComputePipelines(nullptr, { &pparams, 1 }, &m_pipeline))
 				m_logger->log("CSamplerBenchmark: failed to create compute pipeline", system::ILogger::ELL_ERROR);
+
+         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+               m_executableReport = system::to_string(m_pipeline->getExecutableInfo());
 		}
 
 		// Allocate input buffer (host-visible, zero-filled, correctness irrelevant for benchmarking)
@@ -146,6 +153,12 @@ public:
 		m_queue = m_device->getQueue(data.computeFamilyIndex, 0);
 		m_samplesPerDispatch = data.samplesPerDispatch;
 		m_physicalDevice = data.physicalDevice;
+	}
+
+	void logPipelineReport(const std::string& name) const
+   {
+		if (!m_executableReport.empty())
+			m_logger->log("%s Sampler Benchmark Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, name.c_str(), m_executableReport.c_str());
 	}
 
 	// Runs warmupIterations submits (unclocked), then benchmarkIterations submits under GPU timestamps.
@@ -246,6 +259,7 @@ private:
 	video::IPhysicalDevice*                             m_physicalDevice     = nullptr;
 	uint32_t                                            m_dispatchGroupCount = 0;
 	uint32_t                                            m_samplesPerDispatch = 0;
+	std::string                                         m_executableReport;
 };
 
 #endif

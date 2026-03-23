@@ -78,9 +78,7 @@ private:
 		// due to catastrophic cancellation in the cosAngleAlongAC formula; CPU/GPU rounding diverges
 		// by up to ~0.002 in direction components for certain triangle geometries
 		pass &= verifyTestValue("ProjectedSphericalTriangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-4, 3e-3);
-		pass &= verifyTestValue("ProjectedSphericalTriangle::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-4, 1e-3);
 		pass &= verifyTestValue("ProjectedSphericalTriangle::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("ProjectedSphericalTriangle::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ProjectedSphericalTriangle::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-3);
 
 		// PDF positivity and finiteness

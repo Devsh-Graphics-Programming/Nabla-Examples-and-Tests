@@ -79,9 +79,7 @@ private:
 		bool pass = true;
 		// GPU vs CPU: CPU trig may use double precision internally, allow larger tolerance.
 		pass &= verifyTestValue("SphericalTriangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-4, 1e-2);
-		pass &= verifyTestValue("SphericalTriangle::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-4, 1e-3);
 		pass &= verifyTestValue("SphericalTriangle::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-4, 1e-3);
-		pass &= verifyTestValue("SphericalTriangle::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("SphericalTriangle::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-3);
 		pass &= verifyTestValue("SphericalTriangle::inverted", expected.inverted, actual.inverted, iteration, seed, testType, 1e-4, 4e-2); // tolerated
 		pass &= verifyTestValue("SphericalTriangle::rountTripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 5e-2, 1e-2); // tolerated

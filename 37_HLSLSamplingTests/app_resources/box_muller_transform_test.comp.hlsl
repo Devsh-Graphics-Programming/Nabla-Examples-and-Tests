@@ -14,8 +14,7 @@ void main()
 	const uint32_t invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
 #ifdef BENCH_ITERS
 	// stddev=1.
-	sampling::BoxMullerTransform<float32_t> sampler;
-	sampler.stddev = 1.0f;
+	sampling::BoxMullerTransform<float32_t> sampler = sampling::BoxMullerTransform<float32_t>::create(1.0f);
 	nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));
 	const float32_t toFloat = asfloat(0x2f800004u);
 	uint32_t2 acc = (uint32_t2)0;

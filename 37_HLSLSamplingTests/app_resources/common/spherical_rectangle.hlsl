@@ -19,7 +19,6 @@ struct SphericalRectangleInputValues
 struct SphericalRectangleTestResults
 {
 	float32_t2 generated;
-	float32_t cachedPdf;
 	float32_t pdf; // forwardPdf(u)
 	float32_t backwardPdf;
 };
@@ -39,7 +38,6 @@ struct SphericalRectangleTestExecutor
 		{
 			sampling::SphericalRectangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.pdf = sampler.forwardPdf(cache);
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);

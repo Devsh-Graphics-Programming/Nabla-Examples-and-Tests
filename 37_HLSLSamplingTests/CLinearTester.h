@@ -37,9 +37,7 @@ private:
 		bool pass = true;
 		pass &= verifyTestValue("Linear::generate", expected.generated, actual.generated, iteration, seed, testType, 5e-2, 5e-5);
 		pass &= verifyTestValue("Linear::generateInverse", expected.generateInversed, actual.generateInversed, iteration, seed, testType, 5e-2, 5e-5);
-		pass &= verifyTestValue("Linear::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 5e-2, 1e-5);
 		pass &= verifyTestValue("Linear::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 5e-2, 1e-5);
-		pass &= verifyTestValue("Linear::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("Linear::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 5e-2, 1e-5);
 		pass &= verifyTestValue("Linear::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 1e-2, 5e-3);
 		pass &= verifyTestValue("Linear::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);

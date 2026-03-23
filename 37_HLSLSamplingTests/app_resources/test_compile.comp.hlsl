@@ -97,8 +97,7 @@ void main()
     acc.x += projSphSampler.backwardWeight(projSphere);
 
     // BoxMullerTransform — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
-    sampling::BoxMullerTransform<float32_t> bmt;
-    bmt.stddev = 1.0;
+    sampling::BoxMullerTransform<float32_t> bmt = sampling::BoxMullerTransform<float32_t>::create(1.0);
     sampling::BoxMullerTransform<float32_t>::cache_type bmtCache;
     float32_t2 bmtSample = bmt.generate(u2, bmtCache);
     acc.xy += bmtSample;
@@ -109,13 +108,9 @@ void main()
 	acc.xy += bmt.separateBackwardPdf(bmtSample);
 
     // SphericalTriangle — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
-    shapes::SphericalTriangle<float32_t> shapeTri;
-    shapeTri.vertices[0] = float32_t3(1, 0, 0);
-    shapeTri.vertices[1] = float32_t3(0, 1, 0);
-    shapeTri.vertices[2] = float32_t3(0, 0, 1);
     // Octant triangle: all dot products between vertices are 0, so cos_sides=0, csc_sides=1
-    shapeTri.cos_sides = float32_t3(0, 0, 0);
-    shapeTri.csc_sides = float32_t3(1, 1, 1);
+    const float32_t3 triVerts[3] = { float32_t3(1, 0, 0), float32_t3(0, 1, 0), float32_t3(0, 0, 1) };
+    shapes::SphericalTriangle<float32_t> shapeTri = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(triVerts);
     sampling::SphericalTriangle<float32_t> sphTri = sampling::SphericalTriangle<float32_t>::create(shapeTri);
     sampling::SphericalTriangle<float32_t>::cache_type sphTriCache;
     float32_t3 stSample = sphTri.generate(u2, sphTriCache);
@@ -143,10 +138,7 @@ void main()
     acc.x += sphRect.backwardWeight(srSample);
 
     // ProjectedSphericalTriangle — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
-    sampling::ProjectedSphericalTriangle<float32_t> projTri;
-    projTri.sphtri = sphTri;
-    projTri.receiverNormal = float32_t3(0.0, 0.0, 1.0);
-    projTri.receiverWasBSDF = false;
+    sampling::ProjectedSphericalTriangle<float32_t> projTri = sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri, float32_t3(0.0, 0.0, 1.0), false);
     sampling::ProjectedSphericalTriangle<float32_t>::cache_type projTriCache;
     float32_t3 ptSample = projTri.generate(u2, projTriCache);
     acc.xyz += ptSample;

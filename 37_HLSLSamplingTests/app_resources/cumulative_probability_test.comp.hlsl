@@ -17,15 +17,7 @@ struct BdaCumProbAccessor
 	uint64_t addr;
 };
 
-struct BdaCumProbPdfAccessor
-{
-	using value_type = float32_t;
-	value_type get(uint32_t i) { return vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i)); }
-
-	uint64_t addr;
-};
-
-using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, BdaCumProbAccessor, BdaCumProbPdfAccessor>;
+using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, BdaCumProbAccessor>;
 #else
 #include "common/cumulative_probability.hlsl"
 
@@ -42,9 +34,7 @@ void main()
 #ifdef BENCH_ITERS
 	BdaCumProbAccessor cumProbAcc;
 	cumProbAcc.addr = pc.cumProbAddress;
-	BdaCumProbPdfAccessor pdfAcc;
-	pdfAcc.addr = pc.pdfAddress;
-	BenchCumProbSampler sampler = BenchCumProbSampler::create(cumProbAcc, pdfAcc, pc.tableSize);
+	BenchCumProbSampler sampler = BenchCumProbSampler::create(cumProbAcc, pc.tableSize);
 
 	float32_t xi = float32_t(nbl::hlsl::glsl::bitfieldReverse(invID)) / float32_t(~0u);
 	NBL_CONSTEXPR float32_t goldenRatio = 0.6180339887498949f;

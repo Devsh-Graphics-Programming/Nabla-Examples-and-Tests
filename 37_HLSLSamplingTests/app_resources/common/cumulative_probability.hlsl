@@ -18,14 +18,7 @@ struct CumProbTestAccessor
 	float32_t data[3]; // N-1 stored entries
 };
 
-struct CumProbTestPdfAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t data[4];
-};
-
-using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, CumProbTestAccessor, CumProbTestPdfAccessor>;
+using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, CumProbTestAccessor>;
 
 struct CumProbInputValues
 {
@@ -53,13 +46,7 @@ struct CumProbTestExecutor
 		cumProbAcc.data[1] = 0.3f;
 		cumProbAcc.data[2] = 0.6f;
 
-		CumProbTestPdfAccessor pdfAcc;
-		pdfAcc.data[0] = 0.1f;
-		pdfAcc.data[1] = 0.2f;
-		pdfAcc.data[2] = 0.3f;
-		pdfAcc.data[3] = 0.4f;
-
-		CumProbTestSampler sampler = CumProbTestSampler::create(cumProbAcc, pdfAcc, CumProbTestTableSize);
+		CumProbTestSampler sampler = CumProbTestSampler::create(cumProbAcc, CumProbTestTableSize);
 
 		CumProbTestSampler::cache_type cache;
 		output.generatedIndex = sampler.generate(input.u, cache);

@@ -43,9 +43,7 @@ private:
 	{
 		bool pass = true;
 		pass &= verifyTestValue("SphericalRectangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("SphericalRectangle::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 5e-4);
 		pass &= verifyTestValue("SphericalRectangle::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 5e-4);
-		pass &= verifyTestValue("SphericalRectangle::forwardPdf == cache.pdf", actual.pdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("SphericalRectangle::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 5e-4);
 
 		// PDF positivity and finiteness

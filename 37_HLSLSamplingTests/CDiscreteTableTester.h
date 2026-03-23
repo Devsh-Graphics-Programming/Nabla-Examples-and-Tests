@@ -3,8 +3,8 @@
 
 #include <nbl/builtin/hlsl/sampling/alias_table.hlsl>
 #include <nbl/builtin/hlsl/sampling/cumulative_probability.hlsl>
-#include <nbl/core/sampling/alias_table_builder.h>
-#include <nbl/core/sampling/cumulative_probability_builder.h>
+#include <nbl/builtin/hlsl/sampling/alias_table_builder.h>
+#include <nbl/builtin/hlsl/sampling/cumulative_probability_builder.h>
 #include <vector>
 #include <random>
 #include <cmath>
@@ -14,7 +14,8 @@ template<typename T>
 struct ReadOnlyAccessor
 {
 	using value_type = T;
-	T get(uint32_t i) const { return data[i]; }
+	template<typename V, std::integral I> requires std::is_arithmetic_v<V>
+	void get(I i, V& val) const { val = V(data[i]); }
 	T operator[](uint32_t i) const { return data[i]; }
 
 	const T* data;
@@ -24,8 +25,8 @@ using ProbabilityAccessor = ReadOnlyAccessor<float>;
 using AliasIndexAccessor = ReadOnlyAccessor<uint32_t>;
 using PdfAccessor = ReadOnlyAccessor<float>;
 
-using TestAliasTable = nbl::hlsl::sampling::AliasTable<float, ProbabilityAccessor, AliasIndexAccessor, PdfAccessor>;
-using TestCumulativeProbabilitySampler = nbl::hlsl::sampling::CumulativeProbabilitySampler<float, ReadOnlyAccessor<float>, ReadOnlyAccessor<float>>;
+using TestAliasTable = nbl::hlsl::sampling::AliasTable<float32_t, float32_t, uint32_t, ProbabilityAccessor, AliasIndexAccessor, PdfAccessor>;
+using TestCumulativeProbabilitySampler = nbl::hlsl::sampling::CumulativeProbabilitySampler<float, ReadOnlyAccessor<float>>;
 
 // Tests table construction for both alias method and cumulative probability.
 // Sampler generate/pdf correctness is verified by GPU testers (CAliasTableGPUTester, CCumulativeProbabilityGPUTester).
@@ -43,7 +44,7 @@ public:
 		for (const auto& tc : cases)
 			pass &= testAliasTable(tc.name, tc.weights);
 
-		m_logger->log("CumulativeProbabilityBuilder tests:", system::ILogger::ELL_INFO);
+		m_logger->log("CumulativeProbability tests:", system::ILogger::ELL_INFO);
 		for (const auto& tc : cases)
 			pass &= testCumulativeProbability(tc.name, tc.weights);
 
@@ -152,7 +153,7 @@ private:
 		std::vector<float> outPdf(N);
 		std::vector<uint32_t> workspace(N);
 
-		nbl::core::sampling::AliasTableBuilder<float>::build(
+		nbl::hlsl::sampling::AliasTableBuilder<float>::build(
 			weights.data(), N,
 			outProbability.data(), outAlias.data(), outPdf.data(), workspace.data());
 
@@ -213,11 +214,10 @@ private:
 		const uint32_t N = static_cast<uint32_t>(weights.size());
 
 		std::vector<float> cumProb(N - 1);
-		std::vector<float> pdf(N);
 
-		nbl::core::sampling::CumulativeProbabilityBuilder<float>::build(
+		nbl::hlsl::sampling::computeNormalizedCumulativeHistogram(
 			weights.data(), N,
-			cumProb.data(), pdf.data());
+			cumProb.data());
 
 		bool pass = true;
 
@@ -238,6 +238,15 @@ private:
 			m_logger->log("CumProb[%s] last stored entry %f >= 1.0",
 				system::ILogger::ELL_ERROR, name, cumProb[N - 2]);
 			pass = false;
+		}
+
+		// Derive PDF from CDF for verification
+		std::vector<float> pdf(N);
+		for (uint32_t i = 0; i < N; i++)
+		{
+			const float cur = (i < N - 1) ? cumProb[i] : 1.0f;
+			const float prev = (i > 0) ? cumProb[i - 1] : 0.0f;
+			pdf[i] = cur - prev;
 		}
 
 		pass &= verifyPdf("CumProb", name, pdf.data(), weights);

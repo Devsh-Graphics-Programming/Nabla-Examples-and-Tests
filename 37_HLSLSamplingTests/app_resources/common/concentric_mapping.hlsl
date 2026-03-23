@@ -15,7 +15,6 @@ struct ConcentricMappingTestResults
 {
 	float32_t2 mapped;
 	float32_t2 inverted;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t jacobianProduct;
@@ -29,7 +28,6 @@ struct ConcentricMappingTestExecutor
 		{
 			sampling::ConcentricMapping<float32_t>::cache_type cache;
 			output.mapped = sampling::ConcentricMapping<float32_t>::generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = sampling::ConcentricMapping<float32_t>::forwardPdf(cache);
 		}
 		{

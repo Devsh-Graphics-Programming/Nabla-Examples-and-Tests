@@ -10,26 +10,26 @@
 
 struct BdaProbabilityAccessor
 {
-	using value_type = float32_t;
-	value_type get(uint32_t i) { return vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i)); }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 
 struct BdaAliasIndexAccessor
 {
-	using value_type = uint32_t;
-	value_type get(uint32_t i) { return vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i)); }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_integral_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 
 struct BdaPdfAccessor
 {
-	using value_type = float32_t;
-	value_type get(uint32_t i) { return vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i)); }
+	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
+	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 
-using BenchAliasTable = sampling::AliasTable<float32_t, BdaProbabilityAccessor, BdaAliasIndexAccessor, BdaPdfAccessor>;
+using BenchAliasTable = sampling::AliasTable<float32_t, float32_t, uint32_t, BdaProbabilityAccessor, BdaAliasIndexAccessor, BdaPdfAccessor>;
 #else
 #include "common/alias_table.hlsl"
 
