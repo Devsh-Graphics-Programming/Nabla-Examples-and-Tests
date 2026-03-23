@@ -378,6 +378,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						return logFail("Failed to create resolve pipeline layout");
 				}
 
+				ensureRenderPipeline(
+					static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
+					guiControlled.usePersistentWorkGroups,
+					guiControlled.useRWMC,
+					static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
+				);
+				if (guiControlled.useRWMC)
+					ensureResolvePipeline();
+
 				// Create graphics pipeline
 				{
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
@@ -904,42 +913,145 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
 					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), aspectRatio, guiControlled.zNear, guiControlled.zFar));
 
-					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
-					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
+					const ImGuiViewport* viewport = ImGui::GetMainViewport();
+					const ImVec2 viewportPos = viewport->Pos;
+					const ImVec2 viewportSize = viewport->Size;
+					const float panelMargin = 10.f;
+					const float panelWidth = ImClamp(viewportSize.x * 0.24f, 320.0f, 430.0f);
+					const float panelMaxHeight = ImMax(360.0f, viewportSize.y * 0.9f);
+					ImGui::SetNextWindowPos(ImVec2(viewportPos.x + panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always);
+					ImGui::SetNextWindowSizeConstraints(ImVec2(panelWidth, 0.0f), ImVec2(panelWidth, panelMaxHeight));
+					ImGui::SetNextWindowBgAlpha(0.72f);
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.f, 12.f));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 6.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.f, 8.f));
+					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.10f, 0.13f, 0.88f));
+					ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.32f, 0.39f, 0.47f, 0.65f));
+					ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.28f, 0.36f, 0.92f));
+					ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.24f, 0.36f, 0.46f, 0.96f));
+					ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.28f, 0.42f, 0.54f, 1.0f));
 
-					// create a window and insert the inspector
-					ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
-					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-					ImGui::Begin("Controls");
+					const ImGuiWindowFlags panelFlags =
+						ImGuiWindowFlags_NoDecoration |
+						ImGuiWindowFlags_NoMove |
+						ImGuiWindowFlags_NoSavedSettings |
+						ImGuiWindowFlags_NoNav |
+						ImGuiWindowFlags_AlwaysAutoResize |
+						ImGuiWindowFlags_NoResize;
 
-					ImGui::SameLine();
+					const auto beginSectionTable = []() -> bool
+					{
+						return ImGui::BeginTable("##controls_table", 2, ImGuiTableFlags_SizingFixedFit);
+					};
+					const auto tableLabelColumnWidth = ImMin(150.0f, panelWidth * 0.42f);
+					const auto setupSectionTable = [tableLabelColumnWidth]() -> void
+					{
+						ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, tableLabelColumnWidth);
+						ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+					};
+					const auto sliderFloatRow = [](const char* label, float* value, float min, float max, const char* format) -> void
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(label);
+						ImGui::TableSetColumnIndex(1);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						ImGui::PushID(label);
+						ImGui::SliderFloat("##value", value, min, max, format, ImGuiSliderFlags_AlwaysClamp);
+						ImGui::PopID();
+					};
+					const auto sliderIntRow = [](const char* label, int* value, int min, int max) -> void
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(label);
+						ImGui::TableSetColumnIndex(1);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						ImGui::PushID(label);
+						ImGui::SliderInt("##value", value, min, max);
+						ImGui::PopID();
+					};
+					const auto comboRow = [](const char* label, int* value, const char* const* items, const int count) -> void
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(label);
+						ImGui::TableSetColumnIndex(1);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						ImGui::PushID(label);
+						ImGui::Combo("##value", value, items, count);
+						ImGui::PopID();
+					};
+					const auto checkboxRow = [](const char* label, bool* value) -> void
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(label);
+						ImGui::TableSetColumnIndex(1);
+						ImGui::PushID(label);
+						ImGui::Checkbox("##value", value);
+						ImGui::PopID();
+					};
 
-					ImGui::Text("Camera");
+					if (ImGui::Begin("Path Tracer Controls", nullptr, panelFlags))
+					{
+						ImGui::TextUnformatted("Path Tracer");
+						ImGui::Separator();
+						ImGui::TextDisabled("Home resets camera");
+						ImGui::TextDisabled("End resets light");
+						ImGui::Spacing();
 
-					ImGui::Text("Press Home to reset camera.");
-					ImGui::Text("Press End to reset light.");
+						if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+						{
+							if (beginSectionTable())
+							{
+								setupSectionTable();
+								sliderFloatRow("move speed", &guiControlled.moveSpeed, 0.1f, 10.f, "%.2f");
+								sliderFloatRow("rotate speed", &guiControlled.rotateSpeed, 0.1f, 10.f, "%.2f");
+								sliderFloatRow("fov", &guiControlled.fov, 20.f, 150.f, "%.0f");
+								sliderFloatRow("zNear", &guiControlled.zNear, 0.1f, 100.f, "%.2f");
+								sliderFloatRow("zFar", &guiControlled.zFar, 110.f, 10000.f, "%.0f");
+								ImGui::EndTable();
+							}
+						}
 
-					ImGui::SliderFloat("Move speed", &guiControlled.moveSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Rotate speed", &guiControlled.rotateSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Fov", &guiControlled.fov, 20.f, 150.f);
-					ImGui::SliderFloat("zNear", &guiControlled.zNear, 0.1f, 100.f);
-					ImGui::SliderFloat("zFar", &guiControlled.zFar, 110.f, 10000.f);
-					ImGui::Combo("Shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::Combo("Polygon Method", &guiControlled.polygonMethod, polygonMethodNames, EPM_COUNT);
-					ImGui::SliderInt("SPP", &guiControlled.spp, 1, MaxSamplesBuffer);
-					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
-					ImGui::Checkbox("Persistent WorkGroups", &guiControlled.usePersistentWorkGroups);
+						if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
+						{
+							if (beginSectionTable())
+							{
+								setupSectionTable();
+								comboRow("shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+								comboRow("polygon method", &guiControlled.polygonMethod, polygonMethodNames, EPM_COUNT);
+								sliderIntRow("spp", &guiControlled.spp, 1, MaxSamplesBuffer);
+								sliderIntRow("depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
+								checkboxRow("persistent WGs", &guiControlled.usePersistentWorkGroups);
+								ImGui::EndTable();
+							}
+						}
 
-					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
+						if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
+						{
+							if (beginSectionTable())
+							{
+								setupSectionTable();
+								checkboxRow("enable", &guiControlled.useRWMC);
+								sliderFloatRow("start", &guiControlled.rwmcParams.start, 1.0f, 32.0f, "%.3f");
+								sliderFloatRow("base", &guiControlled.rwmcParams.base, 1.0f, 32.0f, "%.3f");
+								sliderFloatRow("min reliable", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f, "%.3f");
+								sliderFloatRow("kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f");
+								ImGui::EndTable();
+							}
+						}
 
-					ImGui::Text("\nRWMC settings:");
-					ImGui::Checkbox("Enable RWMC", &guiControlled.useRWMC);
-					ImGui::SliderFloat("start", &guiControlled.rwmcParams.start, 1.0f, 32.0f);
-					ImGui::SliderFloat("base", &guiControlled.rwmcParams.base, 1.0f, 32.0f);
-					ImGui::SliderFloat("minReliableLuma", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f);
-					ImGui::SliderFloat("kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f);
-
+						ImGui::Spacing();
+						ImGui::Separator();
+						ImGui::TextDisabled("cursor %.0f %.0f", io.MousePos.x, io.MousePos.y);
+					}
 					ImGui::End();
+					ImGui::PopStyleColor(5);
+					ImGui::PopStyleVar(5);
 				}
 			);
 
@@ -1013,14 +1125,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			guiControlled.rwmcParams.base = 8.0f;
 			guiControlled.rwmcParams.minReliableLuma = 1.0f;
 			guiControlled.rwmcParams.kappa = 5.0f;
-			ensureRenderPipeline(
-				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
-				guiControlled.usePersistentWorkGroups,
-				guiControlled.useRWMC,
-				static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
-			);
-			if (guiControlled.useRWMC)
-				ensureResolvePipeline();
 			return true;
 		}
 
