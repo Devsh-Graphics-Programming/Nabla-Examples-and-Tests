@@ -1,5 +1,13 @@
-#ifndef _PATHTRACER_EXAMPLE_SCENE_BASE_INCLUDED_
-#define _PATHTRACER_EXAMPLE_SCENE_BASE_INCLUDED_
+#if !defined(PATHTRACER_SCENE_BASE_MULTI_INCLUDE)
+	#ifndef _PATHTRACER_EXAMPLE_SCENE_BASE_INCLUDED_
+	#define _PATHTRACER_EXAMPLE_SCENE_BASE_INCLUDED_
+	#define PATHTRACER_SCENE_BASE_EMIT_BODY 1
+	#endif
+#else
+	#define PATHTRACER_SCENE_BASE_EMIT_BODY 1
+#endif
+
+#if PATHTRACER_SCENE_BASE_EMIT_BODY
 
 using namespace nbl;
 using namespace hlsl;
@@ -71,4 +79,5 @@ static const bxdfnode_type bxdfs[SceneBase::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(MaterialType::EMISSIVE, LightEminence)
 };
 
+#undef PATHTRACER_SCENE_BASE_EMIT_BODY
 #endif

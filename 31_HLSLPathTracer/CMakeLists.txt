@@ -52,20 +52,32 @@ if(NBL_BUILD_IMGUI)
 		"KEY": "pt.compute.sphere.rwmc"
 	},
 	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl",
-		"KEY": "pt.compute.triangle"
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.linear.proxy.hlsl",
+		"KEY": "pt.compute.triangle.linear"
 	},
 	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.triangle.rwmc"
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.persistent.proxy.hlsl",
+		"KEY": "pt.compute.triangle.persistent"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.linear.proxy.hlsl",
+		"KEY": "pt.compute.triangle.rwmc.linear"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.persistent.proxy.hlsl",
+		"KEY": "pt.compute.triangle.rwmc.persistent"
 	},
 	{
 		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl",
 		"KEY": "pt.compute.rectangle"
 	},
 	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.rectangle.rwmc"
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.linear.proxy.hlsl",
+		"KEY": "pt.compute.rectangle.rwmc.linear"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.persistent.proxy.hlsl",
+		"KEY": "pt.compute.rectangle.rwmc.persistent"
 	},
 	{
 		"INPUT": "app_resources/hlsl/resolve.comp.hlsl",

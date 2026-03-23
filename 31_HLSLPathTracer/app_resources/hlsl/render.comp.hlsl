@@ -59,8 +59,6 @@ using namespace hlsl;
 #include "scene_rectangle_light.hlsl"
 #endif
 
-NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_APPROX_PROJECTED_SOLID_ANGLE;
-
 int32_t2 getCoordinates()
 {
     uint32_t width, height, imageArraySize;
@@ -95,12 +93,12 @@ using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_con
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
 using payload_type = Payload<float>;
-using ray_type = Ray<payload_type,POLYGON_METHOD>;
+using ray_type = Ray<payload_type, PPM_APPROX_PROJECTED_SOLID_ANGLE>;
 using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
-using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE, POLYGON_METHOD>;
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE>;
 
 #ifdef RWMC_ENABLED
 using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_t3, CascadeCount> >;
@@ -190,6 +188,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.scene = scene;
     pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
     pathtracer.nee.lights = lights;
+    pathtracer.nee.polygonMethod = static_cast<NEEPolygonMethod>(renderPushConstants.polygonMethod);
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.bxdfPdfThreshold = 0.0001;
     pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));

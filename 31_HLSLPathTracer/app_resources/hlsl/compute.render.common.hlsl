@@ -2,11 +2,25 @@
 #error PATH_TRACER_USE_RWMC must be defined before including compute.render.common.hlsl
 #endif
 
+#ifndef PATH_TRACER_ENABLE_LINEAR
+#define PATH_TRACER_ENABLE_LINEAR 1
+#endif
+
+#ifndef PATH_TRACER_ENABLE_PERSISTENT
+#define PATH_TRACER_ENABLE_PERSISTENT 1
+#endif
+
+#if !PATH_TRACER_ENABLE_LINEAR && !PATH_TRACER_ENABLE_PERSISTENT
+#error At least one path tracer entrypoint mode must be enabled
+#endif
+
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#if PATH_TRACER_ENABLE_PERSISTENT
 #include "nbl/builtin/hlsl/morton.hlsl"
+#endif
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/basic_ray_gen.hlsl"

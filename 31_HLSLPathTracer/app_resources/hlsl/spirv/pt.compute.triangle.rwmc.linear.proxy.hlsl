@@ -1,0 +1,9 @@
+#ifndef _PT_COMPUTE_TRIANGLE_RWMC_LINEAR_INCLUDED_
+#define _PT_COMPUTE_TRIANGLE_RWMC_LINEAR_INCLUDED_
+
+#define PT_VARIANT_USE_RWMC 1
+#define PT_VARIANT_ENABLE_LINEAR 1
+#define PT_VARIANT_ENABLE_PERSISTENT 0
+#include "pt.compute.triangle.methods.shared.hlsl"
+
+#endif

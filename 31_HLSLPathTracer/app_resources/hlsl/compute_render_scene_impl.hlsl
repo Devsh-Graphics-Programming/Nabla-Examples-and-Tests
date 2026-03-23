@@ -2,12 +2,15 @@
 #error PATH_TRACER_USE_RWMC must be defined before including compute_render_scene_impl.hlsl
 #endif
 
-namespace pathtracer_render_variant
+#ifndef PATH_TRACER_VARIANT_NAMESPACE
+#define PATH_TRACER_VARIANT_NAMESPACE pathtracer_render_variant
+#define PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED 1
+#endif
+
+namespace PATH_TRACER_VARIANT_NAMESPACE
 {
 using namespace nbl;
 using namespace hlsl;
-
-NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_APPROX_PROJECTED_SOLID_ANGLE;
 
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = PTIsotropicInteraction<ray_dir_info_t, spectral_t>;
@@ -26,12 +29,12 @@ using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_con
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
 using payload_type = Payload<float>;
-using ray_type = Ray<payload_type, POLYGON_METHOD>;
+using ray_type = Ray<payload_type, PPM_APPROX_PROJECTED_SOLID_ANGLE>;
 using randgen_type = RandomUniformND<Xoroshiro64Star, 3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
-using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE, POLYGON_METHOD>;
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE>;
 
 #if PATH_TRACER_USE_RWMC
 using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_t3, CascadeCount> >;
@@ -50,7 +53,7 @@ RenderPushConstants getRenderPushConstants()
 #endif
 }
 
-void tracePixel(int32_t2 coords)
+void tracePixel(int32_t2 coords, NEEPolygonMethod polygonMethod)
 {
 	const RenderPushConstants renderPushConstants = getRenderPushConstants();
 
@@ -94,6 +97,7 @@ void tracePixel(int32_t2 coords)
 	pathtracer.scene = scene;
 	pathtracer.randGen = randgen_type::create(::scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
 	pathtracer.nee.lights = lights;
+	pathtracer.nee.polygonMethod = polygonMethod;
 	pathtracer.materialSystem.bxdfs = bxdfs;
 	pathtracer.bxdfPdfThreshold = 0.0001;
 	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
@@ -121,14 +125,17 @@ void tracePixel(int32_t2 coords)
 #endif
 }
 
-void runLinear(uint32_t3 threadID)
+#if PATH_TRACER_ENABLE_LINEAR
+void runLinear(uint32_t3 threadID, NEEPolygonMethod polygonMethod)
 {
 	uint32_t width, height, imageArraySize;
 	::outImage.GetDimensions(width, height, imageArraySize);
-	tracePixel(int32_t2(threadID.x % width, threadID.x / width));
+	tracePixel(int32_t2(threadID.x % width, threadID.x / width), polygonMethod);
 }
+#endif
 
-void runPersistent()
+#if PATH_TRACER_ENABLE_PERSISTENT
+void runPersistent(NEEPolygonMethod polygonMethod)
 {
 	uint32_t width, height, imageArraySize;
 	::outImage.GetDimensions(width, height, imageArraySize);
@@ -142,8 +149,13 @@ void runPersistent()
 		morton::code<true, 32, 2> mc;
 		mc.value = glsl::gl_LocalInvocationIndex().x;
 		const int32_t2 localCoords = _static_cast<int32_t2>(mc);
-		tracePixel(wgCoords * int32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
+		tracePixel(wgCoords * int32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords, polygonMethod);
 	}
 }
+#endif
 }
 #undef PATH_TRACER_USE_RWMC
+#ifdef PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED
+#undef PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED
+#undef PATH_TRACER_VARIANT_NAMESPACE
+#endif
