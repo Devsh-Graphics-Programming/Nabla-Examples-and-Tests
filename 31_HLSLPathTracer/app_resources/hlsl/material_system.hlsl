@@ -133,7 +133,7 @@ struct MaterialSystem
         }
     }
 
-    measure_type eval(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
+    quotient_pdf_type evalAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
         cache_type _cache = getCacheFromSampleInteraction(matID, _sample, interaction);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
@@ -141,26 +141,28 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                return bxdfs[matID.id].albedo * _cache.diffuseBxDF.eval(_sample, interaction.isotropic);
+                quotient_pdf_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic);
+                ret._quotient *= bxdfs[matID.id].albedo;
+                return ret;
             }
             case MaterialType::CONDUCTOR:
             {
-                return _cache.conductorBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                return _cache.conductorBxDF.evalAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::DIELECTRIC:
             {
-                return _cache.dielectricBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                return _cache.dielectricBxDF.evalAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return _cache.iridescentConductorBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                return _cache.iridescentConductorBxDF.evalAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return _cache.iridescentDielectricBxDF.eval(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                return _cache.iridescentDielectricBxDF.evalAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             default:
-                return hlsl::promote<measure_type>(0.0);
+                return quotient_pdf_type::create(0.0, 0.0);
         }
     }
 
@@ -230,7 +232,7 @@ struct MaterialSystem
         }
     }
 
-    quotient_pdf_type quotient_and_pdf(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
+    quotient_pdf_type quotientAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
@@ -240,31 +242,31 @@ struct MaterialSystem
             {
                 case MaterialType::DIFFUSE:
                 {
-                    quotient_pdf_type ret = _cache.diffuseBxDF.quotient_and_pdf(_sample, interaction.isotropic);
+                    quotient_pdf_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
                 case MaterialType::CONDUCTOR:
                 {
-                    return _cache.conductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    return _cache.conductorBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::DIELECTRIC:
                 {
-                    return _cache.dielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    return _cache.dielectricBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_CONDUCTOR:
                 {
-                    return _cache.iridescentConductorBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    return _cache.iridescentConductorBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_DIELECTRIC:
                 {
-                    return _cache.iridescentDielectricBxDF.quotient_and_pdf(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    return _cache.iridescentDielectricBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 default:
                     break;
             }
         }
-        return quotient_pdf_type::create(hlsl::promote<measure_type>(0.0), 0.0);
+        return quotient_pdf_type::create(0.0, 0.0);
     }
 
     bool hasEmission(material_id_type matID)

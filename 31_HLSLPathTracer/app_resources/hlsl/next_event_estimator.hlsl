@@ -362,7 +362,7 @@ struct NextEventEstimator
         return shape_sampling_type::create(rect);
     }
 
-    scalar_type deferred_pdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
+    scalar_type deferredPdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         if (lightID.id == 0u)
             return scalar_type(0.0);    // env light pdf=0
@@ -372,7 +372,7 @@ struct NextEventEstimator
     }
 
     template<class MaterialSystem>
-    sample_quotient_return_type generate_and_quotient_and_pdf(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, uint16_t depth)
+    sample_quotient_return_type generateAndQuotientAndWeight(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, uint16_t depth)
     {
         // light id 0 is reserved for env light
         // however, we start indexing light array without env light, so index 0 is first shape light
@@ -419,14 +419,14 @@ struct NextEventEstimator
         return retval;
     }
 
-    light_id_type get_env_light_id()
+    light_id_type getEnvLightId()
     {
         light_id_type env_light_id;
         env_light_id.id = 0u;
         return env_light_id;
     }
 
-    spectral_type get_environment_radiance(NBL_CONST_REF_ARG(ray_type) ray)
+    spectral_type getEnvRadiance(NBL_CONST_REF_ARG(ray_type) ray)
     {
         // can also sample environment map using ray direction
         return vector3_type(0.15, 0.21, 0.3);
