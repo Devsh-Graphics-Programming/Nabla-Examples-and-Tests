@@ -59,7 +59,7 @@ using namespace hlsl;
 #include "scene_rectangle_light.hlsl"
 #endif
 
-NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_SOLID_ANGLE;
+NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_APPROX_PROJECTED_SOLID_ANGLE;
 
 int32_t2 getCoordinates()
 {
