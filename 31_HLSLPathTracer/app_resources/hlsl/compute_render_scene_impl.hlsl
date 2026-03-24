@@ -2,12 +2,7 @@
 #error PATH_TRACER_USE_RWMC must be defined before including compute_render_scene_impl.hlsl
 #endif
 
-#ifndef PATH_TRACER_VARIANT_NAMESPACE
-#define PATH_TRACER_VARIANT_NAMESPACE pathtracer_render_variant
-#define PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED 1
-#endif
-
-namespace PATH_TRACER_VARIANT_NAMESPACE
+namespace pathtracer_render_variant
 {
 using namespace nbl;
 using namespace hlsl;
@@ -155,7 +150,3 @@ void runPersistent(NEEPolygonMethod polygonMethod)
 #endif
 }
 #undef PATH_TRACER_USE_RWMC
-#ifdef PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED
-#undef PATH_TRACER_VARIANT_NAMESPACE_DEFAULTED
-#undef PATH_TRACER_VARIANT_NAMESPACE
-#endif

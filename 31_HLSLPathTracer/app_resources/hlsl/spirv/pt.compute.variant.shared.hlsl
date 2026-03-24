@@ -37,23 +37,15 @@
 #endif
 #include "compute_render_scene_impl.hlsl"
 
+#if PT_VARIANT_RUNTIME_POLYGON_METHOD
+#define PATH_TRACER_RUNTIME_POLYGON_METHOD ((NEEPolygonMethod)(pathtracer_render_variant::getRenderPushConstants().polygonMethod))
+#endif
+
 #if PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_RUNTIME_UNIFORM
-#if PT_VARIANT_RUNTIME_POLYGON_METHOD
-#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD ((NEEPolygonMethod)(pathtracer_render_variant::getRenderPushConstants().polygonMethod))
-#endif
 #include "compute.render.linear.entrypoints.hlsl"
-#if PT_VARIANT_RUNTIME_POLYGON_METHOD
-#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD ((NEEPolygonMethod)(pathtracer_render_variant::getRenderPushConstants().polygonMethod))
-#endif
 #include "compute.render.persistent.entrypoints.hlsl"
 #elif PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_LINEAR
-#if PT_VARIANT_RUNTIME_POLYGON_METHOD
-#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD ((NEEPolygonMethod)(pathtracer_render_variant::getRenderPushConstants().polygonMethod))
-#endif
 #include "compute.render.linear.entrypoints.hlsl"
 #else
-#if PT_VARIANT_RUNTIME_POLYGON_METHOD
-#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD ((NEEPolygonMethod)(pathtracer_render_variant::getRenderPushConstants().polygonMethod))
-#endif
 #include "compute.render.persistent.entrypoints.hlsl"
 #endif
