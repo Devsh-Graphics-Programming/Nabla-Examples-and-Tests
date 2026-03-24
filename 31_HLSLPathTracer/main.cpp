@@ -1004,15 +1004,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						"base",
 						"min rel.",
 						"kappa",
-						"eff. geometry",
+						"geometry",
 						"req. method",
 						"eff. method",
 						"entrypoint",
+						"mode",
 						"config",
 						"cache",
-						"shader cache",
+						"trim cache",
 						"parallel",
-						"progress"
+						"render",
+						"warmup"
 					});
 					const float comboPreviewWidth = std::max(
 						calcMaxArrayTextWidth(shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT),
@@ -1023,9 +1025,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						"1024.000",
 						"Projected Solid Angle",
 						"mainPersistentSolidAngle",
+						"WALLTIME_OPTIMIZED",
 						"RelWithDebInfo",
 						"loaded from disk",
-						"done 20/21  run 5  queue 0"
+						"ready 20/21",
+						"run 5  queue 0"
 					});
 					const float tableLabelColumnWidth = std::ceil(maxLabelTextWidth + style.FramePadding.x * 2.f + style.CellPadding.x * 2.f);
 					const float tableValueColumnMinWidth =
@@ -1180,20 +1184,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (beginSectionTable("##diagnostics_controls_table"))
 							{
 								setupSectionTable();
-								textRow("eff. geometry", shaderNames[currentGeometry]);
+								textRow("geometry", shaderNames[currentGeometry]);
 								textRow("req. method", polygonMethodNames[requestedMethod]);
 								textRow("eff. method", polygonMethodNames[effectiveMethod]);
 								textRow("entrypoint", effectiveEntryPoint);
+								textRow("mode", getPathTracerBuildModeName());
 								textRow("config", getBuildConfigName());
 								textRow("cache", m_pipelineCache.loadedFromDisk ? "loaded from disk" : "cold start");
-								textRow("shader cache", std::to_string(m_pipelineCache.trimmedShaders.loadedFromDiskCount + m_pipelineCache.trimmedShaders.generatedCount) + " ready");
+								textRow("trim cache", std::to_string(m_pipelineCache.trimmedShaders.loadedFromDiskCount + m_pipelineCache.trimmedShaders.generatedCount) + " ready");
 								textRow("parallel", std::to_string(m_pipelineCache.warmupBudget));
 								textRow(
-									"progress",
-									"done " + std::to_string(readyTotalPipelines) + "/" + std::to_string(totalKnownPipelines) +
-										"  run " + std::to_string(runningPipelineBuilds) +
-										"  queue " + std::to_string(queuedPipelineBuilds)
+									"render",
+									"ready " + std::to_string(readyTotalPipelines) + "/" + std::to_string(totalKnownPipelines)
 								);
+								textRow("warmup", "run " + std::to_string(runningPipelineBuilds) + "  queue " + std::to_string(queuedPipelineBuilds));
 								ImGui::EndTable();
 							}
 						}
