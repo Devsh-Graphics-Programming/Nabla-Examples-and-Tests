@@ -26,7 +26,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         float32_t3 triangleEdge0 = vertex1 - vertex0;
         float32_t3 triangleEdge1 = vertex2 - vertex0;
 
-        outV.setNormal((normalize(cross(triangleEdge1, triangleEdge0)) + 1.0f) * 0.5f);
+        outV.setNormal(normalize(cross(triangleEdge1, triangleEdge0)));
     }
 
     pfloat64_t4 pos;
