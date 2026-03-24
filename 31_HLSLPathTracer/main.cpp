@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "argparse/argparse.hpp"
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -145,6 +146,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
+
+			if (!parseCommandLine())
+				return false;
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
 			{
@@ -960,7 +964,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const size_t totalKnownPipelines = totalRenderPipelines + 1ull;
 					const size_t runningPipelineBuilds = getRunningPipelineBuildCount();
 					const size_t queuedPipelineBuilds = m_pipelineCache.warmup.queue.size();
-					const bool warmupInProgress = m_hasPathtraceOutput && !m_pipelineCache.warmup.loggedComplete;
+					const bool warmupInProgress = m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.loggedComplete;
 					const char* const effectiveEntryPoint = currentVariant.entryPoint;
 					struct SFloatSliderRow
 					{
@@ -1009,7 +1013,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					{
 						return std::to_string(running) + " / " + std::to_string(queued);
 					};
-					const std::string pipelineStatusText = !m_hasPathtraceOutput ?
+					const std::string pipelineStatusText = !m_startupLog.hasPathtraceOutput ?
 						"Building pipeline..." :
 						(warmupInProgress ?
 							("Warmup " + std::to_string(readyTotalPipelines) + "/" + std::to_string(totalKnownPipelines)) :
@@ -1189,7 +1193,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						ImGui::TextUnformatted("PATH_TRACER");
 						ImGui::Separator();
 						ImGui::TextDisabled("Home camera  End light");
-						if (!m_hasPathtraceOutput)
+						if (!m_startupLog.hasPathtraceOutput)
 							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Building pipeline...");
 						else if (warmupInProgress)
 							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Warmup %zu/%zu", readyTotalPipelines, totalKnownPipelines);
@@ -1256,7 +1260,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 					ImGui::End();
 
-					if (!m_hasPathtraceOutput || warmupInProgress)
+					if (!m_startupLog.hasPathtraceOutput || warmupInProgress)
 					{
 						ImGui::SetNextWindowPos(ImVec2(viewportPos.x + viewportSize.x - panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 						ImGui::SetNextWindowBgAlpha(0.62f);
@@ -1383,10 +1387,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			pollPendingPipelines();
 			pumpPipelineWarmup();
-			if (!m_loggedFirstFrameLoop)
+			if (!m_startupLog.loggedFirstFrameLoop)
 			{
 				logStartupEvent("first_frame_loop");
-				m_loggedFirstFrameLoop = true;
+				m_startupLog.loggedFirstFrameLoop = true;
 			}
 
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
@@ -1582,11 +1586,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (producedRenderableOutput)
 			{
-				m_hasPathtraceOutput = true;
-				if (!m_loggedFirstRenderDispatch)
+				m_startupLog.hasPathtraceOutput = true;
+				if (!m_startupLog.loggedFirstRenderDispatch)
 				{
 					logStartupEvent("first_render_dispatch");
-					m_loggedFirstRenderDispatch = true;
+					m_startupLog.loggedFirstRenderDispatch = true;
 				}
 			}
 
@@ -1654,7 +1658,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-				if (m_hasPathtraceOutput)
+				if (m_startupLog.hasPathtraceOutput)
 				{
 					cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
 					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
@@ -1716,12 +1720,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 				}
 
-				if (producedRenderableOutput && !m_loggedFirstRenderSubmit)
+				if (producedRenderableOutput && !m_startupLog.loggedFirstRenderSubmit)
 				{
 					logStartupEvent("first_render_submit");
-					m_loggedFirstRenderSubmit = true;
+					m_startupLog.loggedFirstRenderSubmit = true;
 				}
-				if (m_hasPathtraceOutput && !m_pipelineCache.warmup.started)
+				if (m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.started)
 				{
 					kickoffPipelineWarmup();
 				}
@@ -1869,37 +1873,31 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_logger->log("PATH_TRACER_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
 		}
 
-		std::optional<path> tryGetPipelineCacheDirOverride() const
+		bool parseCommandLine()
 		{
-			constexpr std::string_view prefix = "--pipeline-cache-dir=";
-			for (size_t i = 1ull; i < argv.size(); ++i)
-			{
-				const std::string_view arg = argv[i];
-				if (arg.rfind(prefix, 0ull) == 0ull)
-				{
-					const auto value = arg.substr(prefix.size());
-					if (!value.empty())
-						return path(std::string(value));
-					return std::nullopt;
-				}
-				if (arg == "--pipeline-cache-dir")
-				{
-					if (i + 1ull < argv.size())
-						return path(argv[i + 1ull]);
-					return std::nullopt;
-				}
-			}
-			return std::nullopt;
-		}
+			argparse::ArgumentParser parser("31_hlslpathtracer");
+			parser.add_argument("--pipeline-cache-dir")
+				.nargs(1)
+				.help("Override the PATH_TRACER pipeline cache root directory");
+			parser.add_argument("--clear-pipeline-cache")
+				.help("Clear the PATH_TRACER cache root before startup")
+				.flag();
 
-		bool shouldClearPipelineCacheOnStartup() const
-		{
-			for (const auto& arg : argv)
+			try
 			{
-				if (arg == "--clear-pipeline-cache")
-					return true;
+				parser.parse_args({ argv.data(), argv.data() + argv.size() });
 			}
-			return false;
+			catch (const std::exception& e)
+			{
+				m_logger->log("Failed to parse arguments: %s", ILogger::ELL_ERROR, e.what());
+				return false;
+			}
+
+			m_commandLine.pipelineCacheDirOverride.reset();
+			if (parser.present("--pipeline-cache-dir"))
+				m_commandLine.pipelineCacheDirOverride = path(parser.get<std::string>("--pipeline-cache-dir"));
+			m_commandLine.clearPipelineCache = parser.get<bool>("--clear-pipeline-cache");
+			return true;
 		}
 
 		static std::string hashToHex(const core::blake3_hash_t& hash)
@@ -1973,8 +1971,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		path getPipelineCacheRootDir() const
 		{
-			if (const auto overrideDir = tryGetPipelineCacheDirOverride(); overrideDir.has_value())
-				return overrideDir.value();
+			if (m_commandLine.pipelineCacheDirOverride.has_value())
+				return m_commandLine.pipelineCacheDirOverride.value();
 			if (const auto runtimeConfigDir = tryGetPipelineCacheDirFromRuntimeConfig(); runtimeConfigDir.has_value())
 				return runtimeConfigDir.value();
 			return getDefaultPipelineCacheDir();
@@ -2051,11 +2049,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			std::error_code ec;
 			m_pipelineCache.loadedBytes = 0ull;
 			m_pipelineCache.loadedFromDisk = false;
-			m_pipelineCache.clearedOnStartup = shouldClearPipelineCacheOnStartup();
+			m_pipelineCache.clearedOnStartup = m_commandLine.clearPipelineCache;
 			m_pipelineCache.newlyReadyPipelinesSinceLastSave = 0ull;
 			m_pipelineCache.checkpointedAfterFirstSubmit = false;
 			m_pipelineCache.lastSaveAt = clock_t::now();
-			if (shouldClearPipelineCacheOnStartup())
+			if (m_commandLine.clearPipelineCache)
 			{
 				if (m_system->isDirectory(pipelineCacheRootDir) && !m_system->deleteDirectory(pipelineCacheRootDir))
 					m_logger->log("Failed to clear pipeline cache directory %s", ILogger::ELL_WARNING, pipelineCacheRootDir.string().c_str());
@@ -2383,7 +2381,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!m_pipelineCache.object || !m_pipelineCache.dirty)
 				return;
 
-			if (m_loggedFirstRenderSubmit && !m_pipelineCache.checkpointedAfterFirstSubmit)
+			if (m_startupLog.loggedFirstRenderSubmit && !m_pipelineCache.checkpointedAfterFirstSubmit)
 			{
 				savePipelineCache();
 				m_pipelineCache.checkpointedAfterFirstSubmit = true;
@@ -2550,6 +2548,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			size_t newlyReadyPipelinesSinceLastSave = 0ull;
 			bool checkpointedAfterFirstSubmit = false;
 			clock_t::time_point lastSaveAt = clock_t::now();
+		};
+
+		struct SCommandLineOptions
+		{
+			std::optional<path> pipelineCacheDirOverride;
+			bool clearPipelineCache = false;
+		};
+
+		struct SStartupLogState
+		{
+			bool hasPathtraceOutput = false;
+			bool loggedFirstFrameLoop = false;
+			bool loggedFirstRenderDispatch = false;
+			bool loggedFirstRenderSubmit = false;
 		};
 
 		static constexpr bool SpecializedBuildMode =
@@ -3095,10 +3107,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		TransformRequestParams m_transformParams;
 
 		clock_t::time_point m_startupBeganAt = clock_t::now();
-		bool m_hasPathtraceOutput = false;
-		bool m_loggedFirstFrameLoop = false;
-		bool m_loggedFirstRenderDispatch = false;
-		bool m_loggedFirstRenderSubmit = false;
+		SCommandLineOptions m_commandLine;
+		SStartupLogState m_startupLog;
 		SPipelineCacheState m_pipelineCache;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
