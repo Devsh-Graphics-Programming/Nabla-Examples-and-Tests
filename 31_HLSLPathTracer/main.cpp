@@ -8,7 +8,7 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
-#include "nbl/this_example/builtin/build/spirv/generated/PathTracerKeys.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
