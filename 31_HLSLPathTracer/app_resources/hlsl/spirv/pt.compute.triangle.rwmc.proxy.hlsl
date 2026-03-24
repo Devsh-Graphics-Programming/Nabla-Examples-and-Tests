@@ -1,6 +1,1 @@
-#ifndef _PT_COMPUTE_TRIANGLE_RWMC_INCLUDED_
-#define _PT_COMPUTE_TRIANGLE_RWMC_INCLUDED_
-#define PT_VARIANT_USE_RWMC 1
-#define PT_VARIANT_SCENE_HEADER "scene_triangle_light.hlsl"
-#include "pt.compute.runtime_uniform.shared.hlsl"
-#endif
+#include "pt.compute.variant.shared.hlsl"
