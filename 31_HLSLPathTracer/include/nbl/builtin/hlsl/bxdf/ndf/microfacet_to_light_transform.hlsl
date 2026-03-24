@@ -70,7 +70,7 @@ template<typename T>
 struct SDualMeasureQuant
 {
     using value_type = T;
-    
+
     T microfacetMeasure;
     T projectedLightMeasure;
 };
