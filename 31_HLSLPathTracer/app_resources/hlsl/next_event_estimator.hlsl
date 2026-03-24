@@ -30,7 +30,7 @@ struct ShapeSampling<T, PST_SPHERE, PPM>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         vector3_type Z = sphere.position - origin;
         const scalar_type distanceSQ = hlsl::dot<vector3_type>(Z,Z);
@@ -88,7 +88,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         const vector3_type edge0 = tri.vertex1 - tri.vertex0;
         const vector3_type edge1 = tri.vertex2 - tri.vertex0;
@@ -132,7 +132,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
@@ -180,7 +180,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         scalar_type rcpPdf;
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
@@ -226,7 +226,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         const vector3_type N = rect.getNormalTimesArea();
         const vector3_type origin2origin = rect.offset - origin;
@@ -276,7 +276,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
     }
 
     template<class Aniso>
-    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
         const vector3_type N = rect.getNormalTimesArea();
         const vector3_type origin2origin = rect.offset - origin;
@@ -382,7 +382,7 @@ struct NextEventEstimator
     }
 
     template<class MaterialSystem>
-    sample_quotient_return_type generateAndQuotientAndWeight(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, uint16_t depth)
+    sample_quotient_return_type generateAndQuotientAndWeight(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, NBL_CONST_REF_ARG(ray_type) ray)
     {
         // light id 0 is reserved for env light
         // however, we start indexing light array without env light, so index 0 is first shape light
@@ -393,7 +393,7 @@ struct NextEventEstimator
 
         sample_quotient_return_type retval;
         scalar_type pdf, newRayMaxT;
-        const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, xi);
+        const vector3_type sampleL = sampling.template generateAndPdf<interaction_type>(pdf, newRayMaxT, origin, interaction, xi);
 
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
@@ -410,7 +410,7 @@ struct NextEventEstimator
             rayL.setDirection(sampleL);
             retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
-            newRayMaxT *= tolerance_method_type::getEnd(depth);
+            newRayMaxT *= tolerance_method_type::getEnd(ray.depth);
             pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;

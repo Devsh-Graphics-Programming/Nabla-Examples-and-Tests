@@ -85,6 +85,7 @@ struct Ray
 
     // mutable
     scalar_type intersectionT;
+    uint16_t depth;
 
     payload_type payload;
     using spectral_type = typename payload_type::spectral_type;
@@ -132,6 +133,7 @@ struct Ray
 
     void setT(scalar_type t) { intersectionT = t; }
     scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
+    void setDepth(uint16_t d) { depth = d; }
 
     spectral_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
@@ -153,6 +155,7 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 
     // mutable
     scalar_type intersectionT;
+    uint16_t depth;
 
     payload_type payload;
     using spectral_type = typename payload_type::spectral_type;
@@ -201,6 +204,7 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 
     void setT(scalar_type t) { intersectionT = t; }
     scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
+    void setDepth(uint16_t d) { depth = d; }
 
     vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
