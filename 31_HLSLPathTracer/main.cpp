@@ -2292,6 +2292,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
 			case ELG_TRIANGLE:
+#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
 				if (rwmc)
 					return persistentWorkGroups ?
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>() :
@@ -2299,11 +2300,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return persistentWorkGroups ?
 					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>() :
 					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.linear")>();
+#else
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle")>();
+#endif
 			case ELG_RECTANGLE:
+#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
 				if (rwmc)
 					return persistentWorkGroups ?
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>() :
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.linear")>();
+#else
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc")>();
+#endif
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
 			default:
 				return nullptr;
@@ -2366,6 +2377,24 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			clock_t::time_point lastSaveAt = clock_t::now();
 		};
 
+		static constexpr bool isSpecializedBuildMode()
+		{
+#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
+			return true;
+#else
+			return false;
+#endif
+		}
+
+		static constexpr const char* getPathTracerBuildModeName()
+		{
+#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
+			return "SPECIALIZED";
+#else
+			return "WALLTIME_OPTIMIZED";
+#endif
+		}
+
 		static E_POLYGON_METHOD getEffectivePolygonMethod(const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD requestedMethod)
 		{
 			switch (geometry)
@@ -2381,15 +2410,34 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 		}
 
+		static E_POLYGON_METHOD getPipelineVariantPolygonMethod(const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD requestedMethod)
+		{
+			switch (geometry)
+			{
+			case ELG_SPHERE:
+				return EPM_SOLID_ANGLE;
+			case ELG_TRIANGLE:
+				if (isSpecializedBuildMode())
+					return requestedMethod;
+				return EPM_PROJECTED_SOLID_ANGLE;
+			case ELG_RECTANGLE:
+				return EPM_SOLID_ANGLE;
+			default:
+				return EPM_PROJECTED_SOLID_ANGLE;
+			}
+		}
+
 		static const char* getRenderEntryPointName(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const E_POLYGON_METHOD requestedMethod)
 		{
-			const auto effectiveMethod = getEffectivePolygonMethod(geometry, requestedMethod);
+			const auto pipelineMethod = getPipelineVariantPolygonMethod(geometry, requestedMethod);
 			switch (geometry)
 			{
 			case ELG_SPHERE:
 				return persistentWorkGroups ? "mainPersistent" : "main";
 			case ELG_TRIANGLE:
-				switch (effectiveMethod)
+				if (!isSpecializedBuildMode())
+					return persistentWorkGroups ? "mainPersistent" : "main";
+				switch (pipelineMethod)
 				{
 				case EPM_AREA:
 					return persistentWorkGroups ? "mainPersistentArea" : "mainArea";
@@ -2467,13 +2515,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					{
 						for (auto method = 0u; method < EPM_COUNT; ++method)
 						{
-							const auto effectiveMethod = static_cast<size_t>(getEffectivePolygonMethod(
+							const auto pipelineMethod = static_cast<size_t>(getPipelineVariantPolygonMethod(
 								static_cast<E_LIGHT_GEOMETRY>(geometry),
 								static_cast<E_POLYGON_METHOD>(method)
 							));
-							if (seen[geometry][persistentWorkGroups][rwmc][effectiveMethod])
+							if (seen[geometry][persistentWorkGroups][rwmc][pipelineMethod])
 								continue;
-							seen[geometry][persistentWorkGroups][rwmc][effectiveMethod] = true;
+							seen[geometry][persistentWorkGroups][rwmc][pipelineMethod] = true;
 							++count;
 						}
 					}
@@ -2515,7 +2563,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					existing.geometry == job.geometry &&
 					existing.persistentWorkGroups == job.persistentWorkGroups &&
 					existing.rwmc == job.rwmc &&
-					getEffectivePolygonMethod(existing.geometry, existing.polygonMethod) == getEffectivePolygonMethod(job.geometry, job.polygonMethod)
+					getPipelineVariantPolygonMethod(existing.geometry, existing.polygonMethod) == getPipelineVariantPolygonMethod(job.geometry, job.polygonMethod)
 				)
 					return;
 			}
@@ -2534,7 +2582,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			auto& pipelines = getRenderPipelineStorage(job.persistentWorkGroups, job.rwmc);
 			auto& pendingPipelines = getRenderFutureStorage(job.persistentWorkGroups, job.rwmc);
-			const auto methodIx = static_cast<size_t>(getEffectivePolygonMethod(job.geometry, job.polygonMethod));
+			const auto methodIx = static_cast<size_t>(getPipelineVariantPolygonMethod(job.geometry, job.polygonMethod));
 			if (pipelines[job.geometry][methodIx] || pendingPipelines[job.geometry][methodIx].valid())
 				return false;
 
@@ -2707,7 +2755,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			auto& pipelines = getRenderPipelineStorage(persistentWorkGroups, rwmc);
 			auto& pendingPipelines = getRenderFutureStorage(persistentWorkGroups, rwmc);
-			const auto methodIx = static_cast<size_t>(getEffectivePolygonMethod(geometry, polygonMethod));
+			const auto methodIx = static_cast<size_t>(getPipelineVariantPolygonMethod(geometry, polygonMethod));
 			auto& pipeline = pipelines[geometry][methodIx];
 			auto& future = pendingPipelines[geometry][methodIx];
 

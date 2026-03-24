@@ -5,6 +5,27 @@ if(NOT RES)
 endif()
 
 if(NBL_BUILD_IMGUI)
+	# PATH_TRACER_BUILD_MODE controls how EX31 packages triangle polygon-method variants.
+	# WALLTIME_OPTIMIZED keeps triangle polygon-method selection inside one shared shader module.
+	# This preserves the same runtime feature surface while keeping triangle methods on one heavy backend compile path.
+	# SPECIALIZED bakes Area, SolidAngle and ProjectedSolidAngle into separate triangle entrypoints.
+	# That does not add only thin entrypoints. It multiplies the heavy triangle-side path tracing instantiations and pushes more work into the DXC/SPIR-V backend.
+	# Honest CLI rebuild measurement on AMD Ryzen 5 5600G with Radeon Graphics (6C/12T) using:
+	#   cmake -E time cmake --build build/dynamic --config RelWithDebInfo --target examples_tests/31_HLSLPathTracer/31_hlslpathtracerSPIRV -- /m:12 /t:Rebuild /p:BuildProjectReferences=false
+	# gave:
+	#   WALLTIME_OPTIMIZED = 20.6093 s
+	#   SPECIALIZED = 30.1792 s
+	# SPECIALIZED is +9.5699 s slower which is +46.43%.
+	# Therefore the default stays WALLTIME_OPTIMIZED.
+	set(PATH_TRACER_BUILD_MODE "WALLTIME_OPTIMIZED" CACHE STRING
+		"Choose the EX31 precompiled shader layout. WALLTIME_OPTIMIZED keeps polygon-method selection inside the shared triangle shader module to reduce compile wall time. SPECIALIZED bakes triangle polygon methods into distinct entrypoints, which increases backend work and rebuild time but keeps those variants as separate precompiled entrypoints."
+	)
+	set_property(CACHE PATH_TRACER_BUILD_MODE PROPERTY STRINGS WALLTIME_OPTIMIZED SPECIALIZED)
+	set(_PATH_TRACER_BUILD_MODE_VALUES WALLTIME_OPTIMIZED SPECIALIZED)
+	if(NOT PATH_TRACER_BUILD_MODE IN_LIST _PATH_TRACER_BUILD_MODE_VALUES)
+		message(FATAL_ERROR "Unsupported PATH_TRACER_BUILD_MODE='${PATH_TRACER_BUILD_MODE}'. Expected one of: ${_PATH_TRACER_BUILD_MODE_VALUES}")
+	endif()
+
 	set(NBL_INCLUDE_SERACH_DIRECTORIES
 		"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	)
@@ -16,6 +37,11 @@ if(NBL_BUILD_IMGUI)
 	)
 
 	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	if(PATH_TRACER_BUILD_MODE STREQUAL "SPECIALIZED")
+		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_MODE_SPECIALIZED=1)
+	else()
+		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_MODE_WALLTIME_OPTIMIZED=1)
+	endif()
 
 	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen-flat")
 	get_filename_component(OUTPUT_DIRECTORY_ABSOLUTE "${OUTPUT_DIRECTORY}" ABSOLUTE)
@@ -41,7 +67,8 @@ if(NBL_BUILD_IMGUI)
 
 	set(SPIRV_FOLDER "SPIRV")
 	set(SPIRV_INTERNAL_FOLDER "${SPIRV_FOLDER}/Internal")
-	set(SPIRV_RULES_JSON_TEMPLATE [=[
+	if(PATH_TRACER_BUILD_MODE STREQUAL "SPECIALIZED")
+		set(SPIRV_RULES_JSON_TEMPLATE [=[
 [
 	{
 		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl",
@@ -89,6 +116,44 @@ if(NBL_BUILD_IMGUI)
 	}
 ]
 ]=])
+	else()
+		set(SPIRV_RULES_JSON_TEMPLATE [=[
+[
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl",
+		"KEY": "pt.compute.sphere"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.sphere.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl",
+		"KEY": "pt.compute.triangle"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.triangle.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl",
+		"KEY": "pt.compute.rectangle"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl",
+		"KEY": "pt.compute.rectangle.rwmc"
+	},
+	{
+		"INPUT": "app_resources/hlsl/resolve.comp.hlsl",
+		"KEY": "pt.compute.resolve"
+	},
+	{
+		"INPUT": "app_resources/hlsl/spirv/pt.misc.proxy.hlsl",
+		"KEY": "pt.misc"
+	}
+]
+]=])
+	endif()
 	string(CONFIGURE "${SPIRV_RULES_JSON_TEMPLATE}" SPIRV_RULES_JSON @ONLY)
 	set(ALL_SPIRV_KEYS "")
 	NBL_CREATE_NSC_COMPILE_RULES(

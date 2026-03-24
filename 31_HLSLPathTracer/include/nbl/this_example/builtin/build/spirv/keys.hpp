@@ -43,11 +43,14 @@ namespace nbl::this_example::builtin::build { \
 
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.sphere", "pt.compute.sphere");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.sphere.rwmc", "pt.compute.sphere.rwmc");
+NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle", "pt.compute.triangle");
+NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle.rwmc", "pt.compute.triangle.rwmc");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle.linear", "pt.compute.triangle.linear");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle.persistent", "pt.compute.triangle.persistent");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle.rwmc.linear", "pt.compute.triangle.rwmc.linear");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.triangle.rwmc.persistent", "pt.compute.triangle.rwmc.persistent");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.rectangle", "pt.compute.rectangle");
+NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.rectangle.rwmc", "pt.compute.rectangle.rwmc");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.rectangle.rwmc.linear", "pt.compute.rectangle.rwmc.linear");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.rectangle.rwmc.persistent", "pt.compute.rectangle.rwmc.persistent");
 NBL_PATH_TRACER_DEFINE_SPIRV_KEY("pt.compute.resolve", "pt.compute.resolve");
