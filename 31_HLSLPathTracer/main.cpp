@@ -1197,59 +1197,62 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							ImGui::TextDisabled("All pipelines ready");
 						ImGui::Dummy(ImVec2(0.f, 2.f));
 
-						if (ImGui::CollapsingHeader("Camera"))
+						if (ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen))
 						{
-							if (beginSectionTable("##camera_controls_table"))
+							if (ImGui::CollapsingHeader("Camera"))
 							{
-								setupSectionTable();
-								for (const auto& row : cameraFloatRows)
-									sliderFloatRow(row);
-								ImGui::EndTable();
+								if (beginSectionTable("##camera_controls_table"))
+								{
+									setupSectionTable();
+									for (const auto& row : cameraFloatRows)
+										sliderFloatRow(row);
+									ImGui::EndTable();
+								}
 							}
-						}
 
-						if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
-						{
-							if (beginSectionTable("##render_controls_table"))
+							if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
 							{
-								setupSectionTable();
-								for (const auto& row : renderComboRows)
-									comboRow(row);
-								for (const auto& row : renderIntRows)
-									sliderIntRow(row);
-								for (const auto& row : renderCheckboxRows)
-									checkboxRow(row);
-								ImGui::EndTable();
+								if (beginSectionTable("##render_controls_table"))
+								{
+									setupSectionTable();
+									for (const auto& row : renderComboRows)
+										comboRow(row);
+									for (const auto& row : renderIntRows)
+										sliderIntRow(row);
+									for (const auto& row : renderCheckboxRows)
+										checkboxRow(row);
+									ImGui::EndTable();
+								}
 							}
-						}
 
-						if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
-						{
-							if (beginSectionTable("##rwmc_controls_table"))
+							if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
 							{
-								setupSectionTable();
-								for (const auto& row : rwmcCheckboxRows)
-									checkboxRow(row);
-								for (const auto& row : rwmcFloatRows)
-									sliderFloatRow(row);
-								ImGui::EndTable();
+								if (beginSectionTable("##rwmc_controls_table"))
+								{
+									setupSectionTable();
+									for (const auto& row : rwmcCheckboxRows)
+										checkboxRow(row);
+									for (const auto& row : rwmcFloatRows)
+										sliderFloatRow(row);
+									ImGui::EndTable();
+								}
 							}
-						}
 
-						if (ImGui::CollapsingHeader("Diagnostics"))
-						{
-							if (beginSectionTable("##diagnostics_controls_table"))
+							if (ImGui::CollapsingHeader("Diagnostics"))
 							{
-								setupSectionTable();
-								for (const auto& row : diagnosticsRows)
-									textRow(row);
-								ImGui::EndTable();
+								if (beginSectionTable("##diagnostics_controls_table"))
+								{
+									setupSectionTable();
+									for (const auto& row : diagnosticsRows)
+										textRow(row);
+									ImGui::EndTable();
+								}
 							}
-						}
 
-						ImGui::Dummy(ImVec2(0.f, 2.f));
-						ImGui::Separator();
-						ImGui::TextDisabled("%s", cursorText.c_str());
+							ImGui::Dummy(ImVec2(0.f, 2.f));
+							ImGui::Separator();
+							ImGui::TextDisabled("%s", cursorText.c_str());
+						}
 					}
 					ImGui::End();
 
