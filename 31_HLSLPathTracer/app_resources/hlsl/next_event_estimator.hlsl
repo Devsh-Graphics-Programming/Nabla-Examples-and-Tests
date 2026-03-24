@@ -372,7 +372,7 @@ struct NextEventEstimator
         return shape_sampling_type::create(rect);
     }
 
-    scalar_type deferredPdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
+    scalar_type deferredWeight(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         if (lightID.id == 0u)
             return scalar_type(0.0);    // env light pdf=0
