@@ -63,6 +63,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
+		static constexpr size_t BinaryToggleCount = 2ull;
 		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
@@ -1859,7 +1860,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return nullptr;
 			}
 
-			shader->setFilePathHint(std::string(ShaderKey.value, ShaderKey.value + sizeof(ShaderKey.value) - 1u));
+			shader->setFilePathHint(std::string(std::string_view(ShaderKey.value)));
 			return shader;
 		}
 
@@ -1905,12 +1906,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static std::string hashToHex(const core::blake3_hash_t& hash)
 		{
 			static constexpr char digits[] = "0123456789abcdef";
+			static constexpr size_t HexCharsPerByte = 2ull;
+			static constexpr uint32_t HighNibbleBitOffset = 4u;
+			static constexpr uint8_t NibbleMask = 0xfu;
+			const auto hashByteCount = sizeof(hash.data);
 			std::string retval;
-			retval.resize(sizeof(hash.data) * 2ull);
-			for (size_t i = 0ull; i < sizeof(hash.data); ++i)
+			retval.resize(hashByteCount * HexCharsPerByte);
+			for (size_t i = 0ull; i < hashByteCount; ++i)
 			{
-				retval[i * 2ull + 0ull] = digits[(hash.data[i] >> 4u) & 0xfu];
-				retval[i * 2ull + 1ull] = digits[hash.data[i] & 0xfu];
+				const auto hexOffset = i * HexCharsPerByte;
+				retval[hexOffset] = digits[(hash.data[i] >> HighNibbleBitOffset) & NibbleMask];
+				retval[hexOffset + 1ull] = digits[hash.data[i] & NibbleMask];
 			}
 			return retval;
 		}
@@ -2004,10 +2010,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		size_t getBackgroundPipelineBuildBudget() const
 		{
+			static constexpr uint32_t ReservedForegroundThreadCount = 1u;
 			const auto concurrency = std::thread::hardware_concurrency();
-			if (concurrency > 1u)
-				return static_cast<size_t>(concurrency - 1u);
-			return 1ull;
+			if (concurrency > ReservedForegroundThreadCount)
+				return static_cast<size_t>(concurrency - ReservedForegroundThreadCount);
+			return ReservedForegroundThreadCount;
 		}
 
 		bool ensureCacheDirectoryExists(const path& dir, const char* const description)
@@ -2387,7 +2394,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!m_pipelineCache.warmup.started || m_pipelineCache.warmup.loggedComplete)
 				return;
 
-			if (m_pipelineCache.newlyReadyPipelinesSinceLastSave < 4ull)
+			static constexpr size_t WarmupCheckpointThreshold = 4ull;
+			if (m_pipelineCache.newlyReadyPipelinesSinceLastSave < WarmupCheckpointThreshold)
 				return;
 
 			const auto elapsedSinceLastSave = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.lastSaveAt).count();
@@ -2443,13 +2451,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		using pipeline_future_array_t = std::array<pipeline_future_method_array_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
 		struct SRenderPipelineStorage
 		{
-			shader_array_t shaders[2][2] = {};
-			pipeline_array_t pipelines[2][2] = {};
-			pipeline_future_array_t pendingPipelines[2][2] = {};
+			std::array<std::array<shader_array_t, BinaryToggleCount>, BinaryToggleCount> shaders = {};
+			std::array<std::array<pipeline_array_t, BinaryToggleCount>, BinaryToggleCount> pipelines = {};
+			std::array<std::array<pipeline_future_array_t, BinaryToggleCount>, BinaryToggleCount> pendingPipelines = {};
 
 			static constexpr size_t boolToIndex(const bool value)
 			{
-				return value ? 1ull : 0ull;
+				return static_cast<size_t>(value);
 			}
 
 			shader_array_t& getShaders(const bool persistentWorkGroups, const bool rwmc)
@@ -2684,12 +2692,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		size_t getKnownRenderPipelineCount() const
 		{
 			size_t count = 0ull;
-			bool seen[ELG_COUNT][2][2][EPM_COUNT] = {};
+			bool seen[ELG_COUNT][BinaryToggleCount][BinaryToggleCount][EPM_COUNT] = {};
 			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 			{
-				for (auto persistentWorkGroups = 0u; persistentWorkGroups < 2u; ++persistentWorkGroups)
+				for (auto persistentWorkGroups = 0u; persistentWorkGroups < BinaryToggleCount; ++persistentWorkGroups)
 				{
-					for (auto rwmc = 0u; rwmc < 2u; ++rwmc)
+					for (auto rwmc = 0u; rwmc < BinaryToggleCount; ++rwmc)
 					{
 						for (auto method = 0u; method < EPM_COUNT; ++method)
 						{
