@@ -22,10 +22,16 @@ if(NBL_BUILD_IMGUI)
 	set(PATH_TRACER_BUILD_MODE "WALLTIME_OPTIMIZED" CACHE STRING
 		"Choose the EX31 precompiled shader layout. WALLTIME_OPTIMIZED keeps polygon-method selection inside the shared triangle shader module to reduce compile wall time. SPECIALIZED bakes triangle polygon methods into distinct entrypoints, which increases backend work and rebuild time but keeps those variants as separate precompiled entrypoints."
 	)
+	set(PATH_TRACER_CACHE_ROOT "pipeline/cache" CACHE STRING
+		"Relative cache root written to path_tracer.runtime.json in the common bin directory. The runtime resolves this path relative to the JSON file location. Empty disables the generated dev-mode JSON and falls back to --pipeline-cache-dir or LocalAppData."
+	)
 	set_property(CACHE PATH_TRACER_BUILD_MODE PROPERTY STRINGS WALLTIME_OPTIMIZED SPECIALIZED)
 	set(_PATH_TRACER_BUILD_MODE_VALUES WALLTIME_OPTIMIZED SPECIALIZED)
 	if(NOT PATH_TRACER_BUILD_MODE IN_LIST _PATH_TRACER_BUILD_MODE_VALUES)
 		message(FATAL_ERROR "Unsupported PATH_TRACER_BUILD_MODE='${PATH_TRACER_BUILD_MODE}'. Expected one of: ${_PATH_TRACER_BUILD_MODE_VALUES}")
+	endif()
+	if(IS_ABSOLUTE "${PATH_TRACER_CACHE_ROOT}")
+		message(FATAL_ERROR "PATH_TRACER_CACHE_ROOT must stay relative because the runtime resolves it against path_tracer.runtime.json")
 	endif()
 
 	set(NBL_INCLUDE_SERACH_DIRECTORIES
@@ -44,6 +50,14 @@ if(NBL_BUILD_IMGUI)
 		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_MODE_SPECIALIZED=1)
 	else()
 		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_MODE_WALLTIME_OPTIMIZED=1)
+	endif()
+	if(NOT PATH_TRACER_CACHE_ROOT STREQUAL "")
+		string(REPLACE "\\" "/" PATH_TRACER_CACHE_ROOT_JSON "${PATH_TRACER_CACHE_ROOT}")
+		file(GENERATE
+			OUTPUT "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>/path_tracer.runtime.json"
+			CONTENT "{\n  \"cache_root\": \"${PATH_TRACER_CACHE_ROOT_JSON}\"\n}\n"
+		)
+		unset(PATH_TRACER_CACHE_ROOT_JSON)
 	endif()
 
 	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen-flat")

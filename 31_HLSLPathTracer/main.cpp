@@ -11,6 +11,7 @@
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
+#include "nbl/system/ModuleLookupUtils.h"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -24,6 +25,8 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+
+#include "nlohmann/json.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -61,6 +64,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
+		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 
@@ -1196,7 +1200,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							ImGui::TextDisabled("All pipelines ready");
 						ImGui::Dummy(ImVec2(0.f, 2.f));
 
-						if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+						if (ImGui::CollapsingHeader("Camera"))
 						{
 							if (beginSectionTable("##camera_controls_table"))
 							{
@@ -1918,26 +1922,66 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return localOutputCWD / "pipeline/cache";
 		}
 
-		path getPipelineCacheRootDir() const
+		path getRuntimeConfigPath() const
 		{
-			return tryGetPipelineCacheDirOverride().value_or(getDefaultPipelineCacheDir());
+			return system::executableDirectory() / RuntimeConfigFilename;
 		}
 
-		static constexpr std::string_view PipelineCacheSchemaVersion = "v4";
-		static constexpr std::string_view TrimmedShaderCacheSchemaVersion = "v5";
+		std::optional<path> tryGetPipelineCacheDirFromRuntimeConfig() const
+		{
+			const auto configPath = getRuntimeConfigPath();
+			if (!m_system->exists(configPath, IFile::ECF_READ))
+				return std::nullopt;
+
+			std::ifstream input(configPath);
+			if (!input.is_open())
+				return std::nullopt;
+
+			nlohmann::json json;
+			try
+			{
+				input >> json;
+			}
+			catch (const std::exception& e)
+			{
+				m_logger->log("Failed to parse PATH_TRACER runtime config %s: %s", ILogger::ELL_WARNING, configPath.string().c_str(), e.what());
+				return std::nullopt;
+			}
+
+			const auto cacheRootIt = json.find("cache_root");
+			if (cacheRootIt == json.end() || !cacheRootIt->is_string())
+				return std::nullopt;
+
+			const auto cacheRoot = cacheRootIt->get<std::string>();
+			if (cacheRoot.empty())
+				return std::nullopt;
+
+			const path relativeRoot(cacheRoot);
+			if (relativeRoot.is_absolute())
+			{
+				m_logger->log("Ignoring absolute cache_root in %s", ILogger::ELL_WARNING, configPath.string().c_str());
+				return std::nullopt;
+			}
+
+			return (configPath.parent_path() / relativeRoot).lexically_normal();
+		}
+
+		path getPipelineCacheRootDir() const
+		{
+			if (const auto overrideDir = tryGetPipelineCacheDirOverride(); overrideDir.has_value())
+				return overrideDir.value();
+			if (const auto runtimeConfigDir = tryGetPipelineCacheDirFromRuntimeConfig(); runtimeConfigDir.has_value())
+				return runtimeConfigDir.value();
+			return getDefaultPipelineCacheDir();
+		}
 
 		path getPipelineCacheBlobPath() const
 		{
 			const auto key = m_device->getPipelineCacheKey();
-			return getPipelineCacheRootDir() / PipelineCacheSchemaVersion / "pipeline" / BuildConfigName / (std::string(key.deviceAndDriverUUID) + ".bin");
+			return getPipelineCacheRootDir() / "blob" / BuildConfigName / (std::string(key.deviceAndDriverUUID) + ".bin");
 		}
 
-		path getTrimmedShaderCacheDir() const
-		{
-			return getPipelineCacheRootDir() / TrimmedShaderCacheSchemaVersion / "trimmed" / BuildConfigName;
-		}
-
-		path getValidatedSpirvCacheDir() const
+		path getSpirvCacheDir() const
 		{
 			return getPipelineCacheRootDir() / "spirv" / BuildConfigName;
 		}
@@ -1947,7 +1991,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			core::blake3_hasher hasher;
 			hasher << std::string_view(shader ? shader->getFilepathHint() : std::string_view{});
 			hasher << std::string_view(entryPoint);
-			return getTrimmedShaderCacheDir() / (hashToHex(static_cast<core::blake3_hash_t>(hasher)) + ".spv");
+			return getSpirvCacheDir() / (hashToHex(static_cast<core::blake3_hash_t>(hasher)) + ".spv");
 		}
 
 		path getValidatedSpirvMarkerPath(const ICPUBuffer* spirvBuffer) const
@@ -1955,7 +1999,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			auto contentHash = spirvBuffer->getContentHash();
 			if (contentHash == ICPUBuffer::INVALID_HASH)
 				contentHash = spirvBuffer->computeContentHash();
-			return getValidatedSpirvCacheDir() / (hashToHex(contentHash) + ".hash");
+			return getSpirvCacheDir() / (hashToHex(contentHash) + ".hash");
 		}
 
 		size_t getBackgroundPipelineBuildBudget() const
@@ -1993,8 +2037,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		void initializePipelineCache()
 		{
 			m_pipelineCache.blobPath = getPipelineCacheBlobPath();
-			m_pipelineCache.trimmedShaders.rootDir = getTrimmedShaderCacheDir();
-			m_pipelineCache.trimmedShaders.validationDir = getValidatedSpirvCacheDir();
+			m_pipelineCache.trimmedShaders.rootDir = getSpirvCacheDir();
+			m_pipelineCache.trimmedShaders.validationDir = getSpirvCacheDir();
 			if (!m_pipelineCache.trimmedShaders.trimmer)
 				m_pipelineCache.trimmedShaders.trimmer = core::make_smart_refctd_ptr<asset::ISPIRVEntryPointTrimmer>();
 			const auto pipelineCacheRootDir = getPipelineCacheRootDir();
