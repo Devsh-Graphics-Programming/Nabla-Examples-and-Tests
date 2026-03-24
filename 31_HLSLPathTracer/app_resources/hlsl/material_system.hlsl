@@ -141,7 +141,8 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                quotient_pdf_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic);
+                typename diffuse_op_type::isocache_type dummycache;
+                quotient_pdf_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic, dummycache);
                 ret._quotient *= bxdfs[matID.id].albedo;
                 return ret;
             }
@@ -174,7 +175,8 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                return _cache.diffuseBxDF.generate(interaction, u.xy);
+                typename diffuse_op_type::isocache_type dummycache;
+                return _cache.diffuseBxDF.generate(interaction, u.xy, dummycache);
             }
             case MaterialType::CONDUCTOR:
             {
@@ -242,7 +244,8 @@ struct MaterialSystem
             {
                 case MaterialType::DIFFUSE:
                 {
-                    quotient_pdf_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic);
+                    typename diffuse_op_type::isocache_type dummycache;
+                    quotient_pdf_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic, dummycache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
