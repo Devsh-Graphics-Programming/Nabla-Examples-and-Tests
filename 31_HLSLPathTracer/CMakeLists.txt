@@ -10,12 +10,14 @@ if(NBL_BUILD_IMGUI)
 	# This preserves the same runtime feature surface while keeping triangle methods on one heavy backend compile path.
 	# SPECIALIZED bakes Area, SolidAngle and ProjectedSolidAngle into separate triangle entrypoints.
 	# That does not add only thin entrypoints. It multiplies the heavy triangle-side path tracing instantiations and pushes more work into the DXC/SPIR-V backend.
-	# Honest CLI rebuild measurement on AMD Ryzen 5 5600G with Radeon Graphics (6C/12T) using:
-	#   cmake -E time cmake --build build/dynamic --config RelWithDebInfo --target examples_tests/31_HLSLPathTracer/31_hlslpathtracerSPIRV -- /m:12 /t:Rebuild /p:BuildProjectReferences=false
-	# gave:
-	#   WALLTIME_OPTIMIZED = 20.6093 s
-	#   SPECIALIZED = 30.1792 s
-	# SPECIALIZED is +9.5699 s slower which is +46.43%.
+	# On AMD Ryzen 5 5600G with Radeon Graphics (6C/12T),
+	# a Visual Studio Debug x64 full rebuild of the SPIR-V project completed in:
+	#   WALLTIME_OPTIMIZED = 12.785 s
+	#   SPECIALIZED = 18.314 s
+	# SPECIALIZED is +5.529 s slower which is +43.25%.
+	# Equivalently, WALLTIME_OPTIMIZED is 30.19% faster than SPECIALIZED.
+	# This comes from multiplying the heavy triangle-side path tracing instantiations
+	# and pushing more work into the DXC/SPIR-V backend.
 	# Therefore the default stays WALLTIME_OPTIMIZED.
 	set(PATH_TRACER_BUILD_MODE "WALLTIME_OPTIMIZED" CACHE STRING
 		"Choose the EX31 precompiled shader layout. WALLTIME_OPTIMIZED keeps polygon-method selection inside the shared triangle shader module to reduce compile wall time. SPECIALIZED bakes triangle polygon methods into distinct entrypoints, which increases backend work and rebuild time but keeps those variants as separate precompiled entrypoints."
