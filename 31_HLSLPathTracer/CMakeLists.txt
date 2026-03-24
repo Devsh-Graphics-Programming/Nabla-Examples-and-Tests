@@ -39,6 +39,7 @@ if(NBL_BUILD_IMGUI)
 	)
 
 	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_CONFIG_NAME=\"$<CONFIG>\")
 	if(PATH_TRACER_BUILD_MODE STREQUAL "SPECIALIZED")
 		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_BUILD_MODE_SPECIALIZED=1)
 	else()
@@ -68,99 +69,47 @@ if(NBL_BUILD_IMGUI)
 	)
 
 	set(SPIRV_FOLDER "SPIRV")
-	set(SPIRV_INTERNAL_FOLDER "${SPIRV_FOLDER}/Internal")
+	macro(PATH_TRACER_APPEND_SPIRV_RULE INPUT_FILE KEY_NAME)
+		list(APPEND SPIRV_RULE_OBJECTS
+			"	{
+		\"INPUT\": \"${INPUT_FILE}\",
+		\"KEY\": \"${KEY_NAME}\"
+	}"
+		)
+	endmacro()
+
+	set(SPIRV_RULE_OBJECTS "")
+	PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl" "pt.compute.sphere")
+	PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl" "pt.compute.sphere.rwmc")
 	if(PATH_TRACER_BUILD_MODE STREQUAL "SPECIALIZED")
-		set(SPIRV_RULES_JSON_TEMPLATE [=[
-[
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl",
-		"KEY": "pt.compute.sphere"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.sphere.rwmc"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.linear.proxy.hlsl",
-		"KEY": "pt.compute.triangle.linear"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.persistent.proxy.hlsl",
-		"KEY": "pt.compute.triangle.persistent"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.linear.proxy.hlsl",
-		"KEY": "pt.compute.triangle.rwmc.linear"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.persistent.proxy.hlsl",
-		"KEY": "pt.compute.triangle.rwmc.persistent"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl",
-		"KEY": "pt.compute.rectangle"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.linear.proxy.hlsl",
-		"KEY": "pt.compute.rectangle.rwmc.linear"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.persistent.proxy.hlsl",
-		"KEY": "pt.compute.rectangle.rwmc.persistent"
-	},
-	{
-		"INPUT": "app_resources/hlsl/resolve.comp.hlsl",
-		"KEY": "pt.compute.resolve"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.misc.proxy.hlsl",
-		"KEY": "pt.misc"
-	}
-]
-]=])
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.linear.proxy.hlsl" "pt.compute.triangle.linear")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.persistent.proxy.hlsl" "pt.compute.triangle.persistent")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.rwmc.linear.proxy.hlsl" "pt.compute.triangle.rwmc.linear")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.rwmc.persistent.proxy.hlsl" "pt.compute.triangle.rwmc.persistent")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.linear.proxy.hlsl" "pt.compute.rectangle.rwmc.linear")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.persistent.proxy.hlsl" "pt.compute.rectangle.rwmc.persistent")
 	else()
-		set(SPIRV_RULES_JSON_TEMPLATE [=[
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl" "pt.compute.triangle")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl" "pt.compute.triangle.rwmc")
+		PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl" "pt.compute.rectangle.rwmc")
+	endif()
+	PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl" "pt.compute.rectangle")
+	PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/resolve.comp.hlsl" "pt.compute.resolve")
+	PATH_TRACER_APPEND_SPIRV_RULE("app_resources/hlsl/spirv/pt.misc.proxy.hlsl" "pt.misc")
+	string(JOIN ",\n" PATH_TRACER_RULES_BODY ${SPIRV_RULE_OBJECTS})
+	set(SPIRV_RULES_JSON_TEMPLATE [=[
 [
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl",
-		"KEY": "pt.compute.sphere"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.sphere.rwmc"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl",
-		"KEY": "pt.compute.triangle"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.triangle.rwmc"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl",
-		"KEY": "pt.compute.rectangle"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl",
-		"KEY": "pt.compute.rectangle.rwmc"
-	},
-	{
-		"INPUT": "app_resources/hlsl/resolve.comp.hlsl",
-		"KEY": "pt.compute.resolve"
-	},
-	{
-		"INPUT": "app_resources/hlsl/spirv/pt.misc.proxy.hlsl",
-		"KEY": "pt.misc"
-	}
+@PATH_TRACER_RULES_BODY@
 ]
 ]=])
-	endif()
 	string(CONFIGURE "${SPIRV_RULES_JSON_TEMPLATE}" SPIRV_RULES_JSON @ONLY)
+	unset(SPIRV_RULE_OBJECTS)
+	unset(PATH_TRACER_RULES_BODY)
 	set(ALL_SPIRV_KEYS "")
 	NBL_CREATE_NSC_COMPILE_RULES(
 		DISCARD_DEFAULT_GLOB
 		TARGET ${EXECUTABLE_NAME}SPIRV
+		LINK_TO ${EXECUTABLE_NAME}
 		BINARY_DIR ${OUTPUT_DIRECTORY}
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
 		COMMON_OPTIONS ${COMPILE_OPTIONS}
@@ -180,8 +129,6 @@ if(NBL_BUILD_IMGUI)
 		BIND ${OUTPUT_DIRECTORY}
 		BUILTINS ${SPIRV_KEYS}
 	)
-	set_target_properties(${EXECUTABLE_NAME}_builtinsBuild PROPERTIES FOLDER "${SPIRV_INTERNAL_FOLDER}")
-	add_dependencies(${EXECUTABLE_NAME}_builtinsBuild ${EXECUTABLE_NAME}SPIRV)
 
 	if(NBL_EMBED_BUILTIN_RESOURCES)
 		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
