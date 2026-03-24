@@ -74,7 +74,6 @@ if(NBL_BUILD_IMGUI)
 	set(COMPILE_OPTIONS
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/include"
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl"
-		-I "${OUTPUT_DIRECTORY_ABSOLUTE}/$<CONFIG>"
 		-T "lib_${SM}"
 		-Wno-conversion
 		-Wno-sign-conversion
@@ -151,7 +150,7 @@ if(NBL_BUILD_IMGUI)
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
 		COMMON_OPTIONS ${COMPILE_OPTIONS}
 		OUTPUT_VAR ALL_SPIRV_KEYS
-		INCLUDE "nbl/this_example/builtin/build/spirv/keys.hpp"
+		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 		NAMESPACE nbl::this_example::builtin::build
 		INPUTS ${SPIRV_RULES_JSON}
 	)
