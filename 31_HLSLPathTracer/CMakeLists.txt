@@ -149,7 +149,7 @@ if(NBL_BUILD_IMGUI)
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
 		COMMON_OPTIONS ${COMPILE_OPTIONS}
 		OUTPUT_VAR ALL_SPIRV_KEYS
-		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+		INCLUDE nbl/this_example/builtin/build/spirv/generated/PathTracerKeys.hpp
 		NAMESPACE nbl::this_example::builtin::build
 		INPUTS ${SPIRV_RULES_JSON}
 	)
