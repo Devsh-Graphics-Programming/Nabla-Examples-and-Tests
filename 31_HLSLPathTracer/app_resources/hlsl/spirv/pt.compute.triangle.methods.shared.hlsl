@@ -33,7 +33,9 @@
 #define PATH_TRACER_ENTRYPOINT_NAME mainSolidAngle
 #define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_SOLID_ANGLE
 #include "compute.render.linear.entrypoints.hlsl"
-#else
+#endif
+
+#if PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_PERSISTENT
 #define PATH_TRACER_ENTRYPOINT_NAME mainPersistent
 #define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_APPROX_PROJECTED_SOLID_ANGLE
 #include "compute.render.persistent.entrypoints.hlsl"

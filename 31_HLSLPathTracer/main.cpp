@@ -5,6 +5,7 @@
 #include "argparse/argparse.hpp"
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/transform.hpp"
+#include "nbl/this_example/render_variant_strings.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/this_example/common.hpp"
@@ -46,22 +47,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
-		enum E_LIGHT_GEOMETRY : uint8_t
-		{
-			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
-			ELG_COUNT
-		};
-
-		enum E_POLYGON_METHOD : uint8_t
-		{
-			EPM_AREA,
-			EPM_SOLID_ANGLE,
-			EPM_PROJECTED_SOLID_ANGLE,
-			EPM_COUNT
-		};
-
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static constexpr size_t BinaryToggleCount = 2ull;
@@ -69,17 +54,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-
-		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
-			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
-		};
-		const char* polygonMethodNames[EPM_COUNT] = {
-			"Area",
-			"Solid Angle",
-			"Projected Solid Angle"
-		};
 
 	public:
 		inline HLSLComputePathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -92,10 +66,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			return core::bitflag(system::ILogger::ELL_INFO) | system::ILogger::ELL_WARNING | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_ERROR;
 		}
 
-		inline video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		inline video::SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
 		{
-			video::SPhysicalDeviceLimits retval = device_base_t::getRequiredDeviceLimits();
-			retval.storagePushConstant16 = true;
+			auto retval = device_base_t::getPreferredDeviceFeatures();
+			retval.pipelineExecutableInfo = true;
 			return retval;
 		}
 
@@ -1013,6 +987,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					{
 						return std::to_string(running) + " / " + std::to_string(queued);
 					};
+					const auto& shaderNames = this_example::getLightGeometryNamePointers();
+					const auto& polygonMethodNames = this_example::getPolygonMethodNamePointers();
 					const std::string pipelineStatusText = !m_startupLog.hasPathtraceOutput ?
 						"Building pipeline..." :
 						(warmupInProgress ?
@@ -1032,8 +1008,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "zFar", &guiControlled.zFar, 110.f, 10000.f, "%.0f" },
 					};
 					const SComboRow renderComboRows[] = {
-						{ "shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT },
-						{ "method", &guiControlled.polygonMethod, polygonMethodNames, EPM_COUNT },
+						{ "shader", &guiControlled.PTPipeline, shaderNames.data(), static_cast<int>(shaderNames.size()) },
+						{ "method", &guiControlled.polygonMethod, polygonMethodNames.data(), static_cast<int>(polygonMethodNames.size()) },
 					};
 					const SIntSliderRow renderIntRows[] = {
 						{ "spp", &guiControlled.spp, 1, MaxSamplesBuffer },
@@ -1052,11 +1028,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f" },
 					};
 					const STextRow diagnosticsRows[] = {
-						{ "geometry", shaderNames[currentGeometry] },
-						{ "req. method", polygonMethodNames[requestedMethod] },
-						{ "eff. method", polygonMethodNames[currentVariant.effectiveMethod] },
+						{ "geometry", system::to_string(currentGeometry) },
+						{ "req. method", system::to_string(requestedMethod) },
+						{ "eff. method", system::to_string(currentVariant.effectiveMethod) },
 						{ "entrypoint", effectiveEntryPoint },
-						{ "mode", PathTracerBuildModeName },
 						{ "config", std::string(BuildConfigName) },
 						{ "cache", cacheStateText },
 						{ "trim cache", trimCacheText },
@@ -1074,7 +1049,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						"10000.000",
 						"1024.000",
 						effectiveEntryPoint,
-						PathTracerBuildModeName,
 						BuildConfigName.data(),
 						cacheStateText.c_str(),
 						renderStateText.c_str(),
@@ -1445,7 +1419,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
-					rwmcPushConstants.renderPushConstants.polygonMethod = guiControlled.polygonMethod;
 					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
 				}
@@ -1455,7 +1428,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					pc.sampleCount = guiControlled.spp;
 					pc.depth = guiControlled.depth;
-					pc.polygonMethod = guiControlled.polygonMethod;
 					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				}
 			};
@@ -2414,7 +2386,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
 			case ELG_TRIANGLE:
-#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
 				if (rwmc)
 					return persistentWorkGroups ?
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>() :
@@ -2422,21 +2393,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return persistentWorkGroups ?
 					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>() :
 					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.linear")>();
-#else
-				if (rwmc)
-					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc")>();
-				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle")>();
-#endif
 			case ELG_RECTANGLE:
-#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
 				if (rwmc)
 					return persistentWorkGroups ?
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>() :
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.linear")>();
-#else
-				if (rwmc)
-					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc")>();
-#endif
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
 			default:
 				return nullptr;
@@ -2567,20 +2528,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			bool loggedFirstRenderSubmit = false;
 		};
 
-		static constexpr bool SpecializedBuildMode =
-#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
-			true;
-#else
-			false;
-#endif
-
-		static constexpr const char* PathTracerBuildModeName =
-#if defined(PATH_TRACER_BUILD_MODE_SPECIALIZED)
-			"SPECIALIZED";
-#else
-			"WALLTIME_OPTIMIZED";
-#endif
-
 		struct SRenderVariantInfo
 		{
 			E_POLYGON_METHOD effectiveMethod;
@@ -2601,8 +2548,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			case ELG_SPHERE:
 				return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
 			case ELG_TRIANGLE:
-				if (!SpecializedBuildMode)
-					return { requestedMethod, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
 				switch (requestedMethod)
 				{
 				case EPM_AREA:

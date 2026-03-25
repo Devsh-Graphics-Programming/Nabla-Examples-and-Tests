@@ -11,7 +11,6 @@ struct RenderPushConstants
 	float32_t3x4 generalPurposeLightMatrix;
     int sampleCount;
     int depth;
-    uint32_t polygonMethod;
     uint64_t pSampleSequence;
 };
 

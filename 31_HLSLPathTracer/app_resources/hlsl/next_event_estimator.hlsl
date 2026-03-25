@@ -303,135 +303,22 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
     Shape<T, PST_RECTANGLE> rect;
 };
 
-// PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_RECTANGLE
-
-template<typename T, ProceduralShapeType PST>
-struct RuntimeShapeSamplingSelector;
-
-template<typename T>
-struct RuntimeShapeSamplingSelector<T, PST_SPHERE>
+template<ProceduralShapeType PST, NEEPolygonMethod PPM>
+struct EffectivePolygonMethod
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using shape_type = Shape<T, PST_SPHERE>;
-
-    template<typename Ray>
-    static scalar_type deferredPdf(NEEPolygonMethod, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(Ray) ray)
-    {
-        const ShapeSampling<scalar_type, PST_SPHERE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_SPHERE, PPM_SOLID_ANGLE>::create(shape);
-        return sampling.template deferredPdf<Ray>(ray);
-    }
-
-    template<class Aniso>
-    static vector3_type generate_and_pdf(NEEPolygonMethod, NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
-    {
-        const ShapeSampling<scalar_type, PST_SPHERE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_SPHERE, PPM_SOLID_ANGLE>::create(shape);
-        return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-    }
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM;
 };
 
-template<typename T>
-struct RuntimeShapeSamplingSelector<T, PST_TRIANGLE>
+template<NEEPolygonMethod PPM>
+struct EffectivePolygonMethod<PST_SPHERE, PPM>
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using shape_type = Shape<T, PST_TRIANGLE>;
-
-    template<typename Ray>
-    static scalar_type deferredPdf(const NEEPolygonMethod polygonMethod, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(Ray) ray)
-    {
-        switch (polygonMethod)
-        {
-        case PPM_AREA:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_AREA> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_AREA>::create(shape);
-            return sampling.template deferredPdf<Ray>(ray);
-        }
-        case PPM_SOLID_ANGLE:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_SOLID_ANGLE>::create(shape);
-            return sampling.template deferredPdf<Ray>(ray);
-        }
-        case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-        default:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>::create(shape);
-            return sampling.template deferredPdf<Ray>(ray);
-        }
-        }
-    }
-
-    template<class Aniso>
-    static vector3_type generate_and_pdf(const NEEPolygonMethod polygonMethod, NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
-    {
-        switch (polygonMethod)
-        {
-        case PPM_AREA:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_AREA> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_AREA>::create(shape);
-            return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-        }
-        case PPM_SOLID_ANGLE:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_SOLID_ANGLE>::create(shape);
-            return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-        }
-        case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-        default:
-        {
-            const ShapeSampling<scalar_type, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>::create(shape);
-            return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-        }
-        }
-    }
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
 };
 
-template<typename T>
-struct RuntimeShapeSamplingSelector<T, PST_RECTANGLE>
+template<>
+struct EffectivePolygonMethod<PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
-    using scalar_type = T;
-    using vector3_type = vector<T, 3>;
-    using shape_type = Shape<T, PST_RECTANGLE>;
-
-    template<typename Ray>
-    static scalar_type deferredPdf(const NEEPolygonMethod polygonMethod, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(Ray) ray)
-    {
-        switch (polygonMethod)
-        {
-        case PPM_AREA:
-        {
-            const ShapeSampling<scalar_type, PST_RECTANGLE, PPM_AREA> sampling = ShapeSampling<scalar_type, PST_RECTANGLE, PPM_AREA>::create(shape);
-            return sampling.template deferredPdf<Ray>(ray);
-        }
-        case PPM_SOLID_ANGLE:
-        case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-        default:
-        {
-            const ShapeSampling<scalar_type, PST_RECTANGLE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_RECTANGLE, PPM_SOLID_ANGLE>::create(shape);
-            return sampling.template deferredPdf<Ray>(ray);
-        }
-        }
-    }
-
-    template<class Aniso>
-    static vector3_type generate_and_pdf(const NEEPolygonMethod polygonMethod, NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(shape_type) shape, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
-    {
-        switch (polygonMethod)
-        {
-        case PPM_AREA:
-        {
-            const ShapeSampling<scalar_type, PST_RECTANGLE, PPM_AREA> sampling = ShapeSampling<scalar_type, PST_RECTANGLE, PPM_AREA>::create(shape);
-            return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-        }
-        case PPM_SOLID_ANGLE:
-        case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-        default:
-        {
-            const ShapeSampling<scalar_type, PST_RECTANGLE, PPM_SOLID_ANGLE> sampling = ShapeSampling<scalar_type, PST_RECTANGLE, PPM_SOLID_ANGLE>::create(shape);
-            return sampling.template generate_and_pdf<Aniso>(pdf, newRayMaxT, origin, interaction, xi);
-        }
-        }
-    }
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
 };
 
 
@@ -471,7 +358,8 @@ struct NextEventEstimator
         object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
     using sample_quotient_return_type = SampleQuotientReturn;
-    using runtime_sampling_selector = RuntimeShapeSamplingSelector<scalar_type, PST>;
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod EffectivePPM = EffectivePolygonMethod<PST, PPM>::value;
+    using shape_sampling_type = ShapeSampling<scalar_type, PST, EffectivePPM>;
 
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
     shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
@@ -495,7 +383,8 @@ struct NextEventEstimator
             return scalar_type(0.0);    // env light pdf=0
         const light_type light = lights[0u];
         const shape_type shape = __getShape(light.objectID.id, scene);
-        return runtime_sampling_selector::template deferredPdf<ray_type>(polygonMethod, shape, ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
+        return sampling.template deferredPdf<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
     template<class MaterialSystem>
@@ -510,7 +399,8 @@ struct NextEventEstimator
 
         sample_quotient_return_type retval;
         scalar_type pdf, newRayMaxT;
-        const vector3_type sampleL = runtime_sampling_selector::template generate_and_pdf<interaction_type>(polygonMethod, pdf, newRayMaxT, shape, origin, interaction, xi);
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
+        const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, xi);
 
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
@@ -560,7 +450,6 @@ struct NextEventEstimator
     }
 
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
-    NEEPolygonMethod polygonMethod;
 };
 
 #endif
