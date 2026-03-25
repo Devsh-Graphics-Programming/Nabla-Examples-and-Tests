@@ -74,6 +74,10 @@ if(NBL_BUILD_IMGUI)
 	set(COMPILE_OPTIONS
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/include"
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl"
+		-I "${NBL_ROOT_PATH}/include"
+		-I "${NBL_ROOT_PATH}/3rdparty/dxc/dxc/external/SPIRV-Headers/include"
+		-I "${NBL_ROOT_PATH}/3rdparty/boost/superproject/libs/preprocessor/include"
+		-I "${NBL_ROOT_PATH_BINARY}/src/nbl/device/include"
 		-T "lib_${SM}"
 		-Wno-conversion
 		-Wno-sign-conversion
@@ -144,7 +148,6 @@ if(NBL_BUILD_IMGUI)
 	set(ALL_SPIRV_KEYS "")
 	NBL_CREATE_NSC_COMPILE_RULES(
 		TARGET ${EXECUTABLE_NAME}SPIRV
-		LINK_TO ${EXECUTABLE_NAME}
 		BINARY_DIR ${OUTPUT_DIRECTORY}
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
 		COMMON_OPTIONS ${COMPILE_OPTIONS}
@@ -154,6 +157,7 @@ if(NBL_BUILD_IMGUI)
 		INPUTS ${SPIRV_RULES_JSON}
 	)
 	set_target_properties(${EXECUTABLE_NAME}SPIRV PROPERTIES FOLDER "${SPIRV_FOLDER}")
+	target_include_directories(${EXECUTABLE_NAME} PRIVATE $<TARGET_PROPERTY:${EXECUTABLE_NAME}SPIRV,INTERFACE_INCLUDE_DIRECTORIES>)
 	set(SPIRV_KEYS ${ALL_SPIRV_KEYS})
 	list(FILTER SPIRV_KEYS INCLUDE REGEX "\\.spv$")
 
