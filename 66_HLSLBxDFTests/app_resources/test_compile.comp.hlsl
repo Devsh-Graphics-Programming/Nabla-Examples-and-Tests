@@ -60,43 +60,47 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     float3 L = float3(0,0,0);
     float3 q = float3(0,0,0);
-    sample_t s = lambertianBRDF.generate(anisointer, u.xy);
+    typename bxdf::reflection::SLambertian<iso_config_t>::anisocache_type _lcache;
+    sample_t s = lambertianBRDF.generate(anisointer, u.xy, _lcache);
     L += s.L.direction;
 
-    s = orenNayarBRDF.generate(anisointer, u.xy);
+    typename bxdf::reflection::SOrenNayar<iso_config_t>::anisocache_type _ocache;
+    s = orenNayarBRDF.generate(anisointer, u.xy, _ocache);
     L += s.L.direction;
 
-    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(s, isointer);
+    quotient_pdf_t qp = orenNayarBRDF.quotientAndWeight(s, isointer, _ocache);
     L -= qp.quotient();
 
     s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    qp = beckmannAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
+    qp = beckmannAnisoBRDF.quotientAndWeight(s, anisointer, cache);
     L -= qp.quotient();
 
     s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    qp = iridBRDF.quotient_and_pdf(s, anisointer, cache);
+    qp = iridBRDF.quotientAndWeight(s, anisointer, cache);
     L -= qp.quotient();
 
-    qp = ggxAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
+    qp = ggxAnisoBRDF.quotientAndWeight(s, anisointer, cache);
     L -= qp.quotient();
 
-    s = lambertianBSDF.generate(anisointer, u);
+    typename bxdf::transmission::SLambertian<iso_config_t>::anisocache_type _tlcache;
+    s = lambertianBSDF.generate(anisointer, u, _tlcache);
     L += s.L.direction;
 
-    s = thinSmoothDielectricBSDF.generate(anisointer, u);
+    typename bxdf::transmission::SThinSmoothDielectric<iso_config_t>::anisocache_type _tscache;
+    s = thinSmoothDielectricBSDF.generate(anisointer, u, _tscache);
     L += s.L.direction;
 
-    qp = thinSmoothDielectricBSDF.quotient_and_pdf(s, isointer);
+    qp = thinSmoothDielectricBSDF.quotientAndWeight(s, isointer, _tscache);
     L -= qp.quotient();
 
     s = ggxAnisoBSDF.generate(anisointer, u, cache);
     L += s.L.direction;
 
-    qp = ggxAnisoBSDF.quotient_and_pdf(s, anisointer, cache);
+    qp = ggxAnisoBSDF.quotientAndWeight(s, anisointer, cache);
     L -= qp.quotient();
 
     buff[ID.x] = L;

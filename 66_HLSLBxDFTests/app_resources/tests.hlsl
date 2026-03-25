@@ -25,9 +25,10 @@ struct TestJacobian : TestBxDF<BxDF>
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy);
-            sx = base_t::bxdf.generate(base_t::isointer, ux.xy);
-            sy = base_t::bxdf.generate(base_t::isointer, uy.xy);
+            typename BxDF::anisocache_type _cache;
+            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, _cache);
+            sx = base_t::bxdf.generate(base_t::isointer, ux.xy, _cache);
+            sy = base_t::bxdf.generate(base_t::isointer, uy.xy, _cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
@@ -46,9 +47,10 @@ struct TestJacobian : TestBxDF<BxDF>
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            sx = base_t::bxdf.generate(base_t::anisointer, ux);
-            sy = base_t::bxdf.generate(base_t::anisointer, uy);
+            typename BxDF::anisocache_type _cache;
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, _cache);
+            sx = base_t::bxdf.generate(base_t::anisointer, ux, _cache);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy, _cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
@@ -72,22 +74,23 @@ struct TestJacobian : TestBxDF<BxDF>
 
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
-            sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-            Li = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            typename BxDF::anisocache_type _cache;
+            sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, _cache);
+            Li = base_t::bxdf.evalAndWeight(s, base_t::isointer, _cache);
             transmitted = base_t::isointer.getNdotV() * s.getNdotL() < 0.f;
         }
         NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                Li = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::anisointer, cache);
+                Li = base_t::bxdf.evalAndWeight(s, base_t::anisointer, cache);
                 transmitted = cache.isTransmission();
             }
             else
             {
-                sampledLi = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                Li = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, isocache);
+                Li = base_t::bxdf.evalAndWeight(s, base_t::isointer, isocache);
                 transmitted = isocache.isTransmission();
             }
         }
@@ -118,7 +121,7 @@ struct TestJacobian : TestBxDF<BxDF>
         if (sampledLi.pdf() < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
-        if (checkLt<float32_t3>(Li, hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
+        if (checkLt<float32_t3>(Li.quotient(), hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
         if (!checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))) // importance sampler's job to prevent inf
@@ -129,7 +132,7 @@ struct TestJacobian : TestBxDF<BxDF>
         // 2. quotient is positive and (1) already checked
         // So if we must have `eval == quotient*pdf` , then eval must also be positive
         // However for mixture of, or singular delta BxDF the bsdf can be less due to removal of Dirac-Delta lobes from the eval method, which is why allow `BTR_NONE` in this case
-		if (checkZero<float32_t3>(Li, 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
+		if (checkZero<float32_t3>(Li.quotient(), 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
             return BTR_NONE;
 
         if (hlsl::isnan(sampledLi.pdf()))
@@ -160,14 +163,14 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         float32_t3 quo_pdf = sampledLi.value();
-        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li, 1e-4))
+        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.quotient(), 1e-4))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
                 base_t::errMsg += std::format("transmitted={}, quotient*pdf=[{},{},{}]    eval=[{},{},{}]",
                     transmitted ? "true" : "false",
                     quo_pdf.x, quo_pdf.y, quo_pdf.z,
-                    Li.x, Li.y, Li.z);
+                    Li.quotient().x, Li.quotient().y, Li.quotient().z);
 #endif
             return BTR_ERROR_PDF_EVAL_DIFF;
         }
@@ -191,7 +194,7 @@ struct TestJacobian : TestBxDF<BxDF>
 
     sample_t s, sx, sy;
     quotient_pdf_t sampledLi;
-    float32_t3 Li;
+    quotient_pdf_t Li;
     bool transmitted;
     bool verbose;
 };
@@ -224,7 +227,8 @@ struct TestReciprocity : TestBxDF<BxDF>
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(anisointer, base_t::rc.u.xy);
+            typename BxDF::anisocache_type _cache;
+            s = base_t::bxdf.generate(anisointer, base_t::rc.u.xy, _cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
@@ -239,7 +243,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(anisointer, base_t::rc.u);
+            typename BxDF::anisocache_type _cache;
+            s = base_t::bxdf.generate(anisointer, base_t::rc.u, _cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
@@ -280,20 +285,21 @@ struct TestReciprocity : TestBxDF<BxDF>
         
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
-            Li = float32_t3(base_t::bxdf.eval(s, isointer));
-            recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
+            typename BxDF::anisocache_type _cache;
+            Li = base_t::bxdf.evalAndWeight(s, isointer, _cache);
+            recLi = base_t::bxdf.evalAndWeight(rec_s, rec_isointer, _cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
             NBL_IF_CONSTEXPR(aniso)
             {
-                Li = float32_t3(base_t::bxdf.eval(s, anisointer, cache));
-                recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+                Li = base_t::bxdf.evalAndWeight(s, anisointer, cache);
+                recLi = base_t::bxdf.evalAndWeight(rec_s, rec_anisointer, rec_cache);
             }
             else
             {
-                Li = float32_t3(base_t::bxdf.eval(s, isointer, isocache));
-                recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+                Li = base_t::bxdf.evalAndWeight(s, isointer, isocache);
+                recLi = base_t::bxdf.evalAndWeight(rec_s, rec_isointer, rec_isocache);
             }
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
@@ -301,16 +307,16 @@ struct TestReciprocity : TestBxDF<BxDF>
             NBL_IF_CONSTEXPR(aniso)
             {
                 anisointer.isotropic.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
-                Li = float32_t3(base_t::bxdf.eval(s, anisointer, cache));
+                Li = base_t::bxdf.evalAndWeight(s, anisointer, cache);
                 rec_anisointer.isotropic.pathOrigin = bxdf::PathOrigin::PO_LIGHT;
-                recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+                recLi = base_t::bxdf.evalAndWeight(rec_s, rec_anisointer, rec_cache);
             }
             else
             {
                 isointer.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
-                Li = float32_t3(base_t::bxdf.eval(s, isointer, isocache));
+                Li = base_t::bxdf.evalAndWeight(s, isointer, isocache);
                 rec_isointer.pathOrigin = bxdf::PathOrigin::PO_LIGHT;
-                recLi = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+                recLi = base_t::bxdf.evalAndWeight(rec_s, rec_isointer, rec_isocache);
             }
         }
 
@@ -346,14 +352,14 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (absNdotL <= bit_cast<float>(numeric_limits<float>::min))
             return BTR_INVALID_TEST_CONFIG;
 
-        if (checkLt<float32_t3>(Li, hlsl::promote<float32_t3>(0.0)))
+        if (checkLt<float32_t3>(Li.quotient(), hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
-        if (checkZero<float32_t3>(Li, 1e-5))    // we don't have a pdf to check like in the one above but
+        if (checkZero<float32_t3>(Li.quotient(), 1e-5))    // we don't have a pdf to check like in the one above but
             return BTR_NONE;
 
-        float32_t3 a = Li / absNdotL;
-        float32_t3 b = recLi / hlsl::abs(rec_s.getNdotL());
+        float32_t3 a = Li.quotient() / absNdotL;
+        float32_t3 b = recLi.quotient() / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
             if (!testing::relativeApproxCompare<float32_t3>(a, b, 1.25e-2))
             {
@@ -384,7 +390,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     }
 
     sample_t s, rec_s;
-    float32_t3 Li, recLi;
+    quotient_pdf_t Li, recLi;
     iso_interaction_t isointer, rec_isointer;
     aniso_interaction_t anisointer, rec_anisointer;
     bool transmitted;

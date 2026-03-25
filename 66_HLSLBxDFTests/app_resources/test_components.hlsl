@@ -196,7 +196,8 @@ struct TestCTGenerateH : TestBxDF<BxDF>
 
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+                typename BxDF::anisocache_type _cache;
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, _cache);
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
             {
@@ -207,7 +208,8 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, u);
+                typename BxDF::anisocache_type _cache;
+                s = base_t::bxdf.generate(base_t::anisointer, u, _cache);
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
             {
