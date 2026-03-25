@@ -2197,7 +2197,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return false;
 
 			if (hasValidatedSpirvMarker(content))
+			{
+				m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
 				return true;
+			}
 
 			if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
 				return false;
