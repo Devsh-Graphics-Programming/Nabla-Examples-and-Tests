@@ -22,6 +22,7 @@ struct MaterialSystem
     using sample_type = typename DiffuseBxDF::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using quotient_pdf_type = typename DiffuseBxDF::quotient_pdf_type;
+    using value_weight_type = typename DiffuseBxDF::value_weight_type;
     using anisotropic_interaction_type = typename DiffuseBxDF::anisotropic_interaction_type;
     using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
@@ -133,7 +134,7 @@ struct MaterialSystem
         }
     }
 
-    quotient_pdf_type evalAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
+    value_weight_type evalAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
         cache_type _cache = getCacheFromSampleInteraction(matID, _sample, interaction);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
@@ -142,8 +143,8 @@ struct MaterialSystem
             case MaterialType::DIFFUSE:
             {
                 typename diffuse_op_type::isocache_type dummycache;
-                quotient_pdf_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic, dummycache);
-                ret._quotient *= bxdfs[matID.id].albedo;
+                value_weight_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic, dummycache);
+                ret._value *= bxdfs[matID.id].albedo;
                 return ret;
             }
             case MaterialType::CONDUCTOR:
@@ -163,7 +164,7 @@ struct MaterialSystem
                 return _cache.iridescentDielectricBxDF.evalAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
             }
             default:
-                return quotient_pdf_type::create(0.0, 0.0);
+                return value_weight_type::create(0.0, 0.0);
         }
     }
 

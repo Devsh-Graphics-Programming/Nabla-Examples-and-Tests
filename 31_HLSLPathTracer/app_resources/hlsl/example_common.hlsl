@@ -704,6 +704,7 @@ struct PTIsoConfiguration<LS,Interaction,Spectrum NBL_PARTIAL_REQ_BOT(CONF_ISO) 
     using sample_type = LS;
     using spectral_type = Spectrum;
     using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using value_weight_type = sampling::value_and_weight<spectral_type, scalar_type>;
 };
 
 template<class LS, class Interaction, class MicrofacetCache, class Spectrum NBL_STRUCT_CONSTRAINABLE>
