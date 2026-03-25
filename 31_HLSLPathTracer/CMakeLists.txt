@@ -75,9 +75,6 @@ if(NBL_BUILD_IMGUI)
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/include"
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl"
 		-I "${NBL_ROOT_PATH}/include"
-		-I "${NBL_ROOT_PATH}/3rdparty/dxc/dxc/external/SPIRV-Headers/include"
-		-I "${NBL_ROOT_PATH}/3rdparty/boost/superproject/libs/preprocessor/include"
-		-I "${NBL_ROOT_PATH_BINARY}/src/nbl/device/include"
 		-T "lib_${SM}"
 		-Wno-conversion
 		-Wno-sign-conversion
@@ -87,7 +84,6 @@ if(NBL_BUILD_IMGUI)
 		-Wno-literal-range
 	)
 
-	set(SPIRV_FOLDER "SPIRV")
 	macro(PATH_TRACER_APPEND_SPIRV_RULE)
 		set(options)
 		set(oneValueArgs INPUT KEY)
@@ -145,49 +141,25 @@ if(NBL_BUILD_IMGUI)
 	string(CONFIGURE "${SPIRV_RULES_JSON_TEMPLATE}" SPIRV_RULES_JSON @ONLY)
 	unset(SPIRV_RULE_OBJECTS)
 	unset(PATH_TRACER_RULES_BODY)
-	set(ALL_SPIRV_KEYS "")
 	NBL_CREATE_NSC_COMPILE_RULES(
 		TARGET ${EXECUTABLE_NAME}SPIRV
+		LINK_TO ${EXECUTABLE_NAME}
 		BINARY_DIR ${OUTPUT_DIRECTORY}
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
 		COMMON_OPTIONS ${COMPILE_OPTIONS}
-		OUTPUT_VAR ALL_SPIRV_KEYS
-		INCLUDE nbl/this_example/builtin/build/spirv/generated/PathTracerKeys.hpp
+		OUTPUT_VAR KEYS
+		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 		NAMESPACE nbl::this_example::builtin::build
 		INPUTS ${SPIRV_RULES_JSON}
 	)
-	set_target_properties(${EXECUTABLE_NAME}SPIRV PROPERTIES FOLDER "${SPIRV_FOLDER}")
-	target_include_directories(${EXECUTABLE_NAME} PRIVATE $<TARGET_PROPERTY:${EXECUTABLE_NAME}SPIRV,INTERFACE_INCLUDE_DIRECTORIES>)
-	set(SPIRV_KEYS ${ALL_SPIRV_KEYS})
-	list(FILTER SPIRV_KEYS INCLUDE REGEX "\\.spv$")
 
 	NBL_CREATE_RESOURCE_ARCHIVE(
 		NAMESPACE nbl::this_example::builtin::build
 		TARGET ${EXECUTABLE_NAME}_builtinsBuild
 		LINK_TO ${EXECUTABLE_NAME}
 		BIND ${OUTPUT_DIRECTORY}
-		BUILTINS ${SPIRV_KEYS}
+		BUILTINS ${KEYS}
 	)
-
-	if(NBL_EMBED_BUILTIN_RESOURCES)
-		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-		set(RESOURCE_DIR "app_resources")
-
-		get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-		get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
-		get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
-
-		file(GLOB_RECURSE BUILTIN_RESOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}/*")
-
-		foreach(RES_FILE ${BUILTIN_RESOURCE_FILES})
-			LIST_BUILTIN_RESOURCE(RESOURCES_TO_EMBED "${RES_FILE}")
-		endforeach()
-
-		ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
-
-		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
-		set_target_properties(${_BR_TARGET_} PROPERTIES FOLDER "${SPIRV_FOLDER}")
-	endif()
 endif()
 
 
