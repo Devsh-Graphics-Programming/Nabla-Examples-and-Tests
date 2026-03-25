@@ -27,6 +27,7 @@ using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
+using value_weight_t = sampling::value_and_weight<float32_t3, float>;
 
 using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
 using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;
@@ -629,6 +630,7 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
     using sample_type = LS;
     using spectral_type = Spectrum;
     using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using value_weight_type = sampling::value_and_weight<spectral_type, scalar_type>;
     using isocache_type = MicrofacetCache;
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;
 };

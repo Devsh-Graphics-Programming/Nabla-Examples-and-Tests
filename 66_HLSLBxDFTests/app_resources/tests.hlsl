@@ -121,7 +121,7 @@ struct TestJacobian : TestBxDF<BxDF>
         if (sampledLi.pdf() < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
-        if (checkLt<float32_t3>(Li.quotient(), hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
+        if (checkLt<float32_t3>(Li.value(), hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
         if (!checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))) // importance sampler's job to prevent inf
@@ -132,7 +132,7 @@ struct TestJacobian : TestBxDF<BxDF>
         // 2. quotient is positive and (1) already checked
         // So if we must have `eval == quotient*pdf` , then eval must also be positive
         // However for mixture of, or singular delta BxDF the bsdf can be less due to removal of Dirac-Delta lobes from the eval method, which is why allow `BTR_NONE` in this case
-		if (checkZero<float32_t3>(Li.quotient(), 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
+		if (checkZero<float32_t3>(Li.value(), 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
             return BTR_NONE;
 
         if (hlsl::isnan(sampledLi.pdf()))
@@ -163,14 +163,14 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         float32_t3 quo_pdf = sampledLi.value();
-        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.quotient(), 1e-4))
+        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.value(), 1e-4))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
                 base_t::errMsg += std::format("transmitted={}, quotient*pdf=[{},{},{}]    eval=[{},{},{}]",
                     transmitted ? "true" : "false",
                     quo_pdf.x, quo_pdf.y, quo_pdf.z,
-                    Li.quotient().x, Li.quotient().y, Li.quotient().z);
+                    Li.value().x, Li.value().y, Li.value().z);
 #endif
             return BTR_ERROR_PDF_EVAL_DIFF;
         }
@@ -194,7 +194,7 @@ struct TestJacobian : TestBxDF<BxDF>
 
     sample_t s, sx, sy;
     quotient_pdf_t sampledLi;
-    quotient_pdf_t Li;
+    value_weight_t Li;
     bool transmitted;
     bool verbose;
 };
@@ -352,14 +352,14 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (absNdotL <= bit_cast<float>(numeric_limits<float>::min))
             return BTR_INVALID_TEST_CONFIG;
 
-        if (checkLt<float32_t3>(Li.quotient(), hlsl::promote<float32_t3>(0.0)))
+        if (checkLt<float32_t3>(Li.value(), hlsl::promote<float32_t3>(0.0)))
             return BTR_ERROR_NEGATIVE_VAL;
 
-        if (checkZero<float32_t3>(Li.quotient(), 1e-5))    // we don't have a pdf to check like in the one above but
+        if (checkZero<float32_t3>(Li.value(), 1e-5))    // we don't have a pdf to check like in the one above but
             return BTR_NONE;
 
-        float32_t3 a = Li.quotient() / absNdotL;
-        float32_t3 b = recLi.quotient() / hlsl::abs(rec_s.getNdotL());
+        float32_t3 a = Li.value() / absNdotL;
+        float32_t3 b = recLi.value() / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
             if (!testing::relativeApproxCompare<float32_t3>(a, b, 1.25e-2))
             {
@@ -390,7 +390,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     }
 
     sample_t s, rec_s;
-    quotient_pdf_t Li, recLi;
+    value_weight_t Li, recLi;
     iso_interaction_t isointer, rec_isointer;
     aniso_interaction_t anisointer, rec_anisointer;
     bool transmitted;
