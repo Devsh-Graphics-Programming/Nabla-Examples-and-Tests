@@ -5,7 +5,6 @@
 #include "renderer/SAASequence.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-#include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 
 #include <array>
 #include <thread>
@@ -267,34 +266,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 
 	{
 		// storage buffer with sobol sequence
-		OwenSampler sampler(SSensorUniforms::MaxBufferDimensions, 0xdeadbeefu);
-
-		constexpr uint32_t quantizedDimensions = SSensorUniforms::MaxBufferDimensions / 3u;
-		constexpr size_t bufferSize = quantizedDimensions * SSensorUniforms::MaxSamplesBuffer;
-		using sequence_type = hlsl::sampling::QuantizedSequence<hlsl::uint32_t2, 3>;
-		std::vector<sequence_type> data(bufferSize);
-
-		for (auto dim = 0u; dim < SSensorUniforms::MaxBufferDimensions; dim++)
-			for (uint32_t i = 0; i < SSensorUniforms::MaxSamplesBuffer; i++)
-			{
-				const uint32_t quant_dim = dim / 3u;
-				const uint32_t offset = dim % 3u;
-				auto& seq = data[i * quantizedDimensions + quant_dim];
-				const uint32_t sample = sampler.sample(dim, i);
-				seq.set(offset, sample);
-			}
-
-		IGPUBuffer::SCreationParams createParams = {};
-		createParams.usage = nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_STORAGE_BUFFER_BIT | nbl::asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-		createParams.size = sizeof(sequence_type) * bufferSize;
-
-		params.utilities->createFilledDeviceLocalBufferOnDedMem(
-			SIntendedSubmitInfo{ .queue = params.graphicsQueue },
-			std::move(createParams),
-			data.data()
-		).move_into(params.sampleSequenceBuffer);
-
-		params.sampleSequenceBuffer->setObjectDebugName("Sequence buffer");
+		params.sampleSequence = examples::ScrambleSequence::create(_params.sampleSequenceCreateParams);
 	}
 
 	{

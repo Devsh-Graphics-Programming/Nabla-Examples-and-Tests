@@ -9,6 +9,7 @@
 #include "renderer/CSession.h"
 
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
+#include "nbl/examples/common/ScrambleSequence.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
@@ -88,8 +89,8 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
-			system::path sampleSequenceCache;
 			asset::IAssetManager* assMan;
+			nbl::examples::ScrambleSequence::SCreationParams sampleSequenceCreateParams;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -124,7 +125,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
 
 			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
-			core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer;
+			core::smart_refctd_ptr<nbl::examples::ScrambleSequence> sampleSequence;
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
