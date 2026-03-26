@@ -1,24 +1,16 @@
 #ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_CUMULATIVE_PROBABILITY_INCLUDED_
 #define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_CUMULATIVE_PROBABILITY_INCLUDED_
 
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include "array_accessor.hlsl"
 #include <nbl/builtin/hlsl/sampling/cumulative_probability.hlsl>
 
 using namespace nbl::hlsl;
 
 NBL_CONSTEXPR uint32_t CumProbTestTableSize = 4;
 
-// Fixed-size array accessors for HLSL/C++ dual compilation
-// Needs value_type + operator[] for upper_bound compatibility
-struct CumProbTestAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t operator[](uint32_t i) { return data[i]; }
-	float32_t data[3]; // N-1 stored entries
-};
+using CumProbTestAccessor = ArrayAccessor<float32_t, CumProbTestTableSize - 1>;
 
-using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, CumProbTestAccessor>;
+using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, CumProbTestAccessor>;
 
 struct CumProbInputValues
 {

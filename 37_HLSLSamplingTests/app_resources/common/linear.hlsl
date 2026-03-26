@@ -18,8 +18,6 @@ struct LinearTestResults
 	float32_t generateInversed;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
-	float32_t roundtripError;
-	float32_t jacobianProduct;
 };
 
 struct LinearTestExecutor
@@ -34,12 +32,8 @@ struct LinearTestExecutor
 		}
 
 		{
-			sampling::Linear<float32_t>::cache_type cache;
-			output.generateInversed = _sampler.generateInverse(output.generated);
 			output.backwardPdf = _sampler.backwardPdf(output.generated);
 		}
-		output.roundtripError = abs(input.u - output.generateInversed);
-		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };
 

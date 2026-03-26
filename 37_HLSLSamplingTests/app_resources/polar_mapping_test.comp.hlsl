@@ -1,11 +1,11 @@
 #pragma shader_stage(compute)
 
-#include "common/concentric_mapping.hlsl"
+#include "common/polar_mapping.hlsl"
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<ConcentricMappingInputValues> inputTestValues;
-[[vk::binding(1, 0)]] RWStructuredBuffer<ConcentricMappingTestResults> outputTestValues;
+[[vk::binding(0, 0)]] RWStructuredBuffer<PolarMappingInputValues> inputTestValues;
+[[vk::binding(1, 0)]] RWStructuredBuffer<PolarMappingTestResults> outputTestValues;
 
 [numthreads(64, 1, 1)]
 [shader("compute")]
@@ -20,16 +20,16 @@ void main()
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
-		sampling::ConcentricMapping<float32_t>::cache_type cache;
-		acc ^= asuint(sampling::ConcentricMapping<float32_t>::generate(u, cache));
-		accPdf ^= asuint(sampling::ConcentricMapping<float32_t>::forwardPdf(cache));
+		sampling::PolarMapping<float32_t>::cache_type cache;
+		acc ^= asuint(sampling::PolarMapping<float32_t>::generate(u, cache));
+	   accPdf ^= asuint(sampling::PolarMapping<float32_t>::forwardPdf(cache));
 	}
-	ConcentricMappingTestResults result = (ConcentricMappingTestResults)0;
+	PolarMappingTestResults result = (PolarMappingTestResults)0;
 	result.mapped = asfloat(acc);
-	result.forwardPdf = asfloat(accPdf);
+   result.forwardPdf = asfloat(accPdf);
 	outputTestValues[invID] = result;
 #else
-	ConcentricMappingTestExecutor executor;
+	PolarMappingTestExecutor executor;
 	executor(inputTestValues[invID], outputTestValues[invID]);
 #endif
 }

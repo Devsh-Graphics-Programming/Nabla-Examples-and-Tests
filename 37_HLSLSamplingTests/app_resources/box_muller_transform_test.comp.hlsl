@@ -18,6 +18,7 @@ void main()
 	nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));
 	const float32_t toFloat = asfloat(0x2f800004u);
 	uint32_t2 acc = (uint32_t2)0;
+	uint32_t accPdf = 0;
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
@@ -25,10 +26,11 @@ void main()
 		sampling::BoxMullerTransform<float32_t>::cache_type cache;
 		float32_t2 generated = sampler.generate(u, cache);
 		acc ^= asuint(generated);
-		acc ^= asuint(sampler.forwardPdf(cache));
+		accPdf ^= asuint(sampler.forwardPdf(cache));
 	}
 	BoxMullerTransformTestResults result = (BoxMullerTransformTestResults)0;
 	result.generated = asfloat(acc);
+	result.forwardPdf = asfloat(accPdf);
 	outputTestValues[invID] = result;
 #else
 	BoxMullerTransformTestExecutor executor;

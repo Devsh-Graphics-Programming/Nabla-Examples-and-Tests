@@ -1,5 +1,6 @@
 // Compile test: instantiate all sampling types and their concept-required methods to verify DXC compilation
 #include <nbl/builtin/hlsl/sampling/concentric_mapping.hlsl>
+#include <nbl/builtin/hlsl/sampling/polar_mapping.hlsl>
 #include <nbl/builtin/hlsl/sampling/linear.hlsl>
 #include <nbl/builtin/hlsl/sampling/bilinear.hlsl>
 #include <nbl/builtin/hlsl/sampling/uniform_spheres.hlsl>
@@ -30,6 +31,16 @@ void main()
 	acc.x += sampling::ConcentricMapping<float32_t>::forwardWeight(cache);
 	acc.x += sampling::ConcentricMapping<float32_t>::backwardWeight(concentric);
 
+    // PolarMapping — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+	sampling::PolarMapping<float32_t>::cache_type polarCache;
+	float32_t2 polar = sampling::PolarMapping<float32_t>::generate(u2, polarCache);
+	acc.xy += polar;
+	acc.xy += sampling::PolarMapping<float32_t>::generateInverse(polar);
+	acc.x += sampling::PolarMapping<float32_t>::forwardPdf(polarCache);
+	acc.x += sampling::PolarMapping<float32_t>::backwardPdf(polar);
+	acc.x += sampling::PolarMapping<float32_t>::forwardWeight(polarCache);
+	acc.x += sampling::PolarMapping<float32_t>::backwardWeight(polar);
+
     // Linear — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
     sampling::Linear<float32_t> lin = sampling::Linear<float32_t>::create(u2);
     sampling::Linear<float32_t>::cache_type linCache;
@@ -37,7 +48,6 @@ void main()
     acc.x += linSample;
     acc.x += lin.forwardPdf(linCache);
     acc.x += lin.forwardWeight(linCache);
-    acc.x += lin.generateInverse(linSample);
     acc.x += lin.backwardPdf(linSample);
     acc.x += lin.backwardWeight(linSample);
 
@@ -48,7 +58,6 @@ void main()
     acc.xy += bilSample;
     acc.x += bilinear.forwardPdf(bilCache);
     acc.x += bilinear.forwardWeight(bilCache);
-    acc.xy += bilinear.generateInverse(bilSample);
     acc.x += bilinear.backwardPdf(bilSample);
     acc.x += bilinear.backwardWeight(bilSample);
 
@@ -92,7 +101,6 @@ void main()
     acc.xyz += projSphere;
     acc.x += projSphSampler.forwardPdf(projSphCache);
     acc.x += projSphSampler.forwardWeight(projSphCache);
-    acc.xyz += projSphSampler.generateInverse(projSphere);
     acc.x += projSphSampler.backwardPdf(projSphere);
     acc.x += projSphSampler.backwardWeight(projSphere);
 

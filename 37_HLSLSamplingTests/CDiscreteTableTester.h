@@ -21,12 +21,12 @@ struct ReadOnlyAccessor
 	const T* data;
 };
 
-using ProbabilityAccessor = ReadOnlyAccessor<float>;
+using ProbabilityAccessor = ReadOnlyAccessor<float32_t>;
 using AliasIndexAccessor = ReadOnlyAccessor<uint32_t>;
 using PdfAccessor = ReadOnlyAccessor<float>;
 
 using TestAliasTable = nbl::hlsl::sampling::AliasTable<float32_t, float32_t, uint32_t, ProbabilityAccessor, AliasIndexAccessor, PdfAccessor>;
-using TestCumulativeProbabilitySampler = nbl::hlsl::sampling::CumulativeProbabilitySampler<float, ReadOnlyAccessor<float>>;
+using TestCumulativeProbabilitySampler = nbl::hlsl::sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>>;
 
 // Tests table construction for both alias method and cumulative probability.
 // Sampler generate/pdf correctness is verified by GPU testers (CAliasTableGPUTester, CCumulativeProbabilityGPUTester).
@@ -153,9 +153,7 @@ private:
 		std::vector<float> outPdf(N);
 		std::vector<uint32_t> workspace(N);
 
-		nbl::hlsl::sampling::AliasTableBuilder<float>::build(
-			weights.data(), N,
-			outProbability.data(), outAlias.data(), outPdf.data(), workspace.data());
+		nbl::hlsl::sampling::AliasTableBuilder<float>::build({ weights },outProbability.data(), outAlias.data(), outPdf.data(), workspace.data());
 
 		// Accumulate bucket contributions
 		std::vector<float> dest(N, 0.0f);
@@ -215,8 +213,8 @@ private:
 
 		std::vector<float> cumProb(N - 1);
 
-		nbl::hlsl::sampling::computeNormalizedCumulativeHistogram(
-			weights.data(), N,
+		nbl::hlsl::sampling::computeNormalizedCumulativeHistogram<float>(
+			std::span<const float>(weights),
 			cumProb.data());
 
 		bool pass = true;

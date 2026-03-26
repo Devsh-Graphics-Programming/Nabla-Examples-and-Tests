@@ -16,16 +16,18 @@ void main()
 	nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));
 	const float32_t toFloat = asfloat(0x2f800004u);
 	uint32_t3 acc = (uint32_t3)0;
+	uint32_t accPdf = 0;
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
 		sampling::ProjectedHemisphere<float32_t> sampler;
 		sampling::ProjectedHemisphere<float32_t>::cache_type cache;
 		acc ^= asuint(sampler.generate(u, cache));
-		acc ^= asuint(sampler.forwardPdf(cache));
+		accPdf ^= asuint(sampler.forwardPdf(cache));
 	}
 	ProjectedHemisphereTestResults result = (ProjectedHemisphereTestResults)0;
 	result.generated = asfloat(acc);
+	result.forwardPdf = asfloat(accPdf);
 	outputTestValues[invID] = result;
 #else
 	ProjectedHemisphereTestExecutor executor;

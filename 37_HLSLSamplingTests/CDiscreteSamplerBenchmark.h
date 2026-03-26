@@ -69,11 +69,11 @@ class CDiscreteSamplerBenchmark
       std::vector<uint32_t> aliasIdx(N);
       std::vector<float> aliasPdf(N);
       std::vector<uint32_t> workspace(N);
-      nbl::hlsl::sampling::AliasTableBuilder<float>::build(weights.data(), N, aliasProb.data(), aliasIdx.data(), aliasPdf.data(), workspace.data());
+      nbl::hlsl::sampling::AliasTableBuilder<float>::build({weights}, aliasProb.data(), aliasIdx.data(), aliasPdf.data(), workspace.data());
 
       // Build cumulative probability table
       std::vector<float> cumProb(N - 1);
-      nbl::hlsl::sampling::computeNormalizedCumulativeHistogram(weights.data(), N, cumProb.data());
+      nbl::hlsl::sampling::computeNormalizedCumulativeHistogram({weights}, cumProb.data());
 
       // Create BDA buffers and upload data
       auto createBdaBuffer = [&](const void* srcData, size_t bytes) -> core::smart_refctd_ptr<video::IGPUBuffer>

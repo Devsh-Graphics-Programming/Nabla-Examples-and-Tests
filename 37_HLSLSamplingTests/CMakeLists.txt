@@ -18,6 +18,7 @@ set(DEPENDS
     app_resources/projected_sphere_test.comp.hlsl
     app_resources/spherical_triangle.comp.hlsl
     app_resources/concentric_mapping_test.comp.hlsl
+    app_resources/polar_mapping_test.comp.hlsl
     app_resources/bilinear_test.comp.hlsl
     app_resources/box_muller_transform_test.comp.hlsl
     app_resources/projected_spherical_triangle_test.comp.hlsl
@@ -35,6 +36,7 @@ set(DEPENDS
     app_resources/common/projected_spherical_triangle.hlsl
     app_resources/common/spherical_rectangle.hlsl
     app_resources/common/concentric_mapping.hlsl
+    app_resources/common/polar_mapping.hlsl
     app_resources/common/discrete_sampler_bench.hlsl
     app_resources/common/alias_table.hlsl
     app_resources/common/cumulative_probability.hlsl
@@ -49,6 +51,7 @@ target_sources(${EXECUTABLE_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphereTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CConcentricMappingTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CPolarMappingTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CBilinearTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CBoxMullerTransformTester.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphericalTriangleTester.h"
@@ -148,6 +151,15 @@ set(JSON [=[
   {
     "INPUT": "app_resources/concentric_mapping_test.comp.hlsl",
     "KEY": "concentric_mapping_bench",
+    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+  },
+  {
+    "INPUT": "app_resources/polar_mapping_test.comp.hlsl",
+    "KEY": "polar_mapping_test"
+  },
+  {
+    "INPUT": "app_resources/polar_mapping_test.comp.hlsl",
+    "KEY": "polar_mapping_bench",
     "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
   },
   {

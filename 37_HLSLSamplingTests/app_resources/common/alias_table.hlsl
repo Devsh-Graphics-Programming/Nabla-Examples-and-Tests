@@ -2,33 +2,16 @@
 #define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_ALIAS_TABLE_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include "array_accessor.hlsl"
 #include <nbl/builtin/hlsl/sampling/alias_table.hlsl>
 
 using namespace nbl::hlsl;
 
 NBL_CONSTEXPR uint32_t AliasTestTableSize = 4;
 
-// Fixed-size array accessors for HLSL/C++ dual compilation
-struct AliasTestProbAccessor
-{
-	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
-	float32_t data[4];
-};
-
-struct AliasTestAliasAccessor
-{
-	template<typename V, typename I NBL_FUNC_REQUIRES(is_integral_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
-	uint32_t data[4];
-};
-
-struct AliasTestPdfAccessor
-{
-	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = data[i]; }
-	float32_t data[4];
-};
+using AliasTestProbAccessor = ArrayAccessor<float32_t, AliasTestTableSize>;
+using AliasTestAliasAccessor = ArrayAccessor<uint32_t, AliasTestTableSize>;
+using AliasTestPdfAccessor = ArrayAccessor<float32_t, AliasTestTableSize>;
 
 using AliasTestSampler = sampling::AliasTable<float32_t, float32_t, uint32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
 

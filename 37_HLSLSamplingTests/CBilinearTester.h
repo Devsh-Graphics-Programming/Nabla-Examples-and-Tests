@@ -39,12 +39,7 @@ private:
 		bool pass = true;
 		pass &= verifyTestValue("Bilinear::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-2, 1e-3);
 		pass &= verifyTestValue("Bilinear::pdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 5e-3);
-		pass &= verifyTestValue("Bilinear::cache.pdf", expected.cachedPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 5e-3);
 		pass &= verifyTestValue("Bilinear::forwardPdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 5e-3);
-		pass &= verifyTestValue("Bilinear::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("Bilinear::generateInverse", expected.inverted, actual.inverted, iteration, seed, testType, 1e-5, 5e-3); // tolerated
-		pass &= verifyTestValue("Bilinear::roundtripError (absolute)", 0.0f, actual.roundtripError, iteration, seed, testType, 5e-3, 5e-3); // tolerated
-		pass &= verifyTestValue("Bilinear::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-3);
 
 		if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
 		{

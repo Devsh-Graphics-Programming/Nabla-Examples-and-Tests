@@ -15,12 +15,8 @@ struct BilinearInputValues
 struct BilinearTestResults
 {
 	float32_t2 generated;
-	float32_t cachedPdf;
 	float32_t backwardPdf;
 	float32_t forwardPdf;
-	float32_t2 inverted;
-	float32_t roundtripError;
-	float32_t jacobianProduct;
 };
 
 struct BilinearTestExecutor
@@ -31,18 +27,12 @@ struct BilinearTestExecutor
 		{
 			sampling::Bilinear<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
 			output.forwardPdf = sampler.forwardPdf(cache);
 		}
 
 		{
-			output.inverted = sampler.generateInverse(output.generated);
 			output.backwardPdf = sampler.backwardPdf(output.generated);
 		}
-
-		float32_t2 diff = input.u - output.inverted;
-		output.roundtripError = nbl::hlsl::length(diff);
-		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };
 

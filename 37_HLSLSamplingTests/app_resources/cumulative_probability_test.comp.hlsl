@@ -11,13 +11,14 @@
 struct BdaCumProbAccessor
 {
 	using value_type = float32_t;
-	value_type get(uint32_t i) { return vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i)); }
-	value_type operator[](uint32_t i) { return get(i); } // needed for upper_bound
+	template<typename V, typename I>
+	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = V(vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i))); }
+	value_type operator[](uint32_t i) NBL_CONST_MEMBER_FUNC { value_type v; get<value_type, uint32_t>(i, v); return v; }
 
 	uint64_t addr;
 };
 
-using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, BdaCumProbAccessor>;
+using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, BdaCumProbAccessor>;
 #else
 #include "common/cumulative_probability.hlsl"
 
@@ -39,16 +40,17 @@ void main()
 	float32_t xi = float32_t(nbl::hlsl::glsl::bitfieldReverse(invID)) / float32_t(~0u);
 	NBL_CONSTEXPR float32_t goldenRatio = 0.6180339887498949f;
 	uint32_t acc = 0u;
+	uint32_t accPdf = 0u;
 
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
 		float32_t u = frac(xi + float32_t(i) * goldenRatio);
 		BenchCumProbSampler::cache_type cache;
 		acc ^= sampler.generate(u, cache);
-		acc ^= asuint(sampler.forwardPdf(cache));
+		accPdf ^= asuint(sampler.forwardPdf(cache));
 	}
 
-	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc);
+	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc + accPdf);
 #else
 	CumProbTestExecutor executor;
 	executor(inputTestValues[invID], outputTestValues[invID]);

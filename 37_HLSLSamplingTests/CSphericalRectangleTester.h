@@ -43,14 +43,14 @@ private:
 	{
 		bool pass = true;
 		pass &= verifyTestValue("SphericalRectangle::generate", expected.generated, actual.generated, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("SphericalRectangle::pdf", expected.pdf, actual.pdf, iteration, seed, testType, 1e-5, 5e-4);
+      pass &= verifyTestValue("SphericalRectangle::pdf", expected.forwardPdf, actual.forwardPdf, iteration, seed, testType, 1e-5, 5e-4);
 		pass &= verifyTestValue("SphericalRectangle::backwardPdf", expected.backwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 5e-4);
 
 		// PDF positivity and finiteness
-		if (!(actual.pdf > 0.0f) || !std::isfinite(actual.pdf))
+      if (!(actual.forwardPdf > 0.0f) || !std::isfinite(actual.forwardPdf))
 		{
 			pass = false;
-			printTestFail("SphericalRectangle::forwardPdf (positive & finite)", 1.0f, actual.pdf, iteration, seed, testType, 0.0, 0.0);
+         printTestFail("SphericalRectangle::forwardPdf (positive & finite)", 1.0f, actual.forwardPdf, iteration, seed, testType, 0.0, 0.0);
 		}
 		if (!(actual.backwardPdf > 0.0f) || !std::isfinite(actual.backwardPdf))
 		{
