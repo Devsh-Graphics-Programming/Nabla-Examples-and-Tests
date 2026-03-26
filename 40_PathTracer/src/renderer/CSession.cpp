@@ -36,7 +36,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 		};
 
 		//
-		auto dedicatedAllocate = [&](IDeviceMemoryBacked* memBacked, const std::string_view debugName, bool deviceAddress = false)->bool
+		auto dedicatedAllocate = [&](IDeviceMemoryBacked* memBacked, const std::string_view debugName)->bool
 		{
 			if (!memBacked)
 			{
@@ -47,7 +47,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 
 			auto mreqs = memBacked->getMemoryReqs();
 			mreqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			if (!device->allocate(mreqs,memBacked,deviceAddress ? IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT : IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
+			if (!device->allocate(mreqs,memBacked,IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
 			{
 				logger.log("Could not allocate memory for Sensor \"%s\"'s \"%s\" in CSession::init()",ILogger::ELL_ERROR,m_params.name.c_str(),debugName.data());
 				return false;
