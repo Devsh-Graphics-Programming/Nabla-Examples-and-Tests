@@ -26,12 +26,13 @@ void raygen()
     const uint32_t3 launchID = spirv::LaunchIdKHR;
     const uint32_t3 launchSize = spirv::LaunchSizeKHR;
 
-    uint2 scrambleDim;
-    gScrambleKey.GetDimensions(scrambleDim.x, scrambleDim.y);
+    uint32_t2 scrambleDim;
+    uint32_t dummy;
+    gScrambleKey.GetDimensions(scrambleDim.x, scrambleDim.y, dummy);
     float32_t2 pixOffsetParam = (float32_t2)1.0 / float32_t2(scrambleDim);
 
     float32_t2 coord = (float32_t3(launchID) / float32_t3(launchSize)).xy;
-    uint32_t2 texCoord = uint32_t2(launchID.x & 511, launchID.y & 511);
+    const uint32_t3 texCoord = uint32_t3(launchID.x & 511, launchID.y & 511, 0);
     using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
     randgen_type randgen = randgen_type::create(gScrambleKey[texCoord], pc.sensorDynamics.pSampleSequence);
     float32_t3 NDC = float32_t3(coord * 2.0 - 1.0, -1.0);
@@ -97,8 +98,10 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
     float32_t3 vertex0 = spirv::HitTriangleVertexPositionsKHR[0];
     float32_t3 vertex1 = spirv::HitTriangleVertexPositionsKHR[1];
     float32_t3 vertex2 = spirv::HitTriangleVertexPositionsKHR[2];
-    const float32_t3 vertexNormal = hlsl::cross(vertex1 - vertex0, vertex2 - vertex0);
-    const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(hlsl::transpose(spirv::ObjectToWorldKHR)), vertexNormal));
+    const float32_t3 geometricNormal = hlsl::cross(vertex1 - vertex0, vertex2 - vertex0);
+
+    const float32_t3x3 normalMatrix = math::linalg::truncate<3,3,3,4>(hlsl::transpose(spirv::WorldToObjectKHR));
+    const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 
     payload.instanceID = instanceCustomIndex;
     payload.primitiveID = primID;

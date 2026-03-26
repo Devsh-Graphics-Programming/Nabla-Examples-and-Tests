@@ -89,7 +89,7 @@ struct SensorDSBindingCounts
 #ifdef __HLSL_VERSION
 [[vk::binding(SensorDSBindings::UBO,SessionDSIndex)]] ConstantBuffer<SSensorUniforms> gSensor;
 // could be uint32_t2
-[[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2D<uint32_t2> gScrambleKey;
+[[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gScrambleKey;
 // could be uint32_t or even uint16_t
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gSampleCount;
 // could be uint32_t2

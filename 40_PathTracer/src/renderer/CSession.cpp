@@ -47,7 +47,12 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 
 			auto mreqs = memBacked->getMemoryReqs();
 			mreqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			if (!device->allocate(mreqs,memBacked,IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
+			using flags_e = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
+			core::bitflag<flags_e> flags = flags_e::EMAF_NONE;
+			if (memBacked->getObjectType()==IDeviceMemoryBacked::E_OBJECT_TYPE::EOT_BUFFER &&
+				static_cast<IGPUBuffer*>(memBacked)->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT))
+				flags |= flags_e::EMAF_DEVICE_ADDRESS_BIT;
+			if (!device->allocate(mreqs,memBacked,flags).isValid())
 			{
 				logger.log("Could not allocate memory for Sensor \"%s\"'s \"%s\" in CSession::init()",ILogger::ELL_ERROR,m_params.name.c_str(),debugName.data());
 				return false;
@@ -146,7 +151,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 			auto view = device->createImageView({
 				.subUsages = immutables.scrambleKey.image->getCreationParameters().usage & thisFormatUsages,
 				.image = immutables.scrambleKey.image,
-				.viewType = IGPUImageView::E_TYPE::ET_2D,
+				.viewType = IGPUImageView::E_TYPE::ET_2D_ARRAY,
 				.format = viewFormat
 				});
 			string viewDebugName = "Scramble Key " + to_string(viewFormat) + " View";
