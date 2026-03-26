@@ -156,4 +156,3 @@ void runPersistent()
 }
 #endif
 }
-#undef PATH_TRACER_USE_RWMC

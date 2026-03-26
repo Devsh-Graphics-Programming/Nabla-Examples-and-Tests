@@ -4,6 +4,9 @@
 
 #include "argparse/argparse.hpp"
 #include "nbl/examples/examples.hpp"
+#include "nbl/this_example/path_tracer_pipeline_state.hpp"
+#include "nbl/this_example/path_tracer_ui.hpp"
+#include "nbl/this_example/render_variant_info.hpp"
 #include "nbl/this_example/transform.hpp"
 #include "nbl/this_example/render_variant_strings.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -38,6 +41,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace nbl::examples;
+using namespace nbl::this_example;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
@@ -940,53 +944,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const size_t queuedPipelineBuilds = m_pipelineCache.warmup.queue.size();
 					const bool warmupInProgress = m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.loggedComplete;
 					const char* const effectiveEntryPoint = currentVariant.entryPoint;
-					struct SFloatSliderRow
-					{
-						const char* label;
-						float* value;
-						float min;
-						float max;
-						const char* format;
-					};
-					struct SIntSliderRow
-					{
-						const char* label;
-						int* value;
-						int min;
-						int max;
-					};
-					struct SCheckboxRow
-					{
-						const char* label;
-						bool* value;
-					};
-					struct SComboRow
-					{
-						const char* label;
-						int* value;
-						const char* const* items;
-						int count;
-					};
-					struct STextRow
-					{
-						const char* label;
-						std::string value;
-					};
-					const auto calcMaxTextWidth = [](const auto& items, auto&& toText) -> float
-					{
-						float width = 0.f;
-						for (const auto& item : items)
-							width = std::max(width, ImGui::CalcTextSize(toText(item)).x);
-						return width;
-					};
-					const auto makeReadyText = [](const size_t ready, const size_t total) -> std::string
-					{
-						return std::to_string(ready) + "/" + std::to_string(total);
-					};
-					const auto makeRunQueueText = [](const size_t running, const size_t queued) -> std::string
-					{
-						return std::to_string(running) + " / " + std::to_string(queued);
-					};
 					const auto& shaderNames = this_example::getLightGeometryNamePointers();
 					const auto& polygonMethodNames = this_example::getPolygonMethodNamePointers();
 					const std::string pipelineStatusText = !m_startupLog.hasPathtraceOutput ?
@@ -997,37 +954,37 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const std::string cacheStateText = m_pipelineCache.loadedFromDisk ? "loaded from disk" : "cold start";
 					const std::string trimCacheText = std::to_string(m_pipelineCache.trimmedShaders.loadedFromDiskCount + m_pipelineCache.trimmedShaders.generatedCount) + " ready";
 					const std::string parallelismText = std::to_string(m_pipelineCache.warmup.budget);
-					const std::string renderStateText = makeReadyText(readyTotalPipelines, totalKnownPipelines);
-					const std::string warmupStateText = makeRunQueueText(runningPipelineBuilds, queuedPipelineBuilds);
+					const std::string renderStateText = this_example::pt_ui::makeReadyText(readyTotalPipelines, totalKnownPipelines);
+					const std::string warmupStateText = this_example::pt_ui::makeRunQueueText(runningPipelineBuilds, queuedPipelineBuilds);
 					const std::string cursorText = "cursor " + std::to_string(static_cast<int>(io.MousePos.x)) + " " + std::to_string(static_cast<int>(io.MousePos.y));
-					const SFloatSliderRow cameraFloatRows[] = {
+					const this_example::pt_ui::SFloatSliderRow cameraFloatRows[] = {
 						{ "move", &guiControlled.moveSpeed, 0.1f, 10.f, "%.2f" },
 						{ "rotate", &guiControlled.rotateSpeed, 0.1f, 10.f, "%.2f" },
 						{ "fov", &guiControlled.fov, 20.f, 150.f, "%.0f" },
 						{ "zNear", &guiControlled.zNear, 0.1f, 100.f, "%.2f" },
 						{ "zFar", &guiControlled.zFar, 110.f, 10000.f, "%.0f" },
 					};
-					const SComboRow renderComboRows[] = {
+					const this_example::pt_ui::SComboRow renderComboRows[] = {
 						{ "shader", &guiControlled.PTPipeline, shaderNames.data(), static_cast<int>(shaderNames.size()) },
 						{ "method", &guiControlled.polygonMethod, polygonMethodNames.data(), static_cast<int>(polygonMethodNames.size()) },
 					};
-					const SIntSliderRow renderIntRows[] = {
+					const this_example::pt_ui::SIntSliderRow renderIntRows[] = {
 						{ "spp", &guiControlled.spp, 1, MaxSamplesBuffer },
 						{ "depth", &guiControlled.depth, 1, MaxBufferDimensions / 4 },
 					};
-					const SCheckboxRow renderCheckboxRows[] = {
+					const this_example::pt_ui::SCheckboxRow renderCheckboxRows[] = {
 						{ "persistent WG", &guiControlled.usePersistentWorkGroups },
 					};
-					const SCheckboxRow rwmcCheckboxRows[] = {
+					const this_example::pt_ui::SCheckboxRow rwmcCheckboxRows[] = {
 						{ "enable", &guiControlled.useRWMC },
 					};
-					const SFloatSliderRow rwmcFloatRows[] = {
+					const this_example::pt_ui::SFloatSliderRow rwmcFloatRows[] = {
 						{ "start", &guiControlled.rwmcParams.start, 1.0f, 32.0f, "%.3f" },
 						{ "base", &guiControlled.rwmcParams.base, 1.0f, 32.0f, "%.3f" },
 						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f, "%.3f" },
 						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f" },
 					};
-					const STextRow diagnosticsRows[] = {
+					const this_example::pt_ui::STextRow diagnosticsRows[] = {
 						{ "geometry", system::to_string(currentGeometry) },
 						{ "req. method", system::to_string(requestedMethod) },
 						{ "eff. method", system::to_string(currentVariant.effectiveMethod) },
@@ -1054,21 +1011,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						renderStateText.c_str(),
 						warmupStateText.c_str(),
 					};
-					const float maxStandaloneTextWidth = calcMaxTextWidth(standaloneTexts, [](const char* text) { return text; });
+					const float maxStandaloneTextWidth = this_example::pt_ui::calcMaxTextWidth(standaloneTexts, [](const char* text) { return text; });
 					const float maxLabelTextWidth = std::max({
-						calcMaxTextWidth(cameraFloatRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(renderComboRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(renderIntRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(renderCheckboxRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(rwmcCheckboxRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(rwmcFloatRows, [](const auto& row) { return row.label; }),
-						calcMaxTextWidth(diagnosticsRows, [](const auto& row) { return row.label; })
+						this_example::pt_ui::calcMaxTextWidth(cameraFloatRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(renderComboRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(renderIntRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(renderCheckboxRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(rwmcCheckboxRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(rwmcFloatRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(diagnosticsRows, [](const auto& row) { return row.label; })
 					});
 					const float comboPreviewWidth = std::max(
-						calcMaxTextWidth(shaderNames, [](const char* text) { return text; }),
-						calcMaxTextWidth(polygonMethodNames, [](const char* text) { return text; })
+						this_example::pt_ui::calcMaxTextWidth(shaderNames, [](const char* text) { return text; }),
+						this_example::pt_ui::calcMaxTextWidth(polygonMethodNames, [](const char* text) { return text; })
 					);
-					const float sliderPreviewWidth = calcMaxTextWidth(sliderPreviewTexts, [](const char* text) { return text; });
+					const float sliderPreviewWidth = this_example::pt_ui::calcMaxTextWidth(sliderPreviewTexts, [](const char* text) { return text; });
 					const float tableLabelColumnWidth = std::ceil(maxLabelTextWidth + style.FramePadding.x * 2.f + style.CellPadding.x * 2.f);
 					const float tableValueColumnMinWidth =
 						std::ceil(std::max(comboPreviewWidth, sliderPreviewWidth) + style.FramePadding.x * 2.f + style.ItemInnerSpacing.x + ImGui::GetFrameHeight() + 18.f);
@@ -1101,67 +1058,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						ImGuiWindowFlags_AlwaysAutoResize |
 						ImGuiWindowFlags_NoResize;
 
-					const auto beginSectionTable = [](const char* id) -> bool
-					{
-						return ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingFixedFit);
-					};
-					const auto setupSectionTable = [tableLabelColumnWidth]() -> void
-					{
-						ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, tableLabelColumnWidth);
-						ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
-					};
-					const auto sliderFloatRow = [](const SFloatSliderRow& row) -> void
-					{
-						ImGui::TableNextRow();
-						ImGui::TableSetColumnIndex(0);
-						ImGui::TextUnformatted(row.label);
-						ImGui::TableSetColumnIndex(1);
-						ImGui::SetNextItemWidth(-FLT_MIN);
-						ImGui::PushID(row.label);
-						ImGui::SliderFloat("##value", row.value, row.min, row.max, row.format, ImGuiSliderFlags_AlwaysClamp);
-						ImGui::PopID();
-					};
-					const auto sliderIntRow = [](const SIntSliderRow& row) -> void
-					{
-						ImGui::TableNextRow();
-						ImGui::TableSetColumnIndex(0);
-						ImGui::TextUnformatted(row.label);
-						ImGui::TableSetColumnIndex(1);
-						ImGui::SetNextItemWidth(-FLT_MIN);
-						ImGui::PushID(row.label);
-						ImGui::SliderInt("##value", row.value, row.min, row.max);
-						ImGui::PopID();
-					};
-					const auto comboRow = [](const SComboRow& row) -> void
-					{
-						ImGui::TableNextRow();
-						ImGui::TableSetColumnIndex(0);
-						ImGui::TextUnformatted(row.label);
-						ImGui::TableSetColumnIndex(1);
-						ImGui::SetNextItemWidth(-FLT_MIN);
-						ImGui::PushID(row.label);
-						ImGui::Combo("##value", row.value, row.items, row.count);
-						ImGui::PopID();
-					};
-					const auto checkboxRow = [](const SCheckboxRow& row) -> void
-					{
-						ImGui::TableNextRow();
-						ImGui::TableSetColumnIndex(0);
-						ImGui::TextUnformatted(row.label);
-						ImGui::TableSetColumnIndex(1);
-						ImGui::PushID(row.label);
-						ImGui::Checkbox("##value", row.value);
-						ImGui::PopID();
-					};
-					const auto textRow = [](const STextRow& row) -> void
-					{
-						ImGui::TableNextRow();
-						ImGui::TableSetColumnIndex(0);
-						ImGui::TextUnformatted(row.label);
-						ImGui::TableSetColumnIndex(1);
-						ImGui::TextUnformatted(row.value.c_str());
-					};
-
 					if (ImGui::Begin("Path Tracer Controls", nullptr, panelFlags))
 					{
 						ImGui::TextUnformatted("PATH_TRACER");
@@ -1179,50 +1075,50 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{
 							if (ImGui::CollapsingHeader("Camera"))
 							{
-								if (beginSectionTable("##camera_controls_table"))
+								if (this_example::pt_ui::beginSectionTable("##camera_controls_table"))
 								{
-									setupSectionTable();
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
 									for (const auto& row : cameraFloatRows)
-										sliderFloatRow(row);
+										this_example::pt_ui::sliderFloatRow(row);
 									ImGui::EndTable();
 								}
 							}
 
 							if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
 							{
-								if (beginSectionTable("##render_controls_table"))
+								if (this_example::pt_ui::beginSectionTable("##render_controls_table"))
 								{
-									setupSectionTable();
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
 									for (const auto& row : renderComboRows)
-										comboRow(row);
+										this_example::pt_ui::comboRow(row);
 									for (const auto& row : renderIntRows)
-										sliderIntRow(row);
+										this_example::pt_ui::sliderIntRow(row);
 									for (const auto& row : renderCheckboxRows)
-										checkboxRow(row);
+										this_example::pt_ui::checkboxRow(row);
 									ImGui::EndTable();
 								}
 							}
 
 							if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
 							{
-								if (beginSectionTable("##rwmc_controls_table"))
+								if (this_example::pt_ui::beginSectionTable("##rwmc_controls_table"))
 								{
-									setupSectionTable();
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
 									for (const auto& row : rwmcCheckboxRows)
-										checkboxRow(row);
+										this_example::pt_ui::checkboxRow(row);
 									for (const auto& row : rwmcFloatRows)
-										sliderFloatRow(row);
+										this_example::pt_ui::sliderFloatRow(row);
 									ImGui::EndTable();
 								}
 							}
 
 							if (ImGui::CollapsingHeader("Diagnostics"))
 							{
-								if (beginSectionTable("##diagnostics_controls_table"))
+								if (this_example::pt_ui::beginSectionTable("##diagnostics_controls_table"))
 								{
-									setupSectionTable();
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
 									for (const auto& row : diagnosticsRows)
-										textRow(row);
+										this_example::pt_ui::textRow(row);
 									ImGui::EndTable();
 								}
 							}
@@ -2404,166 +2300,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 		}
 
-		using pipeline_future_t = std::future<smart_refctd_ptr<IGPUComputePipeline>>;
-		using shader_array_t = std::array<smart_refctd_ptr<IShader>, E_LIGHT_GEOMETRY::ELG_COUNT>;
-		using pipeline_method_array_t = std::array<smart_refctd_ptr<IGPUComputePipeline>, EPM_COUNT>;
-		using pipeline_future_method_array_t = std::array<pipeline_future_t, EPM_COUNT>;
-		using pipeline_array_t = std::array<pipeline_method_array_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
-		using pipeline_future_array_t = std::array<pipeline_future_method_array_t, E_LIGHT_GEOMETRY::ELG_COUNT>;
-		struct SRenderPipelineStorage
-		{
-			std::array<std::array<shader_array_t, BinaryToggleCount>, BinaryToggleCount> shaders = {};
-			std::array<std::array<pipeline_array_t, BinaryToggleCount>, BinaryToggleCount> pipelines = {};
-			std::array<std::array<pipeline_future_array_t, BinaryToggleCount>, BinaryToggleCount> pendingPipelines = {};
-
-			static constexpr size_t boolToIndex(const bool value)
-			{
-				return static_cast<size_t>(value);
-			}
-
-			shader_array_t& getShaders(const bool persistentWorkGroups, const bool rwmc)
-			{
-				return shaders[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-
-			const shader_array_t& getShaders(const bool persistentWorkGroups, const bool rwmc) const
-			{
-				return shaders[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-
-			pipeline_array_t& getPipelines(const bool persistentWorkGroups, const bool rwmc)
-			{
-				return pipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-
-			const pipeline_array_t& getPipelines(const bool persistentWorkGroups, const bool rwmc) const
-			{
-				return pipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-
-			pipeline_future_array_t& getPendingPipelines(const bool persistentWorkGroups, const bool rwmc)
-			{
-				return pendingPipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-
-			const pipeline_future_array_t& getPendingPipelines(const bool persistentWorkGroups, const bool rwmc) const
-			{
-				return pendingPipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
-			}
-		};
-
-		struct SResolvePipelineState
-		{
-			smart_refctd_ptr<IGPUPipelineLayout> layout;
-			smart_refctd_ptr<IShader> shader;
-			smart_refctd_ptr<IGPUComputePipeline> pipeline;
-			pipeline_future_t pendingPipeline;
-		};
-		struct SWarmupJob
-		{
-			enum class E_TYPE : uint8_t
-			{
-				Render,
-				Resolve
-			};
-
-			E_TYPE type = E_TYPE::Render;
-			E_LIGHT_GEOMETRY geometry = ELG_SPHERE;
-			bool persistentWorkGroups = false;
-			bool rwmc = false;
-			E_POLYGON_METHOD polygonMethod = EPM_PROJECTED_SOLID_ANGLE;
-		};
-
-		struct SPipelineCacheState
-		{
-			struct STrimmedShaderCache
-			{
-				smart_refctd_ptr<asset::ISPIRVEntryPointTrimmer> trimmer;
-				path rootDir;
-				path validationDir;
-				size_t loadedFromDiskCount = 0ull;
-				size_t generatedCount = 0ull;
-				size_t savedToDiskCount = 0ull;
-				size_t loadedBytes = 0ull;
-				size_t savedBytes = 0ull;
-				core::unordered_map<std::string, smart_refctd_ptr<IShader>> runtimeShaders;
-				std::mutex mutex;
-			} trimmedShaders;
-
-			struct SWarmupState
-			{
-				bool started = false;
-				bool loggedComplete = false;
-				clock_t::time_point beganAt = clock_t::now();
-				size_t budget = 1ull;
-				size_t queuedJobs = 0ull;
-				size_t launchedJobs = 0ull;
-				size_t skippedJobs = 0ull;
-				std::deque<SWarmupJob> queue;
-			} warmup;
-
-			smart_refctd_ptr<IGPUPipelineCache> object;
-			path blobPath;
-			bool dirty = false;
-			bool loadedFromDisk = false;
-			bool clearedOnStartup = false;
-			size_t loadedBytes = 0ull;
-			size_t savedBytes = 0ull;
-			size_t newlyReadyPipelinesSinceLastSave = 0ull;
-			bool checkpointedAfterFirstSubmit = false;
-			clock_t::time_point lastSaveAt = clock_t::now();
-		};
-
 		struct SCommandLineOptions
 		{
 			std::optional<path> pipelineCacheDirOverride;
 			bool clearPipelineCache = false;
 		};
-
-		struct SStartupLogState
-		{
-			bool hasPathtraceOutput = false;
-			bool loggedFirstFrameLoop = false;
-			bool loggedFirstRenderDispatch = false;
-			bool loggedFirstRenderSubmit = false;
-		};
-
-		struct SRenderVariantInfo
-		{
-			E_POLYGON_METHOD effectiveMethod;
-			E_POLYGON_METHOD pipelineMethod;
-			const char* entryPoint;
-		};
-
-		static constexpr const char* getDefaultRenderEntryPointName(const bool persistentWorkGroups)
-		{
-			return persistentWorkGroups ? "mainPersistent" : "main";
-		}
-
-		static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const E_POLYGON_METHOD requestedMethod)
-		{
-			const char* const defaultEntryPoint = getDefaultRenderEntryPointName(persistentWorkGroups);
-			switch (geometry)
-			{
-			case ELG_SPHERE:
-				return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
-			case ELG_TRIANGLE:
-				switch (requestedMethod)
-				{
-				case EPM_AREA:
-					return { EPM_AREA, EPM_AREA, persistentWorkGroups ? "mainPersistentArea" : "mainArea" };
-				case EPM_SOLID_ANGLE:
-					return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, persistentWorkGroups ? "mainPersistentSolidAngle" : "mainSolidAngle" };
-				case EPM_PROJECTED_SOLID_ANGLE:
-				default:
-					return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
-				}
-			case ELG_RECTANGLE:
-				return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
-			default:
-				return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
-			}
-		}
 
 		size_t getRunningPipelineBuildCount() const
 		{
@@ -2980,7 +2721,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		SRenderPipelineStorage m_renderPipelines;
+		SRenderPipelineStorage<BinaryToggleCount> m_renderPipelines;
 		smart_refctd_ptr<IGPUPipelineLayout> m_renderPipelineLayout;
 		smart_refctd_ptr<IGPUPipelineLayout> m_rwmcRenderPipelineLayout;
 		SResolvePipelineState m_resolvePipelineState;
