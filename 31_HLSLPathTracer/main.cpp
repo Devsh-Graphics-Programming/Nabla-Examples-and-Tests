@@ -42,6 +42,7 @@ using namespace ui;
 using namespace video;
 using namespace nbl::examples;
 using namespace nbl::this_example;
+namespace pt_cached = nbl::examples::path_tracing;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
@@ -2308,26 +2309,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		size_t getRunningPipelineBuildCount() const
 		{
-			size_t count = 0ull;
-			const auto countPending = [&count](const pipeline_future_array_t& futures, const pipeline_array_t& pipelines) -> void
-			{
-				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
-				{
-					for (auto method = 0u; method < EPM_COUNT; ++method)
-					{
-						if (futures[geometry][method].valid() && !pipelines[geometry][method])
-							++count;
-					}
-				}
-			};
-			for (const auto rwmc : { false, true })
-			{
-				for (const auto persistentWorkGroups : { false, true })
-					countPending(m_renderPipelines.getPendingPipelines(persistentWorkGroups, rwmc), m_renderPipelines.getPipelines(persistentWorkGroups, rwmc));
-			}
-			if (m_resolvePipelineState.pendingPipeline.valid() && !m_resolvePipelineState.pipeline)
-				++count;
-			return count;
+			return pt_cached::getRunningPipelineBuildCount(m_renderPipelines, m_resolvePipelineState);
 		}
 
 		size_t getKnownRenderPipelineCount() const
@@ -2360,24 +2342,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		size_t getReadyRenderPipelineCount() const
 		{
-			size_t count = 0ull;
-			const auto countReady = [&count](const pipeline_array_t& pipelines) -> void
-			{
-				for (const auto& perGeometry : pipelines)
-				{
-					for (const auto& pipeline : perGeometry)
-					{
-						if (pipeline)
-							++count;
-					}
-				}
-			};
-			for (const auto rwmc : { false, true })
-			{
-				for (const auto persistentWorkGroups : { false, true })
-					countReady(m_renderPipelines.getPipelines(persistentWorkGroups, rwmc));
-			}
-			return count;
+			return pt_cached::getReadyRenderPipelineCount(m_renderPipelines);
 		}
 
 		void enqueueWarmupJob(const SWarmupJob& job)
@@ -2392,8 +2357,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					existing.geometry == job.geometry &&
 					existing.persistentWorkGroups == job.persistentWorkGroups &&
 					existing.rwmc == job.rwmc &&
-					getRenderVariantInfo(existing.geometry, existing.persistentWorkGroups, existing.polygonMethod).pipelineMethod ==
-					getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.polygonMethod).pipelineMethod
+					getRenderVariantInfo(existing.geometry, existing.persistentWorkGroups, existing.method).pipelineMethod ==
+					getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod
 				)
 					return;
 			}
@@ -2412,11 +2377,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			auto& pipelines = m_renderPipelines.getPipelines(job.persistentWorkGroups, job.rwmc);
 			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(job.persistentWorkGroups, job.rwmc);
-			const auto methodIx = static_cast<size_t>(getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.polygonMethod).pipelineMethod);
+			const auto methodIx = static_cast<size_t>(getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod);
 			if (pipelines[job.geometry][methodIx] || pendingPipelines[job.geometry][methodIx].valid())
 				return false;
 
-			ensureRenderPipeline(job.geometry, job.persistentWorkGroups, job.rwmc, job.polygonMethod);
+			ensureRenderPipeline(job.geometry, job.persistentWorkGroups, job.rwmc, job.method);
 			return pendingPipelines[job.geometry][methodIx].valid();
 		}
 
@@ -2513,12 +2478,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void pollPendingPipeline(pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline)
 		{
-			if (!future.valid() || pipeline)
-				return;
-			if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-				return;
-			pipeline = future.get();
-			if (pipeline)
+			if (pt_cached::pollPendingPipeline(future, pipeline))
 			{
 				m_pipelineCache.dirty = true;
 				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
@@ -2527,56 +2487,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void pollPendingPipelines()
 		{
-			for (const auto rwmc : { false, true })
-			{
-				for (const auto persistentWorkGroups : { false, true })
-				{
-					auto& pendingPipelines = m_renderPipelines.getPendingPipelines(persistentWorkGroups, rwmc);
-					auto& pipelines = m_renderPipelines.getPipelines(persistentWorkGroups, rwmc);
-					for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
-					{
-						for (auto method = 0u; method < EPM_COUNT; ++method)
-							pollPendingPipeline(pendingPipelines[geometry][method], pipelines[geometry][method]);
-					}
-				}
-			}
-			pollPendingPipeline(m_resolvePipelineState.pendingPipeline, m_resolvePipelineState.pipeline);
+			pt_cached::pollPendingPipelines(
+				m_renderPipelines,
+				m_resolvePipelineState,
+				m_pipelineCache.dirty,
+				m_pipelineCache.newlyReadyPipelinesSinceLastSave
+			);
 		}
 
 		void waitForPendingPipelines()
 		{
-			auto waitAndStore = [](pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline) -> void
-			{
-				if (!future.valid() || pipeline)
-					return;
-				future.wait();
-				pipeline = future.get();
-			};
-
-			for (const auto rwmc : { false, true })
-			{
-				for (const auto persistentWorkGroups : { false, true })
-				{
-					auto& pendingPipelines = m_renderPipelines.getPendingPipelines(persistentWorkGroups, rwmc);
-					auto& pipelines = m_renderPipelines.getPipelines(persistentWorkGroups, rwmc);
-					for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
-					{
-						for (auto method = 0u; method < EPM_COUNT; ++method)
-						{
-							const auto hadPipeline = static_cast<bool>(pipelines[geometry][method]);
-							waitAndStore(pendingPipelines[geometry][method], pipelines[geometry][method]);
-							const auto pipelineBecameReady = !hadPipeline && static_cast<bool>(pipelines[geometry][method]);
-							m_pipelineCache.dirty = m_pipelineCache.dirty || pipelineBecameReady;
-							m_pipelineCache.newlyReadyPipelinesSinceLastSave += pipelineBecameReady ? 1ull : 0ull;
-						}
-					}
-				}
-			}
-			const auto hadResolvePipeline = static_cast<bool>(m_resolvePipelineState.pipeline);
-			waitAndStore(m_resolvePipelineState.pendingPipeline, m_resolvePipelineState.pipeline);
-			m_pipelineCache.dirty = m_pipelineCache.dirty || (!hadResolvePipeline && static_cast<bool>(m_resolvePipelineState.pipeline));
-			if (!hadResolvePipeline && static_cast<bool>(m_resolvePipelineState.pipeline))
-				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
+			pt_cached::waitForPendingPipelines(
+				m_renderPipelines,
+				m_resolvePipelineState,
+				m_pipelineCache.dirty,
+				m_pipelineCache.newlyReadyPipelinesSinceLastSave
+			);
 		}
 
 		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
@@ -2643,7 +2569,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 									.geometry = geometry,
 									.persistentWorkGroups = persistentWorkGroups,
 									.rwmc = rwmc,
-									.polygonMethod = method
+									.method = method
 								});
 							}
 						}
