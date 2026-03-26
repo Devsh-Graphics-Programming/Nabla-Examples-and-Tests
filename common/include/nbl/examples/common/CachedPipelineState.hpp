@@ -1,5 +1,5 @@
-#ifndef _NBL_EXAMPLES_PATH_TRACING_CACHED_PIPELINE_STATE_HPP_INCLUDED_
-#define _NBL_EXAMPLES_PATH_TRACING_CACHED_PIPELINE_STATE_HPP_INCLUDED_
+#ifndef _NBL_EXAMPLES_COMMON_CACHED_PIPELINE_STATE_HPP_INCLUDED_
+#define _NBL_EXAMPLES_COMMON_CACHED_PIPELINE_STATE_HPP_INCLUDED_
 
 #include "nbl/examples/examples.hpp"
 #include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
@@ -10,7 +10,7 @@
 #include <future>
 #include <mutex>
 
-namespace nbl::examples::path_tracing
+namespace nbl::examples::common
 {
 using pipeline_future_t = std::future<core::smart_refctd_ptr<video::IGPUComputePipeline>>;
 

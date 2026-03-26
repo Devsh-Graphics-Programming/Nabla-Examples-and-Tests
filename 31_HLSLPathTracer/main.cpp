@@ -42,7 +42,7 @@ using namespace ui;
 using namespace video;
 using namespace nbl::examples;
 using namespace nbl::this_example;
-namespace pt_cached = nbl::examples::path_tracing;
+namespace cached_pipeline_state = nbl::examples::common;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
@@ -2309,7 +2309,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		size_t getRunningPipelineBuildCount() const
 		{
-			return pt_cached::getRunningPipelineBuildCount(m_renderPipelines, m_resolvePipelineState);
+			return cached_pipeline_state::getRunningPipelineBuildCount(m_renderPipelines, m_resolvePipelineState);
 		}
 
 		size_t getKnownRenderPipelineCount() const
@@ -2342,7 +2342,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		size_t getReadyRenderPipelineCount() const
 		{
-			return pt_cached::getReadyRenderPipelineCount(m_renderPipelines);
+			return cached_pipeline_state::getReadyRenderPipelineCount(m_renderPipelines);
 		}
 
 		void enqueueWarmupJob(const SWarmupJob& job)
@@ -2478,7 +2478,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void pollPendingPipeline(pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline)
 		{
-			if (pt_cached::pollPendingPipeline(future, pipeline))
+			if (cached_pipeline_state::pollPendingPipeline(future, pipeline))
 			{
 				m_pipelineCache.dirty = true;
 				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
@@ -2487,7 +2487,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void pollPendingPipelines()
 		{
-			pt_cached::pollPendingPipelines(
+			cached_pipeline_state::pollPendingPipelines(
 				m_renderPipelines,
 				m_resolvePipelineState,
 				m_pipelineCache.dirty,
@@ -2497,7 +2497,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void waitForPendingPipelines()
 		{
-			pt_cached::waitForPendingPipelines(
+			cached_pipeline_state::waitForPendingPipelines(
 				m_renderPipelines,
 				m_resolvePipelineState,
 				m_pipelineCache.dirty,
