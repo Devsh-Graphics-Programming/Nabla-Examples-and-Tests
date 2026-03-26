@@ -17,6 +17,7 @@
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
 #include "nbl/system/ModuleLookupUtils.h"
+#include "nbl/examples/common/ScrambleSequence.hpp"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
@@ -655,123 +656,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_cascadeView->setObjectDebugName("Cascade View");
 			}
 
-			// create sequence buffer view
+			// create sequence buffer
 			{
-				// TODO: do this better use asset manager to get the ICPUBuffer from `.bin`
-				auto createBufferFromCacheFile = [this](
-					const system::path& filePath,
-					size_t byteSize,
-					void* data,
-					smart_refctd_ptr<ICPUBuffer>& buffer
-				) -> bool
-				{
-					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
-					ISystem::future_t<size_t> owenSamplerFileReadFuture;
-					size_t owenSamplerFileBytesRead = 0ull;
-
-					m_system->createFile(owenSamplerFileFuture, filePath, IFile::ECF_READ);
-					smart_refctd_ptr<IFile> owenSamplerFile;
-
-					if (owenSamplerFileFuture.wait())
-					{
-						owenSamplerFileFuture.acquire().move_into(owenSamplerFile);
-						if (!owenSamplerFile)
-							return false;
-
-						owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, byteSize);
-						if (owenSamplerFileReadFuture.wait())
-						{
-							owenSamplerFileReadFuture.acquire().move_into(owenSamplerFileBytesRead);
-
-							if (owenSamplerFileBytesRead < byteSize)
-								return false;
-
-							buffer = asset::ICPUBuffer::create({ { byteSize }, data });
-							return true;
-						}
-					}
-
-					return false;
+				ScrambleSequence::SCreationParams params = {
+					.queue = getGraphicsQueue(),
+						.utilities = smart_refctd_ptr(m_utils),
+						.system = smart_refctd_ptr(m_system),
+						.localOutputCWD = localOutputCWD,
+						.sharedOutputCWD = sharedOutputCWD,
+						.owenSamplerCachePath = OwenSamplerFilePath,
+						.MaxBufferDimensions = MaxBufferDimensions,
+						.MaxSamplesBuffer = MaxSamplesBuffer,
 				};
-				auto writeBufferIntoCacheFile = [this](const system::path& filePath, size_t byteSize, const void* data)
-				{
-					std::filesystem::create_directories(filePath.parent_path());
-
-					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
-					ISystem::future_t<size_t> owenSamplerFileWriteFuture;
-					size_t owenSamplerFileBytesWritten = 0ull;
-
-					m_system->createFile(owenSamplerFileFuture, filePath, IFile::ECF_WRITE);
-					if (!owenSamplerFileFuture.wait())
-						return;
-
-					smart_refctd_ptr<IFile> file;
-					owenSamplerFileFuture.acquire().move_into(file);
-					if (!file)
-						return;
-
-					file->write(owenSamplerFileWriteFuture, const_cast<void*>(data), 0, byteSize);
-					if (owenSamplerFileWriteFuture.wait())
-						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
-				};
-
-				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
-				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
-				constexpr size_t sequenceCount = quantizedDimensions * MaxSamplesBuffer;
-				constexpr size_t sequenceByteSize = sequenceCount * sizeof(sequence_type);
-				std::array<sequence_type, sequenceCount> data = {};
-				smart_refctd_ptr<ICPUBuffer> sampleSeq;
-
-				const auto packagedOwenSamplerPath = sharedInputCWD / OwenSamplerFilePath;
-				const auto generatedOwenSamplerPath = sharedOutputCWD / OwenSamplerFilePath;
-				const bool cacheLoaded =
-					createBufferFromCacheFile(packagedOwenSamplerPath, sequenceByteSize, data.data(), sampleSeq) ||
-					createBufferFromCacheFile(generatedOwenSamplerPath, sequenceByteSize, data.data(), sampleSeq);
-				if (!cacheLoaded)
-				{
-					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
-
-					ICPUBuffer::SCreationParams params = {};
-					params.size = sequenceByteSize;
-					sampleSeq = ICPUBuffer::create(std::move(params));
-
-					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
-					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
-						for (uint32_t i = 0; i < MaxSamplesBuffer; i++)
-						{
-							const uint32_t quant_dim = dim / 3u;
-							const uint32_t offset = dim % 3u;
-							auto& seq = out[i * quantizedDimensions + quant_dim];
-							const uint32_t sample = sampler.sample(dim, i);
-							seq.set(offset, sample);
-						}
-					writeBufferIntoCacheFile(generatedOwenSamplerPath, sequenceByteSize, out);
-				}
-
-				IGPUBuffer::SCreationParams params = {};
-				params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				params.size = sampleSeq->getSize();
-
-				auto queue = getGraphicsQueue();
-				auto cmdbuf = m_cmdBufs[0].get();
-				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-				m_intendedSubmit.queue = queue;
-				m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-				auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
-					m_intendedSubmit,
-					std::move(params),
-					sampleSeq->getPointer()
-				);
-				bufferFuture.wait();
-				const auto uploadedBuffer = bufferFuture.get();
-				if (!uploadedBuffer || !uploadedBuffer->get())
-					return logFail("Failed to upload sequence buffer");
-				m_sequenceBuffer = smart_refctd_ptr<IGPUBuffer>(*uploadedBuffer);
-
-				m_sequenceBuffer->setObjectDebugName("Sequence buffer");
+				m_scrambleSequence = ScrambleSequence::create(params);
 			}
 
 			// Update Descriptors
@@ -1316,7 +1213,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
-					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					rwmcPushConstants.renderPushConstants.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
 				}
 				else
@@ -1325,7 +1222,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					pc.sampleCount = guiControlled.spp;
 					pc.depth = guiControlled.depth;
-					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					pc.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
 				}
 			};
 			updatePathtracerPushConstants();
@@ -2667,7 +2564,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// pathtracer resources
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
-		smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
+		//smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
+		smart_refctd_ptr<ScrambleSequence> m_scrambleSequence;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
 
