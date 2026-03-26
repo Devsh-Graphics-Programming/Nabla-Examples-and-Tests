@@ -629,7 +629,7 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
     using anisotropic_interaction_type = reciprocity_test_impl::SAnisotropic<isotropic_interaction_type>;
     using sample_type = LS;
     using spectral_type = Spectrum;
-    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using value_weight_type = sampling::value_and_weight<spectral_type, scalar_type>;
     using isocache_type = MicrofacetCache;
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;

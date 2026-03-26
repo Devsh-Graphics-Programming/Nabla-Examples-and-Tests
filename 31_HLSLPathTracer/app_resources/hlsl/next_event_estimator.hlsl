@@ -326,7 +326,7 @@ struct NextEventEstimator
     using light_id_type = LightID;
     using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
-    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using tolerance_method_type = Tolerance<scalar_type>;
@@ -337,17 +337,17 @@ struct NextEventEstimator
     struct SampleQuotientReturn
     {
         using sample_type = sample_type;
-        using quotient_pdf_type = quotient_pdf_type;
+        using quotient_weight_type = quotient_weight_type;
         using scalar_type = scalar_type;
         using object_handle_type = ObjectID;
 
         sample_type sample_;
-        quotient_pdf_type quotient_pdf;
+        quotient_weight_type quotient_pdf;
         scalar_type newRayMaxT;
         object_handle_type lightObjectID;
 
         sample_type getSample() NBL_CONST_MEMBER_FUNC { return sample_; }
-        quotient_pdf_type getQuotientPdf() NBL_CONST_MEMBER_FUNC { return quotient_pdf; }
+        quotient_weight_type getQuotientPdf() NBL_CONST_MEMBER_FUNC { return quotient_pdf; }
         scalar_type getT() NBL_CONST_MEMBER_FUNC { return newRayMaxT; }
         object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
@@ -414,13 +414,13 @@ struct NextEventEstimator
             pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
-            retval.quotient_pdf = quotient_pdf_type::create(quo, pdf);
+            retval.quotient_pdf = quotient_weight_type::create(quo, pdf);
             retval.newRayMaxT = newRayMaxT;
             retval.lightObjectID = light.objectID;
         }
         else
         {
-            retval.quotient_pdf = quotient_pdf_type::create(0.0, 0.0);
+            retval.quotient_pdf = quotient_weight_type::create(0.0, 0.0);
             ray_dir_info_type rayL;
             rayL.makeInvalid();
             retval.sample_ = sample_type::create(rayL,hlsl::promote<vector3_type>(0.0));

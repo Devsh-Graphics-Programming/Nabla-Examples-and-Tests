@@ -21,7 +21,7 @@ struct MaterialSystem
     using measure_type = typename DiffuseBxDF::spectral_type;
     using sample_type = typename DiffuseBxDF::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
-    using quotient_pdf_type = typename DiffuseBxDF::quotient_pdf_type;
+    using quotient_weight_type = typename DiffuseBxDF::quotient_weight_type;
     using value_weight_type = typename DiffuseBxDF::value_weight_type;
     using anisotropic_interaction_type = typename DiffuseBxDF::anisotropic_interaction_type;
     using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
@@ -235,7 +235,7 @@ struct MaterialSystem
         }
     }
 
-    quotient_pdf_type quotientAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
+    quotient_weight_type quotientAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
@@ -246,7 +246,7 @@ struct MaterialSystem
                 case MaterialType::DIFFUSE:
                 {
                     typename diffuse_op_type::isocache_type dummycache;
-                    quotient_pdf_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic, dummycache);
+                    quotient_weight_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic, dummycache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
@@ -270,7 +270,7 @@ struct MaterialSystem
                     break;
             }
         }
-        return quotient_pdf_type::create(0.0, 0.0);
+        return quotient_weight_type::create(0.0, 0.0);
     }
 
     bool hasEmission(material_id_type matID)
