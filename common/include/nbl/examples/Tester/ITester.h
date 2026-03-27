@@ -309,9 +309,15 @@ protected:
 		if (compareTestValues<T>(expectedVal, testVal, maxRelativeDifference, maxAbsoluteDifference))
 			return true;
 
-		printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType, maxRelativeDifference, maxAbsoluteDifference);
-		return false;
-	}
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        if constexpr (std::is_same_v<T,float>)
+        {
+            auto& record = m_maxErrors[memberName];
+            record.abs = hlsl::max(hlsl::abs(expectedVal-testVal),record.abs);
+            record.rel = hlsl::max(hlsl::max(expectedVal/testVal,testVal/expectedVal)-1.f,record.rel);
+        }
+        return false;
+    }
 
 	template<typename T>
 	void printTestFail(const std::string& memberName, const T& expectedVal, const T& testVal,
@@ -327,12 +333,10 @@ protected:
 				ss << "GPU TEST ERROR:\n";
 		}
 
-		ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
-		ss << "TEST ITERATION INDEX: " << testIteration << " SEED: " << seed << '\n';
-		ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal);
-		if constexpr (concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T>)
-			ss << " DIFFERENCE: " << system::to_string(hlsl::abs(expectedVal - testVal));
-		ss << " MAX RELATIVE: " << system::to_string(maxRelativeDifference) << " MAX ABSOLUTE " << system::to_string(maxAbsoluteDifference) << '\n';
+        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
+        ss << "TEST ITERATION INDEX: " << testIteration << " SEED: " << seed << '\n';
+        // TODO: `system::to_string` doesn't print floats exactly
+        ss << "EXPECTED VALUE: " << system::to_string(expectedVal) << " TEST VALUE: " << system::to_string(testVal) << '\n';
 
 		m_logger->log("%s", system::ILogger::ELL_ERROR, ss.str().c_str());
 		m_logFile << ss.str() << '\n';
@@ -369,16 +373,23 @@ private:
 		return output;
 	}
 
-	bool verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
-	{
-		bool pass = true;
-		for (int i = 0; i < m_testIterationCount; ++i)
-		{
-			pass = verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU) && pass;
-			pass = verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU) && pass;
-		}
-		return pass;
-	}
+    bool verifyAllTestResults(const core::vector<TestResults>& cpuTestReults, const core::vector<TestResults>& gpuTestReults, const core::vector<TestResults>& exceptedTestReults)
+    {
+        bool pass = true;
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            pass = verifyTestResults(exceptedTestReults[i], cpuTestReults[i], i, m_seed, ITester::TestType::CPU) && pass;
+            pass = verifyTestResults(exceptedTestReults[i], gpuTestReults[i], i, m_seed, ITester::TestType::GPU) && pass;
+        }
+        std::stringstream maxErrors;
+        for (const auto& error : m_maxErrors)
+        {
+            maxErrors << "Max Error nbl::hlsl::" << error.first << " abs: " << error.second.abs << " rel: " << error.second.rel << "\n";
+        }
+        if (const auto str = maxErrors.str(); !str.empty())
+            m_logger->log("Max Errors \n %s",system::ILogger::ELL_ERROR,str.c_str());
+        return pass;
+    }
 
 	void reloadSeed()
 	{
@@ -393,20 +404,21 @@ private:
 		return lhs == rhs;
 	}
 
-	template<typename T>
-		requires concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
-	bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxRelativeDifference, const float64_t maxAbsoluteDifference)
-	{
-		return nbl::hlsl::testing::approxCompare(lhs, rhs, maxAbsoluteDifference, maxRelativeDifference);
-	}
-
-	const size_t m_WorkgroupSize;
-	const size_t m_testIterationCount;
-	const uint32_t m_testBatchCount;
-	// seed will change after every call to performTestsAndVerifyResults()
-	std::mt19937 m_mersenneTwister;
-	uint32_t m_seed;
-	std::ofstream m_logFile;
+    const size_t m_testIterationCount;
+    const uint32_t m_testBatchCount;
+    static constexpr size_t m_WorkgroupSize = 256u;
+    // seed will change after every call to performTestsAndVerifyResults()
+    std::mt19937 m_mersenneTwister;
+    uint32_t m_seed;
+    std::ofstream m_logFile;
+    // TODO support more types
+    template<typename T>
+    struct SMaxError
+    {
+        T abs = 0.f;
+        T rel = 0.f;
+    };
+    core::unordered_map<std::string,SMaxError<float>> m_maxErrors;
 };
 
 #endif
