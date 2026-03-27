@@ -103,7 +103,7 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
     const float32_t3x3 normalMatrix = math::linalg::truncate<3,3,3,4>(hlsl::transpose(spirv::WorldToObjectKHR));
     const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 
-    payload.instanceID = instanceCustomIndex;
+    payload.instanceID = instanceCustomIndex;// TODO: can we get geometry count in instance and "linearize" our geometry into an UUID ?
     payload.primitiveID = primID;
 
     payload.albedo = float32_t3(1,1,1);
@@ -113,6 +113,6 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
 [shader("miss")]
 void miss(inout DebugPayload payload)
 {
-    payload.albedo = float32_t3(0,0,0);
-    payload.worldNormal = -spirv::WorldRayDirectionKHR;
+    payload.albedo = float32_t3(0,0,0); // TODO: sample envmap
+    payload.worldNormal = -normalize(spirv::WorldRayDirectionKHR);
 }
