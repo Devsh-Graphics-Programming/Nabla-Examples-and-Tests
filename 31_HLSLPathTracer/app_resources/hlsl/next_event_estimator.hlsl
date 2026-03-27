@@ -342,12 +342,12 @@ struct NextEventEstimator
         using object_handle_type = ObjectID;
 
         sample_type sample_;
-        quotient_weight_type quotient_pdf;
+        quotient_weight_type quotient_weight;
         scalar_type newRayMaxT;
         object_handle_type lightObjectID;
 
         sample_type getSample() NBL_CONST_MEMBER_FUNC { return sample_; }
-        quotient_weight_type getQuotientPdf() NBL_CONST_MEMBER_FUNC { return quotient_pdf; }
+        quotient_weight_type getQuotientWeight() NBL_CONST_MEMBER_FUNC { return quotient_weight; }
         scalar_type getT() NBL_CONST_MEMBER_FUNC { return newRayMaxT; }
         object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
@@ -414,13 +414,13 @@ struct NextEventEstimator
             pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
-            retval.quotient_pdf = quotient_weight_type::create(quo, pdf);
+            retval.quotient_weight = quotient_weight_type::create(quo, pdf);
             retval.newRayMaxT = newRayMaxT;
             retval.lightObjectID = light.objectID;
         }
         else
         {
-            retval.quotient_pdf = quotient_weight_type::create(0.0, 0.0);
+            retval.quotient_weight = quotient_weight_type::create(0.0, 0.0);
             ray_dir_info_type rayL;
             rayL.makeInvalid();
             retval.sample_ = sample_type::create(rayL,hlsl::promote<vector3_type>(0.0));
