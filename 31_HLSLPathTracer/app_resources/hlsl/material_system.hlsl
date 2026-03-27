@@ -142,8 +142,7 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                typename diffuse_op_type::isocache_type dummycache;
-                value_weight_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic, dummycache);
+                value_weight_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic);
                 ret._value *= bxdfs[matID.id].albedo;
                 return ret;
             }

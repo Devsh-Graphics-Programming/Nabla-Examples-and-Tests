@@ -76,7 +76,7 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             typename BxDF::anisocache_type _cache;
             sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, _cache);
-            Li = base_t::bxdf.evalAndWeight(s, base_t::isointer, _cache);
+            Li = base_t::bxdf.evalAndWeight(s, base_t::isointer);
             transmitted = base_t::isointer.getNdotV() * s.getNdotL() < 0.f;
         }
         NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
@@ -285,9 +285,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
-            typename BxDF::anisocache_type _cache;
-            Li = base_t::bxdf.evalAndWeight(s, isointer, _cache);
-            recLi = base_t::bxdf.evalAndWeight(rec_s, rec_isointer, _cache);
+            Li = base_t::bxdf.evalAndWeight(s, isointer);
+            recLi = base_t::bxdf.evalAndWeight(rec_s, rec_isointer);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
