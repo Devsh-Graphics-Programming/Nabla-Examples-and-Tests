@@ -103,7 +103,11 @@ struct TestModifiedWhiteFurnace : TestBxDF<BxDF>
             }
         }
 
-        accumulatedQuotient = deltaQuotientSum / float(deltaSampleCount) + continuousQuotientSum / float(continuousSampleCount);
+        accumulatedQuotient = hlsl::promote<float32_t3>(0.0);
+        if (deltaSampleCount > 0)
+            accumulatedQuotient += deltaQuotientSum / float(deltaSampleCount);
+        if (continuousSampleCount > 0)
+            accumulatedQuotient += continuousQuotientSum / float(continuousSampleCount);
 
         return BTR_NONE;
     }
