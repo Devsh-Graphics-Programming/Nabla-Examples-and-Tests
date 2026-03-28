@@ -36,6 +36,7 @@
 
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/intrinsics.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/fast_affine.hlsl>
 
 // tgmath.hlsl and intrinsics.hlsl tests
 
@@ -229,6 +230,7 @@ struct IntrinsicsIntputTestValues
 	float32_t3x3 transpose;
 	float32_t3x3 mulLhs;
 	float32_t3x3 mulRhs;
+	float32_t4x4 pseudoMat3x4;
 	float minA;
 	float minB;
 	float maxA;
@@ -335,6 +337,7 @@ struct IntrinsicsTestValues
 	float32_t3x3 mul;
 	float32_t3x3 transpose;
 	float32_t3x3 inverse;
+	float32_t3 pseudoInverse3x4;
 
 	spirv::AddCarryOutput<uint32_t> addCarry;
 	spirv::SubBorrowOutput<uint32_t> subBorrow;
@@ -358,6 +361,9 @@ struct IntrinsicsTestExecutor
 		output.inverse = nbl::hlsl::inverse(input.inverse);
 		output.transpose = nbl::hlsl::transpose(input.transpose);
 		output.mul = nbl::hlsl::mul(input.mulLhs, input.mulRhs);
+		float32_t3x4 mat3x4 = nbl::hlsl::math::linalg::truncate<3,4,4,4,float>(input.pseudoMat3x4);
+		float32_t3x4 invMat3x4 = nbl::hlsl::math::linalg::pseudoInverse3x4(mat3x4);
+		output.pseudoInverse3x4 = nbl::hlsl::mul(invMat3x4, float32_t4(input.length, 1));
 		// TODO: fix min and max
 		output.min = nbl::hlsl::min(input.minA, input.minB);
 		output.max = nbl::hlsl::max(input.maxA, input.maxB);

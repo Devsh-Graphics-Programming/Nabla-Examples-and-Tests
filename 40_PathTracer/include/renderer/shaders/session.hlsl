@@ -21,6 +21,10 @@ struct SSensorUniforms
 #define MAX_PATH_DEPTH_LOG2 7
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxCascadeCountLog2 = MAX_CASCADE_COUNT_LOG2;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxPathDepthLog2 = MAX_PATH_DEPTH_LOG2;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxBufferDimensions = 3u << MAX_PATH_DEPTH_LOG2;
+#define MAX_SAMPLES_LOG2 10
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSamplesLog2 = MAX_SAMPLES_LOG2;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSamplesBuffer = 1u << MAX_SAMPLES_LOG2;
 
 	hlsl::float32_t2 rcpPixelSize;
 	hlsl::rwmc::SSplattingParameters splatting;
@@ -85,7 +89,7 @@ struct SensorDSBindingCounts
 #ifdef __HLSL_VERSION
 [[vk::binding(SensorDSBindings::UBO,SessionDSIndex)]] ConstantBuffer<SSensorUniforms> gSensor;
 // could be uint32_t2
-[[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gScrambleKey;
+[[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gScrambleKey;
 // could be uint32_t or even uint16_t
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t4> gSampleCount;
 // could be uint32_t2

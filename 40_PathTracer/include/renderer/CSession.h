@@ -39,7 +39,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		};
 
 		//
-		bool init(video::IGPUCommandBuffer* cb);
+		bool init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer, core::smart_refctd_ptr<video::IGPUImage> scrambleKey);
 
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
@@ -78,6 +78,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 				SImageWithViews scrambleKey = {}, sampleCount = {}, beauty = {}, rwmcCascades = {}, albedo = {}, normal = {}, motion = {}, mask = {};
 				// stores all the sensor data required
 				core::smart_refctd_ptr<video::IGPUDescriptorSet> ds = {};
+				core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer;
 			};
 			SImmutables immutables = {};
 			SSensorDynamics currentSensorState = {}, prevSensorState = {};

@@ -12,7 +12,7 @@ using namespace nbl::hlsl;
 using namespace nbl::video;
 
 //
-bool CSession::init(video::IGPUCommandBuffer* cb)
+bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer, core::smart_refctd_ptr<video::IGPUImage> scrambleKey)
 {
 	auto renderer = m_params.scene->getRenderer();
 	auto& logger = renderer->getCreationParams().logger;
@@ -47,7 +47,12 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 
 			auto mreqs = memBacked->getMemoryReqs();
 			mreqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			if (!device->allocate(mreqs,memBacked,IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE).isValid())
+			using flags_e = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
+			core::bitflag<flags_e> flags = flags_e::EMAF_NONE;
+			if (memBacked->getObjectType()==IDeviceMemoryBacked::E_OBJECT_TYPE::EOT_BUFFER &&
+				static_cast<IGPUBuffer*>(memBacked)->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT))
+				flags |= flags_e::EMAF_DEVICE_ADDRESS_BIT;
+			if (!device->allocate(mreqs,memBacked,flags).isValid())
 			{
 				logger.log("Could not allocate memory for Sensor \"%s\"'s \"%s\" in CSession::init()",ILogger::ELL_ERROR,m_params.name.c_str(),debugName.data());
 				return false;
@@ -60,7 +65,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(m_params.uniforms);
 			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
-			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT |usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
 			auto ubo = device->createBuffer(std::move(params));
 			if (!dedicatedAllocate(ubo.get(),"Sensor UBO"))
 				return false;
@@ -136,9 +141,32 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 			info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 			addWrite(binding,std::move(info));
 		};
-		immutables.scrambleKey = createImage("Scramble Key",E_FORMAT::EF_R32G32_UINT,promote<uint16_t2>(SSensorUniforms::ScrambleKeyTextureSize),1);
+
+		{
+			immutables.scrambleKey.image = scrambleKey;
+			
+			const auto& params = immutables.scrambleKey.image->getCreationParameters();
+			const auto viewFormat = params.format;
+			const auto thisFormatUsages = static_cast<core::bitflag<IGPUImage::E_USAGE_FLAGS>>(allowedFormatUsages[viewFormat]);
+			auto view = device->createImageView({
+				.subUsages = immutables.scrambleKey.image->getCreationParameters().usage & thisFormatUsages,
+				.image = immutables.scrambleKey.image,
+				.viewType = IGPUImageView::E_TYPE::ET_2D_ARRAY,
+				.format = viewFormat
+				});
+			string viewDebugName = "Scramble Key " + to_string(viewFormat) + " View";
+			if (!view)
+			{
+				logger.log("Failed to create Sensor \"%s\"'s \"%s\" in CSession::init()", ILogger::ELL_ERROR, m_params.name.c_str(), viewDebugName.c_str());
+				return {};
+			}
+			view->setObjectDebugName(viewDebugName.c_str());
+			immutables.scrambleKey.views[viewFormat] = std::move(view);
+		}
 		auto scrambleKeyView = immutables.scrambleKey.views[E_FORMAT::EF_R32G32_UINT];
 		addImageWrite(SensorDSBindings::ScrambleKey,scrambleKeyView);
+
+		immutables.sampleSequenceBuffer = sampleSequenceBuffer;
 
 		// create the render-sized images
 		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImageWithViews
@@ -216,7 +244,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb)
 		return false;
 	}
 
-// TODO: fill scramble Key with noise
+	m_active.prevSensorState.pSampleSequence = m_active.currentSensorState.pSampleSequence = immutables.sampleSequenceBuffer->getDeviceAddress();
 
 	return true;
 }
