@@ -185,19 +185,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.graphicsQueue = getGraphicsQueue(),
 					.computeQueue = getComputeQueue(),
 					.uploadQueue = getTransferUpQueue(),
-					.utilities = smart_refctd_ptr(m_utils)
-				},
-				m_assetMgr.get(),
-                {
-					.queue = getGraphicsQueue(),
 					.utilities = smart_refctd_ptr(m_utils),
-					.system = smart_refctd_ptr(m_system),
-					.localOutputCWD = localOutputCWD,
-					.sharedOutputCWD = sharedOutputCWD,
-					.owenSamplerCachePath = "owen_sampler_buffer.bin",
-					.MaxBufferDimensions = SSensorUniforms::MaxBufferDimensions,
-					.MaxSamplesBuffer = SSensorUniforms::MaxSamplesBuffer,
-                }
+					.sequenceCachePath = (sharedOutputCWD/"owen_sampler_buffer.bin").string()
+				},
+				m_assetMgr.get()
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");
@@ -440,8 +431,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				// init
 				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session, this](SIntendedSubmitInfo& info)->bool
 					{
-						const auto& params = m_renderer->getConstructionParams();
-						return session->init(info.getCommandBufferForRecording()->cmdbuf, smart_refctd_ptr(params.sampleSequence->buffer), smart_refctd_ptr(params.scrambleKey));
+						return session->init(info.getCommandBufferForRecording()->cmdbuf);
 					}
 				);
 				m_resolver->changeSession(std::move(m_sessionQueue.front()));

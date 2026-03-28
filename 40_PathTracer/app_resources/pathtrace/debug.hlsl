@@ -6,8 +6,9 @@
 #include "nbl/builtin/hlsl/path_tracing/gaussian_filter.hlsl"
 
 using namespace nbl;
-using namespace hlsl;
+using namespace nbl::hlsl;
 using namespace nbl::this_example;
+using namespace nbl::hlsl::path_tracing;
 
 [[vk::push_constant]] SDebugPushConstants pc;
 
@@ -26,33 +27,39 @@ void raygen()
     const uint32_t3 launchID = spirv::LaunchIdKHR;
     const uint32_t3 launchSize = spirv::LaunchSizeKHR;
 
-    uint32_t2 scrambleDim;
-    uint32_t dummy;
-    gScrambleKey.GetDimensions(scrambleDim.x, scrambleDim.y, dummy);
-    float32_t2 pixOffsetParam = (float32_t2)1.0 / float32_t2(scrambleDim);
+    //
+    const float32_t2 pixelSizeNDC = float32_t2(2.f,2.f)/float32_t2(launchSize.xy);
+    const float32_t2 NDC = float32_t2(launchID.xy)*pixelSizeNDC - promote<float32_t2>(1.f);
 
-    float32_t2 coord = (float32_t3(launchID) / float32_t3(launchSize)).xy;
-    const uint32_t3 texCoord = uint32_t3(launchID.x & 511, launchID.y & 511, 0);
+    //
     using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
-    randgen_type randgen = randgen_type::create(gScrambleKey[texCoord], pc.sensorDynamics.pSampleSequence);
-    float32_t3 NDC = float32_t3(coord * 2.0 - 1.0, -1.0);
+    const uint32_t2 scrambleKey = gScrambleKey[uint32_t3(launchID.xy&511,0)];
+    randgen_type randgen = randgen_type::create(scrambleKey,gScene.init.pSampleSequence);
 
-    float32_t3 acc_albedo = float32_t3(0,0,0);
-    float32_t3 acc_normal = float32_t3(0,0,0);
-    uint32_t sampleCount = pc.sensorDynamics.maxSPP;
-    float rcpSampleCount = 1.0 / float(sampleCount);
-    for (uint32_t i = 0; i < sampleCount; i++)
+    float32_t3 albedo,prev_albedo = float32_t3(0,0,0);
+    float32_t3 normal,prev_normal = float32_t3(0,0,0);
+    // read previous frame
+    if (pc.sensorDynamics.resetAccumuation==0)
     {
-        float32_t3 randVec = randgen(0u, i);
-        path_tracing::GaussianFilter<float> filter = path_tracing::GaussianFilter<float>::create(2.5, 1.5); // stochastic reconstruction filter
-        float32_t3 adjNDC = NDC;
-        adjNDC.xy += pixOffsetParam * filter.sample(randVec.xy);
-        float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, adjNDC), -1.0));
-        float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip);
+        prev_albedo = gAlbedo[launchID];
+        prev_normal = gNormal[launchID];
+    }
+    // take just one sample per dispatch
+    uint32_t sampleID = 0;
+    float rcpSampleCount = 1.f;
+    {
+        float32_t3 randVec = randgen(0u,sampleID);
+        // stochastic reconstruction filter
+        const float32_t3 adjNDC = float32_t3(NDC + GaussianFilter<float>::create(1.f,1.f).sample(randVec.xy)*pixelSizeNDC, -1.f);
 
+        // unproject
+        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, adjNDC), -1.0));
+        const float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip); // this feels off
+
+        // TODO: remove? do straight to intrinsic?
         RayDesc rayDesc;
-        rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView, origin);
-        rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView), direction));
+        rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView,origin);
+        rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView),direction));
         rayDesc.TMin = pc.sensorDynamics.nearClip;
         rayDesc.TMax = pc.sensorDynamics.tMax;
 
@@ -62,29 +69,19 @@ void raygen()
         payload.worldNormal = float32_t3(0,0,0);
         spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
 
-        acc_albedo += payload.albedo;
-        acc_normal += payload.worldNormal * 0.5 + 0.5;
+        albedo = payload.albedo;
+        normal = payload.worldNormal;
     }
-
-    const bool firstFrame = pc.sensorDynamics.rcpFramesDispatched == 1.0;
-    // clear accumulations totally if beginning a new frame
-    if (firstFrame)
-    {
-        gAlbedo[launchID] = float32_t4(acc_albedo * rcpSampleCount, 1.0);
-        gNormal[launchID] = float32_t4(acc_normal * rcpSampleCount, 1.0);
-    }
-    else
-    {
-        float32_t3 prev_albedo = gAlbedo[launchID];
-        float32_t3 delta = (acc_albedo * rcpSampleCount - prev_albedo) * pc.sensorDynamics.rcpFramesDispatched;
-        if (hlsl::any(delta > hlsl::promote<float32_t3>(1.0/1024.0)))
-            gAlbedo[launchID] = float32_t4(prev_albedo + delta, 1.0);
-
-        float32_t3 prev_normal = gNormal[launchID];
-        delta = (acc_normal * rcpSampleCount - prev_normal) * pc.sensorDynamics.rcpFramesDispatched;
-        if (hlsl::any(delta > hlsl::promote<float32_t3>(1.0/512.0)))
-            gNormal[launchID] = float32_t4(prev_normal + delta, 1.0);
-    }
+    // store albedo
+    float32_t3 delta_albedo = (albedo - prev_albedo) * rcpSampleCount;
+    if (hlsl::any(delta_albedo > hlsl::promote<float32_t3>(1.0/1023.0)))
+        gAlbedo[launchID] = float32_t4(prev_albedo + delta_albedo, 1.0);
+    // get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
+    normal = hlsl::mix(normal*0.499512+promote<float32_t3>(0.999022),normal*0.499512,promote<float32_t3>(0.f)<normal);
+    // store normal
+    float32_t3 delta_normal = (normal - prev_normal) * rcpSampleCount;
+    if (hlsl::any(delta_normal > hlsl::promote<float32_t3>(1.0/1023.0)))
+        gNormal[launchID] = float32_t4(prev_normal + delta_normal, 1.0);
     
 }
 

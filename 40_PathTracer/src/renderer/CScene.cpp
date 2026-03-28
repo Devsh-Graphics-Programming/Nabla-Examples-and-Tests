@@ -25,6 +25,7 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	const auto& raygen = mutDefaults.raygen;
 
 	CSession::SConstructionParams params = {std::move(_params)};
+	params.scrambleKey = m_construction.renderer->getConstructionParams().scrambleKey;
 	params.scene = smart_refctd_ptr<const CScene>(this);
 	params.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY};
 	params.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight};

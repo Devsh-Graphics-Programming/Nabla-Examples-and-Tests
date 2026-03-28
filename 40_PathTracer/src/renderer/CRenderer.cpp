@@ -40,6 +40,15 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 {
 	if (!_params)
 		return nullptr;
+
+	// get started with the sequence ASAP
+	auto* const assMan = _params.assMan;
+	auto sequenceFuture = std::async(std::launch::async,[assMan](std::string&& cachePath)->auto
+		{
+			return nbl::examples::CCachedOwenScrambledSequence::create({.cachePath=std::move(cachePath),.assMan=assMan,.header={.maxSamplesLog2=12,.maxDimensions=96}});
+		},_params.sequenceCachePath
+	);
+
 	SConstructorParams params = {std::move(_params)};
 
 	//
@@ -264,13 +273,8 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 			return nullptr;
 	}
 
+	// create scramble key filled with noise
 	{
-		// storage buffer with sobol sequence
-		params.sampleSequence = examples::ScrambleSequence::create(_params.sampleSequenceCreateParams);
-	}
-
-	{
-		// create scramble key filled with noise
 		asset::ICPUImage::SCreationParams info;
 		info.format = asset::E_FORMAT::EF_R32G32_UINT;
 		info.type = asset::ICPUImage::ET_2D;
@@ -358,27 +362,27 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		};
 
 		{
-			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			auto sequence = sequenceFuture.get();
+			auto* const seqBufferCPU = sequence->getBuffer();
+
 			CAssetConverter::SConvertParams convparams = {};
 			convparams.transfer = &transfer;
 			convparams.utilities = params.utilities.get();
-			const ICPUImage* cpuImgs[] = { scrambleMapCPU.get() };
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = cpuImgs;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = {&seqBufferCPU,1};
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = {&scrambleMapCPU.get(),1};
 			// assert that we don't need to provide patches
 			assert(cpuImgs[0]->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+
 			auto reservation = converter->reserve(inputs);
-
-			auto gpuImg = reservation.getGPUObjects<ICPUImage>().front().value;
-			if (!params.scrambleKey)
-				logger.log("Failed to convert scramble key image into an IGPUImage handle", ILogger::ELL_ERROR);
-
 			auto result = reservation.convert(convparams);
-			if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
+			if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS)
+			{
 				logger.get()->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
 				std::exit(-1);
 			}
 
-			params.scrambleKey = gpuImg;
+			params.sobolSequence = reservation.getGPUObjects<ICPUBuffer>().front().value;
+			params.scrambleKey = reservation.getGPUObjects<ICPUImage>().front().value;
 		}
 	}
 
@@ -528,7 +532,8 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		{
 			tmpBuffers.ubo = ICPUBuffer::create({{.size=sizeof(SSceneUniforms),.usage=BasicBufferUsages|buffer_usage_e::EUF_UNIFORM_BUFFER_BIT},nullptr});
 			auto& uniforms = *reinterpret_cast<SSceneUniforms*>(tmpBuffers.ubo->getPointer());
-			uniforms.init = {}; // TODO: fill with stuff
+			uniforms.init = {};
+			uniforms.init.pSampleSequence = m_construction.sobolSequence->getDeviceAddress();
 			tmpBuffers.ubo->setContentHash(tmpBuffers.ubo->computeContentHash());
 		}
 		// SBT
@@ -835,9 +840,6 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	const auto& sessionParams = session->getConstructionParams();
 	auto* const device = getDevice();
 
-	// TODO: reset m_framesDispatched to 0 every time camera moves considerable amount
-	m_framesDispatched++;
-
 	if (m_frameIx>=SCachedConstructionParams::FramesInFlight)
 	{
 		const ISemaphore::SWaitInfo cbDonePending[] =
@@ -870,7 +872,6 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			case CSession::RenderMode::Debug:
 			{
 				SDebugPushConstants pc = {sessionResources.currentSensorState};
-				pc.sensorDynamics.rcpFramesDispatched = 1.0 / float(m_framesDispatched);
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}

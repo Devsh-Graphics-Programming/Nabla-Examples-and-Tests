@@ -13,12 +13,14 @@ struct SSceneUniforms
 	struct SInit
 	{
 		//
+		uint64_t pSampleSequence;
 //		bda_t<QuantizedSequence> pQuantizedSequence;
+		// TODO: later when we can save the envmap values to a buffer
 		// because the PDF is rescaled to log2(luma)/log2(Max)*255
 		// and you get it out as `exp2(texValue)*factor`
-		hlsl::float32_t envmapPDFNormalizationFactor;
-		hlsl::float16_t envmapScale;
-		uint16_t unused;
+		//hlsl::float32_t envmapPDFNormalizationFactor;
+		//hlsl::float16_t envmapScale;
+		//uint16_t unused;
 	} init;
 };
 

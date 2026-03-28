@@ -84,13 +84,13 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			video::CThreadSafeQueueAdapter* uploadQueue = nullptr;
 			//
 			core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
+			std::string sequenceCachePath;
 			// can be null
 			system::logger_opt_smart_ptr logger = nullptr;
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
 			asset::IAssetManager* assMan;
-			nbl::examples::ScrambleSequence::SCreationParams sampleSequenceCreateParams;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -124,8 +124,9 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
 
+			//
+			core::smart_refctd_ptr<video::IGPUBuffer> sobolSequence;
 			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
-			core::smart_refctd_ptr<nbl::examples::ScrambleSequence> sampleSequence;
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
@@ -156,38 +157,13 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
     protected:
 		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams
 		{
-
-			// Each Atom of the sample sequence provides 3N dimensions (3 for BxDF, 3 for NEE, etc.)
-			// Then Atoms are ordered by sampleID, then dimension (cache will be fully trashed by tracing TLASes until next bounce) 
-#if 0	
-			// semi persistent data
-			struct SampleSequence
-			{
-				public:
-					static inline constexpr auto QuantizedDimensionsBytesize = sizeof(uint64_t);
-					SampleSequence() : bufferView() {}
-
-					// one less because first path vertex uses a different sequence 
-					static inline uint32_t computeQuantizedDimensions(uint32_t maxPathDepth) {return (maxPathDepth-1)*SAMPLING_STRATEGY_COUNT;}
-					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount);
-
-					// from cache
-					void createBufferView(nbl::video::IVideoDriver* driver, nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer>&& buff);
-					// regenerate
-					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createBufferView(nbl::video::IVideoDriver* driver, uint32_t quantizedDimensions, uint32_t sampleCount);
-
-					auto getBufferView() const {return bufferView;}
-
-				private:
-					nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
-			} sampleSequence;
-		
+#if 0		
 			// Resources used for envmap sampling
 			nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 #endif
 		};
 		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)),
-			m_frameIx(m_construction.semaphore->getCounterValue()), m_framesDispatched(0) {}
+			m_frameIx(m_construction.semaphore->getCounterValue()) {}
 		virtual inline ~CRenderer() {}
 
 		static core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader_impl(asset::IAssetManager* assMan, const core::string& key, system::logger_opt_ptr logger);
@@ -195,7 +171,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		SCachedCreationParams m_creation;
 		SCachedConstructionParams m_construction;
 		uint64_t m_frameIx;
-		uint32_t m_framesDispatched;
 };
 
 }

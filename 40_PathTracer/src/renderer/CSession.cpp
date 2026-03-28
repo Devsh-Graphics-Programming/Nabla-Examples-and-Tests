@@ -12,7 +12,7 @@ using namespace nbl::hlsl;
 using namespace nbl::video;
 
 //
-bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::IGPUBuffer> sampleSequenceBuffer, core::smart_refctd_ptr<video::IGPUImage> scrambleKey)
+bool CSession::init(video::IGPUCommandBuffer* cb)
 {
 	auto renderer = m_params.scene->getRenderer();
 	auto& logger = renderer->getCreationParams().logger;
@@ -142,9 +142,7 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 			addWrite(binding,std::move(info));
 		};
 
-		{
-			immutables.scrambleKey.image = scrambleKey;
-			
+		{			
 			const auto& params = immutables.scrambleKey.image->getCreationParameters();
 			const auto viewFormat = params.format;
 			const auto thisFormatUsages = static_cast<core::bitflag<IGPUImage::E_USAGE_FLAGS>>(allowedFormatUsages[viewFormat]);
@@ -165,8 +163,6 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 		}
 		auto scrambleKeyView = immutables.scrambleKey.views[E_FORMAT::EF_R32G32_UINT];
 		addImageWrite(SensorDSBindings::ScrambleKey,scrambleKeyView);
-
-		immutables.sampleSequenceBuffer = sampleSequenceBuffer;
 
 		// create the render-sized images
 		auto createScreenSizedImage = [&]<typename... Args>(const std::string_view debugName, const E_FORMAT format, Args&&... args)->SImageWithViews
@@ -244,8 +240,6 @@ bool CSession::init(video::IGPUCommandBuffer* cb, core::smart_refctd_ptr<video::
 		return false;
 	}
 
-	m_active.prevSensorState.pSampleSequence = m_active.currentSensorState.pSampleSequence = immutables.sampleSequenceBuffer->getDeviceAddress();
-
 	return true;
 }
 
@@ -317,7 +311,11 @@ bool CSession::reset(const SSensorDynamics& newVal, IGPUCommandBuffer* cb)
 	success = success && cb->pipelineBarrier(asset::EDF_NONE,{.memBarriers=after});
 
 	if (success)
-		m_active.prevSensorState = m_active.currentSensorState = newVal;
+	{
+		m_active.currentSensorState = newVal;
+		m_active.currentSensorState.resetAccumuation = true;
+		m_active.prevSensorState = m_active.currentSensorState;
+	}
 	return success;
 }
 
@@ -328,6 +326,8 @@ bool CSession::update(const SSensorDynamics& newVal)
 
 	m_active.prevSensorState = m_active.currentSensorState;
 	m_active.currentSensorState = newVal;
+	// TODO: reset m_framesDispatched to 0 every time camera moves considerable amount
+	m_active.currentSensorState.resetAccumuation = false;
 	return true;
 }
 

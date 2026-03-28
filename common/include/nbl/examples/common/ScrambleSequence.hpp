@@ -1,4 +1,4 @@
-// Copyright (C) 2023-2026 - DevSH Graphics Programming Sp. z O.O.
+﻿// Copyright (C) 2023-2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _NBL_EXAMPLES_COMMON_SCRAMBLE_SEQUENCE_HPP_INCLUDED_
@@ -10,119 +10,125 @@
 namespace nbl::examples
 {
 
-class ScrambleSequence : public core::IReferenceCounted
+// Each Atom of the Quantized Sample Sequence provides 3N dimensions (3 for BxDF, 3 for NEE, etc.)
+// If we implement Heitz's Ranking and Scrambling Blue noise then each pixel gets its own scramble (texture read) - thats fine
+// but it also gets a rank scramble, meaning that for the same sample ID within a progressive render, the sampleID will be scrambled.
+// Since the sequence can be several MB, it would make sense to keep samples together first, then dimensions.
+// Then Atoms are ordered by sampleID, then dimension (cache will be fully trashed by tracing TLASes until next bounce) 
+class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 {
-public:
-    struct SCreationParams
-    {
-		video::CThreadSafeQueueAdapter* queue = nullptr;
-		core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
-		core::smart_refctd_ptr<system::ISystem> system = nullptr;
-		system::path localOutputCWD;
-		system::path sharedOutputCWD;
-        std::string owenSamplerCachePath = "";
-
-		uint32_t MaxBufferDimensions;
-		uint32_t MaxSamplesBuffer;
-    };
-
-    static core::smart_refctd_ptr<ScrambleSequence> create(const SCreationParams& params)
-    {
-		auto createBufferFromCacheFile = [&](
-			system::path filename,
-			size_t bufferSize,
-			void* data,
-			core::smart_refctd_ptr<asset::ICPUBuffer>& buffer
-			) -> std::pair<core::smart_refctd_ptr<system::IFile>, bool>
-			{
-				system::ISystem::future_t<core::smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
-				system::ISystem::future_t<size_t> owenSamplerFileReadFuture;
-				size_t owenSamplerFileBytesRead;
-
-				params.system->createFile(owenSamplerFileFuture, params.localOutputCWD / filename, system::IFile::ECF_READ);
-				core::smart_refctd_ptr<system::IFile> owenSamplerFile;
-
-				if (owenSamplerFileFuture.wait())
-				{
-					owenSamplerFileFuture.acquire().move_into(owenSamplerFile);
-					if (!owenSamplerFile)
-						return { nullptr, false };
-
-					owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, bufferSize);
-					if (owenSamplerFileReadFuture.wait())
-					{
-						owenSamplerFileReadFuture.acquire().move_into(owenSamplerFileBytesRead);
-
-						if (owenSamplerFileBytesRead < bufferSize)
-						{
-							buffer = asset::ICPUBuffer::create({ sizeof(uint32_t) * bufferSize });
-							return { owenSamplerFile, false };
-						}
-
-						buffer = asset::ICPUBuffer::create({ { sizeof(uint32_t) * bufferSize }, data });
-					}
-				}
-
-				return { owenSamplerFile, true };
-			};
-		auto writeBufferIntoCacheFile = [&](core::smart_refctd_ptr<system::IFile> file, size_t bufferSize, void* data)
-			{
-				system::ISystem::future_t<size_t> owenSamplerFileWriteFuture;
-				size_t owenSamplerFileBytesWritten;
-
-				file->write(owenSamplerFileWriteFuture, data, 0, bufferSize);
-				if (owenSamplerFileWriteFuture.wait())
-					owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
-			};
-
-		const uint32_t quantizedDimensions = params.MaxBufferDimensions / 3u;
-		const size_t bufferSize = quantizedDimensions * params.MaxSamplesBuffer;
-		using sequence_type = hlsl::sampling::QuantizedSequence<hlsl::uint32_t2, 3>;
-		std::vector<sequence_type> data(bufferSize);
-		core::smart_refctd_ptr<asset::ICPUBuffer> sampleSeq;
-
-		auto cacheBufferResult = createBufferFromCacheFile(params.sharedOutputCWD / params.owenSamplerCachePath, bufferSize, data.data(), sampleSeq);
-		if (!cacheBufferResult.second)
+	public:
+		struct SCacheHeader
 		{
-			core::OwenSampler sampler(params.MaxBufferDimensions, 0xdeadbeefu);
+			constexpr static inline const char* Magic = "NBL_LDS_CACHE";
+			constexpr static inline size_t MagicLen = std::string_view(Magic).size();
 
-			asset::ICPUBuffer::SCreationParams bufparams = {};
-			bufparams.size = quantizedDimensions * params.MaxSamplesBuffer * sizeof(sequence_type);
-			sampleSeq = asset::ICPUBuffer::create(std::move(bufparams));
+			uint32_t maxSamplesLog2 : 5 = 24;
+			uint32_t maxDimensions : 27 = 96;
+		};
+		constexpr static inline size_t HeaderSize = sizeof(SCacheHeader)+sizeof(SCacheHeader);
 
-			auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
-			for (auto dim = 0u; dim < params.MaxBufferDimensions; dim++)
-				for (uint32_t i = 0; i < params.MaxSamplesBuffer; i++)
+		struct SCreationParams
+		{
+			inline operator bool() const {return assMan && !cachePath.empty();}
+
+			std::string cachePath = "";
+			asset::IAssetManager* assMan = nullptr;
+			SCacheHeader header = {};
+		};
+
+		static inline core::smart_refctd_ptr<CCachedOwenScrambledSequence> create(const SCreationParams& params)
+		{
+			if (!params)
+				return nullptr;
+
+			using namespace nbl::core;
+			using namespace nbl::system;
+			using namespace nbl::asset;
+			using namespace nbl::video;
+			// for 1024 spp renders `uint32_t` would have been enough
+			using sequence_type = hlsl::sampling::QuantizedSequence<hlsl::uint32_t2,3>;
+
+			const uint32_t quantizedDimensions = (params.header.maxDimensions + 2u) / 3u;
+
+			ICPUBuffer::SCreationParams bufparams = {};
+			bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			bufparams.size = quantizedDimensions * sizeof(sequence_type) << params.header.maxSamplesLog2;
+			auto buffer = ICPUBuffer::create(std::move(bufparams));
+			if (!buffer)
+				return nullptr;
+			auto* const out = reinterpret_cast<sequence_type*>(buffer->getPointer());
+
+			// read cache file
+			SCacheHeader oldHeader = {.maxSamplesLog2=0,.maxDimensions=0};
+			smart_refctd_ptr<const ICPUBuffer> oldBuffer;
+			{
+				IAssetLoader::SAssetLoadParams loadParams = {};
+				loadParams.cacheFlags = IAssetLoader::E_CACHING_FLAGS::ECF_DUPLICATE_REFERENCES;
+				auto bundle = params.assMan->getAsset(params.cachePath,{});
+				if (const auto contents=bundle.getContents(); contents.size() && bundle.getAssetType()==IAsset::E_TYPE::ET_BUFFER)
+				{
+					oldBuffer = IAsset::castDown<ICPUBuffer>(*contents.begin());
+					// check the magic number
+					if (oldBuffer->getSize()<HeaderSize && memcmp(buffer->getPointer(),SCacheHeader::Magic,SCacheHeader::MagicLen)==0)
+						oldHeader = *reinterpret_cast<const SCacheHeader*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+SCacheHeader::MagicLen);
+				}
+			}
+
+			auto* const system = params.assMan->getSystem();
+			system->deleteFile(params.cachePath);
+
+			// generate missing bits of the sequence
+			{
+				core::OwenSampler sampler(params.header.maxDimensions,0xdeadbeefu);
+				const auto* const in = reinterpret_cast<const sequence_type*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+HeaderSize);
+				// generate backwards so mersenne twister gets used up the same way
+				for (uint32_t dim=params.header.maxDimensions-1; dim<params.header.maxDimensions; dim--)
 				{
 					const uint32_t quant_dim = dim / 3u;
-					const uint32_t offset = dim % 3u;
-					auto& seq = out[i * quantizedDimensions + quant_dim];
-					const uint32_t sample = sampler.sample(dim, i);
-					seq.set(offset, sample);
+					const uint32_t quant_comp = dim % 3;
+					auto* const outDimSamples = out+(quant_dim<<params.header.maxSamplesLog2);
+					const uint32_t firstInvalidSample = dim<oldHeader.maxDimensions ? (1u<<oldHeader.maxSamplesLog2):0u;
+					// copy samples encountered
+					memcpy(outDimSamples,in+(quant_dim<<oldHeader.maxSamplesLog2),sizeof(sequence_type)*firstInvalidSample);
+					// generate samples that werent in the original sequence
+					for (uint32_t i=firstInvalidSample; (i>>params.header.maxSamplesLog2)==0; i++)
+						outDimSamples[i].set(quant_comp,sampler.sample(dim,i));
 				}
-			if (cacheBufferResult.first)
-				writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
+			}
+
+			IFile::success_t succ;
+			{
+				smart_refctd_ptr<IFile> file;
+				{
+					ISystem::future_t<smart_refctd_ptr<IFile>> future;
+					system->createFile(future,params.cachePath,IFile::ECF_WRITE);
+					if (auto lock=future.acquire(); lock)
+						lock.move_into(file);
+				}
+				if (file)
+				{
+					file->write(succ,SCacheHeader::Magic,0,SCacheHeader::MagicLen);
+					if (succ)
+					{
+						file->write(succ,&params.header,SCacheHeader::MagicLen,sizeof(params.header));
+						if (succ)
+							file->write(succ,out,HeaderSize,buffer->getSize());
+					}
+				}
+			}
+			if (!succ)
+				system->deleteFile(params.cachePath);
+
+			return core::smart_refctd_ptr<CCachedOwenScrambledSequence>(new CCachedOwenScrambledSequence(std::move(buffer)));
 		}
 
-		video::IGPUBuffer::SCreationParams bufparams = {};
-		bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-		bufparams.size = bufferSize;
+		inline const asset::ICPUBuffer* getBuffer() const {return buffer.get();}
 
-		core::smart_refctd_ptr<video::IGPUBuffer> buffer;
-		params.utilities->createFilledDeviceLocalBufferOnDedMem(
-			video::SIntendedSubmitInfo{ .queue = params.queue },
-			std::move(bufparams),
-			sampleSeq->getPointer()
-		).move_into(buffer);
+	private:
+		inline CCachedOwenScrambledSequence(core::smart_refctd_ptr<asset::ICPUBuffer>&& _buffer) : buffer(std::move(_buffer)) {}
 
-		buffer->setObjectDebugName("Sequence buffer");
-
-		return core::smart_refctd_ptr<ScrambleSequence>(new ScrambleSequence(std::move(buffer)));
-    }
-
-    ScrambleSequence(core::smart_refctd_ptr<video::IGPUBuffer>&& buffer) : buffer(std::move(buffer)) {}
-
-    core::smart_refctd_ptr<video::IGPUBuffer> buffer;
+		core::smart_refctd_ptr<asset::ICPUBuffer> buffer;
 };
 
 }
