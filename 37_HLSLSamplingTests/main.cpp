@@ -211,91 +211,29 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       const uint32_t testBatchCount = 64; // 64 * workgroupSize = 4096 tests per sampler
 
 
+      // generic lambda to run a GPU sampler test
+      auto runSamplerTest = [&]<typename Tester>(const char* testName, auto spirvKey, const char* logFile)
+      {
+         m_logger->log("Running %s tests...", ILogger::ELL_INFO, testName);
+         auto data = createSetupData<Tester>(spirvKey);
+         Tester tester(testBatchCount, workgroupSize);
+         tester.setupPipeline(data);
+         pass &= tester.performTestsAndVerifyResults(logFile);
+      };
+
       // --- Sampler tests ---
-      {
-         m_logger->log("Running Linear sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CLinearTester>(nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()));
-         CLinearTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("LinearTestLog.txt");
-      }
-      {
-         m_logger->log("Running Bilinear sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CBilinearTester>(nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()));
-         CBilinearTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("BilinearTestLog.txt");
-      }
-      {
-         m_logger->log("Running UniformHemisphere sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CUniformHemisphereTester>(nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()));
-         CUniformHemisphereTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("UniformHemisphereTestLog.txt");
-      }
-      {
-         m_logger->log("Running UniformSphere sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CUniformSphereTester>(nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()));
-         CUniformSphereTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("UniformSphereTestLog.txt");
-      }
-      {
-         m_logger->log("Running ProjectedHemisphere sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CProjectedHemisphereTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()));
-         CProjectedHemisphereTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("ProjectedHemisphereTestLog.txt");
-      }
-      {
-         m_logger->log("Running ProjectedSphere sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CProjectedSphereTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()));
-         CProjectedSphereTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("ProjectedSphereTestLog.txt");
-      }
-      {
-         m_logger->log("Running ConcentricMapping sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CConcentricMappingTester>(nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()));
-         CConcentricMappingTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("ConcentricMappingTestLog.txt");
-      }
-      {
-         m_logger->log("Running PolarMapping sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CPolarMappingTester>(nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()));
-         CPolarMappingTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("PolarMappingTestLog.txt");
-      }
-      {
-         m_logger->log("Running BoxMullerTransform sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CBoxMullerTransformTester>(nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()));
-         CBoxMullerTransformTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("BoxMullerTransformTestLog.txt");
-      }
-      {
-         m_logger->log("Running ProjectedSphericalTriangle sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CProjectedSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()));
-         CProjectedSphericalTriangleTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("ProjectedSphericalTriangleTestLog.txt");
-      }
-      {
-         m_logger->log("Running SphericalRectangle sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CSphericalRectangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()));
-         CSphericalRectangleTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("SphericalRectangleTestLog.txt");
-      }
-      {
-         m_logger->log("Running SphericalTriangle tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()));
-         CSphericalTriangleTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("SphericalTriangleTestLog.txt");
-      }
+      runSamplerTest.operator()<CLinearTester>("Linear sampler", nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()), "LinearTestLog.txt");
+      runSamplerTest.operator()<CBilinearTester>("Bilinear sampler", nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()), "BilinearTestLog.txt");
+      runSamplerTest.operator()<CUniformHemisphereTester>("UniformHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()), "UniformHemisphereTestLog.txt");
+      runSamplerTest.operator()<CUniformSphereTester>("UniformSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()), "UniformSphereTestLog.txt");
+      runSamplerTest.operator()<CProjectedHemisphereTester>("ProjectedHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()), "ProjectedHemisphereTestLog.txt");
+      runSamplerTest.operator()<CProjectedSphereTester>("ProjectedSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()), "ProjectedSphereTestLog.txt");
+      runSamplerTest.operator()<CConcentricMappingTester>("ConcentricMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()), "ConcentricMappingTestLog.txt");
+      runSamplerTest.operator()<CPolarMappingTester>("PolarMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()), "PolarMappingTestLog.txt");
+      runSamplerTest.operator()<CBoxMullerTransformTester>("BoxMullerTransform sampler", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()), "BoxMullerTransformTestLog.txt");
+      runSamplerTest.operator()<CProjectedSphericalTriangleTester>("ProjectedSphericalTriangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()), "ProjectedSphericalTriangleTestLog.txt");
+      runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
+      runSamplerTest.operator()<CSphericalTriangleTester>("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()), "SphericalTriangleTestLog.txt");
 
       // --- Discrete table construction (CPU) ---
       {
@@ -303,22 +241,10 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          CDiscreteTableTester tableTester(m_logger.get());
          pass &= tableTester.run();
       }
-      // --- Alias table sampler (GPU) ---
-      {
-         m_logger->log("Running AliasTable GPU sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CAliasTableGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()));
-         CAliasTableGPUTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("AliasTableTestLog.txt");
-      }
-      // --- Cumulative probability sampler (GPU) ---
-      {
-         m_logger->log("Running CumulativeProbability GPU sampler tests...", ILogger::ELL_INFO);
-         auto data = createSetupData<CCumulativeProbabilityGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()));
-         CCumulativeProbabilityGPUTester tester(testBatchCount, workgroupSize);
-         tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults("CumulativeProbabilityTestLog.txt");
-      }
+
+      // --- GPU table sampler tests ---
+      runSamplerTest.operator()<CAliasTableGPUTester>("AliasTable GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()), "AliasTableTestLog.txt");
+      runSamplerTest.operator()<CCumulativeProbabilityGPUTester>("CumulativeProbability GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()), "CumulativeProbabilityTestLog.txt");
 
       if (pass)
          m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
