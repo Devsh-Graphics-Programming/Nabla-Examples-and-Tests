@@ -28,7 +28,7 @@ struct ConcentricMappingTestExecutor
 		{
 			sampling::ConcentricMapping<float32_t>::cache_type cache;
 			output.mapped = sampling::ConcentricMapping<float32_t>::generate(input.u, cache);
-			output.forwardPdf = sampling::ConcentricMapping<float32_t>::forwardPdf(cache);
+			output.forwardPdf = sampling::ConcentricMapping<float32_t>::forwardPdf(output.mapped, cache);
 		}
 		{
 			output.inverted = sampling::ConcentricMapping<float32_t>::generateInverse(output.mapped);

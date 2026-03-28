@@ -29,7 +29,7 @@ void main()
 		sampling::SphericalTriangle<float32_t>::cache_type cache;
 		float32_t3 generated = sampler.generate(u, cache);
 		accDir ^= asuint(generated);
-		accPdf ^= asuint(sampler.forwardPdf(cache));
+		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
 	}
 	SphericalTriangleTestResults result = (SphericalTriangleTestResults)0;
 	result.generated = asfloat(accDir);

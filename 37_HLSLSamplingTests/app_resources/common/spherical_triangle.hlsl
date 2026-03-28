@@ -43,7 +43,7 @@ struct SphericalTriangleTestExecutor
 		{
 			sampling::SphericalTriangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.forwardPdf = sampler.forwardPdf(cache);
+			output.forwardPdf = sampler.forwardPdf(output.generated, cache);
 		}
 
 		// Inverse: v -> u'

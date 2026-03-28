@@ -36,7 +36,7 @@ struct ProjectedSphericalTriangleTestExecutor
 		{
 			sampling::ProjectedSphericalTriangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.forwardPdf = sampler.forwardPdf(cache);
+			output.forwardPdf = sampler.forwardPdf(output.generated, cache);
 		}
 		// Test backwardPdf at the triangle centroid: a deterministic interior point computed
 		// from only basic arithmetic + sqrt (IEEE 754 exact), so CPU and GPU agree bit-exactly.

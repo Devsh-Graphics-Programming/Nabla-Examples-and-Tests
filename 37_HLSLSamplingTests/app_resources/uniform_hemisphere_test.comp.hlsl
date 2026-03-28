@@ -21,8 +21,9 @@ void main()
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
 		sampling::UniformHemisphere<float32_t> sampler;
 		sampling::UniformHemisphere<float32_t>::cache_type cache;
-		acc ^= asuint(sampler.generate(u, cache));
-		acc ^= asuint(sampler.forwardPdf(cache));
+		float32_t3 generated = sampler.generate(u, cache);
+		acc ^= asuint(generated);
+		acc ^= asuint(sampler.forwardPdf(generated, cache));
 	}
 	UniformHemisphereTestResults result = (UniformHemisphereTestResults)0;
 	result.generated = asfloat(acc);

@@ -21,8 +21,9 @@ void main()
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
 		sampling::UniformSphere<float32_t> sampler;
 		sampling::UniformSphere<float32_t>::cache_type cache;
-		acc ^= asuint(sampler.generate(u, cache));
-		acc ^= asuint(sampler.forwardPdf(cache));
+		float32_t3 generated = sampler.generate(u, cache);
+		acc ^= asuint(generated);
+		acc ^= asuint(sampler.forwardPdf(generated, cache));
 	}
 	UniformSphereTestResults result = (UniformSphereTestResults)0;
 	result.generated = asfloat(acc);

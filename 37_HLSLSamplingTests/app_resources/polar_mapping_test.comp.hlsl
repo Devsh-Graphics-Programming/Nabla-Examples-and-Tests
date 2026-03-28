@@ -21,8 +21,9 @@ void main()
 	{
 		float32_t2 u = float32_t2(rng(), rng()) * toFloat;
 		sampling::PolarMapping<float32_t>::cache_type cache;
-		acc ^= asuint(sampling::PolarMapping<float32_t>::generate(u, cache));
-	   accPdf ^= asuint(sampling::PolarMapping<float32_t>::forwardPdf(cache));
+		float32_t2 generated = sampling::PolarMapping<float32_t>::generate(u, cache);
+		acc ^= asuint(generated);
+		accPdf ^= asuint(sampling::PolarMapping<float32_t>::forwardPdf(generated, cache));
 	}
 	PolarMappingTestResults result = (PolarMappingTestResults)0;
 	result.mapped = asfloat(acc);

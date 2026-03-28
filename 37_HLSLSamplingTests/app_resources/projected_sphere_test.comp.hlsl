@@ -22,8 +22,9 @@ void main()
 		float32_t3 u = float32_t3(rng(), rng(), rng()) * toFloat;
 		sampling::ProjectedSphere<float32_t> sampler;
 		sampling::ProjectedSphere<float32_t>::cache_type cache;
-		acc ^= asuint(sampler.generate(u, cache));
-		accPdf ^= asuint(sampler.forwardPdf(cache));
+		float32_t3 generated = sampler.generate(u, cache);
+		acc ^= asuint(generated);
+		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
 	}
 	ProjectedSphereTestResults result = (ProjectedSphereTestResults)0;
 	result.generated = asfloat(acc);

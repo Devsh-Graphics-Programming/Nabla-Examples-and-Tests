@@ -59,9 +59,9 @@ struct AliasTableTestExecutor
 
 		AliasTestSampler::cache_type cache;
 		output.generatedIndex = sampler.generate(input.u, cache);
-		output.forwardPdf = sampler.forwardPdf(cache);
+		output.forwardPdf = sampler.forwardPdf(output.generatedIndex, cache);
 		output.backwardPdf = sampler.backwardPdf(output.generatedIndex);
-		output.forwardWeight = sampler.forwardWeight(cache);
+		output.forwardWeight = sampler.forwardWeight(output.generatedIndex, cache);
 		output.backwardWeight = sampler.backwardWeight(output.generatedIndex);
 	}
 };

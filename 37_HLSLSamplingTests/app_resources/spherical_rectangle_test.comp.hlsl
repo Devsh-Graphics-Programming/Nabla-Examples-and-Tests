@@ -30,8 +30,9 @@ main()
    {
       float32_t2 u = float32_t2(rng(), rng()) * toFloat;
       sampling::SphericalRectangle<float32_t>::cache_type cache;
-      acc ^= asuint(sampler.generate(u, cache));
-      accPdf ^= asuint(sampler.forwardPdf(cache));
+      float32_t2 generated = sampler.generate(u, cache);
+      acc ^= asuint(generated);
+      accPdf ^= asuint(sampler.forwardPdf(generated, cache));
    }
    SphericalRectangleTestResults result = (SphericalRectangleTestResults)0;
    result.generated = asfloat(acc);
