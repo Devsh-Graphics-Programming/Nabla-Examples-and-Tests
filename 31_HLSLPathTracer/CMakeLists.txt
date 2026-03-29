@@ -47,6 +47,8 @@ if(NBL_BUILD_IMGUI)
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/include"
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/hlsl"
 		-isystem "${NBL_ROOT_PATH}/include" # workaround, the same thing like in IES I will address this issue later
+		$<$<CONFIG:Debug>:-O1experimental>
+		$<$<CONFIG:RelWithDebInfo>:-O1experimental>
 		-T "lib_${SM}"
 		-Wno-conversion
 		-Wno-sign-conversion
