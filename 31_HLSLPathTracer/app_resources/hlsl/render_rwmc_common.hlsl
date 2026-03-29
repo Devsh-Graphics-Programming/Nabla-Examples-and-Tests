@@ -1,6 +1,7 @@
 #ifndef _PATHTRACER_EXAMPLE_RENDER_RWMC_COMMON_INCLUDED_
 #define _PATHTRACER_EXAMPLE_RENDER_RWMC_COMMON_INCLUDED_
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "rwmc_common.hlsl"
 #include "nbl/builtin/hlsl/rwmc/SplattingParameters.hlsl"
 #include "render_common.hlsl"
 

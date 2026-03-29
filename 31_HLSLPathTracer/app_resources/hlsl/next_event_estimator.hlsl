@@ -9,7 +9,6 @@ using namespace hlsl;
 template<typename T, ProceduralShapeType PST, NEEPolygonMethod PPM>
 struct ShapeSampling;
 
-// Sphere only supports solid angle
 template<typename T, NEEPolygonMethod PPM>
 struct ShapeSampling<T, PST_SPHERE, PPM>
 {
@@ -304,10 +303,26 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
     Shape<T, PST_RECTANGLE> rect;
 };
 
-// PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_TRIANGLE
+template<ProceduralShapeType PST, NEEPolygonMethod PPM>
+struct EffectivePolygonMethod
+{
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM;
+};
+
+template<NEEPolygonMethod PPM>
+struct EffectivePolygonMethod<PST_SPHERE, PPM>
+{
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
+};
+
+template<>
+struct EffectivePolygonMethod<PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+{
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
+};
 
 
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM>
+template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
 struct NextEventEstimator
 {
     using scalar_type = typename Ray::scalar_type;
@@ -324,7 +339,6 @@ struct NextEventEstimator
     using tolerance_method_type = Tolerance<scalar_type>;
 
     using shape_type = Shape<scalar_type, PST>;
-    using shape_sampling_type = ShapeSampling<scalar_type, PST, PPM>;
 
     struct SampleQuotientReturn
     {
@@ -344,24 +358,23 @@ struct NextEventEstimator
         object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
     using sample_quotient_return_type = SampleQuotientReturn;
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod EffectivePPM = EffectivePolygonMethod<PST, PPM>::value;
+    using shape_sampling_type = ShapeSampling<scalar_type, PST, EffectivePPM>;
 
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type sphere = scene.getSphere(lightObjectID);
-        return shape_sampling_type::create(sphere);
+        return scene.getSphere(lightObjectID);
     }
     template<typename C=bool_constant<PST==PST_TRIANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_TRIANGLE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type tri = scene.getTriangle(lightObjectID);
-        return shape_sampling_type::create(tri);
+        return scene.getTriangle(lightObjectID);
     }
     template<typename C=bool_constant<PST==PST_RECTANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_RECTANGLE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type rect = scene.getRectangle(lightObjectID);
-        return shape_sampling_type::create(rect);
+        return scene.getRectangle(lightObjectID);
     }
 
     scalar_type deferred_pdf(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
@@ -369,7 +382,8 @@ struct NextEventEstimator
         if (lightID.id == 0u)
             return scalar_type(0.0);    // env light pdf=0
         const light_type light = lights[0u];
-        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
+        const shape_type shape = __getShape(light.objectID.id, scene);
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
         return sampling.template deferredPdf<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
@@ -381,10 +395,11 @@ struct NextEventEstimator
         // use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
         // which caused frame times to increase from 16ms to 85ms
         const light_type light = lights[0u];
-        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
+        const shape_type shape = __getShape(light.objectID.id, scene);
 
         sample_quotient_return_type retval;
         scalar_type pdf, newRayMaxT;
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, xi);
 
         const vector3_type N = interaction.getN();

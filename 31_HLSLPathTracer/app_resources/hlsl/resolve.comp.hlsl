@@ -47,7 +47,8 @@ int32_t2 getImageExtents()
 }
 
 [numthreads(ResolveWorkgroupSizeX, ResolveWorkgroupSizeY, 1)]
-void main(uint32_t3 threadID : SV_DispatchThreadID)
+[shader("compute")]
+void resolve(uint32_t3 threadID : SV_DispatchThreadID)
 {
     const int32_t2 coords = int32_t2(threadID.x, threadID.y);
     const int32_t2 imageExtents = getImageExtents();
