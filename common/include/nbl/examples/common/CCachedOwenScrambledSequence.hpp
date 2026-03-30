@@ -1,11 +1,13 @@
 ﻿// Copyright (C) 2023-2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#ifndef _NBL_EXAMPLES_COMMON_SCRAMBLE_SEQUENCE_HPP_INCLUDED_
-#define _NBL_EXAMPLES_COMMON_SCRAMBLE_SEQUENCE_HPP_INCLUDED_
+#ifndef _NBL_EXAMPLES_COMMON_C_CACHED_OWEN_SCRAMBLED_SEQUENCE_HPP_INCLUDED_
+#define _NBL_EXAMPLES_COMMON_C_CACHED_OWEN_SCRAMBLED_SEQUENCE_HPP_INCLUDED_
+
 
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
+
 
 namespace nbl::examples
 {
@@ -39,9 +41,11 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 
 		struct SCreationParams
 		{
+			constexpr static inline const char* DefaultFilename = "owen_sampler_buffer.bin";
+
 			inline operator bool() const {return assMan && !cachePath.empty();}
 
-			std::string cachePath = "";
+			std::string cachePath = DefaultFilename;
 			asset::IAssetManager* assMan = nullptr;
 			SCacheHeader header = {};
 		};
@@ -75,9 +79,12 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 					}
 				}
 			}
+			// keep on getting bigger and bigger
+			const bool oldFullyContains = oldHeader.maxSamplesLog2>=params.header.maxSamplesLog2 && oldHeader.maxDimensions>=params.header.maxDimensions;
 
 			auto* const system = params.assMan->getSystem();
-			system->deleteFile(params.cachePath);
+			if (!oldFullyContains)
+				system->deleteFile(params.cachePath);
 
 			ICPUBuffer::SCreationParams bufparams = {};
 			bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -127,44 +134,50 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 				}
 			}
 #endif
-			IFile::success_t succ;
+			if (!oldFullyContains)
 			{
-				// TODO: until Arek makes an option to create directories on the way on a new file path
-				const auto dir = path(params.cachePath).parent_path();
-				if (!system->exists(dir,IFileBase::E_CREATE_FLAGS::ECF_WRITE))
-					system->createDirectory(dir);
-				smart_refctd_ptr<IFile> file;
+				IFile::success_t succ;
 				{
-					ISystem::future_t<smart_refctd_ptr<IFile>> future;
-					system->createFile(future,params.cachePath,IFile::ECF_WRITE);
-					if (auto lock=future.acquire(); lock)
-						lock.move_into(file);
-				}
-				if (file)
-				{
-					IFile::success_t succ2;
-					file->write(succ2,SCacheHeader::Magic,0,SCacheHeader::MagicLen);
-					if (succ2)
+					// TODO: until Arek makes an option to create directories on the way on a new file path
+					const auto dir = path(params.cachePath).parent_path();
+					if (!system->exists(dir,IFileBase::E_CREATE_FLAGS::ECF_WRITE))
+						system->createDirectory(dir);
+					smart_refctd_ptr<IFile> file;
 					{
-						IFile::success_t succ1;
-						file->write(succ1,&params.header,SCacheHeader::MagicLen,sizeof(params.header));
-						if (succ1)
-							file->write(succ,out,HeaderSize,buffer->getSize());
+						ISystem::future_t<smart_refctd_ptr<IFile>> future;
+						system->createFile(future,params.cachePath,IFile::ECF_WRITE);
+						if (auto lock=future.acquire(); lock)
+							lock.move_into(file);
+					}
+					if (file)
+					{
+						IFile::success_t succ2;
+						file->write(succ2,SCacheHeader::Magic,0,SCacheHeader::MagicLen);
+						if (succ2)
+						{
+							IFile::success_t succ1;
+							file->write(succ1,&params.header,SCacheHeader::MagicLen,sizeof(params.header));
+							if (succ1)
+								file->write(succ,out,HeaderSize,buffer->getSize());
+						}
 					}
 				}
+				if (!succ)
+					system->deleteFile(params.cachePath);
 			}
-			if (!succ)
-				system->deleteFile(params.cachePath);
 
-			return core::smart_refctd_ptr<CCachedOwenScrambledSequence>(new CCachedOwenScrambledSequence(std::move(buffer)));
+			return core::smart_refctd_ptr<CCachedOwenScrambledSequence>(new CCachedOwenScrambledSequence(std::move(buffer),params.header));
 		}
 
 		inline const asset::ICPUBuffer* getBuffer() const {return buffer.get();}
 
+		inline const SCacheHeader& getHeader() const {return header;}
+
 	private:
-		inline CCachedOwenScrambledSequence(core::smart_refctd_ptr<asset::ICPUBuffer>&& _buffer) : buffer(std::move(_buffer)) {}
+		inline CCachedOwenScrambledSequence(core::smart_refctd_ptr<asset::ICPUBuffer>&& _buffer, const SCacheHeader& _header) : buffer(std::move(_buffer)), header(_header) {}
 
 		core::smart_refctd_ptr<asset::ICPUBuffer> buffer;
+		SCacheHeader header;
 };
 
 }

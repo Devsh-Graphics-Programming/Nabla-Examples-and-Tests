@@ -185,10 +185,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.graphicsQueue = getGraphicsQueue(),
 					.computeQueue = getComputeQueue(),
 					.uploadQueue = getTransferUpQueue(),
-					.utilities = smart_refctd_ptr(m_utils),
-					.sequenceCachePath = (sharedOutputCWD/"owen_sampler_buffer.bin").string()
+					.utilities = smart_refctd_ptr(m_utils)
 				},
-				m_assetMgr.get()
+				m_assetMgr.get(),
+				(sharedOutputCWD/nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string()
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");

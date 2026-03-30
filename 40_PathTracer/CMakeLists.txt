@@ -48,6 +48,7 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/../common/include"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
     -T lib_${SM}
 )

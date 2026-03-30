@@ -47,7 +47,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 		{
 			return nbl::examples::CCachedOwenScrambledSequence::create({
 				.cachePath=std::move(cachePath),.assMan=assMan,.header={
-					.maxSamplesLog2=SSensorUniforms::MaxSamplesLog2,.maxDimensions=SSensorUniforms::MaxBufferDimensions
+					.maxSamplesLog2=12,.maxDimensions=96
 				}
 			});
 		},_params.sequenceCachePath
@@ -280,6 +280,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	// upload quantized LDS sequence buffer
 	{
 		auto sequence = sequenceFuture.get();
+		params.sequenceHeader = sequence->getHeader();
 		auto* const seqBufferCPU = sequence->getBuffer();
 		params.utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=params.graphicsQueue},IGPUBuffer::SCreationParams{seqBufferCPU->getCreationParams()},seqBufferCPU->getPointer()).move_into(params.sobolSequence);
 		params.sobolSequence->setObjectDebugName("Low Discrepancy Sequence");
@@ -433,6 +434,9 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 			auto& uniforms = *reinterpret_cast<SSceneUniforms*>(tmpBuffers.ubo->getPointer());
 			uniforms.init = {};
 			uniforms.init.pSampleSequence = m_construction.sobolSequence->getDeviceAddress();
+			uniforms.init.sequenceSamplesLog2 = m_construction.sequenceHeader.maxSamplesLog2;
+			// TODO: Some Constant to Tell us how many dimensions each path vertex consumes
+			uniforms.init.lastSequencePathDepth = m_construction.getSequenceMaxPathDepth();
 			tmpBuffers.ubo->setContentHash(tmpBuffers.ubo->computeContentHash());
 		}
 		// SBT

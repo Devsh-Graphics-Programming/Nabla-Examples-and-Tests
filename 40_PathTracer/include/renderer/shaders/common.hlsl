@@ -5,5 +5,6 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 
+#define MAX_PATH_DEPTH_LOG2 8
 
 #endif  // _NBL_THIS_EXAMPLE_COMMON_HLSL_INCLUDED_

@@ -2,17 +2,24 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+
 #include "nbl/examples/examples.hpp"
+#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
 #include "nbl/this_example/transform.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
-#include "nbl/this_example/common.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
-#include "nbl/examples/common/ScrambleSequence.hpp"
+
+#include "nbl/this_example/common.hpp"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
+
+#include <future>
+
 
 using namespace nbl;
 using namespace core;
@@ -42,7 +49,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
-		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
@@ -123,6 +129,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
+			
+			auto sequenceFuture = std::async(std::launch::async,[this]()->auto
+				{
+					return CCachedOwenScrambledSequence::create({
+						.cachePath = (sharedOutputCWD/CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string(),
+						.assMan = m_assetMgr.get(),
+						.header = {.maxSamplesLog2 = MaxSamplesLog2,.maxDimensions = MaxBufferDimensions}
+					});
+				}
+			);
 
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
@@ -739,21 +755,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_cascadeView->setObjectDebugName("Cascade View");
 			}
 
-			// create sequence buffer
-			{
-				ScrambleSequence::SCreationParams params = {
-					.queue = getGraphicsQueue(),
-						.utilities = smart_refctd_ptr(m_utils),
-						.system = smart_refctd_ptr(m_system),
-						.localOutputCWD = localOutputCWD,
-						.sharedOutputCWD = sharedOutputCWD,
-						.owenSamplerCachePath = OwenSamplerFilePath,
-						.MaxBufferDimensions = MaxBufferDimensions,
-						.MaxSamplesBuffer = MaxSamplesBuffer,
-				};
-				m_scrambleSequence = ScrambleSequence::create(params);
-			}
-
 			// Update Descriptors
 			{
 				ISampler::SParams samplerParams0 = {
@@ -1009,6 +1010,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			guiControlled.rwmcParams.base = 8.0f;
 			guiControlled.rwmcParams.minReliableLuma = 1.0f;
 			guiControlled.rwmcParams.kappa = 5.0f;
+
+			// do this as late as possible
+			{
+				auto sequence = sequenceFuture.get();
+				auto* const seqBufferCPU = sequence->getBuffer();
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=getGraphicsQueue()},IGPUBuffer::SCreationParams{seqBufferCPU->getCreationParams()},seqBufferCPU->getPointer()).move_into(m_sequenceBuffer);
+				m_sequenceBuffer->setObjectDebugName("Low Discrepancy Sequence");
+			}
+
 			return true;
 		}
 
@@ -1087,7 +1097,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
 					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
-					rwmcPushConstants.renderPushConstants.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
+					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
 				}
 				else
@@ -1096,7 +1106,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 					pc.sampleCount = guiControlled.spp;
 					pc.depth = guiControlled.depth;
-					pc.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
+					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				}
 			};
 			updatePathtracerPushConstants();
@@ -1485,8 +1495,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// pathtracer resources
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
-		//smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
-		smart_refctd_ptr<ScrambleSequence> m_scrambleSequence;
+		smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
 

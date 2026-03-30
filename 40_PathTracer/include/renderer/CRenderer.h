@@ -5,11 +5,12 @@
 #define _NBL_THIS_EXAMPLE_C_RENDERER_H_INCLUDED_
 
 
+#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
+
 #include "renderer/CScene.h"
 #include "renderer/CSession.h"
 
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
-#include "nbl/examples/common/ScrambleSequence.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
@@ -54,16 +55,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 		struct SCachedCreationParams
 		{
-			//! Brief guideline to good path depth limits
-			// Want to see stuff with indirect lighting on the other side of a pane of glass
-			// 5 = glass frontface->glass backface->diffuse surface->diffuse surface->light
-			// Want to see through a glass box, vase, or office 
-			// 7 = glass frontface->glass backface->glass frontface->glass backface->diffuse surface->diffuse surface->light
-			// pick higher numbers for better GI and less bias
-			static inline constexpr uint32_t DefaultPathDepth = 8u;
-			// TODO: Upload only a subsection of the sample sequence to the GPU, so we can use more samples without trashing VRAM
-			static inline constexpr uint32_t MaxFreeviewSamples = 0x10000u;
-
 			inline operator bool() const
 			{
 				if (!graphicsQueue || !computeQueue || !uploadQueue)
@@ -84,13 +75,13 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			video::CThreadSafeQueueAdapter* uploadQueue = nullptr;
 			//
 			core::smart_refctd_ptr<video::IUtilities> utilities = nullptr;
-			std::string sequenceCachePath;
 			// can be null
 			system::logger_opt_smart_ptr logger = nullptr;
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
 			asset::IAssetManager* assMan;
+			std::string sequenceCachePath;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -106,6 +97,11 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		struct SCachedConstructionParams
 		{
 			constexpr static inline uint8_t FramesInFlight = 3;
+
+			// TODO: Some Constant to Tell us how many dimensions each path vertex consumes
+			inline auto getSequenceMaxPathDepth() const {return sequenceHeader.maxDimensions/3;}
+
+
 			core::smart_refctd_ptr<video::ISemaphore> semaphore;
 
 			// per pipeline UBO for other pipelines
@@ -126,6 +122,14 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 			//
 			core::smart_refctd_ptr<video::IGPUBuffer> sobolSequence;
+			//! Brief guideline to good path depth limits
+			// Want to see stuff with indirect lighting on the other side of a pane of glass
+			// 5 = glass frontface->glass backface->diffuse surface->diffuse surface->light
+			// Want to see through a glass box, vase, or office 
+			// 7 = glass frontface->glass backface->glass frontface->glass backface->diffuse surface->diffuse surface->light
+			// pick higher numbers for better GI and less bias
+			// TODO: Upload only a subsection of the sample sequence to the GPU, so we can use more samples without trashing VRAM
+			examples::CCachedOwenScrambledSequence::SCacheHeader sequenceHeader = {};
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}

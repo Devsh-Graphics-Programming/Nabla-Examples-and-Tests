@@ -2,6 +2,7 @@
 #define _NBL_THIS_EXAMPLE_SESSION_HLSL_INCLUDED_
 
 
+#include "renderer/shaders/common.hlsl"
 #include "renderer/shaders/resolve/rwmc.hlsl"
 
 
@@ -9,24 +10,11 @@ namespace nbl
 {
 namespace this_example
 {
-#define MAX_SPP_LOG2 12
-NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSPPLog2 = MAX_SPP_LOG2;
-// need to be able to count (represent) both 0 and Max
-NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSPP = (0x1u << MaxSPPLog2) - 1;
 
 struct SSensorUniforms
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ScrambleKeyTextureSize = 512;
-
-#define MAX_PATH_DEPTH_LOG2 5
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxCascadeCountLog2 = MAX_CASCADE_COUNT_LOG2;
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxPathDepthLog2 = MAX_PATH_DEPTH_LOG2;
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxBufferDimensions = 3u << MAX_PATH_DEPTH_LOG2;
-#define MAX_SAMPLES_LOG2 12
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSamplesLog2 = MAX_SAMPLES_LOG2;
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSamplesBuffer = 1u << MAX_SAMPLES_LOG2;
-	static_assert(MaxSamplesLog2<=MaxSPPLog2);
-#undef MAX_SAMPLES_LOG2
 
 	hlsl::float32_t2 rcpPixelSize;
 	hlsl::rwmc::SSplattingParameters splatting;
@@ -35,10 +23,9 @@ struct SSensorUniforms
 	uint32_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
 	uint32_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
 	uint32_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
-	uint32_t unused0 : 18;// BOOST_PP_SUB(31, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
+	uint32_t unused0 : 12; //BOOST_PP_SUB(31, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
 	uint32_t hideEnvironment : 1;
 };
-#undef MAX_PATH_DEPTH_LOG2
 
 struct SensorDSBindings
 {

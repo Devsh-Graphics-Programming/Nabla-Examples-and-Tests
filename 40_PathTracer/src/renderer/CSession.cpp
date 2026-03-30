@@ -141,7 +141,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 
 		// create Scramble Key image
 		{
-			const auto layers = 1u; // for now, until the crazy Heitz 2019 thing
+			const auto layers = 1u; // for now, until the crazy Heitz 2019 thing, or if we choose to save 8 bytes in ray payload and read a premade scramble at every depth 
 			immutables.scrambleKey = createImage("Scramble Dimension Keys",E_FORMAT::EF_R32G32_UINT,hlsl::promote<hlsl::uint16_t2>(SSensorUniforms::ScrambleKeyTextureSize),layers);
 		}
 		//

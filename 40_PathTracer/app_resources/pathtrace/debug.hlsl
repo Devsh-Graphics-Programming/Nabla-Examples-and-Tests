@@ -1,11 +1,11 @@
-#include "renderer/shaders/pathtrace/common.hlsl"
-#include "renderer/shaders/pathtrace/rand_gen.hlsl"
-
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/gaussian_filter.hlsl"
 
-#include "nbl/builtin/hlsl/random/lcg.hlsl"
+#include "renderer/shaders/pathtrace/common.hlsl"
+
+#include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
+
 
 using namespace nbl;
 using namespace nbl::hlsl;
@@ -36,9 +36,11 @@ void raygen()
     const float32_t2 NDC = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
 
     //
-    using randgen_type = RandomUniformND<Xoroshiro64Star, 3>;
-    const uint32_t2 scrambleKey = gScrambleKey[uint32_t3(launchID.xy & 511, 0)];
-    randgen_type randgen = randgen_type::create(scrambleKey, gScene.init.pSampleSequence);
+    using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
+    randgen_type randgen;
+    randgen.pSampleBuffer = gScene.init.pSampleSequence;
+    randgen.rng = Xoroshiro64Star::construct(gScrambleKey[uint32_t3(launchID.xy & 511,0)]);
+    randgen.sequenceSamplesLog2 = gScene.init.sequenceSamplesLog2;
 
     // take just one sample per dispatch
     float32_t3 albedo, normal;

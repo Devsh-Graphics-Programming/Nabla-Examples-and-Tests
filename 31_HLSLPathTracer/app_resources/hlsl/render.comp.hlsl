@@ -41,7 +41,6 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 
 #include "example_common.hlsl"
-#include "rand_gen.hlsl"
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"
