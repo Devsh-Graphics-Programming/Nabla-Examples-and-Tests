@@ -38,7 +38,7 @@ struct SphericalRectangleTestExecutor
 		{
 			sampling::SphericalRectangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-         output.forwardPdf = sampler.forwardPdf(output.generated, cache);
+         output.forwardPdf = sampler.forwardPdf(input.u, cache);
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 	}

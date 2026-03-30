@@ -27,11 +27,11 @@ struct ProjectedSphereTestExecutor
 		sampling::ProjectedSphere<float32_t> sampler;
 		{
 			sampling::ProjectedSphere<float32_t>::cache_type cache;
-			float32_t3 sample = input.u;
-			output.generated = sampler.generate(sample, cache);
-			output.cachedPdf = sampler.forwardPdf(output.generated, cache);
-			output.forwardPdf = sampler.forwardPdf(output.generated, cache);
-			output.modifiedU = sample;
+			float32_t3 _sample = input.u;
+			output.generated = sampler.generate(_sample, cache);
+			output.cachedPdf = sampler.forwardPdf(_sample, cache);
+			output.forwardPdf = sampler.forwardPdf(_sample, cache);
+			output.modifiedU = _sample;
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 	}

@@ -142,7 +142,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BasicSampler<TestAliasTable>);
       static_assert(sampling::concepts::BasicSampler<TestCumulativeProbabilitySampler>);
 
-      // --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(cache_type) -> density_type
+      // --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(domain_type, cache_type) -> density_type
       static_assert(sampling::concepts::TractableSampler<TestAliasTable>);
       static_assert(sampling::concepts::TractableSampler<TestCumulativeProbabilitySampler>);
       static_assert(sampling::concepts::TractableSampler<sampling::Linear<float>>);
@@ -158,7 +158,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
       static_assert(sampling::concepts::TractableSampler<sampling::PolarMapping<float32_t>>);
 
-      // --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(cache_type), backwardWeight(codomain_type)
+      // --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
       static_assert(sampling::concepts::ResamplableSampler<TestAliasTable>);
       static_assert(sampling::concepts::ResamplableSampler<TestCumulativeProbabilitySampler>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::Linear<float>>);
@@ -174,7 +174,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::PolarMapping<float32_t>>);
 
-      // --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(cache_type), backwardWeight(codomain_type)
+      // --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::Bilinear<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformHemisphere<float>>);

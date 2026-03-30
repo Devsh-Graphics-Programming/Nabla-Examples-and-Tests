@@ -140,7 +140,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
         typename sampling::SphericalTriangle<scalar_type>::cache_type cache;
         const vector3_type L = sst.generate(xi.xy, cache);
 
-        pdf = cache.pdf;
+        pdf = sst.forwardPdf(xi.xy, cache);
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);
@@ -185,7 +185,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         typename sampling::ProjectedSphericalTriangle<scalar_type>::cache_type pstCache;
         const vector3_type L = pst.generate(xi.xy, pstCache);
 
-        pdf = pst.forwardPdf(L, pstCache);
+        pdf = pst.forwardPdf(xi.xy, pstCache);
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);

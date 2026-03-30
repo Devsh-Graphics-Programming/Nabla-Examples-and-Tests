@@ -48,7 +48,7 @@ void main()
 		BenchCumProbSampler::cache_type cache;
 		uint32_t generated = sampler.generate(u, cache);
 		acc ^= generated;
-		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
+		accPdf ^= asuint(sampler.forwardPdf(u, cache));
 	}
 
 	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc + accPdf);

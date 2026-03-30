@@ -28,7 +28,7 @@ void main()
 		sampling::ProjectedSphericalTriangle<float32_t>::cache_type cache;
 		float32_t3 generated = sampler.generate(u, cache);
 		acc ^= asuint(generated);
-		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
+		accPdf ^= asuint(sampler.forwardPdf(u, cache));
 	}
 	ProjectedSphericalTriangleTestResults result = (ProjectedSphericalTriangleTestResults)0;
 	result.generated = asfloat(acc);

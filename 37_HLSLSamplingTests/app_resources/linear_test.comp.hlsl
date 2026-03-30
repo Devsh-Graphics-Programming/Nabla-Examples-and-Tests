@@ -26,7 +26,7 @@ void main()
 		sampling::Linear<float32_t>::cache_type cache;
 		float32_t generated = sampler.generate(u, cache);
 		acc ^= asuint(generated);
-		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
+		accPdf ^= asuint(sampler.forwardPdf(u, cache));
 	}
 	LinearTestResults result = (LinearTestResults)0;
 	result.generated = asfloat(acc);

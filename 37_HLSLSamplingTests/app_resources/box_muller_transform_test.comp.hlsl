@@ -26,7 +26,7 @@ void main()
 		sampling::BoxMullerTransform<float32_t>::cache_type cache;
 		float32_t2 generated = sampler.generate(u, cache);
 		acc ^= asuint(generated);
-		accPdf ^= asuint(sampler.forwardPdf(generated, cache));
+		accPdf ^= asuint(sampler.forwardPdf(u, cache));
 	}
 	BoxMullerTransformTestResults result = (BoxMullerTransformTestResults)0;
 	result.generated = asfloat(acc);

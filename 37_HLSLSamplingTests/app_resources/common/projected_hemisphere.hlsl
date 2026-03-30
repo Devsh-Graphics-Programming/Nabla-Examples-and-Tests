@@ -30,8 +30,8 @@ struct ProjectedHemisphereTestExecutor
 		{
 			sampling::ProjectedHemisphere<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = sampler.forwardPdf(output.generated, cache);
-			output.forwardPdf = sampler.forwardPdf(output.generated, cache);
+			output.cachedPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardPdf = sampler.forwardPdf(input.u, cache);
 		}
 		{
 			sampling::ProjectedHemisphere<float32_t>::cache_type cache;

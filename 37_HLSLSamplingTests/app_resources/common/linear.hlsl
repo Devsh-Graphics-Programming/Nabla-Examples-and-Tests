@@ -28,7 +28,7 @@ struct LinearTestExecutor
 		{
 			sampling::Linear<float32_t>::cache_type cache;
 			output.generated = _sampler.generate(input.u, cache);
-			output.forwardPdf = _sampler.forwardPdf(output.generated, cache);
+			output.forwardPdf = _sampler.forwardPdf(input.u, cache);
 		}
 
 		{

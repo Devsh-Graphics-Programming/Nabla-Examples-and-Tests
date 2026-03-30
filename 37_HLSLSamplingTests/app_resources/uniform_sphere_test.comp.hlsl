@@ -23,7 +23,7 @@ void main()
 		sampling::UniformSphere<float32_t>::cache_type cache;
 		float32_t3 generated = sampler.generate(u, cache);
 		acc ^= asuint(generated);
-		acc ^= asuint(sampler.forwardPdf(generated, cache));
+		acc ^= asuint(sampler.forwardPdf(u, cache));
 	}
 	UniformSphereTestResults result = (UniformSphereTestResults)0;
 	result.generated = asfloat(acc);
