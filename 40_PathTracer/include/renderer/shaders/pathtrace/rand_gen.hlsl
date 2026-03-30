@@ -15,7 +15,7 @@ template<typename RNG, uint16_t N>
 struct RandomUniformND
 {
     using rng_type = RNG;
-    using return_type = vector<float32_t, N>;
+    using return_type = vector<float32_t,N>;
 
     static RandomUniformND<RNG,N> create(uint32_t2 seed, uint64_t pSampleSequence)
     {
@@ -30,9 +30,12 @@ struct RandomUniformND
     return_type operator()(uint32_t baseDimension, uint32_t sampleIndex)
     {
         using sequence_type = hlsl::sampling::QuantizedSequence<uint32_t2,3>;
-        uint32_t address = hlsl::glsl::bitfieldInsert<uint32_t>(baseDimension, sampleIndex, SSensorUniforms::MaxPathDepthLog2, SSensorUniforms::MaxSamplesLog2);
+        const uint32_t address = hlsl::glsl::bitfieldInsert<uint32_t>(sampleIndex, baseDimension, SSensorUniforms::MaxSamplesLog2, SSensorUniforms::MaxPathDepthLog2);
         sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + address * sizeof(sequence_type));
-        return tmpSeq.template decode<float32_t>(hlsl::random::DimAdaptorRecursive<rng_type, N>::__call(rng));
+        sequence_type scramble;
+        scramble.data[0] = rng();
+        scramble.data[1] = rng();
+        return tmpSeq.template decode<float32_t>(scramble);
     }
 
     rng_type rng;

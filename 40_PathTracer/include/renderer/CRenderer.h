@@ -126,7 +126,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 			//
 			core::smart_refctd_ptr<video::IGPUBuffer> sobolSequence;
-			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}

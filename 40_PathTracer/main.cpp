@@ -255,7 +255,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
 					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
 				}
-				sensors.erase(sensors.begin());
+//				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
@@ -417,25 +417,35 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline void workLoopBody() override
 		{
 			CSession* session;
-			volatile bool skip = false; // skip using the debugger
-			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 			{
-				skip = false;
-				if (m_sessionQueue.empty())
+				bool sameSession = true;
+				volatile bool skip = false; // skip using the debugger
+				for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 				{
-					if (!m_args.headless)
-						handleInputs();
-					return;
-				}
-				session = m_sessionQueue.front().get();
-				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session, this](SIntendedSubmitInfo& info)->bool
+					skip = false;
+					if (m_sessionQueue.empty())
 					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+						if (!m_args.headless)
+							handleInputs();
+						return;
 					}
-				);
-				m_resolver->changeSession(std::move(m_sessionQueue.front()));
-				m_sessionQueue.pop();
+					session = m_sessionQueue.front().get();
+					// init
+					m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session,this](SIntendedSubmitInfo& info)->bool
+						{
+							return session->init(info);
+						}
+					);
+					m_resolver->changeSession(std::move(m_sessionQueue.front()));
+					sameSession = false;
+					m_sessionQueue.pop();
+				}
+				// TODO: camera movement and UI update
+				if (sameSession)
+				{
+					// no update right now
+					session->update(session->getActiveResources().prevSensorState);
+				}
 			}
 
 			m_api->startCapture();

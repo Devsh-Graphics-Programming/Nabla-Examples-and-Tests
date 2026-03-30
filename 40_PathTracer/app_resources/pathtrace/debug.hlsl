@@ -5,6 +5,8 @@
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/gaussian_filter.hlsl"
 
+#include "nbl/builtin/hlsl/random/lcg.hlsl"
+
 using namespace nbl;
 using namespace nbl::hlsl;
 using namespace nbl::this_example;
@@ -25,30 +27,23 @@ struct [raypayload] DebugPayload
 void raygen()
 {
     const uint32_t3 launchID = spirv::LaunchIdKHR;
-    const uint32_t3 launchSize = spirv::LaunchSizeKHR;
+
+    // basics
+    uint32_t sampleCount = gSampleCount[launchID]*pc.sensorDynamics.keepAccumulating;
 
     //
-    const float32_t2 pixelSizeNDC = float32_t2(2.f,2.f)/float32_t2(launchSize.xy);
-    const float32_t2 NDC = float32_t2(launchID.xy)*pixelSizeNDC - promote<float32_t2>(1.f);
+    const float32_t2 pixelSizeNDC = float32_t2(2.f, 2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
+    const float32_t2 NDC = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
 
     //
-    using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
-    const uint32_t2 scrambleKey = gScrambleKey[uint32_t3(launchID.xy&511,0)];
-    randgen_type randgen = randgen_type::create(scrambleKey,gScene.init.pSampleSequence);
+    using randgen_type = RandomUniformND<Xoroshiro64Star, 3>;
+    const uint32_t2 scrambleKey = gScrambleKey[uint32_t3(launchID.xy & 511, 0)];
+    randgen_type randgen = randgen_type::create(scrambleKey, gScene.init.pSampleSequence);
 
-    float32_t3 albedo,prev_albedo = float32_t3(0,0,0);
-    float32_t3 normal,prev_normal = float32_t3(0,0,0);
-    // read previous frame
-    if (pc.sensorDynamics.resetAccumuation==0)
-    {
-        prev_albedo = gAlbedo[launchID];
-        prev_normal = gNormal[launchID];
-    }
     // take just one sample per dispatch
-    uint32_t sampleID = 0;
-    float rcpSampleCount = 1.f;
+    float32_t3 albedo, normal;
     {
-        float32_t3 randVec = randgen(0u,sampleID);
+        float32_t3 randVec = randgen(0u, sampleCount);
         // stochastic reconstruction filter
         const float32_t3 adjNDC = float32_t3(NDC + GaussianFilter<float>::create(1.f,1.f).sample(randVec.xy)*pixelSizeNDC, -1.f);
 
@@ -72,15 +67,27 @@ void raygen()
         albedo = payload.albedo;
         normal = payload.worldNormal;
     }
+
+    gSampleCount[launchID] = ++sampleCount;
+    const float32_t rcpSampleCount = 1.f / float32_t(sampleCount);
+    //
+    float32_t3 prev_albedo = float32_t3(0,0,0);
+    float32_t3 prev_normal = float32_t3(0,0,0);
+    // read previous frame
+    if (rcpSampleCount<1.f)
+    {
+        prev_albedo = gAlbedo[launchID];
+        prev_normal = gNormal[launchID];
+    }
     // store albedo
     float32_t3 delta_albedo = (albedo - prev_albedo) * rcpSampleCount;
-    if (hlsl::any(delta_albedo > hlsl::promote<float32_t3>(1.0/1023.0)))
+    if (hlsl::any(hlsl::abs(delta_albedo) > hlsl::promote<float32_t3>(1.0/1023.0)))
         gAlbedo[launchID] = float32_t4(prev_albedo + delta_albedo, 1.0);
     // get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
     normal = hlsl::mix(normal*0.499512+promote<float32_t3>(0.999022),normal*0.499512,promote<float32_t3>(0.f)<normal);
     // store normal
     float32_t3 delta_normal = (normal - prev_normal) * rcpSampleCount;
-    if (hlsl::any(delta_normal > hlsl::promote<float32_t3>(1.0/1023.0)))
+    if (hlsl::any(hlsl::abs(delta_normal) > hlsl::promote<float32_t3>(1.0/1023.0)))
         gNormal[launchID] = float32_t4(prev_normal + delta_normal, 1.0);
     
 }

@@ -25,7 +25,6 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	const auto& raygen = mutDefaults.raygen;
 
 	CSession::SConstructionParams params = {std::move(_params)};
-	params.scrambleKey = m_construction.renderer->getConstructionParams().scrambleKey;
 	params.scene = smart_refctd_ptr<const CScene>(this);
 	params.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY};
 	params.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight};
@@ -44,10 +43,10 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 			.rcpPixelSize = promote<float32_t2>(1.f)/float32_t2(renderSize),
 			.splatting = {}, // TODO
 			.renderSize = renderSize,
-			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
-			.hideEnvironment = mutDefaults.hideEnvironment,
 			.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
-			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1)
+			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1),
+			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
+			.hideEnvironment = mutDefaults.hideEnvironment
 		};
 	}
 

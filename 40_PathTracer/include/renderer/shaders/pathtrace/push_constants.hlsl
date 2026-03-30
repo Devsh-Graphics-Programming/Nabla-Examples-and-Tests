@@ -22,7 +22,7 @@ struct SSensorDynamics
 	// we can adaptively sample per-pixel, but 
 	uint32_t minSPP : MAX_SPP_LOG2;
 	uint32_t maxSPP : MAX_SPP_LOG2;
-	uint32_t resetAccumuation : 1;
+	uint32_t keepAccumulating : 1;
 	uint32_t unused : BOOST_PP_SUB(31,BOOST_PP_MUL(MAX_SPP_LOG2,2));
 };
 	

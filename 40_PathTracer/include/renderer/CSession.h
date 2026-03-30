@@ -39,7 +39,7 @@ class CSession final : public core::IReferenceCounted
 		};
 
 		//
-		bool init(video::IGPUCommandBuffer* cb);
+		bool init(video::SIntendedSubmitInfo& info);
 
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
@@ -87,7 +87,7 @@ class CSession final : public core::IReferenceCounted
 		inline const SActiveResources& getActiveResources() const {return m_active;}
 
 		//
-		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
+		bool reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& info);
 
 		//
 		bool update(const SSensorDynamics& newVal);
@@ -108,7 +108,6 @@ class CSession final : public core::IReferenceCounted
 		struct SConstructionParams : SCachedCreationParams
 		{
 			core::string name = "TODO from `sensor`";
-			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
 			core::smart_refctd_ptr<const CScene> scene;
 			SResolveConstants initResolveConstants;
 			SSensorUniforms uniforms;

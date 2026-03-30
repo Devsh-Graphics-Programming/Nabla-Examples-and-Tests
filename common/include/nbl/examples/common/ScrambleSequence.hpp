@@ -88,23 +88,45 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 			auto* const out = reinterpret_cast<sequence_type*>(buffer->getPointer());
 			// generate missing bits of the sequence
 			{
-				core::OwenSampler sampler(params.header.maxDimensions,0xdeadbeefu);
+				core::OwenSampler sampler(params.header.maxDimensions,0xdeadbeefu); // TODO: put the seed in the header to check or replace
 				const sequence_type* const in = oldBuffer ? reinterpret_cast<const sequence_type*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+HeaderSize):nullptr;
-				// generate backwards so mersenne twister gets used up the same way
-				for (uint32_t dim=params.header.maxDimensions-1; dim<params.header.maxDimensions; dim--)
+				// thread this so it doesn't take forever
+				const auto range = std::ranges::iota_view{0u,params.header.maxDimensions};
+				std::for_each(std::execution::par,range.begin(),range.end(),[out,params,&sampler,oldHeader,in](const uint32_t dim)->void
+					{
+						const uint32_t quant_dim = dim / 3u;
+						const uint32_t quant_comp = dim % 3;
+						auto* const outDimSamples = out+(quant_dim<<params.header.maxSamplesLog2);
+						const uint32_t firstInvalidSample = dim<oldHeader.maxDimensions ? (1u<<oldHeader.maxSamplesLog2):0u;
+						// copy samples encountered
+						memcpy(outDimSamples,in+(quant_dim<<oldHeader.maxSamplesLog2),sizeof(sequence_type)*firstInvalidSample);
+						if (firstInvalidSample>>params.header.maxSamplesLog2)
+							return;
+						const auto dimSampler = sampler.prepareDimension(dim);
+						// generate samples that werent in the original sequence
+						for (uint32_t i=firstInvalidSample; (i>>params.header.maxSamplesLog2)==0; i++)
+						{
+							const auto _sample = dimSampler.sample(i);
+							outDimSamples[i].set(quant_comp,_sample);
+							const auto recovered = outDimSamples[i].get(quant_comp);
+							assert(recovered==_sample>>11);
+						}
+					}
+				);
+			}
+#if 0
+			for (auto d=0u; d<(params.header.maxDimensions+2)/3; d++)
+			{
+				core::vector<bool> stratification[3]; // TODO: check stratification and (t,s) sequence property in base 2
+				printf("Dimension Triplet %d\n",d);
+				for (auto s=0u; s<(0x1u<<params.header.maxSamplesLog2); s++)
 				{
-					const uint32_t quant_dim = dim / 3u;
-					const uint32_t quant_comp = dim % 3;
-					auto* const outDimSamples = out+(quant_dim<<params.header.maxSamplesLog2);
-					const uint32_t firstInvalidSample = dim<oldHeader.maxDimensions ? (1u<<oldHeader.maxSamplesLog2):0u;
-					// copy samples encountered
-					memcpy(outDimSamples,in+(quant_dim<<oldHeader.maxSamplesLog2),sizeof(sequence_type)*firstInvalidSample);
-					// generate samples that werent in the original sequence
-					for (uint32_t i=firstInvalidSample; (i>>params.header.maxSamplesLog2)==0; i++)
-						outDimSamples[i].set(quant_comp,sampler.sample(dim,i));
+					const auto quant = out[s+(d<<params.header.maxSamplesLog2)];
+					const auto fp = quant.template decode<hlsl::float32_t>(hlsl::uint32_t3(0,0,0));
+					printf("{%f,%f,%f}\n",fp.x,fp.y,fp.z);
 				}
 			}
-
+#endif
 			IFile::success_t succ;
 			{
 				// TODO: until Arek makes an option to create directories on the way on a new file path
