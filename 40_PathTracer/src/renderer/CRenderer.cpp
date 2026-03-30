@@ -345,6 +345,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 
 		auto cb = params.commandBuffers[0].get();
 		cb->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+		cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cb };
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = device->createSemaphore(0);
 		imgFillSemaphore->setObjectDebugName("Scramble Key Fill Semaphore");

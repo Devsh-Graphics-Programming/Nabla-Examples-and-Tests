@@ -18,15 +18,24 @@ namespace nbl::examples
 class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 {
 	public:
+		// for 1024 spp renders `uint32_t` would have been enough
+		using sequence_type = hlsl::sampling::QuantizedSequence<hlsl::uint32_t2, 3>;
+
 		struct SCacheHeader
 		{
 			constexpr static inline const char* Magic = "NBL_LDS_CACHE";
 			constexpr static inline size_t MagicLen = std::string_view(Magic).size();
 
+			inline uint64_t sequenceByteSize() const
+			{
+				const uint32_t quantizedDimensions = (maxDimensions + 2u) / 3u;
+				return quantizedDimensions * sizeof(sequence_type) << maxSamplesLog2;
+			}
+
 			uint32_t maxSamplesLog2 : 5 = 24;
 			uint32_t maxDimensions : 27 = 96;
 		};
-		constexpr static inline size_t HeaderSize = sizeof(SCacheHeader)+sizeof(SCacheHeader);
+		constexpr static inline size_t HeaderSize = SCacheHeader::MagicLen+sizeof(SCacheHeader);
 
 		struct SCreationParams
 		{
@@ -46,18 +55,6 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 			using namespace nbl::system;
 			using namespace nbl::asset;
 			using namespace nbl::video;
-			// for 1024 spp renders `uint32_t` would have been enough
-			using sequence_type = hlsl::sampling::QuantizedSequence<hlsl::uint32_t2,3>;
-
-			const uint32_t quantizedDimensions = (params.header.maxDimensions + 2u) / 3u;
-
-			ICPUBuffer::SCreationParams bufparams = {};
-			bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			bufparams.size = quantizedDimensions * sizeof(sequence_type) << params.header.maxSamplesLog2;
-			auto buffer = ICPUBuffer::create(std::move(bufparams));
-			if (!buffer)
-				return nullptr;
-			auto* const out = reinterpret_cast<sequence_type*>(buffer->getPointer());
 
 			// read cache file
 			SCacheHeader oldHeader = {.maxSamplesLog2=0,.maxDimensions=0};
@@ -70,18 +67,29 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 				{
 					oldBuffer = IAsset::castDown<ICPUBuffer>(*contents.begin());
 					// check the magic number
-					if (oldBuffer->getSize()<HeaderSize && memcmp(buffer->getPointer(),SCacheHeader::Magic,SCacheHeader::MagicLen)==0)
+					if (oldBuffer->getSize()>HeaderSize && memcmp(oldBuffer->getPointer(),SCacheHeader::Magic,SCacheHeader::MagicLen)==0)
+					{
 						oldHeader = *reinterpret_cast<const SCacheHeader*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+SCacheHeader::MagicLen);
+						if (oldBuffer->getSize()!=oldHeader.sequenceByteSize()+HeaderSize)
+							oldHeader = {.maxSamplesLog2=0,.maxDimensions=0};
+					}
 				}
 			}
 
 			auto* const system = params.assMan->getSystem();
 			system->deleteFile(params.cachePath);
 
+			ICPUBuffer::SCreationParams bufparams = {};
+			bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			bufparams.size = params.header.sequenceByteSize();
+			auto buffer = ICPUBuffer::create(std::move(bufparams));
+			if (!buffer)
+				return nullptr;
+			auto* const out = reinterpret_cast<sequence_type*>(buffer->getPointer());
 			// generate missing bits of the sequence
 			{
 				core::OwenSampler sampler(params.header.maxDimensions,0xdeadbeefu);
-				const auto* const in = reinterpret_cast<const sequence_type*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+HeaderSize);
+				const sequence_type* const in = oldBuffer ? reinterpret_cast<const sequence_type*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+HeaderSize):nullptr;
 				// generate backwards so mersenne twister gets used up the same way
 				for (uint32_t dim=params.header.maxDimensions-1; dim<params.header.maxDimensions; dim--)
 				{
@@ -99,6 +107,10 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 
 			IFile::success_t succ;
 			{
+				// TODO: until Arek makes an option to create directories on the way on a new file path
+				const auto dir = path(params.cachePath).parent_path();
+				if (!system->exists(dir,IFileBase::E_CREATE_FLAGS::ECF_WRITE))
+					system->createDirectory(dir);
 				smart_refctd_ptr<IFile> file;
 				{
 					ISystem::future_t<smart_refctd_ptr<IFile>> future;
@@ -108,11 +120,13 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 				}
 				if (file)
 				{
-					file->write(succ,SCacheHeader::Magic,0,SCacheHeader::MagicLen);
-					if (succ)
+					IFile::success_t succ2;
+					file->write(succ2,SCacheHeader::Magic,0,SCacheHeader::MagicLen);
+					if (succ2)
 					{
-						file->write(succ,&params.header,SCacheHeader::MagicLen,sizeof(params.header));
-						if (succ)
+						IFile::success_t succ1;
+						file->write(succ1,&params.header,SCacheHeader::MagicLen,sizeof(params.header));
+						if (succ1)
 							file->write(succ,out,HeaderSize,buffer->getSize());
 					}
 				}
