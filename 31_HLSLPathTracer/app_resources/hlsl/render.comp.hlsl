@@ -59,7 +59,7 @@ using namespace hlsl;
 #include "scene_rectangle_light.hlsl"
 #endif
 
-NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_APPROX_PROJECTED_SOLID_ANGLE;
+NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_SOLID_ANGLE;
 
 int32_t2 getCoordinates()
 {
@@ -188,7 +188,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     rayGen.invMVP = renderPushConstants.invMVP;
 
     pathtracer.scene = scene;
-    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
+    const uint32_t2 scrambleCoord = uint32_t2(coords.x & 511, coords.y & 511);
+    pathtracer.randGen = randgen_type::create(scramblebuf[scrambleCoord].rg, renderPushConstants.pSampleSequence);
     pathtracer.nee.lights = lights;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.bxdfPdfThreshold = 0.0001;
