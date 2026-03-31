@@ -59,7 +59,7 @@ using namespace hlsl;
 #include "scene_rectangle_light.hlsl"
 #endif
 
-NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_SOLID_ANGLE;
+NBL_CONSTEXPR NEEPolygonMethod POLYGON_METHOD = PPM_APPROX_PROJECTED_SOLID_ANGLE;
 
 int32_t2 getCoordinates()
 {
@@ -125,6 +125,17 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     const RenderPushConstants renderPushConstants = retireveRenderPushConstants();
 
+    scene_type scene;
+    scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
+
+    pathtracer_type pathtracer;
+    pathtracer.scene = scene;
+    pathtracer.nee.lights = lights;
+    pathtracer.materialSystem.bxdfs = bxdfs;
+    pathtracer.bxdfPdfThreshold = 0.0001;
+    pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
+    pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
+
     uint32_t width, height, imageArraySize;
     outImage.GetDimensions(width, height, imageArraySize);
 #ifdef PERSISTENT_WORKGROUPS
@@ -152,20 +163,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    if (((renderPushConstants.depth - 1) >> MaxDepthLog2) > 0 || ((renderPushConstants.sampleCount - 1) >> MaxSamplesLog2) > 0)
-    {
-        float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
-        outImage[uint3(coords.x, coords.y, 0)] = pixelCol;
-#ifdef PERSISTENT_WORKGROUPS
-        continue;
-#else
-        return;
-#endif
-    }
-
-    // set up path tracer
-    pathtracer_type pathtracer;
-
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
     float32_t2 pixOffsetParam = (float2)1.0 / float2(scrambleDim);
@@ -177,9 +174,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         camPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
-    
-    scene_type scene;
-    scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
 
     raygen_type rayGen;
     rayGen.pixOffsetParam = pixOffsetParam;
@@ -187,14 +181,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     rayGen.NDC = NDC;
     rayGen.invMVP = renderPushConstants.invMVP;
 
-    pathtracer.scene = scene;
     const uint32_t2 scrambleCoord = uint32_t2(coords.x & 511, coords.y & 511);
     pathtracer.randGen = randgen_type::create(scramblebuf[scrambleCoord].rg, renderPushConstants.pSampleSequence);
-    pathtracer.nee.lights = lights;
-    pathtracer.materialSystem.bxdfs = bxdfs;
-    pathtracer.bxdfPdfThreshold = 0.0001;
-    pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
-    pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
