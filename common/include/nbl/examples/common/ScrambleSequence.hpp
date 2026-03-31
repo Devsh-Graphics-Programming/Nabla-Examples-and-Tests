@@ -92,14 +92,17 @@ public:
 
 			auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
 			for (auto dim = 0u; dim < params.MaxBufferDimensions; dim++)
+			{
+				const auto dimSampler = sampler.prepareDimension(dim);
 				for (uint32_t i = 0; i < params.MaxSamplesBuffer; i++)
 				{
 					const uint32_t quant_dim = dim / 3u;
 					const uint32_t offset = dim % 3u;
 					auto& seq = out[i * quantizedDimensions + quant_dim];
-					const uint32_t sample = sampler.sample(dim, i);
+					const uint32_t sample = dimSampler.sample(i);
 					seq.set(offset, sample);
 				}
+			}
 			if (cacheBufferResult.first)
 				writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
 		}
