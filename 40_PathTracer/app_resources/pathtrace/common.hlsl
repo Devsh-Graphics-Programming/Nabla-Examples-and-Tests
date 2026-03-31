@@ -41,16 +41,11 @@ struct Accumulator
 
 		composed.set(coord,layer,val);
 	}
-	// TODO: RWMC accumulator where we can skip samples
-//	template<typename T>
-//	void accumulate(const vector<uint16_t, Dims> coord, const uint16_t layer, const vector<T, Dims> val, const float rcpNewSampleCount)
-//	{
-//	}
 
 	LoadStoreImageAccessor composed;
 };
 
-//
+// get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
 template<typename T, int N>
 vector<T,N> correctSNorm10WhenStoringToUnorm(const vector<T,N> input)
 {
@@ -58,10 +53,13 @@ vector<T,N> correctSNorm10WhenStoringToUnorm(const vector<T,N> input)
 	return hlsl::mix(input*T(0.499512)+hlsl::promote<vec_t,T>(0.999022),input*T(0.499512),hlsl::promote<vec_t,T>(0.f)<input);
 }
 
+using scramble_state_t = hlsl::Xoroshiro64Star;
+using randgen_t = hlsl::examples::KeyedQuantizedSequence<scramble_state_t>;
+
 // sample count incrementing function
 struct SPixelSamplingInfo
 {
-	hlsl::examples::KeyedQuantizedSequence<hlsl::Xoroshiro64Star> randgen;
+	randgen_t randgen;
 	float32_t rcpNewSampleCount;
 	uint16_t firstSample;
 };
@@ -69,13 +67,12 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 {
 	SPixelSamplingInfo retval;
 	// 
-	const uint32_t sampleCount = gSampleCount[coord];
-	retval.firstSample = uint16_t(sampleCount)*dontClear;
+	retval.firstSample = uint16_t(gSampleCount[coord])*dontClear;
 	// setup randgen
 	{
 		retval.randgen.pSampleBuffer = gScene.init.pSampleSequence;
 		// TODO: experiment with storing every dimension scramble in the texture to not pollute the ray payload
-		retval.randgen.rng = hlsl::Xoroshiro64Star::construct(gScrambleKey[uint16_t3(coord.xy & uint16_t(511), 0)]);
+		retval.randgen.rng = scramble_state_t::construct(gScrambleKey[uint16_t3(coord.xy & uint16_t(511), 0)]);
 		retval.randgen.sequenceSamplesLog2 = gScene.init.sequenceSamplesLog2; // TODO: make this compile time constant - Spec Constant?
 	}
 	//
@@ -86,7 +83,35 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 }
 
 // raygen functions
-// ..
+struct SRay
+{
+	static SRay create(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi)
+	{
+		using namespace nbl::hlsl;
+		using namespace nbl::hlsl::math::linalg;
+
+        // stochastic reconstruction filter
+		const float16_t stddev = float16_t(1.2);
+        const float32_t3 adjNDC = float32_t3(path_tracing::GaussianFilter<float16_t>::create(stddev,stddev).sample(xi)*pixelSizeNDC+ndc,-1.f);
+        // unproject
+        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC), -1.0));
+        const float32_t3 origin = -float32_t3(direction.xy/direction.z,sensor.nearClip);
+		// rotate with camera
+		SRay retval;
+		retval.origin = promoted_mul(sensor.invView,origin);
+		retval.tMin = sensor.nearClip;
+		retval.direction = hlsl::normalize(hlsl::mul(truncate<3,3,3,4>(sensor.invView),direction));
+		retval.tMax = sensor.tMax;
+		return retval;
+	}
+
+	float32_t3 origin;
+	float32_t tMin;
+	float32_t3 direction;
+	float32_t tMax;
+	// TODO: ray differentials or covariance
+};
+
 }
 }
  

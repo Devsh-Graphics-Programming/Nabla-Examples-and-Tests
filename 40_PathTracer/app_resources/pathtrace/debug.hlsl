@@ -1,4 +1,3 @@
-
 #include "common.hlsl"
 
 
@@ -28,42 +27,28 @@ void raygen()
     const float32_t2 pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
     const float32_t2 NDC = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
 
-    float32_t3 albedo, normal;
+    [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
+    DebugPayload payload;
     // take just one sample per dispatch
-    {
-        float16_t2 randVec = float16_t2(samplingInfo.randgen(0u,samplingInfo.firstSample).xy);
-        // stochastic reconstruction filter
-        const float32_t3 adjNDC = float32_t3(NDC + GaussianFilter<float16_t>::create(1.f,1.f).sample(randVec.xy)*float16_t2(pixelSizeNDC), -1.f);
+    {        
+        const float16_t2 randVec = float16_t2(samplingInfo.randgen(0u,samplingInfo.firstSample).xy);
+        const SRay ray = SRay::create(pc.sensorDynamics,pixelSizeNDC,NDC,randVec);
 
-        // unproject
-        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(pc.sensorDynamics.ndcToRay, adjNDC), -1.0));
-        const float32_t3 origin = -float32_t3(direction.xy/direction.z, pc.sensorDynamics.nearClip); // this feels off
-
-        // TODO: remove? do straight to intrinsic?
-        RayDesc rayDesc;
-        rayDesc.Origin = math::linalg::promoted_mul(pc.sensorDynamics.invView,origin);
-        rayDesc.Direction = hlsl::normalize(hlsl::mul(math::linalg::truncate<3,3,3,4>(pc.sensorDynamics.invView),direction));
-        rayDesc.TMin = pc.sensorDynamics.nearClip;
-        rayDesc.TMax = pc.sensorDynamics.tMax;
-
-        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
-        DebugPayload payload;
         payload.albedo = accum_t(0,0,0);
         payload.worldNormal = accum_t(0,0,0);
-        spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
-
-        albedo = payload.albedo;
-        normal = payload.worldNormal;
+        spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, ray.origin, ray.tMin, ray.direction, ray.tMax, payload);
     }
+
+    // simple overwrite without accumulation
+    gRWMCCascades[launchID] = uint32_t2(payload.instanceID,payload.primitiveID);
+    // can also shove some stuff in `gBeauty`, `gMotion` and `gMask`
 
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
-    albedoAcc.accumulate(launchID.xy,launchID.z,albedo,samplingInfo.rcpNewSampleCount);
+    albedoAcc.accumulate(launchID.xy,launchID.z,float32_t3(payload.albedo),samplingInfo.rcpNewSampleCount);
     // normal
     Accumulator<ImageAccessor_gNormal> normalAcc;
-    // get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
-    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(normal),samplingInfo.rcpNewSampleCount);
-    
+    normalAcc.accumulate(launchID.xy,launchID.z,float32_t3(correctSNorm10WhenStoringToUnorm(payload.worldNormal)),samplingInfo.rcpNewSampleCount);
 }
 
 [shader("closesthit")]

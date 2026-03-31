@@ -88,14 +88,34 @@ struct SensorDSBindingCounts
 [[vk::binding(SensorDSBindings::Normal,SessionDSIndex)]] RWTexture2DArray<float32_t4> gNormal;
 // TODO: motion confidence mask
 [[vk::binding(SensorDSBindings::Motion,SessionDSIndex)]] RWTexture2DArray<float32_t2> gMotion;
-[[vk::binding(SensorDSBindings::Mask,SessionDSIndex)]] RWTexture2DArray<float32_t> gMask;
+[[vk::binding(SensorDSBindings::Mask,SessionDSIndex)]] RWTexture2DArray<float32_t1> gMask;
 //
 [[vk::binding(SensorDSBindings::Samplers,SessionDSIndex)]] SamplerState gSensorSamplers[SensorDSBindingCounts::Samplers];
 //
 [[vk::binding(SensorDSBindings::AsSampledImages,SessionDSIndex)]] Texture2DArray<float32_t4> gSensorTextures[SensorDSBindingCounts::AsSampledImages];
 
+// RWMC cascades need special treatment
+struct RMWCCascadeAccumulator
+{
+	void accumulate(const uint16_t2 coord, const uint16_t layer, const float16_t3 data, const uint16_t newSampleCount)
+	{
+//		coded_type val;
+
+//		if (rcpNewSampleCount<1.f)
+//		{
+//			composed.get(val,coord,layer);
+//			NBL_UNROLL for (uint16_t i=0; i<ComponentOverride; i++)
+//				val[i] += (data[i] - val[i]) * rcpNewSampleCount;
+//		}
+//		else // clear path
+//		NBL_UNROLL for (uint16_t i=0; i<LoadStoreImageAccessor::Components; i++)
+//			val[i] = hlsl::select(i<ComponentOverride,data[i],T(0));
+
+//		gRWMCCascades[uint16_t3(coord,layer+cascade*uint16_t(spirv::LaunchSizeKHR.z))] = ;
+	}
+};
+
 // for our generic accumulators
-DEFINE_TEXTURE_ACCESSOR(gBeauty);
 DEFINE_TEXTURE_ACCESSOR(gAlbedo);
 DEFINE_TEXTURE_ACCESSOR(gNormal);
 DEFINE_TEXTURE_ACCESSOR(gMotion);
