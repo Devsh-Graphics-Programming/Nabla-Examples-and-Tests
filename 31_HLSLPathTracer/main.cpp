@@ -924,7 +924,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("zFar", &guiControlled.zFar, 110.f, 10000.f);
 					ImGui::Combo("Shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &guiControlled.spp, 1, 0x1u<<MaxSamplesLog2);
-					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxDepthLog2);
+					ImGui::SliderInt("Depth", &guiControlled.depth, 1, 0x1u<<MaxDepthLog2);
 					ImGui::Checkbox("Persistent WorkGroups", &guiControlled.usePersistentWorkGroups);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
