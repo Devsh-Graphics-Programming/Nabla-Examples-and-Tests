@@ -25,6 +25,8 @@
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdlib>
 #include <deque>
@@ -144,6 +146,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (!parseCommandLine())
 				return false;
+			applyEarlyCommandLineOverrides();
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
 			{
@@ -1120,6 +1123,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			guiControlled.rwmcParams.base = 8.0f;
 			guiControlled.rwmcParams.minReliableLuma = 1.0f;
 			guiControlled.rwmcParams.kappa = 5.0f;
+			applyLateCommandLineOverrides();
 
 			// do this as late as possible
 			{
@@ -1214,6 +1218,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				pc.invMVP = invMVP;
 				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				pc.sampleCount = guiControlled.spp;
+				guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 				pc.depth = guiControlled.depth;
 				pc.sequenceSampleCountLog2 = m_sequenceSamplesLog2;
 				if (guiControlled.useRWMC)
@@ -1224,6 +1229,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			};
 			updatePathtracerPushConstants();
 			bool producedRenderableOutput = false;
+			bool dispatchedRwmcPathTrace = false;
 
 			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1296,13 +1302,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
 
 					cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					dispatchedRwmcPathTrace = guiControlled.useRWMC;
 					producedRenderableOutput = !guiControlled.useRWMC;
 				}
 			}
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
 			// TODO: create this and every other barrier once outside of the loop?
-			if(guiControlled.useRWMC)
+			if(guiControlled.useRWMC && dispatchedRwmcPathTrace)
 			{
 				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 						{
@@ -1656,6 +1663,70 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_logger->log("PATH_TRACER_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
 		}
 
+		static std::string normalizeCliToken(std::string value)
+		{
+			std::string normalized;
+			normalized.reserve(value.size());
+			for (const auto ch : value)
+			{
+				if (ch == '-' || ch == '_' || std::isspace(static_cast<unsigned char>(ch)))
+					continue;
+				normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+			}
+			return normalized;
+		}
+
+		static std::optional<E_LIGHT_GEOMETRY> parseGeometryOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "sphere" || normalized == "elgsphere")
+				return ELG_SPHERE;
+			if (normalized == "triangle" || normalized == "elgtriangle")
+				return ELG_TRIANGLE;
+			if (normalized == "rectangle" || normalized == "quad" || normalized == "elgrectangle")
+				return ELG_RECTANGLE;
+			return std::nullopt;
+		}
+
+		static std::optional<E_POLYGON_METHOD> parseMethodOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "area" || normalized == "epmarea")
+				return EPM_AREA;
+			if (normalized == "solidangle" || normalized == "epmsolidangle")
+				return EPM_SOLID_ANGLE;
+			if (normalized == "projectedsolidangle" || normalized == "projected" || normalized == "epmprojectedsolidangle")
+				return EPM_PROJECTED_SOLID_ANGLE;
+			return std::nullopt;
+		}
+
+		void applyEarlyCommandLineOverrides()
+		{
+			if (m_commandLine.geometryOverride.has_value())
+				guiControlled.PTPipeline = static_cast<int>(m_commandLine.geometryOverride.value());
+			if (m_commandLine.methodOverride.has_value())
+				guiControlled.polygonMethod = static_cast<int>(m_commandLine.methodOverride.value());
+			if (m_commandLine.sppOverride.has_value())
+				guiControlled.spp = m_commandLine.sppOverride.value();
+			if (m_commandLine.depthOverride.has_value())
+				guiControlled.depth = m_commandLine.depthOverride.value();
+			if (m_commandLine.rwmcOverride.has_value())
+				guiControlled.useRWMC = m_commandLine.rwmcOverride.value();
+		}
+
+		void applyLateCommandLineOverrides()
+		{
+			if (m_commandLine.rwmcStartOverride.has_value())
+				guiControlled.rwmcParams.start = m_commandLine.rwmcStartOverride.value();
+			if (m_commandLine.rwmcBaseOverride.has_value())
+				guiControlled.rwmcParams.base = m_commandLine.rwmcBaseOverride.value();
+			if (m_commandLine.rwmcMinReliableLumaOverride.has_value())
+				guiControlled.rwmcParams.minReliableLuma = m_commandLine.rwmcMinReliableLumaOverride.value();
+			if (m_commandLine.rwmcKappaOverride.has_value())
+				guiControlled.rwmcParams.kappa = m_commandLine.rwmcKappaOverride.value();
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
 		bool parseCommandLine()
 		{
 			argparse::ArgumentParser parser("31_hlslpathtracer");
@@ -1672,6 +1743,34 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			parser.add_argument("--clear-pipeline-cache")
 				.help("Clear the PATH_TRACER cache root before startup")
 				.flag();
+			parser.add_argument("--shader")
+				.nargs(1)
+				.help("Select startup geometry: sphere, triangle, rectangle");
+			parser.add_argument("--method")
+				.nargs(1)
+				.help("Select startup method: area, solid-angle, projected-solid-angle");
+			parser.add_argument("--spp")
+				.scan<'i', int>()
+				.help("Override startup samples per pixel");
+			parser.add_argument("--depth")
+				.scan<'i', int>()
+				.help("Override startup path depth");
+			parser.add_argument("--rwmc")
+				.help("Enable RWMC at startup")
+				.default_value(false)
+				.implicit_value(true);
+			parser.add_argument("--rwmc-start")
+				.scan<'g', float>()
+				.help("Override RWMC start threshold");
+			parser.add_argument("--rwmc-base")
+				.scan<'g', float>()
+				.help("Override RWMC base");
+			parser.add_argument("--rwmc-min-reliable")
+				.scan<'g', float>()
+				.help("Override RWMC minimum reliable luma");
+			parser.add_argument("--rwmc-kappa")
+				.scan<'g', float>()
+				.help("Override RWMC kappa");
 
 			try
 			{
@@ -1691,6 +1790,65 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (parser.present("--pipeline-cache-dir"))
 				m_commandLine.pipelineCacheDirOverride = path(parser.get<std::string>("--pipeline-cache-dir"));
 			m_commandLine.clearPipelineCache = parser.get<bool>("--clear-pipeline-cache");
+			m_commandLine.geometryOverride.reset();
+			if (parser.present("--shader"))
+			{
+				const auto geometryValue = parser.get<std::string>("--shader");
+				m_commandLine.geometryOverride = parseGeometryOverride(geometryValue);
+				if (!m_commandLine.geometryOverride.has_value())
+				{
+					m_logger->log("Unknown --shader value: %s", ILogger::ELL_ERROR, geometryValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.methodOverride.reset();
+			if (parser.present("--method"))
+			{
+				const auto methodValue = parser.get<std::string>("--method");
+				m_commandLine.methodOverride = parseMethodOverride(methodValue);
+				if (!m_commandLine.methodOverride.has_value())
+				{
+					m_logger->log("Unknown --method value: %s", ILogger::ELL_ERROR, methodValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.sppOverride.reset();
+			if (parser.present("--spp"))
+			{
+				const auto spp = parser.get<int>("--spp");
+				if (spp < 1 || spp > static_cast<int>((0x1u << MaxSamplesLog2) - 1u))
+				{
+					m_logger->log("Invalid --spp value: %d", ILogger::ELL_ERROR, spp);
+					return false;
+				}
+				m_commandLine.sppOverride = spp;
+			}
+			m_commandLine.depthOverride.reset();
+			if (parser.present("--depth"))
+			{
+				const auto depth = parser.get<int>("--depth");
+				if (depth < 1 || depth > static_cast<int>((0x1u << MaxDepthLog2) - 1u))
+				{
+					m_logger->log("Invalid --depth value: %d", ILogger::ELL_ERROR, depth);
+					return false;
+				}
+				m_commandLine.depthOverride = depth;
+			}
+			m_commandLine.rwmcOverride.reset();
+			if (parser.is_used("--rwmc"))
+				m_commandLine.rwmcOverride = parser.get<bool>("--rwmc");
+			m_commandLine.rwmcStartOverride.reset();
+			if (parser.present("--rwmc-start"))
+				m_commandLine.rwmcStartOverride = parser.get<float>("--rwmc-start");
+			m_commandLine.rwmcBaseOverride.reset();
+			if (parser.present("--rwmc-base"))
+				m_commandLine.rwmcBaseOverride = parser.get<float>("--rwmc-base");
+			m_commandLine.rwmcMinReliableLumaOverride.reset();
+			if (parser.present("--rwmc-min-reliable"))
+				m_commandLine.rwmcMinReliableLumaOverride = parser.get<float>("--rwmc-min-reliable");
+			m_commandLine.rwmcKappaOverride.reset();
+			if (parser.present("--rwmc-kappa"))
+				m_commandLine.rwmcKappaOverride = parser.get<float>("--rwmc-kappa");
 			return true;
 		}
 
@@ -2080,12 +2238,18 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (hasValidatedSpirvMarker(content))
 			{
-				m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
+				}
 				return true;
 			}
 
-			if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
-				return false;
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
+					return false;
+			}
 
 			saveValidatedSpirvMarker(content);
 			return true;
@@ -2158,7 +2322,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!preparedShader)
 			{
 				const core::set entryPoints = { asset::ISPIRVEntryPointTrimmer::EntryPoint{ .name = entryPoint, .stage = hlsl::ShaderStage::ESS_COMPUTE } };
-				const auto result = m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				const auto result = [&]()
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					return m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				}();
 				if (!result)
 				{
 					m_logger->log("Failed to prepare trimmed PATH_TRACER shader for %s. Falling back to the original module.", ILogger::ELL_WARNING, entryPoint);
@@ -2315,6 +2483,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			path ciScreenshotPath;
 			std::optional<path> pipelineCacheDirOverride;
 			bool clearPipelineCache = false;
+			std::optional<E_LIGHT_GEOMETRY> geometryOverride;
+			std::optional<E_POLYGON_METHOD> methodOverride;
+			std::optional<int> sppOverride;
+			std::optional<int> depthOverride;
+			std::optional<bool> rwmcOverride;
+			std::optional<float> rwmcStartOverride;
+			std::optional<float> rwmcBaseOverride;
+			std::optional<float> rwmcMinReliableLumaOverride;
+			std::optional<float> rwmcKappaOverride;
 		};
 
 		size_t getRunningPipelineBuildCount() const

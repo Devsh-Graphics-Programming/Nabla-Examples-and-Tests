@@ -1,11 +1,20 @@
 #pragma once
 
-#if !defined(PT_VARIANT_USE_RWMC)
+#if !defined(PT_VARIANT_USE_RWMC) || !defined(PT_VARIANT_ENTRYPOINT_KIND)
 #error Missing triangle method compile options
 #endif
 
+#define PT_VARIANT_ENTRYPOINT_LINEAR 1
+#define PT_VARIANT_ENTRYPOINT_PERSISTENT 2
+#if PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_LINEAR
+#define PATH_TRACER_ENABLE_LINEAR 1
+#define PATH_TRACER_ENABLE_PERSISTENT 0
+#elif PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_PERSISTENT
 #define PATH_TRACER_ENABLE_LINEAR 0
 #define PATH_TRACER_ENABLE_PERSISTENT 1
+#else
+#error Unsupported PT_VARIANT_ENTRYPOINT_KIND
+#endif
 
 #if PT_VARIANT_USE_RWMC
 #define PATH_TRACER_VARIANT_USE_RWMC true
@@ -25,6 +34,21 @@
 #include "scene_triangle_light.hlsl"
 #include "compute_render_scene_impl.hlsl"
 
+#if PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_LINEAR
+#define PATH_TRACER_ENTRYPOINT_NAME main
+#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_APPROX_PROJECTED_SOLID_ANGLE
+#include "compute.render.linear.entrypoints.hlsl"
+
+#define PATH_TRACER_ENTRYPOINT_NAME mainArea
+#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_AREA
+#include "compute.render.linear.entrypoints.hlsl"
+
+#define PATH_TRACER_ENTRYPOINT_NAME mainSolidAngle
+#define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_SOLID_ANGLE
+#include "compute.render.linear.entrypoints.hlsl"
+#endif
+
+#if PT_VARIANT_ENTRYPOINT_KIND == PT_VARIANT_ENTRYPOINT_PERSISTENT
 #define PATH_TRACER_ENTRYPOINT_NAME mainPersistent
 #define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_APPROX_PROJECTED_SOLID_ANGLE
 #include "compute.render.persistent.entrypoints.hlsl"
@@ -36,6 +60,7 @@
 #define PATH_TRACER_ENTRYPOINT_NAME mainPersistentSolidAngle
 #define PATH_TRACER_ENTRYPOINT_POLYGON_METHOD PPM_SOLID_ANGLE
 #include "compute.render.persistent.entrypoints.hlsl"
+#endif
 
 #undef PATH_TRACER_VARIANT_ENABLE_PERSISTENT
 #undef PATH_TRACER_VARIANT_ENABLE_LINEAR
