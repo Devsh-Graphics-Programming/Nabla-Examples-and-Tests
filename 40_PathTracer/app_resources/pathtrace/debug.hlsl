@@ -1,16 +1,5 @@
-#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
-#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
-#include "nbl/builtin/hlsl/path_tracing/gaussian_filter.hlsl"
+#include "common.hlsl"
 
-#include "renderer/shaders/pathtrace/common.hlsl"
-
-#include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
-
-
-using namespace nbl;
-using namespace nbl::hlsl;
-using namespace nbl::this_example;
-using namespace nbl::hlsl::path_tracing;
 
 [[vk::push_constant]] SDebugPushConstants pc;
 
@@ -26,7 +15,7 @@ struct [raypayload] DebugPayload
 [shader("raygeneration")]
 void raygen()
 {
-    const uint32_t3 launchID = spirv::LaunchIdKHR;
+    const uint16_t3 launchID = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
 
     // basics
     uint32_t sampleCount = gSampleCount[launchID]*pc.sensorDynamics.keepAccumulating;
@@ -39,7 +28,7 @@ void raygen()
     using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
     randgen_type randgen;
     randgen.pSampleBuffer = gScene.init.pSampleSequence;
-    randgen.rng = Xoroshiro64Star::construct(gScrambleKey[uint32_t3(launchID.xy & 511,0)]);
+    randgen.rng = Xoroshiro64Star::construct(gScrambleKey[uint16_t3(launchID.xy & uint16_t(511),0)]);
     randgen.sequenceSamplesLog2 = gScene.init.sequenceSamplesLog2;
 
     // take just one sample per dispatch
@@ -72,34 +61,23 @@ void raygen()
 
     gSampleCount[launchID] = ++sampleCount;
     const float32_t rcpSampleCount = 1.f / float32_t(sampleCount);
-    //
-    float32_t3 prev_albedo = float32_t3(0,0,0);
-    float32_t3 prev_normal = float32_t3(0,0,0);
-    // read previous frame
-    if (rcpSampleCount<1.f)
-    {
-        prev_albedo = gAlbedo[launchID];
-        prev_normal = gNormal[launchID];
-    }
-    // store albedo
-    float32_t3 delta_albedo = (albedo - prev_albedo) * rcpSampleCount;
-    if (hlsl::any(hlsl::abs(delta_albedo) > hlsl::promote<float32_t3>(1.0/1023.0)))
-        gAlbedo[launchID] = float32_t4(prev_albedo + delta_albedo, 1.0);
+
+    // new code
+    Accumulator<ImageAccessor_gAlbedo> albedoAcc;
+    albedoAcc.accumulate(launchID.xy,launchID.z,albedo,rcpSampleCount);
+
+    Accumulator<ImageAccessor_gNormal> normalAcc;
     // get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
     normal = hlsl::mix(normal*0.499512+promote<float32_t3>(0.999022),normal*0.499512,promote<float32_t3>(0.f)<normal);
-    // store normal
-    float32_t3 delta_normal = (normal - prev_normal) * rcpSampleCount;
-    if (hlsl::any(hlsl::abs(delta_normal) > hlsl::promote<float32_t3>(1.0/1023.0)))
-        gNormal[launchID] = float32_t4(prev_normal + delta_normal, 1.0);
+    normalAcc.accumulate(launchID.xy,launchID.z,normal,rcpSampleCount);
     
 }
 
 [shader("closesthit")]
 void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int primID = spirv::PrimitiveId;
-    const int instanceCustomIndex = spirv::InstanceCustomIndexKHR;
-    const int geometryIndex = spirv::RayGeometryIndexKHR;
+    const uint32_t instanceCustomIndex = spirv::InstanceCustomIndexKHR;
+    const uint32_t geometryIndex = spirv::RayGeometryIndexKHR;
     
     float32_t3 vertex0 = spirv::HitTriangleVertexPositionsKHR[0];
     float32_t3 vertex1 = spirv::HitTriangleVertexPositionsKHR[1];
@@ -110,7 +88,7 @@ void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
     const float32_t3 worldNormal = hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 
     payload.instanceID = instanceCustomIndex;// TODO: can we get geometry count in instance and "linearize" our geometry into an UUID ?
-    payload.primitiveID = primID;
+    payload.primitiveID = spirv::PrimitiveId;
 
     payload.albedo = float32_t3(1,1,1);
     payload.worldNormal = worldNormal;

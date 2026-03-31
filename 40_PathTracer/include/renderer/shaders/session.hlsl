@@ -95,6 +95,15 @@ struct SensorDSBindingCounts
 [[vk::binding(SensorDSBindings::Samplers,SessionDSIndex)]] SamplerState gSensorSamplers[SensorDSBindingCounts::Samplers];
 //
 [[vk::binding(SensorDSBindings::AsSampledImages,SessionDSIndex)]] Texture2DArray<float32_t4> gSensorTextures[SensorDSBindingCounts::AsSampledImages];
+
+// fo our generic accumulators
+DEFINE_TEXTURE_ACCESSOR(gSampleCount);
+DEFINE_TEXTURE_ACCESSOR(gRWMCCascades);
+DEFINE_TEXTURE_ACCESSOR(gBeauty);
+DEFINE_TEXTURE_ACCESSOR(gAlbedo);
+DEFINE_TEXTURE_ACCESSOR(gNormal);
+DEFINE_TEXTURE_ACCESSOR(gMotion);
+DEFINE_TEXTURE_ACCESSOR(gMask);
 #endif
 }
 }

@@ -1,14 +1,23 @@
-#include "renderer/shaders/pathtrace/common.hlsl"
+#include "common.hlsl"
+
+#include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
+
+
+using namespace nbl;
 using namespace nbl::hlsl;
 using namespace nbl::this_example;
+using namespace nbl::hlsl::path_tracing;
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 
 
 struct[raypayload] BeautyPayload
 {
-    uint32_t instanceID : read(caller):write(closesthit);
-//    float16_t3 normal : read(caller):write(closesthit);
+    float32_t3 color : read(caller) : write(closesthit,miss);
+    float16_t3 throughput : read(caller) : write(closesthit,miss);
+    float16_t  otherTechniqueWeight : read(caller) : write(closesthit,miss);
+    float16_t3 albedo : read(caller) : write(closesthit,miss);
+    float16_t3 worldNormal : read(caller) : write(closesthit,miss);
 };
 
 [shader("raygeneration")]
