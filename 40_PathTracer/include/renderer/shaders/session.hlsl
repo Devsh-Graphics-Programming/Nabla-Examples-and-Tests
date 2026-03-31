@@ -75,9 +75,8 @@ struct SensorDSBindingCounts
 
 #ifdef __HLSL_VERSION
 [[vk::binding(SensorDSBindings::UBO,SessionDSIndex)]] ConstantBuffer<SSensorUniforms> gSensor;
-// could be uint32_t2
 [[vk::binding(SensorDSBindings::ScrambleKey,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gScrambleKey;
-// could be uint32_t or even uint16_t
+// could be uint16_t were it not for "Expected Sampled Type to be a 32-bit int, 64-bit int or 32-bit float scalar type for Vulkan environment"
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t> gSampleCount;
 [[vk::binding(SensorDSBindings::RWMCCascades,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gRWMCCascades;
 [[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<uint32_t> gBeauty;
@@ -89,16 +88,13 @@ struct SensorDSBindingCounts
 [[vk::binding(SensorDSBindings::Normal,SessionDSIndex)]] RWTexture2DArray<float32_t4> gNormal;
 // TODO: motion confidence mask
 [[vk::binding(SensorDSBindings::Motion,SessionDSIndex)]] RWTexture2DArray<float32_t2> gMotion;
-// could be float32_t
 [[vk::binding(SensorDSBindings::Mask,SessionDSIndex)]] RWTexture2DArray<float32_t> gMask;
 //
 [[vk::binding(SensorDSBindings::Samplers,SessionDSIndex)]] SamplerState gSensorSamplers[SensorDSBindingCounts::Samplers];
 //
 [[vk::binding(SensorDSBindings::AsSampledImages,SessionDSIndex)]] Texture2DArray<float32_t4> gSensorTextures[SensorDSBindingCounts::AsSampledImages];
 
-// fo our generic accumulators
-DEFINE_TEXTURE_ACCESSOR(gSampleCount);
-DEFINE_TEXTURE_ACCESSOR(gRWMCCascades);
+// for our generic accumulators
 DEFINE_TEXTURE_ACCESSOR(gBeauty);
 DEFINE_TEXTURE_ACCESSOR(gAlbedo);
 DEFINE_TEXTURE_ACCESSOR(gNormal);

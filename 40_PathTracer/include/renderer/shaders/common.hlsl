@@ -61,12 +61,12 @@ struct texture_traits<RWTexture2DArray<T> NBL_PARTIAL_REQ_BOT(is_scalar_v<T>)>
 	using scalar_type = typename coded_type_traits::scalar_type; \
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Components = coded_type_traits::Dimension; \
 \
-	template<typename T, int32_t Dims NBL_FUNC_REQUIRES(::nbl::hlsl::is_same_v<T,scalar_type>) \
+	template<typename T, int32_t Dims NBL_FUNC_REQUIRES(Dims==Dimension) \
 	void get(NBL_REF_ARG(vector<T,Components>) value, const vector<uint16_t,Dims> coord, const uint16_t layer) \
 	{ \
 		value = TEX_NAME[vector<uint16_t,Dims+1>(coord,layer)]; \
 	} \
-	template<typename T, int32_t Dims NBL_FUNC_REQUIRES(::nbl::hlsl::is_same_v<T,scalar_type>) \
+	template<typename T, int32_t Dims NBL_FUNC_REQUIRES(Dims==Dimension) \
 	void set(const vector<uint16_t,Dims> coord, const uint16_t layer, const vector<T,Components> value) \
 	{ \
 		TEX_NAME[vector<uint16_t,Dims+1>(coord,layer)] = value; \
