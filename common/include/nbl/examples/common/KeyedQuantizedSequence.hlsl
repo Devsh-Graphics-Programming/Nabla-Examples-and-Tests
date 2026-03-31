@@ -16,8 +16,9 @@ namespace examples
 template<typename RNG=Xoroshiro64Star>
 struct KeyedQuantizedSequence
 {
+    using rng_type = RNG; // legacy
     using key_rng_type = RNG;
-    using sequence_type = hlsl::sampling::QuantizedSequence<uint32_t2, 3>;
+    using sequence_type = hlsl::sampling::QuantizedSequence<uint32_t2,3>;
     using return_type = vector<float32_t,3>;
 
     // baseDimension: offset index of the sequence
@@ -35,7 +36,7 @@ struct KeyedQuantizedSequence
     // could be vk::BufferPointer<sequence_type> but no arithmetic
     uint64_t pSampleBuffer;
     key_rng_type rng;
-    uint32_t sequenceSamplesLog2;
+    uint16_t sequenceSamplesLog2;
 };
 
 }

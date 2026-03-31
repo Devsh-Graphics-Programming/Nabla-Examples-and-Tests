@@ -12,6 +12,8 @@
 #include "nbl/builtin/hlsl/path_tracing/basic_ray_gen.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/unidirectional.hlsl"
 
+#include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
+
 // add these defines (one at a time) using -D argument to dxc
 // #define SPHERE_LIGHT
 // #define TRIANGLE_LIGHT
@@ -95,7 +97,7 @@ using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_
 
 using payload_type = Payload<float>;
 using ray_type = Ray<payload_type,POLYGON_METHOD>;
-using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
+using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
@@ -187,7 +189,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     rayGen.invMVP = renderPushConstants.invMVP;
 
     pathtracer.scene = scene;
-    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
+    pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
+    pathtracer.randGen.rng = Xoroshiro64Star::construct(scramblebuf[coords].rg);
+    pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
     pathtracer.nee.lights = lights;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.bxdfPdfThreshold = 0.0001;
@@ -200,7 +204,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     accumulator_type accumulator = accumulator_type::create();
 #endif
     // path tracing loop
-    for(int i = 0; i < renderPushConstants.sampleCount; ++i)
+    for (uint32_t i = 0u; i < renderPushConstants.sampleCount; ++i)
     {
         float32_t3 uvw = pathtracer.randGen(0u, i);
         ray_type ray = rayGen.generate(uvw);

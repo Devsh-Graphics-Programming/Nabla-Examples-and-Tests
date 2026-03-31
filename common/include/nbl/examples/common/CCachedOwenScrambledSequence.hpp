@@ -79,12 +79,6 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 					}
 				}
 			}
-			// keep on getting bigger and bigger
-			const bool oldFullyContains = oldHeader.maxSamplesLog2>=params.header.maxSamplesLog2 && oldHeader.maxDimensions>=params.header.maxDimensions;
-
-			auto* const system = params.assMan->getSystem();
-			if (!oldFullyContains)
-				system->deleteFile(params.cachePath);
 
 			ICPUBuffer::SCreationParams bufparams = {};
 			bufparams.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -92,10 +86,21 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 			auto buffer = ICPUBuffer::create(std::move(bufparams));
 			if (!buffer)
 				return nullptr;
+			
+			// keep on getting bigger and bigger
+			const bool oldFullyContains = oldHeader.maxSamplesLog2>=params.header.maxSamplesLog2 && oldHeader.maxDimensions>=params.header.maxDimensions;
+
+			auto* const system = params.assMan->getSystem();
+			if (!oldFullyContains)
+				system->deleteFile(params.cachePath);
+
 			auto* const out = reinterpret_cast<sequence_type*>(buffer->getPointer());
 			// generate missing bits of the sequence
 			{
-				core::OwenSampler sampler(params.header.maxDimensions,0xdeadbeefu); // TODO: put the seed in the header to check or replace
+				std::unique_ptr<core::OwenSampler<>> sampler;
+				if (!oldFullyContains)
+					sampler = std::make_unique<core::OwenSampler<>>(params.header.maxDimensions,0xdeadbeefu); // TODO: put the seed in the header to check or replace
+				//
 				const sequence_type* const in = oldBuffer ? reinterpret_cast<const sequence_type*>(reinterpret_cast<const int8_t*>(oldBuffer->getPointer())+HeaderSize):nullptr;
 				// thread this so it doesn't take forever
 				const auto range = std::ranges::iota_view{0u,params.header.maxDimensions};
@@ -104,12 +109,20 @@ class CCachedOwenScrambledSequence final : public core::IReferenceCounted
 						const uint32_t quant_dim = dim / 3u;
 						const uint32_t quant_comp = dim % 3;
 						auto* const outDimSamples = out+(quant_dim<<params.header.maxSamplesLog2);
-						const uint32_t firstInvalidSample = dim<oldHeader.maxDimensions ? (1u<<oldHeader.maxSamplesLog2):0u;
-						// copy samples encountered
-						memcpy(outDimSamples,in+(quant_dim<<oldHeader.maxSamplesLog2),sizeof(sequence_type)*firstInvalidSample);
-						if (firstInvalidSample>>params.header.maxSamplesLog2)
-							return;
-						const auto dimSampler = sampler.prepareDimension(dim);
+						//
+						uint32_t firstInvalidSample = 0;
+						// in range with dimensions
+						const bool oldDimension = dim<oldHeader.maxDimensions;
+						if (oldDimension)
+						{
+							// copy the samples which come from previous cache
+							memcpy(outDimSamples,in+(quant_dim<<oldHeader.maxSamplesLog2),sizeof(sequence_type)<<hlsl::min(oldHeader.maxSamplesLog2,params.header.maxSamplesLog2));
+							// skip initializing dimension
+							if (oldHeader.maxSamplesLog2>=params.header.maxSamplesLog2)
+								return;
+							firstInvalidSample = 0x1u << oldHeader.maxSamplesLog2;
+						}
+						const auto dimSampler = sampler->prepareDimension(dim);
 						// generate samples that werent in the original sequence
 						for (uint32_t i=firstInvalidSample; (i>>params.header.maxSamplesLog2)==0; i++)
 						{

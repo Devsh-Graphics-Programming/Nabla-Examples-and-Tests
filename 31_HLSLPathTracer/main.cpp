@@ -135,7 +135,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return CCachedOwenScrambledSequence::create({
 						.cachePath = (sharedOutputCWD/CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string(),
 						.assMan = m_assetMgr.get(),
-						.header = {.maxSamplesLog2 = MaxSamplesLog2,.maxDimensions = MaxBufferDimensions}
+						.header = {.maxSamplesLog2 = MaxSamplesLog2,.maxDimensions = 0x6u<<MaxDepthLog2}
 					});
 				}
 			);
@@ -923,8 +923,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGui::SliderFloat("zNear", &guiControlled.zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &guiControlled.zFar, 110.f, 10000.f);
 					ImGui::Combo("Shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::SliderInt("SPP", &guiControlled.spp, 1, MaxSamplesBuffer);
-					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
+					ImGui::SliderInt("SPP", &guiControlled.spp, 1, 0x1u<<MaxSamplesLog2);
+					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxDepthLog2);
 					ImGui::Checkbox("Persistent WorkGroups", &guiControlled.usePersistentWorkGroups);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
@@ -1014,6 +1014,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// do this as late as possible
 			{
 				auto sequence = sequenceFuture.get();
+				m_sequenceSamplesLog2 = sequence->getHeader().maxSamplesLog2;
 				auto* const seqBufferCPU = sequence->getBuffer();
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=getGraphicsQueue()},IGPUBuffer::SCreationParams{seqBufferCPU->getCreationParams()},seqBufferCPU->getPointer()).move_into(m_sequenceBuffer);
 				m_sequenceBuffer->setObjectDebugName("Low Discrepancy Sequence");
@@ -1091,22 +1092,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
 				const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
 
+				pc.invMVP = invMVP;
+				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+				pc.sampleCount = guiControlled.spp;
+				pc.depth = guiControlled.depth;
+				pc.sequenceSampleCountLog2 = m_sequenceSamplesLog2;
+				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				if (guiControlled.useRWMC)
 				{
-					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
-					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
-					rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+					rwmcPushConstants.renderPushConstants = pc;
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
-				}
-				else
-				{
-					pc.invMVP = invMVP;
-					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					pc.sampleCount = guiControlled.spp;
-					pc.depth = guiControlled.depth;
-					pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				}
 			};
 			updatePathtracerPushConstants();
@@ -1498,6 +1493,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
+		uint8_t m_sequenceSamplesLog2;
 
 		// sync
 		smart_refctd_ptr<ISemaphore> m_semaphore;
