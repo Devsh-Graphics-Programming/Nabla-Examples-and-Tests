@@ -874,10 +874,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "enable", &guiControlled.useRWMC },
 					};
 					const this_example::pt_ui::SFloatSliderRow rwmcFloatRows[] = {
-						{ "start", &guiControlled.rwmcParams.start, 0.2f, 16.0f, "%.3f" },
-						{ "base", &guiControlled.rwmcParams.base, 1.001f, 16.0f, "%.3f" },
-						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.01f, 32.0f, "%.3f" },
-						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 128.0f, "%.3f" },
+						{ "start", &guiControlled.rwmcParams.start, 0.2f, 128.0f, "%.3f" },
+						{ "base", &guiControlled.rwmcParams.base, 1.001f, 32.0f, "%.3f" },
+						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.01f, 1024.0f, "%.3f" },
+						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f" },
 					};
 					const this_example::pt_ui::STextRow diagnosticsRows[] = {
 						{ "geometry", system::to_string(currentGeometry) },
@@ -1000,6 +1000,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 										this_example::pt_ui::checkboxRow(row);
 									for (const auto& row : rwmcFloatRows)
 										this_example::pt_ui::sliderFloatRow(row);
+									ImGui::TableNextRow();
+									ImGui::TableSetColumnIndex(0);
+									ImGui::TextUnformatted("defaults");
+									ImGui::TableSetColumnIndex(1);
+									ImGui::SetNextItemWidth(-FLT_MIN);
+									ImGui::PushID("rwmc_defaults");
+									if (ImGui::Button("Reset RWMC"))
+										resetRWMCParamsToDefaults();
+									ImGui::PopID();
 									ImGui::EndTable();
 								}
 							}
@@ -1118,11 +1127,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_camera.mapKeysToArrows();
 
 			// set initial rwmc settings
-			
-			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			guiControlled.rwmcParams.base = 8.0f;
-			guiControlled.rwmcParams.minReliableLuma = 1.0f;
-			guiControlled.rwmcParams.kappa = 5.0f;
+			resetRWMCParamsToDefaults();
 			applyLateCommandLineOverrides();
 
 			// do this as late as possible
@@ -1724,6 +1729,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				guiControlled.rwmcParams.minReliableLuma = m_commandLine.rwmcMinReliableLumaOverride.value();
 			if (m_commandLine.rwmcKappaOverride.has_value())
 				guiControlled.rwmcParams.kappa = m_commandLine.rwmcKappaOverride.value();
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
+		void resetRWMCParamsToDefaults()
+		{
+			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+			guiControlled.rwmcParams.base = 8.0f;
+			guiControlled.rwmcParams.minReliableLuma = 1.0f;
+			guiControlled.rwmcParams.kappa = 1.0f;
 			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 		}
 
