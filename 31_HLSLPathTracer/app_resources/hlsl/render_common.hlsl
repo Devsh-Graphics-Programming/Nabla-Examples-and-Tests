@@ -12,15 +12,28 @@ NBL_CONSTEXPR uint32_t MaxSamplesLog2 = MAX_SAMPLES_LOG2;
 
 struct RenderPushConstants
 {
-    // TODO: cut down the MVP into a compact raygen matrix to get this whole struct to less than 112 bytes!
-	float32_t4x4 invMVP;
-	float32_t3x4 generalPurposeLightMatrix;
+    float32_t3x4 lightMatrix()
+    {
+        float32_t4x3 retval;
+        retval[0] = lightX;
+        retval[1] = lightY;
+        retval[2] = cross(lightX,lightY)*lightZscale;
+        retval[3] = lightPos;
+        return hlsl::transpose(retval);
+    }
+
     uint64_t pSampleSequence;
+	float32_t4x4 invMVP;
+    float32_t3 lightX;
+    float32_t3 lightY;
+    float32_t lightZscale;
+    float32_t3 lightPos;
     // TODO: compact a bit and refactor
     uint32_t sampleCount : MAX_SAMPLES_LOG2;
     uint32_t depth : MAX_DEPTH_LOG2;
     uint32_t sequenceSampleCountLog2 : 5;
     uint32_t unused : 13;
+    uint32_t unused1;
 };
 #undef MAX_SAMPLES_LOG2
 #undef MAX_DEPTH_LOG2

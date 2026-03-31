@@ -87,7 +87,7 @@ void tracePixel(int32_t2 coords)
 	}
 
 	scene_type scene;
-	scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
+	scene.updateLight(renderPushConstants.lightMatrix());
 
 	typename variant_types::raygen_type rayGen;
 	rayGen.pixOffsetParam = pixOffsetParam;

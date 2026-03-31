@@ -1218,12 +1218,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
 				const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
 
+				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				pc.invMVP = invMVP;
-				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+				{
+					const auto matT = hlsl::float32_t4x3(m_lightModelMatrix);
+					pc.lightX = matT[0];
+					pc.lightY = matT[1];
+					// Z had a length and a direction, can point colinear or opposite cross product
+					const auto recon = hlsl::cross(matT[0], matT[1]);
+					pc.lightZscale = hlsl::sign(hlsl::dot(recon,matT[2]))*hlsl::length(matT[2])/hlsl::length(recon);
+					pc.lightPos = matT[3];
+					assert(pc.lightMatrix()==hlsl::transpose(matT));
+				}
 				pc.sampleCount = guiControlled.spp;
 				pc.depth = guiControlled.depth;
 				pc.sequenceSampleCountLog2 = m_sequenceSamplesLog2;
-				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				if (guiControlled.useRWMC)
 				{
 					rwmcPushConstants.renderPushConstants = pc;
