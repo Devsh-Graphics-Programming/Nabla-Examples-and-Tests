@@ -20,11 +20,11 @@ struct SSensorUniforms
 	hlsl::rwmc::SSplattingParameters splatting;
 	hlsl::uint16_t2 renderSize;
 	// bitfield
-	uint32_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
-	uint32_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
-	uint32_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
-	uint32_t unused0 : 12; //BOOST_PP_SUB(31, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
-	uint32_t hideEnvironment : 1;
+	uint16_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
+	uint16_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
+	uint16_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
+	uint16_t unused0 : 12; //BOOST_PP_SUB(15, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
+	uint16_t hideEnvironment : 1;
 };
 
 struct SensorDSBindings

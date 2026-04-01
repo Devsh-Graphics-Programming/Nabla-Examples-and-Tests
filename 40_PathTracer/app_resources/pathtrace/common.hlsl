@@ -10,7 +10,13 @@ namespace nbl
 namespace this_example
 {
 
-// accumulators
+// There's different ways to accumulate with on-line averaging:
+// - one Sample every Frame: `avg + (sample-avg)/N`
+// - variable Samples every Frame without skipping: `avg + (sampleSum-avg*sampleCount)/N` or `avg + (sampleAvg-avg)*sampleCount/N`
+//   the second option has 1 MUL extra compared to regular accumulation, whereas first does 1 MUL extra but it requires cheap averaging
+// - variable Samples every Frame with skipping: `avg + (sampleSum-avg*(sampleCount+skippedSamples))/N` equivalently `avg+(sampleSum-avg*(N-oldSamples))/N`
+//	 pre-averaged variant is then `avg + (sampleAvg - avg*(N-oldSamples)/sampleCount)*sampleCount/N`
+
 template<typename LoadStoreImageAccessor>// NBL_PRIMARY_REQUIRES(
 //	hlsl::concepts::accessors::LoadableImage<LoadStoreImageAccessor,typename LoadStoreImageAccessor::scalar_type,LoadStoreImageAccessor::Dimension,LoadStoreImageAccessor::Components> &&
 //	hlsl::concepts::accessors::StorableImage<LoadStoreImageAccessor,typename LoadStoreImageAccessor::scalar_type,LoadStoreImageAccessor::Dimension,LoadStoreImageAccessor::Components>
@@ -45,6 +51,7 @@ struct Accumulator
 	LoadStoreImageAccessor composed;
 };
 
+
 // get it so that -1.0 maps to -511 (513 unsigned so 0.501466275) and 1.0 maps to 511 (0.4995112) and 0 maps to 0
 template<typename T, int N>
 vector<T,N> correctSNorm10WhenStoringToUnorm(const vector<T,N> input)
@@ -78,6 +85,7 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 	//
 	const uint16_t newSampleCount = retval.firstSample+newSamplesThisPixel;
 	gSampleCount[coord] = newSampleCount;
+	// handle overflow
 	retval.rcpNewSampleCount = hlsl::select(newSampleCount>retval.firstSample,1.f/float32_t(newSampleCount),0.f);
 	return retval;
 }
