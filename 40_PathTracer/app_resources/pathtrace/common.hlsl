@@ -68,6 +68,7 @@ struct SPixelSamplingInfo
 {
 	randgen_t randgen;
 	float32_t rcpNewSampleCount;
+	uint16_t newSampleCount;
 	uint16_t firstSample;
 };
 SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newSamplesThisPixel, const uint16_t dontClear)
@@ -83,13 +84,14 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 		retval.randgen.sequenceSamplesLog2 = gScene.init.sequenceSamplesLog2; // TODO: make this compile time constant - Spec Constant?
 	}
 	//
-	const uint16_t newSampleCount = retval.firstSample+newSamplesThisPixel;
-	gSampleCount[coord] = newSampleCount;
+	retval.newSampleCount = retval.firstSample+newSamplesThisPixel;
+	gSampleCount[coord] = retval.newSampleCount;
 	// handle overflow
-	retval.rcpNewSampleCount = hlsl::select(newSampleCount>retval.firstSample,1.f/float32_t(newSampleCount),0.f);
+	retval.rcpNewSampleCount = hlsl::select(retval.newSampleCount>retval.firstSample,1.f/float32_t(retval.newSampleCount),0.f);
 	return retval;
 }
 
+// TODO: split into RayDir 
 // raygen functions
 struct SRay
 {
@@ -119,6 +121,177 @@ struct SRay
 	float32_t tMax;
 	// TODO: ray differentials or covariance
 };
+
+// variables that multiply together
+struct SThroughputs
+{
+    inline void clear(const float32_t weight)
+    {
+        color = hlsl::promote<float32_t3>(weight);
+        aov = hlsl::promote<float16_t3>(transparency = float16_t(weight));
+    }
+
+    inline SThroughputs operator*(const float32_t factor)
+    {
+        SThroughputs retval;
+        retval.color *= factor;
+        const float16_t fp16Factor = float16_t(factor);
+        retval.aov *= fp16Factor;
+        retval.transparency *= fp16Factor;
+        return retval;
+    }
+    inline SThroughputs operator/(const float32_t factor)
+    {
+        return this * (1.f/factor);
+    }
+
+
+    // transparent (anyhit) could be emissive so needs to add its emission
+    float32_t3 color;
+    // RGB transparency of smooth reflections and refractions, used for modulating albedo and most AOVs
+    float16_t3 aov;
+    // Motion is special because Real Time defines it as a mapping of where current pixel was last frame.
+    // True motion output would require us to implement differentiable rendering and formulate motion as an integral of `Throughput dScreenPos/dTime` which is super tricky because:
+    // - A turning mirror imparts motion on the reflection of a static object
+    // - whats the motion vector for a disoccluded part of a reflection? How to even know about a disocclusion/our reflection's motion vector reprojecting badly?
+    // - its not generally a function, the current pixel could be in multiple places at in the last frame (think about the flow of the reflection of your face in a concave spoon) 
+    // - Non-differentiability, hard edges of triangles and Breps
+    // - lighting imparts is own motion vectors, e.g. shadows move across static surfaces
+    // - how to weigh contributions? luma of RGB effect? inidividually, etc.
+    // TL;DR you can't just blend motions and get something useful (even less than normals), only directly tranmissive paths should be allowed to accumulate their motion vectors (easy to calculate)
+    // as we pass through surfaces we need to know how much of the outgoing ray distribution is focused around the directly transmissive direction. This can modulate both our masking and motion vectors.
+    // Albeit for smooth but refractive surfaces we could experiment with accepting transparent masking even though ray direction won't match in a simple Photoshop composting,
+    // but would you rather have an opaque swimming pool, round glass vase, or water droplet OR composted with no refraction? But then we'd need a motion throughput and track some more metadata.
+    float16_t transparency;
+};
+
+// TODO: use the CIE stuff
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float16_t3 LumaConversionCoeffs = float16_t3(0.39,0.5,0.11);
+
+struct SSpectralType
+{
+    inline void clear()
+    {
+        color = normal = albedo = float16_t3(0,0,0);
+        // TODO: motion
+        transparency = float16_t(0);
+    }
+
+    inline SSpectralType operator+(const SSpectralType other)
+    {
+        SSpectralType retval;
+        retval.color = color+other.color;
+        retval.albedo = albedo+other.albedo;
+        retval.normal = normal+other.normal;
+        retval.transparency = transparency+other.transparency;
+        return retval;
+    }
+
+    inline SSpectralType operator*(const SThroughputs throughput)
+    {
+        SSpectralType retval;
+        retval.color = color*float16_t3(throughput.color);
+        retval.albedo = albedo*throughput.aov;
+        retval.normal = normal*hlsl::dot(throughput.aov,LumaConversionCoeffs);
+        retval.transparency = transparency*throughput.transparency;
+        return retval;
+    }
+
+    // transparent (anyhit) could be emissive so needs to add its emission
+    float16_t3 color;
+    // AoVs are handled as "special emission", basically the contribution of albedo is same as the material illuminated in a White Furnace
+    // so for transparent (anyhit) to impart its albedo or normal into the AoV it can add it same way it would add any color emission
+    float16_t3 albedo;
+    // One would think that normals can't be blended, but yes they can! Just make sure you weigh then using the Luma of the RGB aovThroughput.
+    // Here's the problem with dealing with reflections & refractions, the reflection of a wall with an X- normal in the X+ window should have an apparent X+ normal.
+    // This means that one would need to track the surfaces through which we reflect in a stack along the path, eg:
+    // `originalNormal - 2 dot(originalNormal, reflectorNormal) * reflectorNormal == (Identity - 2 outerProductMatrix(reflectorNormal)) originalNormal`
+    // To follow through 2 or more reflections we'd need to multiply these 3x3 matrices together along the ray like so
+    // `(I - 2 n_0 n_0^T) (I - 2 n_1 n_1^T) = I + 4 n_0 (n_0^T n_1) n_1^T - 2 (n_0 n_0^T + n_1 n_1^T)`
+    // Theoretically because every series of reflections is just one reflection and a rotation, it could be possible to store this in 3 floats, due to the properties of SO(3)
+    // "The orthogonal group, consisting of all proper and improper rotations, is generated by reflections. Every proper rotation is the composition of two reflections, a special case of the Cartan–Dieudonné theorem."
+    // I'm not sure how we could extend that for refractions but probably a similar form is possible  - virtual object corresponding under transmission to what's seen under refraction.
+    // The question is.. is it worth it? Do er really need objects warped by in a labyrynth of wonky mirrors to have warped normals? Or a ceiling reflected in a choppy swimming pool to inherit the pool's wave normals ?
+    // NO because this is an input to a denoiser to stop it blurring lighting across surfaces oriented in different directions! Doesn't matter what the reflection and refraction normals are as long as they're consistent.
+    // For the example of a flat building wall reflected in a wavy but smooth reflector, that would actually be a massive self-own and leave behind a lot of noise!
+    float16_t3 normal;
+    // TODO: motion (RG vector to past location, B or BA as a measure of spread, e.g. spherical gaussian, direction and its variance, Polar Harmonics - Laplace on a Circle)
+    //float16_t3or4 motion;
+    // for composting
+    float16_t transparency;
+};
+
+
+// only callable from closestHit
+inline float32_t3 reconstructGeometricNormal()
+{
+    using namespace nbl::hlsl;
+
+    // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
+    const float32_t3 geometricNormal = hlsl::cross(
+        spirv::HitTriangleVertexPositionsKHR[1]-spirv::HitTriangleVertexPositionsKHR[0],
+        spirv::HitTriangleVertexPositionsKHR[2]-spirv::HitTriangleVertexPositionsKHR[0]
+    );
+
+    // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
+    // this would require a normalization before the matrix multiplication, making everything slower/
+    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(float32_t4x3(spirv::WorldToObjectKHR)));
+    // normalization also needs to be done in full floats because length squared can easily be over 64k
+    return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
+}
+
+
+// This is not only used for Russian Roulette but also for culling low throughput paths early (adds bias but keeps the critical path of the path tracer - pun intended - manageable)
+struct MaxContributionEstimator
+{
+    // TODO: apply inverse exposure so we're sensitive to screen output (previous beauty), but don't go overkill and apply toonemapped luma derivative based on current inverse tonemapping of color accumulation
+    static inline MaxContributionEstimator create(const float16_t3 constantThroughputWeights)
+    {
+        MaxContributionEstimator retval;
+        // essentially how much can we move the accumulation needle
+        retval.throughputWeights = constantThroughputWeights;
+        return retval;
+    }
+
+    // notCulled instead of culled because of NaN handling
+    inline bool notCulled(NBL_REF_ARG(SThroughputs) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
+    {
+        // recompute after previous hit
+        const float16_t surviveProb = hlsl::dot(float16_t3(throughput.color),throughputWeights);
+        // TODO: prevent "fireflies in AoVs" because AoV targets are not HDR - don't do RR if that will overshoot our albedo and normal contributions
+        // skipRussianRoulette = skipRussianRoulette && ...;
+        // cull really low throughput paths (adds bias)
+        const float16_t RelativeLumaThroughputThreshold = hlsl::numeric_limits<float16_t>::min;
+        // < instead of <= very important for handling zero probability, note that nextULP correction doesn't need to be applied because we use unclamped probability here
+        if (surviveProb>RelativeLumaThroughputThreshold && (skipRussianRoulette || xi<surviveProb))
+        {
+            const float16_t UnityFp16 = 1;
+            // now apply the clamp
+            const float32_t rcpSurvivalProb = max(UnityFp16/surviveProb,UnityFp16);
+            // rescale rand
+            xi *= rcpSurvivalProb;
+            // apply to throughput
+            throughput = throughput*rcpSurvivalProb;
+            return true;
+        }
+        return false;
+    }
+
+    // The idea is that the throughput weights scale HDR world-referenced throughput into a Probability value
+    float16_t3 throughputWeights;
+};
+
+//
+SSpectralType sampleEnv(const float32_t3 raydir)
+{
+    SSpectralType retval;
+    // TODO: sample the envmap texture
+    retval.color = float16_t3(0.5f,0.5f,1.f);
+    // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
+    retval.albedo = min(retval.color,float16_t3(1,1,1));
+    retval.normal = -normalize(float16_t3(raydir));
+    return retval;
+}
 
 }
 }

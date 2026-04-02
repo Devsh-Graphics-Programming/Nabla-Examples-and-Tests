@@ -43,11 +43,34 @@ struct SBeautyPushConstants
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSppPerDispatchLog2 = MAX_SPP_PER_DISPATCH_LOG2;
 
+	// PushConstant16bit access feature isn't ubiquitous
+	struct S16BitData
+	{
+		// Luma conversion coefficients scaled by something proportional to the brightest light in the scene
+#ifndef __HLSL_VERSION
+		hlsl::
+#endif
+		float16_t3 rrThroughputWeights;
+		// For a foveated render
+		uint16_t maxSppPerDispatch;
+	};
+
+
 	SSensorDynamics sensorDynamics;
-	// TODO: should we even do this?
-	// The only benefit is avoiding the VRAM roundtrip to an image / foveated render
-	uint32_t maxSppPerDispatch : MAX_SPP_PER_DISPATCH_LOG2;
-	uint32_t unused : 27;
+#ifdef __HLSL_VERSION
+	uint32_t __16BitData[sizeof(S16BitData)/sizeof(uint32_t)];
+	// 
+	S16BitData get16BitData()
+	{
+		S16BitData retval;
+		// TODO: implement later
+		retval.rrThroughputWeights = hlsl::promote<float16_t3>(hlsl::numeric_limits<float16_t>::max); // always pass RR
+		retval.maxSppPerDispatch = 3;
+		return retval;
+	}
+#else
+	S16BitData __16BitData;
+#endif
 };
 #undef MAX_SPP_PER_DISPATCH_LOG2
 

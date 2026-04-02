@@ -54,31 +54,20 @@ void raygen()
 [shader("closesthit")]
 void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
+    payload.worldNormal = accum_t(reconstructGeometricNormal());
+
     const uint32_t instanceCustomIndex = spirv::InstanceCustomIndexKHR;
     const uint32_t geometryIndex = spirv::RayGeometryIndexKHR;
-    
-    float32_t3 vertex0 = spirv::HitTriangleVertexPositionsKHR[0];
-    float32_t3 vertex1 = spirv::HitTriangleVertexPositionsKHR[1];
-    float32_t3 vertex2 = spirv::HitTriangleVertexPositionsKHR[2];
-    // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
-    const float32_t3 geometricNormal = hlsl::cross(vertex1 - vertex0,vertex2 - vertex0);
-
-    // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
-    // this would require a normalization before the matrix multiplication, making everything slower/
-    const float32_t3x3 normalMatrix = math::linalg::truncate<3,3,3,4>(hlsl::transpose(float32_t4x3(spirv::WorldToObjectKHR)));
-    // normalization also needs to be done in full floats because length squared can easily be over 64k
-    const accum_t worldNormal = accum_t(hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal)));
-
     payload.instanceID = instanceCustomIndex;// TODO: can we get geometry count in instance and "linearize" our geometry into an UUID ?
     payload.primitiveID = spirv::PrimitiveId;
 
     payload.albedo = accum_t(1,1,1);
-    payload.worldNormal = worldNormal;
 }
 
 [shader("miss")]
 void miss(inout DebugPayload payload)
 {
-    payload.albedo = accum_t(0,0,0); // TODO: sample envmap
-    payload.worldNormal = -normalize(accum_t(spirv::WorldRayDirectionKHR));
+    const SSpectralType _sample = sampleEnv(spirv::WorldRayDirectionKHR);
+    payload.albedo = _sample.albedo;
+    payload.worldNormal = _sample.normal;
 }
