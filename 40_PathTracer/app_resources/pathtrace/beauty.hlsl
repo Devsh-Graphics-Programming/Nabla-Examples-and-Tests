@@ -3,8 +3,39 @@
 [[vk::push_constant]] SBeautyPushConstants pc;
 
 
-// There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order)
+// There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
+// Most examples which multiply alpha in anyhit are super misleading, because:
+// - for shadow / anyhit rays you either eventually hit an opaque (leading to a mul/replacement of transparency by 0) or you hit all opaques along the ray
+// - for NEE rays you often have a finite tMax and this stops you accumulating translucency behind the emitter
+// - multiplicative operations are order independent, so accumulating the visibility function can happen out of order (basis of many OIT techniques) as long as you know tMax of the closest hit
+// - stochastic transparency cancels out the alpha weighting on the throughput, so there's no multiplication to perform, the throughput stays constant no matter what you do.
+//   Which means it doesn't matter if you perform the test for occluded transparent geometries, you will never know, the alpha on the opaque also cancels out (shouldn't use premultiplied to shade).
+// 
+// However the minute you want to do stochastic RGB translucency the pdf no longer cancels out the RGB weight coefficients. While the application of `opacity/luma(opacity)` from a hit accepted as the closest,
+// can be delayed until the closest hit if found, you'll start accumulating the wrong visibility from all the ignored hits. You literally have to use stochastic monochrome transparency.
+// 
+// Furthermore the minute you wish to add emission to the accumulation in the payload you run into Order Dependent Transparency because it requires a blend over operator.
+// 
+// The solutions are then as follows:
+// 1. Only use Anyhit to employ stochastic transparency when the translucency weight is monochrome
+// 2. Re-trace rays, find closest hit as with (1), then launch anyhit rays with known tMax - this only gets you correct RGB translucency
+// 3. Use OIT techniques (A-Buffer, MLAB, WBOIT) to estimate the visibility function but without re-tracing need a robust technique which can handle "opaque transparents"
+//    RGB translucency can be accumulated without sorting an A-Buffer in a O(1) pass over all intersections, also self-balancing tree and MLAB can throw out entries beyond current tMin.
+//    Note that within a TLAS instances are likely to be traversed approximately in-order, and within a BLAS the primitives are too (see CWBVH8 paper with children visit order depending on ray direction signs).
+//    Therefore a two tier linked list + insertion sort are a viable alternative to a self-balancing tree. To allow for emittance to be contributed by anyhit stage, it would need to be deferred to be performant,
+//    the hit attributes would need to be stored alongside the translucency, so at least instance ID (possibly material ID or SBT offset), primitive ID, and the barycentrics. 
+// 4. Decompose the Complex Mixture Material into a Scalar Delta Transmission plus the rest of the BxDF. The motivation is simple, for monochrome materials we have
+//         DeltaTransmission*(1-alpha) + alpha*(Rest of BxDF Nodes with their Weights)
+//    Where the thing getting factored is a blackbox sum of contributors, but we can reformulate any BxDF as
+//         DeltaTransmission*Factor + (Rest of BxDF Nodes with their Weights)
+//    Then we can simply break down the transmissive part into a monochrome part and a coloured residual, if we're unwilling to get into negative weights only option is `Transparency = min_element(Factor[0],...)`
+//         DeltaTransmission * Transparency + (DeltaTransmission * (Factor-Transparency) + Rest of BxDF Nodes with their Weights)
+//    We can still use stochastic transparency! Its just that whenever we accept a hit, we need pass `transparency` at the point of acceptance to the closest hit shader as to compute this
+//         (DeltaTransmission * (Factor-Transparency) + Rest of BxDF Nodes with their Weights)/(1-Transparency)
+//    Since Transparency can be just an approximation of the `Factor` in a monochrome form (luma) or its minimum, already computed or fetched data could be passed in payload for accepted hit
+// 
+// This is very important to keep in mind when we do our Solid Angle Sampling.
 
 
 // Write down some thoughts about random number consumption
@@ -20,7 +51,7 @@
 // Because SER based on Material ID will probably greatly benefit us, the shading needs to happen in Raygen Shader.
 struct SClosestHitRetval
 {
-    // N.B. The following 2 can only use 24bits, we could stuff other things in top 8 bit of MSB
+    // N.B. The following 2 can only use 24bits, we could stuff other things in top 8 bit of MSB (SBT material stuff?)
     // TODO: shall we abuse some geometry+instance bits to determine if geometry has emission? Alternatively a clever bitfield in `uint8_t` or `uint16_t` BDA or the SBT ?
     // to get our material and geometry data back
     uint32_t instancedGeometryID;
@@ -44,18 +75,17 @@ struct[raypayload] PrimaryBeautyPayload
     }
 
 //common stuff
+    // TODO: some of this could be reused by anyhit to pass data to accepted closest hit
     SClosestHitRetval closestRet : read(caller) : write(closesthit);
     // opacity russian roulette requires this for Discrete Probability Sampling
     float32_t xi : read(caller,anyhit) : write(caller,anyhit);
     // Put throughput before accumulation because it may need high precision and range color throughput
     // transparent (anyhit) can perform Russian Roulette to accept or reject a hit
-    SThroughputs throughput : read(caller,anyhit) : write(caller,anyhit);
+    SThroughputs throughput : read(caller) : write(caller);
     // Material evaluation and stochastic opacity in anyhit shader requires we this whole struct in the payload
-    SSpectralType accumulation : read(caller,anyhit) : write(caller,anyhit);
-    // Has different semantics depending on the stage of the path tracer:
-    // - during secondary anyhit its the previous shading normal for NEE MIS application
-    // - closest hit overwrites it to pass back the geometric normal for shading in raygen
-    float16_t3 normal : read(caller,anyhit) : write(caller,closesthit);
+    SSpectralType accumulation : read(caller) : write(caller);
+    // Closest hit overwrites it to pass back the geometric normal for shading in raygen
+    float16_t3 normal : read(caller) : write(closesthit);
     
     // make sure we don't keep on shading
     inline void killPath()
