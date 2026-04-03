@@ -1078,7 +1078,7 @@ class App final : public examples::SimpleWindowedApplication
 			return preset;
 		}
 
-		inline CTargetPoseController::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
+		inline CCameraGoalSolver::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
 		{
 			CTargetPose target;
 			if (!camera)
@@ -1095,7 +1095,7 @@ class App final : public examples::SimpleWindowedApplication
 			target.orbitV = preset.orbitV;
 			target.orbitDistance = preset.orbitDistance;
 
-			auto result = m_targetPoseController.applyDetailed(camera, target);
+			auto result = m_cameraGoalSolver.applyDetailed(camera, target);
 			if (!preset.hasDynamicPerspectiveState)
 				return result;
 
@@ -1136,13 +1136,13 @@ class App final : public examples::SimpleWindowedApplication
 			if (dynamicChanged)
 			{
 				if (!result.succeeded() || !result.changed())
-					result.status = CTargetPoseController::SApplyResult::EStatus::AppliedAbsoluteOnly;
-				else if (result.status == CTargetPoseController::SApplyResult::EStatus::AppliedVirtualEvents)
-					result.status = CTargetPoseController::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents;
+					result.status = CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly;
+				else if (result.status == CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents)
+					result.status = CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents;
 			}
 			else if (!result.succeeded() && dynamicExact)
 			{
-				result.status = CTargetPoseController::SApplyResult::EStatus::AlreadySatisfied;
+				result.status = CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied;
 			}
 
 			result.exact = result.exact && dynamicExact;
@@ -2077,7 +2077,7 @@ class App final : public examples::SimpleWindowedApplication
 		std::vector<CameraPreset> m_initialPlanarPresets;
 		std::vector<CameraKeyframe> m_keyframes;
 		CameraPlaybackState m_playback;
-		CTargetPoseController m_targetPoseController;
+		CCameraGoalSolver m_cameraGoalSolver;
 		bool m_playbackAffectsAll = false;
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";
