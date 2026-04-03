@@ -243,17 +243,28 @@ void App::update()
 			if (!m_scriptedInput.enabled)
 			{
 				m_scriptedInput.scriptedLeftMouseDown = false;
+				m_scriptedInput.scriptedRightMouseDown = false;
 			}
 			else
 			{
 				for (const auto& ev : scriptedMouse)
 				{
-					if (ev.type != ui::SMouseEvent::EET_CLICK || ev.clickEvent.mouseButton != ui::EMB_LEFT_BUTTON)
+					if (ev.type != ui::SMouseEvent::EET_CLICK)
 						continue;
-					if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_PRESSED)
-						m_scriptedInput.scriptedLeftMouseDown = true;
-					else if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_RELEASED)
-						m_scriptedInput.scriptedLeftMouseDown = false;
+					if (ev.clickEvent.mouseButton == ui::EMB_LEFT_BUTTON)
+					{
+						if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_PRESSED)
+							m_scriptedInput.scriptedLeftMouseDown = true;
+						else if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_RELEASED)
+							m_scriptedInput.scriptedLeftMouseDown = false;
+					}
+					else if (ev.clickEvent.mouseButton == ui::EMB_RIGHT_BUTTON)
+					{
+						if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_PRESSED)
+							m_scriptedInput.scriptedRightMouseDown = true;
+						else if (ev.clickEvent.action == ui::SMouseEvent::SClickEvent::EA_RELEASED)
+							m_scriptedInput.scriptedRightMouseDown = false;
+					}
 				}
 			}
 
@@ -330,11 +341,17 @@ void App::update()
 
 					if (isOrbitLikeCamera(camera))
 					{
-						const bool orbitMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left) || (m_scriptedInput.enabled && m_scriptedInput.scriptedLeftMouseDown);
-						if (orbitMouseDown)
-							projection.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
-						else
-							vMouseEventsCount = 0;
+						const bool orbitLookDown = ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+							(m_scriptedInput.enabled && (m_scriptedInput.scriptedLeftMouseDown || m_scriptedInput.scriptedRightMouseDown));
+						std::vector<SMouseEvent> filteredOrbitMouseEvents;
+						filteredOrbitMouseEvents.reserve(cameraMouseEvents.size());
+						for (const auto& ev : cameraMouseEvents)
+						{
+							if (ev.type == ui::SMouseEvent::EET_MOVEMENT && !orbitLookDown)
+								continue;
+							filteredOrbitMouseEvents.emplace_back(ev);
+						}
+						projection.processMouse(output, vMouseEventsCount, { filteredOrbitMouseEvents.data(), filteredOrbitMouseEvents.size() });
 					}
 					else
 					{

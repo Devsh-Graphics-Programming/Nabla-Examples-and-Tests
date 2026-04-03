@@ -1,4 +1,5 @@
 #include "app/App.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -266,6 +267,148 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 				};
 
+				auto computeDelta = [&](ICamera* camera, const float64_t3& beforePos, const float32_t3& beforeEulerDeg, double& outPosDelta, double& outRotDeltaDeg) -> bool
+				{
+					if (!camera)
+						return false;
+					const auto& gimbal = camera->getGimbal();
+					const auto afterPos = gimbal.getPosition();
+					const auto afterEuler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+					if (!isFinite3(afterPos) || !isFinite3(afterEuler))
+						return false;
+
+					const double dx = static_cast<double>(afterPos.x - beforePos.x);
+					const double dy = static_cast<double>(afterPos.y - beforePos.y);
+					const double dz = static_cast<double>(afterPos.z - beforePos.z);
+					outPosDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+					outRotDeltaDeg = std::max({
+						angleDiffDeg(afterEuler.x, beforeEulerDeg.x),
+						angleDiffDeg(afterEuler.y, beforeEulerDeg.y),
+						angleDiffDeg(afterEuler.z, beforeEulerDeg.z)
+					});
+					return true;
+				};
+
+				auto manipulateAndMeasure = [&](ICamera* camera, const std::vector<CVirtualGimbalEvent>& events, double& outPosDelta, double& outRotDeltaDeg) -> bool
+				{
+					outPosDelta = 0.0;
+					outRotDeltaDeg = 0.0;
+					if (!camera || events.empty())
+						return false;
+
+					const auto& beforeGimbal = camera->getGimbal();
+					const float64_t3 beforePos = beforeGimbal.getPosition();
+					const float32_t3 beforeEulerDeg = glm::degrees(glm::eulerAngles(beforeGimbal.getOrientation()));
+					if (!isFinite3(beforePos) || !isFinite3(beforeEulerDeg))
+						return false;
+
+					if (!camera->manipulate({ events.data(), events.size() }))
+						return false;
+
+					if (!computeDelta(camera, beforePos, beforeEulerDeg, outPosDelta, outRotDeltaDeg))
+						return false;
+
+					return outPosDelta > 1e-9 || outRotDeltaDeg > 1e-9;
+				};
+
+				auto collectKeyboardVirtualEvents = [&](ICamera* camera, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
+				{
+					std::vector<CVirtualGimbalEvent> out;
+					if (!camera)
+						return out;
+
+					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
+					smokeTimestamp += std::chrono::microseconds(16667);
+					const auto pressTs = smokeTimestamp;
+
+					SKeyboardEvent pressEvent(pressTs);
+					pressEvent.keyCode = keyCode;
+					pressEvent.action = SKeyboardEvent::ECA_PRESSED;
+					pressEvent.window = nullptr;
+
+					uint32_t potentialCount = 0u;
+					uint32_t generatedCount = 0u;
+					camera->beginInputProcessing(pressTs);
+					camera->processKeyboard(nullptr, potentialCount, {});
+					if (potentialCount)
+					{
+						std::vector<CVirtualGimbalEvent> warmup(potentialCount);
+						generatedCount = potentialCount;
+						camera->processKeyboard(warmup.data(), generatedCount, { &pressEvent, 1u });
+					}
+					camera->endInputProcessing();
+
+					smokeTimestamp += std::chrono::microseconds(16667);
+					const auto sampleTs = smokeTimestamp;
+					camera->beginInputProcessing(sampleTs);
+					camera->processKeyboard(nullptr, potentialCount, {});
+					out.resize(potentialCount);
+					if (potentialCount)
+					{
+						generatedCount = potentialCount;
+						camera->processKeyboard(out.data(), generatedCount, {});
+					}
+					camera->endInputProcessing();
+					out.resize(generatedCount);
+					return out;
+				};
+
+				auto collectMouseVirtualEvents = [&](ICamera* camera, std::span<const SMouseEvent> mouseEvents) -> std::vector<CVirtualGimbalEvent>
+				{
+					std::vector<CVirtualGimbalEvent> out;
+					if (!camera)
+						return out;
+
+					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
+					smokeTimestamp += std::chrono::microseconds(16667);
+					const auto ts = smokeTimestamp;
+
+					uint32_t potentialCount = 0u;
+					uint32_t generatedCount = 0u;
+					camera->beginInputProcessing(ts);
+					camera->processMouse(nullptr, potentialCount, {});
+					out.resize(potentialCount);
+					if (potentialCount)
+					{
+						generatedCount = potentialCount;
+						camera->processMouse(out.data(), generatedCount, mouseEvents);
+					}
+					camera->endInputProcessing();
+					out.resize(generatedCount);
+					return out;
+				};
+
+				auto filterOrbitMouseEvents = [&](ICamera* camera, std::span<const SMouseEvent> input, bool orbitLookDown) -> std::vector<SMouseEvent>
+				{
+					if (!isOrbitLikeCamera(camera))
+						return std::vector<SMouseEvent>(input.begin(), input.end());
+
+					std::vector<SMouseEvent> filtered;
+					filtered.reserve(input.size());
+					for (const auto& ev : input)
+					{
+						if (ev.type == ui::SMouseEvent::EET_MOVEMENT && !orbitLookDown)
+							continue;
+						filtered.emplace_back(ev);
+					}
+					return filtered;
+				};
+
+				const std::array<ui::E_KEY_CODE, 12u> keyboardCandidates = {
+					ui::E_KEY_CODE::EKC_W,
+					ui::E_KEY_CODE::EKC_A,
+					ui::E_KEY_CODE::EKC_S,
+					ui::E_KEY_CODE::EKC_D,
+					ui::E_KEY_CODE::EKC_Q,
+					ui::E_KEY_CODE::EKC_E,
+					ui::E_KEY_CODE::EKC_I,
+					ui::E_KEY_CODE::EKC_J,
+					ui::E_KEY_CODE::EKC_K,
+					ui::E_KEY_CODE::EKC_L,
+					ui::E_KEY_CODE::EKC_U,
+					ui::E_KEY_CODE::EKC_O
+				};
+
 				for (const auto& cameraRef : cameras)
 				{
 					auto* camera = cameraRef.get();
@@ -276,76 +419,131 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
 					camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
 
-					const auto& beforeGimbal = camera->getGimbal();
-					const auto beforePos = beforeGimbal.getPosition();
-					const auto beforeEuler = glm::degrees(glm::eulerAngles(beforeGimbal.getOrientation()));
-
 					const uint32_t allowed = camera->getAllowedVirtualEvents();
-					std::vector<CVirtualGimbalEvent> events;
-					events.reserve(3u);
-
-					auto pushEvent = [&](const CVirtualGimbalEvent::VirtualEventType type, const double magnitude) -> void
+					std::vector<CVirtualGimbalEvent> directEvents;
+					directEvents.reserve(3u);
+					auto pushDirectEvent = [&](const CVirtualGimbalEvent::VirtualEventType type, const double magnitude) -> void
 					{
 						CVirtualGimbalEvent ev;
 						ev.type = type;
 						ev.magnitude = magnitude;
-						events.emplace_back(ev);
+						directEvents.emplace_back(ev);
 					};
-
 					if (allowed & CVirtualGimbalEvent::MoveForward)
-						pushEvent(CVirtualGimbalEvent::MoveForward, 1.0);
+						pushDirectEvent(CVirtualGimbalEvent::MoveForward, 1.0);
 					else if (allowed & CVirtualGimbalEvent::MoveRight)
-						pushEvent(CVirtualGimbalEvent::MoveRight, 1.0);
+						pushDirectEvent(CVirtualGimbalEvent::MoveRight, 1.0);
 					else if (allowed & CVirtualGimbalEvent::MoveUp)
-						pushEvent(CVirtualGimbalEvent::MoveUp, 1.0);
-
+						pushDirectEvent(CVirtualGimbalEvent::MoveUp, 1.0);
 					if (allowed & CVirtualGimbalEvent::PanRight)
-						pushEvent(CVirtualGimbalEvent::PanRight, 1.0);
+						pushDirectEvent(CVirtualGimbalEvent::PanRight, 1.0);
 					else if (allowed & CVirtualGimbalEvent::TiltUp)
-						pushEvent(CVirtualGimbalEvent::TiltUp, 1.0);
+						pushDirectEvent(CVirtualGimbalEvent::TiltUp, 1.0);
 					else if (allowed & CVirtualGimbalEvent::RollRight)
-						pushEvent(CVirtualGimbalEvent::RollRight, 1.0);
-
-					if (events.empty())
+						pushDirectEvent(CVirtualGimbalEvent::RollRight, 1.0);
+					if (directEvents.empty())
 					{
 						for (const auto event : CVirtualGimbalEvent::VirtualEventsTypeTable)
 						{
 							if (allowed & event)
 							{
-								pushEvent(event, 1.0);
+								pushDirectEvent(event, 1.0);
 								break;
 							}
 						}
 					}
-
-					if (events.empty())
+					if (directEvents.empty())
 						return fail("No allowed virtual events for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					const bool manipulated = camera->manipulate({ events.data(), events.size() });
-					if (!manipulated)
-						return fail("Manipulation returned false for camera \"" + std::string(camera->getIdentifier()) + "\".");
+					double directPosDelta = 0.0;
+					double directRotDelta = 0.0;
+					if (!manipulateAndMeasure(camera, directEvents, directPosDelta, directRotDelta))
+						return fail("Direct manipulate smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					const auto& afterGimbal = camera->getGimbal();
-					const auto afterPos = afterGimbal.getPosition();
-					const auto afterEuler = glm::degrees(glm::eulerAngles(afterGimbal.getOrientation()));
+					bool keyboardOk = false;
+					double keyboardPosDelta = 0.0;
+					double keyboardRotDelta = 0.0;
+					for (const auto key : keyboardCandidates)
+					{
+						camera->updateKeyboardMapping([&](auto& map) { map = camera->getKeyboardMappingPreset(); });
+						auto keyboardEvents = collectKeyboardVirtualEvents(camera, key);
+						if (keyboardEvents.empty())
+							continue;
+						if (manipulateAndMeasure(camera, keyboardEvents, keyboardPosDelta, keyboardRotDelta))
+						{
+							keyboardOk = true;
+							break;
+						}
+					}
+					if (!keyboardOk)
+						return fail("Keyboard controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					if (!isFinite3(afterPos) || !isFinite3(afterEuler))
-						return fail("Non-finite state for camera \"" + std::string(camera->getIdentifier()) + "\".");
+					const auto mousePreset = camera->getMouseMappingPreset();
+					const bool hasMoveMapping =
+						mousePreset.find(ui::EMC_RELATIVE_POSITIVE_MOVEMENT_X) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_X) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_RELATIVE_POSITIVE_MOVEMENT_Y) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y) != mousePreset.end();
+					const bool hasScrollMapping =
+						mousePreset.find(ui::EMC_VERTICAL_POSITIVE_SCROLL) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_VERTICAL_NEGATIVE_SCROLL) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_HORIZONTAL_POSITIVE_SCROLL) != mousePreset.end() ||
+						mousePreset.find(ui::EMC_HORIZONTAL_NEGATIVE_SCROLL) != mousePreset.end();
 
-					const auto dPos = afterPos - beforePos;
-					const double posDelta = std::sqrt(dPos.x * dPos.x + dPos.y * dPos.y + dPos.z * dPos.z);
-					const double rotDeltaDeg = std::max({
-						angleDiffDeg(afterEuler.x, beforeEuler.x),
-						angleDiffDeg(afterEuler.y, beforeEuler.y),
-						angleDiffDeg(afterEuler.z, beforeEuler.z)
-					});
+					double mouseMovePosDelta = 0.0;
+					double mouseMoveRotDelta = 0.0;
+					if (hasMoveMapping)
+					{
+						SMouseEvent moveEv(std::chrono::microseconds(16667));
+						moveEv.window = nullptr;
+						moveEv.type = ui::SMouseEvent::EET_MOVEMENT;
+						moveEv.movementEvent.relativeMovementX = 12;
+						moveEv.movementEvent.relativeMovementY = -8;
 
-					if (posDelta <= 1e-9 && rotDeltaDeg <= 1e-9)
-						return fail("No observable change for camera \"" + std::string(camera->getIdentifier()) + "\".");
+						const std::array<SMouseEvent, 1u> rawMove = { moveEv };
+						auto filteredMoveLookDown = filterOrbitMouseEvents(camera, rawMove, true);
+						auto filteredMoveLookUp = filterOrbitMouseEvents(camera, rawMove, false);
+						const bool hasBlockedMovement = std::any_of(filteredMoveLookUp.begin(), filteredMoveLookUp.end(), [](const SMouseEvent& ev) { return ev.type == ui::SMouseEvent::EET_MOVEMENT; });
+						if (isOrbitLikeCamera(camera) && hasBlockedMovement)
+							return fail("Orbit mouse movement gate failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+
+						camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
+						auto mouseMoveEvents = collectMouseVirtualEvents(camera, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
+						if (mouseMoveEvents.empty())
+							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
+						if (!manipulateAndMeasure(camera, mouseMoveEvents, mouseMovePosDelta, mouseMoveRotDelta))
+							return fail("Mouse move controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+					}
+
+					double mouseScrollPosDelta = 0.0;
+					double mouseScrollRotDelta = 0.0;
+					if (hasScrollMapping)
+					{
+						SMouseEvent scrollEv(std::chrono::microseconds(16667));
+						scrollEv.window = nullptr;
+						scrollEv.type = ui::SMouseEvent::EET_SCROLL;
+						scrollEv.scrollEvent.verticalScroll = 4;
+						scrollEv.scrollEvent.horizontalScroll = 2;
+						const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
+						auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
+
+						camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
+						auto mouseScrollEvents = collectMouseVirtualEvents(camera, { filteredScroll.data(), filteredScroll.size() });
+						if (mouseScrollEvents.empty())
+							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
+						if (!manipulateAndMeasure(camera, mouseScrollEvents, mouseScrollPosDelta, mouseScrollRotDelta))
+							return fail("Mouse scroll controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+					}
 
 					std::cout << "[headless-camera-smoke][pass] " << camera->getIdentifier()
-						<< " pos_delta=" << posDelta
-						<< " rot_delta_deg=" << rotDeltaDeg
+						<< " direct_pos_delta=" << directPosDelta
+						<< " direct_rot_delta_deg=" << directRotDelta
+						<< " kb_pos_delta=" << keyboardPosDelta
+						<< " kb_rot_delta_deg=" << keyboardRotDelta
+						<< " mouse_move_pos_delta=" << mouseMovePosDelta
+						<< " mouse_move_rot_delta_deg=" << mouseMoveRotDelta
+						<< " mouse_scroll_pos_delta=" << mouseScrollPosDelta
+						<< " mouse_scroll_rot_delta_deg=" << mouseScrollRotDelta
 						<< std::endl;
 				}
 
@@ -481,6 +679,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_scriptedInput.visualActivePlanarIx = 0u;
 					m_scriptedInput.visualActivePlanarStartFrame = 0u;
 					m_scriptedInput.scriptedLeftMouseDown = false;
+					m_scriptedInput.scriptedRightMouseDown = false;
 					m_scriptedInput.framePacerInitialized = false;
 					m_scriptedInput.capturePrefix = "script";
 					m_scriptedInput.captureOutputDir = localOutputCWD;

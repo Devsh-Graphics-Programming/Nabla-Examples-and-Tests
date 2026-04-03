@@ -1876,6 +1876,7 @@ class App final : public examples::SimpleWindowedApplication
 			uint32_t visualActivePlanarIx = 0u;
 			uint64_t visualActivePlanarStartFrame = 0u;
 			bool scriptedLeftMouseDown = false;
+			bool scriptedRightMouseDown = false;
 			bool framePacerInitialized = false;
 			std::chrono::steady_clock::time_point framePacerNext = {};
 		};

@@ -92,7 +92,8 @@ void App::workLoopBody()
 
 						const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
 						m_renderer->render(cmdbuf, viewParams);
-						if (m_drawFrustum)
+						const bool drawScriptFrustum = m_scriptedInput.enabled && m_scriptedInput.visualDebug;
+						if (m_drawFrustum && drawScriptFrustum)
 						{
 							const auto findSourceBindingIxForPlanar = [&](const uint32_t planarIx) -> std::optional<uint32_t>
 							{
