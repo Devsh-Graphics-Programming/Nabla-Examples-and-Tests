@@ -64,13 +64,15 @@ struct Globals
     pfloat64_t3x3 defaultProjectionToNDC;
     pfloat64_t3x3 screenToWorldScaleTransform; // Pre-multiply your transform with this to scale in screen space (e.g., scale 100.0 means 100 screen pixels).
     uint32_t2 resolution;
-    float antiAliasingFactor;
+    float32_t antiAliasingFactor;
+    float32_t minLineWidth; // minimum line width in screenspace pixels (will clamp if it's lower)
+    float32_t minLineThicknessToEnableAA; // lines/curves with screenspace (pixel) widths lower than this will skip AA
     uint32_t miterLimit;
     uint32_t currentlyActiveMainObjectIndex; // for alpha resolve to skip resolving activeMainObjectIdx and prep it for next submit
-    float32_t _padding;
+    uint32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 224u);
+static_assert(sizeof(Globals) == 232u);
 #endif
 
 #ifdef __HLSL_VERSION

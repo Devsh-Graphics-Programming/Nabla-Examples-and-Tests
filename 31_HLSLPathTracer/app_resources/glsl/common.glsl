@@ -9,19 +9,20 @@
 // debug
 //#define NEE_ONLY
 
-layout(set = 2, binding = 0) uniform sampler2D envMap; 
+layout(set = 2, binding = 0) uniform sampler2D envMap;
 layout(set = 2, binding = 1) uniform usamplerBuffer sampleSequence;
 layout(set = 2, binding = 2) uniform usampler2D scramblebuf;
 
 layout(set=0, binding=0, rgba16f) uniform image2D outImage;
 
 #ifndef _NBL_GLSL_WORKGROUP_SIZE_
-#define _NBL_GLSL_WORKGROUP_SIZE_ 32
-layout(local_size_x=_NBL_GLSL_WORKGROUP_SIZE_, local_size_y=_NBL_GLSL_WORKGROUP_SIZE_, local_size_z=1) in;
+#define _NBL_GLSL_WORKGROUP_SIZE_ 512
+layout(local_size_x=_NBL_GLSL_WORKGROUP_SIZE_, local_size_y=1, local_size_z=1) in;
 #endif
 
 ivec2 getCoordinates() {
-    return ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageSize = imageSize(outImage);
+    return ivec2(gl_GlobalInvocationID.x % imageSize.x, gl_GlobalInvocationID.x / imageSize.x);
 }
 
 vec2 getTexCoords() {
@@ -34,6 +35,9 @@ vec2 getTexCoords() {
 #include <nbl/builtin/glsl/limits/numeric.glsl>
 #include <nbl/builtin/glsl/math/constants.glsl>
 #include <nbl/builtin/glsl/utils/common.glsl>
+#ifdef PERSISTENT_WORKGROUPS
+#include <nbl/builtin/glsl/utils/morton.glsl>
+#endif
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
@@ -50,7 +54,7 @@ struct Sphere
     vec3 position;
     float radius2;
     uint bsdfLightIDs;
-}; 
+};
 
 Sphere Sphere_Sphere(in vec3 position, in float radius, in uint bsdfID, in uint lightID)
 {
@@ -187,7 +191,7 @@ void Rectangle_getNormalBasis(in Rectangle rect, out mat3 basis, out vec2 extent
     basis[0] = rect.edge0/extents[0];
     basis[1] = rect.edge1/extents[1];
     basis[2] = normalize(cross(basis[0],basis[1]));
-}        
+}
 
 // return intersection distance if found, nbl_glsl_FLT_NAN otherwise
 float Rectangle_intersect(in Rectangle rect, in vec3 origin, in vec3 direction)
@@ -221,7 +225,7 @@ vec3 Rectangle_getNormalTimesArea(in Rectangle rect)
 #define OP_BITS_OFFSET 0
 #define OP_BITS_SIZE 2
 struct BSDFNode
-{ 
+{
     uvec4 data[2];
 };
 
@@ -352,9 +356,9 @@ struct Payload_t
     vec3 accumulation;
     float otherTechniqueHeuristic;
     vec3 throughput;
-#ifdef KILL_DIFFUSE_SPECULAR_PATHS
+    #ifdef KILL_DIFFUSE_SPECULAR_PATHS
     bool hasDiffuse;
-#endif
+    #endif
 };
 
 struct Ray_t
@@ -385,13 +389,13 @@ vec2 SampleSphericalMap(vec3 v)
 {
     vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
     uv *= nbl_glsl_RECIPROCAL_PI*0.5;
-    uv += 0.5; 
+    uv += 0.5;
     return uv;
 }
 
 void missProgram(in ImmutableRay_t _immutable, inout Payload_t _payload)
 {
-    vec3 finalContribution = _payload.throughput; 
+    vec3 finalContribution = _payload.throughput;
     // #define USE_ENVMAP
 #ifdef USE_ENVMAP
 	vec2 uv = SampleSphericalMap(_immutable.direction);
@@ -414,7 +418,7 @@ nbl_glsl_LightSample nbl_glsl_bsdf_cos_generate(in nbl_glsl_AnisotropicViewSurfa
 {
     const float a = BSDFNode_getRoughness(bsdf);
     const mat2x3 ior = BSDFNode_getEta(bsdf);
-    
+
     // fresnel stuff for dielectrics
     float orientedEta, rcpOrientedEta;
     const bool viewerInsideMedium = nbl_glsl_getOrientedEtas(orientedEta,rcpOrientedEta,interaction.isotropic.NdotV,monochromeEta);
@@ -491,7 +495,6 @@ layout (constant_id = 1) const int MAX_SAMPLES_LOG2 = 10;
 
 #include <nbl/builtin/glsl/random/xoroshiro.glsl>
 
-// TODO: use PCG hash + XOROSHIRO and don't read any textures
 mat2x3 rand3d(in uint protoDimension, in uint _sample, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     mat2x3 retval;
@@ -519,7 +522,7 @@ int traceRay(inout float intersectionT, in vec3 origin, in vec3 direction)
 
         intersectionT = closerIntersection ? t : intersectionT;
 		objectID = closerIntersection ? i:objectID;
-        
+
         // allowing early out results in a performance regression, WTF!?
         //if (anyHit && closerIntersection)
            //break;
@@ -543,7 +546,7 @@ nbl_glsl_LightSample nbl_glsl_light_generate_and_remainder_and_pdf(out vec3 rema
 {
     // normally we'd pick from set of lights, using `xi.z`
     const Light light = lights[0];
-    
+
     vec3 L = nbl_glsl_light_generate_and_pdf(pdf,newRayMaxT,origin,interaction,isBSDF,xi,Light_getObjectID(light));
 
     newRayMaxT *= getEndTolerance(depth);
@@ -553,7 +556,6 @@ nbl_glsl_LightSample nbl_glsl_light_generate_and_remainder_and_pdf(out vec3 rema
 }
 
 uint getBSDFLightIDAndDetermineNormal(out vec3 normal, in uint objectID, in vec3 intersection);
-// returns whether to stop tracing
 bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     const MutableRay_t _mutable = ray._mutable;
@@ -596,7 +598,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
         if (BSDFNode_isNotDiffuse(bsdf))
         {
             if (ray._payload.hasDiffuse)
-                return false;
+                return true;
         }
         else
             ray._payload.hasDiffuse = true;
@@ -604,7 +606,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 
         const bool isBSDF = BSDFNode_isBSDF(bsdf);
         //rand
-        mat2x3 epsilon = rand3d(depth*2,_sample,scramble_state);
+        mat2x3 epsilon = rand3d(depth,_sample,scramble_state);
 
         // thresholds
         const float bsdfPdfThreshold = 0.0001;
@@ -613,55 +615,47 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
         const float monochromeEta = dot(throughputCIE_Y,BSDFNode_getEta(bsdf)[0])/(throughputCIE_Y.r+throughputCIE_Y.g+throughputCIE_Y.b);
 
         // do NEE
-#ifndef NEE_ONLY
-        // to turn off NEE, set this to 0
-        const float neeProbability = BSDFNode_getNEEProb(bsdf);
+        const float neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
         float rcpChoiceProb;
-        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb))
+        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb) && depth<2u)
         {
-#endif
             vec3 neeContrib; float lightPdf, t;
             nbl_glsl_LightSample nee_sample = nbl_glsl_light_generate_and_remainder_and_pdf(
                 neeContrib, lightPdf, t,
                 intersection, interaction,
                 isBSDF, epsilon[0], depth
             );
-            // We don't allow non watertight transmitters in this renderer & scene, one cannot reach a light from the backface (optimization)
+            // We don't allow non watertight transmitters in this renderer
             bool validPath = nee_sample.NdotL>nbl_glsl_FLT_MIN;
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             nbl_glsl_AnisotropicMicrofacetCache _cache;
             validPath = validPath && nbl_glsl_calcAnisotropicMicrofacetCache(_cache, interaction, nee_sample, monochromeEta);
-            // infinite PDF would mean a point light or a thin line, but our lights have finite radiance per steradian (area lights)
             if (lightPdf<nbl_glsl_FLT_MAX)
             {
-                // debug coloring
-                if (any(isnan(nee_sample.L)))
-                    ray._payload.accumulation += vec3(1000.f,0.f,0.f);
-                else
-                if (all(equal(vec3(69.f),nee_sample.L)))
-                    ray._payload.accumulation += vec3(0.f,1000.f,0.f);
-                else
-                if (validPath) // normally one would check for a valid path first, because zero solid angle light is less likely
-                {
-                    float bsdfPdf;
-                    // this is kinda the wrong fuction to use, we should use eval_and_pdf instead (because eval returns 0 for directions accidentally coincident with dirac delta)
-                    neeContrib *= nbl_glsl_bsdf_cos_remainder_and_pdf(bsdfPdf,nee_sample,interaction,bsdf,monochromeEta,_cache)*throughput;
-                    // this is why we need to multiply `bsdfPdf` back in, and why we have a check for the BxDF PDF not being INF
+            if (any(isnan(nee_sample.L)))
+                ray._payload.accumulation += vec3(1000.f,0.f,0.f);
+            else
+            if (all(equal(vec3(69.f),nee_sample.L)))
+                ray._payload.accumulation += vec3(0.f,1000.f,0.f);
+            else
+            if (validPath)
+            {
+                float bsdfPdf;
+                neeContrib *= nbl_glsl_bsdf_cos_remainder_and_pdf(bsdfPdf,nee_sample,interaction,bsdf,monochromeEta,_cache)*throughput;
+                const float otherGenOverChoice = bsdfPdf*rcpChoiceProb;
 #ifndef NEE_ONLY
-                    const float otherGenOverChoice = bsdfPdf*rcpChoiceProb;
-                    const float otherGenOverLightAndChoice = otherGenOverChoice/lightPdf;
-                    // MIS weight (TODO: is it correct? should `otherGenOverLightAndChoice` contain the `rcpChoiceProb` ?)
-                    neeContrib *= otherGenOverChoice/(1.f+otherGenOverLightAndChoice*otherGenOverLightAndChoice);
+                const float otherGenOverLightAndChoice = otherGenOverChoice/lightPdf;
+                neeContrib *= otherGenOverChoice/(1.f+otherGenOverLightAndChoice*otherGenOverLightAndChoice); // MIS weight
 #else
-                    neeContrib *= bsdfPdf;
+                neeContrib *= otherGenOverChoice;
 #endif
-                    if (bsdfPdf<nbl_glsl_FLT_MAX && getLuma(neeContrib)>lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
-                        ray._payload.accumulation += neeContrib;
-                }
-            }
-#ifndef NEE_ONLY
+                if (bsdfPdf<nbl_glsl_FLT_MAX && getLuma(neeContrib)>lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
+                    ray._payload.accumulation += neeContrib;
+            }}
         }
-
+#if NEE_ONLY
+        return false;
+#endif
         // sample BSDF
         float bsdfPdf; vec3 bsdfSampleL;
         {
@@ -672,7 +666,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             //
             bsdfSampleL = bsdf_sample.L;
         }
-        
+
         // additional threshold
         const float lumaThroughputThreshold = lumaContributionThreshold;
         if (bsdfPdf>bsdfPdfThreshold && getLuma(throughput)>lumaThroughputThreshold)
@@ -680,7 +674,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             ray._payload.throughput = throughput;
             ray._payload.otherTechniqueHeuristic = neeProbability/bsdfPdf; // numerically stable, don't touch
             ray._payload.otherTechniqueHeuristic *= ray._payload.otherTechniqueHeuristic;
-                    
+
             // trace new ray
             ray._immutable.origin = intersection+bsdfSampleL*(1.0/*kSceneSize*/)*getStartTolerance(depth);
             ray._immutable.direction = bsdfSampleL;
@@ -690,7 +684,6 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             #endif
             return true;
         }
-#endif
     }
     return false;
 }
@@ -698,27 +691,45 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 void main()
 {
     const ivec2 imageExtents = imageSize(outImage);
+
+#ifdef PERSISTENT_WORKGROUPS
+    uint virtualThreadIndex;
+    for (uint virtualThreadBase = gl_WorkGroupID.x * _NBL_GLSL_WORKGROUP_SIZE_; virtualThreadBase < 1920*1080; virtualThreadBase += gl_NumWorkGroups.x * _NBL_GLSL_WORKGROUP_SIZE_) // not sure why 1280*720 doesn't cover draw surface
+    {
+        virtualThreadIndex = virtualThreadBase + gl_LocalInvocationIndex.x;
+        const ivec2 coords = ivec2(nbl_glsl_morton_decode2d32b(virtualThreadIndex));
+#else
     const ivec2 coords = getCoordinates();
+#endif
+
     vec2 texCoord = vec2(coords) / vec2(imageExtents);
     texCoord.y = 1.0 - texCoord.y;
 
     if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
     if (((PTPushConstant.depth-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
     {
         vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
         imageStore(outImage, coords, pixelCol);
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
-	nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,coords,0).rg;
+    nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,coords,0).rg;
     const vec2 pixOffsetParam = vec2(1.0)/vec2(textureSize(scramblebuf,0));
 
 
     const mat4 invMVP = PTPushConstant.invMVP;
-    
+
     vec4 NDC = vec4(texCoord*vec2(2.0,-2.0)+vec2(-1.0,1.0),0.0,1.0);
     vec3 camPos;
     {
@@ -759,15 +770,15 @@ void main()
             ray._payload.accumulation = vec3(0.0);
             ray._payload.otherTechniqueHeuristic = 0.0; // needed for direct eye-light paths
             ray._payload.throughput = vec3(1.0);
-#ifdef KILL_DIFFUSE_SPECULAR_PATHS
+            #ifdef KILL_DIFFUSE_SPECULAR_PATHS
             ray._payload.hasDiffuse = false;
-#endif
+            #endif
         }
 
         // bounces
         {
             bool hit = true; bool rayAlive = true;
-            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d++)
+            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
             {
                 ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
                 ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
@@ -784,7 +795,7 @@ void main()
 
         float rcpSampleSize = 1.0/float(i+1);
         color += (accumulation-color)*rcpSampleSize;
-        
+
         #ifdef VISUALIZE_HIGH_VARIANCE
             float luma = getLuma(accumulation);
             meanLumaSquared += (luma*luma-meanLumaSquared)*rcpSampleSize;
@@ -801,6 +812,10 @@ void main()
 
     vec4 pixelCol = vec4(color, 1.0);
     imageStore(outImage, coords, pixelCol);
+
+#ifdef PERSISTENT_WORKGROUPS
+    }
+#endif
 }
 /** TODO: Improving Rendering
 

@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CComputeShaderPathTracerBuilder extends IBuilder
+class CHLSLPathTracerBuilder extends IBuilder
 {
-	public CComputeShaderPathTracerBuilder(Agent _agent, _info)
+	public CHLSLPathTracerBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CComputeShaderPathTracerBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CComputeShaderPathTracerBuilder(_agent, _info)
+	return new CHLSLPathTracerBuilder(_agent, _info)
 }
 
 return this

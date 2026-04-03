@@ -6,7 +6,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define SPHERE_COUNT 9
-#include "common.glsl"
+#include "app_resources/glsl/common.glsl"
 
 
 void traceRay_extraShape(inout int objectID, inout float intersectionT, in vec3 origin, in vec3 direction)

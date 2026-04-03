@@ -71,9 +71,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(29_Arithmetic2Bench)
 	# add_subdirectory(36_CUDAInterop)
 
-	# Showcase compute pathtracing
-	add_subdirectory(30_ComputeShaderPathTracer)
-
+	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
