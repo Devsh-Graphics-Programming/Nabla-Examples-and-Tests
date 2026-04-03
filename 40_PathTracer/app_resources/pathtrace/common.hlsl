@@ -125,10 +125,13 @@ struct SRay
 // variables that multiply together
 struct SThroughputs
 {
-    inline void clear(const float32_t weight)
+    inline void clearColor(const float32_t weight)
     {
         color = hlsl::promote<float32_t3>(weight);
-        aov = hlsl::promote<float16_t3>(transparency = float16_t(weight));
+    }
+    inline void clearAoV(const float16_t weight)
+    {
+        aov = hlsl::promote<float16_t3>(transparency = weight);
     }
 
     inline SThroughputs operator*(const float32_t factor)
