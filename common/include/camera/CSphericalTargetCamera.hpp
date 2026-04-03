@@ -26,11 +26,20 @@ public:
     {
         const auto clamped = std::clamp<float>(d, MinDistance, MaxDistance);
         const bool ok = clamped == d;
+        if (m_distance == clamped)
+            return ok;
         m_distance = clamped;
+        applyPose();
         return ok;
     }
 
-    inline void target(const float64_t3& p) { m_targetPosition = p; }
+    inline void target(const float64_t3& p)
+    {
+        if (m_targetPosition == p)
+            return;
+        m_targetPosition = p;
+        applyPose();
+    }
     inline float64_t3 getTarget() const { return m_targetPosition; }
 
     inline float getDistance() const { return m_distance; }
@@ -39,6 +48,33 @@ public:
 
     static inline constexpr float MinDistance = 0.1f;
     static inline constexpr float MaxDistance = 10000.f;
+
+    virtual uint32_t getCapabilities() const override
+    {
+        return base_t::SphericalTarget;
+    }
+
+    virtual bool tryGetSphericalTargetState(typename base_t::SphericalTargetState& out) const override
+    {
+        out.target = m_targetPosition;
+        out.distance = m_distance;
+        out.u = m_u;
+        out.v = m_v;
+        out.minDistance = MinDistance;
+        out.maxDistance = MaxDistance;
+        return true;
+    }
+
+    virtual bool trySetSphericalTarget(const float64_t3& targetPosition) override
+    {
+        target(targetPosition);
+        return true;
+    }
+
+    virtual bool trySetSphericalDistance(float distance) override
+    {
+        return setDistance(distance);
+    }
 
 protected:
     struct SphericalBasis

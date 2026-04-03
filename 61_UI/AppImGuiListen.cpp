@@ -23,12 +23,12 @@ void App::imguiListen()
 					for (auto& planar : m_planarProjections)
 					{
 						auto* camera = planar->getCamera();
-						withOrbitLikeCamera(camera, [&](auto* orbit)
+						if (camera)
 						{
-							auto targetPostion = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
-							orbit->target(targetPostion);
-							orbit->manipulate({}, {});
-						});
+							const auto targetPosition = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
+							if (camera->trySetSphericalTarget(float64_t3(targetPosition.x, targetPosition.y, targetPosition.z)))
+								camera->manipulate({}, {});
+						}
 					}
 				}
 

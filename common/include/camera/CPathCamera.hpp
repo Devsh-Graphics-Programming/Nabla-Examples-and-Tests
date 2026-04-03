@@ -51,6 +51,30 @@ public:
     }
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual CameraKind getKind() const override { return CameraKind::Path; }
+    virtual bool trySetSphericalDistance(float distance) override
+    {
+        const auto clamped = std::clamp<float>(distance, MinDistance, MaxDistance);
+        const bool inRange = clamped == distance;
+
+        const double currentDistance = std::sqrt(m_pathRadius * m_pathRadius + m_pathHeight * m_pathHeight);
+        if (currentDistance > 1e-9)
+        {
+            const double scale = static_cast<double>(clamped) / currentDistance;
+            m_pathRadius = std::max(MinPathRadius, m_pathRadius * scale);
+            m_pathHeight *= scale;
+        }
+        else
+        {
+            m_pathRadius = std::max(MinPathRadius, static_cast<double>(clamped));
+            m_pathHeight = 0.0;
+        }
+
+        updateFromPath();
+
+        const double appliedDistance = std::sqrt(m_pathRadius * m_pathRadius + m_pathHeight * m_pathHeight);
+        return inRange && std::abs(appliedDistance - static_cast<double>(clamped)) <= 1e-6;
+    }
     virtual const std::string_view getIdentifier() override { return "Path Camera"; }
 
 private:

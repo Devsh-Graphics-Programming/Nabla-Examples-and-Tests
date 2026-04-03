@@ -486,12 +486,17 @@ class App final : public examples::SimpleWindowedApplication
 			std::string identifier;
 			float64_t3 position = float64_t3(0.0);
 			glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			float64_t3 targetPosition = float64_t3(0.0);
+			bool hasTargetPosition = false;
 			float distance = 0.f;
 			bool hasDistance = false;
 			double orbitU = 0.0;
 			double orbitV = 0.0;
 			float orbitDistance = 0.f;
 			bool hasOrbitState = false;
+			float dynamicBaseFov = 0.f;
+			float dynamicReferenceDistance = 0.f;
+			bool hasDynamicPerspectiveState = false;
 		};
 
 		struct CameraKeyframe
@@ -546,72 +551,51 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool isOrbitLikeCamera(ICamera* camera)
 		{
-			return dynamic_cast<CSphericalTargetCamera*>(camera);
-		}
-
-		template<typename Fn>
-		inline bool withOrbitLikeCamera(ICamera* camera, Fn&& fn)
-		{
-			if (auto* orbit = dynamic_cast<CSphericalTargetCamera*>(camera))
-			{
-				fn(orbit);
-				return true;
-			}
-			return false;
+			return camera && camera->hasCapability(ICamera::SphericalTarget);
 		}
 
 		inline std::string_view getCameraTypeLabel(const ICamera* camera) const
 		{
-			if (dynamic_cast<const CFPSCamera*>(camera))
-				return "FPS";
-			if (dynamic_cast<const CFreeCamera*>(camera))
-				return "Free";
-			if (dynamic_cast<const COrbitCamera*>(camera))
-				return "Orbit";
-			if (dynamic_cast<const CArcballCamera*>(camera))
-				return "Arcball";
-			if (dynamic_cast<const CTurntableCamera*>(camera))
-				return "Turntable";
-			if (dynamic_cast<const CTopDownCamera*>(camera))
-				return "TopDown";
-			if (dynamic_cast<const CIsometricCamera*>(camera))
-				return "Isometric";
-			if (dynamic_cast<const CChaseCamera*>(camera))
-				return "Chase";
-			if (dynamic_cast<const CDollyCamera*>(camera))
-				return "Dolly";
-			if (dynamic_cast<const CDollyZoomCamera*>(camera))
-				return "Dolly Zoom";
-			if (dynamic_cast<const CPathCamera*>(camera))
-				return "Path";
-			return "Unknown";
+			if (!camera)
+				return "Unknown";
+
+			switch (camera->getKind())
+			{
+				case ICamera::CameraKind::FPS: return "FPS";
+				case ICamera::CameraKind::Free: return "Free";
+				case ICamera::CameraKind::Orbit: return "Orbit";
+				case ICamera::CameraKind::Arcball: return "Arcball";
+				case ICamera::CameraKind::Turntable: return "Turntable";
+				case ICamera::CameraKind::TopDown: return "TopDown";
+				case ICamera::CameraKind::Isometric: return "Isometric";
+				case ICamera::CameraKind::Chase: return "Chase";
+				case ICamera::CameraKind::Dolly: return "Dolly";
+				case ICamera::CameraKind::DollyZoom: return "Dolly Zoom";
+				case ICamera::CameraKind::Path: return "Path";
+				default: return "Unknown";
+			}
 		}
 
 		inline std::string_view getCameraTypeDescription(const ICamera* camera) const
 		{
-			if (dynamic_cast<const CFPSCamera*>(camera))
-				return "First-person WASD + mouse look";
-			if (dynamic_cast<const CFreeCamera*>(camera))
-				return "Free-fly 6DOF with full rotation";
-			if (dynamic_cast<const COrbitCamera*>(camera))
-				return "Orbit around target with dolly";
-			if (dynamic_cast<const CArcballCamera*>(camera))
-				return "Arcball trackball around target";
-			if (dynamic_cast<const CTurntableCamera*>(camera))
-				return "Turntable yaw/pitch around target";
-			if (dynamic_cast<const CTopDownCamera*>(camera))
-				return "Fixed pitch top-down pan";
-			if (dynamic_cast<const CIsometricCamera*>(camera))
-				return "Fixed isometric view with pan";
-			if (dynamic_cast<const CChaseCamera*>(camera))
-				return "Target follow with chase controls";
-			if (dynamic_cast<const CDollyCamera*>(camera))
-				return "Rig truck/dolly with look-at";
-			if (dynamic_cast<const CDollyZoomCamera*>(camera))
-				return "Orbit with dolly-zoom FOV";
-			if (dynamic_cast<const CPathCamera*>(camera))
-				return "Move along a target path";
-			return "Unspecified camera behavior";
+			if (!camera)
+				return "Unspecified camera behavior";
+
+			switch (camera->getKind())
+			{
+				case ICamera::CameraKind::FPS: return "First-person WASD + mouse look";
+				case ICamera::CameraKind::Free: return "Free-fly 6DOF with full rotation";
+				case ICamera::CameraKind::Orbit: return "Orbit around target with dolly";
+				case ICamera::CameraKind::Arcball: return "Arcball trackball around target";
+				case ICamera::CameraKind::Turntable: return "Turntable yaw/pitch around target";
+				case ICamera::CameraKind::TopDown: return "Fixed pitch top-down pan";
+				case ICamera::CameraKind::Isometric: return "Fixed isometric view with pan";
+				case ICamera::CameraKind::Chase: return "Target follow with chase controls";
+				case ICamera::CameraKind::Dolly: return "Rig truck/dolly with look-at";
+				case ICamera::CameraKind::DollyZoom: return "Orbit with dolly-zoom FOV";
+				case ICamera::CameraKind::Path: return "Move along a target path";
+				default: return "Unspecified camera behavior";
+			}
 		}
 
 		inline void syncVisualDebugWindowBindings()
@@ -992,10 +976,11 @@ class App final : public examples::SimpleWindowedApplication
 				}
 				const std::string lineBottom(lineBottomBuffer);
 				std::string lineHint = std::string(cameraHint);
-				if (auto* dollyZoom = dynamic_cast<CDollyZoomCamera*>(camera))
+				float dynamicFov = 0.0f;
+				if (camera && camera->tryGetDynamicPerspectiveFov(dynamicFov))
 				{
 					char fovBuffer[96] = {};
-					std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", dollyZoom->computeDollyFov());
+					std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", dynamicFov);
 					lineHint += fovBuffer;
 				}
 
@@ -1046,13 +1031,15 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void applyDollyZoomProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
 		{
-			auto* dolly = dynamic_cast<CDollyZoomCamera*>(camera);
-			if (!dolly)
+			if (!camera)
 				return;
 			const auto& params = projection.getParameters();
 			if (params.m_type != IPlanarProjection::CProjection::Perspective)
 				return;
-			projection.setPerspective(params.m_zNear, params.m_zFar, dolly->computeDollyFov());
+			float dynamicFov = 0.0f;
+			if (!camera->tryGetDynamicPerspectiveFov(dynamicFov))
+				return;
+			projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
 		}
 
 		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
@@ -1067,29 +1054,40 @@ class App final : public examples::SimpleWindowedApplication
 			preset.position = gimbal.getPosition();
 			preset.orientation = gimbal.getOrientation();
 
-			auto captureOrbit = [&](auto* orbit)
+			ICamera::SphericalTargetState sphericalState;
+			if (camera->tryGetSphericalTargetState(sphericalState))
 			{
-				preset.distance = orbit->getDistance();
+				preset.targetPosition = sphericalState.target;
+				preset.hasTargetPosition = true;
+				preset.distance = sphericalState.distance;
 				preset.hasDistance = true;
-				preset.orbitDistance = orbit->getDistance();
-				preset.orbitU = orbit->getU();
-				preset.orbitV = orbit->getV();
+				preset.orbitDistance = sphericalState.distance;
+				preset.orbitU = sphericalState.u;
+				preset.orbitV = sphericalState.v;
 				preset.hasOrbitState = true;
-			};
+			}
 
-			withOrbitLikeCamera(camera, captureOrbit);
+			ICamera::DynamicPerspectiveState dynamicPerspectiveState;
+			if (camera->tryGetDynamicPerspectiveState(dynamicPerspectiveState))
+			{
+				preset.dynamicBaseFov = dynamicPerspectiveState.baseFov;
+				preset.dynamicReferenceDistance = dynamicPerspectiveState.referenceDistance;
+				preset.hasDynamicPerspectiveState = true;
+			}
 
 			return preset;
 		}
 
-		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
+		inline CTargetPoseController::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
 		{
-			if (!camera)
-				return false;
-
 			CTargetPose target;
+			if (!camera)
+				return {};
+
 			target.position = preset.position;
 			target.orientation = preset.orientation;
+			target.hasTargetPosition = preset.hasTargetPosition;
+			target.targetPosition = preset.targetPosition;
 			target.hasDistance = preset.hasDistance;
 			target.distance = preset.distance;
 			target.hasOrbitState = preset.hasOrbitState;
@@ -1097,7 +1095,63 @@ class App final : public examples::SimpleWindowedApplication
 			target.orbitV = preset.orbitV;
 			target.orbitDistance = preset.orbitDistance;
 
-			return m_targetPoseController.apply(camera, target);
+			auto result = m_targetPoseController.applyDetailed(camera, target);
+			if (!preset.hasDynamicPerspectiveState)
+				return result;
+
+			ICamera::DynamicPerspectiveState beforeState;
+			if (!camera->tryGetDynamicPerspectiveState(beforeState))
+			{
+				result.exact = false;
+				return result;
+			}
+
+			const ICamera::DynamicPerspectiveState desiredState = {
+				.baseFov = preset.dynamicBaseFov,
+				.referenceDistance = preset.dynamicReferenceDistance
+			};
+			if (!camera->trySetDynamicPerspectiveState(desiredState))
+			{
+				result.exact = false;
+				return result;
+			}
+
+			ICamera::DynamicPerspectiveState afterState;
+			if (!camera->tryGetDynamicPerspectiveState(afterState))
+			{
+				result.exact = false;
+				return result;
+			}
+
+			const auto nearlyEqual = [](const float a, const float b)
+			{
+				return std::abs(static_cast<double>(a - b)) <= 1e-6;
+			};
+
+			const bool dynamicChanged = !nearlyEqual(beforeState.baseFov, afterState.baseFov) ||
+				!nearlyEqual(beforeState.referenceDistance, afterState.referenceDistance);
+			const bool dynamicExact = nearlyEqual(afterState.baseFov, desiredState.baseFov) &&
+				nearlyEqual(afterState.referenceDistance, desiredState.referenceDistance);
+
+			if (dynamicChanged)
+			{
+				if (!result.succeeded() || !result.changed())
+					result.status = CTargetPoseController::SApplyResult::EStatus::AppliedAbsoluteOnly;
+				else if (result.status == CTargetPoseController::SApplyResult::EStatus::AppliedVirtualEvents)
+					result.status = CTargetPoseController::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents;
+			}
+			else if (!result.succeeded() && dynamicExact)
+			{
+				result.status = CTargetPoseController::SApplyResult::EStatus::AlreadySatisfied;
+			}
+
+			result.exact = result.exact && dynamicExact;
+			return result;
+		}
+
+		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
+		{
+			return applyPresetToCameraDetailed(camera, preset).succeeded();
 		}
 
 		inline void appendVirtualEventLog(std::string_view source, std::string_view controller, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
@@ -1139,17 +1193,19 @@ class App final : public examples::SimpleWindowedApplication
 			if (!m_cameraConstraints.enabled || !camera)
 				return;
 
-			auto clampOrbitDistance = [&](auto* orbit)
+			if (camera->hasCapability(ICamera::SphericalTarget))
 			{
 				if (m_cameraConstraints.clampDistance)
 				{
-					const float clamped = std::clamp<float>(orbit->getDistance(), m_cameraConstraints.minDistance, m_cameraConstraints.maxDistance);
-					orbit->setDistance(clamped);
+					ICamera::SphericalTargetState sphericalState;
+					if (camera->tryGetSphericalTargetState(sphericalState))
+					{
+						const float clamped = std::clamp<float>(sphericalState.distance, m_cameraConstraints.minDistance, m_cameraConstraints.maxDistance);
+						camera->trySetSphericalDistance(clamped);
+					}
 				}
-			};
-
-			if (withOrbitLikeCamera(camera, clampOrbitDistance))
 				return;
+			}
 
 			if (!(m_cameraConstraints.clampPitch || m_cameraConstraints.clampYaw || m_cameraConstraints.clampRoll))
 				return;
@@ -1331,6 +1387,13 @@ class App final : public examples::SimpleWindowedApplication
 			CameraPreset blended;
 			blended.position = a.preset.position + (b.preset.position - a.preset.position) * alpha;
 			blended.orientation = glm::slerp(a.preset.orientation, b.preset.orientation, static_cast<float>(alpha));
+			blended.hasTargetPosition = a.preset.hasTargetPosition || b.preset.hasTargetPosition;
+			if (blended.hasTargetPosition)
+			{
+				const auto ta = a.preset.hasTargetPosition ? a.preset.targetPosition : b.preset.targetPosition;
+				const auto tb = b.preset.hasTargetPosition ? b.preset.targetPosition : a.preset.targetPosition;
+				blended.targetPosition = ta + (tb - ta) * alpha;
+			}
 			blended.hasDistance = a.preset.hasDistance || b.preset.hasDistance;
 			if (blended.hasDistance)
 			{
@@ -1352,6 +1415,17 @@ class App final : public examples::SimpleWindowedApplication
 				blended.orbitV = va + (vb - va) * alpha;
 				blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
 			}
+			blended.hasDynamicPerspectiveState = a.preset.hasDynamicPerspectiveState || b.preset.hasDynamicPerspectiveState;
+			if (blended.hasDynamicPerspectiveState)
+			{
+				const float fa = a.preset.hasDynamicPerspectiveState ? a.preset.dynamicBaseFov : b.preset.dynamicBaseFov;
+				const float fb = b.preset.hasDynamicPerspectiveState ? b.preset.dynamicBaseFov : a.preset.dynamicBaseFov;
+				const float ra = a.preset.hasDynamicPerspectiveState ? a.preset.dynamicReferenceDistance : b.preset.dynamicReferenceDistance;
+				const float rb = b.preset.hasDynamicPerspectiveState ? b.preset.dynamicReferenceDistance : a.preset.dynamicReferenceDistance;
+
+				blended.dynamicBaseFov = fa + (fb - fa) * static_cast<float>(alpha);
+				blended.dynamicReferenceDistance = ra + (rb - ra) * static_cast<float>(alpha);
+			}
 
 			applyPresetToTargets(blended);
 		}
@@ -1368,6 +1442,8 @@ class App final : public examples::SimpleWindowedApplication
 				j["identifier"] = preset.identifier;
 				j["position"] = { preset.position.x, preset.position.y, preset.position.z };
 				j["orientation"] = { preset.orientation.x, preset.orientation.y, preset.orientation.z, preset.orientation.w };
+				if (preset.hasTargetPosition)
+					j["target_position"] = { preset.targetPosition.x, preset.targetPosition.y, preset.targetPosition.z };
 				if (preset.hasDistance)
 					j["distance"] = preset.distance;
 				if (preset.hasOrbitState)
@@ -1375,6 +1451,11 @@ class App final : public examples::SimpleWindowedApplication
 					j["orbit_u"] = preset.orbitU;
 					j["orbit_v"] = preset.orbitV;
 					j["orbit_distance"] = preset.orbitDistance;
+				}
+				if (preset.hasDynamicPerspectiveState)
+				{
+					j["dynamic_base_fov"] = preset.dynamicBaseFov;
+					j["dynamic_reference_distance"] = preset.dynamicReferenceDistance;
 				}
 				root["presets"].push_back(std::move(j));
 			}
@@ -1420,6 +1501,12 @@ class App final : public examples::SimpleWindowedApplication
 						arr[2].get<float>()
 					);
 				}
+				if (entry.contains("target_position") && entry["target_position"].is_array())
+				{
+					auto arr = entry["target_position"];
+					preset.targetPosition = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+					preset.hasTargetPosition = true;
+				}
 				if (entry.contains("distance"))
 				{
 					preset.distance = entry["distance"].get<float>();
@@ -1439,6 +1526,16 @@ class App final : public examples::SimpleWindowedApplication
 				{
 					preset.orbitDistance = entry["orbit_distance"].get<float>();
 					preset.hasOrbitState = true;
+				}
+				if (entry.contains("dynamic_base_fov"))
+				{
+					preset.dynamicBaseFov = entry["dynamic_base_fov"].get<float>();
+					preset.hasDynamicPerspectiveState = true;
+				}
+				if (entry.contains("dynamic_reference_distance"))
+				{
+					preset.dynamicReferenceDistance = entry["dynamic_reference_distance"].get<float>();
+					preset.hasDynamicPerspectiveState = true;
 				}
 				m_presets.emplace_back(std::move(preset));
 			}
@@ -1733,8 +1830,11 @@ class App final : public examples::SimpleWindowedApplication
 			bool isOrthographicProjection = false;
 			float aspectRatio = 16.f / 9.f;
 			bool leftHandedProjection = true;
+			CGimbalInputBinder inputBinding;
 
 			std::optional<uint32_t> boundProjectionIx = std::nullopt, lastBoundPerspectivePresetProjectionIx = std::nullopt, lastBoundOrthoPresetProjectionIx = std::nullopt;
+			std::optional<uint32_t> inputBindingProjectionIx = std::nullopt;
+			uint32_t inputBindingPlanarIx = std::numeric_limits<uint32_t>::max();
 
 			inline void pickDefaultProjections(const planar_projections_range_t& projections)
 			{
@@ -1756,8 +1856,55 @@ class App final : public examples::SimpleWindowedApplication
 				init(lastBoundPerspectivePresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Perspective);
 				init(lastBoundOrthoPresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Orthographic);
 				boundProjectionIx = lastBoundPerspectivePresetProjectionIx.value();
+				inputBindingProjectionIx = std::nullopt;
+				inputBindingPlanarIx = std::numeric_limits<uint32_t>::max();
 			}
 		};
+
+		inline void syncWindowInputBinding(windowControlBinding& binding)
+		{
+			if (!binding.boundProjectionIx.has_value())
+				return;
+			if (binding.activePlanarIx >= m_planarProjections.size())
+				return;
+
+			auto& planar = m_planarProjections[binding.activePlanarIx];
+			if (!planar)
+				return;
+
+			const auto projectionIx = binding.boundProjectionIx.value();
+			auto& projections = planar->getPlanarProjections();
+			if (projectionIx >= projections.size())
+				return;
+
+			if (binding.inputBindingPlanarIx == binding.activePlanarIx && binding.inputBindingProjectionIx == projectionIx)
+				return;
+
+			binding.inputBinding.copyBindingLayoutFrom(projections[projectionIx]);
+			binding.inputBindingPlanarIx = binding.activePlanarIx;
+			binding.inputBindingProjectionIx = projectionIx;
+		}
+
+		inline void syncWindowInputBindingToProjection(windowControlBinding& binding)
+		{
+			if (!binding.boundProjectionIx.has_value())
+				return;
+			if (binding.activePlanarIx >= m_planarProjections.size())
+				return;
+
+			auto& planar = m_planarProjections[binding.activePlanarIx];
+			if (!planar)
+				return;
+
+			const auto projectionIx = binding.boundProjectionIx.value();
+			auto& projections = planar->getPlanarProjections();
+			if (projectionIx >= projections.size())
+				return;
+
+			binding.inputBinding.copyBindingLayoutTo(projections[projectionIx]);
+			binding.inputBindingPlanarIx = binding.activePlanarIx;
+			binding.inputBindingProjectionIx = projectionIx;
+		}
 
 		struct ScriptedInputEvent
 		{

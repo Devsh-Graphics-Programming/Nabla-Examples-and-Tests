@@ -61,6 +61,7 @@ public:
     }
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual CameraKind getKind() const override { return CameraKind::Arcball; }
     virtual const std::string_view getIdentifier() override { return "Arcball Camera"; }
 
     static inline constexpr float MinDistance = base_t::MinDistance;

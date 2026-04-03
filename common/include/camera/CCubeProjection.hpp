@@ -50,9 +50,15 @@ public:
         return core::smart_refctd_ptr<CCubeProjection>(new CCubeProjection(core::smart_refctd_ptr(camera)), core::dont_grab);
     }
 
-    virtual std::span<const ILinearProjection::CProjection> getLinearProjections() const override
+    virtual uint32_t getLinearProjectionCount() const override
     {
-        return { reinterpret_cast<const ILinearProjection::CProjection*>(m_quads.data()), m_quads.size() };
+        return static_cast<uint32_t>(m_quads.size());
+    }
+
+    virtual const ILinearProjection::CProjection& getLinearProjection(uint32_t index) const override
+    {
+        assert(index < m_quads.size());
+        return m_quads[index];
     }
 
     void transformCube()

@@ -92,7 +92,8 @@ public:
         bool m_isProjectionSingular;
     };
 
-    virtual std::span<const CProjection> getLinearProjections() const = 0;
+    virtual uint32_t getLinearProjectionCount() const = 0;
+    virtual const CProjection& getLinearProjection(uint32_t index) const = 0;
     
     inline bool setCamera(core::smart_refctd_ptr<ICamera>&& camera)
     {

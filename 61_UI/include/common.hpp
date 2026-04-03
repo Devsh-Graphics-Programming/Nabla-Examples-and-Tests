@@ -19,6 +19,7 @@
 #include "camera/CDollyZoomCamera.hpp"
 #include "camera/CPathCamera.hpp"
 #include "camera/CTargetPoseController.hpp"
+#include "camera/CGimbalInputBinder.hpp"
 
 #include "camera/CCubeProjection.hpp"
 #include "camera/CLinearProjection.hpp"
@@ -56,6 +57,7 @@ using nbl::hlsl::CDollyZoomCamera;
 using nbl::hlsl::CPathCamera;
 using nbl::hlsl::CTargetPose;
 using nbl::hlsl::CTargetPoseController;
+using nbl::hlsl::CGimbalInputBinder;
 using nbl::hlsl::IPlanarProjection;
 using nbl::hlsl::CPlanarProjection;
 using nbl::hlsl::IGimbalController;

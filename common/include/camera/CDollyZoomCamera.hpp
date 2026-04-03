@@ -64,6 +64,28 @@ public:
     }
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual CameraKind getKind() const override { return CameraKind::DollyZoom; }
+    virtual uint32_t getCapabilities() const override { return base_t::getCapabilities() | base_t::DynamicPerspectiveFov; }
+    virtual bool tryGetDynamicPerspectiveFov(float& outFov) const override
+    {
+        outFov = computeDollyFov();
+        return true;
+    }
+    virtual bool tryGetDynamicPerspectiveState(DynamicPerspectiveState& out) const override
+    {
+        out.baseFov = m_baseFov;
+        out.referenceDistance = m_referenceDistance;
+        return true;
+    }
+    virtual bool trySetDynamicPerspectiveState(const DynamicPerspectiveState& state) override
+    {
+        if (!std::isfinite(state.baseFov) || !std::isfinite(state.referenceDistance) || state.referenceDistance <= 0.f)
+            return false;
+
+        m_baseFov = state.baseFov;
+        m_referenceDistance = state.referenceDistance;
+        return true;
+    }
     virtual const std::string_view getIdentifier() override { return "Dolly Zoom Camera"; }
 
 private:

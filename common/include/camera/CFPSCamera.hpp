@@ -116,6 +116,11 @@ public:
         return AllowedVirtualEvents;
     }
 
+    virtual CameraKind getKind() const override
+    {
+        return CameraKind::FPS;
+    }
+
     virtual const std::string_view getIdentifier() override
     {
         return "FPS Camera";

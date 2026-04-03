@@ -19,6 +19,8 @@ struct CTargetPose
 {
     float64_t3 position = float64_t3(0.0);
     glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    bool hasTargetPosition = false;
+    float64_t3 targetPosition = float64_t3(0.0);
     bool hasDistance = false;
     float distance = 0.f;
     bool hasOrbitState = false;
@@ -30,29 +32,185 @@ struct CTargetPose
 class CTargetPoseController
 {
 public:
+    struct SApplyResult
+    {
+        enum class EStatus : uint8_t
+        {
+            Unsupported,
+            Failed,
+            AlreadySatisfied,
+            AppliedAbsoluteOnly,
+            AppliedVirtualEvents,
+            AppliedAbsoluteAndVirtualEvents
+        };
+
+        EStatus status = EStatus::Unsupported;
+        bool exact = false;
+        uint32_t eventCount = 0u;
+
+        inline bool succeeded() const
+        {
+            return status != EStatus::Unsupported && status != EStatus::Failed;
+        }
+
+        inline bool changed() const
+        {
+            return status == EStatus::AppliedAbsoluteOnly ||
+                status == EStatus::AppliedVirtualEvents ||
+                status == EStatus::AppliedAbsoluteAndVirtualEvents;
+        }
+    };
+
     bool buildEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
     {
         out.clear();
         if (!camera)
             return false;
 
-        if (auto* orbit = dynamic_cast<CSphericalTargetCamera*>(camera))
-            return buildOrbitEvents(orbit, target, out);
+        if (camera->hasCapability(ICamera::SphericalTarget))
+            return buildSphericalEvents(camera, target, out);
 
         return buildFreeEvents(camera, target, out);
     }
 
+    SApplyResult applyDetailed(ICamera* camera, const CTargetPose& target) const
+    {
+        SApplyResult result;
+        if (!camera)
+            return result;
+
+        bool exact = true;
+        bool absoluteChanged = false;
+
+        if (!camera->hasCapability(ICamera::SphericalTarget))
+        {
+            bool poseChanged = false;
+            bool poseExact = false;
+            if (tryApplyAbsoluteReferencePose(camera, target, poseChanged, poseExact))
+            {
+                absoluteChanged = absoluteChanged || poseChanged;
+                if (poseExact)
+                {
+                    result.status = poseChanged ?
+                        SApplyResult::EStatus::AppliedAbsoluteOnly :
+                        SApplyResult::EStatus::AlreadySatisfied;
+                    result.exact = true;
+                    return result;
+                }
+            }
+        }
+
+        if (target.hasTargetPosition)
+        {
+            ICamera::SphericalTargetState beforeState;
+            if (!camera->tryGetSphericalTargetState(beforeState))
+            {
+                exact = false;
+            }
+            else
+            {
+                const auto beforeTarget = beforeState.target;
+                if (!camera->trySetSphericalTarget(target.targetPosition))
+                {
+                    exact = false;
+                }
+                else
+                {
+                    ICamera::SphericalTargetState afterState;
+                    if (!camera->tryGetSphericalTargetState(afterState))
+                    {
+                        exact = false;
+                    }
+                    else
+                    {
+                        absoluteChanged = afterState.target != beforeTarget;
+                        exact = exact && afterState.target == target.targetPosition;
+                    }
+                }
+            }
+        }
+
+        if (target.hasDistance || target.hasOrbitState)
+        {
+            ICamera::SphericalTargetState beforeState;
+            if (!camera->tryGetSphericalTargetState(beforeState))
+            {
+                exact = false;
+            }
+            else
+            {
+                const float desiredDistance = target.hasOrbitState ? target.orbitDistance : target.distance;
+                const float beforeDistance = beforeState.distance;
+                if (!camera->trySetSphericalDistance(desiredDistance))
+                {
+                    exact = false;
+                }
+                else
+                {
+                    ICamera::SphericalTargetState afterState;
+                    if (!camera->tryGetSphericalTargetState(afterState))
+                    {
+                        exact = false;
+                    }
+                    else
+                    {
+                        absoluteChanged = absoluteChanged || afterState.distance != beforeDistance;
+                        exact = exact && std::abs(static_cast<double>(afterState.distance - desiredDistance)) <= 1e-6;
+                    }
+                }
+            }
+        }
+
+        std::vector<CVirtualGimbalEvent> events;
+        buildEvents(camera, target, events);
+        result.eventCount = static_cast<uint32_t>(events.size());
+        result.exact = exact;
+
+        if (events.empty())
+        {
+            if (absoluteChanged)
+                result.status = SApplyResult::EStatus::AppliedAbsoluteOnly;
+            else if (exact)
+                result.status = SApplyResult::EStatus::AlreadySatisfied;
+            return result;
+        }
+
+        if (camera->manipulate({ events.data(), events.size() }))
+        {
+            result.status = absoluteChanged ?
+                SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents :
+                SApplyResult::EStatus::AppliedVirtualEvents;
+            return result;
+        }
+
+        if (absoluteChanged)
+        {
+            result.status = SApplyResult::EStatus::AppliedAbsoluteOnly;
+            result.exact = false;
+            return result;
+        }
+
+        result.status = SApplyResult::EStatus::Failed;
+        result.exact = false;
+        return result;
+    }
+
     bool apply(ICamera* camera, const CTargetPose& target) const
     {
-        std::vector<CVirtualGimbalEvent> events;
-        if (!buildEvents(camera, target, events))
-            return false;
-        return camera->manipulate({ events.data(), events.size() });
+        return applyDetailed(camera, target).succeeded();
     }
 
 private:
     static constexpr double Pi = 3.14159265358979323846;
     static constexpr double HalfPi = 0.5 * Pi;
+
+    struct SSphericalGoal
+    {
+        float64_t3 target = float64_t3(0.0);
+        double u = 0.0;
+        double v = 0.0;
+        float distance = 0.f;
+    };
 
     inline double wrapAngleRad(double angle) const
     {
@@ -73,6 +231,18 @@ private:
         ev.magnitude = std::abs(value);
     }
 
+    inline double getMoveMagnitudeDenominator(const ICamera* camera) const
+    {
+        const double moveScale = camera->getMoveSpeedScale();
+        return 0.01 * (moveScale == 0.0 ? 1.0 : moveScale);
+    }
+
+    inline double getRotationMagnitudeDenominator(const ICamera* camera) const
+    {
+        const double rotationScale = camera->getRotationSpeedScale();
+        return rotationScale == 0.0 ? 1.0 : rotationScale;
+    }
+
     inline std::pair<double, double> computePitchYawFromOrientation(const glm::quat& orientation) const
     {
         const auto mat = glm::mat3_cast(orientation);
@@ -84,25 +254,80 @@ private:
 
     inline float64_t3 extractYawPitchRollYXZ(const glm::quat& delta) const
     {
-        const auto m = glm::mat3_cast(delta);
-        const double sp = std::clamp(-static_cast<double>(m[1][2]), -1.0, 1.0);
-        const double pitch = std::asin(sp);
-        const double cp = std::cos(pitch);
-
-        double yaw = 0.0;
-        double roll = 0.0;
-        if (std::abs(cp) > 1e-6)
-        {
-            yaw = std::atan2(static_cast<double>(m[0][2]), static_cast<double>(m[2][2]));
-            roll = std::atan2(static_cast<double>(m[1][0]), static_cast<double>(m[1][1]));
-        }
-        else
-        {
-            yaw = std::atan2(-static_cast<double>(m[2][0]), static_cast<double>(m[0][0]));
-            roll = 0.0;
-        }
-
+        const auto m = getMatrix3x3As4x4(matrix<float64_t, 3, 3>(glm::mat3_cast(delta)));
+        const double yaw = std::atan2(static_cast<double>(m[2][0]), static_cast<double>(m[2][2]));
+        const double c2 = std::sqrt(static_cast<double>(m[0][1] * m[0][1] + m[1][1] * m[1][1]));
+        const double pitch = std::atan2(-static_cast<double>(m[2][1]), c2);
+        const double s1 = std::sin(yaw);
+        const double c1 = std::cos(yaw);
+        const double roll = std::atan2(
+            s1 * static_cast<double>(m[1][2]) - c1 * static_cast<double>(m[1][0]),
+            c1 * static_cast<double>(m[0][0]) - s1 * static_cast<double>(m[0][2]));
         return float64_t3(pitch, yaw, roll);
+    }
+
+    inline bool computePoseMismatch(ICamera* camera, const CTargetPose& target, double& outPositionDelta, double& outRotationDeltaDeg) const
+    {
+        outPositionDelta = 0.0;
+        outRotationDeltaDeg = 0.0;
+        if (!camera)
+            return false;
+
+        const auto& gimbal = camera->getGimbal();
+        const auto currentPos = gimbal.getPosition();
+        const auto currentOrientation = glm::normalize(gimbal.getOrientation());
+        const auto targetOrientation = glm::normalize(target.orientation);
+
+        const double dx = static_cast<double>(currentPos.x - target.position.x);
+        const double dy = static_cast<double>(currentPos.y - target.position.y);
+        const double dz = static_cast<double>(currentPos.z - target.position.z);
+        outPositionDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, targetOrientation))), 0.0, 1.0);
+        outRotationDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+        return std::isfinite(outPositionDelta) && std::isfinite(outRotationDeltaDeg);
+    }
+
+    inline bool tryApplyAbsoluteReferencePose(ICamera* camera, const CTargetPose& target, bool& outChanged, bool& outExact) const
+    {
+        outChanged = false;
+        outExact = false;
+        if (!camera)
+            return false;
+
+        switch (camera->getKind())
+        {
+            case ICamera::CameraKind::Free:
+            case ICamera::CameraKind::FPS:
+                break;
+            default:
+                return false;
+        }
+
+        double beforePosDelta = 0.0;
+        double beforeRotDeltaDeg = 0.0;
+        if (!computePoseMismatch(camera, target, beforePosDelta, beforeRotDeltaDeg))
+            return false;
+
+        if (beforePosDelta <= 1e-6 && beforeRotDeltaDeg <= 0.1)
+        {
+            outExact = true;
+            return true;
+        }
+
+        auto targetFrame = getMatrix3x3As4x4(matrix<float64_t, 3, 3>(glm::mat3_cast(glm::normalize(target.orientation))));
+        targetFrame[3] = float64_t4(target.position, 1.0);
+
+        camera->manipulate({}, &targetFrame);
+
+        double afterPosDelta = 0.0;
+        double afterRotDeltaDeg = 0.0;
+        if (!computePoseMismatch(camera, target, afterPosDelta, afterRotDeltaDeg))
+            return false;
+
+        outChanged = (std::abs(afterPosDelta - beforePosDelta) > 1e-9) || (std::abs(afterRotDeltaDeg - beforeRotDeltaDeg) > 1e-9);
+        outExact = afterPosDelta <= 1e-6 && afterRotDeltaDeg <= 0.1;
+        return true;
     }
 
     inline bool computeOrbitStateFromPositionTarget(const float64_t3& position, const float64_t3& target,
@@ -126,40 +351,116 @@ private:
         return true;
     }
 
-    template<typename T>
-    inline bool buildOrbitEvents(T* orbit, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
+    inline bool resolveSphericalGoal(ICamera* camera, const CTargetPose& target, const ICamera::SphericalTargetState& sphericalState, SSphericalGoal& outGoal) const
     {
-        double targetU = orbit->getU();
-        double targetV = orbit->getV();
-        float targetDistance = orbit->getDistance();
+        outGoal.target = target.hasTargetPosition ? target.targetPosition : sphericalState.target;
+        outGoal.u = sphericalState.u;
+        outGoal.v = sphericalState.v;
+        outGoal.distance = sphericalState.distance;
 
         if (target.hasOrbitState)
         {
-            targetU = target.orbitU;
-            targetV = target.orbitV;
-            targetDistance = target.orbitDistance;
+            outGoal.u = target.orbitU;
+            outGoal.v = target.orbitV;
+            outGoal.distance = target.orbitDistance;
         }
         else
         {
-            const auto orbitTarget = orbit->getTarget();
-            if (!computeOrbitStateFromPositionTarget(target.position, orbitTarget, targetU, targetV, targetDistance, T::MinDistance, T::MaxDistance))
+            if (!computeOrbitStateFromPositionTarget(target.position, outGoal.target, outGoal.u, outGoal.v, outGoal.distance, sphericalState.minDistance, sphericalState.maxDistance))
                 return false;
         }
 
-        targetDistance = std::clamp(targetDistance, T::MinDistance, T::MaxDistance);
+        if (target.hasDistance && !target.hasOrbitState)
+            outGoal.distance = target.distance;
 
-        const double deltaU = targetU - orbit->getU();
-        const double deltaV = targetV - orbit->getV();
-        const double deltaDistance = static_cast<double>(targetDistance - orbit->getDistance());
+        outGoal.distance = std::clamp(outGoal.distance, sphericalState.minDistance, sphericalState.maxDistance);
+        return true;
+    }
 
-        const double moveScale = orbit->getMoveSpeedScale();
-        const double moveDenom = 0.01 * (moveScale == 0.0 ? 1.0 : moveScale);
-
-        appendSignedEvent(out, deltaV / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-        appendSignedEvent(out, deltaU / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-        appendSignedEvent(out, deltaDistance / 0.01, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
-
+    inline bool buildOrbitTranslateEvents(ICamera* camera, const ICamera::SphericalTargetState& sphericalState, const SSphericalGoal& goal, std::vector<CVirtualGimbalEvent>& out) const
+    {
+        const double moveDenom = getMoveMagnitudeDenominator(camera);
+        appendSignedEvent(out, wrapAngleRad(goal.v - sphericalState.v) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendSignedEvent(out, wrapAngleRad(goal.u - sphericalState.u) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
         return !out.empty();
+    }
+
+    inline bool buildRotateDistanceEvents(ICamera* camera, const ICamera::SphericalTargetState& sphericalState, const SSphericalGoal& goal,
+        std::vector<CVirtualGimbalEvent>& out, bool allowYaw, bool allowPitch,
+        CVirtualGimbalEvent::VirtualEventType distancePositive, CVirtualGimbalEvent::VirtualEventType distanceNegative) const
+    {
+        const double rotationDenom = getRotationMagnitudeDenominator(camera);
+        if (allowYaw)
+            appendSignedEvent(out, wrapAngleRad(goal.u - sphericalState.u) / rotationDenom, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+        if (allowPitch)
+            appendSignedEvent(out, wrapAngleRad(goal.v - sphericalState.v) / rotationDenom, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+        if (distancePositive != CVirtualGimbalEvent::None && distanceNegative != CVirtualGimbalEvent::None)
+            appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, distancePositive, distanceNegative);
+        return !out.empty();
+    }
+
+    inline bool buildPathEvents(ICamera* camera, const CTargetPose& target, const ICamera::SphericalTargetState& sphericalState, std::vector<CVirtualGimbalEvent>& out) const
+    {
+        if (!camera)
+            return false;
+
+        const auto effectiveTarget = target.hasTargetPosition ? target.targetPosition : sphericalState.target;
+        const auto currentOffset = camera->getGimbal().getPosition() - effectiveTarget;
+        const auto desiredOffset = target.position - effectiveTarget;
+
+        const double currentAngle = std::atan2(currentOffset.z, currentOffset.x);
+        const double desiredAngle = std::atan2(desiredOffset.z, desiredOffset.x);
+        const double currentRadius = std::sqrt(currentOffset.x * currentOffset.x + currentOffset.z * currentOffset.z);
+        const double desiredRadius = std::sqrt(desiredOffset.x * desiredOffset.x + desiredOffset.z * desiredOffset.z);
+        const double currentHeight = currentOffset.y;
+        const double desiredHeight = desiredOffset.y;
+
+        const double moveDenom = getMoveMagnitudeDenominator(camera);
+        appendSignedEvent(out, (desiredRadius - currentRadius) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendSignedEvent(out, (desiredHeight - currentHeight) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendSignedEvent(out, wrapAngleRad(desiredAngle - currentAngle) / moveDenom, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+        return !out.empty();
+    }
+
+    inline bool buildSphericalEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
+    {
+        ICamera::SphericalTargetState sphericalState;
+        if (!camera || !camera->tryGetSphericalTargetState(sphericalState))
+            return false;
+
+        if (camera->getKind() == ICamera::CameraKind::Path)
+            return buildPathEvents(camera, target, sphericalState, out);
+
+        SSphericalGoal goal;
+        if (!resolveSphericalGoal(camera, target, sphericalState, goal))
+            return false;
+
+        switch (camera->getKind())
+        {
+            case ICamera::CameraKind::Orbit:
+            case ICamera::CameraKind::DollyZoom:
+                return buildOrbitTranslateEvents(camera, sphericalState, goal, out);
+
+            case ICamera::CameraKind::Turntable:
+            case ICamera::CameraKind::Arcball:
+                return buildRotateDistanceEvents(camera, sphericalState, goal, out, true, true, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+
+            case ICamera::CameraKind::TopDown:
+                return buildRotateDistanceEvents(camera, sphericalState, goal, out, true, false, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+
+            case ICamera::CameraKind::Isometric:
+                return buildRotateDistanceEvents(camera, sphericalState, goal, out, false, false, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+
+            case ICamera::CameraKind::Dolly:
+                return buildRotateDistanceEvents(camera, sphericalState, goal, out, true, true, CVirtualGimbalEvent::None, CVirtualGimbalEvent::None);
+
+            case ICamera::CameraKind::Chase:
+                return buildRotateDistanceEvents(camera, sphericalState, goal, out, true, true, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+
+            default:
+                return buildOrbitTranslateEvents(camera, sphericalState, goal, out);
+        }
     }
 
     inline bool buildFreeEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
@@ -180,28 +481,35 @@ private:
         appendSignedEvent(out, localDelta.y, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
         appendSignedEvent(out, localDelta.z, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
 
-        if (auto* fps = dynamic_cast<CFPSCamera*>(camera))
+        switch (camera->getKind())
         {
-            const auto [curPitch, curYaw] = computePitchYawFromOrientation(gimbal.getOrientation());
-            const auto [tgtPitch, tgtYaw] = computePitchYawFromOrientation(target.orientation);
+            case ICamera::CameraKind::FPS:
+            {
+                const auto [curPitch, curYaw] = computePitchYawFromOrientation(gimbal.getOrientation());
+                const auto [tgtPitch, tgtYaw] = computePitchYawFromOrientation(target.orientation);
 
-            const double rotScale = fps->getRotationSpeedScale();
-            const double invScale = rotScale == 0.0 ? 1.0 : (1.0 / rotScale);
+                const double rotScale = camera->getRotationSpeedScale();
+                const double invScale = rotScale == 0.0 ? 1.0 : (1.0 / rotScale);
 
-            const double deltaPitch = wrapAngleRad(tgtPitch - curPitch) * invScale;
-            const double deltaYaw = wrapAngleRad(tgtYaw - curYaw) * invScale;
+                const double deltaPitch = wrapAngleRad(tgtPitch - curPitch) * invScale;
+                const double deltaYaw = wrapAngleRad(tgtYaw - curYaw) * invScale;
 
-            appendSignedEvent(out, deltaPitch, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
-            appendSignedEvent(out, deltaYaw, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
-        }
-        else if (auto* freeCam = dynamic_cast<CFreeCamera*>(camera))
-        {
-            const auto deltaQuat = glm::normalize(target.orientation) * glm::inverse(gimbal.getOrientation());
-            const auto angles = extractYawPitchRollYXZ(deltaQuat);
+                appendSignedEvent(out, deltaPitch, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+                appendSignedEvent(out, deltaYaw, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+            } break;
 
-            appendSignedEvent(out, angles.x, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
-            appendSignedEvent(out, angles.y, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
-            appendSignedEvent(out, angles.z, CVirtualGimbalEvent::RollRight, CVirtualGimbalEvent::RollLeft);
+            case ICamera::CameraKind::Free:
+            {
+                const auto deltaQuat = glm::inverse(gimbal.getOrientation()) * glm::normalize(target.orientation);
+                const auto angles = extractYawPitchRollYXZ(deltaQuat);
+
+                appendSignedEvent(out, angles.x, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+                appendSignedEvent(out, angles.y, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+                appendSignedEvent(out, angles.z, CVirtualGimbalEvent::RollRight, CVirtualGimbalEvent::RollLeft);
+            } break;
+
+            default:
+                break;
         }
 
         return !out.empty();

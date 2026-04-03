@@ -52,6 +52,7 @@ public:
     }
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual CameraKind getKind() const override { return CameraKind::Dolly; }
     virtual const std::string_view getIdentifier() override { return "Dolly Camera"; }
 
 private:

@@ -22,9 +22,15 @@ namespace nbl::hlsl
 			return core::smart_refctd_ptr<CLinearProjection>(new CLinearProjection(core::smart_refctd_ptr(camera)), core::dont_grab);
 		}
 
-		virtual std::span<const CProjection> getLinearProjections() const override
+		virtual uint32_t getLinearProjectionCount() const override
 		{
-			return std::span<const CProjection>(m_projections.data(), m_projections.size());
+			return static_cast<uint32_t>(m_projections.size());
+		}
+
+		virtual const CProjection& getLinearProjection(uint32_t index) const override
+		{
+			assert(index < m_projections.size());
+			return m_projections[index];
 		}
 
 		inline std::span<CProjection> getLinearProjections()

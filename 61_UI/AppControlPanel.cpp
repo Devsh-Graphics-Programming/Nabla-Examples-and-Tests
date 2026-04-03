@@ -446,6 +446,8 @@ void App::DrawControlPanel()
 							}
 							ImGui::EndCombo();
 						}
+						if (updateBoundVirtualMaps)
+							syncWindowInputBinding(active);
 						DrawHoverHint("Switch preset projection for this planar");
 
 						auto* const boundCamera = planarBound->getCamera();
@@ -532,8 +534,8 @@ void App::DrawControlPanel()
 							ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
 							ImGui::Separator();
 							{
-								auto* orbit = dynamic_cast<CSphericalTargetCamera*>(boundCamera);
-								const bool isOrbitLike = orbit != nullptr;
+								ICamera::SphericalTargetState sphericalState;
+								const bool isOrbitLike = boundCamera->tryGetSphericalTargetState(sphericalState);
 
 								float moveSpeed = boundCamera->getMoveSpeedScale();
 								float rotationSpeed = boundCamera->getRotationSpeedScale();
@@ -550,10 +552,10 @@ void App::DrawControlPanel()
 
 								if (isOrbitLike)
 								{
-									float distance = orbit->getDistance();
-									ImGui::SliderFloat("Distance", &distance, orbit->MinDistance, orbit->MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
+									float distance = sphericalState.distance;
+									ImGui::SliderFloat("Distance", &distance, sphericalState.minDistance, sphericalState.maxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
 									DrawHoverHint("Current orbit distance");
-									orbit->setDistance(distance);
+									boundCamera->trySetSphericalDistance(distance);
 								}
 							}
 
@@ -572,7 +574,9 @@ void App::DrawControlPanel()
 
 							if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
 							{
-								displayKeyMappingsAndVirtualStatesInline(&boundProjection);
+								syncWindowInputBinding(active);
+								if (displayKeyMappingsAndVirtualStatesInline(&active.inputBinding))
+									syncWindowInputBindingToProjection(active);
 								ImGui::TreePop();
 							}
 
@@ -639,23 +643,25 @@ void App::DrawControlPanel()
 						DrawSectionHeader("OrbitHeader", "Orbit Target", accent);
 
 						auto* activeCamera = getActiveCamera();
-						const bool hasOrbitTarget = withOrbitLikeCamera(activeCamera, [&](auto* orbit)
+						ICamera::SphericalTargetState orbitState;
+						const bool hasOrbitTarget = activeCamera && activeCamera->tryGetSphericalTargetState(orbitState);
+						if (hasOrbitTarget)
 						{
-							auto target = getCastedVector<float32_t>(orbit->getTarget());
+							auto target = getCastedVector<float32_t>(orbitState.target);
 							if (ImGui::InputFloat3("Target", &target[0]))
-								orbit->target(getCastedVector<float64_t>(target));
+								activeCamera->trySetSphericalTarget(getCastedVector<float64_t>(target));
 
 							if (ImGui::Button("Target model"))
 							{
-								auto targetPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
-								orbit->target(targetPos);
+								const auto targetPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
+								activeCamera->trySetSphericalTarget(float64_t3(targetPos.x, targetPos.y, targetPos.z));
 							}
 							DrawHoverHint("Set orbit target to the model position");
 							ImGui::SameLine();
 							if (ImGui::Button("Target origin"))
-								orbit->target(float64_t3(0.0));
+								activeCamera->trySetSphericalTarget(float64_t3(0.0));
 							DrawHoverHint("Set orbit target to world origin");
-						});
+						}
 						if (!hasOrbitTarget)
 						{
 							ImGui::TextDisabled("Active camera is not orbit.");

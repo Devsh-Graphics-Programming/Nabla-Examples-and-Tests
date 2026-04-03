@@ -5,6 +5,8 @@
 #ifndef _I_CAMERA_HPP_
 #define _I_CAMERA_HPP_
 
+#include <optional>
+
 #include "camera/IGimbalController.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
@@ -14,6 +16,45 @@ class ICamera : public IGimbalController, virtual public core::IReferenceCounted
 { 
 public:
     using IGimbalController::IGimbalController;
+
+    enum class CameraKind : uint8_t
+    {
+        Unknown,
+        FPS,
+        Free,
+        Orbit,
+        Arcball,
+        Turntable,
+        TopDown,
+        Isometric,
+        Chase,
+        Dolly,
+        DollyZoom,
+        Path
+    };
+
+    enum CameraCapability : uint32_t
+    {
+        None = 0u,
+        SphericalTarget = core::createBitmask({ 0 }),
+        DynamicPerspectiveFov = core::createBitmask({ 1 })
+    };
+
+    struct SphericalTargetState
+    {
+        float64_t3 target = float64_t3(0.0);
+        float distance = 0.f;
+        double u = 0.0;
+        double v = 0.0;
+        float minDistance = 0.f;
+        float maxDistance = 0.f;
+    };
+
+    struct DynamicPerspectiveState
+    {
+        float baseFov = 0.f;
+        float referenceDistance = 0.f;
+    };
 
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<float64_t>
@@ -53,11 +94,49 @@ public:
     // TODO: this really needs to be moved to more abstract interface, eg. IObjectTransform or something and ICamera should inherit it (its also an object!)
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) = 0;
 
-	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
+    // VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
 	virtual const uint32_t getAllowedVirtualEvents() = 0u;
+
+    virtual CameraKind getKind() const = 0;
+    virtual uint32_t getCapabilities() const { return None; }
 
     // Identifier of a camera type
     virtual const std::string_view getIdentifier() = 0u;
+
+    inline bool hasCapability(CameraCapability capability) const
+    {
+        return (getCapabilities() & capability) == capability;
+    }
+
+    virtual bool tryGetSphericalTargetState(SphericalTargetState& out) const
+    {
+        return false;
+    }
+
+    virtual bool trySetSphericalTarget(const float64_t3& target)
+    {
+        return false;
+    }
+
+    virtual bool trySetSphericalDistance(float distance)
+    {
+        return false;
+    }
+
+    virtual bool tryGetDynamicPerspectiveFov(float& outFov) const
+    {
+        return false;
+    }
+
+    virtual bool tryGetDynamicPerspectiveState(DynamicPerspectiveState& out) const
+    {
+        return false;
+    }
+
+    virtual bool trySetDynamicPerspectiveState(const DynamicPerspectiveState& state)
+    {
+        return false;
+    }
 
     // (***)
     inline void setMoveSpeedScale(double scalar)

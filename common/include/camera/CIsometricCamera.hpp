@@ -54,6 +54,7 @@ public:
     }
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual CameraKind getKind() const override { return CameraKind::Isometric; }
     virtual const std::string_view getIdentifier() override { return "Isometric Camera"; }
 
 private:

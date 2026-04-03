@@ -65,6 +65,11 @@ public:
         return AllowedVirtualEvents;
     }
 
+    virtual CameraKind getKind() const override
+    {
+        return CameraKind::Free;
+    }
+
     virtual const std::string_view getIdentifier() override
     {
         return "Free-Look Camera";
