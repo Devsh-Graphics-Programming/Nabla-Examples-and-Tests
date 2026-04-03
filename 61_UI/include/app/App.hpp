@@ -19,7 +19,7 @@
 #include <utility>
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
-using json = nlohmann::json;
+using nbl_json = nlohmann::json;
 
 #include "common.hpp"
 #include "keysmapping.hpp"
@@ -1358,12 +1358,12 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool savePresetsToFile(const system::path& path)
 		{
-			json root;
-			root["presets"] = json::array();
+			nbl_json root;
+			root["presets"] = nbl_json::array();
 
 			for (const auto& preset : m_presets)
 			{
-				json j;
+				nbl_json j;
 				j["name"] = preset.name;
 				j["identifier"] = preset.identifier;
 				j["position"] = { preset.position.x, preset.position.y, preset.position.z };
@@ -1392,7 +1392,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!in)
 				return false;
 
-			json root;
+			nbl_json root;
 			in >> root;
 			if (!root.contains("presets"))
 				return false;

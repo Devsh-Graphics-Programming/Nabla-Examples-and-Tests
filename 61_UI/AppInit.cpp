@@ -108,7 +108,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return (localInputCWD / "app_resources" / "cameras.json").lexically_normal();
 				}();
 
-				json j;
+				nbl_json j;
 				{
 					std::ifstream file(configPath);
 					if (!file.is_open())
@@ -605,7 +605,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			{
 				const std::optional<std::string> cameraJsonFile = program.is_used("--file") ? program.get<std::string>("--file") : std::optional<std::string>(std::nullopt);
 
-				json j;
+				nbl_json j;
 				auto loadDefaultConfig = [&]() -> bool
 				{
 #ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
@@ -618,7 +618,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					IFile::success_t result;
 					config.resize(pFile->getSize());
 					pFile->read(result, config.data(), 0, pFile->getSize());
-					j = json::parse(config);
+					j = nbl_json::parse(config);
 					return true;
 #else
 					const auto fallbackPath = localInputCWD / "app_resources" / "cameras.json";
@@ -646,7 +646,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					file >> j;
 				}
 
-				auto loadScriptJson = [&](const std::string& path, json& out) -> bool
+				auto loadScriptJson = [&](const std::string& path, nbl_json& out) -> bool
 				{
 					std::ifstream sfile(path);
 					if (!sfile.is_open())
@@ -658,7 +658,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
-				auto parseScriptedInput = [&](const json& script) -> void
+				auto parseScriptedInput = [&](const nbl_json& script) -> void
 				{
 					m_scriptedInput.events.clear();
 					m_scriptedInput.checks.clear();
@@ -1144,7 +1144,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					system::path scriptPath = program.get<std::string>("--script");
 					if (scriptPath.is_relative())
 						scriptPath = localInputCWD / scriptPath;
-					json scriptJson;
+					nbl_json scriptJson;
 					if (!loadScriptJson(scriptPath.string(), scriptJson))
 						return false;
 					parseScriptedInput(scriptJson);
