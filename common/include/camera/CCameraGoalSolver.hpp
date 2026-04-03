@@ -15,7 +15,7 @@
 namespace nbl::hlsl
 {
 
-struct CTargetPose
+struct CCameraGoal
 {
     float64_t3 position = float64_t3(0.0);
     glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -27,6 +27,8 @@ struct CTargetPose
     double orbitU = 0.0;
     double orbitV = 0.0;
     float orbitDistance = 0.f;
+    bool hasDynamicPerspectiveState = false;
+    ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
 };
 
 class CCameraGoalSolver
@@ -61,7 +63,7 @@ public:
         }
     };
 
-    bool buildEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
+    bool buildEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
     {
         out.clear();
         if (!camera)
@@ -73,7 +75,40 @@ public:
         return buildFreeEvents(camera, target, out);
     }
 
-    SApplyResult applyDetailed(ICamera* camera, const CTargetPose& target) const
+    bool capture(ICamera* camera, CCameraGoal& out) const
+    {
+        out = {};
+        if (!camera)
+            return false;
+
+        const auto& gimbal = camera->getGimbal();
+        out.position = gimbal.getPosition();
+        out.orientation = gimbal.getOrientation();
+
+        ICamera::SphericalTargetState sphericalState;
+        if (camera->tryGetSphericalTargetState(sphericalState))
+        {
+            out.targetPosition = sphericalState.target;
+            out.hasTargetPosition = true;
+            out.distance = sphericalState.distance;
+            out.hasDistance = true;
+            out.orbitDistance = sphericalState.distance;
+            out.orbitU = sphericalState.u;
+            out.orbitV = sphericalState.v;
+            out.hasOrbitState = true;
+        }
+
+        ICamera::DynamicPerspectiveState dynamicState;
+        if (camera->tryGetDynamicPerspectiveState(dynamicState))
+        {
+            out.hasDynamicPerspectiveState = true;
+            out.dynamicPerspectiveState = dynamicState;
+        }
+
+        return true;
+    }
+
+    SApplyResult applyDetailed(ICamera* camera, const CCameraGoal& target) const
     {
         SApplyResult result;
         if (!camera)
@@ -89,7 +124,7 @@ public:
             if (tryApplyAbsoluteReferencePose(camera, target, poseChanged, poseExact))
             {
                 absoluteChanged = absoluteChanged || poseChanged;
-                if (poseExact)
+                if (poseExact && !target.hasDynamicPerspectiveState)
                 {
                     result.status = poseChanged ?
                         SApplyResult::EStatus::AppliedAbsoluteOnly :
@@ -161,6 +196,37 @@ public:
             }
         }
 
+        if (target.hasDynamicPerspectiveState)
+        {
+            ICamera::DynamicPerspectiveState beforeState;
+            if (!camera->tryGetDynamicPerspectiveState(beforeState))
+            {
+                exact = false;
+            }
+            else if (!camera->trySetDynamicPerspectiveState(target.dynamicPerspectiveState))
+            {
+                exact = false;
+            }
+            else
+            {
+                ICamera::DynamicPerspectiveState afterState;
+                if (!camera->tryGetDynamicPerspectiveState(afterState))
+                {
+                    exact = false;
+                }
+                else
+                {
+                    const bool dynamicChanged = !nearlyEqual(beforeState.baseFov, afterState.baseFov) ||
+                        !nearlyEqual(beforeState.referenceDistance, afterState.referenceDistance);
+                    const bool dynamicExact = nearlyEqual(afterState.baseFov, target.dynamicPerspectiveState.baseFov) &&
+                        nearlyEqual(afterState.referenceDistance, target.dynamicPerspectiveState.referenceDistance);
+
+                    absoluteChanged = absoluteChanged || dynamicChanged;
+                    exact = exact && dynamicExact;
+                }
+            }
+        }
+
         std::vector<CVirtualGimbalEvent> events;
         buildEvents(camera, target, events);
         result.eventCount = static_cast<uint32_t>(events.size());
@@ -195,7 +261,7 @@ public:
         return result;
     }
 
-    bool apply(ICamera* camera, const CTargetPose& target) const
+    bool apply(ICamera* camera, const CCameraGoal& target) const
     {
         return applyDetailed(camera, target).succeeded();
     }
@@ -219,6 +285,11 @@ private:
         while (angle < -Pi)
             angle += 2.0 * Pi;
         return angle;
+    }
+
+    inline bool nearlyEqual(double a, double b, double eps = 1e-6) const
+    {
+        return std::abs(a - b) <= eps;
     }
 
     inline void appendSignedEvent(std::vector<CVirtualGimbalEvent>& events, double value,
@@ -266,7 +337,7 @@ private:
         return float64_t3(pitch, yaw, roll);
     }
 
-    inline bool computePoseMismatch(ICamera* camera, const CTargetPose& target, double& outPositionDelta, double& outRotationDeltaDeg) const
+    inline bool computePoseMismatch(ICamera* camera, const CCameraGoal& target, double& outPositionDelta, double& outRotationDeltaDeg) const
     {
         outPositionDelta = 0.0;
         outRotationDeltaDeg = 0.0;
@@ -288,7 +359,7 @@ private:
         return std::isfinite(outPositionDelta) && std::isfinite(outRotationDeltaDeg);
     }
 
-    inline bool tryApplyAbsoluteReferencePose(ICamera* camera, const CTargetPose& target, bool& outChanged, bool& outExact) const
+    inline bool tryApplyAbsoluteReferencePose(ICamera* camera, const CCameraGoal& target, bool& outChanged, bool& outExact) const
     {
         outChanged = false;
         outExact = false;
@@ -351,7 +422,7 @@ private:
         return true;
     }
 
-    inline bool resolveSphericalGoal(ICamera* camera, const CTargetPose& target, const ICamera::SphericalTargetState& sphericalState, SSphericalGoal& outGoal) const
+    inline bool resolveSphericalGoal(ICamera* camera, const CCameraGoal& target, const ICamera::SphericalTargetState& sphericalState, SSphericalGoal& outGoal) const
     {
         outGoal.target = target.hasTargetPosition ? target.targetPosition : sphericalState.target;
         outGoal.u = sphericalState.u;
@@ -400,7 +471,7 @@ private:
         return !out.empty();
     }
 
-    inline bool buildPathEvents(ICamera* camera, const CTargetPose& target, const ICamera::SphericalTargetState& sphericalState, std::vector<CVirtualGimbalEvent>& out) const
+    inline bool buildPathEvents(ICamera* camera, const CCameraGoal& target, const ICamera::SphericalTargetState& sphericalState, std::vector<CVirtualGimbalEvent>& out) const
     {
         if (!camera)
             return false;
@@ -423,7 +494,7 @@ private:
         return !out.empty();
     }
 
-    inline bool buildSphericalEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
+    inline bool buildSphericalEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
     {
         ICamera::SphericalTargetState sphericalState;
         if (!camera || !camera->tryGetSphericalTargetState(sphericalState))
@@ -463,7 +534,7 @@ private:
         }
     }
 
-    inline bool buildFreeEvents(ICamera* camera, const CTargetPose& target, std::vector<CVirtualGimbalEvent>& out) const
+    inline bool buildFreeEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
     {
         const auto& gimbal = camera->getGimbal();
         const auto currentPos = gimbal.getPosition();
@@ -516,6 +587,7 @@ private:
     }
 };
 
+using CTargetPose = CCameraGoal;
 using CTargetPoseController = CCameraGoalSolver;
 
 } // namespace nbl::hlsl

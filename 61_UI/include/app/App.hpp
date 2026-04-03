@@ -1042,48 +1042,26 @@ class App final : public examples::SimpleWindowedApplication
 			projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
 		}
 
-		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
+		inline void assignGoalToPreset(CameraPreset& preset, const CCameraGoal& goal) const
 		{
-			CameraPreset preset;
-			preset.name = name;
-			if (!camera)
-				return preset;
-
-			preset.identifier = std::string(camera->getIdentifier());
-			const auto& gimbal = camera->getGimbal();
-			preset.position = gimbal.getPosition();
-			preset.orientation = gimbal.getOrientation();
-
-			ICamera::SphericalTargetState sphericalState;
-			if (camera->tryGetSphericalTargetState(sphericalState))
-			{
-				preset.targetPosition = sphericalState.target;
-				preset.hasTargetPosition = true;
-				preset.distance = sphericalState.distance;
-				preset.hasDistance = true;
-				preset.orbitDistance = sphericalState.distance;
-				preset.orbitU = sphericalState.u;
-				preset.orbitV = sphericalState.v;
-				preset.hasOrbitState = true;
-			}
-
-			ICamera::DynamicPerspectiveState dynamicPerspectiveState;
-			if (camera->tryGetDynamicPerspectiveState(dynamicPerspectiveState))
-			{
-				preset.dynamicBaseFov = dynamicPerspectiveState.baseFov;
-				preset.dynamicReferenceDistance = dynamicPerspectiveState.referenceDistance;
-				preset.hasDynamicPerspectiveState = true;
-			}
-
-			return preset;
+			preset.position = goal.position;
+			preset.orientation = goal.orientation;
+			preset.targetPosition = goal.targetPosition;
+			preset.hasTargetPosition = goal.hasTargetPosition;
+			preset.distance = goal.distance;
+			preset.hasDistance = goal.hasDistance;
+			preset.orbitU = goal.orbitU;
+			preset.orbitV = goal.orbitV;
+			preset.orbitDistance = goal.orbitDistance;
+			preset.hasOrbitState = goal.hasOrbitState;
+			preset.dynamicBaseFov = goal.dynamicPerspectiveState.baseFov;
+			preset.dynamicReferenceDistance = goal.dynamicPerspectiveState.referenceDistance;
+			preset.hasDynamicPerspectiveState = goal.hasDynamicPerspectiveState;
 		}
 
-		inline CCameraGoalSolver::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
+		inline CCameraGoal makeGoalFromPreset(const CameraPreset& preset) const
 		{
-			CTargetPose target;
-			if (!camera)
-				return {};
-
+			CCameraGoal target;
 			target.position = preset.position;
 			target.orientation = preset.orientation;
 			target.hasTargetPosition = preset.hasTargetPosition;
@@ -1094,59 +1072,80 @@ class App final : public examples::SimpleWindowedApplication
 			target.orbitU = preset.orbitU;
 			target.orbitV = preset.orbitV;
 			target.orbitDistance = preset.orbitDistance;
-
-			auto result = m_cameraGoalSolver.applyDetailed(camera, target);
-			if (!preset.hasDynamicPerspectiveState)
-				return result;
-
-			ICamera::DynamicPerspectiveState beforeState;
-			if (!camera->tryGetDynamicPerspectiveState(beforeState))
-			{
-				result.exact = false;
-				return result;
-			}
-
-			const ICamera::DynamicPerspectiveState desiredState = {
+			target.hasDynamicPerspectiveState = preset.hasDynamicPerspectiveState;
+			target.dynamicPerspectiveState = {
 				.baseFov = preset.dynamicBaseFov,
 				.referenceDistance = preset.dynamicReferenceDistance
 			};
-			if (!camera->trySetDynamicPerspectiveState(desiredState))
+			return target;
+		}
+
+		inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double alpha) const
+		{
+			CCameraGoal blended;
+			blended.position = a.position + (b.position - a.position) * alpha;
+			blended.orientation = glm::slerp(a.orientation, b.orientation, static_cast<float>(alpha));
+			blended.hasTargetPosition = a.hasTargetPosition || b.hasTargetPosition;
+			if (blended.hasTargetPosition)
 			{
-				result.exact = false;
-				return result;
+				const auto ta = a.hasTargetPosition ? a.targetPosition : b.targetPosition;
+				const auto tb = b.hasTargetPosition ? b.targetPosition : a.targetPosition;
+				blended.targetPosition = ta + (tb - ta) * alpha;
 			}
-
-			ICamera::DynamicPerspectiveState afterState;
-			if (!camera->tryGetDynamicPerspectiveState(afterState))
+			blended.hasDistance = a.hasDistance || b.hasDistance;
+			if (blended.hasDistance)
 			{
-				result.exact = false;
-				return result;
+				const float da = a.hasDistance ? a.distance : b.distance;
+				const float db = b.hasDistance ? b.distance : a.distance;
+				blended.distance = da + (db - da) * static_cast<float>(alpha);
 			}
-
-			const auto nearlyEqual = [](const float a, const float b)
+			blended.hasOrbitState = a.hasOrbitState || b.hasOrbitState;
+			if (blended.hasOrbitState)
 			{
-				return std::abs(static_cast<double>(a - b)) <= 1e-6;
-			};
+				const double ua = a.hasOrbitState ? a.orbitU : b.orbitU;
+				const double ub = b.hasOrbitState ? b.orbitU : a.orbitU;
+				const double va = a.hasOrbitState ? a.orbitV : b.orbitV;
+				const double vb = b.hasOrbitState ? b.orbitV : a.orbitV;
+				const float da = a.hasOrbitState ? a.orbitDistance : b.orbitDistance;
+				const float db = b.hasOrbitState ? b.orbitDistance : a.orbitDistance;
 
-			const bool dynamicChanged = !nearlyEqual(beforeState.baseFov, afterState.baseFov) ||
-				!nearlyEqual(beforeState.referenceDistance, afterState.referenceDistance);
-			const bool dynamicExact = nearlyEqual(afterState.baseFov, desiredState.baseFov) &&
-				nearlyEqual(afterState.referenceDistance, desiredState.referenceDistance);
-
-			if (dynamicChanged)
-			{
-				if (!result.succeeded() || !result.changed())
-					result.status = CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly;
-				else if (result.status == CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents)
-					result.status = CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents;
+				blended.orbitU = ua + (ub - ua) * alpha;
+				blended.orbitV = va + (vb - va) * alpha;
+				blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
 			}
-			else if (!result.succeeded() && dynamicExact)
+			blended.hasDynamicPerspectiveState = a.hasDynamicPerspectiveState || b.hasDynamicPerspectiveState;
+			if (blended.hasDynamicPerspectiveState)
 			{
-				result.status = CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied;
+				const auto dynamicA = a.hasDynamicPerspectiveState ? a.dynamicPerspectiveState : b.dynamicPerspectiveState;
+				const auto dynamicB = b.hasDynamicPerspectiveState ? b.dynamicPerspectiveState : a.dynamicPerspectiveState;
+				blended.dynamicPerspectiveState.baseFov = dynamicA.baseFov + (dynamicB.baseFov - dynamicA.baseFov) * static_cast<float>(alpha);
+				blended.dynamicPerspectiveState.referenceDistance =
+					dynamicA.referenceDistance + (dynamicB.referenceDistance - dynamicA.referenceDistance) * static_cast<float>(alpha);
 			}
+			return blended;
+		}
 
-			result.exact = result.exact && dynamicExact;
-			return result;
+		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
+		{
+			CameraPreset preset;
+			preset.name = name;
+			if (!camera)
+				return preset;
+
+			preset.identifier = std::string(camera->getIdentifier());
+			CCameraGoal goal;
+			if (m_cameraGoalSolver.capture(camera, goal))
+				assignGoalToPreset(preset, goal);
+
+			return preset;
+		}
+
+		inline CCameraGoalSolver::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
+		{
+			if (!camera)
+				return {};
+
+			return m_cameraGoalSolver.applyDetailed(camera, makeGoalFromPreset(preset));
 		}
 
 		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
@@ -1384,48 +1383,8 @@ class App final : public examples::SimpleWindowedApplication
 
 			const double alpha = static_cast<double>(time - a.time) / static_cast<double>(b.time - a.time);
 
-			CameraPreset blended;
-			blended.position = a.preset.position + (b.preset.position - a.preset.position) * alpha;
-			blended.orientation = glm::slerp(a.preset.orientation, b.preset.orientation, static_cast<float>(alpha));
-			blended.hasTargetPosition = a.preset.hasTargetPosition || b.preset.hasTargetPosition;
-			if (blended.hasTargetPosition)
-			{
-				const auto ta = a.preset.hasTargetPosition ? a.preset.targetPosition : b.preset.targetPosition;
-				const auto tb = b.preset.hasTargetPosition ? b.preset.targetPosition : a.preset.targetPosition;
-				blended.targetPosition = ta + (tb - ta) * alpha;
-			}
-			blended.hasDistance = a.preset.hasDistance || b.preset.hasDistance;
-			if (blended.hasDistance)
-			{
-				const float da = a.preset.hasDistance ? a.preset.distance : b.preset.distance;
-				const float db = b.preset.hasDistance ? b.preset.distance : a.preset.distance;
-				blended.distance = da + (db - da) * static_cast<float>(alpha);
-			}
-			blended.hasOrbitState = a.preset.hasOrbitState || b.preset.hasOrbitState;
-			if (blended.hasOrbitState)
-			{
-				const double ua = a.preset.hasOrbitState ? a.preset.orbitU : b.preset.orbitU;
-				const double ub = b.preset.hasOrbitState ? b.preset.orbitU : a.preset.orbitU;
-				const double va = a.preset.hasOrbitState ? a.preset.orbitV : b.preset.orbitV;
-				const double vb = b.preset.hasOrbitState ? b.preset.orbitV : a.preset.orbitV;
-				const float da = a.preset.hasOrbitState ? a.preset.orbitDistance : b.preset.orbitDistance;
-				const float db = b.preset.hasOrbitState ? b.preset.orbitDistance : a.preset.orbitDistance;
-
-				blended.orbitU = ua + (ub - ua) * alpha;
-				blended.orbitV = va + (vb - va) * alpha;
-				blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
-			}
-			blended.hasDynamicPerspectiveState = a.preset.hasDynamicPerspectiveState || b.preset.hasDynamicPerspectiveState;
-			if (blended.hasDynamicPerspectiveState)
-			{
-				const float fa = a.preset.hasDynamicPerspectiveState ? a.preset.dynamicBaseFov : b.preset.dynamicBaseFov;
-				const float fb = b.preset.hasDynamicPerspectiveState ? b.preset.dynamicBaseFov : a.preset.dynamicBaseFov;
-				const float ra = a.preset.hasDynamicPerspectiveState ? a.preset.dynamicReferenceDistance : b.preset.dynamicReferenceDistance;
-				const float rb = b.preset.hasDynamicPerspectiveState ? b.preset.dynamicReferenceDistance : a.preset.dynamicReferenceDistance;
-
-				blended.dynamicBaseFov = fa + (fb - fa) * static_cast<float>(alpha);
-				blended.dynamicReferenceDistance = ra + (rb - ra) * static_cast<float>(alpha);
-			}
+			CameraPreset blended = a.preset;
+			assignGoalToPreset(blended, blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
 
 			applyPresetToTargets(blended);
 		}

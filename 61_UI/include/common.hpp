@@ -55,6 +55,7 @@ using nbl::hlsl::CChaseCamera;
 using nbl::hlsl::CDollyCamera;
 using nbl::hlsl::CDollyZoomCamera;
 using nbl::hlsl::CPathCamera;
+using nbl::hlsl::CCameraGoal;
 using nbl::hlsl::CTargetPose;
 using nbl::hlsl::CCameraGoalSolver;
 using nbl::hlsl::CTargetPoseController;
