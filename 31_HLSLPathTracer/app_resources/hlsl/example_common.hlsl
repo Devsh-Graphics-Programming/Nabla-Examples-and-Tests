@@ -237,7 +237,7 @@ struct Light
 template<typename T>
 struct Tolerance
 {
-    NBL_CONSTEXPR_STATIC_INLINE T INTERSECTION_ERROR_BOUND_LOG2 = -8.0;
+    NBL_CONSTEXPR_STATIC_INLINE T INTERSECTION_ERROR_BOUND_LOG2 = -12.0;
 
     static T __common(uint16_t depth)
     {
