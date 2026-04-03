@@ -149,7 +149,7 @@ struct SThroughputs
     }
 
 
-    // transparent (anyhit) could be emissive so needs to add its emission
+    // can be quite high due to importance sampling
     float32_t3 color;
     // RGB transparency of smooth reflections and refractions, used for modulating albedo and most AOVs
     float16_t3 aov;
@@ -177,7 +177,6 @@ struct SSpectralType
     {
         color = normal = albedo = float16_t3(0,0,0);
         // TODO: motion
-        transparency = float16_t(0);
     }
 
     inline SSpectralType operator+(const SSpectralType other)
@@ -186,7 +185,6 @@ struct SSpectralType
         retval.color = color+other.color;
         retval.albedo = albedo+other.albedo;
         retval.normal = normal+other.normal;
-        retval.transparency = transparency+other.transparency;
         return retval;
     }
 
@@ -196,7 +194,6 @@ struct SSpectralType
         retval.color = color*float16_t3(throughput.color);
         retval.albedo = albedo*throughput.aov;
         retval.normal = normal*hlsl::dot(throughput.aov,LumaConversionCoeffs);
-        retval.transparency = transparency*throughput.transparency;
         return retval;
     }
 
@@ -220,8 +217,6 @@ struct SSpectralType
     float16_t3 normal;
     // TODO: motion (RG vector to past location, B or BA as a measure of spread, e.g. spherical gaussian, direction and its variance, Polar Harmonics - Laplace on a Circle)
     //float16_t3or4 motion;
-    // for composting
-    float16_t transparency;
 };
 
 

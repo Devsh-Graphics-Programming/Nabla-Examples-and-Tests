@@ -88,7 +88,7 @@ struct SClosestHitRetval
     // to get particular Triangle's indices
     uint32_t primitiveID;
     //
-    float16_t3 geometricNormal;
+    float32_t3 geometricNormal;
 };
 
 
@@ -97,9 +97,9 @@ struct [raypayload] BeautyPayload
 {
     inline void markAsMissed()
     {
-        closestRet.geometricNormal = float16_t(45.f);
+        closestRet.geometricNormal = 45.f;
     }
-    inline bool hasMissed() {return closestRet.geometricNormal[0]>float16_t(1.f);}
+    inline bool hasMissed() {return closestRet.geometricNormal[0]>1.f;}
 
     SClosestHitRetval closestRet : read(caller) : write(caller,closesthit);
 };
@@ -131,6 +131,7 @@ void raygen()
     const float16_t newSamplesOverTotal = float16_t(float32_t(samplesThisFrame)*samplingInfo.rcpNewSampleCount);
     const float16_t rcpSamplesThisFrame = float16_t(1)/float16_t(samplesThisFrame);
 
+    float16_t transparency = 0.f;
     SSpectralType accumulation;
     accumulation.clear();
     [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=samplingInfo.newSampleCount; sampleIndex++)
@@ -166,7 +167,10 @@ void raygen()
             //
             missed = payload.hasMissed();
             if (missed)
-                accumulation = sampleEnv(rayDir)*throughput;
+            {
+                accumulation = sampleEnv(rayDir) * throughput;
+                transparency += throughput.transparency;
+            }
             else // TODO: erase the `missed` variable and setup the struct in "wasAHit"
             {
                 closestInfo = payload.closestRet;
@@ -186,21 +190,32 @@ void raygen()
             {
                 // TODO: get the material ID and UVs
 
+                float32_t3 shadingNormal = closestInfo.geometricNormal;
+
+                // TODO: possible SER point based on NEE status, and material flags
+
+                SSpectralType contribution;
+                // TODO: get AoVs from material and emission, already premultiplied by next throughput complements
+                // TODO: get AoV throughputs too, then shading only gets colour quotient for us
+                contribution.color = float16_t3(0,0,0);
+                contribution.albedo = float16_t3(1,1,1);
+                contribution.normal = float16_t3(shadingNormal);
+                accumulation = accumulation+accumulation*throughput;
                 // TODO: handle emission and do NEE MIS for any emission found on current hit
+                if (false)
                 {
                     // get emission stream
-
-                    // TODO: possible SER point based on emiussion stream ID
 
                     // compute emission
                     const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
                     if (otherTechniqueHeuristic>WeightThreshold)
                     {
-                        // compute NEE MIS backward weight
+                        // compute NEE MIS backward weight on the contribution color
                         // assert not inf
                         // apply emissive weight
                     }
                     // add emissive to the contribution
+                    accumulation.color += contribution.color*float16_t3(throughput.color);
                 }
 
                 // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
@@ -237,7 +252,7 @@ void raygen()
 
                     const float pdf = 1.f / 3.14159f;
                     // consume additional 3 dimensions BTDF sampling and resampling
-                    rayDir = closestInfo.geometricNormal;
+                    rayDir = shadingNormal;
                     throughput = throughput / pdf;
                     //
                     otherTechniqueHeuristic = 1.f/pdf;
@@ -246,7 +261,6 @@ void raygen()
                 // to keep path depths equal for NEE and BxDF sampling, we 
                 if (contribEstimator.notCulled(throughput,depth<=gSensor.lastNoRussianRouletteDepth,randVec.z))
                 {
-
                     // advance ray origin
                     rayOrigin = closestInfo.hitPos;
 
@@ -264,9 +278,10 @@ void raygen()
                             {
                                 // compute NEE MIS backward weight
                                 // assert not inf
-                                // apply MIS to adjust throughput
+                                // apply MIS to adjust throughput.color
                             }
-                            accumulation = sampleEnv(rayDir)*throughput;
+                            accumulation = accumulation + sampleEnv(rayDir)*throughput;
+                            transparency += throughput.transparency;
                             break;
                         }
                     }
@@ -282,11 +297,12 @@ void raygen()
     albedoAcc.accumulate(launchID.xy,launchID.z,accumulation.albedo,newSamplesOverTotal);
     // normal
     Accumulator<ImageAccessor_gNormal> normalAcc;
-    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(accumulation.normal),newSamplesOverTotal);
+    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(hlsl::normalize(accumulation.normal)),newSamplesOverTotal);
     // TODO: motion
     // mask
     Accumulator<ImageAccessor_gMask> maskAcc;
-    maskAcc.accumulate(launchID.xy,launchID.z,vector<float16_t,1>(accumulation.transparency),newSamplesOverTotal);
+    vector<float16_t,1> opacity = float16_t(1)-transparency;
+    maskAcc.accumulate(launchID.xy,launchID.z,opacity,newSamplesOverTotal);
 }
 
 
