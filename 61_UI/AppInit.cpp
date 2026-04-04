@@ -841,13 +841,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					std::vector<CameraPreset> loadedPresets;
 					if (!nbl::hlsl::readPresetCollection(presetBuffer, loadedPresets))
 						return fail("Preset persistence smoke failed to deserialize preset collection.");
-					if (loadedPresets.size() != sourcePresets.size())
-						return fail("Preset persistence smoke changed preset count.");
-
-					for (size_t i = 0u; i < sourcePresets.size(); ++i)
+					if (!nbl::hlsl::comparePresetCollections(
+						std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size()),
+						std::span<const CameraPreset>(loadedPresets.data(), loadedPresets.size()),
+						1e-6, 0.1, 1e-6))
 					{
-						if (!nbl::hlsl::comparePresets(sourcePresets[i], loadedPresets[i], 1e-6, 0.1, 1e-6))
-							return fail("Preset persistence smoke changed preset content at index " + std::to_string(i) + ".");
+						return fail("Preset persistence smoke changed stream preset collection content.");
 					}
 
 					CCameraKeyframeTrack sourceTrack;
@@ -894,13 +893,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					std::vector<CameraPreset> fileLoadedPresets;
 					if (!nbl::hlsl::loadPresetCollectionFromFile(presetFile, fileLoadedPresets))
 						return fail("Preset persistence smoke failed to load preset collection file.");
-					if (fileLoadedPresets.size() != sourcePresets.size())
-						return fail("Preset persistence smoke changed preset file count.");
-
-					for (size_t i = 0u; i < sourcePresets.size(); ++i)
+					if (!nbl::hlsl::comparePresetCollections(
+						std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size()),
+						std::span<const CameraPreset>(fileLoadedPresets.data(), fileLoadedPresets.size()),
+						1e-6, 0.1, 1e-6))
 					{
-						if (!nbl::hlsl::comparePresets(sourcePresets[i], fileLoadedPresets[i], 1e-6, 0.1, 1e-6))
-							return fail("Preset persistence smoke changed preset file content at index " + std::to_string(i) + ".");
+						return fail("Preset persistence smoke changed file preset collection content.");
 					}
 
 					if (!nbl::hlsl::saveKeyframeTrackToFile(keyframeFile, sourceTrack))

@@ -291,6 +291,7 @@ Provides:
 - `CCameraPreset`
 - `CCameraKeyframe`
 - preset comparison helpers
+- preset collection comparison helpers
 - goal-to-preset conversion helpers
 - preset JSON serialization and deserialization
 

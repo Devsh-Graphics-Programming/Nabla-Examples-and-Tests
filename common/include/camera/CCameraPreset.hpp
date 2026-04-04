@@ -5,6 +5,7 @@
 #ifndef _C_CAMERA_PRESET_HPP_
 #define _C_CAMERA_PRESET_HPP_
 
+#include <span>
 #include <string>
 
 #include "CCameraGoal.hpp"
@@ -45,6 +46,22 @@ inline bool comparePresets(const CCameraPreset& lhs, const CCameraPreset& rhs,
     return lhs.name == rhs.name &&
         lhs.identifier == rhs.identifier &&
         compareGoals(makeGoalFromPreset(lhs), makeGoalFromPreset(rhs), posEps, rotEpsDeg, scalarEps);
+}
+
+//! Compare two preset collections element-by-element through the shared canonical goal state.
+inline bool comparePresetCollections(std::span<const CCameraPreset> lhs, std::span<const CCameraPreset> rhs,
+    const double posEps, const double rotEpsDeg, const double scalarEps)
+{
+    if (lhs.size() != rhs.size())
+        return false;
+
+    for (size_t i = 0u; i < lhs.size(); ++i)
+    {
+        if (!comparePresets(lhs[i], rhs[i], posEps, rotEpsDeg, scalarEps))
+            return false;
+    }
+
+    return true;
 }
 
 inline nlohmann::json serializeGoal(const CCameraGoal& goal)
