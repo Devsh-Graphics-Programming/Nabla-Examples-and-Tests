@@ -7,7 +7,7 @@
 
 #include <optional>
 
-#include "camera/CGimbalInputBinder.hpp"
+#include "camera/IGimbalBindingLayout.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
