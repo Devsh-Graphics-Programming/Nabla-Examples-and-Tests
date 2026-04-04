@@ -493,6 +493,13 @@ class App final : public examples::SimpleWindowedApplication
 			float time = 0.f;
 		};
 
+		enum class PresetFilterMode : uint8_t
+		{
+			All,
+			Exact,
+			BestEffort
+		};
+
 		struct CameraPlaybackState
 		{
 			bool playing = false;
@@ -1393,6 +1400,82 @@ class App final : public examples::SimpleWindowedApplication
 			else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
 				oss << " | shared goal state only";
 
+			return oss.str();
+		}
+
+		inline const char* getPresetFilterModeLabel(PresetFilterMode mode) const
+		{
+			switch (mode)
+			{
+				case PresetFilterMode::All: return "All";
+				case PresetFilterMode::Exact: return "Exact";
+				case PresetFilterMode::BestEffort: return "Best-effort";
+				default: return "All";
+			}
+		}
+
+		inline bool presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
+		{
+			switch (m_presetFilterMode)
+			{
+				case PresetFilterMode::All:
+					return true;
+				case PresetFilterMode::Exact:
+					return camera && analyzePresetCompatibility(camera, preset).exact;
+				case PresetFilterMode::BestEffort:
+					return camera && !analyzePresetCompatibility(camera, preset).exact;
+				default:
+					return true;
+			}
+		}
+
+		inline bool isGoalFinite(const CCameraGoal& goal) const
+		{
+			auto isFiniteQuat = [](const glm::quat& q) -> bool
+			{
+				return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
+			};
+
+			if (!isFiniteVec3(goal.position) || !isFiniteQuat(goal.orientation))
+				return false;
+			if (goal.hasTargetPosition && !isFiniteVec3(goal.targetPosition))
+				return false;
+			if (goal.hasDistance && !std::isfinite(goal.distance))
+				return false;
+			if (goal.hasOrbitState && (!std::isfinite(goal.orbitU) || !std::isfinite(goal.orbitV) || !std::isfinite(goal.orbitDistance)))
+				return false;
+			if (goal.hasPathState && (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height)))
+				return false;
+			if (goal.hasDynamicPerspectiveState &&
+				(!std::isfinite(goal.dynamicPerspectiveState.baseFov) || !std::isfinite(goal.dynamicPerspectiveState.referenceDistance)))
+				return false;
+			return true;
+		}
+
+		inline bool canMeaningfullyApplyPreset(ICamera* camera, const CameraPreset& preset) const
+		{
+			if (!camera)
+				return false;
+			return isGoalFinite(makeGoalFromPreset(preset));
+		}
+
+		inline std::string describePresetApplyPolicy(ICamera* camera, const CameraPreset& preset) const
+		{
+			if (!camera)
+				return "Blocked | no active camera";
+
+			if (!canMeaningfullyApplyPreset(camera, preset))
+				return "Blocked | invalid goal state";
+
+			const auto compatibility = analyzePresetCompatibility(camera, preset);
+			std::ostringstream oss;
+			oss << (compatibility.exact ? "Exact apply" : "Best-effort apply");
+			if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+				oss << " | drops=" << describeGoalStateMask(compatibility.missingGoalStateMask);
+			else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
+				oss << " | shared goal state only";
+			else
+				oss << " | full preview available";
 			return oss.str();
 		}
 
@@ -2381,6 +2464,8 @@ class App final : public examples::SimpleWindowedApplication
 		std::string m_lastPresetApplySummary;
 		bool m_lastPresetApplySucceeded = false;
 		bool m_lastPresetApplyApproximate = false;
+		PresetFilterMode m_presetFilterMode = PresetFilterMode::All;
+		int m_selectedPresetIx = -1;
 		bool m_playbackAffectsAll = false;
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";

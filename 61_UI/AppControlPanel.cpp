@@ -685,30 +685,70 @@ void App::DrawControlPanel()
 						{
 							auto* activeCamera = getActiveCamera();
 							m_presets.emplace_back(capturePreset(activeCamera, m_presetName));
+							m_selectedPresetIx = static_cast<int>(m_presets.size()) - 1;
 						}
 						DrawHoverHint("Store current camera as a preset");
 						ImGui::SameLine();
 						if (ImGui::Button("Clear presets"))
+						{
 							m_presets.clear();
+							m_selectedPresetIx = -1;
+						}
 						DrawHoverHint("Remove all presets");
 
 						if (!m_presets.empty())
 						{
-							std::vector<const char*> names;
-							names.reserve(m_presets.size());
-							for (const auto& preset : m_presets)
-								names.push_back(preset.name.c_str());
+							auto* activeCamera = getActiveCamera();
+							const char* presetFilterLabels[] = { "All", "Exact", "Best-effort" };
+							int presetFilterIx = static_cast<int>(m_presetFilterMode);
+							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
+								m_presetFilterMode = static_cast<PresetFilterMode>(presetFilterIx);
+							DrawHoverHint("Filter presets for the active camera using exact or best-effort compatibility");
 
-							static int selectedPreset = -1;
-							ImGui::ListBox("Preset list", &selectedPreset, names.data(), static_cast<int>(names.size()), 6);
-
-							if (selectedPreset >= 0 && static_cast<size_t>(selectedPreset) < m_presets.size())
+							std::vector<int> filteredPresetIndices;
+							filteredPresetIndices.reserve(m_presets.size());
+							for (size_t i = 0; i < m_presets.size(); ++i)
 							{
-								auto* activeCamera = getActiveCamera();
-								const auto& preset = m_presets[static_cast<size_t>(selectedPreset)];
+								if (presetMatchesFilter(activeCamera, m_presets[i]))
+									filteredPresetIndices.push_back(static_cast<int>(i));
+							}
+
+							if (filteredPresetIndices.empty())
+							{
+								ImGui::TextDisabled("No presets match the current filter.");
+							}
+							else
+							{
+								if (m_selectedPresetIx < 0 ||
+									std::find(filteredPresetIndices.begin(), filteredPresetIndices.end(), m_selectedPresetIx) == filteredPresetIndices.end())
+								{
+									m_selectedPresetIx = filteredPresetIndices.front();
+								}
+
+								int selectedFilteredPresetIx = 0;
+								for (int i = 0; i < static_cast<int>(filteredPresetIndices.size()); ++i)
+								{
+									if (filteredPresetIndices[i] == m_selectedPresetIx)
+									{
+										selectedFilteredPresetIx = i;
+										break;
+									}
+								}
+
+							std::vector<const char*> names;
+								names.reserve(filteredPresetIndices.size());
+								for (const auto presetIx : filteredPresetIndices)
+									names.push_back(m_presets[static_cast<size_t>(presetIx)].name.c_str());
+
+								if (ImGui::ListBox("Preset list", &selectedFilteredPresetIx, names.data(), static_cast<int>(names.size()), 6))
+									m_selectedPresetIx = filteredPresetIndices[static_cast<size_t>(selectedFilteredPresetIx)];
+
+								if (m_selectedPresetIx >= 0 && static_cast<size_t>(m_selectedPresetIx) < m_presets.size())
+								{
+									const auto& preset = m_presets[static_cast<size_t>(m_selectedPresetIx)];
 								const auto compatibility = analyzePresetCompatibility(activeCamera, preset);
-								const ImVec4 warn = ImVec4(0.95f, 0.72f, 0.28f, 1.0f);
 								const ImVec4 compatibilityColor = !activeCamera ? bad : (compatibility.exact ? good : warn);
+								const bool canApplyPreset = canMeaningfullyApplyPreset(activeCamera, preset);
 
 								ImGui::TextDisabled("Preset source");
 								ImGui::SameLine();
@@ -716,23 +756,52 @@ void App::DrawControlPanel()
 								ImGui::TextDisabled("Goal state");
 								ImGui::SameLine();
 								ImGui::TextColored(muted, "%s", describeGoalStateMask(preset.goal.sourceGoalStateMask).c_str());
-								ImGui::TextDisabled("Apply mode");
+								ImGui::TextDisabled("Policy");
+								ImGui::SameLine();
+								ImGui::TextColored(canApplyPreset ? compatibilityColor : bad, "%s", describePresetApplyPolicy(activeCamera, preset).c_str());
+								ImGui::TextDisabled("Compatibility");
 								ImGui::SameLine();
 								ImGui::TextColored(compatibilityColor, "%s", describePresetCompatibility(activeCamera, preset).c_str());
 
+								DrawBadge(compatibility.exact ? "EXACT" : "BEST-EFFORT", compatibility.exact ? good : warn, badgeText);
+								if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+								{
+									ImGui::SameLine();
+									DrawBadge("DROPS STATE", warn, badgeText);
+								}
+								else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
+								{
+									ImGui::SameLine();
+									DrawBadge("SHARED STATE", accent, badgeText);
+								}
+								if (!canApplyPreset)
+								{
+									ImGui::SameLine();
+									DrawBadge("BLOCKED", bad, badgeText);
+								}
+
+								if (!canApplyPreset)
+									ImGui::BeginDisabled();
 								if (ImGui::Button("Apply preset"))
 									applyPresetFromUi(activeCamera, preset);
-								DrawHoverHint("Apply selected preset to the active camera");
+								if (!canApplyPreset)
+									ImGui::EndDisabled();
+								DrawHoverHint(canApplyPreset ?
+									"Apply selected preset to the active camera" :
+									"Apply is blocked because there is no active camera or the preset goal is invalid");
 								ImGui::SameLine();
 								if (ImGui::Button("Remove preset"))
-									m_presets.erase(m_presets.begin() + selectedPreset);
+								{
+									m_presets.erase(m_presets.begin() + m_selectedPresetIx);
+									m_selectedPresetIx = -1;
+								}
 								DrawHoverHint("Remove selected preset");
 							}
+						}
 						}
 
 						if (!m_lastPresetApplySummary.empty())
 						{
-							const ImVec4 warn = ImVec4(0.95f, 0.72f, 0.28f, 1.0f);
 							const ImVec4 resultColor = m_lastPresetApplySucceeded ? (m_lastPresetApplyApproximate ? warn : good) : bad;
 							ImGui::TextColored(resultColor, "%s", m_lastPresetApplySummary.c_str());
 						}
