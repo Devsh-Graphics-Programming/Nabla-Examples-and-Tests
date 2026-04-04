@@ -2,7 +2,7 @@
 #include <string>
 #include <unordered_map>
 
-bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     bool anyMapUpdated = false;
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
@@ -28,7 +28,7 @@ bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbal
     }
 
     ImGui::TableSetColumnIndex(1);
-    if (activeController == IGimbalBindingLayout::Keyboard)
+    if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
     {
         char newKeyDisplay[2] = { ui::keyCodeToChar(newKey, true), '\0' };
         if (ImGui::BeginCombo("##selectKey", newKeyDisplay))
@@ -65,7 +65,7 @@ bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbal
     if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
     {
         anyMapUpdated |= true;
-        if (activeController == IGimbalBindingLayout::Keyboard)
+        if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
             layout->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
         else
             layout->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
@@ -89,7 +89,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
         CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
         ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
         ui::E_MOUSE_CODE newMouseCode = ui::EMC_LEFT_BUTTON;
-        IGimbalBindingLayout::EncoderType activeController = IGimbalBindingLayout::Keyboard;
+        IGimbalBindingLayout::BindingDomain activeBindingDomain = IGimbalBindingLayout::Keyboard;
     };
 
     static std::unordered_map<IGimbalBindingLayout*, MappingState> cameraStates;
@@ -108,7 +108,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
     {
         if (ImGui::BeginTabItem("Keyboard"))
         {
-            state.activeController = IGimbalBindingLayout::Keyboard;
+            state.activeBindingDomain = IGimbalBindingLayout::Keyboard;
             ImGui::Separator();
 
             if (ImGui::Button("Add Key", ImVec2(100, 30)))
@@ -158,7 +158,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
             if (state.addMode)
             {
                 ImGui::Separator();
-                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", layout, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", layout, state.activeBindingDomain, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
 
             ImGui::EndTabItem();
@@ -166,7 +166,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
 
         if (ImGui::BeginTabItem("Mouse"))
         {
-            state.activeController = IGimbalBindingLayout::Mouse;
+            state.activeBindingDomain = IGimbalBindingLayout::Mouse;
             ImGui::Separator();
 
             if (ImGui::Button("Add Key", ImVec2(100, 30)))
@@ -216,7 +216,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
             if (state.addMode)
             {
                 ImGui::Separator();
-                handleAddMapping("AddMouseMappingTable", layout, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                handleAddMapping("AddMouseMappingTable", layout, state.activeBindingDomain, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
             ImGui::EndTabItem();
         }

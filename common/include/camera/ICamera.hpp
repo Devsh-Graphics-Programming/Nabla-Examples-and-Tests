@@ -20,7 +20,7 @@ public:
     using encode_keyboard_code_t = binding_layout_t::encode_keyboard_code_t;
     using encode_mouse_code_t = binding_layout_t::encode_mouse_code_t;
     using encode_imguizmo_code_t = binding_layout_t::encode_imguizmo_code_t;
-    using EncoderType = binding_layout_t::EncoderType;
+    using BindingDomain = binding_layout_t::BindingDomain;
     using CKeyInfo = binding_layout_t::CKeyInfo;
     using CHashInfo = binding_layout_t::CHashInfo;
     using keyboard_to_virtual_events_t = binding_layout_t::keyboard_to_virtual_events_t;

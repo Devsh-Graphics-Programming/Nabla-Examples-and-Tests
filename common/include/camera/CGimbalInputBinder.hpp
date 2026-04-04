@@ -76,21 +76,6 @@ public:
         copyActiveBindingsToLayout(layout);
     }
 
-    inline void copyActiveBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
-    {
-        copyActiveBindingsFromLayout(encoder);
-    }
-
-    inline void copyDefaultBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
-    {
-        copyDefaultBindingsFromLayout(encoder);
-    }
-
-    inline void copyActiveBindingsToEncoder(IGimbalManipulateEncoder& encoder) const
-    {
-        copyActiveBindingsToLayout(encoder);
-    }
-
     inline SCollectedVirtualEvents collectVirtualEvents(
         const std::chrono::microseconds nextPresentationTimeStamp,
         const SUpdateParameters parameters = {})

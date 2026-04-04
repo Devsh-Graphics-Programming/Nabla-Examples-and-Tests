@@ -16,7 +16,7 @@ struct IGimbalBindingLayout
     using encode_mouse_code_t = ui::E_MOUSE_CODE;
     using encode_imguizmo_code_t = gimbal_event_t::VirtualEventType;
 
-    enum EncoderType : uint8_t
+    enum BindingDomain : uint8_t
     {
         Keyboard,
         Mouse,
@@ -38,7 +38,7 @@ struct IGimbalBindingLayout
         CKeyInfo(encode_mouse_code_t code) : mouseCode(code), type(Mouse) {}
         CKeyInfo(encode_imguizmo_code_t code) : imguizmoCode(code), type(Imguizmo) {}
 
-        EncoderType type;
+        BindingDomain type;
     };
 
     struct CHashInfo
@@ -67,8 +67,6 @@ struct IGimbalBindingLayout
     virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) = 0;
     virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) = 0;
 };
-
-using IGimbalManipulateEncoder = IGimbalBindingLayout;
 
 class CGimbalBindingLayoutStorage : public IGimbalBindingLayout
 {
