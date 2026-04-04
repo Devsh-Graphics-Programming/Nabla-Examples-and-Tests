@@ -21,6 +21,7 @@
 #include "camera/CCameraPreset.hpp"
 #include "camera/CCameraKeyframeTrack.hpp"
 #include "camera/CCameraPlaybackTimeline.hpp"
+#include "camera/CCameraPersistence.hpp"
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CGimbalInputBinder.hpp"

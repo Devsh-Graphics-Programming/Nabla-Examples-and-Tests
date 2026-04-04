@@ -1634,59 +1634,22 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool savePresetsToFile(const system::path& path)
 		{
-			nbl_json root;
-			root["presets"] = nbl_json::array();
-
-			for (const auto& preset : m_presets)
-				root["presets"].push_back(nbl::hlsl::serializePreset(preset));
-
-			std::ofstream out(path.string(), std::ios::binary);
-			if (!out)
-				return false;
-			out << root.dump(2);
-			return true;
+			return nbl::hlsl::savePresetCollectionToFile(path, std::span<const CameraPreset>(m_presets.data(), m_presets.size()));
 		}
 
 		inline bool loadPresetsFromFile(const system::path& path)
 		{
-			std::ifstream in(path.string(), std::ios::binary);
-			if (!in)
-				return false;
-
-			nbl_json root;
-			in >> root;
-			if (!root.contains("presets"))
-				return false;
-
-			m_presets.clear();
-			for (const auto& entry : root["presets"])
-			{
-				CameraPreset preset;
-				nbl::hlsl::deserializePreset(entry, preset);
-				m_presets.emplace_back(std::move(preset));
-			}
-
-			return true;
+			return nbl::hlsl::loadPresetCollectionFromFile(path, m_presets);
 		}
 
 		inline bool saveKeyframesToFile(const system::path& path)
 		{
-			std::ofstream out(path.string(), std::ios::binary);
-			if (!out)
-				return false;
-			out << nbl::hlsl::serializeKeyframeTrack(m_keyframeTrack).dump(2);
-			return true;
+			return nbl::hlsl::saveKeyframeTrackToFile(path, m_keyframeTrack);
 		}
 
 		inline bool loadKeyframesFromFile(const system::path& path)
 		{
-			std::ifstream in(path.string(), std::ios::binary);
-			if (!in)
-				return false;
-
-			nbl_json root;
-			in >> root;
-			if (!nbl::hlsl::deserializeKeyframeTrack(root, m_keyframeTrack))
+			if (!nbl::hlsl::loadKeyframeTrackFromFile(path, m_keyframeTrack))
 				return false;
 
 			clampPlaybackTimeToKeyframes();

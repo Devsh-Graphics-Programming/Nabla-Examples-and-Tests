@@ -10,6 +10,7 @@ The current design goal is:
 - absolute goals and preset restore are best-effort helpers layered on top
 - reusable math, preset, analysis, and keyframe-track utilities live in shared headers
 - reusable playback cursor and timeline helpers live in shared headers
+- reusable preset and keyframe persistence helpers live in shared headers
 - `61_UI` is the current integration and validation surface
 
 ## Mental model
@@ -292,6 +293,18 @@ Provides:
 
 This keeps playback-time progression reusable without forcing examples to reimplement cursor stepping rules.
 
+### `CCameraPersistence.hpp`
+
+Reusable JSON and file persistence helpers for preset collections and keyframe tracks.
+
+Provides:
+
+- preset collection JSON serialization and deserialization
+- preset collection file save/load helpers
+- keyframe-track file save/load helpers
+
+This keeps example-level save/load glue out of `61_UI` while reusing the same preset and track formats.
+
 ## Current integration status
 
 The shared headers above are designed to be reusable by additional examples.
@@ -310,12 +323,13 @@ If another example wants to adopt this stack later, the intended path is:
 2. Store default binding layouts on the camera and/or planar projection.
 3. Use `CGimbalInputBinder` at runtime to translate external input into virtual events.
 4. Feed the resulting event stream into `ICamera::manipulate(...)`.
-5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, `CCameraPreset`, `CCameraKeyframeTrack`, and `CCameraPlaybackTimeline` only for tooling features such as:
+5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, `CCameraPreset`, `CCameraKeyframeTrack`, `CCameraPlaybackTimeline`, and `CCameraPersistence` only for tooling features such as:
    - preset capture
    - preset restore
    - compatibility preview
    - playback interpolation
    - playback cursor stepping
+   - preset and keyframe persistence
    - scripted validation
 
 That keeps the hot runtime path event-driven while still allowing higher-level tools to work with absolute camera goals in a controlled way.
