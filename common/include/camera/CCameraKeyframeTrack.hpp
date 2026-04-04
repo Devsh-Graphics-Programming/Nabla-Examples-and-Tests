@@ -21,6 +21,37 @@ struct CCameraKeyframeTrack
     int selectedKeyframeIx = -1;
 };
 
+//! Compare two keyframes by authored time and shared preset state.
+inline bool compareKeyframes(const CCameraKeyframe& lhs, const CCameraKeyframe& rhs,
+    const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
+{
+    return std::abs(static_cast<double>(lhs.time - rhs.time)) <= timeEps &&
+        comparePresets(lhs.preset, rhs.preset, posEps, rotEpsDeg, scalarEps);
+}
+
+//! Compare two authored keyframe tracks with optional selection-state checking.
+inline bool compareKeyframeTracks(const CCameraKeyframeTrack& lhs, const CCameraKeyframeTrack& rhs,
+    const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps, const bool compareSelection = true)
+{
+    if ((compareSelection && lhs.selectedKeyframeIx != rhs.selectedKeyframeIx) || lhs.keyframes.size() != rhs.keyframes.size())
+        return false;
+
+    for (size_t i = 0u; i < lhs.keyframes.size(); ++i)
+    {
+        if (!compareKeyframes(lhs.keyframes[i], rhs.keyframes[i], timeEps, posEps, rotEpsDeg, scalarEps))
+            return false;
+    }
+
+    return true;
+}
+
+//! Compare only the serialized/authored content of two tracks and ignore transient UI selection state.
+inline bool compareKeyframeTrackContent(const CCameraKeyframeTrack& lhs, const CCameraKeyframeTrack& rhs,
+    const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
+{
+    return compareKeyframeTracks(lhs, rhs, timeEps, posEps, rotEpsDeg, scalarEps, false);
+}
+
 inline bool tryBuildKeyframeTrackPresetAtTime(const CCameraKeyframeTrack& track, const float time, CCameraPreset& preset)
 {
     if (track.keyframes.empty())

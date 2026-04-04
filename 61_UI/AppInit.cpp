@@ -712,18 +712,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
-				auto comparePresetValues = [&](const CameraPreset& lhs, const CameraPreset& rhs, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
-				{
-					return lhs.name == rhs.name &&
-						lhs.identifier == rhs.identifier &&
-						nbl::hlsl::compareGoals(
-							nbl::hlsl::makeGoalFromPreset(lhs),
-							nbl::hlsl::makeGoalFromPreset(rhs),
-							posEps,
-							rotEpsDeg,
-							scalarEps);
-				};
-
 				ICamera* orbitCamera = findCameraByKind(ICamera::CameraKind::Orbit);
 				ICamera* freeCamera = findCameraByKind(ICamera::CameraKind::Free);
 				ICamera* chaseCamera = findCameraByKind(ICamera::CameraKind::Chase);
@@ -852,7 +840,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					for (size_t i = 0u; i < sourcePresets.size(); ++i)
 					{
-						if (!comparePresetValues(sourcePresets[i], loadedPresets[i], 1e-6, 0.1, 1e-6))
+						if (!nbl::hlsl::comparePresets(sourcePresets[i], loadedPresets[i], 1e-6, 0.1, 1e-6))
 							return fail("Preset persistence smoke changed preset content at index " + std::to_string(i) + ".");
 					}
 
@@ -874,16 +862,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CCameraKeyframeTrack loadedTrack;
 					if (!nbl::hlsl::readKeyframeTrack(keyframeBuffer, loadedTrack))
 						return fail("Keyframe persistence smoke failed to deserialize track.");
-					if (loadedTrack.keyframes.size() != sourceTrack.keyframes.size())
-						return fail("Keyframe persistence smoke changed keyframe count.");
-
-					for (size_t i = 0u; i < sourceTrack.keyframes.size(); ++i)
-					{
-						if (std::abs(static_cast<double>(loadedTrack.keyframes[i].time - sourceTrack.keyframes[i].time)) > 1e-6)
-							return fail("Keyframe persistence smoke changed keyframe time at index " + std::to_string(i) + ".");
-						if (!comparePresetValues(sourceTrack.keyframes[i].preset, loadedTrack.keyframes[i].preset, 1e-6, 0.1, 1e-6))
-							return fail("Keyframe persistence smoke changed keyframe preset at index " + std::to_string(i) + ".");
-					}
+					if (!nbl::hlsl::compareKeyframeTrackContent(sourceTrack, loadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+						return fail("Keyframe persistence smoke changed stream track content.");
 
 					struct TempFileCleanup final
 					{
@@ -913,7 +893,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					for (size_t i = 0u; i < sourcePresets.size(); ++i)
 					{
-						if (!comparePresetValues(sourcePresets[i], fileLoadedPresets[i], 1e-6, 0.1, 1e-6))
+						if (!nbl::hlsl::comparePresets(sourcePresets[i], fileLoadedPresets[i], 1e-6, 0.1, 1e-6))
 							return fail("Preset persistence smoke changed preset file content at index " + std::to_string(i) + ".");
 					}
 
@@ -923,16 +903,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CCameraKeyframeTrack fileLoadedTrack;
 					if (!nbl::hlsl::loadKeyframeTrackFromFile(keyframeFile, fileLoadedTrack))
 						return fail("Keyframe persistence smoke failed to load track file.");
-					if (fileLoadedTrack.keyframes.size() != sourceTrack.keyframes.size())
-						return fail("Keyframe persistence smoke changed keyframe file count.");
-
-					for (size_t i = 0u; i < sourceTrack.keyframes.size(); ++i)
-					{
-						if (std::abs(static_cast<double>(fileLoadedTrack.keyframes[i].time - sourceTrack.keyframes[i].time)) > 1e-6)
-							return fail("Keyframe persistence smoke changed keyframe file time at index " + std::to_string(i) + ".");
-						if (!comparePresetValues(sourceTrack.keyframes[i].preset, fileLoadedTrack.keyframes[i].preset, 1e-6, 0.1, 1e-6))
-							return fail("Keyframe persistence smoke changed keyframe file preset at index " + std::to_string(i) + ".");
-					}
+					if (!nbl::hlsl::compareKeyframeTrackContent(sourceTrack, fileLoadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+						return fail("Keyframe persistence smoke changed file track content.");
 				}
 
 				if (hasOrbitPreset && hasDollyPreset)

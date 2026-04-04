@@ -38,6 +38,15 @@ inline CCameraGoal makeGoalFromPreset(const CCameraPreset& preset)
     return canonicalizeGoal(preset.goal);
 }
 
+//! Compare two named presets through their shared canonical goal state.
+inline bool comparePresets(const CCameraPreset& lhs, const CCameraPreset& rhs,
+    const double posEps, const double rotEpsDeg, const double scalarEps)
+{
+    return lhs.name == rhs.name &&
+        lhs.identifier == rhs.identifier &&
+        compareGoals(makeGoalFromPreset(lhs), makeGoalFromPreset(rhs), posEps, rotEpsDeg, scalarEps);
+}
+
 inline nlohmann::json serializeGoal(const CCameraGoal& goal)
 {
     nlohmann::json j;

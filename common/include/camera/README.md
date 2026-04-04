@@ -289,6 +289,7 @@ Provides:
 
 - `CCameraPreset`
 - `CCameraKeyframe`
+- preset comparison helpers
 - goal-to-preset conversion helpers
 - preset JSON serialization and deserialization
 
@@ -338,6 +339,7 @@ Reusable keyframe-track helpers on top of presets.
 Provides:
 
 - `CCameraKeyframeTrack`
+- keyframe and track comparison helpers with optional selection-state checks
 - preset-at-time evaluation
 - keyframe sorting
 - playback-time clamping
