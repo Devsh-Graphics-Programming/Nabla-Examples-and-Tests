@@ -60,7 +60,6 @@ using nbl::hlsl::CCameraGoalSolver;
 using nbl::hlsl::CGimbalInputBinder;
 using nbl::hlsl::IPlanarProjection;
 using nbl::hlsl::CPlanarProjection;
-using nbl::hlsl::IGimbalController;
 using nbl::hlsl::IGimbalManipulateEncoder;
 using nbl::hlsl::CVirtualGimbalEvent;
 using nbl::hlsl::float32_t;

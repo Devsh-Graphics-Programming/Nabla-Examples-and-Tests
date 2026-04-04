@@ -122,8 +122,8 @@ void App::TransformEditorContents()
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
 
 			float32_t3 matrixTranslation, matrixRotation, matrixScale;
-			IGimbalController::input_imguizmo_event_t decomposed, recomposed;
-			imguizmoModel.outDeltaTRS = IGimbalController::input_imguizmo_event_t(1);
+			CGimbalInputBinder::input_imguizmo_event_t decomposed, recomposed;
+			imguizmoModel.outDeltaTRS = CGimbalInputBinder::input_imguizmo_event_t(1);
 
 			ImGuizmo::DecomposeMatrixToComponents(m16TRSmatrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
 			decomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
@@ -191,7 +191,7 @@ void App::TransformEditorContents()
 							if (virtualEvents.size() < vCount)
 								virtualEvents.resize(vCount);
 
-							IGimbalController::SUpdateParameters params;
+							CGimbalInputBinder::SUpdateParameters params;
 							params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
 							boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
 						}
