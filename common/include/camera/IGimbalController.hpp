@@ -16,13 +16,13 @@ namespace ImGuizmo
 namespace nbl::hlsl 
 {
 
-class IGimbalController : public CGimbalBindingLayoutStorage
+class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:
     using CGimbalBindingLayoutStorage::CGimbalBindingLayoutStorage;
 
-    IGimbalController() {}
-    virtual ~IGimbalController() {}
+    IGimbalInputProcessor() {}
+    virtual ~IGimbalInputProcessor() {}
 
     //! input of keyboard gimbal controller process utility - Nabla UI event handler produces ui::SKeyboardEvent events
     using input_keyboard_event_t = ui::SKeyboardEvent;
@@ -361,6 +361,8 @@ private:
     double m_frameDeltaTime = {};
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
+
+using IGimbalController = IGimbalInputProcessor;
 
 } // nbl::hlsl namespace
 

@@ -35,7 +35,7 @@ void App::workLoopBody()
 			auto frame = m_tripleBuffers[resourceIx].get();
 			auto cmdbuf = m_cmdBufs[resourceIx].get();
 
-			// update CPU stuff - controllers, events, UI state
+			// update CPU stuff - input bindings, events, UI state
 			update();
 
 			bool willSubmit = true;

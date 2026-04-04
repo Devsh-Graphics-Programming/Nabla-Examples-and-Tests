@@ -8,10 +8,10 @@
 namespace nbl::hlsl
 {
 
-class CGimbalInputBinder final : public IGimbalController
+class CGimbalInputBinder final : public IGimbalInputProcessor
 {
 public:
-    using base_t = IGimbalController;
+    using base_t = IGimbalInputProcessor;
     using base_t::base_t;
 
     struct SCollectedVirtualEvents

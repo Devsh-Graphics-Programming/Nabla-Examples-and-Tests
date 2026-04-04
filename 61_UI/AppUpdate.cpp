@@ -353,7 +353,7 @@ void App::update()
 
 					applyVirtualEventScaling(virtualEvents, vCount);
 
-					const char* controllerLabel = "Keyboard/Mouse";
+					const char* bindingLabel = "Keyboard/Mouse";
 					auto applyEventsToCamera = [&](ICamera* target, uint32_t planarIx)
 					{
 						if (!target)
@@ -373,7 +373,7 @@ void App::update()
 						}
 
 						applyConstraintsToCamera(target);
-						appendVirtualEventLog("input", controllerLabel, planarIx, target, virtualEvents.data(), vCount);
+						appendVirtualEventLog("input", bindingLabel, planarIx, target, virtualEvents.data(), vCount);
 					};
 
 					if (m_cameraControls.mirrorInput)

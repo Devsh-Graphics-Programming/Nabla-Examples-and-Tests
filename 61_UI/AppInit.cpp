@@ -560,7 +560,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						}
 					}
 					if (!keyboardOk)
-						return fail("Keyboard controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+						return fail("Keyboard binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 					const auto mousePreset = camera->getMouseMappingPreset();
 					const bool hasMoveMapping =
@@ -596,7 +596,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
 						if (!manipulateAndMeasure(camera, mouseMoveEvents, mouseMovePosDelta, mouseMoveRotDelta))
-							return fail("Mouse move controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+							return fail("Mouse move binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					}
 
 					double mouseScrollPosDelta = 0.0;
@@ -616,7 +616,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
 						if (!manipulateAndMeasure(camera, mouseScrollEvents, mouseScrollPosDelta, mouseScrollRotDelta))
-							return fail("Mouse scroll controller smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+							return fail("Mouse scroll binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					}
 
 					std::cout << "[headless-camera-smoke][pass] " << camera->getIdentifier()
