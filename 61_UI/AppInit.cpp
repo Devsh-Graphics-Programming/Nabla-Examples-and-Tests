@@ -422,9 +422,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				};
 
 				CameraPreset initialOrbitPreset;
+				CameraPreset initialChasePreset;
+				CameraPreset initialDollyPreset;
 				CameraPreset initialPathPreset;
 				CameraPreset initialDollyZoomPreset;
 				bool hasOrbitPreset = false;
+				bool hasChasePreset = false;
+				bool hasDollyPreset = false;
 				bool hasPathPreset = false;
 				bool hasDollyZoomPreset = false;
 
@@ -449,6 +453,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						case ICamera::CameraKind::Orbit:
 							initialOrbitPreset = initialPreset;
 							hasOrbitPreset = true;
+							break;
+						case ICamera::CameraKind::Chase:
+							initialChasePreset = initialPreset;
+							hasChasePreset = true;
+							break;
+						case ICamera::CameraKind::Dolly:
+							initialDollyPreset = initialPreset;
+							hasDollyPreset = true;
 							break;
 						case ICamera::CameraKind::Path:
 							initialPathPreset = initialPreset;
@@ -706,7 +718,55 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
+				auto verifyExactCrossKindApply = [&](ICamera* targetCamera, const CameraPreset& sourcePreset, const char* label) -> bool
+				{
+					if (!targetCamera)
+						return true;
+
+					const auto compatibility = analyzePresetCompatibility(targetCamera, sourcePreset);
+					if (!compatibility.exact || compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+					{
+						return fail(std::string("Exact cross-kind preset compatibility smoke failed for ") + label +
+							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
+					}
+
+					const auto baselinePreset = capturePreset(targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = applyPresetToCameraDetailed(targetCamera, sourcePreset);
+					if (!applyResult.succeeded() || !applyResult.exact || !comparePresetToCamera(targetCamera, sourcePreset, 1e-6, 0.1, 1e-6))
+					{
+						return fail(std::string("Exact cross-kind preset smoke failed for ") + label + ". " +
+							describeApplyResult(applyResult) + " " + describePresetMismatch(targetCamera, sourcePreset));
+					}
+
+					const auto restoreResult = applyPresetToCameraDetailed(targetCamera, baselinePreset);
+					if (!restoreResult.succeeded() || !restoreResult.exact || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+					{
+						return fail(std::string("Exact cross-kind preset restore smoke failed for ") + label + ". " +
+							describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
+					}
+
+					return true;
+				};
+
 				ICamera* orbitCamera = findCameraByKind(ICamera::CameraKind::Orbit);
+				ICamera* chaseCamera = findCameraByKind(ICamera::CameraKind::Chase);
+				ICamera* dollyCamera = findCameraByKind(ICamera::CameraKind::Dolly);
+				if (hasOrbitPreset && hasChasePreset)
+				{
+					if (!verifyExactCrossKindApply(orbitCamera, initialChasePreset, "Chase->Orbit"))
+						return false;
+					if (!verifyExactCrossKindApply(chaseCamera, initialOrbitPreset, "Orbit->Chase"))
+						return false;
+				}
+
+				if (hasOrbitPreset && hasDollyPreset)
+				{
+					if (!verifyExactCrossKindApply(orbitCamera, initialDollyPreset, "Dolly->Orbit"))
+						return false;
+					if (!verifyExactCrossKindApply(dollyCamera, initialOrbitPreset, "Orbit->Dolly"))
+						return false;
+				}
+
 				if (hasOrbitPreset && hasPathPreset && orbitCamera)
 				{
 					if (!verifyApproximateCrossKindApply(
