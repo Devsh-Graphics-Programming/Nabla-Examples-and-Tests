@@ -27,11 +27,15 @@ public:
     using mouse_to_virtual_events_t = binding_layout_t::mouse_to_virtual_events_t;
     using imguizmo_to_virtual_events_t = binding_layout_t::imguizmo_to_virtual_events_t;
 
-    struct SRigConfig
+    struct SMotionConfig
     {
         double moveSpeedScale = 0.01;
         double rotationSpeedScale = 0.003;
-        CGimbalBindingLayoutStorage defaultInputBinding;
+    };
+
+    struct SInputBindingConfig
+    {
+        CGimbalBindingLayoutStorage defaultBindingLayout;
     };
 
     enum class CameraKind : uint8_t
@@ -123,8 +127,8 @@ public:
     virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
     virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
 
-    inline const IGimbalBindingLayout& getDefaultInputBindingLayout() const { return m_rigConfig.defaultInputBinding; }
-    inline IGimbalBindingLayout& getDefaultInputBindingLayout() { return m_rigConfig.defaultInputBinding; }
+    inline const IGimbalBindingLayout& getDefaultInputBindingLayout() const { return m_inputBindingConfig.defaultBindingLayout; }
+    inline IGimbalBindingLayout& getDefaultInputBindingLayout() { return m_inputBindingConfig.defaultBindingLayout; }
     inline void copyDefaultInputBindingPresetTo(IGimbalBindingLayout& layout) const
     {
         layout.updateKeyboardMapping([&](auto& map) { map = getKeyboardMappingPreset(); });
@@ -209,25 +213,27 @@ public:
     // (***)
     inline void setMoveSpeedScale(double scalar)
     {
-        m_rigConfig.moveSpeedScale = scalar;
+        m_motionConfig.moveSpeedScale = scalar;
     }
 
     // (***)
     inline void setRotationSpeedScale(double scalar)
     {
-        m_rigConfig.rotationSpeedScale = scalar;
+        m_motionConfig.rotationSpeedScale = scalar;
     }
 
-    inline double getMoveSpeedScale() const { return m_rigConfig.moveSpeedScale; }
-    inline double getRotationSpeedScale() const { return m_rigConfig.rotationSpeedScale; }
-    inline const SRigConfig& getRigConfig() const { return m_rigConfig; }
+    inline double getMoveSpeedScale() const { return m_motionConfig.moveSpeedScale; }
+    inline double getRotationSpeedScale() const { return m_motionConfig.rotationSpeedScale; }
+    inline const SMotionConfig& getMotionConfig() const { return m_motionConfig; }
+    inline const SInputBindingConfig& getInputBindingConfig() const { return m_inputBindingConfig; }
     inline void resetDefaultInputBindingToPreset()
     {
-        copyDefaultInputBindingPresetTo(m_rigConfig.defaultInputBinding);
+        copyDefaultInputBindingPresetTo(m_inputBindingConfig.defaultBindingLayout);
     }
 
 protected:
-    SRigConfig m_rigConfig;
+    SMotionConfig m_motionConfig;
+    SInputBindingConfig m_inputBindingConfig;
 };
 
 }
