@@ -484,19 +484,7 @@ class App final : public examples::SimpleWindowedApplication
 		{
 			std::string name;
 			std::string identifier;
-			float64_t3 position = float64_t3(0.0);
-			glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-			float64_t3 targetPosition = float64_t3(0.0);
-			bool hasTargetPosition = false;
-			float distance = 0.f;
-			bool hasDistance = false;
-			double orbitU = 0.0;
-			double orbitV = 0.0;
-			float orbitDistance = 0.f;
-			bool hasOrbitState = false;
-			float dynamicBaseFov = 0.f;
-			float dynamicReferenceDistance = 0.f;
-			bool hasDynamicPerspectiveState = false;
+			CCameraGoal goal = {};
 		};
 
 		struct CameraKeyframe
@@ -1044,40 +1032,76 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void assignGoalToPreset(CameraPreset& preset, const CCameraGoal& goal) const
 		{
-			preset.position = goal.position;
-			preset.orientation = goal.orientation;
-			preset.targetPosition = goal.targetPosition;
-			preset.hasTargetPosition = goal.hasTargetPosition;
-			preset.distance = goal.distance;
-			preset.hasDistance = goal.hasDistance;
-			preset.orbitU = goal.orbitU;
-			preset.orbitV = goal.orbitV;
-			preset.orbitDistance = goal.orbitDistance;
-			preset.hasOrbitState = goal.hasOrbitState;
-			preset.dynamicBaseFov = goal.dynamicPerspectiveState.baseFov;
-			preset.dynamicReferenceDistance = goal.dynamicPerspectiveState.referenceDistance;
-			preset.hasDynamicPerspectiveState = goal.hasDynamicPerspectiveState;
+			preset.goal = canonicalizeGoal(goal);
 		}
 
 		inline CCameraGoal makeGoalFromPreset(const CameraPreset& preset) const
 		{
-			CCameraGoal target;
-			target.position = preset.position;
-			target.orientation = preset.orientation;
-			target.hasTargetPosition = preset.hasTargetPosition;
-			target.targetPosition = preset.targetPosition;
-			target.hasDistance = preset.hasDistance;
-			target.distance = preset.distance;
-			target.hasOrbitState = preset.hasOrbitState;
-			target.orbitU = preset.orbitU;
-			target.orbitV = preset.orbitV;
-			target.orbitDistance = preset.orbitDistance;
-			target.hasDynamicPerspectiveState = preset.hasDynamicPerspectiveState;
-			target.dynamicPerspectiveState = {
-				.baseFov = preset.dynamicBaseFov,
-				.referenceDistance = preset.dynamicReferenceDistance
-			};
-			return target;
+			return canonicalizeGoal(preset.goal);
+		}
+
+		inline double wrapAngleRad(double angle) const
+		{
+			while (angle > 3.14159265358979323846)
+				angle -= 6.28318530717958647692;
+			while (angle < -3.14159265358979323846)
+				angle += 6.28318530717958647692;
+			return angle;
+		}
+
+		inline double lerpWrappedAngleRad(double a, double b, double alpha) const
+		{
+			return a + wrapAngleRad(b - a) * alpha;
+		}
+
+		inline bool applyCanonicalPathGoal(CCameraGoal& goal) const
+		{
+			if (!(goal.hasPathState && goal.hasTargetPosition))
+				return false;
+			if (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height))
+				return false;
+
+			const float64_t3 offset(
+				std::cos(goal.pathState.angle) * goal.pathState.radius,
+				goal.pathState.height,
+				std::sin(goal.pathState.angle) * goal.pathState.radius);
+			const double distance = length(offset);
+			if (!std::isfinite(distance) || distance <= 1e-9)
+				return false;
+
+			const float appliedDistance = std::clamp(
+				static_cast<float>(distance),
+				CSphericalTargetCamera::MinDistance,
+				CSphericalTargetCamera::MaxDistance);
+			const auto local = offset / static_cast<double>(appliedDistance);
+			goal.orbitU = std::atan2(local.y, local.x);
+			goal.orbitV = std::asin(std::clamp(local.z, -1.0, 1.0));
+
+			const float64_t3 spherePosition(
+				std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
+				std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
+				std::sin(goal.orbitV) * static_cast<double>(appliedDistance));
+
+			goal.position = goal.targetPosition + spherePosition;
+			goal.hasDistance = true;
+			goal.distance = appliedDistance;
+			goal.hasOrbitState = true;
+			goal.orbitDistance = appliedDistance;
+
+			const auto forward = normalize(-spherePosition);
+			const float64_t3 up = normalize(float64_t3(
+				-std::sin(goal.orbitV) * std::cos(goal.orbitU),
+				-std::sin(goal.orbitV) * std::sin(goal.orbitU),
+				std::cos(goal.orbitV)));
+			const float64_t3 right = normalize(cross(up, forward));
+			goal.orientation = glm::quat_cast(glm::dmat3{ right, up, forward });
+			return true;
+		}
+
+		inline CCameraGoal canonicalizeGoal(CCameraGoal goal) const
+		{
+			applyCanonicalPathGoal(goal);
+			return goal;
 		}
 
 		inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double alpha) const
@@ -1085,6 +1109,8 @@ class App final : public examples::SimpleWindowedApplication
 			CCameraGoal blended;
 			blended.position = a.position + (b.position - a.position) * alpha;
 			blended.orientation = glm::slerp(a.orientation, b.orientation, static_cast<float>(alpha));
+			blended.sourceKind = (a.sourceKind == b.sourceKind) ? a.sourceKind : ICamera::CameraKind::Unknown;
+			blended.sourceCapabilities = a.sourceCapabilities & b.sourceCapabilities;
 			blended.hasTargetPosition = a.hasTargetPosition || b.hasTargetPosition;
 			if (blended.hasTargetPosition)
 			{
@@ -1122,7 +1148,327 @@ class App final : public examples::SimpleWindowedApplication
 				blended.dynamicPerspectiveState.referenceDistance =
 					dynamicA.referenceDistance + (dynamicB.referenceDistance - dynamicA.referenceDistance) * static_cast<float>(alpha);
 			}
-			return blended;
+			blended.hasPathState = a.hasPathState || b.hasPathState;
+			if (blended.hasPathState)
+			{
+				const auto pathA = a.hasPathState ? a.pathState : b.pathState;
+				const auto pathB = b.hasPathState ? b.pathState : a.pathState;
+				blended.pathState.angle = lerpWrappedAngleRad(pathA.angle, pathB.angle, alpha);
+				blended.pathState.radius = pathA.radius + (pathB.radius - pathA.radius) * alpha;
+				blended.pathState.height = pathA.height + (pathB.height - pathA.height) * alpha;
+			}
+			return canonicalizeGoal(blended);
+		}
+
+		inline bool tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
+		{
+			return m_cameraGoalSolver.capture(camera, out);
+		}
+
+		template<typename Vec>
+		inline bool isFiniteVec3(const Vec& v) const
+		{
+			return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+		}
+
+		template<typename VecA, typename VecB>
+		inline bool nearlyEqualVec3(const VecA& a, const VecB& b, const double epsilon) const
+		{
+			return std::abs(static_cast<double>(a.x - b.x)) <= epsilon &&
+				std::abs(static_cast<double>(a.y - b.y)) <= epsilon &&
+				std::abs(static_cast<double>(a.z - b.z)) <= epsilon;
+		}
+
+		inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
+			const double posEps, const double rotEpsDeg, const double scalarEps) const
+		{
+			auto isFiniteQuat = [](const glm::quat& q) -> bool
+			{
+				return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
+			};
+
+			auto angleDiffRad = [](double a, double b) -> double
+			{
+				double d = std::fmod(a - b + 3.14159265358979323846, 6.28318530717958647692);
+				if (d < 0.0)
+					d += 6.28318530717958647692;
+				return std::abs(d - 3.14159265358979323846);
+			};
+
+			const auto currentOrientation = glm::normalize(actual.orientation);
+			const auto expectedOrientation = glm::normalize(expected.orientation);
+			if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !isFiniteQuat(currentOrientation) || !isFiniteQuat(expectedOrientation))
+				return false;
+
+			const double dx = static_cast<double>(actual.position.x - expected.position.x);
+			const double dy = static_cast<double>(actual.position.y - expected.position.y);
+			const double dz = static_cast<double>(actual.position.z - expected.position.z);
+			const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+			const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
+			const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+			if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
+				return false;
+
+			if (expected.hasTargetPosition)
+			{
+				if (!actual.hasTargetPosition || !nearlyEqualVec3(actual.targetPosition, expected.targetPosition, scalarEps))
+					return false;
+			}
+			if (expected.hasDistance)
+			{
+				if (!actual.hasDistance || std::abs(static_cast<double>(actual.distance - expected.distance)) > scalarEps)
+					return false;
+			}
+			if (expected.hasOrbitState)
+			{
+				if (!actual.hasOrbitState)
+					return false;
+				if (angleDiffRad(expected.orbitU, actual.orbitU) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+					return false;
+				if (angleDiffRad(expected.orbitV, actual.orbitV) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+					return false;
+				if (std::abs(static_cast<double>(actual.orbitDistance - expected.orbitDistance)) > scalarEps)
+					return false;
+			}
+			if (expected.hasPathState)
+			{
+				if (!actual.hasPathState)
+					return false;
+				if (std::abs(wrapAngleRad(expected.pathState.angle - actual.pathState.angle)) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+					return false;
+				if (std::abs(actual.pathState.radius - expected.pathState.radius) > scalarEps)
+					return false;
+				if (std::abs(actual.pathState.height - expected.pathState.height) > scalarEps)
+					return false;
+			}
+			if (expected.hasDynamicPerspectiveState)
+			{
+				if (!actual.hasDynamicPerspectiveState)
+					return false;
+				if (std::abs(static_cast<double>(actual.dynamicPerspectiveState.baseFov - expected.dynamicPerspectiveState.baseFov)) > scalarEps)
+					return false;
+				if (std::abs(static_cast<double>(actual.dynamicPerspectiveState.referenceDistance - expected.dynamicPerspectiveState.referenceDistance)) > scalarEps)
+					return false;
+			}
+
+			return true;
+		}
+
+		inline std::string describeGoalMismatch(const CCameraGoal& actual, const CCameraGoal& expected) const
+		{
+			std::ostringstream oss;
+			const auto currentOrientation = glm::normalize(actual.orientation);
+			const auto expectedOrientation = glm::normalize(expected.orientation);
+			const double dx = static_cast<double>(actual.position.x - expected.position.x);
+			const double dy = static_cast<double>(actual.position.y - expected.position.y);
+			const double dz = static_cast<double>(actual.position.z - expected.position.z);
+			const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+			const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
+			const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+			oss << "pos_delta=" << posDelta
+				<< " rot_delta_deg=" << rotDeltaDeg
+				<< " current_pos=(" << actual.position.x << "," << actual.position.y << "," << actual.position.z << ")"
+				<< " expected_pos=(" << expected.position.x << "," << expected.position.y << "," << expected.position.z << ")"
+				<< " current_quat=(" << currentOrientation.x << "," << currentOrientation.y << "," << currentOrientation.z << "," << currentOrientation.w << ")"
+				<< " expected_quat=(" << expectedOrientation.x << "," << expectedOrientation.y << "," << expectedOrientation.z << "," << expectedOrientation.w << ")";
+
+			if (actual.hasTargetPosition)
+			{
+				oss << " target=(" << actual.targetPosition.x << "," << actual.targetPosition.y << "," << actual.targetPosition.z << ")";
+				if (actual.hasDistance)
+					oss << " distance=" << actual.distance;
+				if (actual.hasOrbitState)
+					oss << " orbit_u=" << actual.orbitU << " orbit_v=" << actual.orbitV;
+			}
+			else if (expected.hasTargetPosition || expected.hasDistance || expected.hasOrbitState)
+			{
+				oss << " spherical_state=unavailable";
+			}
+			if (actual.hasPathState)
+			{
+				oss << " path_angle=" << actual.pathState.angle
+					<< " path_radius=" << actual.pathState.radius
+					<< " path_height=" << actual.pathState.height;
+			}
+			else if (expected.hasPathState)
+			{
+				oss << " path_state=unavailable";
+			}
+
+			if (actual.hasDynamicPerspectiveState)
+			{
+				oss << " dynamic_base_fov=" << actual.dynamicPerspectiveState.baseFov
+					<< " dynamic_reference_distance=" << actual.dynamicPerspectiveState.referenceDistance;
+			}
+			else if (expected.hasDynamicPerspectiveState)
+			{
+				oss << " dynamic_perspective_state=unavailable";
+			}
+
+			return oss.str();
+		}
+
+		inline std::string describeApplyResult(const CCameraGoalSolver::SApplyResult& result) const
+		{
+			std::ostringstream oss;
+			oss << "status=";
+			switch (result.status)
+			{
+				case CCameraGoalSolver::SApplyResult::EStatus::Unsupported: oss << "Unsupported"; break;
+				case CCameraGoalSolver::SApplyResult::EStatus::Failed: oss << "Failed"; break;
+				case CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied: oss << "AlreadySatisfied"; break;
+				case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly: oss << "AppliedAbsoluteOnly"; break;
+				case CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents: oss << "AppliedVirtualEvents"; break;
+				case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents: oss << "AppliedAbsoluteAndVirtualEvents"; break;
+			}
+			oss << " exact=" << (result.exact ? "true" : "false")
+				<< " events=" << result.eventCount;
+
+			if (result.issues != CCameraGoalSolver::SApplyResult::NoIssue)
+			{
+				oss << " issues=";
+				bool first = true;
+				auto appendIssue = [&](const char* label, const CCameraGoalSolver::SApplyResult::EIssue issue) -> void
+				{
+					if (!result.hasIssue(issue))
+						return;
+					if (!first)
+						oss << ",";
+					oss << label;
+					first = false;
+				};
+
+				appendIssue("absolute_pose_fallback", CCameraGoalSolver::SApplyResult::UsedAbsolutePoseFallback);
+				appendIssue("missing_spherical_state", CCameraGoalSolver::SApplyResult::MissingSphericalTargetState);
+				appendIssue("missing_path_state", CCameraGoalSolver::SApplyResult::MissingPathState);
+				appendIssue("missing_dynamic_perspective_state", CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState);
+				appendIssue("virtual_event_replay_failed", CCameraGoalSolver::SApplyResult::VirtualEventReplayFailed);
+			}
+
+			return oss.str();
+		}
+
+		inline bool comparePresetToCameraState(ICamera* camera, const CameraPreset& preset,
+			const double posEps, const double rotEpsDeg, const double scalarEps) const
+		{
+			if (!camera)
+				return false;
+
+			CCameraGoal actual;
+			if (!tryCaptureGoal(camera, actual))
+				return false;
+
+			return compareGoals(actual, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
+		}
+
+		inline std::string describePresetCameraMismatch(ICamera* camera, const CameraPreset& preset) const
+		{
+			if (!camera)
+				return "camera=null";
+
+			CCameraGoal actual;
+			if (!tryCaptureGoal(camera, actual))
+				return "goal_state=unavailable";
+
+			return describeGoalMismatch(actual, makeGoalFromPreset(preset));
+		}
+
+		inline nbl_json serializeGoal(const CCameraGoal& goal) const
+		{
+			nbl_json j;
+			j["position"] = { goal.position.x, goal.position.y, goal.position.z };
+			j["orientation"] = { goal.orientation.x, goal.orientation.y, goal.orientation.z, goal.orientation.w };
+			j["camera_kind"] = static_cast<uint32_t>(goal.sourceKind);
+			j["camera_capabilities"] = goal.sourceCapabilities;
+			if (goal.hasTargetPosition)
+				j["target_position"] = { goal.targetPosition.x, goal.targetPosition.y, goal.targetPosition.z };
+			if (goal.hasDistance)
+				j["distance"] = goal.distance;
+			if (goal.hasOrbitState)
+			{
+				j["orbit_u"] = goal.orbitU;
+				j["orbit_v"] = goal.orbitV;
+				j["orbit_distance"] = goal.orbitDistance;
+			}
+			if (goal.hasPathState)
+			{
+				j["path_angle"] = goal.pathState.angle;
+				j["path_radius"] = goal.pathState.radius;
+				j["path_height"] = goal.pathState.height;
+			}
+			if (goal.hasDynamicPerspectiveState)
+			{
+				j["dynamic_base_fov"] = goal.dynamicPerspectiveState.baseFov;
+				j["dynamic_reference_distance"] = goal.dynamicPerspectiveState.referenceDistance;
+			}
+			return j;
+		}
+
+		inline void deserializeGoal(const nbl_json& entry, CCameraGoal& goal) const
+		{
+			goal = {};
+			if (entry.contains("camera_kind"))
+				goal.sourceKind = static_cast<ICamera::CameraKind>(entry["camera_kind"].get<uint32_t>());
+			if (entry.contains("camera_capabilities"))
+				goal.sourceCapabilities = entry["camera_capabilities"].get<uint32_t>();
+			if (entry.contains("position") && entry["position"].is_array())
+			{
+				auto arr = entry["position"];
+				goal.position = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+			}
+			if (entry.contains("orientation") && entry["orientation"].is_array())
+			{
+				auto arr = entry["orientation"];
+				goal.orientation = glm::quat(
+					arr[3].get<float>(),
+					arr[0].get<float>(),
+					arr[1].get<float>(),
+					arr[2].get<float>()
+				);
+			}
+			if (entry.contains("target_position") && entry["target_position"].is_array())
+			{
+				auto arr = entry["target_position"];
+				goal.targetPosition = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+				goal.hasTargetPosition = true;
+			}
+			if (entry.contains("distance"))
+			{
+				goal.distance = entry["distance"].get<float>();
+				goal.hasDistance = true;
+			}
+			if (entry.contains("orbit_u"))
+			{
+				goal.orbitU = entry["orbit_u"].get<double>();
+				goal.hasOrbitState = true;
+			}
+			if (entry.contains("orbit_v"))
+			{
+				goal.orbitV = entry["orbit_v"].get<double>();
+				goal.hasOrbitState = true;
+			}
+			if (entry.contains("orbit_distance"))
+			{
+				goal.orbitDistance = entry["orbit_distance"].get<float>();
+				goal.hasOrbitState = true;
+			}
+			if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
+			{
+				goal.pathState.angle = entry["path_angle"].get<double>();
+				goal.pathState.radius = entry["path_radius"].get<double>();
+				goal.pathState.height = entry["path_height"].get<double>();
+				goal.hasPathState = true;
+			}
+			if (entry.contains("dynamic_base_fov"))
+			{
+				goal.dynamicPerspectiveState.baseFov = entry["dynamic_base_fov"].get<float>();
+				goal.hasDynamicPerspectiveState = true;
+			}
+			if (entry.contains("dynamic_reference_distance"))
+			{
+				goal.dynamicPerspectiveState.referenceDistance = entry["dynamic_reference_distance"].get<float>();
+				goal.hasDynamicPerspectiveState = true;
+			}
 		}
 
 		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
@@ -1225,8 +1571,8 @@ class App final : public examples::SimpleWindowedApplication
 				return;
 
 			CameraPreset preset;
-			preset.position = pos;
-			preset.orientation = glm::quat(hlsl::radians(clamped));
+			preset.goal.position = pos;
+			preset.goal.orientation = glm::quat(hlsl::radians(clamped));
 			applyPresetToCamera(camera, preset);
 		}
 
@@ -1396,26 +1742,9 @@ class App final : public examples::SimpleWindowedApplication
 
 			for (const auto& preset : m_presets)
 			{
-				nbl_json j;
+				nbl_json j = serializeGoal(makeGoalFromPreset(preset));
 				j["name"] = preset.name;
 				j["identifier"] = preset.identifier;
-				j["position"] = { preset.position.x, preset.position.y, preset.position.z };
-				j["orientation"] = { preset.orientation.x, preset.orientation.y, preset.orientation.z, preset.orientation.w };
-				if (preset.hasTargetPosition)
-					j["target_position"] = { preset.targetPosition.x, preset.targetPosition.y, preset.targetPosition.z };
-				if (preset.hasDistance)
-					j["distance"] = preset.distance;
-				if (preset.hasOrbitState)
-				{
-					j["orbit_u"] = preset.orbitU;
-					j["orbit_v"] = preset.orbitV;
-					j["orbit_distance"] = preset.orbitDistance;
-				}
-				if (preset.hasDynamicPerspectiveState)
-				{
-					j["dynamic_base_fov"] = preset.dynamicBaseFov;
-					j["dynamic_reference_distance"] = preset.dynamicReferenceDistance;
-				}
 				root["presets"].push_back(std::move(j));
 			}
 
@@ -1445,57 +1774,9 @@ class App final : public examples::SimpleWindowedApplication
 					preset.name = entry["name"].get<std::string>();
 				if (entry.contains("identifier"))
 					preset.identifier = entry["identifier"].get<std::string>();
-				if (entry.contains("position") && entry["position"].is_array())
-				{
-					auto arr = entry["position"];
-					preset.position = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
-				}
-				if (entry.contains("orientation") && entry["orientation"].is_array())
-				{
-					auto arr = entry["orientation"];
-					preset.orientation = glm::quat(
-						arr[3].get<float>(),
-						arr[0].get<float>(),
-						arr[1].get<float>(),
-						arr[2].get<float>()
-					);
-				}
-				if (entry.contains("target_position") && entry["target_position"].is_array())
-				{
-					auto arr = entry["target_position"];
-					preset.targetPosition = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
-					preset.hasTargetPosition = true;
-				}
-				if (entry.contains("distance"))
-				{
-					preset.distance = entry["distance"].get<float>();
-					preset.hasDistance = true;
-				}
-				if (entry.contains("orbit_u"))
-				{
-					preset.orbitU = entry["orbit_u"].get<double>();
-					preset.hasOrbitState = true;
-				}
-				if (entry.contains("orbit_v"))
-				{
-					preset.orbitV = entry["orbit_v"].get<double>();
-					preset.hasOrbitState = true;
-				}
-				if (entry.contains("orbit_distance"))
-				{
-					preset.orbitDistance = entry["orbit_distance"].get<float>();
-					preset.hasOrbitState = true;
-				}
-				if (entry.contains("dynamic_base_fov"))
-				{
-					preset.dynamicBaseFov = entry["dynamic_base_fov"].get<float>();
-					preset.hasDynamicPerspectiveState = true;
-				}
-				if (entry.contains("dynamic_reference_distance"))
-				{
-					preset.dynamicReferenceDistance = entry["dynamic_reference_distance"].get<float>();
-					preset.hasDynamicPerspectiveState = true;
-				}
+				CCameraGoal goal;
+				deserializeGoal(entry, goal);
+				assignGoalToPreset(preset, goal);
 				m_presets.emplace_back(std::move(preset));
 			}
 

@@ -56,6 +56,13 @@ public:
         float referenceDistance = 0.f;
     };
 
+    struct PathState
+    {
+        double angle = 0.0;
+        double radius = 0.0;
+        double height = 0.0;
+    };
+
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<float64_t>
     {
@@ -134,6 +141,16 @@ public:
     }
 
     virtual bool trySetDynamicPerspectiveState(const DynamicPerspectiveState& state)
+    {
+        return false;
+    }
+
+    virtual bool tryGetPathState(PathState& out) const
+    {
+        return false;
+    }
+
+    virtual bool trySetPathState(const PathState& state)
     {
         return false;
     }

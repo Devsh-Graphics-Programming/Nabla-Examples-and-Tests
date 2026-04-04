@@ -19,6 +19,8 @@ struct CCameraGoal
 {
     float64_t3 position = float64_t3(0.0);
     glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
+    uint32_t sourceCapabilities = ICamera::None;
     bool hasTargetPosition = false;
     float64_t3 targetPosition = float64_t3(0.0);
     bool hasDistance = false;
@@ -27,6 +29,8 @@ struct CCameraGoal
     double orbitU = 0.0;
     double orbitV = 0.0;
     float orbitDistance = 0.f;
+    bool hasPathState = false;
+    ICamera::PathState pathState = {};
     bool hasDynamicPerspectiveState = false;
     ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
 };
@@ -46,9 +50,20 @@ public:
             AppliedAbsoluteAndVirtualEvents
         };
 
+        enum EIssue : uint32_t
+        {
+            NoIssue = 0u,
+            UsedAbsolutePoseFallback = 1u << 0,
+            MissingSphericalTargetState = 1u << 1,
+            MissingPathState = 1u << 2,
+            MissingDynamicPerspectiveState = 1u << 3,
+            VirtualEventReplayFailed = 1u << 4
+        };
+
         EStatus status = EStatus::Unsupported;
         bool exact = false;
         uint32_t eventCount = 0u;
+        uint32_t issues = NoIssue;
 
         inline bool succeeded() const
         {
@@ -60,6 +75,16 @@ public:
             return status == EStatus::AppliedAbsoluteOnly ||
                 status == EStatus::AppliedVirtualEvents ||
                 status == EStatus::AppliedAbsoluteAndVirtualEvents;
+        }
+
+        inline bool approximate() const
+        {
+            return succeeded() && !exact;
+        }
+
+        inline bool hasIssue(EIssue issue) const
+        {
+            return (issues & issue) == issue;
         }
     };
 
@@ -84,6 +109,8 @@ public:
         const auto& gimbal = camera->getGimbal();
         out.position = gimbal.getPosition();
         out.orientation = gimbal.getOrientation();
+        out.sourceKind = camera->getKind();
+        out.sourceCapabilities = camera->getCapabilities();
 
         ICamera::SphericalTargetState sphericalState;
         if (camera->tryGetSphericalTargetState(sphericalState))
@@ -105,6 +132,13 @@ public:
             out.dynamicPerspectiveState = dynamicState;
         }
 
+        ICamera::PathState pathState;
+        if (camera->tryGetPathState(pathState))
+        {
+            out.hasPathState = true;
+            out.pathState = pathState;
+        }
+
         return true;
     }
 
@@ -123,6 +157,7 @@ public:
             bool poseExact = false;
             if (tryApplyAbsoluteReferencePose(camera, target, poseChanged, poseExact))
             {
+                result.issues |= SApplyResult::UsedAbsolutePoseFallback;
                 absoluteChanged = absoluteChanged || poseChanged;
                 if (poseExact && !target.hasDynamicPerspectiveState)
                 {
@@ -140,6 +175,7 @@ public:
             ICamera::SphericalTargetState beforeState;
             if (!camera->tryGetSphericalTargetState(beforeState))
             {
+                result.issues |= SApplyResult::MissingSphericalTargetState;
                 exact = false;
             }
             else
@@ -147,6 +183,7 @@ public:
                 const auto beforeTarget = beforeState.target;
                 if (!camera->trySetSphericalTarget(target.targetPosition))
                 {
+                    result.issues |= SApplyResult::MissingSphericalTargetState;
                     exact = false;
                 }
                 else
@@ -154,6 +191,7 @@ public:
                     ICamera::SphericalTargetState afterState;
                     if (!camera->tryGetSphericalTargetState(afterState))
                     {
+                        result.issues |= SApplyResult::MissingSphericalTargetState;
                         exact = false;
                     }
                     else
@@ -170,6 +208,7 @@ public:
             ICamera::SphericalTargetState beforeState;
             if (!camera->tryGetSphericalTargetState(beforeState))
             {
+                result.issues |= SApplyResult::MissingSphericalTargetState;
                 exact = false;
             }
             else
@@ -178,6 +217,7 @@ public:
                 const float beforeDistance = beforeState.distance;
                 if (!camera->trySetSphericalDistance(desiredDistance))
                 {
+                    result.issues |= SApplyResult::MissingSphericalTargetState;
                     exact = false;
                 }
                 else
@@ -185,6 +225,7 @@ public:
                     ICamera::SphericalTargetState afterState;
                     if (!camera->tryGetSphericalTargetState(afterState))
                     {
+                        result.issues |= SApplyResult::MissingSphericalTargetState;
                         exact = false;
                     }
                     else
@@ -196,15 +237,53 @@ public:
             }
         }
 
+        if (target.hasPathState)
+        {
+            ICamera::PathState beforeState;
+            if (!camera->tryGetPathState(beforeState))
+            {
+                result.issues |= SApplyResult::MissingPathState;
+                exact = false;
+            }
+            else if (!camera->trySetPathState(target.pathState))
+            {
+                result.issues |= SApplyResult::MissingPathState;
+                exact = false;
+            }
+            else
+            {
+                ICamera::PathState afterState;
+                if (!camera->tryGetPathState(afterState))
+                {
+                    result.issues |= SApplyResult::MissingPathState;
+                    exact = false;
+                }
+                else
+                {
+                    const bool pathChanged = !nearlyEqual(beforeState.angle, afterState.angle) ||
+                        !nearlyEqual(beforeState.radius, afterState.radius) ||
+                        !nearlyEqual(beforeState.height, afterState.height);
+                    const bool pathExact = nearlyEqual(afterState.angle, target.pathState.angle) &&
+                        nearlyEqual(afterState.radius, target.pathState.radius) &&
+                        nearlyEqual(afterState.height, target.pathState.height);
+
+                    absoluteChanged = absoluteChanged || pathChanged;
+                    exact = exact && pathExact;
+                }
+            }
+        }
+
         if (target.hasDynamicPerspectiveState)
         {
             ICamera::DynamicPerspectiveState beforeState;
             if (!camera->tryGetDynamicPerspectiveState(beforeState))
             {
+                result.issues |= SApplyResult::MissingDynamicPerspectiveState;
                 exact = false;
             }
             else if (!camera->trySetDynamicPerspectiveState(target.dynamicPerspectiveState))
             {
+                result.issues |= SApplyResult::MissingDynamicPerspectiveState;
                 exact = false;
             }
             else
@@ -212,6 +291,7 @@ public:
                 ICamera::DynamicPerspectiveState afterState;
                 if (!camera->tryGetDynamicPerspectiveState(afterState))
                 {
+                    result.issues |= SApplyResult::MissingDynamicPerspectiveState;
                     exact = false;
                 }
                 else
@@ -256,6 +336,7 @@ public:
             return result;
         }
 
+        result.issues |= SApplyResult::VirtualEventReplayFailed;
         result.status = SApplyResult::EStatus::Failed;
         result.exact = false;
         return result;

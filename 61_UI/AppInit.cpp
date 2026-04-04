@@ -321,126 +321,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto comparePresetToCamera = [&](ICamera* camera, const CameraPreset& preset, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
 				{
-					if (!camera)
-						return false;
-
-					auto isFiniteQuat = [](const glm::quat& q) -> bool
-					{
-						return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
-					};
-
-					auto angleDiffRad = [](double a, double b) -> double
-					{
-						double d = std::fmod(a - b + 3.14159265358979323846, 6.28318530717958647692);
-						if (d < 0.0)
-							d += 6.28318530717958647692;
-						return std::abs(d - 3.14159265358979323846);
-					};
-
-					const auto& gimbal = camera->getGimbal();
-					const auto currentPos = gimbal.getPosition();
-					const auto currentOrientation = glm::normalize(gimbal.getOrientation());
-					const auto expectedOrientation = glm::normalize(preset.orientation);
-					if (!isFinite3(currentPos) || !isFiniteQuat(currentOrientation) || !isFiniteQuat(expectedOrientation))
-						return false;
-
-					const double dx = static_cast<double>(currentPos.x - preset.position.x);
-					const double dy = static_cast<double>(currentPos.y - preset.position.y);
-					const double dz = static_cast<double>(currentPos.z - preset.position.z);
-					const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-					const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
-					const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
-					if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
-						return false;
-
-					if (preset.hasTargetPosition || preset.hasDistance || preset.hasOrbitState)
-					{
-						ICamera::SphericalTargetState sphericalState;
-						if (!camera->tryGetSphericalTargetState(sphericalState))
-							return false;
-						if (preset.hasTargetPosition && !nearlyEqual3(sphericalState.target, preset.targetPosition, scalarEps))
-							return false;
-						if (preset.hasDistance && std::abs(static_cast<double>(sphericalState.distance - preset.distance)) > scalarEps)
-							return false;
-						if (preset.hasOrbitState)
-						{
-							if (angleDiffRad(preset.orbitU, sphericalState.u) > rotEpsDeg * (3.14159265358979323846 / 180.0))
-								return false;
-							if (angleDiffRad(preset.orbitV, sphericalState.v) > rotEpsDeg * (3.14159265358979323846 / 180.0))
-								return false;
-							if (std::abs(static_cast<double>(sphericalState.distance - preset.orbitDistance)) > scalarEps)
-								return false;
-						}
-					}
-
-					if (preset.hasDynamicPerspectiveState)
-					{
-						ICamera::DynamicPerspectiveState dynamicState;
-						if (!camera->tryGetDynamicPerspectiveState(dynamicState))
-							return false;
-						if (std::abs(static_cast<double>(dynamicState.baseFov - preset.dynamicBaseFov)) > scalarEps)
-							return false;
-						if (std::abs(static_cast<double>(dynamicState.referenceDistance - preset.dynamicReferenceDistance)) > scalarEps)
-							return false;
-					}
-
-					return true;
+					return comparePresetToCameraState(camera, preset, posEps, rotEpsDeg, scalarEps);
 				};
 
 				auto describePresetMismatch = [&](ICamera* camera, const CameraPreset& preset) -> std::string
 				{
-					if (!camera)
-						return "camera=null";
-
-					std::ostringstream oss;
-					const auto& gimbal = camera->getGimbal();
-					const auto currentPos = gimbal.getPosition();
-					const auto currentOrientation = glm::normalize(gimbal.getOrientation());
-					const auto expectedOrientation = glm::normalize(preset.orientation);
-					const double dx = static_cast<double>(currentPos.x - preset.position.x);
-					const double dy = static_cast<double>(currentPos.y - preset.position.y);
-					const double dz = static_cast<double>(currentPos.z - preset.position.z);
-					const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-					const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
-					const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
-					oss << "pos_delta=" << posDelta
-						<< " rot_delta_deg=" << rotDeltaDeg
-						<< " current_pos=(" << currentPos.x << "," << currentPos.y << "," << currentPos.z << ")"
-						<< " expected_pos=(" << preset.position.x << "," << preset.position.y << "," << preset.position.z << ")"
-						<< " current_quat=(" << currentOrientation.x << "," << currentOrientation.y << "," << currentOrientation.z << "," << currentOrientation.w << ")"
-						<< " expected_quat=(" << expectedOrientation.x << "," << expectedOrientation.y << "," << expectedOrientation.z << "," << expectedOrientation.w << ")";
-
-					if (preset.hasTargetPosition || preset.hasDistance || preset.hasOrbitState)
-					{
-						ICamera::SphericalTargetState sphericalState;
-						if (camera->tryGetSphericalTargetState(sphericalState))
-						{
-							oss << " target=(" << sphericalState.target.x << "," << sphericalState.target.y << "," << sphericalState.target.z << ")"
-								<< " distance=" << sphericalState.distance
-								<< " orbit_u=" << sphericalState.u
-								<< " orbit_v=" << sphericalState.v;
-						}
-						else
-						{
-							oss << " spherical_state=unavailable";
-						}
-					}
-
-					if (preset.hasDynamicPerspectiveState)
-					{
-						ICamera::DynamicPerspectiveState dynamicState;
-						if (camera->tryGetDynamicPerspectiveState(dynamicState))
-						{
-							oss << " dynamic_base_fov=" << dynamicState.baseFov
-								<< " dynamic_reference_distance=" << dynamicState.referenceDistance;
-						}
-						else
-						{
-							oss << " dynamic_perspective_state=unavailable";
-						}
-					}
-
-					return oss.str();
+					return describePresetCameraMismatch(camera, preset);
 				};
 
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
@@ -535,6 +421,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					ui::E_KEY_CODE::EKC_O
 				};
 
+				CameraPreset initialOrbitPreset;
+				CameraPreset initialPathPreset;
+				CameraPreset initialDollyZoomPreset;
+				bool hasOrbitPreset = false;
+				bool hasPathPreset = false;
+				bool hasDollyZoomPreset = false;
+
 				for (const auto& cameraRef : cameras)
 				{
 					auto* camera = cameraRef.get();
@@ -548,49 +441,72 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					inputBinder.copyPresetLayoutFrom(*camera);
 
 					const auto initialPreset = capturePreset(camera, "smoke-initial");
+					switch (camera->getKind())
+					{
+						case ICamera::CameraKind::Orbit:
+							initialOrbitPreset = initialPreset;
+							hasOrbitPreset = true;
+							break;
+						case ICamera::CameraKind::Path:
+							initialPathPreset = initialPreset;
+							hasPathPreset = true;
+							break;
+						case ICamera::CameraKind::DollyZoom:
+							initialDollyZoomPreset = initialPreset;
+							hasDollyZoomPreset = true;
+							break;
+						default:
+							break;
+					}
 					if (!applyPresetToCamera(camera, initialPreset))
 						return fail("Preset no-op smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					if (initialPreset.hasTargetPosition)
+					if (initialPreset.goal.hasTargetPosition)
 					{
 						CameraPreset shiftedPreset = initialPreset;
-						shiftedPreset.targetPosition += float64_t3(0.5, -0.25, 0.75);
+						shiftedPreset.goal.targetPosition += float64_t3(0.5, -0.25, 0.75);
 
 						const auto shiftedResult = applyPresetToCameraDetailed(camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !shiftedResult.exact)
-							return fail("Preset target apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+							return fail("Preset target apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult));
 
 						ICamera::SphericalTargetState shiftedState;
-						if (!camera->tryGetSphericalTargetState(shiftedState) || !nearlyEqual3(shiftedState.target, shiftedPreset.targetPosition, 1e-9))
+						if (!camera->tryGetSphericalTargetState(shiftedState) || !nearlyEqual3(shiftedState.target, shiftedPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target writeback smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 						const auto restoredResult = applyPresetToCameraDetailed(camera, initialPreset);
 						if (!restoredResult.succeeded() || !restoredResult.exact)
-							return fail("Preset restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+							return fail("Preset restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult));
 
 						ICamera::SphericalTargetState restoredState;
-						if (!camera->tryGetSphericalTargetState(restoredState) || !nearlyEqual3(restoredState.target, initialPreset.targetPosition, 1e-9))
+						if (!camera->tryGetSphericalTargetState(restoredState) || !nearlyEqual3(restoredState.target, initialPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 						if (!comparePresetToCamera(camera, initialPreset, 1e-6, 1e-4, 1e-9))
-							return fail("Preset restore mismatch smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
+							return fail("Preset restore mismatch smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 					}
 
-					if (initialPreset.hasDynamicPerspectiveState)
+					if (initialPreset.goal.hasDynamicPerspectiveState)
 					{
 						CameraPreset shiftedPreset = initialPreset;
-						shiftedPreset.dynamicBaseFov = std::clamp(initialPreset.dynamicBaseFov + 7.5f, 10.0f, 150.0f);
-						if (std::abs(static_cast<double>(shiftedPreset.dynamicBaseFov - initialPreset.dynamicBaseFov)) < 1e-6)
-							shiftedPreset.dynamicBaseFov = std::max(10.0f, initialPreset.dynamicBaseFov - 7.5f);
-						shiftedPreset.dynamicReferenceDistance = std::max(0.1f, initialPreset.dynamicReferenceDistance + 1.25f);
+						shiftedPreset.goal.dynamicPerspectiveState.baseFov =
+							std::clamp(initialPreset.goal.dynamicPerspectiveState.baseFov + 7.5f, 10.0f, 150.0f);
+						if (std::abs(static_cast<double>(
+							shiftedPreset.goal.dynamicPerspectiveState.baseFov - initialPreset.goal.dynamicPerspectiveState.baseFov)) < 1e-6)
+						{
+							shiftedPreset.goal.dynamicPerspectiveState.baseFov =
+								std::max(10.0f, initialPreset.goal.dynamicPerspectiveState.baseFov - 7.5f);
+						}
+						shiftedPreset.goal.dynamicPerspectiveState.referenceDistance =
+							std::max(0.1f, initialPreset.goal.dynamicPerspectiveState.referenceDistance + 1.25f);
 
 						const auto shiftedResult = applyPresetToCameraDetailed(camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !comparePresetToCamera(camera, shiftedPreset, 1e-6, 0.1, 1e-6))
-							return fail("Preset dynamic perspective apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, shiftedPreset));
+							return fail("Preset dynamic perspective apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult) + " " + describePresetMismatch(camera, shiftedPreset));
 
 						const auto restoredResult = applyPresetToCameraDetailed(camera, initialPreset);
 						if (!restoredResult.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-6, 0.1, 1e-6))
-							return fail("Preset dynamic perspective restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
+							return fail("Preset dynamic perspective restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult) + " " + describePresetMismatch(camera, initialPreset));
 					}
 
 					const uint32_t allowed = camera->getAllowedVirtualEvents();
@@ -733,6 +649,60 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						<< " mouse_scroll_pos_delta=" << mouseScrollPosDelta
 						<< " mouse_scroll_rot_delta_deg=" << mouseScrollRotDelta
 						<< std::endl;
+				}
+
+				auto findCameraByKind = [&](const ICamera::CameraKind kind) -> ICamera*
+				{
+					for (const auto& cameraRef : cameras)
+					{
+						auto* candidate = cameraRef.get();
+						if (candidate && candidate->getKind() == kind)
+							return candidate;
+					}
+					return nullptr;
+				};
+
+				auto verifyApproximateCrossKindApply = [&](ICamera* targetCamera, const CameraPreset& sourcePreset,
+					const CCameraGoalSolver::SApplyResult::EIssue expectedIssue, const char* label) -> bool
+				{
+					if (!targetCamera)
+						return true;
+
+					const auto baselinePreset = capturePreset(targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = applyPresetToCameraDetailed(targetCamera, sourcePreset);
+					if (!applyResult.succeeded() || !applyResult.approximate() || !applyResult.hasIssue(expectedIssue))
+						return fail(std::string("Cross-kind preset smoke failed for ") + label + ". " + describeApplyResult(applyResult));
+
+					const auto restoreResult = applyPresetToCameraDetailed(targetCamera, baselinePreset);
+					if (!restoreResult.succeeded() || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						return fail(std::string("Cross-kind preset restore smoke failed for ") + label + ". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
+
+					return true;
+				};
+
+				ICamera* orbitCamera = findCameraByKind(ICamera::CameraKind::Orbit);
+				if (hasOrbitPreset && hasPathPreset && orbitCamera)
+				{
+					if (!verifyApproximateCrossKindApply(
+						orbitCamera,
+						initialPathPreset,
+						CCameraGoalSolver::SApplyResult::MissingPathState,
+						"Path->Orbit"))
+					{
+						return false;
+					}
+				}
+
+				if (hasOrbitPreset && hasDollyZoomPreset && orbitCamera)
+				{
+					if (!verifyApproximateCrossKindApply(
+						orbitCamera,
+						initialDollyZoomPreset,
+						CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState,
+						"DollyZoom->Orbit"))
+					{
+						return false;
+					}
 				}
 
 				m_headlessCameraSmokePassed = true;

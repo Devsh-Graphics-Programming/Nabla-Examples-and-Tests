@@ -52,6 +52,25 @@ public:
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Path; }
+    virtual bool tryGetPathState(PathState& out) const override
+    {
+        out.angle = m_pathAngle;
+        out.radius = m_pathRadius;
+        out.height = m_pathHeight;
+        return true;
+    }
+    virtual bool trySetPathState(const PathState& state) override
+    {
+        if (!std::isfinite(state.angle) || !std::isfinite(state.radius) || !std::isfinite(state.height))
+            return false;
+
+        m_pathAngle = state.angle;
+        m_pathRadius = std::max(MinPathRadius, state.radius);
+        m_pathHeight = state.height;
+        const bool exact = std::abs(m_pathRadius - state.radius) <= 1e-9;
+        updateFromPath();
+        return exact;
+    }
     virtual bool trySetSphericalDistance(float distance) override
     {
         const auto clamped = std::clamp<float>(distance, MinDistance, MaxDistance);
