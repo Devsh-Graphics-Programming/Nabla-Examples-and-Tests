@@ -845,6 +845,7 @@ void App::DrawControlPanel()
 					if (ImGui::BeginChild("PlaybackPanel", ImVec2(0, 0), true))
 					{
 						ImGui::PushItemWidth(-1.0f);
+						auto* activeCamera = getActiveCamera();
 						DrawSectionHeader("PlaybackHeader", "Playback", accent);
 						ImGui::Checkbox("Loop", &m_playback.loop);
 						DrawHoverHint("Loop playback when it reaches the end");
@@ -878,22 +879,40 @@ void App::DrawControlPanel()
 							const ImVec4 playbackColor = m_playbackApplyBanner.succeeded ? (m_playbackApplyBanner.approximate ? warn : good) : bad;
 							ImGui::TextColored(playbackColor, "%s", m_playbackApplyBanner.summary.c_str());
 						}
+						if (!m_keyframes.empty())
+						{
+							CameraPreset playbackPreviewPreset;
+							if (tryBuildPlaybackPresetAtTime(m_playback.time, playbackPreviewPreset))
+							{
+								const auto playbackPreviewUi = analyzePresetForUi(activeCamera, playbackPreviewPreset);
+								const ImVec4 previewColor = !playbackPreviewUi.hasActiveCamera ? bad : (playbackPreviewUi.exact() ? good : warn);
+								ImGui::TextDisabled("Preview");
+								ImGui::SameLine();
+								ImGui::TextColored(playbackPreviewUi.canApply ? previewColor : bad, "%s", playbackPreviewUi.policyLabel.c_str());
+							}
+						}
 
 						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
 						ImGui::InputFloat("New keyframe time", &m_newKeyframeTime, 0.1f, 1.f, "%.3f");
 						DrawHoverHint("Time value for new keyframe");
-						auto* activeCamera = getActiveCamera();
+						ImGui::SameLine();
+						if (ImGui::Button("Use playback time"))
+							m_newKeyframeTime = m_playback.time;
+						DrawHoverHint("Set new keyframe time from current playback position");
 						const auto keyframeCaptureUi = analyzeCameraCaptureForUi(activeCamera);
 						if (!keyframeCaptureUi.canCapture)
 							ImGui::BeginDisabled();
 						if (ImGui::Button("Add keyframe"))
 						{
 							CameraKeyframe keyframe;
-							keyframe.time = m_newKeyframeTime;
+							const float authoredTime = std::max(0.f, m_newKeyframeTime);
+							keyframe.time = authoredTime;
+							m_newKeyframeTime = authoredTime;
 							if (tryCapturePreset(activeCamera, "Keyframe", keyframe.preset))
 							{
 								m_keyframes.emplace_back(std::move(keyframe));
-								std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+								sortKeyframesByTime();
+								selectKeyframeNearestTime(authoredTime);
 							}
 						}
 						if (!keyframeCaptureUi.canCapture)
@@ -908,20 +927,109 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Clear keyframes"))
 						{
 							m_keyframes.clear();
+							m_selectedKeyframeIx = -1;
+							m_playback.time = 0.f;
 							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Remove all keyframes");
 
 						if (!m_keyframes.empty())
 						{
+							normalizeSelectedKeyframe();
 							if (ImGui::BeginChild("KeyframeList", ImVec2(0, 120), true))
 							{
 								for (size_t i = 0; i < m_keyframes.size(); ++i)
 								{
-									ImGui::Text("[%zu] t=%.3f", i, m_keyframes[i].time);
+									char label[128];
+									snprintf(label, sizeof(label), "[%zu] t=%.3f  %s", i, m_keyframes[i].time, m_keyframes[i].preset.name.c_str());
+									if (ImGui::Selectable(label, m_selectedKeyframeIx == static_cast<int>(i)))
+										m_selectedKeyframeIx = static_cast<int>(i);
 								}
 							}
 							ImGui::EndChild();
+
+							if (auto* selectedKeyframe = getSelectedKeyframe())
+							{
+								const auto keyframeUi = analyzePresetForUi(activeCamera, selectedKeyframe->preset);
+								const ImVec4 compatibilityColor = !keyframeUi.hasActiveCamera ? bad : (keyframeUi.exact() ? good : warn);
+								float selectedTime = selectedKeyframe->time;
+								if (ImGui::InputFloat("Selected time", &selectedTime, 0.1f, 1.f, "%.3f"))
+								{
+									selectedTime = std::max(0.f, selectedTime);
+									selectedKeyframe->time = selectedTime;
+									sortKeyframesByTime();
+									selectKeyframeNearestTime(selectedTime);
+									clampPlaybackTimeToKeyframes();
+								}
+								DrawHoverHint("Edit selected keyframe time");
+
+								ImGui::TextDisabled("Keyframe source");
+								ImGui::SameLine();
+								ImGui::TextColored(muted, "%s", getCameraTypeLabel(keyframeUi.goal.sourceKind).data());
+								ImGui::TextDisabled("Goal state");
+								ImGui::SameLine();
+								ImGui::TextColored(muted, "%s", describeGoalStateMask(keyframeUi.goal.sourceGoalStateMask).c_str());
+								ImGui::TextDisabled("Policy");
+								ImGui::SameLine();
+								ImGui::TextColored(keyframeUi.canApply ? compatibilityColor : bad, "%s", keyframeUi.policyLabel.c_str());
+								ImGui::TextDisabled("Compatibility");
+								ImGui::SameLine();
+								ImGui::TextColored(compatibilityColor, "%s", keyframeUi.compatibilityLabel.c_str());
+
+								DrawBadge(keyframeUi.exact() ? "EXACT" : "BEST-EFFORT", keyframeUi.exact() ? good : warn, badgeText);
+								if (keyframeUi.dropsGoalState())
+								{
+									ImGui::SameLine();
+									DrawBadge("DROPS STATE", warn, badgeText);
+								}
+								else if (keyframeUi.usesSharedStateOnly())
+								{
+									ImGui::SameLine();
+									DrawBadge("SHARED STATE", accent, badgeText);
+								}
+								if (!keyframeUi.canApply)
+								{
+									ImGui::SameLine();
+									DrawBadge("BLOCKED", bad, badgeText);
+								}
+
+								if (!keyframeUi.canApply)
+									ImGui::BeginDisabled();
+								if (ImGui::Button("Apply selected"))
+									applyPresetFromUi(activeCamera, selectedKeyframe->preset);
+								if (!keyframeUi.canApply)
+									ImGui::EndDisabled();
+								DrawHoverHint(keyframeUi.canApply ?
+									"Apply selected keyframe to the active camera" :
+									"Apply is blocked because there is no active camera or the keyframe goal is invalid");
+								ImGui::SameLine();
+								if (!keyframeCaptureUi.canCapture)
+									ImGui::BeginDisabled();
+								if (ImGui::Button("Replace from camera"))
+									replaceSelectedKeyframeFromCamera(activeCamera);
+								if (!keyframeCaptureUi.canCapture)
+									ImGui::EndDisabled();
+								DrawHoverHint(keyframeCaptureUi.canCapture ?
+									"Overwrite selected keyframe from the current active camera" :
+									"Replace is blocked because there is no active camera or the current goal state is invalid");
+								ImGui::SameLine();
+								if (ImGui::Button("Jump to selected"))
+								{
+									m_playback.time = selectedKeyframe->time;
+									applyPlaybackAtTime(m_playback.time);
+								}
+								DrawHoverHint("Set playback time to selected keyframe and preview it");
+								ImGui::SameLine();
+								if (ImGui::Button("Remove selected"))
+								{
+									m_keyframes.erase(m_keyframes.begin() + m_selectedKeyframeIx);
+									normalizeSelectedKeyframe();
+									clampPlaybackTimeToKeyframes();
+									if (m_keyframes.empty())
+										clearApplyStatusBanner(m_playbackApplyBanner);
+								}
+								DrawHoverHint("Remove selected keyframe");
+							}
 						}
 						ImGui::PopItemWidth();
 					}

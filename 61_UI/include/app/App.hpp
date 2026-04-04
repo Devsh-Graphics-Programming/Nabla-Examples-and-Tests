@@ -1642,6 +1642,90 @@ class App final : public examples::SimpleWindowedApplication
 			return true;
 		}
 
+		inline void sortKeyframesByTime()
+		{
+			std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+		}
+
+		inline void clampPlaybackTimeToKeyframes()
+		{
+			if (m_keyframes.empty())
+			{
+				m_playback.time = 0.f;
+				return;
+			}
+
+			m_playback.time = std::clamp(m_playback.time, 0.f, m_keyframes.back().time);
+		}
+
+		inline int selectKeyframeNearestTime(const float time)
+		{
+			if (m_keyframes.empty())
+			{
+				m_selectedKeyframeIx = -1;
+				return m_selectedKeyframeIx;
+			}
+
+			size_t bestIx = 0u;
+			float bestDelta = std::abs(m_keyframes.front().time - time);
+			for (size_t i = 1u; i < m_keyframes.size(); ++i)
+			{
+				const float delta = std::abs(m_keyframes[i].time - time);
+				if (delta < bestDelta)
+				{
+					bestDelta = delta;
+					bestIx = i;
+				}
+			}
+
+			m_selectedKeyframeIx = static_cast<int>(bestIx);
+			return m_selectedKeyframeIx;
+		}
+
+		inline void normalizeSelectedKeyframe()
+		{
+			if (m_keyframes.empty())
+			{
+				m_selectedKeyframeIx = -1;
+				return;
+			}
+
+			if (m_selectedKeyframeIx < 0)
+				m_selectedKeyframeIx = 0;
+			else if (m_selectedKeyframeIx >= static_cast<int>(m_keyframes.size()))
+				m_selectedKeyframeIx = static_cast<int>(m_keyframes.size()) - 1;
+		}
+
+		inline CameraKeyframe* getSelectedKeyframe()
+		{
+			normalizeSelectedKeyframe();
+			if (m_selectedKeyframeIx < 0)
+				return nullptr;
+			return &m_keyframes[static_cast<size_t>(m_selectedKeyframeIx)];
+		}
+
+		inline const CameraKeyframe* getSelectedKeyframe() const
+		{
+			if (m_selectedKeyframeIx < 0 || m_selectedKeyframeIx >= static_cast<int>(m_keyframes.size()))
+				return nullptr;
+			return &m_keyframes[static_cast<size_t>(m_selectedKeyframeIx)];
+		}
+
+		inline bool replaceSelectedKeyframeFromCamera(ICamera* camera)
+		{
+			auto* selected = getSelectedKeyframe();
+			if (!selected)
+				return false;
+
+			CameraPreset updatedPreset;
+			const auto keyframeName = selected->preset.name.empty() ? std::string("Keyframe") : selected->preset.name;
+			if (!tryCapturePreset(camera, keyframeName, updatedPreset))
+				return false;
+
+			selected->preset = std::move(updatedPreset);
+			return true;
+		}
+
 		inline void updatePlayback(double dtSec)
 		{
 			if (!m_playback.playing || m_keyframes.empty())
@@ -2246,6 +2330,7 @@ class App final : public examples::SimpleWindowedApplication
 		ApplyStatusBanner m_playbackApplyBanner;
 		PresetFilterMode m_presetFilterMode = PresetFilterMode::All;
 		int m_selectedPresetIx = -1;
+		int m_selectedKeyframeIx = -1;
 		bool m_playbackAffectsAll = false;
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";
