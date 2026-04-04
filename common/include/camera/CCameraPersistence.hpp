@@ -15,6 +15,7 @@ namespace nbl::hlsl
 {
 
 //! JSON and file persistence helpers for reusable camera presets and playback tracks.
+//! Stream-based helpers exist first so examples can choose between file IO and in-memory round-trips.
 inline nlohmann::json serializePresetCollection(std::span<const CCameraPreset> presets)
 {
     nlohmann::json root;
@@ -24,6 +25,7 @@ inline nlohmann::json serializePresetCollection(std::span<const CCameraPreset> p
     return root;
 }
 
+//! Parse a preset collection from JSON and replace the destination vector on success.
 inline bool deserializePresetCollection(const nlohmann::json& root, std::vector<CCameraPreset>& presets)
 {
     if (!root.contains("presets") || !root["presets"].is_array())
@@ -42,6 +44,7 @@ inline bool deserializePresetCollection(const nlohmann::json& root, std::vector<
     return true;
 }
 
+//! Serialize a preset collection to an arbitrary stream.
 inline bool writePresetCollection(std::ostream& out, std::span<const CCameraPreset> presets, const int indent = 2)
 {
     if (!out)
@@ -51,6 +54,7 @@ inline bool writePresetCollection(std::ostream& out, std::span<const CCameraPres
     return static_cast<bool>(out);
 }
 
+//! Deserialize a preset collection from an arbitrary stream.
 inline bool readPresetCollection(std::istream& in, std::vector<CCameraPreset>& presets)
 {
     if (!in)
@@ -61,18 +65,21 @@ inline bool readPresetCollection(std::istream& in, std::vector<CCameraPreset>& p
     return deserializePresetCollection(root, presets);
 }
 
+//! Convenience file wrapper around `writePresetCollection`.
 inline bool savePresetCollectionToFile(const system::path& path, std::span<const CCameraPreset> presets, const int indent = 2)
 {
     std::ofstream out(path.string(), std::ios::binary);
     return writePresetCollection(out, presets, indent);
 }
 
+//! Convenience file wrapper around `readPresetCollection`.
 inline bool loadPresetCollectionFromFile(const system::path& path, std::vector<CCameraPreset>& presets)
 {
     std::ifstream in(path.string(), std::ios::binary);
     return readPresetCollection(in, presets);
 }
 
+//! Serialize a keyframe track to an arbitrary stream.
 inline bool writeKeyframeTrack(std::ostream& out, const CCameraKeyframeTrack& track, const int indent = 2)
 {
     if (!out)
@@ -82,6 +89,7 @@ inline bool writeKeyframeTrack(std::ostream& out, const CCameraKeyframeTrack& tr
     return static_cast<bool>(out);
 }
 
+//! Deserialize a keyframe track from an arbitrary stream.
 inline bool readKeyframeTrack(std::istream& in, CCameraKeyframeTrack& track)
 {
     if (!in)
@@ -92,12 +100,14 @@ inline bool readKeyframeTrack(std::istream& in, CCameraKeyframeTrack& track)
     return deserializeKeyframeTrack(root, track);
 }
 
+//! Convenience file wrapper around `writeKeyframeTrack`.
 inline bool saveKeyframeTrackToFile(const system::path& path, const CCameraKeyframeTrack& track, const int indent = 2)
 {
     std::ofstream out(path.string(), std::ios::binary);
     return writeKeyframeTrack(out, track, indent);
 }
 
+//! Convenience file wrapper around `readKeyframeTrack`.
 inline bool loadKeyframeTrackFromFile(const system::path& path, CCameraKeyframeTrack& track)
 {
     std::ifstream in(path.string(), std::ios::binary);

@@ -15,7 +15,7 @@
 namespace nbl::hlsl
 {
 
-//! Reusable preset capture, comparison, and best-effort apply helpers.
+//! Reusable aggregate summary for applying one preset to multiple cameras.
 struct SCameraPresetApplySummary
 {
     uint32_t targetCount = 0u;
@@ -39,6 +39,7 @@ struct SCameraPresetApplySummary
     }
 };
 
+//! Compare the current camera state against a preset using the shared goal representation.
 inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset,
     const double posEps, const double rotEpsDeg, const double scalarEps)
 {
@@ -49,6 +50,7 @@ inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera*
     return compareGoals(capture.goal, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
 }
 
+//! Explain the first visible mismatch between a camera state and a preset.
 inline std::string describePresetCameraMismatch(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
 {
     const auto capture = solver.captureDetailed(camera);
@@ -62,6 +64,7 @@ inline std::string describePresetCameraMismatch(const CCameraGoalSolver& solver,
     return describeGoalMismatch(capture.goal, makeGoalFromPreset(preset));
 }
 
+//! Build a preset from an already analyzed capture result.
 inline bool tryCapturePreset(const SCameraCaptureAnalysis& captureAnalysis, ICamera* camera, std::string_view name, CCameraPreset& preset)
 {
     preset = {};
@@ -74,11 +77,13 @@ inline bool tryCapturePreset(const SCameraCaptureAnalysis& captureAnalysis, ICam
     return true;
 }
 
+//! Capture a preset directly from a camera through the shared goal solver.
 inline bool tryCapturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name, CCameraPreset& preset)
 {
     return tryCapturePreset(analyzeCameraCapture(solver, camera), camera, name, preset);
 }
 
+//! Value-returning convenience wrapper around `tryCapturePreset`.
 inline CCameraPreset capturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name)
 {
     CCameraPreset preset;
@@ -86,6 +91,7 @@ inline CCameraPreset capturePreset(const CCameraGoalSolver& solver, ICamera* cam
     return preset;
 }
 
+//! Apply a preset through the shared goal solver and preserve detailed apply diagnostics.
 inline CCameraGoalSolver::SApplyResult applyPresetDetailed(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
 {
     if (!camera)
@@ -94,11 +100,13 @@ inline CCameraGoalSolver::SApplyResult applyPresetDetailed(const CCameraGoalSolv
     return solver.applyDetailed(camera, makeGoalFromPreset(preset));
 }
 
+//! Bool-returning convenience wrapper around `applyPresetDetailed`.
 inline bool applyPreset(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
 {
     return applyPresetDetailed(solver, camera, preset).succeeded();
 }
 
+//! Fold one detailed apply result into an aggregate preset-apply summary.
 inline void accumulatePresetApplySummary(SCameraPresetApplySummary& summary, const CCameraGoalSolver::SApplyResult& result)
 {
     ++summary.targetCount;
@@ -114,6 +122,7 @@ inline void accumulatePresetApplySummary(SCameraPresetApplySummary& summary, con
     }
 }
 
+//! Apply one preset to a camera range and collect a typed aggregate summary.
 inline SCameraPresetApplySummary applyPresetToCameraRange(const CCameraGoalSolver& solver, std::span<ICamera* const> cameras, const CCameraPreset& preset)
 {
     SCameraPresetApplySummary summary;

@@ -821,6 +821,55 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!comparePresetValues(sourceTrack.keyframes[i].preset, loadedTrack.keyframes[i].preset, 1e-6, 0.1, 1e-6))
 							return fail("Keyframe persistence smoke changed keyframe preset at index " + std::to_string(i) + ".");
 					}
+
+					struct TempFileCleanup final
+					{
+						std::vector<std::filesystem::path> paths;
+						~TempFileCleanup()
+						{
+							std::error_code ec;
+							for (const auto& path : paths)
+								std::filesystem::remove(path, ec);
+						}
+					} tempFiles;
+
+					const auto uniqueSuffix = std::to_string(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+					const auto tempDir = std::filesystem::temp_directory_path();
+					const auto presetFile = tempDir / ("nabla_cameraz_presets_" + uniqueSuffix + ".json");
+					const auto keyframeFile = tempDir / ("nabla_cameraz_keyframes_" + uniqueSuffix + ".json");
+					tempFiles.paths = { presetFile, keyframeFile };
+
+					if (!nbl::hlsl::savePresetCollectionToFile(presetFile, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
+						return fail("Preset persistence smoke failed to save preset collection file.");
+
+					std::vector<CameraPreset> fileLoadedPresets;
+					if (!nbl::hlsl::loadPresetCollectionFromFile(presetFile, fileLoadedPresets))
+						return fail("Preset persistence smoke failed to load preset collection file.");
+					if (fileLoadedPresets.size() != sourcePresets.size())
+						return fail("Preset persistence smoke changed preset file count.");
+
+					for (size_t i = 0u; i < sourcePresets.size(); ++i)
+					{
+						if (!comparePresetValues(sourcePresets[i], fileLoadedPresets[i], 1e-6, 0.1, 1e-6))
+							return fail("Preset persistence smoke changed preset file content at index " + std::to_string(i) + ".");
+					}
+
+					if (!nbl::hlsl::saveKeyframeTrackToFile(keyframeFile, sourceTrack))
+						return fail("Keyframe persistence smoke failed to save track file.");
+
+					CCameraKeyframeTrack fileLoadedTrack;
+					if (!nbl::hlsl::loadKeyframeTrackFromFile(keyframeFile, fileLoadedTrack))
+						return fail("Keyframe persistence smoke failed to load track file.");
+					if (fileLoadedTrack.keyframes.size() != sourceTrack.keyframes.size())
+						return fail("Keyframe persistence smoke changed keyframe file count.");
+
+					for (size_t i = 0u; i < sourceTrack.keyframes.size(); ++i)
+					{
+						if (std::abs(static_cast<double>(fileLoadedTrack.keyframes[i].time - sourceTrack.keyframes[i].time)) > 1e-6)
+							return fail("Keyframe persistence smoke changed keyframe file time at index " + std::to_string(i) + ".");
+						if (!comparePresetValues(sourceTrack.keyframes[i].preset, fileLoadedTrack.keyframes[i].preset, 1e-6, 0.1, 1e-6))
+							return fail("Keyframe persistence smoke changed keyframe file preset at index " + std::to_string(i) + ".");
+					}
 				}
 
 				if (hasOrbitPreset && hasDollyPreset)
