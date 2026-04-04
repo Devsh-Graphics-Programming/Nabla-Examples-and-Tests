@@ -132,15 +132,12 @@ void raygen()
     const float16_t rcpSamplesThisFrame = float16_t(1)/float16_t(samplesThisFrame);
 
     float16_t transparency = 0.f;
-    SSpectralType accumulation;
-    accumulation.clear();
+    SArbitraryOutputValues aovs;
+    aovs.clear();
     [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=samplingInfo.newSampleCount; sampleIndex++)
     {
-        SThroughputs throughput;
-        throughput.clearAoV(rcpSamplesThisFrame);
-        // for RWMC to work every sample must be splatted individually
-        throughput.clearColor(1.f);
-        accumulation.color = float16_t3(0,0,0);
+        // For RWMC to work, every sample must be splatted individually
+        accum_t color;
 
         const uint32_t PrimaryRayRandTripletsUsed = 2;
         // trace primary ray
@@ -168,8 +165,10 @@ void raygen()
             missed = payload.hasMissed();
             if (missed)
             {
-                accumulation = sampleEnv(rayDir) * throughput;
-                transparency += throughput.transparency;
+                const SEnvSample _sample = sampleEnv(rayDir);
+                color = _sample.color;
+                aovs = aovs + _sample.aov * rcpSamplesThisFrame;
+                transparency += rcpSamplesThisFrame;
             }
             else // TODO: erase the `missed` variable and setup the struct in "wasAHit"
             {
@@ -181,9 +180,15 @@ void raygen()
         // trace further rays
         if (!missed)
         {
+            //
             MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
             const uint16_t lastPathDepth = gSensor.lastPathDepth;
+            //
+            color = accum_t(0,0,0);
+            spectral_t throughput = spectral_t(1,1,1);
             float32_t otherTechniqueHeuristic = 0.f;
+            SAOVThroughputs aovThroughput;
+            aovThroughput.clear(rcpSamplesThisFrame);
             // [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
             const uint16_t RandDimTriplesPerDepth = 3;
             [[loop]] for (uint16_t depth=1; true; depth++) // ideally peel this loop once
@@ -194,18 +199,24 @@ void raygen()
 
                 // TODO: possible SER point based on NEE status, and material flags
 
-                SSpectralType contribution;
-                // TODO: get AoVs from material and emission, already premultiplied by next throughput complements
-                // TODO: get AoV throughputs too, then shading only gets colour quotient for us
-                contribution.color = float16_t3(0,0,0);
-                contribution.albedo = float16_t3(1,1,1);
-                contribution.normal = float16_t3(shadingNormal);
-                accumulation = accumulation+accumulation*throughput;
+                // TODO: get AoVs from material and emission
+                SAOVThroughputs nextThroughput;
+                nextThroughput.albedo = float16_t3(0,0,0);
+                nextThroughput.transparency = 0.f;
+                SArbitraryOutputValues aovContrib;
+                aovContrib.albedo = float16_t3(1,1,1);
+                aovContrib.normal = float16_t3(shadingNormal);
+                // obtain full next
+                nextThroughput = aovThroughput * nextThroughput;
+                // already premultiplied by next throughput complement
+                aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
+                aovThroughput = nextThroughput;
+                
                 // TODO: handle emission and do NEE MIS for any emission found on current hit
                 if (false)
                 {
                     // get emission stream
-
+                    float16_t3 emission = float16_t3(0,0,0);
                     // compute emission
                     const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
                     if (otherTechniqueHeuristic>WeightThreshold)
@@ -215,7 +226,7 @@ void raygen()
                         // apply emissive weight
                     }
                     // add emissive to the contribution
-                    accumulation.color += contribution.color*float16_t3(throughput.color);
+                    color += emission*float16_t3(throughput);
                 }
 
                 // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
@@ -253,6 +264,7 @@ void raygen()
                     const float pdf = 1.f / 3.14159f;
                     // consume additional 3 dimensions BTDF sampling and resampling
                     rayDir = shadingNormal;
+                    color /= pdf;
                     throughput = throughput / pdf;
                     //
                     otherTechniqueHeuristic = 1.f/pdf;
@@ -274,14 +286,16 @@ void raygen()
                         spirv::traceRayKHR(gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,ESBTO_PATH,rayOrigin,tMin,rayDir,hlsl::numeric_limits<float16_t>::max,payload);
                         if (payload.hasMissed())
                         {
+                            SEnvSample _sample = sampleEnv(rayDir);
                             if (otherTechniqueHeuristic>0.f)
                             {
                                 // compute NEE MIS backward weight
                                 // assert not inf
-                                // apply MIS to adjust throughput.color
+                                // apply MIS to adjust _sample.color
                             }
-                            accumulation = accumulation + sampleEnv(rayDir)*throughput;
-                            transparency += throughput.transparency;
+                            color += _sample.color*throughput;
+                            aovs = aovs + _sample.aov*aovThroughput;
+                            transparency += aovThroughput.transparency;
                             break;
                         }
                     }
@@ -294,10 +308,10 @@ void raygen()
     }
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
-    albedoAcc.accumulate(launchID.xy,launchID.z,accumulation.albedo,newSamplesOverTotal);
+    albedoAcc.accumulate(launchID.xy,launchID.z,aovs.albedo,newSamplesOverTotal);
     // normal
     Accumulator<ImageAccessor_gNormal> normalAcc;
-    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(hlsl::normalize(accumulation.normal)),newSamplesOverTotal);
+    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(hlsl::normalize(aovs.normal)),newSamplesOverTotal);
     // TODO: motion
     // mask
     Accumulator<ImageAccessor_gMask> maskAcc;

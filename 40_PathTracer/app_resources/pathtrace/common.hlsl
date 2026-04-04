@@ -123,36 +123,54 @@ struct SRay
 };
 
 // variables that multiply together
-struct SThroughputs
+struct SAOVThroughputs
 {
-    inline void clearColor(const float32_t weight)
+    inline void clear(const float16_t weight)
     {
-        color = hlsl::promote<float32_t3>(weight);
-    }
-    inline void clearAoV(const float16_t weight)
-    {
-        aov = hlsl::promote<float16_t3>(transparency = weight);
+        albedo = hlsl::promote<float16_t3>(transparency = weight);
     }
 
-    inline SThroughputs operator*(const float32_t factor)
+    inline SAOVThroughputs operator-(const SAOVThroughputs factor)
     {
-        SThroughputs retval;
-        retval.color *= factor;
-        const float16_t fp16Factor = float16_t(factor);
-        retval.aov *= fp16Factor;
-        retval.transparency *= fp16Factor;
+        SAOVThroughputs retval;
+        retval.albedo -= factor.albedo;
+        retval.transparency -= factor.transparency;
         return retval;
     }
-    inline SThroughputs operator/(const float32_t factor)
+
+    inline SAOVThroughputs operator*(const float16_t factor)
     {
-        return this * (1.f/factor);
+        SAOVThroughputs retval;
+        retval.albedo *= factor;
+        retval.transparency *= factor;
+        return retval;
+    }
+    inline SAOVThroughputs operator*(const SAOVThroughputs factor)
+    {
+        SAOVThroughputs retval;
+        retval.albedo *= factor.albedo;
+        retval.transparency *= factor.transparency;
+        return retval;
+    }
+
+    inline SAOVThroughputs operator/(const float16_t factor)
+    {
+        SAOVThroughputs retval;
+        retval.albedo /= factor;
+        retval.transparency /= factor;
+        return retval;
+    }
+    inline SAOVThroughputs operator/(const SAOVThroughputs factor)
+    {
+        SAOVThroughputs retval;
+        retval.albedo /= factor.albedo;
+        retval.transparency /= factor.transparency;
+        return retval;
     }
 
 
-    // can be quite high due to importance sampling
-    float32_t3 color;
     // RGB transparency of smooth reflections and refractions, used for modulating albedo and most AOVs
-    float16_t3 aov;
+    float16_t3 albedo;
     // Motion is special because Real Time defines it as a mapping of where current pixel was last frame.
     // True motion output would require us to implement differentiable rendering and formulate motion as an integral of `Throughput dScreenPos/dTime` which is super tricky because:
     // - A turning mirror imparts motion on the reflection of a static object
@@ -168,37 +186,43 @@ struct SThroughputs
     float16_t transparency;
 };
 
+using spectral_t = float32_t3;
+
 // TODO: use the CIE stuff
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float16_t3 LumaConversionCoeffs = float16_t3(0.39,0.5,0.11);
 
-struct SSpectralType
+struct SArbitraryOutputValues
 {
     inline void clear()
     {
-        color = normal = albedo = float16_t3(0,0,0);
+        normal = albedo = float16_t3(0,0,0);
         // TODO: motion
     }
 
-    inline SSpectralType operator+(const SSpectralType other)
+    inline SArbitraryOutputValues operator+(const SArbitraryOutputValues other)
     {
-        SSpectralType retval;
-        retval.color = color+other.color;
+        SArbitraryOutputValues retval;
         retval.albedo = albedo+other.albedo;
         retval.normal = normal+other.normal;
         return retval;
     }
 
-    inline SSpectralType operator*(const SThroughputs throughput)
+    inline SArbitraryOutputValues operator*(const float16_t factor)
     {
-        SSpectralType retval;
-        retval.color = color*float16_t3(throughput.color);
-        retval.albedo = albedo*throughput.aov;
-        retval.normal = normal*hlsl::dot(throughput.aov,LumaConversionCoeffs);
+        SArbitraryOutputValues retval;
+        retval.albedo = albedo*factor;
+        retval.normal = normal*factor;
         return retval;
     }
 
-    // transparent (anyhit) could be emissive so needs to add its emission
-    float16_t3 color;
+    inline SArbitraryOutputValues operator*(const SAOVThroughputs throughput)
+    {
+        SArbitraryOutputValues retval;
+        retval.albedo = albedo*throughput.albedo;
+        retval.normal = normal*hlsl::dot(throughput.albedo,LumaConversionCoeffs);
+        return retval;
+    }
+
     // AoVs are handled as "special emission", basically the contribution of albedo is same as the material illuminated in a White Furnace
     // so for transparent (anyhit) to impart its albedo or normal into the AoV it can add it same way it would add any color emission
     float16_t3 albedo;
@@ -219,6 +243,8 @@ struct SSpectralType
     //float16_t3or4 motion;
 };
 
+// accumulated color
+using accum_t = float16_t3;
 
 // only callable from closestHit
 inline float32_t3 reconstructGeometricNormal()
@@ -252,10 +278,10 @@ struct MaxContributionEstimator
     }
 
     // notCulled instead of culled because of NaN handling
-    inline bool notCulled(NBL_REF_ARG(SThroughputs) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
+    inline bool notCulled(NBL_REF_ARG(float32_t3) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
     {
         // recompute after previous hit
-        const float16_t surviveProb = hlsl::dot(float16_t3(throughput.color),throughputWeights);
+        const float16_t surviveProb = hlsl::dot(float16_t3(throughput),throughputWeights);
         // TODO: prevent "fireflies in AoVs" because AoV targets are not HDR - don't do RR if that will overshoot our albedo and normal contributions
         // skipRussianRoulette = skipRussianRoulette && ...;
         // cull really low throughput paths (adds bias)
@@ -269,7 +295,7 @@ struct MaxContributionEstimator
             // rescale rand
             xi *= rcpSurvivalProb;
             // apply to throughput
-            throughput = throughput*rcpSurvivalProb;
+            throughput *= rcpSurvivalProb;
             return true;
         }
         return false;
@@ -280,14 +306,19 @@ struct MaxContributionEstimator
 };
 
 //
-SSpectralType sampleEnv(const float32_t3 raydir)
+struct SEnvSample
 {
-    SSpectralType retval;
+    accum_t color;
+    SArbitraryOutputValues aov;
+};
+SEnvSample sampleEnv(const float32_t3 raydir)
+{
+    SEnvSample retval;
     // TODO: sample the envmap texture
     retval.color = float16_t3(0.5f,0.5f,1.f);
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
-    retval.albedo = min(retval.color,float16_t3(1,1,1));
-    retval.normal = -normalize(float16_t3(raydir));
+    retval.aov.albedo = hlsl::min(retval.color,float16_t3(1,1,1));
+    retval.aov.normal = -hlsl::normalize(float16_t3(raydir));
     return retval;
 }
 
