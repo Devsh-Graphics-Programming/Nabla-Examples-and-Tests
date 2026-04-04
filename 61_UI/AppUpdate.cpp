@@ -212,7 +212,7 @@ void App::update()
 							}
 
 							auto* camera = m_planarProjections[binding.activePlanarIx]->getCamera();
-							if (!applyPresetToCamera(camera, m_initialPlanarPresets[binding.activePlanarIx]))
+							if (!nbl::hlsl::applyPreset(m_cameraGoalSolver, camera, m_initialPlanarPresets[binding.activePlanarIx]))
 								m_logger->log("[script][warn] action reset_active_camera failed for planar: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
 						} break;
 					}

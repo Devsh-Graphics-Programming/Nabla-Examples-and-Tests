@@ -1253,71 +1253,15 @@ class App final : public examples::SimpleWindowedApplication
 			return analyzePresetForUi(camera, preset).matchesFilter(m_presetFilterMode);
 		}
 
-		inline bool comparePresetToCameraState(ICamera* camera, const CameraPreset& preset,
-			const double posEps, const double rotEpsDeg, const double scalarEps) const
-		{
-			const auto capture = m_cameraGoalSolver.captureDetailed(camera);
-			if (!capture.canUseGoal())
-				return false;
-
-			return nbl::hlsl::compareGoals(capture.goal, nbl::hlsl::makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
-		}
-
-		inline std::string describePresetCameraMismatch(ICamera* camera, const CameraPreset& preset) const
-		{
-			const auto capture = m_cameraGoalSolver.captureDetailed(camera);
-			if (!capture.hasCamera)
-				return "camera=null";
-			if (!capture.captured)
-				return "goal_state=unavailable";
-			if (!capture.finiteGoal)
-				return "goal_state=invalid";
-
-			return nbl::hlsl::describeGoalMismatch(capture.goal, nbl::hlsl::makeGoalFromPreset(preset));
-		}
-
-		inline bool tryCapturePreset(ICamera* camera, const std::string& name, CameraPreset& preset)
-		{
-			const auto captureUi = analyzeCameraCaptureForUi(camera);
-			preset = {};
-			preset.name = name;
-			if (!captureUi.canCapture || !camera)
-				return false;
-
-			preset.identifier = std::string(camera->getIdentifier());
-			nbl::hlsl::assignGoalToPreset(preset, captureUi.goal);
-			return true;
-		}
-
-		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
-		{
-			CameraPreset preset;
-			tryCapturePreset(camera, name, preset);
-			return preset;
-		}
-
-		inline CCameraGoalSolver::SApplyResult applyPresetToCameraDetailed(ICamera* camera, const CameraPreset& preset)
-		{
-			if (!camera)
-				return {};
-
-			return m_cameraGoalSolver.applyDetailed(camera, nbl::hlsl::makeGoalFromPreset(preset));
-		}
-
 		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 		{
-			const auto result = applyPresetToCameraDetailed(camera, preset);
+			const auto result = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
 			const auto presetUi = analyzePresetForUi(camera, preset);
 			storeApplyStatusBanner(m_manualPresetApplyBanner,
 				describeApplyResult(result) + " | " + presetUi.compatibilityLabel,
 				result.succeeded(),
 				result.approximate());
 			return result;
-		}
-
-		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
-		{
-			return applyPresetToCameraDetailed(camera, preset).succeeded();
 		}
 
 		inline void storeApplyStatusBanner(ApplyStatusBanner& banner, std::string summary, const bool succeeded, const bool approximate)
@@ -1430,7 +1374,7 @@ class App final : public examples::SimpleWindowedApplication
 			CameraPreset preset;
 			preset.goal.position = pos;
 			preset.goal.orientation = glm::quat(hlsl::radians(clamped));
-			applyPresetToCamera(camera, preset);
+			nbl::hlsl::applyPreset(m_cameraGoalSolver, camera, preset);
 		}
 
 		inline void applyVirtualEventScaling(std::vector<CVirtualGimbalEvent>& events, uint32_t count)
@@ -1525,7 +1469,7 @@ class App final : public examples::SimpleWindowedApplication
 					return;
 
 				++summary.targetCount;
-				const auto result = applyPresetToCameraDetailed(camera, preset);
+				const auto result = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
 				if (result.succeeded())
 				{
 					++summary.successCount;
@@ -1617,7 +1561,7 @@ class App final : public examples::SimpleWindowedApplication
 
 			CameraPreset updatedPreset;
 			const auto keyframeName = selected->preset.name.empty() ? std::string("Keyframe") : selected->preset.name;
-			if (!tryCapturePreset(camera, keyframeName, updatedPreset))
+			if (!nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
 				return false;
 
 			return nbl::hlsl::replaceSelectedKeyframePreset(m_keyframeTrack, std::move(updatedPreset));

@@ -687,7 +687,7 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Add preset"))
 						{
 							CameraPreset preset;
-							if (tryCapturePreset(activeCamera, m_presetName, preset))
+							if (nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, activeCamera, m_presetName, preset))
 							{
 								m_presets.emplace_back(std::move(preset));
 								m_selectedPresetIx = static_cast<int>(m_presets.size()) - 1;
@@ -907,7 +907,7 @@ void App::DrawControlPanel()
 							const float authoredTime = std::max(0.f, m_newKeyframeTime);
 							keyframe.time = authoredTime;
 							m_newKeyframeTime = authoredTime;
-							if (tryCapturePreset(activeCamera, "Keyframe", keyframe.preset))
+							if (nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
 							{
 								m_keyframeTrack.keyframes.emplace_back(std::move(keyframe));
 								sortKeyframesByTime();

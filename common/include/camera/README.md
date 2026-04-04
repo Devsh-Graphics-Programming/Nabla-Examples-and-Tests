@@ -9,6 +9,7 @@ The current design goal is:
 - raw input binding stays outside the camera
 - absolute goals and preset restore are best-effort helpers layered on top
 - reusable math, preset, analysis, and keyframe-track utilities live in shared headers
+- reusable preset capture and apply flow helpers live in shared headers
 - reusable playback cursor and timeline helpers live in shared headers
 - reusable preset and keyframe persistence helpers live in shared headers
 - `61_UI` is the current integration and validation surface
@@ -262,6 +263,19 @@ Provides:
 
 This is the storage format used by `61_UI` for preset authoring and playback persistence.
 
+### `CCameraPresetFlow.hpp`
+
+Reusable preset capture, comparison, mismatch, and best-effort apply helpers.
+
+Provides:
+
+- preset capture from a camera and solver
+- preset apply through the shared goal solver
+- preset-to-camera comparison helpers
+- preset mismatch descriptions for diagnostics
+
+This keeps solver-backed preset flow reusable without leaving the flow rules in example-local glue.
+
 ### `CCameraKeyframeTrack.hpp`
 
 Reusable keyframe-track helpers on top of presets.
@@ -323,10 +337,11 @@ If another example wants to adopt this stack later, the intended path is:
 2. Store default binding layouts on the camera and/or planar projection.
 3. Use `CGimbalInputBinder` at runtime to translate external input into virtual events.
 4. Feed the resulting event stream into `ICamera::manipulate(...)`.
-5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, `CCameraPreset`, `CCameraKeyframeTrack`, `CCameraPlaybackTimeline`, and `CCameraPersistence` only for tooling features such as:
+5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, `CCameraPreset`, `CCameraPresetFlow`, `CCameraKeyframeTrack`, `CCameraPlaybackTimeline`, and `CCameraPersistence` only for tooling features such as:
    - preset capture
    - preset restore
    - compatibility preview
+   - preset comparison and mismatch diagnostics
    - playback interpolation
    - playback cursor stepping
    - preset and keyframe persistence

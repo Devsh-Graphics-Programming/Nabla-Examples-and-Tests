@@ -317,12 +317,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto comparePresetToCamera = [&](ICamera* camera, const CameraPreset& preset, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
 				{
-					return comparePresetToCameraState(camera, preset, posEps, rotEpsDeg, scalarEps);
+					return nbl::hlsl::comparePresetToCameraState(m_cameraGoalSolver, camera, preset, posEps, rotEpsDeg, scalarEps);
 				};
 
 				auto describePresetMismatch = [&](ICamera* camera, const CameraPreset& preset) -> std::string
 				{
-					return describePresetCameraMismatch(camera, preset);
+					return nbl::hlsl::describePresetCameraMismatch(m_cameraGoalSolver, camera, preset);
 				};
 
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
@@ -402,7 +402,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CGimbalInputBinder inputBinder;
 					camera->copyDefaultInputBindingPresetTo(inputBinder);
 
-					const auto initialPreset = capturePreset(camera, "smoke-initial");
+					const auto initialPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, "smoke-initial");
 					const auto initialCompatibility = analyzePresetCompatibility(camera, initialPreset);
 					if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
 						return fail("Preset compatibility smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". missing=" + describeGoalStateMask(initialCompatibility.missingGoalStateMask));
@@ -431,7 +431,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						default:
 							break;
 					}
-					if (!applyPresetToCamera(camera, initialPreset))
+					if (!nbl::hlsl::applyPreset(m_cameraGoalSolver, camera, initialPreset))
 						return fail("Preset no-op smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 					if (initialPreset.goal.hasTargetPosition)
@@ -439,7 +439,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						CameraPreset shiftedPreset = initialPreset;
 						shiftedPreset.goal.targetPosition += float64_t3(0.5, -0.25, 0.75);
 
-						const auto shiftedResult = applyPresetToCameraDetailed(camera, shiftedPreset);
+						const auto shiftedResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !shiftedResult.exact)
 							return fail("Preset target apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult));
 
@@ -447,7 +447,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!camera->tryGetSphericalTargetState(shiftedState) || !nearlyEqual3(shiftedState.target, shiftedPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target writeback smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						const auto restoredResult = applyPresetToCameraDetailed(camera, initialPreset);
+						const auto restoredResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoredResult.succeeded() || !restoredResult.exact)
 							return fail("Preset restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult));
 
@@ -473,11 +473,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						shiftedPreset.goal.dynamicPerspectiveState.referenceDistance =
 							std::max(0.1f, initialPreset.goal.dynamicPerspectiveState.referenceDistance + 1.25f);
 
-						const auto shiftedResult = applyPresetToCameraDetailed(camera, shiftedPreset);
+						const auto shiftedResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !comparePresetToCamera(camera, shiftedPreset, 1e-6, 0.1, 1e-6))
 							return fail("Preset dynamic perspective apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult) + " " + describePresetMismatch(camera, shiftedPreset));
 
-						const auto restoredResult = applyPresetToCameraDetailed(camera, initialPreset);
+						const auto restoredResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoredResult.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-6, 0.1, 1e-6))
 							return fail("Preset dynamic perspective restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult) + " " + describePresetMismatch(camera, initialPreset));
 					}
@@ -523,16 +523,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!manipulateAndMeasure(camera, directEvents, directPosDelta, directRotDelta))
 						return fail("Direct manipulate smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					{
-						const auto modifiedPreset = capturePreset(camera, "smoke-direct");
-						const auto restoreInitial = applyPresetToCameraDetailed(camera, initialPreset);
+						const auto modifiedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, "smoke-direct");
+						const auto restoreInitial = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoreInitial.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset restore from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 
-						const auto applyModified = applyPresetToCameraDetailed(camera, modifiedPreset);
+						const auto applyModified = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, modifiedPreset);
 						if (!applyModified.succeeded() || !applyModified.changed() || !comparePresetToCamera(camera, modifiedPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset apply from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, modifiedPreset));
 
-						const auto restoreAgain = applyPresetToCameraDetailed(camera, initialPreset);
+						const auto restoreAgain = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoreAgain.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset final restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 					}
@@ -664,12 +664,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
 					}
 
-					const auto baselinePreset = capturePreset(targetCamera, std::string(label) + "-baseline");
-					const auto applyResult = applyPresetToCameraDetailed(targetCamera, sourcePreset);
+					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
 					if (!applyResult.succeeded() || !applyResult.approximate() || !applyResult.hasIssue(expectedIssue))
 						return fail(std::string("Cross-kind preset smoke failed for ") + label + ". " + describeApplyResult(applyResult));
 
-					const auto restoreResult = applyPresetToCameraDetailed(targetCamera, baselinePreset);
+					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
 					if (!restoreResult.succeeded() || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 						return fail(std::string("Cross-kind preset restore smoke failed for ") + label + ". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
 
@@ -688,15 +688,15 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
 					}
 
-					const auto baselinePreset = capturePreset(targetCamera, std::string(label) + "-baseline");
-					const auto applyResult = applyPresetToCameraDetailed(targetCamera, sourcePreset);
+					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
 					if (!applyResult.succeeded() || !applyResult.exact || !comparePresetToCamera(targetCamera, sourcePreset, 1e-6, 0.1, 1e-6))
 					{
 						return fail(std::string("Exact cross-kind preset smoke failed for ") + label + ". " +
 							describeApplyResult(applyResult) + " " + describePresetMismatch(targetCamera, sourcePreset));
 					}
 
-					const auto restoreResult = applyPresetToCameraDetailed(targetCamera, baselinePreset);
+					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
 					if (!restoreResult.succeeded() || !restoreResult.exact || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 					{
 						return fail(std::string("Exact cross-kind preset restore smoke failed for ") + label + ". " +
@@ -1609,7 +1609,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					auto* camera = m_planarProjections[planarIx]->getCamera();
 					const std::string presetName = "Planar " + std::to_string(planarIx);
-					m_initialPlanarPresets.emplace_back(capturePreset(camera, presetName));
+					m_initialPlanarPresets.emplace_back(nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, presetName));
 				}
 			}
 

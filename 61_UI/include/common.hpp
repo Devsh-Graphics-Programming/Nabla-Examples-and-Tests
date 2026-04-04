@@ -19,6 +19,7 @@
 #include "camera/CDollyZoomCamera.hpp"
 #include "camera/CPathCamera.hpp"
 #include "camera/CCameraPreset.hpp"
+#include "camera/CCameraPresetFlow.hpp"
 #include "camera/CCameraKeyframeTrack.hpp"
 #include "camera/CCameraPlaybackTimeline.hpp"
 #include "camera/CCameraPersistence.hpp"
