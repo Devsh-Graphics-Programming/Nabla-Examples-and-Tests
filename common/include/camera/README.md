@@ -266,6 +266,19 @@ Provides:
 
 This keeps camera-specific presentation and diagnostic text reusable without leaving it in example-local glue.
 
+### `CCameraPresentationUtilities.hpp`
+
+Reusable presentation-oriented wrappers built on top of shared camera analysis and text helpers.
+
+Provides:
+
+- exact-vs-best-effort preset presentation filtering
+- presentation-ready apply-analysis structs
+- presentation-ready capture-analysis structs
+- ready-to-render compatibility and policy labels
+
+This keeps higher-level preset and capture presentation flow reusable without leaving it in example-local glue.
+
 ### `CCameraPreset.hpp`
 
 Reusable preset and keyframe state plus JSON IO.

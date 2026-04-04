@@ -484,38 +484,9 @@ class App final : public examples::SimpleWindowedApplication
 		using CameraKeyframe = CCameraKeyframe;
 		using CameraKeyframeTrack = CCameraKeyframeTrack;
 
-		enum class PresetFilterMode : uint8_t
-		{
-			All,
-			Exact,
-			BestEffort
-		};
-
-		struct PresetUiAnalysis : SCameraGoalApplyAnalysis
-		{
-			std::string compatibilityLabel;
-			std::string policyLabel;
-
-			inline bool matchesFilter(const PresetFilterMode mode) const
-			{
-				switch (mode)
-				{
-					case PresetFilterMode::All:
-						return true;
-					case PresetFilterMode::Exact:
-						return hasCamera && exact();
-					case PresetFilterMode::BestEffort:
-						return hasCamera && !exact();
-					default:
-						return true;
-				}
-			}
-		};
-
-		struct CaptureUiAnalysis : SCameraCaptureAnalysis
-		{
-			std::string policyLabel;
-		};
+		using PresetFilterMode = EPresetApplyPresentationFilter;
+		using PresetUiAnalysis = SCameraGoalApplyPresentation;
+		using CaptureUiAnalysis = SCameraCapturePresentation;
 
 		struct CameraPlaybackState : CCameraPlaybackCursor
 		{
@@ -999,19 +970,12 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
-			PresetUiAnalysis analysis;
-			static_cast<SCameraGoalApplyAnalysis&>(analysis) = nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset);
-			analysis.compatibilityLabel = nbl::hlsl::describeGoalApplyCompatibility(analysis, camera);
-			analysis.policyLabel = nbl::hlsl::describeGoalApplyPolicy(analysis);
-			return analysis;
+			return nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
 		}
 
 		inline CaptureUiAnalysis analyzeCameraCaptureForUi(ICamera* camera) const
 		{
-			CaptureUiAnalysis analysis;
-			static_cast<SCameraCaptureAnalysis&>(analysis) = nbl::hlsl::analyzeCameraCapture(m_cameraGoalSolver, camera);
-			analysis.policyLabel = nbl::hlsl::describeCameraCapturePolicy(analysis, camera);
-			return analysis;
+			return nbl::hlsl::analyzeCapturePresentation(m_cameraGoalSolver, camera);
 		}
 
 		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
