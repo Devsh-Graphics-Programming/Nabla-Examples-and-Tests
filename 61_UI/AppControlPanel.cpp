@@ -868,9 +868,9 @@ void App::DrawControlPanel()
 						}
 						DrawHoverHint("Stop playback and reset time");
 
-						if (!m_keyframes.empty())
+						if (!m_keyframeTrack.keyframes.empty())
 						{
-							const float duration = m_keyframes.back().time;
+							const float duration = m_keyframeTrack.keyframes.back().time;
 							if (ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f"))
 								applyPlaybackAtTime(m_playback.time);
 						}
@@ -879,7 +879,7 @@ void App::DrawControlPanel()
 							const ImVec4 playbackColor = m_playbackApplyBanner.succeeded ? (m_playbackApplyBanner.approximate ? warn : good) : bad;
 							ImGui::TextColored(playbackColor, "%s", m_playbackApplyBanner.summary.c_str());
 						}
-						if (!m_keyframes.empty())
+						if (!m_keyframeTrack.keyframes.empty())
 						{
 							CameraPreset playbackPreviewPreset;
 							if (tryBuildPlaybackPresetAtTime(m_playback.time, playbackPreviewPreset))
@@ -910,7 +910,7 @@ void App::DrawControlPanel()
 							m_newKeyframeTime = authoredTime;
 							if (tryCapturePreset(activeCamera, "Keyframe", keyframe.preset))
 							{
-								m_keyframes.emplace_back(std::move(keyframe));
+								m_keyframeTrack.keyframes.emplace_back(std::move(keyframe));
 								sortKeyframesByTime();
 								selectKeyframeNearestTime(authoredTime);
 							}
@@ -926,24 +926,23 @@ void App::DrawControlPanel()
 						ImGui::SameLine();
 						if (ImGui::Button("Clear keyframes"))
 						{
-							m_keyframes.clear();
-							m_selectedKeyframeIx = -1;
+							m_keyframeTrack = {};
 							m_playback.time = 0.f;
 							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Remove all keyframes");
 
-						if (!m_keyframes.empty())
+						if (!m_keyframeTrack.keyframes.empty())
 						{
 							normalizeSelectedKeyframe();
 							if (ImGui::BeginChild("KeyframeList", ImVec2(0, 120), true))
 							{
-								for (size_t i = 0; i < m_keyframes.size(); ++i)
+								for (size_t i = 0; i < m_keyframeTrack.keyframes.size(); ++i)
 								{
 									char label[128];
-									snprintf(label, sizeof(label), "[%zu] t=%.3f  %s", i, m_keyframes[i].time, m_keyframes[i].preset.name.c_str());
-									if (ImGui::Selectable(label, m_selectedKeyframeIx == static_cast<int>(i)))
-										m_selectedKeyframeIx = static_cast<int>(i);
+									snprintf(label, sizeof(label), "[%zu] t=%.3f  %s", i, m_keyframeTrack.keyframes[i].time, m_keyframeTrack.keyframes[i].preset.name.c_str());
+									if (ImGui::Selectable(label, m_keyframeTrack.selectedKeyframeIx == static_cast<int>(i)))
+										m_keyframeTrack.selectedKeyframeIx = static_cast<int>(i);
 								}
 							}
 							ImGui::EndChild();
@@ -1022,10 +1021,10 @@ void App::DrawControlPanel()
 								ImGui::SameLine();
 								if (ImGui::Button("Remove selected"))
 								{
-									m_keyframes.erase(m_keyframes.begin() + m_selectedKeyframeIx);
+									m_keyframeTrack.keyframes.erase(m_keyframeTrack.keyframes.begin() + m_keyframeTrack.selectedKeyframeIx);
 									normalizeSelectedKeyframe();
 									clampPlaybackTimeToKeyframes();
-									if (m_keyframes.empty())
+									if (m_keyframeTrack.keyframes.empty())
 										clearApplyStatusBanner(m_playbackApplyBanner);
 								}
 								DrawHoverHint("Remove selected keyframe");

@@ -482,6 +482,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		using CameraPreset = CCameraPreset;
 		using CameraKeyframe = CCameraKeyframe;
+		using CameraKeyframeTrack = CCameraKeyframeTrack;
 
 		enum class PresetFilterMode : uint8_t
 		{
@@ -1566,32 +1567,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
 		{
-			if (m_keyframes.empty())
-				return false;
-
-			if (m_keyframes.size() == 1u)
-			{
-				preset = m_keyframes.front().preset;
-				return true;
-			}
-
-			const auto clampedTime = std::clamp(time, 0.f, m_keyframes.back().time);
-			size_t idx = 0u;
-			while (idx + 1u < m_keyframes.size() && m_keyframes[idx + 1u].time < clampedTime)
-				++idx;
-
-			const auto& a = m_keyframes[idx];
-			const auto& b = m_keyframes[std::min(idx + 1u, m_keyframes.size() - 1u)];
-			if (b.time <= a.time)
-			{
-				preset = a.preset;
-				return true;
-			}
-
-			const double alpha = static_cast<double>(clampedTime - a.time) / static_cast<double>(b.time - a.time);
-			preset = a.preset;
-			nbl::hlsl::assignGoalToPreset(preset, nbl::hlsl::blendGoals(nbl::hlsl::makeGoalFromPreset(a.preset), nbl::hlsl::makeGoalFromPreset(b.preset), alpha));
-			return true;
+			return nbl::hlsl::tryBuildKeyframeTrackPresetAtTime(m_keyframeTrack, time, preset);
 		}
 
 		inline bool applyPlaybackAtTime(const float time)
@@ -1609,71 +1585,32 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void sortKeyframesByTime()
 		{
-			std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+			nbl::hlsl::sortKeyframeTrackByTime(m_keyframeTrack);
 		}
 
 		inline void clampPlaybackTimeToKeyframes()
 		{
-			if (m_keyframes.empty())
-			{
-				m_playback.time = 0.f;
-				return;
-			}
-
-			m_playback.time = std::clamp(m_playback.time, 0.f, m_keyframes.back().time);
+			nbl::hlsl::clampTrackTimeToKeyframes(m_keyframeTrack, m_playback.time);
 		}
 
 		inline int selectKeyframeNearestTime(const float time)
 		{
-			if (m_keyframes.empty())
-			{
-				m_selectedKeyframeIx = -1;
-				return m_selectedKeyframeIx;
-			}
-
-			size_t bestIx = 0u;
-			float bestDelta = std::abs(m_keyframes.front().time - time);
-			for (size_t i = 1u; i < m_keyframes.size(); ++i)
-			{
-				const float delta = std::abs(m_keyframes[i].time - time);
-				if (delta < bestDelta)
-				{
-					bestDelta = delta;
-					bestIx = i;
-				}
-			}
-
-			m_selectedKeyframeIx = static_cast<int>(bestIx);
-			return m_selectedKeyframeIx;
+			return nbl::hlsl::selectKeyframeTrackNearestTime(m_keyframeTrack, time);
 		}
 
 		inline void normalizeSelectedKeyframe()
 		{
-			if (m_keyframes.empty())
-			{
-				m_selectedKeyframeIx = -1;
-				return;
-			}
-
-			if (m_selectedKeyframeIx < 0)
-				m_selectedKeyframeIx = 0;
-			else if (m_selectedKeyframeIx >= static_cast<int>(m_keyframes.size()))
-				m_selectedKeyframeIx = static_cast<int>(m_keyframes.size()) - 1;
+			nbl::hlsl::normalizeSelectedKeyframeTrack(m_keyframeTrack);
 		}
 
 		inline CameraKeyframe* getSelectedKeyframe()
 		{
-			normalizeSelectedKeyframe();
-			if (m_selectedKeyframeIx < 0)
-				return nullptr;
-			return &m_keyframes[static_cast<size_t>(m_selectedKeyframeIx)];
+			return nbl::hlsl::getSelectedKeyframe(m_keyframeTrack);
 		}
 
 		inline const CameraKeyframe* getSelectedKeyframe() const
 		{
-			if (m_selectedKeyframeIx < 0 || m_selectedKeyframeIx >= static_cast<int>(m_keyframes.size()))
-				return nullptr;
-			return &m_keyframes[static_cast<size_t>(m_selectedKeyframeIx)];
+			return nbl::hlsl::getSelectedKeyframe(m_keyframeTrack);
 		}
 
 		inline bool replaceSelectedKeyframeFromCamera(ICamera* camera)
@@ -1687,18 +1624,17 @@ class App final : public examples::SimpleWindowedApplication
 			if (!tryCapturePreset(camera, keyframeName, updatedPreset))
 				return false;
 
-			selected->preset = std::move(updatedPreset);
-			return true;
+			return nbl::hlsl::replaceSelectedKeyframePreset(m_keyframeTrack, std::move(updatedPreset));
 		}
 
 		inline void updatePlayback(double dtSec)
 		{
-			if (!m_playback.playing || m_keyframes.empty())
+			if (!m_playback.playing || m_keyframeTrack.keyframes.empty())
 				return;
 
 			m_playback.time += static_cast<float>(dtSec * m_playback.speed);
 
-			const float duration = m_keyframes.back().time;
+			const float duration = m_keyframeTrack.keyframes.back().time;
 			if (duration <= 0.f)
 			{
 				applyPlaybackAtTime(m_playback.time);
@@ -1758,20 +1694,10 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool saveKeyframesToFile(const system::path& path)
 		{
-			nbl_json root;
-			root["keyframes"] = nbl_json::array();
-
-			for (const auto& keyframe : m_keyframes)
-			{
-				auto j = nbl::hlsl::serializePreset(keyframe.preset);
-				j["time"] = keyframe.time;
-				root["keyframes"].push_back(std::move(j));
-			}
-
 			std::ofstream out(path.string(), std::ios::binary);
 			if (!out)
 				return false;
-			out << root.dump(2);
+			out << nbl::hlsl::serializeKeyframeTrack(m_keyframeTrack).dump(2);
 			return true;
 		}
 
@@ -1783,23 +1709,11 @@ class App final : public examples::SimpleWindowedApplication
 
 			nbl_json root;
 			in >> root;
-			if (!root.contains("keyframes"))
+			if (!nbl::hlsl::deserializeKeyframeTrack(root, m_keyframeTrack))
 				return false;
 
-			m_keyframes.clear();
-			for (const auto& entry : root["keyframes"])
-			{
-				CameraKeyframe keyframe;
-				if (entry.contains("time"))
-					keyframe.time = std::max(0.f, entry["time"].get<float>());
-				nbl::hlsl::deserializePreset(entry, keyframe.preset);
-				m_keyframes.emplace_back(std::move(keyframe));
-			}
-
-			sortKeyframesByTime();
 			clampPlaybackTimeToKeyframes();
-			normalizeSelectedKeyframe();
-			if (m_keyframes.empty())
+			if (m_keyframeTrack.keyframes.empty())
 				clearApplyStatusBanner(m_playbackApplyBanner);
 			return true;
 		}
@@ -2336,14 +2250,13 @@ class App final : public examples::SimpleWindowedApplication
 		bool m_logWrap = true;
 		std::vector<CameraPreset> m_presets;
 		std::vector<CameraPreset> m_initialPlanarPresets;
-		std::vector<CameraKeyframe> m_keyframes;
+		CameraKeyframeTrack m_keyframeTrack;
 		CameraPlaybackState m_playback;
 		CCameraGoalSolver m_cameraGoalSolver;
 		ApplyStatusBanner m_manualPresetApplyBanner;
 		ApplyStatusBanner m_playbackApplyBanner;
 		PresetFilterMode m_presetFilterMode = PresetFilterMode::All;
 		int m_selectedPresetIx = -1;
-		int m_selectedKeyframeIx = -1;
 		bool m_playbackAffectsAll = false;
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";
