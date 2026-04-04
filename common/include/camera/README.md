@@ -9,6 +9,7 @@ The current design goal is:
 - raw input binding stays outside the camera
 - absolute goals and preset restore are best-effort helpers layered on top
 - reusable math, preset, analysis, and keyframe-track utilities live in shared headers
+- reusable playback cursor and timeline helpers live in shared headers
 - `61_UI` is the current integration and validation surface
 
 ## Mental model
@@ -33,6 +34,10 @@ The intended flow is:
 The best-effort absolute layer sits beside that flow:
 
 `camera state <-> CCameraGoal <-> CCameraPreset <-> CCameraKeyframeTrack`
+
+and the playback cursor sits beside that state:
+
+`CCameraPlaybackCursor <-> CCameraKeyframeTrack`
 
 ## Core contracts
 
@@ -273,6 +278,20 @@ Provides:
 
 This keeps playback-authoring logic reusable without forcing examples to reimplement keyframe math and storage flow.
 
+### `CCameraPlaybackTimeline.hpp`
+
+Reusable playback cursor and timeline helpers on top of keyframe tracks.
+
+Provides:
+
+- `CCameraPlaybackCursor`
+- `SCameraPlaybackAdvanceResult`
+- track duration helpers
+- cursor reset and clamping
+- per-frame time advance with loop and stop semantics
+
+This keeps playback-time progression reusable without forcing examples to reimplement cursor stepping rules.
+
 ## Current integration status
 
 The shared headers above are designed to be reusable by additional examples.
@@ -291,11 +310,12 @@ If another example wants to adopt this stack later, the intended path is:
 2. Store default binding layouts on the camera and/or planar projection.
 3. Use `CGimbalInputBinder` at runtime to translate external input into virtual events.
 4. Feed the resulting event stream into `ICamera::manipulate(...)`.
-5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, and `CCameraPreset` only for tooling features such as:
+5. Use `CCameraGoalSolver`, `CCameraGoalAnalysis`, `CCameraPreset`, `CCameraKeyframeTrack`, and `CCameraPlaybackTimeline` only for tooling features such as:
    - preset capture
    - preset restore
    - compatibility preview
    - playback interpolation
+   - playback cursor stepping
    - scripted validation
 
 That keeps the hot runtime path event-driven while still allowing higher-level tools to work with absolute camera goals in a controlled way.

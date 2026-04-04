@@ -862,15 +862,14 @@ void App::DrawControlPanel()
 						ImGui::SameLine();
 						if (ImGui::Button("Stop"))
 						{
-							m_playback.playing = false;
-							m_playback.time = 0.f;
+							nbl::hlsl::resetPlaybackCursor(m_playback);
 							applyPlaybackAtTime(m_playback.time);
 						}
 						DrawHoverHint("Stop playback and reset time");
 
 						if (!m_keyframeTrack.keyframes.empty())
 						{
-							const float duration = m_keyframeTrack.keyframes.back().time;
+							const float duration = nbl::hlsl::getPlaybackTrackDuration(m_keyframeTrack);
 							if (ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f"))
 								applyPlaybackAtTime(m_playback.time);
 						}
@@ -927,7 +926,7 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Clear keyframes"))
 						{
 							m_keyframeTrack = {};
-							m_playback.time = 0.f;
+							nbl::hlsl::resetPlaybackCursor(m_playback);
 							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Remove all keyframes");

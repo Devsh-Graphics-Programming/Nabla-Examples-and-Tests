@@ -20,6 +20,7 @@
 #include "camera/CPathCamera.hpp"
 #include "camera/CCameraPreset.hpp"
 #include "camera/CCameraKeyframeTrack.hpp"
+#include "camera/CCameraPlaybackTimeline.hpp"
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CGimbalInputBinder.hpp"
@@ -62,6 +63,8 @@ using nbl::hlsl::CCameraGoal;
 using nbl::hlsl::CCameraPreset;
 using nbl::hlsl::CCameraKeyframe;
 using nbl::hlsl::CCameraKeyframeTrack;
+using nbl::hlsl::CCameraPlaybackCursor;
+using nbl::hlsl::SCameraPlaybackAdvanceResult;
 using nbl::hlsl::SCameraGoalApplyAnalysis;
 using nbl::hlsl::SCameraCaptureAnalysis;
 using nbl::hlsl::CCameraGoalSolver;

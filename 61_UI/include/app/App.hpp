@@ -517,13 +517,9 @@ class App final : public examples::SimpleWindowedApplication
 			std::string policyLabel;
 		};
 
-		struct CameraPlaybackState
+		struct CameraPlaybackState : CCameraPlaybackCursor
 		{
-			bool playing = false;
-			bool loop = true;
 			bool overrideInput = true;
-			float speed = 1.f;
-			float time = 0.f;
 		};
 
 		struct PlaybackApplySummary
@@ -1590,7 +1586,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void clampPlaybackTimeToKeyframes()
 		{
-			nbl::hlsl::clampTrackTimeToKeyframes(m_keyframeTrack, m_playback.time);
+			nbl::hlsl::clampPlaybackCursorToTrack(m_keyframeTrack, m_playback);
 		}
 
 		inline int selectKeyframeNearestTime(const float time)
@@ -1629,28 +1625,9 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void updatePlayback(double dtSec)
 		{
-			if (!m_playback.playing || m_keyframeTrack.keyframes.empty())
+			const auto advance = nbl::hlsl::advancePlaybackCursor(m_playback, m_keyframeTrack, dtSec);
+			if (!advance.hasTrack || !advance.changedTime)
 				return;
-
-			m_playback.time += static_cast<float>(dtSec * m_playback.speed);
-
-			const float duration = m_keyframeTrack.keyframes.back().time;
-			if (duration <= 0.f)
-			{
-				applyPlaybackAtTime(m_playback.time);
-				return;
-			}
-
-			if (m_playback.loop)
-			{
-				while (m_playback.time > duration)
-					m_playback.time -= duration;
-			}
-			else if (m_playback.time > duration)
-			{
-				m_playback.time = duration;
-				m_playback.playing = false;
-			}
 
 			applyPlaybackAtTime(m_playback.time);
 		}
