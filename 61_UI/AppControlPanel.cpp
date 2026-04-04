@@ -850,6 +850,9 @@ void App::DrawControlPanel()
 						{
 							m_playback.playing = false;
 							m_playback.time = 0.f;
+							m_lastPlaybackApplySummary.clear();
+							m_lastPlaybackApplySucceeded = false;
+							m_lastPlaybackApplyApproximate = false;
 						}
 						DrawHoverHint("Stop playback and reset time");
 
@@ -857,6 +860,11 @@ void App::DrawControlPanel()
 						{
 							const float duration = m_keyframes.back().time;
 							ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f");
+						}
+						if (!m_lastPlaybackApplySummary.empty())
+						{
+							const ImVec4 playbackColor = m_lastPlaybackApplySucceeded ? (m_lastPlaybackApplyApproximate ? warn : good) : bad;
+							ImGui::TextColored(playbackColor, "%s", m_lastPlaybackApplySummary.c_str());
 						}
 
 						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
@@ -874,7 +882,12 @@ void App::DrawControlPanel()
 						DrawHoverHint("Add keyframe from current camera");
 						ImGui::SameLine();
 						if (ImGui::Button("Clear keyframes"))
+						{
 							m_keyframes.clear();
+							m_lastPlaybackApplySummary.clear();
+							m_lastPlaybackApplySucceeded = false;
+							m_lastPlaybackApplyApproximate = false;
+						}
 						DrawHoverHint("Remove all keyframes");
 
 						if (!m_keyframes.empty())

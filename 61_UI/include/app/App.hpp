@@ -550,6 +550,29 @@ class App final : public examples::SimpleWindowedApplication
 			float time = 0.f;
 		};
 
+		struct PlaybackApplySummary
+		{
+			uint32_t targetCount = 0u;
+			uint32_t successCount = 0u;
+			uint32_t approximateCount = 0u;
+			uint32_t failureCount = 0u;
+
+			inline bool hasTargets() const
+			{
+				return targetCount > 0u;
+			}
+
+			inline bool succeeded() const
+			{
+				return hasTargets() && failureCount == 0u;
+			}
+
+			inline bool approximate() const
+			{
+				return approximateCount > 0u;
+			}
+		};
+
 		struct CameraControlSettings
 		{
 			bool mirrorInput = false;
@@ -1681,6 +1704,27 @@ class App final : public examples::SimpleWindowedApplication
 			return applyPresetToCameraDetailed(camera, preset).succeeded();
 		}
 
+		inline std::string describePlaybackApplySummary(const PlaybackApplySummary& summary) const
+		{
+			if (!summary.hasTargets())
+				return m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera";
+
+			std::ostringstream oss;
+			oss << "Playback apply | targets=" << summary.targetCount << " | ok=" << summary.successCount;
+			if (summary.approximateCount > 0u)
+				oss << " | approximate=" << summary.approximateCount;
+			if (summary.failureCount > 0u)
+				oss << " | failed=" << summary.failureCount;
+			return oss.str();
+		}
+
+		inline void storePlaybackApplySummary(const PlaybackApplySummary& summary)
+		{
+			m_lastPlaybackApplySummary = describePlaybackApplySummary(summary);
+			m_lastPlaybackApplySucceeded = summary.succeeded();
+			m_lastPlaybackApplyApproximate = summary.approximate();
+		}
+
 		inline void appendVirtualEventLog(std::string_view source, std::string_view controller, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
 		{
 			m_uiVirtualEventsThisFrame += count;
@@ -1841,12 +1885,32 @@ class App final : public examples::SimpleWindowedApplication
 			count = static_cast<uint32_t>(events.size());
 		}
 
-		inline void applyPresetToTargets(const CameraPreset& preset)
+		inline PlaybackApplySummary applyPresetToTargets(const CameraPreset& preset)
 		{
+			PlaybackApplySummary summary;
+			auto applyToCamera = [&](ICamera* camera) -> void
+			{
+				if (!camera)
+					return;
+
+				++summary.targetCount;
+				const auto result = applyPresetToCameraDetailed(camera, preset);
+				if (result.succeeded())
+				{
+					++summary.successCount;
+					if (result.approximate())
+						++summary.approximateCount;
+				}
+				else
+				{
+					++summary.failureCount;
+				}
+			};
+
 			if (!m_playbackAffectsAll)
 			{
-				applyPresetToCamera(getActiveCamera(), preset);
-				return;
+				applyToCamera(getActiveCamera());
+				return summary;
 			}
 
 			std::unordered_set<uintptr_t> visited;
@@ -1860,8 +1924,10 @@ class App final : public examples::SimpleWindowedApplication
 					continue;
 				const auto id = camera->getGimbal().getID();
 				if (visited.insert(id).second)
-					applyPresetToCamera(camera, preset);
+					applyToCamera(camera);
 			}
+
+			return summary;
 		}
 
 		inline void updatePlayback(double dtSec)
@@ -1874,7 +1940,7 @@ class App final : public examples::SimpleWindowedApplication
 			const float duration = m_keyframes.back().time;
 			if (duration <= 0.f)
 			{
-				applyPresetToTargets(m_keyframes.back().preset);
+				storePlaybackApplySummary(applyPresetToTargets(m_keyframes.back().preset));
 				return;
 			}
 
@@ -1892,7 +1958,7 @@ class App final : public examples::SimpleWindowedApplication
 			const auto time = m_playback.time;
 			if (m_keyframes.size() == 1)
 			{
-				applyPresetToTargets(m_keyframes.front().preset);
+				storePlaybackApplySummary(applyPresetToTargets(m_keyframes.front().preset));
 				return;
 			}
 
@@ -1905,7 +1971,7 @@ class App final : public examples::SimpleWindowedApplication
 
 			if (b.time <= a.time)
 			{
-				applyPresetToTargets(a.preset);
+				storePlaybackApplySummary(applyPresetToTargets(a.preset));
 				return;
 			}
 
@@ -1914,7 +1980,7 @@ class App final : public examples::SimpleWindowedApplication
 			CameraPreset blended = a.preset;
 			assignGoalToPreset(blended, blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
 
-			applyPresetToTargets(blended);
+			storePlaybackApplySummary(applyPresetToTargets(blended));
 		}
 
 		inline bool savePresetsToFile(const system::path& path)
@@ -2503,6 +2569,9 @@ class App final : public examples::SimpleWindowedApplication
 		std::string m_lastPresetApplySummary;
 		bool m_lastPresetApplySucceeded = false;
 		bool m_lastPresetApplyApproximate = false;
+		std::string m_lastPlaybackApplySummary;
+		bool m_lastPlaybackApplySucceeded = false;
+		bool m_lastPlaybackApplyApproximate = false;
 		PresetFilterMode m_presetFilterMode = PresetFilterMode::All;
 		int m_selectedPresetIx = -1;
 		bool m_playbackAffectsAll = false;
