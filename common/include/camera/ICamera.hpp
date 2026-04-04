@@ -12,9 +12,21 @@
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-class ICamera : public IGimbalBindingLayout, virtual public core::IReferenceCounted
+class ICamera : virtual public core::IReferenceCounted
 { 
 public:
+    using binding_layout_t = IGimbalBindingLayout;
+    using gimbal_event_t = binding_layout_t::gimbal_event_t;
+    using encode_keyboard_code_t = binding_layout_t::encode_keyboard_code_t;
+    using encode_mouse_code_t = binding_layout_t::encode_mouse_code_t;
+    using encode_imguizmo_code_t = binding_layout_t::encode_imguizmo_code_t;
+    using EncoderType = binding_layout_t::EncoderType;
+    using CKeyInfo = binding_layout_t::CKeyInfo;
+    using CHashInfo = binding_layout_t::CHashInfo;
+    using keyboard_to_virtual_events_t = binding_layout_t::keyboard_to_virtual_events_t;
+    using mouse_to_virtual_events_t = binding_layout_t::mouse_to_virtual_events_t;
+    using imguizmo_to_virtual_events_t = binding_layout_t::imguizmo_to_virtual_events_t;
+
     struct SRigConfig
     {
         double moveSpeedScale = 0.01;
@@ -107,13 +119,26 @@ public:
     ICamera() {}
 	virtual ~ICamera() = default;
 
-    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getKeyboardVirtualEventMap(); }
-    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getMouseVirtualEventMap(); }
-    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getImguizmoVirtualEventMap(); }
+    virtual const keyboard_to_virtual_events_t getKeyboardMappingPreset() const { return {}; }
+    virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
+    virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
 
-    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateKeyboardMapping(mapKeys); }
-    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateMouseMapping(mapKeys); }
-    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateImguizmoMapping(mapKeys); }
+    inline const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getKeyboardVirtualEventMap(); }
+    inline const mouse_to_virtual_events_t& getMouseVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getMouseVirtualEventMap(); }
+    inline const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getImguizmoVirtualEventMap(); }
+
+    inline void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateKeyboardMapping(mapKeys); }
+    inline void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateMouseMapping(mapKeys); }
+    inline void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateImguizmoMapping(mapKeys); }
+
+    inline const IGimbalBindingLayout& getDefaultInputBindingLayout() const { return m_rigConfig.defaultInputBinding; }
+    inline IGimbalBindingLayout& getDefaultInputBindingLayout() { return m_rigConfig.defaultInputBinding; }
+    inline void copyDefaultInputBindingPresetTo(IGimbalBindingLayout& layout) const
+    {
+        layout.updateKeyboardMapping([&](auto& map) { map = getKeyboardMappingPreset(); });
+        layout.updateMouseMapping([&](auto& map) { map = getMouseMappingPreset(); });
+        layout.updateImguizmoMapping([&](auto& map) { map = getImguizmoMappingPreset(); });
+    }
 
 	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
@@ -206,9 +231,7 @@ public:
     inline const SRigConfig& getRigConfig() const { return m_rigConfig; }
     inline void resetDefaultInputBindingToPreset()
     {
-        updateKeyboardMapping([&](auto& map) { map = getKeyboardMappingPreset(); });
-        updateMouseMapping([&](auto& map) { map = getMouseMappingPreset(); });
-        updateImguizmoMapping([&](auto& map) { map = getImguizmoMappingPreset(); });
+        copyDefaultInputBindingPresetTo(m_rigConfig.defaultInputBinding);
     }
 
 protected:

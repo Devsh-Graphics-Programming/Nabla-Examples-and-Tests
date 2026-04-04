@@ -423,7 +423,7 @@ void App::update()
 				auto* camera = planar->getCamera();
 
 				CGimbalInputBinder imguizmoBinding;
-				imguizmoBinding.copyDefaultBindingsFromLayout(*camera);
+				camera->copyDefaultInputBindingPresetTo(imguizmoBinding);
 				auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
 					.imguizmoEvents = { scriptedImguizmo.data(), scriptedImguizmo.size() }
 				});

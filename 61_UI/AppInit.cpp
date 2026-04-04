@@ -401,7 +401,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Null camera instance.");
 
 					CGimbalInputBinder inputBinder;
-					inputBinder.copyDefaultBindingsFromLayout(*camera);
+					camera->copyDefaultInputBindingPresetTo(inputBinder);
 
 					const auto initialPreset = capturePreset(camera, "smoke-initial");
 					const auto initialCompatibility = analyzePresetCompatibility(camera, initialPreset);
@@ -543,7 +543,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					double keyboardRotDelta = 0.0;
 					for (const auto key : keyboardCandidates)
 					{
-						inputBinder.copyDefaultBindingsFromLayout(*camera);
+						camera->copyDefaultInputBindingPresetTo(inputBinder);
 						auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 						if (keyboardEvents.empty())
 							continue;
@@ -585,7 +585,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (isOrbitLikeCamera(camera) && hasBlockedMovement)
 							return fail("Orbit mouse movement gate failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						inputBinder.copyDefaultBindingsFromLayout(*camera);
+						camera->copyDefaultInputBindingPresetTo(inputBinder);
 						auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -605,7 +605,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
 						auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
 
-						inputBinder.copyDefaultBindingsFromLayout(*camera);
+						camera->copyDefaultInputBindingPresetTo(inputBinder);
 						auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
