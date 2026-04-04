@@ -55,9 +55,7 @@ namespace
 	{
 		camera.setMoveSpeedScale(moveScale);
 		camera.setRotationSpeedScale(rotationScale);
-		camera.updateKeyboardMapping([&](auto& map) { map = camera.getKeyboardMappingPreset(); });
-		camera.updateMouseMapping([&](auto& map) { map = camera.getMouseMappingPreset(); });
-		camera.updateImguizmoMapping([&](auto& map) { map = camera.getImguizmoMappingPreset(); });
+		camera.resetDefaultInputBindingToPreset();
 	}
 
 	bool createCameraFromJson(const nbl_json& jCamera, std::string& error, smart_refctd_ptr<nbl::hlsl::ICamera>& outCamera)

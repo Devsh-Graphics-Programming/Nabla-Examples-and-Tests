@@ -204,6 +204,12 @@ public:
     inline double getMoveSpeedScale() const { return m_rigConfig.moveSpeedScale; }
     inline double getRotationSpeedScale() const { return m_rigConfig.rotationSpeedScale; }
     inline const SRigConfig& getRigConfig() const { return m_rigConfig; }
+    inline void resetDefaultInputBindingToPreset()
+    {
+        updateKeyboardMapping([&](auto& map) { map = getKeyboardMappingPreset(); });
+        updateMouseMapping([&](auto& map) { map = getMouseMappingPreset(); });
+        updateImguizmoMapping([&](auto& map) { map = getImguizmoMappingPreset(); });
+    }
 
 protected:
     SRigConfig m_rigConfig;
