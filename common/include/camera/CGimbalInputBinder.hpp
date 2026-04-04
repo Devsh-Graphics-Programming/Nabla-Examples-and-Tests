@@ -1,6 +1,8 @@
 #ifndef _NBL_C_GIMBAL_INPUT_BINDER_HPP_
 #define _NBL_C_GIMBAL_INPUT_BINDER_HPP_
 
+#include <vector>
+
 #include "IGimbalController.hpp"
 
 namespace nbl::hlsl
@@ -11,6 +13,19 @@ class CGimbalInputBinder final : public IGimbalController
 public:
     using base_t = IGimbalController;
     using base_t::base_t;
+
+    struct SCollectedVirtualEvents
+    {
+        std::vector<gimbal_event_t> events;
+        uint32_t keyboardCount = 0u;
+        uint32_t mouseCount = 0u;
+        uint32_t imguizmoCount = 0u;
+
+        inline uint32_t totalCount() const
+        {
+            return keyboardCount + mouseCount + imguizmoCount;
+        }
+    };
 
     // Runtime input binder. It translates external keyboard/mouse/ImGuizmo input into virtual events.
     inline void clearActiveBindings()
@@ -59,6 +74,49 @@ public:
     inline void copyBindingLayoutTo(IGimbalManipulateEncoder& encoder) const
     {
         copyActiveBindingsToEncoder(encoder);
+    }
+
+    inline SCollectedVirtualEvents collectVirtualEvents(
+        const std::chrono::microseconds nextPresentationTimeStamp,
+        const SUpdateParameters parameters = {})
+    {
+        beginInputProcessing(nextPresentationTimeStamp);
+
+        SCollectedVirtualEvents output;
+        uint32_t keyboardPotentialCount = 0u;
+        uint32_t mousePotentialCount = 0u;
+        uint32_t imguizmoPotentialCount = 0u;
+
+        processKeyboard(nullptr, keyboardPotentialCount, {});
+        processMouse(nullptr, mousePotentialCount, {});
+        processImguizmo(nullptr, imguizmoPotentialCount, {});
+
+        output.events.resize(keyboardPotentialCount + mousePotentialCount + imguizmoPotentialCount);
+        auto* dst = output.events.data();
+
+        if (keyboardPotentialCount)
+        {
+            output.keyboardCount = keyboardPotentialCount;
+            processKeyboard(dst, output.keyboardCount, parameters.keyboardEvents);
+            dst += output.keyboardCount;
+        }
+
+        if (mousePotentialCount)
+        {
+            output.mouseCount = mousePotentialCount;
+            processMouse(dst, output.mouseCount, parameters.mouseEvents);
+            dst += output.mouseCount;
+        }
+
+        if (imguizmoPotentialCount)
+        {
+            output.imguizmoCount = imguizmoPotentialCount;
+            processImguizmo(dst, output.imguizmoCount, parameters.imguizmoEvents);
+        }
+
+        endInputProcessing();
+        output.events.resize(output.totalCount());
+        return output;
     }
 
 private:

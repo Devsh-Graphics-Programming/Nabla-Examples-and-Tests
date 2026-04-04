@@ -319,54 +319,38 @@ void App::update()
 				assert(binding.boundProjectionIx.has_value());
 				auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 
-				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-				uint32_t vCount = {};
-				uint32_t vKeyboardEventsCount = {};
-				uint32_t vMouseEventsCount = {};
-
 				syncWindowInputBinding(binding);
 				auto& inputBinder = binding.inputBinding;
 
-				inputBinder.beginInputProcessing(m_nextPresentationTimestamp);
+				std::vector<SMouseEvent> filteredOrbitMouseEvents;
+				std::span<const SMouseEvent> mouseInput = { cameraMouseEvents.data(), cameraMouseEvents.size() };
+				if (isOrbitLikeCamera(camera))
 				{
-					inputBinder.processKeyboard(nullptr, vKeyboardEventsCount, {});
-					inputBinder.processMouse(nullptr, vMouseEventsCount, {});
-
-					const auto totalCount = vKeyboardEventsCount + vMouseEventsCount;
-					if (virtualEvents.size() < totalCount)
-						virtualEvents.resize(totalCount);
-
-					auto* output = virtualEvents.data();
-					inputBinder.processKeyboard(output, vKeyboardEventsCount, { cameraKeyboardEvents.data(), cameraKeyboardEvents.size() });
-					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
-						output[i].magnitude *= m_cameraControls.keyboardScale;
-					output += vKeyboardEventsCount;
-
-					if (isOrbitLikeCamera(camera))
+					const bool orbitLookDown = ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+						(m_scriptedInput.enabled && (m_scriptedInput.scriptedLeftMouseDown || m_scriptedInput.scriptedRightMouseDown));
+					filteredOrbitMouseEvents.reserve(cameraMouseEvents.size());
+					for (const auto& ev : cameraMouseEvents)
 					{
-						const bool orbitLookDown = ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
-							(m_scriptedInput.enabled && (m_scriptedInput.scriptedLeftMouseDown || m_scriptedInput.scriptedRightMouseDown));
-						std::vector<SMouseEvent> filteredOrbitMouseEvents;
-						filteredOrbitMouseEvents.reserve(cameraMouseEvents.size());
-						for (const auto& ev : cameraMouseEvents)
-						{
-							if (ev.type == ui::SMouseEvent::EET_MOVEMENT && !orbitLookDown)
-								continue;
-							filteredOrbitMouseEvents.emplace_back(ev);
-						}
-						inputBinder.processMouse(output, vMouseEventsCount, { filteredOrbitMouseEvents.data(), filteredOrbitMouseEvents.size() });
+						if (ev.type == ui::SMouseEvent::EET_MOVEMENT && !orbitLookDown)
+							continue;
+						filteredOrbitMouseEvents.emplace_back(ev);
 					}
-					else
-					{
-						inputBinder.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
-					}
-
-					vCount = vKeyboardEventsCount + vMouseEventsCount;
+					mouseInput = { filteredOrbitMouseEvents.data(), filteredOrbitMouseEvents.size() };
 				}
-				inputBinder.endInputProcessing();
+
+				auto collectedEvents = inputBinder.collectVirtualEvents(m_nextPresentationTimestamp, {
+					.keyboardEvents = { cameraKeyboardEvents.data(), cameraKeyboardEvents.size() },
+					.mouseEvents = mouseInput
+				});
+				auto& virtualEvents = collectedEvents.events;
+				const uint32_t vCount = collectedEvents.totalCount();
+				const uint32_t vKeyboardEventsCount = collectedEvents.keyboardCount;
 
 				if (vCount)
 				{
+					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
+						virtualEvents[i].magnitude *= m_cameraControls.keyboardScale;
+
 					applyVirtualEventScaling(virtualEvents, vCount);
 
 					const char* controllerLabel = "Keyboard/Mouse";
@@ -438,20 +422,13 @@ void App::update()
 				auto& planar = m_planarProjections[binding.activePlanarIx];
 				auto* camera = planar->getCamera();
 
-				static std::vector<CVirtualGimbalEvent> imguizmoEvents(0x20);
-				uint32_t vCount = 0u;
 				CGimbalInputBinder imguizmoBinding;
 				imguizmoBinding.copyDefaultBindingsFromEncoder(*camera);
-
-				imguizmoBinding.beginInputProcessing(m_nextPresentationTimestamp);
-				{
-					imguizmoBinding.processImguizmo(nullptr, vCount, {});
-					if (imguizmoEvents.size() < vCount)
-						imguizmoEvents.resize(vCount);
-
-					imguizmoBinding.processImguizmo(imguizmoEvents.data(), vCount, { scriptedImguizmo.data(), scriptedImguizmo.size() });
-				}
-				imguizmoBinding.endInputProcessing();
+				auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
+					.imguizmoEvents = { scriptedImguizmo.data(), scriptedImguizmo.size() }
+				});
+				auto& imguizmoEvents = collectedEvents.events;
+				const uint32_t vCount = collectedEvents.imguizmoCount;
 
 				if (vCount)
 				{

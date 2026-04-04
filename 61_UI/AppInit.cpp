@@ -331,7 +331,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
 				{
-					std::vector<CVirtualGimbalEvent> out;
 					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
 					smokeTimestamp += std::chrono::microseconds(16667);
 					const auto pressTs = smokeTimestamp;
@@ -341,53 +340,19 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					pressEvent.action = SKeyboardEvent::ECA_PRESSED;
 					pressEvent.window = nullptr;
 
-					uint32_t potentialCount = 0u;
-					uint32_t generatedCount = 0u;
-					inputBinder.beginInputProcessing(pressTs);
-					inputBinder.processKeyboard(nullptr, potentialCount, {});
-					if (potentialCount)
-					{
-						std::vector<CVirtualGimbalEvent> warmup(potentialCount);
-						generatedCount = potentialCount;
-						inputBinder.processKeyboard(warmup.data(), generatedCount, { &pressEvent, 1u });
-					}
-					inputBinder.endInputProcessing();
+					inputBinder.collectVirtualEvents(pressTs, { .keyboardEvents = { &pressEvent, 1u } });
 
 					smokeTimestamp += std::chrono::microseconds(16667);
 					const auto sampleTs = smokeTimestamp;
-					inputBinder.beginInputProcessing(sampleTs);
-					inputBinder.processKeyboard(nullptr, potentialCount, {});
-					out.resize(potentialCount);
-					if (potentialCount)
-					{
-						generatedCount = potentialCount;
-						inputBinder.processKeyboard(out.data(), generatedCount, {});
-					}
-					inputBinder.endInputProcessing();
-					out.resize(generatedCount);
-					return out;
+					return inputBinder.collectVirtualEvents(sampleTs).events;
 				};
 
 				auto collectMouseVirtualEvents = [&](CGimbalInputBinder& inputBinder, std::span<const SMouseEvent> mouseEvents) -> std::vector<CVirtualGimbalEvent>
 				{
-					std::vector<CVirtualGimbalEvent> out;
 					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
 					smokeTimestamp += std::chrono::microseconds(16667);
 					const auto ts = smokeTimestamp;
-
-					uint32_t potentialCount = 0u;
-					uint32_t generatedCount = 0u;
-					inputBinder.beginInputProcessing(ts);
-					inputBinder.processMouse(nullptr, potentialCount, {});
-					out.resize(potentialCount);
-					if (potentialCount)
-					{
-						generatedCount = potentialCount;
-						inputBinder.processMouse(out.data(), generatedCount, mouseEvents);
-					}
-					inputBinder.endInputProcessing();
-					out.resize(generatedCount);
-					return out;
+					return inputBinder.collectVirtualEvents(ts, { .mouseEvents = mouseEvents }).events;
 				};
 
 				auto filterOrbitMouseEvents = [&](ICamera* camera, std::span<const SMouseEvent> input, bool orbitLookDown) -> std::vector<SMouseEvent>
