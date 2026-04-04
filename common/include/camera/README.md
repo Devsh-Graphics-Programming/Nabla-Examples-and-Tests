@@ -277,6 +277,7 @@ Provides:
 - presentation-ready apply-analysis structs
 - presentation-ready capture-analysis structs
 - reusable badge flags for apply/result presentation
+- presentation-ready source-kind and goal-state labels
 - ready-to-render compatibility and policy labels
 
 This keeps higher-level preset and capture presentation flow reusable without leaving it in example-local glue.

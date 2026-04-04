@@ -763,15 +763,14 @@ void App::DrawControlPanel()
 								{
 									const auto& preset = m_presets[static_cast<size_t>(m_selectedPresetIx)];
 									const auto presetUi = analyzePresetForUi(activeCamera, preset);
-									const auto presetBadges = nbl::hlsl::collectGoalApplyPresentationBadges(presetUi);
 									const ImVec4 compatibilityColor = !presetUi.hasCamera ? bad : (presetUi.exact() ? good : warn);
 
 									ImGui::TextDisabled("Preset source");
 									ImGui::SameLine();
-									ImGui::TextColored(muted, "%s", getCameraTypeLabel(presetUi.goal.sourceKind).data());
+									ImGui::TextColored(muted, "%s", presetUi.sourceKindLabel.c_str());
 									ImGui::TextDisabled("Goal state");
 									ImGui::SameLine();
-									ImGui::TextColored(muted, "%s", describeGoalStateMask(presetUi.goal.sourceGoalStateMask).c_str());
+									ImGui::TextColored(muted, "%s", presetUi.goalStateLabel.c_str());
 									ImGui::TextDisabled("Policy");
 									ImGui::SameLine();
 									ImGui::TextColored(presetUi.canApply ? compatibilityColor : bad, "%s", presetUi.policyLabel.c_str());
@@ -779,21 +778,21 @@ void App::DrawControlPanel()
 									ImGui::SameLine();
 									ImGui::TextColored(compatibilityColor, "%s", presetUi.compatibilityLabel.c_str());
 
-									if (presetBadges.exact)
+									if (presetUi.badges.exact)
 										DrawBadge("EXACT", good, badgeText);
-									else if (presetBadges.bestEffort)
+									else if (presetUi.badges.bestEffort)
 										DrawBadge("BEST-EFFORT", warn, badgeText);
-									if (presetBadges.dropsState)
+									if (presetUi.badges.dropsState)
 									{
 										ImGui::SameLine();
 										DrawBadge("DROPS STATE", warn, badgeText);
 									}
-									else if (presetBadges.sharedStateOnly)
+									else if (presetUi.badges.sharedStateOnly)
 									{
 										ImGui::SameLine();
 										DrawBadge("SHARED STATE", accent, badgeText);
 									}
-									if (presetBadges.blocked)
+									if (presetUi.badges.blocked)
 									{
 										ImGui::SameLine();
 										DrawBadge("BLOCKED", bad, badgeText);
@@ -957,7 +956,6 @@ void App::DrawControlPanel()
 							if (auto* selectedKeyframe = getSelectedKeyframe())
 							{
 								const auto keyframeUi = analyzePresetForUi(activeCamera, selectedKeyframe->preset);
-								const auto keyframeBadges = nbl::hlsl::collectGoalApplyPresentationBadges(keyframeUi);
 								const ImVec4 compatibilityColor = !keyframeUi.hasCamera ? bad : (keyframeUi.exact() ? good : warn);
 								float selectedTime = selectedKeyframe->time;
 								if (ImGui::InputFloat("Selected time", &selectedTime, 0.1f, 1.f, "%.3f"))
@@ -972,10 +970,10 @@ void App::DrawControlPanel()
 
 								ImGui::TextDisabled("Keyframe source");
 								ImGui::SameLine();
-								ImGui::TextColored(muted, "%s", getCameraTypeLabel(keyframeUi.goal.sourceKind).data());
+								ImGui::TextColored(muted, "%s", keyframeUi.sourceKindLabel.c_str());
 								ImGui::TextDisabled("Goal state");
 								ImGui::SameLine();
-								ImGui::TextColored(muted, "%s", describeGoalStateMask(keyframeUi.goal.sourceGoalStateMask).c_str());
+								ImGui::TextColored(muted, "%s", keyframeUi.goalStateLabel.c_str());
 								ImGui::TextDisabled("Policy");
 								ImGui::SameLine();
 								ImGui::TextColored(keyframeUi.canApply ? compatibilityColor : bad, "%s", keyframeUi.policyLabel.c_str());
@@ -983,21 +981,21 @@ void App::DrawControlPanel()
 								ImGui::SameLine();
 								ImGui::TextColored(compatibilityColor, "%s", keyframeUi.compatibilityLabel.c_str());
 
-								if (keyframeBadges.exact)
+								if (keyframeUi.badges.exact)
 									DrawBadge("EXACT", good, badgeText);
-								else if (keyframeBadges.bestEffort)
+								else if (keyframeUi.badges.bestEffort)
 									DrawBadge("BEST-EFFORT", warn, badgeText);
-								if (keyframeBadges.dropsState)
+								if (keyframeUi.badges.dropsState)
 								{
 									ImGui::SameLine();
 									DrawBadge("DROPS STATE", warn, badgeText);
 								}
-								else if (keyframeBadges.sharedStateOnly)
+								else if (keyframeUi.badges.sharedStateOnly)
 								{
 									ImGui::SameLine();
 									DrawBadge("SHARED STATE", accent, badgeText);
 								}
-								if (keyframeBadges.blocked)
+								if (keyframeUi.badges.blocked)
 								{
 									ImGui::SameLine();
 									DrawBadge("BLOCKED", bad, badgeText);

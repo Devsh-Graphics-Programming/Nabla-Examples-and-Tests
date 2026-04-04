@@ -33,6 +33,9 @@ struct SCameraGoalApplyPresentationBadges final
 //! Presentation-ready wrapper around analyzed goal apply compatibility.
 struct SCameraGoalApplyPresentation final : SCameraGoalApplyAnalysis
 {
+    SCameraGoalApplyPresentationBadges badges;
+    std::string sourceKindLabel;
+    std::string goalStateLabel;
     std::string compatibilityLabel;
     std::string policyLabel;
 
@@ -58,6 +61,8 @@ struct SCameraCapturePresentation final : SCameraCaptureAnalysis
     std::string policyLabel;
 };
 
+inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation);
+
 //! Shared user-facing label for the exactness filter selector.
 inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPresentationFilter mode)
 {
@@ -79,6 +84,9 @@ inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const SCameraGoalA
 {
     SCameraGoalApplyPresentation presentation;
     static_cast<SCameraGoalApplyAnalysis&>(presentation) = analysis;
+    presentation.badges = collectGoalApplyPresentationBadges(presentation);
+    presentation.sourceKindLabel = std::string(getCameraTypeLabel(presentation.goal.sourceKind));
+    presentation.goalStateLabel = describeGoalStateMask(presentation.goal.sourceGoalStateMask);
     presentation.compatibilityLabel = describeGoalApplyCompatibility(analysis, targetCamera);
     presentation.policyLabel = describeGoalApplyPolicy(analysis);
     return presentation;

@@ -772,9 +772,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					{
 						return fail("Presentation utilities smoke allowed a null-camera preset through an exactness filter.");
 					}
+					if (blockedPresentation.sourceKindLabel.empty() || blockedPresentation.goalStateLabel.empty())
+						return fail("Presentation utilities smoke produced empty blocked presentation labels.");
 
 					const auto blockedBadges = nbl::hlsl::collectGoalApplyPresentationBadges(blockedPresentation);
-					if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort)
+					if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort || blockedPresentation.badges.blocked != blockedBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong blocked badge flags.");
 
 					if (orbitCamera)
@@ -790,6 +792,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						const auto exactBadges = nbl::hlsl::collectGoalApplyPresentationBadges(exactPresentation);
 						if (!exactBadges.exact || exactBadges.bestEffort || exactBadges.dropsState || exactBadges.sharedStateOnly || exactBadges.blocked)
 							return fail("Presentation utilities smoke produced wrong exact badge flags.");
+						if (exactPresentation.sourceKindLabel.empty() || exactPresentation.goalStateLabel.empty())
+							return fail("Presentation utilities smoke produced empty exact presentation labels.");
 
 						const auto capturePresentation = nbl::hlsl::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
 						if (!capturePresentation.canCapture || capturePresentation.policyLabel.empty())
@@ -810,6 +814,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					const auto approximateBadges = nbl::hlsl::collectGoalApplyPresentationBadges(approximatePresentation);
 					if (approximateBadges.exact || !approximateBadges.bestEffort || !approximateBadges.dropsState || approximateBadges.sharedStateOnly || approximateBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong best-effort badge flags.");
+					if (approximatePresentation.sourceKindLabel.empty() || approximatePresentation.goalStateLabel.empty())
+						return fail("Presentation utilities smoke produced empty best-effort presentation labels.");
 				}
 
 				{
