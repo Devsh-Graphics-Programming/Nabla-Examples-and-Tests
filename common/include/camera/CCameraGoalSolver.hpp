@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "ICamera.hpp"
+#include "CCameraGoal.hpp"
 #include "CFPSCamera.hpp"
 #include "CFreeLockCamera.hpp"
 #include "CSphericalTargetCamera.hpp"
@@ -15,30 +15,22 @@
 namespace nbl::hlsl
 {
 
-struct CCameraGoal
-{
-    float64_t3 position = float64_t3(0.0);
-    glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
-    uint32_t sourceCapabilities = ICamera::None;
-    uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
-    bool hasTargetPosition = false;
-    float64_t3 targetPosition = float64_t3(0.0);
-    bool hasDistance = false;
-    float distance = 0.f;
-    bool hasOrbitState = false;
-    double orbitU = 0.0;
-    double orbitV = 0.0;
-    float orbitDistance = 0.f;
-    bool hasPathState = false;
-    ICamera::PathState pathState = {};
-    bool hasDynamicPerspectiveState = false;
-    ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
-};
-
 class CCameraGoalSolver
 {
 public:
+    struct SCaptureResult
+    {
+        bool hasCamera = false;
+        bool captured = false;
+        bool finiteGoal = false;
+        CCameraGoal goal = {};
+
+        inline bool canUseGoal() const
+        {
+            return hasCamera && captured && finiteGoal;
+        }
+    };
+
     struct SCompatibilityResult
     {
         bool sameKind = false;
@@ -104,10 +96,12 @@ public:
         if (!camera)
             return false;
 
-        if (camera->hasCapability(ICamera::SphericalTarget))
-            return buildSphericalEvents(camera, target, out);
+        const auto canonicalTarget = canonicalizeGoal(target);
 
-        return buildFreeEvents(camera, target, out);
+        if (camera->hasCapability(ICamera::SphericalTarget))
+            return buildSphericalEvents(camera, canonicalTarget, out);
+
+        return buildFreeEvents(camera, canonicalTarget, out);
     }
 
     bool capture(ICamera* camera, CCameraGoal& out) const
@@ -150,7 +144,20 @@ public:
             out.pathState = pathState;
         }
 
+        out = canonicalizeGoal(out);
         return true;
+    }
+
+    SCaptureResult captureDetailed(ICamera* camera) const
+    {
+        SCaptureResult result;
+        result.hasCamera = camera != nullptr;
+        if (!result.hasCamera)
+            return result;
+
+        result.captured = capture(camera, result.goal);
+        result.finiteGoal = result.captured && isGoalFinite(result.goal);
+        return result;
     }
 
     SCompatibilityResult analyzeCompatibility(const ICamera* camera, const CCameraGoal& target) const
@@ -159,9 +166,10 @@ public:
         if (!camera)
             return result;
 
-        result.sameKind = target.sourceKind == ICamera::CameraKind::Unknown || target.sourceKind == camera->getKind();
+        const auto canonicalTarget = canonicalizeGoal(target);
+        result.sameKind = canonicalTarget.sourceKind == ICamera::CameraKind::Unknown || canonicalTarget.sourceKind == camera->getKind();
         result.supportedGoalStateMask = camera->getGoalStateMask();
-        result.requiredGoalStateMask = getRequiredGoalStateMask(target);
+        result.requiredGoalStateMask = getRequiredGoalStateMask(canonicalTarget);
         result.missingGoalStateMask = result.requiredGoalStateMask & ~result.supportedGoalStateMask;
         result.exact = result.missingGoalStateMask == ICamera::GoalStateNone;
         return result;
@@ -173,6 +181,8 @@ public:
         if (!camera)
             return result;
 
+        const auto canonicalTarget = canonicalizeGoal(target);
+
         bool exact = true;
         bool absoluteChanged = false;
 
@@ -180,11 +190,11 @@ public:
         {
             bool poseChanged = false;
             bool poseExact = false;
-            if (tryApplyAbsoluteReferencePose(camera, target, poseChanged, poseExact))
+            if (tryApplyAbsoluteReferencePose(camera, canonicalTarget, poseChanged, poseExact))
             {
                 result.issues |= SApplyResult::UsedAbsolutePoseFallback;
                 absoluteChanged = absoluteChanged || poseChanged;
-                if (poseExact && !target.hasDynamicPerspectiveState)
+                if (poseExact && !canonicalTarget.hasDynamicPerspectiveState)
                 {
                     result.status = poseChanged ?
                         SApplyResult::EStatus::AppliedAbsoluteOnly :
@@ -195,7 +205,7 @@ public:
             }
         }
 
-        if (target.hasTargetPosition)
+        if (canonicalTarget.hasTargetPosition)
         {
             ICamera::SphericalTargetState beforeState;
             if (!camera->tryGetSphericalTargetState(beforeState))
@@ -206,7 +216,7 @@ public:
             else
             {
                 const auto beforeTarget = beforeState.target;
-                if (!camera->trySetSphericalTarget(target.targetPosition))
+                if (!camera->trySetSphericalTarget(canonicalTarget.targetPosition))
                 {
                     result.issues |= SApplyResult::MissingSphericalTargetState;
                     exact = false;
@@ -222,13 +232,13 @@ public:
                     else
                     {
                         absoluteChanged = afterState.target != beforeTarget;
-                        exact = exact && afterState.target == target.targetPosition;
+                        exact = exact && afterState.target == canonicalTarget.targetPosition;
                     }
                 }
             }
         }
 
-        if (target.hasDistance || target.hasOrbitState)
+        if (canonicalTarget.hasDistance || canonicalTarget.hasOrbitState)
         {
             ICamera::SphericalTargetState beforeState;
             if (!camera->tryGetSphericalTargetState(beforeState))
@@ -238,7 +248,7 @@ public:
             }
             else
             {
-                const float desiredDistance = target.hasOrbitState ? target.orbitDistance : target.distance;
+                const float desiredDistance = canonicalTarget.hasOrbitState ? canonicalTarget.orbitDistance : canonicalTarget.distance;
                 const float beforeDistance = beforeState.distance;
                 if (!camera->trySetSphericalDistance(desiredDistance))
                 {
@@ -262,7 +272,7 @@ public:
             }
         }
 
-        if (target.hasPathState)
+        if (canonicalTarget.hasPathState)
         {
             ICamera::PathState beforeState;
             if (!camera->tryGetPathState(beforeState))
@@ -270,7 +280,7 @@ public:
                 result.issues |= SApplyResult::MissingPathState;
                 exact = false;
             }
-            else if (!camera->trySetPathState(target.pathState))
+            else if (!camera->trySetPathState(canonicalTarget.pathState))
             {
                 result.issues |= SApplyResult::MissingPathState;
                 exact = false;
@@ -285,12 +295,12 @@ public:
                 }
                 else
                 {
-                    const bool pathChanged = !nearlyEqual(beforeState.angle, afterState.angle) ||
-                        !nearlyEqual(beforeState.radius, afterState.radius) ||
-                        !nearlyEqual(beforeState.height, afterState.height);
-                    const bool pathExact = nearlyEqual(afterState.angle, target.pathState.angle) &&
-                        nearlyEqual(afterState.radius, target.pathState.radius) &&
-                        nearlyEqual(afterState.height, target.pathState.height);
+                    const bool pathChanged = !nearlyEqualGoalScalar(beforeState.angle, afterState.angle) ||
+                        !nearlyEqualGoalScalar(beforeState.radius, afterState.radius) ||
+                        !nearlyEqualGoalScalar(beforeState.height, afterState.height);
+                    const bool pathExact = nearlyEqualGoalScalar(afterState.angle, canonicalTarget.pathState.angle) &&
+                        nearlyEqualGoalScalar(afterState.radius, canonicalTarget.pathState.radius) &&
+                        nearlyEqualGoalScalar(afterState.height, canonicalTarget.pathState.height);
 
                     absoluteChanged = absoluteChanged || pathChanged;
                     exact = exact && pathExact;
@@ -298,7 +308,7 @@ public:
             }
         }
 
-        if (target.hasDynamicPerspectiveState)
+        if (canonicalTarget.hasDynamicPerspectiveState)
         {
             ICamera::DynamicPerspectiveState beforeState;
             if (!camera->tryGetDynamicPerspectiveState(beforeState))
@@ -306,7 +316,7 @@ public:
                 result.issues |= SApplyResult::MissingDynamicPerspectiveState;
                 exact = false;
             }
-            else if (!camera->trySetDynamicPerspectiveState(target.dynamicPerspectiveState))
+            else if (!camera->trySetDynamicPerspectiveState(canonicalTarget.dynamicPerspectiveState))
             {
                 result.issues |= SApplyResult::MissingDynamicPerspectiveState;
                 exact = false;
@@ -321,10 +331,10 @@ public:
                 }
                 else
                 {
-                    const bool dynamicChanged = !nearlyEqual(beforeState.baseFov, afterState.baseFov) ||
-                        !nearlyEqual(beforeState.referenceDistance, afterState.referenceDistance);
-                    const bool dynamicExact = nearlyEqual(afterState.baseFov, target.dynamicPerspectiveState.baseFov) &&
-                        nearlyEqual(afterState.referenceDistance, target.dynamicPerspectiveState.referenceDistance);
+                    const bool dynamicChanged = !nearlyEqualGoalScalar(beforeState.baseFov, afterState.baseFov) ||
+                        !nearlyEqualGoalScalar(beforeState.referenceDistance, afterState.referenceDistance);
+                    const bool dynamicExact = nearlyEqualGoalScalar(afterState.baseFov, canonicalTarget.dynamicPerspectiveState.baseFov) &&
+                        nearlyEqualGoalScalar(afterState.referenceDistance, canonicalTarget.dynamicPerspectiveState.referenceDistance);
 
                     absoluteChanged = absoluteChanged || dynamicChanged;
                     exact = exact && dynamicExact;
@@ -333,7 +343,7 @@ public:
         }
 
         std::vector<CVirtualGimbalEvent> events;
-        buildEvents(camera, target, events);
+        buildEvents(camera, canonicalTarget, events);
         result.eventCount = static_cast<uint32_t>(events.size());
         result.exact = exact;
 
@@ -383,32 +393,6 @@ private:
         double v = 0.0;
         float distance = 0.f;
     };
-
-    inline double wrapAngleRad(double angle) const
-    {
-        while (angle > Pi)
-            angle -= 2.0 * Pi;
-        while (angle < -Pi)
-            angle += 2.0 * Pi;
-        return angle;
-    }
-
-    inline bool nearlyEqual(double a, double b, double eps = 1e-6) const
-    {
-        return std::abs(a - b) <= eps;
-    }
-
-    inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target) const
-    {
-        uint32_t mask = ICamera::GoalStateNone;
-        if (target.hasTargetPosition || target.hasDistance || target.hasOrbitState)
-            mask |= ICamera::GoalStateSphericalTarget;
-        if (target.hasDynamicPerspectiveState)
-            mask |= ICamera::GoalStateDynamicPerspective;
-        if (target.hasPathState)
-            mask |= ICamera::GoalStatePath;
-        return mask;
-    }
 
     inline void appendSignedEvent(std::vector<CVirtualGimbalEvent>& events, double value,
         CVirtualGimbalEvent::VirtualEventType positive, CVirtualGimbalEvent::VirtualEventType negative) const
