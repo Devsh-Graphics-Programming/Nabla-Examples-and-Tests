@@ -5,8 +5,10 @@
 #ifndef _C_CAMERA_PRESET_FLOW_HPP_
 #define _C_CAMERA_PRESET_FLOW_HPP_
 
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "CCameraGoalAnalysis.hpp"
 
@@ -14,6 +16,29 @@ namespace nbl::hlsl
 {
 
 //! Reusable preset capture, comparison, and best-effort apply helpers.
+struct SCameraPresetApplySummary
+{
+    uint32_t targetCount = 0u;
+    uint32_t successCount = 0u;
+    uint32_t approximateCount = 0u;
+    uint32_t failureCount = 0u;
+
+    inline bool hasTargets() const
+    {
+        return targetCount > 0u;
+    }
+
+    inline bool succeeded() const
+    {
+        return hasTargets() && failureCount == 0u;
+    }
+
+    inline bool approximate() const
+    {
+        return approximateCount > 0u;
+    }
+};
+
 inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset,
     const double posEps, const double rotEpsDeg, const double scalarEps)
 {
@@ -72,6 +97,35 @@ inline CCameraGoalSolver::SApplyResult applyPresetDetailed(const CCameraGoalSolv
 inline bool applyPreset(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
 {
     return applyPresetDetailed(solver, camera, preset).succeeded();
+}
+
+inline void accumulatePresetApplySummary(SCameraPresetApplySummary& summary, const CCameraGoalSolver::SApplyResult& result)
+{
+    ++summary.targetCount;
+    if (result.succeeded())
+    {
+        ++summary.successCount;
+        if (result.approximate())
+            ++summary.approximateCount;
+    }
+    else
+    {
+        ++summary.failureCount;
+    }
+}
+
+inline SCameraPresetApplySummary applyPresetToCameraRange(const CCameraGoalSolver& solver, std::span<ICamera* const> cameras, const CCameraPreset& preset)
+{
+    SCameraPresetApplySummary summary;
+    for (auto* camera : cameras)
+    {
+        if (!camera)
+            continue;
+
+        accumulatePresetApplySummary(summary, applyPresetDetailed(solver, camera, preset));
+    }
+
+    return summary;
 }
 
 } // namespace nbl::hlsl

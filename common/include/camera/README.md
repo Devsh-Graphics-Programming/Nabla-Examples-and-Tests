@@ -271,6 +271,7 @@ Provides:
 
 - preset capture from a camera and solver
 - preset apply through the shared goal solver
+- preset apply summaries across camera ranges
 - preset-to-camera comparison helpers
 - preset mismatch descriptions for diagnostics
 

@@ -67,6 +67,7 @@ using nbl::hlsl::CCameraKeyframe;
 using nbl::hlsl::CCameraKeyframeTrack;
 using nbl::hlsl::CCameraPlaybackCursor;
 using nbl::hlsl::SCameraPlaybackAdvanceResult;
+using nbl::hlsl::SCameraPresetApplySummary;
 using nbl::hlsl::SCameraGoalApplyAnalysis;
 using nbl::hlsl::SCameraCaptureAnalysis;
 using nbl::hlsl::CCameraGoalSolver;

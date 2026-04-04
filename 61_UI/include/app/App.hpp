@@ -522,29 +522,6 @@ class App final : public examples::SimpleWindowedApplication
 			bool overrideInput = true;
 		};
 
-		struct PlaybackApplySummary
-		{
-			uint32_t targetCount = 0u;
-			uint32_t successCount = 0u;
-			uint32_t approximateCount = 0u;
-			uint32_t failureCount = 0u;
-
-			inline bool hasTargets() const
-			{
-				return targetCount > 0u;
-			}
-
-			inline bool succeeded() const
-			{
-				return hasTargets() && failureCount == 0u;
-			}
-
-			inline bool approximate() const
-			{
-				return approximateCount > 0u;
-			}
-		};
-
 		struct ApplyStatusBanner
 		{
 			std::string summary;
@@ -1278,7 +1255,7 @@ class App final : public examples::SimpleWindowedApplication
 			banner.approximate = false;
 		}
 
-		inline std::string describePlaybackApplySummary(const PlaybackApplySummary& summary) const
+		inline std::string describePlaybackApplySummary(const SCameraPresetApplySummary& summary) const
 		{
 			if (!summary.hasTargets())
 				return m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera";
@@ -1292,7 +1269,7 @@ class App final : public examples::SimpleWindowedApplication
 			return oss.str();
 		}
 
-		inline void storePlaybackApplySummary(const PlaybackApplySummary& summary)
+		inline void storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 		{
 			storeApplyStatusBanner(m_playbackApplyBanner,
 				describePlaybackApplySummary(summary),
@@ -1460,34 +1437,16 @@ class App final : public examples::SimpleWindowedApplication
 			count = static_cast<uint32_t>(events.size());
 		}
 
-		inline PlaybackApplySummary applyPresetToTargets(const CameraPreset& preset)
+		inline SCameraPresetApplySummary applyPresetToTargets(const CameraPreset& preset)
 		{
-			PlaybackApplySummary summary;
-			auto applyToCamera = [&](ICamera* camera) -> void
-			{
-				if (!camera)
-					return;
-
-				++summary.targetCount;
-				const auto result = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
-				if (result.succeeded())
-				{
-					++summary.successCount;
-					if (result.approximate())
-						++summary.approximateCount;
-				}
-				else
-				{
-					++summary.failureCount;
-				}
-			};
-
 			if (!m_playbackAffectsAll)
 			{
-				applyToCamera(getActiveCamera());
-				return summary;
+				ICamera* activeCamera = getActiveCamera();
+				return nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u), preset);
 			}
 
+			std::vector<ICamera*> cameras;
+			cameras.reserve(windowBindings.size());
 			std::unordered_set<uintptr_t> visited;
 			for (auto& binding : windowBindings)
 			{
@@ -1499,10 +1458,10 @@ class App final : public examples::SimpleWindowedApplication
 					continue;
 				const auto id = camera->getGimbal().getID();
 				if (visited.insert(id).second)
-					applyToCamera(camera);
+					cameras.push_back(camera);
 			}
 
-			return summary;
+			return nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(cameras.data(), cameras.size()), preset);
 		}
 
 		inline bool tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
