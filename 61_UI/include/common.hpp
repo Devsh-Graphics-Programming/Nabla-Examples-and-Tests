@@ -18,6 +18,7 @@
 #include "camera/CDollyCamera.hpp"
 #include "camera/CDollyZoomCamera.hpp"
 #include "camera/CPathCamera.hpp"
+#include "camera/CCameraPreset.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
@@ -56,6 +57,8 @@ using nbl::hlsl::CDollyCamera;
 using nbl::hlsl::CDollyZoomCamera;
 using nbl::hlsl::CPathCamera;
 using nbl::hlsl::CCameraGoal;
+using nbl::hlsl::CCameraPreset;
+using nbl::hlsl::CCameraKeyframe;
 using nbl::hlsl::CCameraGoalSolver;
 using nbl::hlsl::CGimbalInputBinder;
 using nbl::hlsl::IGimbalBindingLayout;

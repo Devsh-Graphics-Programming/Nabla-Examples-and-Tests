@@ -480,18 +480,8 @@ class App final : public examples::SimpleWindowedApplication
 			std::string line;
 		};
 
-		struct CameraPreset
-		{
-			std::string name;
-			std::string identifier;
-			CCameraGoal goal = {};
-		};
-
-		struct CameraKeyframe
-		{
-			CameraPreset preset;
-			float time = 0.f;
-		};
+		using CameraPreset = CCameraPreset;
+		using CameraKeyframe = CCameraKeyframe;
 
 		enum class PresetFilterMode : uint8_t
 		{
@@ -1125,16 +1115,6 @@ class App final : public examples::SimpleWindowedApplication
 			projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
 		}
 
-		inline void assignGoalToPreset(CameraPreset& preset, const CCameraGoal& goal) const
-		{
-			preset.goal = nbl::hlsl::canonicalizeGoal(goal);
-		}
-
-		inline CCameraGoal makeGoalFromPreset(const CameraPreset& preset) const
-		{
-			return nbl::hlsl::canonicalizeGoal(preset.goal);
-		}
-
 		inline bool tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
 		{
 			const auto capture = m_cameraGoalSolver.captureDetailed(camera);
@@ -1206,7 +1186,7 @@ class App final : public examples::SimpleWindowedApplication
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
 			PresetUiAnalysis analysis;
-			analysis.goal = makeGoalFromPreset(preset);
+			analysis.goal = nbl::hlsl::makeGoalFromPreset(preset);
 			analysis.hasActiveCamera = camera != nullptr;
 			analysis.finiteGoal = nbl::hlsl::isGoalFinite(analysis.goal);
 			analysis.canApply = analysis.hasActiveCamera && analysis.finiteGoal;
@@ -1318,7 +1298,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!capture.canUseGoal())
 				return false;
 
-			return nbl::hlsl::compareGoals(capture.goal, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
+			return nbl::hlsl::compareGoals(capture.goal, nbl::hlsl::makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
 		}
 
 		inline std::string describePresetCameraMismatch(ICamera* camera, const CameraPreset& preset) const
@@ -1331,108 +1311,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!capture.finiteGoal)
 				return "goal_state=invalid";
 
-			return nbl::hlsl::describeGoalMismatch(capture.goal, makeGoalFromPreset(preset));
-		}
-
-		inline nbl_json serializeGoal(const CCameraGoal& goal) const
-		{
-			nbl_json j;
-			j["position"] = { goal.position.x, goal.position.y, goal.position.z };
-			j["orientation"] = { goal.orientation.x, goal.orientation.y, goal.orientation.z, goal.orientation.w };
-			j["camera_kind"] = static_cast<uint32_t>(goal.sourceKind);
-			j["camera_capabilities"] = goal.sourceCapabilities;
-			j["camera_goal_state_mask"] = goal.sourceGoalStateMask;
-			if (goal.hasTargetPosition)
-				j["target_position"] = { goal.targetPosition.x, goal.targetPosition.y, goal.targetPosition.z };
-			if (goal.hasDistance)
-				j["distance"] = goal.distance;
-			if (goal.hasOrbitState)
-			{
-				j["orbit_u"] = goal.orbitU;
-				j["orbit_v"] = goal.orbitV;
-				j["orbit_distance"] = goal.orbitDistance;
-			}
-			if (goal.hasPathState)
-			{
-				j["path_angle"] = goal.pathState.angle;
-				j["path_radius"] = goal.pathState.radius;
-				j["path_height"] = goal.pathState.height;
-			}
-			if (goal.hasDynamicPerspectiveState)
-			{
-				j["dynamic_base_fov"] = goal.dynamicPerspectiveState.baseFov;
-				j["dynamic_reference_distance"] = goal.dynamicPerspectiveState.referenceDistance;
-			}
-			return j;
-		}
-
-		inline void deserializeGoal(const nbl_json& entry, CCameraGoal& goal) const
-		{
-			goal = {};
-			if (entry.contains("camera_kind"))
-				goal.sourceKind = static_cast<ICamera::CameraKind>(entry["camera_kind"].get<uint32_t>());
-			if (entry.contains("camera_capabilities"))
-				goal.sourceCapabilities = entry["camera_capabilities"].get<uint32_t>();
-			if (entry.contains("camera_goal_state_mask"))
-				goal.sourceGoalStateMask = entry["camera_goal_state_mask"].get<uint32_t>();
-			if (entry.contains("position") && entry["position"].is_array())
-			{
-				auto arr = entry["position"];
-				goal.position = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
-			}
-			if (entry.contains("orientation") && entry["orientation"].is_array())
-			{
-				auto arr = entry["orientation"];
-				goal.orientation = glm::quat(
-					arr[3].get<float>(),
-					arr[0].get<float>(),
-					arr[1].get<float>(),
-					arr[2].get<float>()
-				);
-			}
-			if (entry.contains("target_position") && entry["target_position"].is_array())
-			{
-				auto arr = entry["target_position"];
-				goal.targetPosition = float64_t3(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
-				goal.hasTargetPosition = true;
-			}
-			if (entry.contains("distance"))
-			{
-				goal.distance = entry["distance"].get<float>();
-				goal.hasDistance = true;
-			}
-			if (entry.contains("orbit_u"))
-			{
-				goal.orbitU = entry["orbit_u"].get<double>();
-				goal.hasOrbitState = true;
-			}
-			if (entry.contains("orbit_v"))
-			{
-				goal.orbitV = entry["orbit_v"].get<double>();
-				goal.hasOrbitState = true;
-			}
-			if (entry.contains("orbit_distance"))
-			{
-				goal.orbitDistance = entry["orbit_distance"].get<float>();
-				goal.hasOrbitState = true;
-			}
-			if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
-			{
-				goal.pathState.angle = entry["path_angle"].get<double>();
-				goal.pathState.radius = entry["path_radius"].get<double>();
-				goal.pathState.height = entry["path_height"].get<double>();
-				goal.hasPathState = true;
-			}
-			if (entry.contains("dynamic_base_fov"))
-			{
-				goal.dynamicPerspectiveState.baseFov = entry["dynamic_base_fov"].get<float>();
-				goal.hasDynamicPerspectiveState = true;
-			}
-			if (entry.contains("dynamic_reference_distance"))
-			{
-				goal.dynamicPerspectiveState.referenceDistance = entry["dynamic_reference_distance"].get<float>();
-				goal.hasDynamicPerspectiveState = true;
-			}
+			return nbl::hlsl::describeGoalMismatch(capture.goal, nbl::hlsl::makeGoalFromPreset(preset));
 		}
 
 		inline bool tryCapturePreset(ICamera* camera, const std::string& name, CameraPreset& preset)
@@ -1444,7 +1323,7 @@ class App final : public examples::SimpleWindowedApplication
 				return false;
 
 			preset.identifier = std::string(camera->getIdentifier());
-			assignGoalToPreset(preset, captureUi.goal);
+			nbl::hlsl::assignGoalToPreset(preset, captureUi.goal);
 			return true;
 		}
 
@@ -1460,7 +1339,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!camera)
 				return {};
 
-			return m_cameraGoalSolver.applyDetailed(camera, makeGoalFromPreset(preset));
+			return m_cameraGoalSolver.applyDetailed(camera, nbl::hlsl::makeGoalFromPreset(preset));
 		}
 
 		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
@@ -1746,7 +1625,7 @@ class App final : public examples::SimpleWindowedApplication
 
 			const double alpha = static_cast<double>(clampedTime - a.time) / static_cast<double>(b.time - a.time);
 			preset = a.preset;
-			assignGoalToPreset(preset, nbl::hlsl::blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
+			nbl::hlsl::assignGoalToPreset(preset, nbl::hlsl::blendGoals(nbl::hlsl::makeGoalFromPreset(a.preset), nbl::hlsl::makeGoalFromPreset(b.preset), alpha));
 			return true;
 		}
 
@@ -1797,12 +1676,7 @@ class App final : public examples::SimpleWindowedApplication
 			root["presets"] = nbl_json::array();
 
 			for (const auto& preset : m_presets)
-			{
-				nbl_json j = serializeGoal(makeGoalFromPreset(preset));
-				j["name"] = preset.name;
-				j["identifier"] = preset.identifier;
-				root["presets"].push_back(std::move(j));
-			}
+				root["presets"].push_back(nbl::hlsl::serializePreset(preset));
 
 			std::ofstream out(path.string(), std::ios::binary);
 			if (!out)
@@ -1826,13 +1700,7 @@ class App final : public examples::SimpleWindowedApplication
 			for (const auto& entry : root["presets"])
 			{
 				CameraPreset preset;
-				if (entry.contains("name"))
-					preset.name = entry["name"].get<std::string>();
-				if (entry.contains("identifier"))
-					preset.identifier = entry["identifier"].get<std::string>();
-				CCameraGoal goal;
-				deserializeGoal(entry, goal);
-				assignGoalToPreset(preset, goal);
+				nbl::hlsl::deserializePreset(entry, preset);
 				m_presets.emplace_back(std::move(preset));
 			}
 
