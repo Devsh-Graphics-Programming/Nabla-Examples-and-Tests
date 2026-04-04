@@ -123,14 +123,6 @@ public:
     virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
     virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
 
-    inline const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getKeyboardVirtualEventMap(); }
-    inline const mouse_to_virtual_events_t& getMouseVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getMouseVirtualEventMap(); }
-    inline const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const { return m_rigConfig.defaultInputBinding.getImguizmoVirtualEventMap(); }
-
-    inline void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateKeyboardMapping(mapKeys); }
-    inline void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateMouseMapping(mapKeys); }
-    inline void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) { m_rigConfig.defaultInputBinding.updateImguizmoMapping(mapKeys); }
-
     inline const IGimbalBindingLayout& getDefaultInputBindingLayout() const { return m_rigConfig.defaultInputBinding; }
     inline IGimbalBindingLayout& getDefaultInputBindingLayout() { return m_rigConfig.defaultInputBinding; }
     inline void copyDefaultInputBindingPresetTo(IGimbalBindingLayout& layout) const
