@@ -490,30 +490,10 @@ class App final : public examples::SimpleWindowedApplication
 			BestEffort
 		};
 
-		struct PresetUiAnalysis
+		struct PresetUiAnalysis : SCameraGoalApplyAnalysis
 		{
-			CCameraGoal goal = {};
-			CCameraGoalSolver::SCompatibilityResult compatibility = {};
-			bool hasActiveCamera = false;
-			bool finiteGoal = false;
-			bool canApply = false;
 			std::string compatibilityLabel;
 			std::string policyLabel;
-
-			inline bool exact() const
-			{
-				return compatibility.exact;
-			}
-
-			inline bool dropsGoalState() const
-			{
-				return compatibility.missingGoalStateMask != ICamera::GoalStateNone;
-			}
-
-			inline bool usesSharedStateOnly() const
-			{
-				return !compatibility.sameKind && goal.sourceKind != ICamera::CameraKind::Unknown && !dropsGoalState();
-			}
 
 			inline bool matchesFilter(const PresetFilterMode mode) const
 			{
@@ -522,22 +502,17 @@ class App final : public examples::SimpleWindowedApplication
 					case PresetFilterMode::All:
 						return true;
 					case PresetFilterMode::Exact:
-						return hasActiveCamera && exact();
+						return hasCamera && exact();
 					case PresetFilterMode::BestEffort:
-						return hasActiveCamera && !exact();
+						return hasCamera && !exact();
 					default:
 						return true;
 				}
 			}
 		};
 
-		struct CaptureUiAnalysis
+		struct CaptureUiAnalysis : SCameraCaptureAnalysis
 		{
-			CCameraGoal goal = {};
-			bool hasActiveCamera = false;
-			bool capturedGoal = false;
-			bool finiteGoal = false;
-			bool canCapture = false;
 			std::string policyLabel;
 		};
 
@@ -1186,15 +1161,9 @@ class App final : public examples::SimpleWindowedApplication
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
 			PresetUiAnalysis analysis;
-			analysis.goal = nbl::hlsl::makeGoalFromPreset(preset);
-			analysis.hasActiveCamera = camera != nullptr;
-			analysis.finiteGoal = nbl::hlsl::isGoalFinite(analysis.goal);
-			analysis.canApply = analysis.hasActiveCamera && analysis.finiteGoal;
+			static_cast<SCameraGoalApplyAnalysis&>(analysis) = nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset);
 
-			if (analysis.hasActiveCamera)
-				analysis.compatibility = m_cameraGoalSolver.analyzeCompatibility(camera, analysis.goal);
-
-			if (!analysis.hasActiveCamera)
+			if (!analysis.hasCamera)
 			{
 				analysis.compatibilityLabel = "No active camera";
 				analysis.policyLabel = "Blocked | no active camera";
@@ -1239,12 +1208,8 @@ class App final : public examples::SimpleWindowedApplication
 		inline CaptureUiAnalysis analyzeCameraCaptureForUi(ICamera* camera) const
 		{
 			CaptureUiAnalysis analysis;
-			const auto capture = m_cameraGoalSolver.captureDetailed(camera);
-			analysis.goal = capture.goal;
-			analysis.hasActiveCamera = capture.hasCamera;
-			analysis.capturedGoal = capture.captured;
-			analysis.finiteGoal = capture.finiteGoal;
-			if (!analysis.hasActiveCamera)
+			static_cast<SCameraCaptureAnalysis&>(analysis) = nbl::hlsl::analyzeCameraCapture(m_cameraGoalSolver, camera);
+			if (!analysis.hasCamera)
 			{
 				analysis.policyLabel = "Blocked | no active camera";
 				return analysis;
@@ -1272,7 +1237,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 		{
-			return analyzePresetForUi(camera, preset).compatibility;
+			return nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
 		}
 
 		inline const char* getPresetFilterModeLabel(PresetFilterMode mode) const

@@ -759,7 +759,7 @@ void App::DrawControlPanel()
 								{
 									const auto& preset = m_presets[static_cast<size_t>(m_selectedPresetIx)];
 									const auto presetUi = analyzePresetForUi(activeCamera, preset);
-									const ImVec4 compatibilityColor = !presetUi.hasActiveCamera ? bad : (presetUi.exact() ? good : warn);
+									const ImVec4 compatibilityColor = !presetUi.hasCamera ? bad : (presetUi.exact() ? good : warn);
 
 									ImGui::TextDisabled("Preset source");
 									ImGui::SameLine();
@@ -885,7 +885,7 @@ void App::DrawControlPanel()
 							if (tryBuildPlaybackPresetAtTime(m_playback.time, playbackPreviewPreset))
 							{
 								const auto playbackPreviewUi = analyzePresetForUi(activeCamera, playbackPreviewPreset);
-								const ImVec4 previewColor = !playbackPreviewUi.hasActiveCamera ? bad : (playbackPreviewUi.exact() ? good : warn);
+								const ImVec4 previewColor = !playbackPreviewUi.hasCamera ? bad : (playbackPreviewUi.exact() ? good : warn);
 								ImGui::TextDisabled("Preview");
 								ImGui::SameLine();
 								ImGui::TextColored(playbackPreviewUi.canApply ? previewColor : bad, "%s", playbackPreviewUi.policyLabel.c_str());
@@ -951,7 +951,7 @@ void App::DrawControlPanel()
 							if (auto* selectedKeyframe = getSelectedKeyframe())
 							{
 								const auto keyframeUi = analyzePresetForUi(activeCamera, selectedKeyframe->preset);
-								const ImVec4 compatibilityColor = !keyframeUi.hasActiveCamera ? bad : (keyframeUi.exact() ? good : warn);
+								const ImVec4 compatibilityColor = !keyframeUi.hasCamera ? bad : (keyframeUi.exact() ? good : warn);
 								float selectedTime = selectedKeyframe->time;
 								if (ImGui::InputFloat("Selected time", &selectedTime, 0.1f, 1.f, "%.3f"))
 								{
