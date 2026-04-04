@@ -250,6 +250,19 @@ Use it when UI or higher-level tools need typed answers for:
 
 This keeps policy analysis out of example-local UI code.
 
+### `CCameraTextUtilities.hpp`
+
+Reusable human-readable metadata and diagnostic text helpers for cameras.
+
+Provides:
+
+- camera-kind labels
+- camera-kind descriptions
+- goal-state mask descriptions
+- detailed goal-apply result descriptions
+
+This keeps camera-specific presentation and diagnostic text reusable without leaving it in example-local glue.
+
 ### `CCameraPreset.hpp`
 
 Reusable preset and keyframe state plus JSON IO.

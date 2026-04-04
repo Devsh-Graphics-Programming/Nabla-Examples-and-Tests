@@ -559,52 +559,6 @@ class App final : public examples::SimpleWindowedApplication
 			return camera && camera->hasCapability(ICamera::SphericalTarget);
 		}
 
-		inline std::string_view getCameraTypeLabel(const ICamera::CameraKind kind) const
-		{
-			switch (kind)
-			{
-				case ICamera::CameraKind::FPS: return "FPS";
-				case ICamera::CameraKind::Free: return "Free";
-				case ICamera::CameraKind::Orbit: return "Orbit";
-				case ICamera::CameraKind::Arcball: return "Arcball";
-				case ICamera::CameraKind::Turntable: return "Turntable";
-				case ICamera::CameraKind::TopDown: return "TopDown";
-				case ICamera::CameraKind::Isometric: return "Isometric";
-				case ICamera::CameraKind::Chase: return "Chase";
-				case ICamera::CameraKind::Dolly: return "Dolly";
-				case ICamera::CameraKind::DollyZoom: return "Dolly Zoom";
-				case ICamera::CameraKind::Path: return "Path";
-				default: return "Unknown";
-			}
-		}
-
-		inline std::string_view getCameraTypeLabel(const ICamera* camera) const
-		{
-			return camera ? getCameraTypeLabel(camera->getKind()) : "Unknown";
-		}
-
-		inline std::string_view getCameraTypeDescription(const ICamera* camera) const
-		{
-			if (!camera)
-				return "Unspecified camera behavior";
-
-			switch (camera->getKind())
-			{
-				case ICamera::CameraKind::FPS: return "First-person WASD + mouse look";
-				case ICamera::CameraKind::Free: return "Free-fly 6DOF with full rotation";
-				case ICamera::CameraKind::Orbit: return "Orbit around target with dolly";
-				case ICamera::CameraKind::Arcball: return "Arcball trackball around target";
-				case ICamera::CameraKind::Turntable: return "Turntable yaw/pitch around target";
-				case ICamera::CameraKind::TopDown: return "Fixed pitch top-down pan";
-				case ICamera::CameraKind::Isometric: return "Fixed isometric view with pan";
-				case ICamera::CameraKind::Chase: return "Target follow with chase controls";
-				case ICamera::CameraKind::Dolly: return "Rig truck/dolly with look-at";
-				case ICamera::CameraKind::DollyZoom: return "Orbit with dolly-zoom FOV";
-				case ICamera::CameraKind::Path: return "Move along a target path";
-				default: return "Unspecified camera behavior";
-			}
-		}
-
 		inline void syncVisualDebugWindowBindings()
 		{
 			if (!m_scriptedInput.enabled)
@@ -1054,67 +1008,6 @@ class App final : public examples::SimpleWindowedApplication
 			const auto capture = m_cameraGoalSolver.captureDetailed(camera);
 			out = capture.goal;
 			return capture.captured;
-		}
-
-		inline std::string describeGoalStateMask(uint32_t mask) const
-		{
-			if (mask == ICamera::GoalStateNone)
-				return "Pose only";
-
-			std::string out;
-			auto append = [&](const char* label, const uint32_t bit) -> void
-			{
-				if ((mask & bit) != bit)
-					return;
-				if (!out.empty())
-					out += ", ";
-				out += label;
-			};
-
-			append("Spherical target", ICamera::GoalStateSphericalTarget);
-			append("Dynamic perspective", ICamera::GoalStateDynamicPerspective);
-			append("Path", ICamera::GoalStatePath);
-			return out;
-		}
-
-		inline std::string describeApplyResult(const CCameraGoalSolver::SApplyResult& result) const
-		{
-			std::ostringstream oss;
-			oss << "status=";
-			switch (result.status)
-			{
-				case CCameraGoalSolver::SApplyResult::EStatus::Unsupported: oss << "Unsupported"; break;
-				case CCameraGoalSolver::SApplyResult::EStatus::Failed: oss << "Failed"; break;
-				case CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied: oss << "AlreadySatisfied"; break;
-				case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly: oss << "AppliedAbsoluteOnly"; break;
-				case CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents: oss << "AppliedVirtualEvents"; break;
-				case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents: oss << "AppliedAbsoluteAndVirtualEvents"; break;
-			}
-			oss << " exact=" << (result.exact ? "true" : "false")
-				<< " events=" << result.eventCount;
-
-			if (result.issues != CCameraGoalSolver::SApplyResult::NoIssue)
-			{
-				oss << " issues=";
-				bool first = true;
-				auto appendIssue = [&](const char* label, const CCameraGoalSolver::SApplyResult::EIssue issue) -> void
-				{
-					if (!result.hasIssue(issue))
-						return;
-					if (!first)
-						oss << ",";
-					oss << label;
-					first = false;
-				};
-
-				appendIssue("absolute_pose_fallback", CCameraGoalSolver::SApplyResult::UsedAbsolutePoseFallback);
-				appendIssue("missing_spherical_state", CCameraGoalSolver::SApplyResult::MissingSphericalTargetState);
-				appendIssue("missing_path_state", CCameraGoalSolver::SApplyResult::MissingPathState);
-				appendIssue("missing_dynamic_perspective_state", CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState);
-				appendIssue("virtual_event_replay_failed", CCameraGoalSolver::SApplyResult::VirtualEventReplayFailed);
-			}
-
-			return oss.str();
 		}
 
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const

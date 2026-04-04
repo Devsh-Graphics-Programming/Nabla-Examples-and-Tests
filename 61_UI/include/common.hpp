@@ -26,6 +26,7 @@
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CCameraManipulationUtilities.hpp"
+#include "camera/CCameraTextUtilities.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
 #include "camera/CCubeProjection.hpp"
@@ -89,6 +90,10 @@ using nbl::hlsl::float64_t;
 using nbl::hlsl::float64_t3;
 using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
+using nbl::hlsl::describeApplyResult;
+using nbl::hlsl::describeGoalStateMask;
+using nbl::hlsl::getCameraTypeDescription;
+using nbl::hlsl::getCameraTypeLabel;
 using nbl::hlsl::getCastedMatrix;
 using nbl::hlsl::getCastedVector;
 using nbl::hlsl::getMatrix3x4As4x4;
