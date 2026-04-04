@@ -706,6 +706,18 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
+				auto comparePresetValues = [&](const CameraPreset& lhs, const CameraPreset& rhs, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
+				{
+					return lhs.name == rhs.name &&
+						lhs.identifier == rhs.identifier &&
+						nbl::hlsl::compareGoals(
+							nbl::hlsl::makeGoalFromPreset(lhs),
+							nbl::hlsl::makeGoalFromPreset(rhs),
+							posEps,
+							rotEpsDeg,
+							scalarEps);
+				};
+
 				ICamera* orbitCamera = findCameraByKind(ICamera::CameraKind::Orbit);
 				ICamera* chaseCamera = findCameraByKind(ICamera::CameraKind::Chase);
 				ICamera* dollyCamera = findCameraByKind(ICamera::CameraKind::Dolly);
@@ -747,6 +759,138 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					{
 						return false;
 					}
+				}
+
+				{
+					std::vector<CameraPreset> sourcePresets;
+					if (hasOrbitPreset)
+						sourcePresets.push_back(initialOrbitPreset);
+					if (hasChasePreset)
+						sourcePresets.push_back(initialChasePreset);
+					if (hasDollyPreset)
+						sourcePresets.push_back(initialDollyPreset);
+					if (hasPathPreset)
+						sourcePresets.push_back(initialPathPreset);
+					if (hasDollyZoomPreset)
+						sourcePresets.push_back(initialDollyZoomPreset);
+
+					if (sourcePresets.empty())
+						return fail("Preset persistence smoke failed to collect source presets.");
+
+					std::stringstream presetBuffer;
+					if (!nbl::hlsl::writePresetCollection(presetBuffer, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
+						return fail("Preset persistence smoke failed to serialize preset collection.");
+
+					std::vector<CameraPreset> loadedPresets;
+					if (!nbl::hlsl::readPresetCollection(presetBuffer, loadedPresets))
+						return fail("Preset persistence smoke failed to deserialize preset collection.");
+					if (loadedPresets.size() != sourcePresets.size())
+						return fail("Preset persistence smoke changed preset count.");
+
+					for (size_t i = 0u; i < sourcePresets.size(); ++i)
+					{
+						if (!comparePresetValues(sourcePresets[i], loadedPresets[i], 1e-6, 0.1, 1e-6))
+							return fail("Preset persistence smoke changed preset content at index " + std::to_string(i) + ".");
+					}
+
+					CCameraKeyframeTrack sourceTrack;
+					sourceTrack.keyframes.reserve(sourcePresets.size());
+					for (size_t i = 0u; i < sourcePresets.size(); ++i)
+					{
+						CameraKeyframe keyframe;
+						keyframe.time = static_cast<float>(i) * 1.5f;
+						keyframe.preset = sourcePresets[i];
+						sourceTrack.keyframes.emplace_back(std::move(keyframe));
+					}
+					sourceTrack.selectedKeyframeIx = static_cast<int>(sourceTrack.keyframes.size()) - 1;
+
+					std::stringstream keyframeBuffer;
+					if (!nbl::hlsl::writeKeyframeTrack(keyframeBuffer, sourceTrack))
+						return fail("Keyframe persistence smoke failed to serialize track.");
+
+					CCameraKeyframeTrack loadedTrack;
+					if (!nbl::hlsl::readKeyframeTrack(keyframeBuffer, loadedTrack))
+						return fail("Keyframe persistence smoke failed to deserialize track.");
+					if (loadedTrack.keyframes.size() != sourceTrack.keyframes.size())
+						return fail("Keyframe persistence smoke changed keyframe count.");
+
+					for (size_t i = 0u; i < sourceTrack.keyframes.size(); ++i)
+					{
+						if (std::abs(static_cast<double>(loadedTrack.keyframes[i].time - sourceTrack.keyframes[i].time)) > 1e-6)
+							return fail("Keyframe persistence smoke changed keyframe time at index " + std::to_string(i) + ".");
+						if (!comparePresetValues(sourceTrack.keyframes[i].preset, loadedTrack.keyframes[i].preset, 1e-6, 0.1, 1e-6))
+							return fail("Keyframe persistence smoke changed keyframe preset at index " + std::to_string(i) + ".");
+					}
+				}
+
+				if (hasOrbitPreset && hasDollyPreset)
+				{
+					CCameraKeyframeTrack playbackTrack;
+					{
+						CameraKeyframe a;
+						a.time = 0.f;
+						a.preset = initialOrbitPreset;
+						playbackTrack.keyframes.push_back(a);
+					}
+					{
+						CameraKeyframe b;
+						b.time = 2.f;
+						b.preset = initialDollyPreset;
+						playbackTrack.keyframes.push_back(b);
+					}
+
+					CCameraPlaybackCursor cursor;
+					cursor.playing = true;
+					cursor.loop = false;
+					cursor.speed = 1.f;
+					cursor.time = 1.5f;
+
+					const auto advanceToEnd = nbl::hlsl::advancePlaybackCursor(cursor, playbackTrack, 1.0);
+					if (!advanceToEnd.hasTrack || !advanceToEnd.changedTime || !advanceToEnd.reachedEnd || !advanceToEnd.stopped || advanceToEnd.wrapped)
+						return fail("Playback timeline smoke failed for non-loop end-of-track advance.");
+					if (std::abs(static_cast<double>(advanceToEnd.time - 2.f)) > 1e-6)
+						return fail("Playback timeline smoke produced wrong end-of-track time.");
+
+					nbl::hlsl::resetPlaybackCursor(cursor, 1.25f);
+					if (cursor.playing || std::abs(static_cast<double>(cursor.time - 1.25f)) > 1e-6)
+						return fail("Playback timeline smoke failed to reset cursor.");
+
+					cursor.playing = true;
+					cursor.loop = true;
+					cursor.speed = 1.f;
+					cursor.time = 1.5f;
+					const auto advanceLoop = nbl::hlsl::advancePlaybackCursor(cursor, playbackTrack, 1.0);
+					if (!advanceLoop.hasTrack || !advanceLoop.changedTime || !advanceLoop.wrapped || advanceLoop.stopped || advanceLoop.reachedEnd)
+						return fail("Playback timeline smoke failed for looped advance.");
+					if (std::abs(static_cast<double>(advanceLoop.time - 0.5f)) > 1e-6)
+						return fail("Playback timeline smoke produced wrong wrapped time.");
+
+					cursor.time = 9.f;
+					nbl::hlsl::clampPlaybackCursorToTrack(playbackTrack, cursor);
+					if (std::abs(static_cast<double>(cursor.time - 2.f)) > 1e-6)
+						return fail("Playback timeline smoke failed to clamp cursor time.");
+				}
+
+				if (hasOrbitPreset && orbitCamera)
+				{
+					std::array<ICamera*, 2u> exactTargets = { orbitCamera, nullptr };
+					const auto exactSummary = nbl::hlsl::applyPresetToCameraRange(
+						m_cameraGoalSolver,
+						std::span<ICamera* const>(exactTargets.data(), exactTargets.size()),
+						initialOrbitPreset);
+					if (exactSummary.targetCount != 1u || exactSummary.successCount != 1u || exactSummary.approximateCount != 0u || exactSummary.failureCount != 0u)
+						return fail("Preset apply summary smoke failed for exact target range.");
+				}
+
+				if (hasPathPreset && orbitCamera)
+				{
+					std::array<ICamera*, 1u> approximateTargets = { orbitCamera };
+					const auto approximateSummary = nbl::hlsl::applyPresetToCameraRange(
+						m_cameraGoalSolver,
+						std::span<ICamera* const>(approximateTargets.data(), approximateTargets.size()),
+						initialPathPreset);
+					if (approximateSummary.targetCount != 1u || approximateSummary.successCount != 1u || approximateSummary.approximateCount != 1u || approximateSummary.failureCount != 0u)
+						return fail("Preset apply summary smoke failed for approximate target range.");
 				}
 
 				m_headlessCameraSmokePassed = true;
