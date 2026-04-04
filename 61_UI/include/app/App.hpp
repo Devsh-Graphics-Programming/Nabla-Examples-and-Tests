@@ -990,19 +990,6 @@ class App final : public examples::SimpleWindowedApplication
 				drawList->AddText(font, hintSize, ImVec2(hintX, hintY), IM_COL32(170, 204, 255, 255), lineHint.c_str());
 			}
 
-		inline void applyDollyZoomProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
-		{
-			if (!camera)
-				return;
-			const auto& params = projection.getParameters();
-			if (params.m_type != IPlanarProjection::CProjection::Perspective)
-				return;
-			float dynamicFov = 0.0f;
-			if (!camera->tryGetDynamicPerspectiveFov(dynamicFov))
-				return;
-			projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
-		}
-
 		inline bool tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
 		{
 			const auto capture = m_cameraGoalSolver.captureDetailed(camera);

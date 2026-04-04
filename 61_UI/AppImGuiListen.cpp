@@ -88,7 +88,7 @@ void App::imguiListen()
 						assert(binding.boundProjectionIx.has_value());
 						
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
-						applyDollyZoomProjection(planarViewCameraBound, projection);
+						syncDynamicPerspectiveProjection(planarViewCameraBound, projection);
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 						// TODO: 
@@ -423,7 +423,7 @@ void App::imguiListen()
 						assert(binding.boundProjectionIx.has_value());
 
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
-						applyDollyZoomProjection(planarViewCameraBound, projection);
+						syncDynamicPerspectiveProjection(planarViewCameraBound, projection);
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 					}
 
@@ -452,7 +452,7 @@ void App::imguiListen()
 
 					assert(binding.boundProjectionIx.has_value());
 					auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
-					applyDollyZoomProjection(boundPlanarCamera, projection);
+					syncDynamicPerspectiveProjection(boundPlanarCamera, projection);
 					projection.update(binding.leftHandedProjection, binding.aspectRatio);
 					binding.isOrthographicProjection = projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic;
 

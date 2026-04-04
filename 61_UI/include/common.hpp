@@ -26,6 +26,7 @@
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CCameraManipulationUtilities.hpp"
+#include "camera/CCameraProjectionUtilities.hpp"
 #include "camera/CCameraTextUtilities.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
@@ -99,5 +100,6 @@ using nbl::hlsl::getCastedVector;
 using nbl::hlsl::getMatrix3x4As4x4;
 using nbl::hlsl::concatenateBFollowedByA;
 using nbl::hlsl::mul;
+using nbl::hlsl::syncDynamicPerspectiveProjection;
 
 #endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_

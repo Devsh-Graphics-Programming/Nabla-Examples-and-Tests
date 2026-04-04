@@ -303,6 +303,16 @@ Provides:
 
 This keeps example runtime manipulation policy reusable without leaving event-scaling and constraint logic in example-local glue.
 
+### `CCameraProjectionUtilities.hpp`
+
+Reusable helpers that synchronize camera-driven projection state with planar projections.
+
+Provides:
+
+- dynamic perspective FOV sync from camera state into `IPlanarProjection::CProjection`
+
+This keeps camera-specific projection updates reusable without leaving them in example-local glue.
+
 ### `CCameraKeyframeTrack.hpp`
 
 Reusable keyframe-track helpers on top of presets.
