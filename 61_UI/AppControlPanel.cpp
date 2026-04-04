@@ -1030,6 +1030,22 @@ void App::DrawControlPanel()
 								}
 								DrawHoverHint("Remove selected keyframe");
 							}
+
+							DrawSectionHeader("KeyframesStorageHeader", "Keyframe Storage", accent);
+							ImGui::InputText("Keyframe file", m_keyframePath, IM_ARRAYSIZE(m_keyframePath));
+							if (ImGui::Button("Save keyframes"))
+							{
+								if (!saveKeyframesToFile(system::path(m_keyframePath)))
+									m_logger->log("Failed to save keyframes to \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
+							}
+							DrawHoverHint("Save keyframes to JSON file");
+							ImGui::SameLine();
+							if (ImGui::Button("Load keyframes"))
+							{
+								if (!loadKeyframesFromFile(system::path(m_keyframePath)))
+									m_logger->log("Failed to load keyframes from \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
+							}
+							DrawHoverHint("Load keyframes from JSON file");
 						}
 						ImGui::PopItemWidth();
 					}

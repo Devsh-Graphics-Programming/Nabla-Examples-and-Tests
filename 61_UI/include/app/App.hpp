@@ -1791,6 +1791,54 @@ class App final : public examples::SimpleWindowedApplication
 			return true;
 		}
 
+		inline bool saveKeyframesToFile(const system::path& path)
+		{
+			nbl_json root;
+			root["keyframes"] = nbl_json::array();
+
+			for (const auto& keyframe : m_keyframes)
+			{
+				auto j = nbl::hlsl::serializePreset(keyframe.preset);
+				j["time"] = keyframe.time;
+				root["keyframes"].push_back(std::move(j));
+			}
+
+			std::ofstream out(path.string(), std::ios::binary);
+			if (!out)
+				return false;
+			out << root.dump(2);
+			return true;
+		}
+
+		inline bool loadKeyframesFromFile(const system::path& path)
+		{
+			std::ifstream in(path.string(), std::ios::binary);
+			if (!in)
+				return false;
+
+			nbl_json root;
+			in >> root;
+			if (!root.contains("keyframes"))
+				return false;
+
+			m_keyframes.clear();
+			for (const auto& entry : root["keyframes"])
+			{
+				CameraKeyframe keyframe;
+				if (entry.contains("time"))
+					keyframe.time = std::max(0.f, entry["time"].get<float>());
+				nbl::hlsl::deserializePreset(entry, keyframe.preset);
+				m_keyframes.emplace_back(std::move(keyframe));
+			}
+
+			sortKeyframesByTime();
+			clampPlaybackTimeToKeyframes();
+			normalizeSelectedKeyframe();
+			if (m_keyframes.empty())
+				clearApplyStatusBanner(m_playbackApplyBanner);
+			return true;
+		}
+
 		void imguiListen();
 
 		inline bool shouldCaptureOSCursor()
@@ -2335,6 +2383,7 @@ class App final : public examples::SimpleWindowedApplication
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";
 		char m_presetPath[260] = "camera_presets.json";
+		char m_keyframePath[260] = "camera_keyframes.json";
 		std::chrono::microseconds m_lastPresentationTimestamp = {};
 		bool m_haveLastPresentationTimestamp = false;
 		double m_frameDeltaSec = 0.0;
