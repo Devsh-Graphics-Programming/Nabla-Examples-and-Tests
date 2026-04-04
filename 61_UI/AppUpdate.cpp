@@ -351,7 +351,7 @@ void App::update()
 					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
 						virtualEvents[i].magnitude *= m_cameraControls.keyboardScale;
 
-					applyVirtualEventScaling(virtualEvents, vCount);
+					nbl::hlsl::scaleVirtualEvents(virtualEvents, vCount, m_cameraControls.translationScale, m_cameraControls.rotationScale);
 
 					const char* bindingLabel = "Keyboard/Mouse";
 					auto applyEventsToCamera = [&](ICamera* target, uint32_t planarIx)
@@ -363,7 +363,7 @@ void App::update()
 						{
 							std::vector<CVirtualGimbalEvent> perCameraEvents(virtualEvents.begin(), virtualEvents.begin() + vCount);
 							uint32_t perCount = vCount;
-							remapTranslationToWorld(target, perCameraEvents, perCount);
+							nbl::hlsl::remapTranslationEventsFromWorldToCameraLocal(target, perCameraEvents, perCount);
 							if (perCount)
 								target->manipulate({ perCameraEvents.data(), perCount });
 						}
@@ -372,7 +372,7 @@ void App::update()
 							target->manipulate({ virtualEvents.data(), vCount });
 						}
 
-						applyConstraintsToCamera(target);
+						nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, target, m_cameraConstraints);
 						appendVirtualEventLog("input", bindingLabel, planarIx, target, virtualEvents.data(), vCount);
 					};
 

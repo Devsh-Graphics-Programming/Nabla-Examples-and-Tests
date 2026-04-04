@@ -25,6 +25,7 @@
 #include "camera/CCameraPersistence.hpp"
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
+#include "camera/CCameraManipulationUtilities.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
 #include "camera/CCubeProjection.hpp"
@@ -70,6 +71,7 @@ using nbl::hlsl::SCameraPlaybackAdvanceResult;
 using nbl::hlsl::SCameraPresetApplySummary;
 using nbl::hlsl::SCameraGoalApplyAnalysis;
 using nbl::hlsl::SCameraCaptureAnalysis;
+using nbl::hlsl::SCameraConstraintSettings;
 using nbl::hlsl::CCameraGoalSolver;
 using nbl::hlsl::CGimbalInputBinder;
 using nbl::hlsl::IGimbalBindingLayout;

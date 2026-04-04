@@ -277,6 +277,19 @@ Provides:
 
 This keeps solver-backed preset flow reusable without leaving the flow rules in example-local glue.
 
+### `CCameraManipulationUtilities.hpp`
+
+Reusable manipulation helpers that sit between raw collected virtual events and final camera state.
+
+Provides:
+
+- `SCameraConstraintSettings`
+- virtual-event translation and rotation scaling
+- world-translation remapping into local camera movement
+- post-manipulation constraint clamping through the shared goal solver
+
+This keeps example runtime manipulation policy reusable without leaving event-scaling and constraint logic in example-local glue.
+
 ### `CCameraKeyframeTrack.hpp`
 
 Reusable keyframe-track helpers on top of presets.
