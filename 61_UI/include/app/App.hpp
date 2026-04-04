@@ -1001,46 +1001,8 @@ class App final : public examples::SimpleWindowedApplication
 		{
 			PresetUiAnalysis analysis;
 			static_cast<SCameraGoalApplyAnalysis&>(analysis) = nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset);
-
-			if (!analysis.hasCamera)
-			{
-				analysis.compatibilityLabel = "No active camera";
-				analysis.policyLabel = "Blocked | no active camera";
-				return analysis;
-			}
-
-			{
-				std::ostringstream oss;
-				oss << (analysis.compatibility.exact ? "Exact" : "Best-effort")
-					<< " | source=" << getCameraTypeLabel(analysis.goal.sourceKind)
-					<< " | target=" << getCameraTypeLabel(camera);
-
-				if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
-					oss << " | missing=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
-				else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
-					oss << " | shared goal state only";
-
-				analysis.compatibilityLabel = oss.str();
-			}
-
-			if (!analysis.finiteGoal)
-			{
-				analysis.policyLabel = "Blocked | invalid goal state";
-				return analysis;
-			}
-
-			{
-				std::ostringstream oss;
-				oss << (analysis.compatibility.exact ? "Exact apply" : "Best-effort apply");
-				if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
-					oss << " | drops=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
-				else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
-					oss << " | shared goal state only";
-				else
-					oss << " | full preview available";
-				analysis.policyLabel = oss.str();
-			}
-
+			analysis.compatibilityLabel = nbl::hlsl::describeGoalApplyCompatibility(analysis, camera);
+			analysis.policyLabel = nbl::hlsl::describeGoalApplyPolicy(analysis);
 			return analysis;
 		}
 
@@ -1048,29 +1010,7 @@ class App final : public examples::SimpleWindowedApplication
 		{
 			CaptureUiAnalysis analysis;
 			static_cast<SCameraCaptureAnalysis&>(analysis) = nbl::hlsl::analyzeCameraCapture(m_cameraGoalSolver, camera);
-			if (!analysis.hasCamera)
-			{
-				analysis.policyLabel = "Blocked | no active camera";
-				return analysis;
-			}
-
-			if (!analysis.capturedGoal)
-			{
-				analysis.policyLabel = "Blocked | goal capture failed";
-				return analysis;
-			}
-
-			if (!analysis.finiteGoal)
-			{
-				analysis.policyLabel = "Blocked | invalid goal state";
-				return analysis;
-			}
-
-			analysis.canCapture = true;
-			std::ostringstream oss;
-			oss << "Ready | source=" << getCameraTypeLabel(camera)
-				<< " | goal=" << describeGoalStateMask(analysis.goal.sourceGoalStateMask);
-			analysis.policyLabel = oss.str();
+			analysis.policyLabel = nbl::hlsl::describeCameraCapturePolicy(analysis, camera);
 			return analysis;
 		}
 
@@ -1120,24 +1060,10 @@ class App final : public examples::SimpleWindowedApplication
 			banner.approximate = false;
 		}
 
-		inline std::string describePlaybackApplySummary(const SCameraPresetApplySummary& summary) const
-		{
-			if (!summary.hasTargets())
-				return m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera";
-
-			std::ostringstream oss;
-			oss << "Playback apply | targets=" << summary.targetCount << " | ok=" << summary.successCount;
-			if (summary.approximateCount > 0u)
-				oss << " | approximate=" << summary.approximateCount;
-			if (summary.failureCount > 0u)
-				oss << " | failed=" << summary.failureCount;
-			return oss.str();
-		}
-
 		inline void storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 		{
 			storeApplyStatusBanner(m_playbackApplyBanner,
-				describePlaybackApplySummary(summary),
+				nbl::hlsl::describePresetApplySummary(summary, m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
 				summary.succeeded(),
 				summary.approximate());
 		}

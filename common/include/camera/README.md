@@ -260,6 +260,9 @@ Provides:
 - camera-kind descriptions
 - goal-state mask descriptions
 - detailed goal-apply result descriptions
+- analyzed goal-apply compatibility and policy descriptions
+- analyzed camera-capture policy descriptions
+- aggregate preset-apply summary descriptions
 
 This keeps camera-specific presentation and diagnostic text reusable without leaving it in example-local glue.
 

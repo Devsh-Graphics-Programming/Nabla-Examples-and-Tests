@@ -9,7 +9,8 @@
 #include <string>
 #include <string_view>
 
-#include "CCameraGoalSolver.hpp"
+#include "CCameraGoalAnalysis.hpp"
+#include "CCameraPresetFlow.hpp"
 
 namespace nbl::hlsl
 {
@@ -126,6 +127,76 @@ inline std::string describeApplyResult(const CCameraGoalSolver::SApplyResult& re
 		appendIssue("virtual_event_replay_failed", CCameraGoalSolver::SApplyResult::VirtualEventReplayFailed);
 	}
 
+	return oss.str();
+}
+
+//! Describe compatibility preview for applying one analyzed goal to a target camera.
+inline std::string describeGoalApplyCompatibility(const SCameraGoalApplyAnalysis& analysis, const ICamera* targetCamera)
+{
+	if (!analysis.hasCamera)
+		return "No active camera";
+
+	std::ostringstream oss;
+	oss << (analysis.compatibility.exact ? "Exact" : "Best-effort")
+		<< " | source=" << getCameraTypeLabel(analysis.goal.sourceKind)
+		<< " | target=" << getCameraTypeLabel(targetCamera);
+
+	if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+		oss << " | missing=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
+	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+		oss << " | shared goal state only";
+
+	return oss.str();
+}
+
+//! Describe whether an analyzed goal can be meaningfully applied to the target camera.
+inline std::string describeGoalApplyPolicy(const SCameraGoalApplyAnalysis& analysis)
+{
+	if (!analysis.hasCamera)
+		return "Blocked | no active camera";
+	if (!analysis.finiteGoal)
+		return "Blocked | invalid goal state";
+
+	std::ostringstream oss;
+	oss << (analysis.compatibility.exact ? "Exact apply" : "Best-effort apply");
+	if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+		oss << " | drops=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
+	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+		oss << " | shared goal state only";
+	else
+		oss << " | full preview available";
+
+	return oss.str();
+}
+
+//! Describe whether one analyzed camera state can be captured into a reusable goal.
+inline std::string describeCameraCapturePolicy(const SCameraCaptureAnalysis& analysis, const ICamera* camera)
+{
+	if (!analysis.hasCamera)
+		return "Blocked | no active camera";
+	if (!analysis.capturedGoal)
+		return "Blocked | goal capture failed";
+	if (!analysis.finiteGoal)
+		return "Blocked | invalid goal state";
+
+	std::ostringstream oss;
+	oss << "Ready | source=" << getCameraTypeLabel(camera)
+		<< " | goal=" << describeGoalStateMask(analysis.goal.sourceGoalStateMask);
+	return oss.str();
+}
+
+//! Describe the aggregate outcome of applying one preset to multiple cameras.
+inline std::string describePresetApplySummary(const SCameraPresetApplySummary& summary, std::string_view noTargetsLabel, std::string_view prefix = "Playback apply")
+{
+	if (!summary.hasTargets())
+		return std::string(noTargetsLabel);
+
+	std::ostringstream oss;
+	oss << prefix << " | targets=" << summary.targetCount << " | ok=" << summary.successCount;
+	if (summary.approximateCount > 0u)
+		oss << " | approximate=" << summary.approximateCount;
+	if (summary.failureCount > 0u)
+		oss << " | failed=" << summary.failureCount;
 	return oss.str();
 }
 
