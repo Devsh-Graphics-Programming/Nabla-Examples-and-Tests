@@ -96,10 +96,62 @@ struct IGimbalBindingLayout
 
 using IGimbalManipulateEncoder = IGimbalBindingLayout;
 
-class IGimbalController : public IGimbalBindingLayout
+class CGimbalBindingLayoutStorage : public IGimbalBindingLayout
 {
 public:
     using IGimbalBindingLayout::IGimbalBindingLayout;
+
+    CGimbalBindingLayoutStorage() {}
+    virtual ~CGimbalBindingLayoutStorage() {}
+
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
+
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
+
+    inline void copyBindingLayoutFrom(const IGimbalBindingLayout& layout)
+    {
+        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardVirtualEventMap()); });
+        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseVirtualEventMap()); });
+        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoVirtualEventMap()); });
+    }
+
+    inline void copyPresetLayoutFrom(const IGimbalBindingLayout& layout)
+    {
+        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardMappingPreset()); });
+        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseMappingPreset()); });
+        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoMappingPreset()); });
+    }
+
+    inline void copyBindingLayoutTo(IGimbalBindingLayout& layout) const
+    {
+        layout.updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(getKeyboardVirtualEventMap()); });
+        layout.updateMouseMapping([&](auto& map) { map = sanitizeMapping(getMouseVirtualEventMap()); });
+        layout.updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(getImguizmoVirtualEventMap()); });
+    }
+
+protected:
+    template<typename Map>
+    inline static Map sanitizeMapping(const Map& source)
+    {
+        Map result;
+        for (const auto& [code, hash] : source)
+            result.emplace(code, typename Map::mapped_type(hash.event.type));
+        return result;
+    }
+
+    keyboard_to_virtual_events_t m_keyboardVirtualEventMap;
+    mouse_to_virtual_events_t m_mouseVirtualEventMap;
+    imguizmo_to_virtual_events_t m_imguizmoVirtualEventMap;
+};
+
+class IGimbalController : public CGimbalBindingLayoutStorage
+{
+public:
+    using CGimbalBindingLayoutStorage::CGimbalBindingLayoutStorage;
 
     IGimbalController() {}
     virtual ~IGimbalController() {}
@@ -130,10 +182,6 @@ public:
     {
         m_lastVirtualUpTimeStamp = m_nextPresentationTimeStamp;
     }
-
-    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
-    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
-    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
 
     struct SUpdateParameters
     {
@@ -185,10 +233,6 @@ public:
 
         count = vKeyboardEventsCount + vMouseEventsCount + vImguizmoEventsCount;
     }
-
-    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
-    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
-    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
 
     /**
     * @brief Processes keyboard events to generate virtual manipulation events.
@@ -445,10 +489,6 @@ private:
                 request->second.event.magnitude += dMagnitude;
         }
     }
-
-    keyboard_to_virtual_events_t m_keyboardVirtualEventMap;
-    mouse_to_virtual_events_t m_mouseVirtualEventMap;
-    imguizmo_to_virtual_events_t m_imguizmoVirtualEventMap;
 
     double m_frameDeltaTime = {};
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};

@@ -105,12 +105,12 @@ public:
         }
 
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
-        inline const CGimbalInputBinder& getInputBinding() const { return m_inputBinding; }
-        inline CGimbalInputBinder& getInputBinding() { return m_inputBinding; }
+        inline const CGimbalBindingLayoutStorage& getInputBinding() const { return m_inputBinding; }
+        inline CGimbalBindingLayoutStorage& getInputBinding() { return m_inputBinding; }
     private:
         CProjection() = default;
         ProjectionParameters m_parameters;
-        CGimbalInputBinder m_inputBinding;
+        CGimbalBindingLayoutStorage m_inputBinding;
     };
 
 protected:

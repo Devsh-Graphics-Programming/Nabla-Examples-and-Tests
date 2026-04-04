@@ -202,7 +202,7 @@ protected:
     // (***) TODO: I need to think whether a camera should own this or controllers should be able 
     // to set sensitivity to scale magnitudes of generated events we put into manipulate method
     double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;
-    CGimbalInputBinder m_defaultInputBinding;
+    CGimbalBindingLayoutStorage m_defaultInputBinding;
 };
 
 }
