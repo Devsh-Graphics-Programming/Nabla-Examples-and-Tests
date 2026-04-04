@@ -7,16 +7,14 @@
 
 #include <optional>
 
-#include "camera/IGimbalController.hpp"
+#include "camera/CGimbalInputBinder.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-class ICamera : public IGimbalController, virtual public core::IReferenceCounted
+class ICamera : public IGimbalManipulateEncoder, virtual public core::IReferenceCounted
 { 
 public:
-    using IGimbalController::IGimbalController;
-
     enum class CameraKind : uint8_t
     {
         Unknown,
@@ -101,6 +99,14 @@ public:
 
     ICamera() {}
 	virtual ~ICamera() = default;
+
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_defaultInputBinding.getKeyboardVirtualEventMap(); }
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_defaultInputBinding.getMouseVirtualEventMap(); }
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_defaultInputBinding.getImguizmoVirtualEventMap(); }
+
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateKeyboardMapping(mapKeys); }
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateMouseMapping(mapKeys); }
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateImguizmoMapping(mapKeys); }
 
 	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
@@ -196,6 +202,7 @@ protected:
     // (***) TODO: I need to think whether a camera should own this or controllers should be able 
     // to set sensitivity to scale magnitudes of generated events we put into manipulate method
     double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;
+    CGimbalInputBinder m_defaultInputBinding;
 };
 
 }
