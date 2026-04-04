@@ -383,11 +383,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				};
 
 				CameraPreset initialOrbitPreset;
+				CameraPreset initialFreePreset;
 				CameraPreset initialChasePreset;
 				CameraPreset initialDollyPreset;
 				CameraPreset initialPathPreset;
 				CameraPreset initialDollyZoomPreset;
 				bool hasOrbitPreset = false;
+				bool hasFreePreset = false;
 				bool hasChasePreset = false;
 				bool hasDollyPreset = false;
 				bool hasPathPreset = false;
@@ -411,6 +413,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						case ICamera::CameraKind::Orbit:
 							initialOrbitPreset = initialPreset;
 							hasOrbitPreset = true;
+							break;
+						case ICamera::CameraKind::Free:
+							initialFreePreset = initialPreset;
+							hasFreePreset = true;
 							break;
 						case ICamera::CameraKind::Chase:
 							initialChasePreset = initialPreset;
@@ -719,8 +725,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				};
 
 				ICamera* orbitCamera = findCameraByKind(ICamera::CameraKind::Orbit);
+				ICamera* freeCamera = findCameraByKind(ICamera::CameraKind::Free);
 				ICamera* chaseCamera = findCameraByKind(ICamera::CameraKind::Chase);
 				ICamera* dollyCamera = findCameraByKind(ICamera::CameraKind::Dolly);
+				ICamera* dollyZoomCamera = findCameraByKind(ICamera::CameraKind::DollyZoom);
 				if (hasOrbitPreset && hasChasePreset)
 				{
 					if (!verifyExactCrossKindApply(orbitCamera, initialChasePreset, "Chase->Orbit"))
@@ -940,6 +948,144 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						initialPathPreset);
 					if (approximateSummary.targetCount != 1u || approximateSummary.successCount != 1u || approximateSummary.approximateCount != 1u || approximateSummary.failureCount != 0u)
 						return fail("Preset apply summary smoke failed for approximate target range.");
+				}
+
+				{
+					std::vector<CVirtualGimbalEvent> scaledEvents(3u);
+					scaledEvents[0].type = CVirtualGimbalEvent::MoveForward;
+					scaledEvents[0].magnitude = 2.0;
+					scaledEvents[1].type = CVirtualGimbalEvent::PanRight;
+					scaledEvents[1].magnitude = 3.0;
+					scaledEvents[2].type = CVirtualGimbalEvent::ScaleXInc;
+					scaledEvents[2].magnitude = 4.0;
+					nbl::hlsl::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
+					if (std::abs(scaledEvents[0].magnitude - 1.0) > 1e-9 ||
+						std::abs(scaledEvents[1].magnitude - 6.0) > 1e-9 ||
+						std::abs(scaledEvents[2].magnitude - 4.0) > 1e-9)
+					{
+						return fail("Camera manipulation utilities smoke failed for virtual-event scaling.");
+					}
+				}
+
+				if (hasFreePreset && freeCamera)
+				{
+					CameraPreset orientedPreset = initialFreePreset;
+					orientedPreset.goal.orientation = glm::quat(hlsl::radians(float32_t3(0.f, 90.f, 0.f)));
+					const auto orientResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, orientedPreset);
+					if (!orientResult.succeeded() || !comparePresetToCamera(freeCamera, orientedPreset, 1e-6, 0.1, 1e-6))
+						return fail("Camera manipulation utilities smoke failed to orient Free camera before translation remap.");
+
+					std::vector<CVirtualGimbalEvent> worldTranslationEvents(3u);
+					worldTranslationEvents[0].type = CVirtualGimbalEvent::MoveRight;
+					worldTranslationEvents[0].magnitude = 1.25;
+					worldTranslationEvents[1].type = CVirtualGimbalEvent::MoveUp;
+					worldTranslationEvents[1].magnitude = 0.5;
+					worldTranslationEvents[2].type = CVirtualGimbalEvent::MoveForward;
+					worldTranslationEvents[2].magnitude = 2.0;
+					uint32_t remappedCount = static_cast<uint32_t>(worldTranslationEvents.size());
+					nbl::hlsl::remapTranslationEventsFromWorldToCameraLocal(freeCamera, worldTranslationEvents, remappedCount);
+					if (remappedCount == 0u)
+						return fail("Camera manipulation utilities smoke produced empty translation remap.");
+
+					if (!freeCamera->manipulate({ worldTranslationEvents.data(), remappedCount }))
+						return fail("Camera manipulation utilities smoke failed to apply remapped translation.");
+
+					const auto remappedPosition = freeCamera->getGimbal().getPosition();
+					const auto positionDelta = remappedPosition - orientedPreset.goal.position;
+					const float64_t3 expectedWorldDelta(1.25, 0.5, 2.0);
+					if (!nearlyEqual3(positionDelta, expectedWorldDelta, 1e-6))
+						return fail("Camera manipulation utilities smoke changed world-space translation semantics.");
+
+					CameraPreset pitchPreset = initialFreePreset;
+					pitchPreset.goal.orientation = glm::quat(hlsl::radians(float32_t3(60.f, 0.f, 0.f)));
+					const auto pitchResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, pitchPreset);
+					if (!pitchResult.succeeded())
+						return fail("Camera manipulation utilities smoke failed to prepare Free camera pitch clamp.");
+
+					SCameraConstraintSettings freeConstraints;
+					freeConstraints.enabled = true;
+					freeConstraints.clampPitch = true;
+					freeConstraints.pitchMinDeg = -15.f;
+					freeConstraints.pitchMaxDeg = 15.f;
+					if (!nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, freeCamera, freeConstraints))
+						return fail("Camera manipulation utilities smoke failed to clamp Free camera orientation.");
+
+					const auto freeEulerDeg = glm::degrees(glm::eulerAngles(freeCamera->getGimbal().getOrientation()));
+					if (std::abs(static_cast<double>(freeEulerDeg.x - 15.f)) > 0.1)
+						return fail("Camera manipulation utilities smoke produced wrong clamped Free camera pitch.");
+
+					const auto restoreFree = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, initialFreePreset);
+					if (!restoreFree.succeeded() || !comparePresetToCamera(freeCamera, initialFreePreset, 1e-6, 0.1, 1e-6))
+						return fail("Camera manipulation utilities smoke failed to restore Free camera baseline.");
+				}
+
+				if (hasOrbitPreset && orbitCamera && initialOrbitPreset.goal.hasDistance)
+				{
+					CameraPreset farOrbitPreset = initialOrbitPreset;
+					farOrbitPreset.goal.distance = initialOrbitPreset.goal.distance + 10.f;
+					const auto farOrbitResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, farOrbitPreset);
+					if (!farOrbitResult.succeeded())
+						return fail("Camera manipulation utilities smoke failed to prepare Orbit distance clamp.");
+
+					SCameraConstraintSettings orbitConstraints;
+					orbitConstraints.enabled = true;
+					orbitConstraints.clampDistance = true;
+					orbitConstraints.minDistance = std::max(0.1f, initialOrbitPreset.goal.distance * 0.5f);
+					orbitConstraints.maxDistance = initialOrbitPreset.goal.distance * 0.75f;
+					if (!nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, orbitCamera, orbitConstraints))
+						return fail("Camera manipulation utilities smoke failed to clamp Orbit distance.");
+
+					ICamera::SphericalTargetState clampedOrbitState;
+					if (!orbitCamera->tryGetSphericalTargetState(clampedOrbitState) ||
+						std::abs(static_cast<double>(clampedOrbitState.distance - orbitConstraints.maxDistance)) > 1e-6)
+					{
+						return fail("Camera manipulation utilities smoke produced wrong clamped Orbit distance.");
+					}
+
+					const auto restoreOrbit = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
+					if (!restoreOrbit.succeeded() || !comparePresetToCamera(orbitCamera, initialOrbitPreset, 1e-6, 0.1, 1e-6))
+						return fail("Camera manipulation utilities smoke failed to restore Orbit baseline.");
+				}
+
+				if (hasDollyZoomPreset && dollyZoomCamera)
+				{
+					float dynamicFov = 0.0f;
+					if (!dollyZoomCamera->tryGetDynamicPerspectiveFov(dynamicFov))
+						return fail("Camera projection utilities smoke failed to query DollyZoom dynamic FOV.");
+
+					auto perspectiveProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(0.1f, 100.f, 60.f);
+					if (!nbl::hlsl::syncDynamicPerspectiveProjection(dollyZoomCamera, perspectiveProjection))
+						return fail("Camera projection utilities smoke failed to sync dynamic perspective projection.");
+					if (std::abs(static_cast<double>(perspectiveProjection.getParameters().m_planar.perspective.fov - dynamicFov)) > 1e-6)
+						return fail("Camera projection utilities smoke produced wrong dynamic perspective FOV.");
+
+					auto orthographicProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(0.1f, 100.f, 10.f);
+					if (nbl::hlsl::syncDynamicPerspectiveProjection(dollyZoomCamera, orthographicProjection))
+						return fail("Camera projection utilities smoke unexpectedly synced orthographic projection.");
+				}
+
+				{
+					if (getCameraTypeLabel(ICamera::CameraKind::DollyZoom) != "Dolly Zoom")
+						return fail("Camera text utilities smoke failed for Dolly Zoom label.");
+					if (getCameraTypeDescription(ICamera::CameraKind::Path) != "Move along a target path")
+						return fail("Camera text utilities smoke failed for Path description.");
+					if (describeGoalStateMask(ICamera::GoalStateNone) != "Pose only")
+						return fail("Camera text utilities smoke failed for empty goal-state description.");
+					if (describeGoalStateMask(ICamera::GoalStateSphericalTarget | ICamera::GoalStateDynamicPerspective) != "Spherical target, Dynamic perspective")
+						return fail("Camera text utilities smoke failed for combined goal-state description.");
+
+					CCameraGoalSolver::SApplyResult defaultApplyResult;
+					const auto applyResultText = describeApplyResult(defaultApplyResult);
+					if (applyResultText.find("status=Unsupported") == std::string::npos || applyResultText.find("events=0") == std::string::npos)
+						return fail("Camera text utilities smoke failed for apply-result description.");
+
+					SCameraPresetApplySummary summary;
+					summary.targetCount = 2u;
+					summary.successCount = 2u;
+					summary.approximateCount = 1u;
+					const auto summaryText = nbl::hlsl::describePresetApplySummary(summary, "none");
+					if (summaryText.find("targets=2") == std::string::npos || summaryText.find("approximate=1") == std::string::npos)
+						return fail("Camera text utilities smoke failed for preset-apply summary description.");
 				}
 
 				m_headlessCameraSmokePassed = true;
