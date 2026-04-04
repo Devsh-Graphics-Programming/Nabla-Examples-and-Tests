@@ -309,19 +309,11 @@ void App::imguiListen()
 
 											if (vCount)
 											{
-												const float pMoveSpeed = targetGimbalManipulationCamera->getMoveSpeedScale();
-												const float pRotationSpeed = targetGimbalManipulationCamera->getRotationSpeedScale();
-
 												// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
 												// in order for camera to not keep any magnitude scalars like move or rotation speed scales
 
-												targetGimbalManipulationCamera->setMoveSpeedScale(1);
-												targetGimbalManipulationCamera->setRotationSpeedScale(1);
-
+												auto unitMotionOverride = targetGimbalManipulationCamera->overrideMotionScales(1.0, 1.0);
 												targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
-
-												targetGimbalManipulationCamera->setMoveSpeedScale(pMoveSpeed);
-												targetGimbalManipulationCamera->setRotationSpeedScale(pRotationSpeed);
 											}
 
 										}

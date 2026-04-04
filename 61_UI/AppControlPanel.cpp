@@ -547,8 +547,7 @@ void App::DrawControlPanel()
 									ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 								DrawHoverHint("Scale rotation speed for this camera");
 
-								boundCamera->setMoveSpeedScale(moveSpeed);
-								boundCamera->setRotationSpeedScale(rotationSpeed);
+								boundCamera->setMotionScales(moveSpeed, rotationSpeed);
 
 								if (isOrbitLike)
 								{

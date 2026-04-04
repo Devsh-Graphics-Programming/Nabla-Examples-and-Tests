@@ -6,6 +6,7 @@
 #define _I_CAMERA_HPP_
 
 #include <optional>
+#include <utility>
 
 #include "camera/IGimbalBindingLayout.hpp"
 
@@ -120,6 +121,44 @@ public:
         float64_t3x4 m_viewMatrix;
     };
 
+    class SScopedMotionScaleOverride
+    {
+    public:
+        SScopedMotionScaleOverride(ICamera* camera, const double moveScale, const double rotationScale)
+            : m_camera(camera)
+        {
+            if (!m_camera)
+                return;
+
+            m_prevMoveScale = m_camera->getMoveSpeedScale();
+            m_prevRotationScale = m_camera->getRotationSpeedScale();
+            m_camera->setMotionScales(moveScale, rotationScale);
+        }
+
+        SScopedMotionScaleOverride(const SScopedMotionScaleOverride&) = delete;
+        SScopedMotionScaleOverride& operator=(const SScopedMotionScaleOverride&) = delete;
+
+        SScopedMotionScaleOverride(SScopedMotionScaleOverride&& other) noexcept
+            : m_camera(std::exchange(other.m_camera, nullptr)),
+            m_prevMoveScale(other.m_prevMoveScale),
+            m_prevRotationScale(other.m_prevRotationScale)
+        {
+        }
+
+        SScopedMotionScaleOverride& operator=(SScopedMotionScaleOverride&& other) = delete;
+
+        ~SScopedMotionScaleOverride()
+        {
+            if (m_camera)
+                m_camera->setMotionScales(m_prevMoveScale, m_prevRotationScale);
+        }
+
+    private:
+        ICamera* m_camera = nullptr;
+        double m_prevMoveScale = 0.0;
+        double m_prevRotationScale = 0.0;
+    };
+
     ICamera() {}
 	virtual ~ICamera() = default;
 
@@ -222,10 +261,20 @@ public:
         m_motionConfig.rotationSpeedScale = scalar;
     }
 
+    inline void setMotionScales(const double moveScale, const double rotationScale)
+    {
+        setMoveSpeedScale(moveScale);
+        setRotationSpeedScale(rotationScale);
+    }
+
     inline double getMoveSpeedScale() const { return m_motionConfig.moveSpeedScale; }
     inline double getRotationSpeedScale() const { return m_motionConfig.rotationSpeedScale; }
     inline const SMotionConfig& getMotionConfig() const { return m_motionConfig; }
     inline const SInputBindingConfig& getInputBindingConfig() const { return m_inputBindingConfig; }
+    inline SScopedMotionScaleOverride overrideMotionScales(const double moveScale, const double rotationScale)
+    {
+        return SScopedMotionScaleOverride(this, moveScale, rotationScale);
+    }
     inline void resetDefaultInputBindingToPreset()
     {
         copyDefaultInputBindingPresetTo(m_inputBindingConfig.defaultBindingLayout);

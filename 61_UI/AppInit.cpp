@@ -53,8 +53,7 @@ namespace
 
 	void initializeCameraRigConfig(nbl::hlsl::ICamera& camera, const double moveScale, const double rotationScale)
 	{
-		camera.setMoveSpeedScale(moveScale);
-		camera.setRotationSpeedScale(rotationScale);
+		camera.setMotionScales(moveScale, rotationScale);
 		camera.resetDefaultInputBindingToPreset();
 	}
 
