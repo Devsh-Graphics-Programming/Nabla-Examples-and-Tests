@@ -705,9 +705,6 @@ private:
     }
 };
 
-using CTargetPose = CCameraGoal;
-using CTargetPoseController = CCameraGoalSolver;
-
 } // namespace nbl::hlsl
 
 #endif // _C_CAMERA_GOAL_SOLVER_HPP_
