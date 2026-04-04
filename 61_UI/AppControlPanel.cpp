@@ -711,7 +711,11 @@ void App::DrawControlPanel()
 
 						if (!m_presets.empty())
 						{
-							const char* presetFilterLabels[] = { "All", "Exact", "Best-effort" };
+							const char* presetFilterLabels[] = {
+								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
+								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
+								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
+							};
 							int presetFilterIx = static_cast<int>(m_presetFilterMode);
 							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
 								m_presetFilterMode = static_cast<PresetFilterMode>(presetFilterIx);
@@ -759,6 +763,7 @@ void App::DrawControlPanel()
 								{
 									const auto& preset = m_presets[static_cast<size_t>(m_selectedPresetIx)];
 									const auto presetUi = analyzePresetForUi(activeCamera, preset);
+									const auto presetBadges = nbl::hlsl::collectGoalApplyPresentationBadges(presetUi);
 									const ImVec4 compatibilityColor = !presetUi.hasCamera ? bad : (presetUi.exact() ? good : warn);
 
 									ImGui::TextDisabled("Preset source");
@@ -774,18 +779,21 @@ void App::DrawControlPanel()
 									ImGui::SameLine();
 									ImGui::TextColored(compatibilityColor, "%s", presetUi.compatibilityLabel.c_str());
 
-									DrawBadge(presetUi.exact() ? "EXACT" : "BEST-EFFORT", presetUi.exact() ? good : warn, badgeText);
-									if (presetUi.dropsGoalState())
+									if (presetBadges.exact)
+										DrawBadge("EXACT", good, badgeText);
+									else if (presetBadges.bestEffort)
+										DrawBadge("BEST-EFFORT", warn, badgeText);
+									if (presetBadges.dropsState)
 									{
 										ImGui::SameLine();
 										DrawBadge("DROPS STATE", warn, badgeText);
 									}
-									else if (presetUi.usesSharedStateOnly())
+									else if (presetBadges.sharedStateOnly)
 									{
 										ImGui::SameLine();
 										DrawBadge("SHARED STATE", accent, badgeText);
 									}
-									if (!presetUi.canApply)
+									if (presetBadges.blocked)
 									{
 										ImGui::SameLine();
 										DrawBadge("BLOCKED", bad, badgeText);
@@ -949,6 +957,7 @@ void App::DrawControlPanel()
 							if (auto* selectedKeyframe = getSelectedKeyframe())
 							{
 								const auto keyframeUi = analyzePresetForUi(activeCamera, selectedKeyframe->preset);
+								const auto keyframeBadges = nbl::hlsl::collectGoalApplyPresentationBadges(keyframeUi);
 								const ImVec4 compatibilityColor = !keyframeUi.hasCamera ? bad : (keyframeUi.exact() ? good : warn);
 								float selectedTime = selectedKeyframe->time;
 								if (ImGui::InputFloat("Selected time", &selectedTime, 0.1f, 1.f, "%.3f"))
@@ -974,18 +983,21 @@ void App::DrawControlPanel()
 								ImGui::SameLine();
 								ImGui::TextColored(compatibilityColor, "%s", keyframeUi.compatibilityLabel.c_str());
 
-								DrawBadge(keyframeUi.exact() ? "EXACT" : "BEST-EFFORT", keyframeUi.exact() ? good : warn, badgeText);
-								if (keyframeUi.dropsGoalState())
+								if (keyframeBadges.exact)
+									DrawBadge("EXACT", good, badgeText);
+								else if (keyframeBadges.bestEffort)
+									DrawBadge("BEST-EFFORT", warn, badgeText);
+								if (keyframeBadges.dropsState)
 								{
 									ImGui::SameLine();
 									DrawBadge("DROPS STATE", warn, badgeText);
 								}
-								else if (keyframeUi.usesSharedStateOnly())
+								else if (keyframeBadges.sharedStateOnly)
 								{
 									ImGui::SameLine();
 									DrawBadge("SHARED STATE", accent, badgeText);
 								}
-								if (!keyframeUi.canApply)
+								if (keyframeBadges.blocked)
 								{
 									ImGui::SameLine();
 									DrawBadge("BLOCKED", bad, badgeText);

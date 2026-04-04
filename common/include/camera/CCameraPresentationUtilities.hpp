@@ -20,6 +20,16 @@ enum class EPresetApplyPresentationFilter : uint8_t
     BestEffort
 };
 
+//! Shared badge/pill policy derived from one analyzed presentation answer.
+struct SCameraGoalApplyPresentationBadges final
+{
+    bool exact = false;
+    bool bestEffort = false;
+    bool dropsState = false;
+    bool sharedStateOnly = false;
+    bool blocked = false;
+};
+
 //! Presentation-ready wrapper around analyzed goal apply compatibility.
 struct SCameraGoalApplyPresentation final : SCameraGoalApplyAnalysis
 {
@@ -48,6 +58,22 @@ struct SCameraCapturePresentation final : SCameraCaptureAnalysis
     std::string policyLabel;
 };
 
+//! Shared user-facing label for the exactness filter selector.
+inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPresentationFilter mode)
+{
+    switch (mode)
+    {
+        case EPresetApplyPresentationFilter::All:
+            return "All";
+        case EPresetApplyPresentationFilter::Exact:
+            return "Exact";
+        case EPresetApplyPresentationFilter::BestEffort:
+            return "Best-effort";
+        default:
+            return "All";
+    }
+}
+
 //! Build presentation text for one analyzed goal-apply result.
 inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const SCameraGoalApplyAnalysis& analysis, const ICamera* targetCamera)
 {
@@ -62,6 +88,18 @@ inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const SCameraGoalA
 inline SCameraGoalApplyPresentation analyzePresetPresentation(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraPreset& preset)
 {
     return makeGoalApplyPresentation(analyzePresetApply(solver, camera, preset), camera);
+}
+
+//! Build reusable badge flags for one preset/keyframe compatibility answer.
+inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation)
+{
+    SCameraGoalApplyPresentationBadges badges;
+    badges.exact = presentation.exact();
+    badges.bestEffort = presentation.hasCamera && !presentation.exact();
+    badges.dropsState = presentation.dropsGoalState();
+    badges.sharedStateOnly = presentation.usesSharedStateOnly();
+    badges.blocked = !presentation.canApply;
+    return badges;
 }
 
 //! Analyze one camera capture path and return reusable presentation data.

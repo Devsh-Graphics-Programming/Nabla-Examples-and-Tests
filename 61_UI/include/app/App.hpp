@@ -983,17 +983,6 @@ class App final : public examples::SimpleWindowedApplication
 			return nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
 		}
 
-		inline const char* getPresetFilterModeLabel(PresetFilterMode mode) const
-		{
-			switch (mode)
-			{
-				case PresetFilterMode::All: return "All";
-				case PresetFilterMode::Exact: return "Exact";
-				case PresetFilterMode::BestEffort: return "Best-effort";
-				default: return "All";
-			}
-		}
-
 		inline bool presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
 		{
 			return analyzePresetForUi(camera, preset).matchesFilter(m_presetFilterMode);

@@ -75,6 +75,7 @@ using nbl::hlsl::SCameraPresetApplySummary;
 using nbl::hlsl::SCameraGoalApplyAnalysis;
 using nbl::hlsl::SCameraCaptureAnalysis;
 using nbl::hlsl::SCameraGoalApplyPresentation;
+using nbl::hlsl::SCameraGoalApplyPresentationBadges;
 using nbl::hlsl::SCameraCapturePresentation;
 using nbl::hlsl::SCameraConstraintSettings;
 using nbl::hlsl::CCameraGoalSolver;

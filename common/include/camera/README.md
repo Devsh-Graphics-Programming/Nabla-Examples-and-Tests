@@ -273,8 +273,10 @@ Reusable presentation-oriented wrappers built on top of shared camera analysis a
 Provides:
 
 - exact-vs-best-effort preset presentation filtering
+- reusable labels for presentation filters
 - presentation-ready apply-analysis structs
 - presentation-ready capture-analysis structs
+- reusable badge flags for apply/result presentation
 - ready-to-render compatibility and policy labels
 
 This keeps higher-level preset and capture presentation flow reusable without leaving it in example-local glue.

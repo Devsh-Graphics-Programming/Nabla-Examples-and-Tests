@@ -769,6 +769,61 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					}
 				}
 
+				if (hasOrbitPreset)
+				{
+					if (std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
+						std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
+						std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
+					{
+						return fail("Presentation utilities smoke returned an unexpected filter label.");
+					}
+
+					const auto blockedPresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, nullptr, initialOrbitPreset);
+					if (blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
+						blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
+					{
+						return fail("Presentation utilities smoke allowed a null-camera preset through an exactness filter.");
+					}
+
+					const auto blockedBadges = nbl::hlsl::collectGoalApplyPresentationBadges(blockedPresentation);
+					if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort)
+						return fail("Presentation utilities smoke produced wrong blocked badge flags.");
+
+					if (orbitCamera)
+					{
+						const auto exactPresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
+						if (!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
+							!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
+							exactPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
+						{
+							return fail("Presentation utilities smoke failed exact filtering.");
+						}
+
+						const auto exactBadges = nbl::hlsl::collectGoalApplyPresentationBadges(exactPresentation);
+						if (!exactBadges.exact || exactBadges.bestEffort || exactBadges.dropsState || exactBadges.sharedStateOnly || exactBadges.blocked)
+							return fail("Presentation utilities smoke produced wrong exact badge flags.");
+
+						const auto capturePresentation = nbl::hlsl::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
+						if (!capturePresentation.canCapture || capturePresentation.policyLabel.empty())
+							return fail("Presentation utilities smoke failed orbit capture presentation.");
+					}
+				}
+
+				if (hasOrbitPreset && hasPathPreset && orbitCamera)
+				{
+					const auto approximatePresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialPathPreset);
+					if (!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
+						approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
+						!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
+					{
+						return fail("Presentation utilities smoke failed best-effort filtering.");
+					}
+
+					const auto approximateBadges = nbl::hlsl::collectGoalApplyPresentationBadges(approximatePresentation);
+					if (approximateBadges.exact || !approximateBadges.bestEffort || !approximateBadges.dropsState || approximateBadges.sharedStateOnly || approximateBadges.blocked)
+						return fail("Presentation utilities smoke produced wrong best-effort badge flags.");
+				}
+
 				{
 					std::vector<CameraPreset> sourcePresets;
 					if (hasOrbitPreset)
