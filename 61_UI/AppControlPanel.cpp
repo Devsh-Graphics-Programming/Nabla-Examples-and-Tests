@@ -798,10 +798,10 @@ void App::DrawControlPanel()
 							}
 						}
 
-						if (!m_lastPresetApplySummary.empty())
+						if (m_manualPresetApplyBanner.visible())
 						{
-							const ImVec4 resultColor = m_lastPresetApplySucceeded ? (m_lastPresetApplyApproximate ? warn : good) : bad;
-							ImGui::TextColored(resultColor, "%s", m_lastPresetApplySummary.c_str());
+							const ImVec4 resultColor = m_manualPresetApplyBanner.succeeded ? (m_manualPresetApplyBanner.approximate ? warn : good) : bad;
+							ImGui::TextColored(resultColor, "%s", m_manualPresetApplyBanner.summary.c_str());
 						}
 
 						DrawSectionHeader("PresetsStorageHeader", "Storage", accent);
@@ -850,9 +850,7 @@ void App::DrawControlPanel()
 						{
 							m_playback.playing = false;
 							m_playback.time = 0.f;
-							m_lastPlaybackApplySummary.clear();
-							m_lastPlaybackApplySucceeded = false;
-							m_lastPlaybackApplyApproximate = false;
+							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Stop playback and reset time");
 
@@ -861,10 +859,10 @@ void App::DrawControlPanel()
 							const float duration = m_keyframes.back().time;
 							ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f");
 						}
-						if (!m_lastPlaybackApplySummary.empty())
+						if (m_playbackApplyBanner.visible())
 						{
-							const ImVec4 playbackColor = m_lastPlaybackApplySucceeded ? (m_lastPlaybackApplyApproximate ? warn : good) : bad;
-							ImGui::TextColored(playbackColor, "%s", m_lastPlaybackApplySummary.c_str());
+							const ImVec4 playbackColor = m_playbackApplyBanner.succeeded ? (m_playbackApplyBanner.approximate ? warn : good) : bad;
+							ImGui::TextColored(playbackColor, "%s", m_playbackApplyBanner.summary.c_str());
 						}
 
 						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
@@ -884,9 +882,7 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Clear keyframes"))
 						{
 							m_keyframes.clear();
-							m_lastPlaybackApplySummary.clear();
-							m_lastPlaybackApplySucceeded = false;
-							m_lastPlaybackApplyApproximate = false;
+							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Remove all keyframes");
 

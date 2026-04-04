@@ -573,6 +573,18 @@ class App final : public examples::SimpleWindowedApplication
 			}
 		};
 
+		struct ApplyStatusBanner
+		{
+			std::string summary;
+			bool succeeded = false;
+			bool approximate = false;
+
+			inline bool visible() const
+			{
+				return !summary.empty();
+			}
+		};
+
 		struct CameraControlSettings
 		{
 			bool mirrorInput = false;
@@ -1693,15 +1705,30 @@ class App final : public examples::SimpleWindowedApplication
 		{
 			const auto result = applyPresetToCameraDetailed(camera, preset);
 			const auto presetUi = analyzePresetForUi(camera, preset);
-			m_lastPresetApplySummary = describeApplyResult(result) + " | " + presetUi.compatibilityLabel;
-			m_lastPresetApplySucceeded = result.succeeded();
-			m_lastPresetApplyApproximate = result.approximate();
+			storeApplyStatusBanner(m_manualPresetApplyBanner,
+				describeApplyResult(result) + " | " + presetUi.compatibilityLabel,
+				result.succeeded(),
+				result.approximate());
 			return result;
 		}
 
 		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
 		{
 			return applyPresetToCameraDetailed(camera, preset).succeeded();
+		}
+
+		inline void storeApplyStatusBanner(ApplyStatusBanner& banner, std::string summary, const bool succeeded, const bool approximate)
+		{
+			banner.summary = std::move(summary);
+			banner.succeeded = succeeded;
+			banner.approximate = approximate;
+		}
+
+		inline void clearApplyStatusBanner(ApplyStatusBanner& banner)
+		{
+			banner.summary.clear();
+			banner.succeeded = false;
+			banner.approximate = false;
 		}
 
 		inline std::string describePlaybackApplySummary(const PlaybackApplySummary& summary) const
@@ -1720,9 +1747,10 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void storePlaybackApplySummary(const PlaybackApplySummary& summary)
 		{
-			m_lastPlaybackApplySummary = describePlaybackApplySummary(summary);
-			m_lastPlaybackApplySucceeded = summary.succeeded();
-			m_lastPlaybackApplyApproximate = summary.approximate();
+			storeApplyStatusBanner(m_playbackApplyBanner,
+				describePlaybackApplySummary(summary),
+				summary.succeeded(),
+				summary.approximate());
 		}
 
 		inline void appendVirtualEventLog(std::string_view source, std::string_view controller, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
@@ -2566,12 +2594,8 @@ class App final : public examples::SimpleWindowedApplication
 		std::vector<CameraKeyframe> m_keyframes;
 		CameraPlaybackState m_playback;
 		CCameraGoalSolver m_cameraGoalSolver;
-		std::string m_lastPresetApplySummary;
-		bool m_lastPresetApplySucceeded = false;
-		bool m_lastPresetApplyApproximate = false;
-		std::string m_lastPlaybackApplySummary;
-		bool m_lastPlaybackApplySucceeded = false;
-		bool m_lastPlaybackApplyApproximate = false;
+		ApplyStatusBanner m_manualPresetApplyBanner;
+		ApplyStatusBanner m_playbackApplyBanner;
 		PresetFilterMode m_presetFilterMode = PresetFilterMode::All;
 		int m_selectedPresetIx = -1;
 		bool m_playbackAffectsAll = false;
