@@ -745,58 +745,57 @@ void App::DrawControlPanel()
 								if (m_selectedPresetIx >= 0 && static_cast<size_t>(m_selectedPresetIx) < m_presets.size())
 								{
 									const auto& preset = m_presets[static_cast<size_t>(m_selectedPresetIx)];
-								const auto compatibility = analyzePresetCompatibility(activeCamera, preset);
-								const ImVec4 compatibilityColor = !activeCamera ? bad : (compatibility.exact ? good : warn);
-								const bool canApplyPreset = canMeaningfullyApplyPreset(activeCamera, preset);
+									const auto presetUi = analyzePresetForUi(activeCamera, preset);
+									const ImVec4 compatibilityColor = !presetUi.hasActiveCamera ? bad : (presetUi.exact() ? good : warn);
 
-								ImGui::TextDisabled("Preset source");
-								ImGui::SameLine();
-								ImGui::TextColored(muted, "%s", getCameraTypeLabel(preset.goal.sourceKind).data());
-								ImGui::TextDisabled("Goal state");
-								ImGui::SameLine();
-								ImGui::TextColored(muted, "%s", describeGoalStateMask(preset.goal.sourceGoalStateMask).c_str());
-								ImGui::TextDisabled("Policy");
-								ImGui::SameLine();
-								ImGui::TextColored(canApplyPreset ? compatibilityColor : bad, "%s", describePresetApplyPolicy(activeCamera, preset).c_str());
-								ImGui::TextDisabled("Compatibility");
-								ImGui::SameLine();
-								ImGui::TextColored(compatibilityColor, "%s", describePresetCompatibility(activeCamera, preset).c_str());
+									ImGui::TextDisabled("Preset source");
+									ImGui::SameLine();
+									ImGui::TextColored(muted, "%s", getCameraTypeLabel(presetUi.goal.sourceKind).data());
+									ImGui::TextDisabled("Goal state");
+									ImGui::SameLine();
+									ImGui::TextColored(muted, "%s", describeGoalStateMask(presetUi.goal.sourceGoalStateMask).c_str());
+									ImGui::TextDisabled("Policy");
+									ImGui::SameLine();
+									ImGui::TextColored(presetUi.canApply ? compatibilityColor : bad, "%s", presetUi.policyLabel.c_str());
+									ImGui::TextDisabled("Compatibility");
+									ImGui::SameLine();
+									ImGui::TextColored(compatibilityColor, "%s", presetUi.compatibilityLabel.c_str());
 
-								DrawBadge(compatibility.exact ? "EXACT" : "BEST-EFFORT", compatibility.exact ? good : warn, badgeText);
-								if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
-								{
-									ImGui::SameLine();
-									DrawBadge("DROPS STATE", warn, badgeText);
-								}
-								else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
-								{
-									ImGui::SameLine();
-									DrawBadge("SHARED STATE", accent, badgeText);
-								}
-								if (!canApplyPreset)
-								{
-									ImGui::SameLine();
-									DrawBadge("BLOCKED", bad, badgeText);
-								}
+									DrawBadge(presetUi.exact() ? "EXACT" : "BEST-EFFORT", presetUi.exact() ? good : warn, badgeText);
+									if (presetUi.dropsGoalState())
+									{
+										ImGui::SameLine();
+										DrawBadge("DROPS STATE", warn, badgeText);
+									}
+									else if (presetUi.usesSharedStateOnly())
+									{
+										ImGui::SameLine();
+										DrawBadge("SHARED STATE", accent, badgeText);
+									}
+									if (!presetUi.canApply)
+									{
+										ImGui::SameLine();
+										DrawBadge("BLOCKED", bad, badgeText);
+									}
 
-								if (!canApplyPreset)
-									ImGui::BeginDisabled();
-								if (ImGui::Button("Apply preset"))
-									applyPresetFromUi(activeCamera, preset);
-								if (!canApplyPreset)
-									ImGui::EndDisabled();
-								DrawHoverHint(canApplyPreset ?
-									"Apply selected preset to the active camera" :
-									"Apply is blocked because there is no active camera or the preset goal is invalid");
-								ImGui::SameLine();
-								if (ImGui::Button("Remove preset"))
-								{
-									m_presets.erase(m_presets.begin() + m_selectedPresetIx);
-									m_selectedPresetIx = -1;
+									if (!presetUi.canApply)
+										ImGui::BeginDisabled();
+									if (ImGui::Button("Apply preset"))
+										applyPresetFromUi(activeCamera, preset);
+									if (!presetUi.canApply)
+										ImGui::EndDisabled();
+									DrawHoverHint(presetUi.canApply ?
+										"Apply selected preset to the active camera" :
+										"Apply is blocked because there is no active camera or the preset goal is invalid");
+									ImGui::SameLine();
+									if (ImGui::Button("Remove preset"))
+									{
+										m_presets.erase(m_presets.begin() + m_selectedPresetIx);
+										m_selectedPresetIx = -1;
+									}
+									DrawHoverHint("Remove selected preset");
 								}
-								DrawHoverHint("Remove selected preset");
 							}
-						}
 						}
 
 						if (!m_lastPresetApplySummary.empty())

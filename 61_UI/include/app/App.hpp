@@ -500,6 +500,47 @@ class App final : public examples::SimpleWindowedApplication
 			BestEffort
 		};
 
+		struct PresetUiAnalysis
+		{
+			CCameraGoal goal = {};
+			CCameraGoalSolver::SCompatibilityResult compatibility = {};
+			bool hasActiveCamera = false;
+			bool finiteGoal = false;
+			bool canApply = false;
+			std::string compatibilityLabel;
+			std::string policyLabel;
+
+			inline bool exact() const
+			{
+				return compatibility.exact;
+			}
+
+			inline bool dropsGoalState() const
+			{
+				return compatibility.missingGoalStateMask != ICamera::GoalStateNone;
+			}
+
+			inline bool usesSharedStateOnly() const
+			{
+				return !compatibility.sameKind && goal.sourceKind != ICamera::CameraKind::Unknown && !dropsGoalState();
+			}
+
+			inline bool matchesFilter(const PresetFilterMode mode) const
+			{
+				switch (mode)
+				{
+					case PresetFilterMode::All:
+						return true;
+					case PresetFilterMode::Exact:
+						return hasActiveCamera && exact();
+					case PresetFilterMode::BestEffort:
+						return hasActiveCamera && !exact();
+					default:
+						return true;
+				}
+			}
+		};
+
 		struct CameraPlaybackState
 		{
 			bool playing = false;
@@ -1379,28 +1420,62 @@ class App final : public examples::SimpleWindowedApplication
 			return oss.str();
 		}
 
-		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
+		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
-			return m_cameraGoalSolver.analyzeCompatibility(camera, makeGoalFromPreset(preset));
+			PresetUiAnalysis analysis;
+			analysis.goal = makeGoalFromPreset(preset);
+			analysis.hasActiveCamera = camera != nullptr;
+			analysis.finiteGoal = isGoalFinite(analysis.goal);
+			analysis.canApply = analysis.hasActiveCamera && analysis.finiteGoal;
+
+			if (analysis.hasActiveCamera)
+				analysis.compatibility = m_cameraGoalSolver.analyzeCompatibility(camera, analysis.goal);
+
+			if (!analysis.hasActiveCamera)
+			{
+				analysis.compatibilityLabel = "No active camera";
+				analysis.policyLabel = "Blocked | no active camera";
+				return analysis;
+			}
+
+			{
+				std::ostringstream oss;
+				oss << (analysis.compatibility.exact ? "Exact" : "Best-effort")
+					<< " | source=" << getCameraTypeLabel(analysis.goal.sourceKind)
+					<< " | target=" << getCameraTypeLabel(camera);
+
+				if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+					oss << " | missing=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
+				else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+					oss << " | shared goal state only";
+
+				analysis.compatibilityLabel = oss.str();
+			}
+
+			if (!analysis.finiteGoal)
+			{
+				analysis.policyLabel = "Blocked | invalid goal state";
+				return analysis;
+			}
+
+			{
+				std::ostringstream oss;
+				oss << (analysis.compatibility.exact ? "Exact apply" : "Best-effort apply");
+				if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+					oss << " | drops=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
+				else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+					oss << " | shared goal state only";
+				else
+					oss << " | full preview available";
+				analysis.policyLabel = oss.str();
+			}
+
+			return analysis;
 		}
 
-		inline std::string describePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
+		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 		{
-			if (!camera)
-				return "No active camera";
-
-			const auto compatibility = analyzePresetCompatibility(camera, preset);
-			std::ostringstream oss;
-			oss << (compatibility.exact ? "Exact" : "Best-effort")
-				<< " | source=" << getCameraTypeLabel(preset.goal.sourceKind)
-				<< " | target=" << getCameraTypeLabel(camera);
-
-			if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
-				oss << " | missing=" << describeGoalStateMask(compatibility.missingGoalStateMask);
-			else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
-				oss << " | shared goal state only";
-
-			return oss.str();
+			return analyzePresetForUi(camera, preset).compatibility;
 		}
 
 		inline const char* getPresetFilterModeLabel(PresetFilterMode mode) const
@@ -1416,17 +1491,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
 		{
-			switch (m_presetFilterMode)
-			{
-				case PresetFilterMode::All:
-					return true;
-				case PresetFilterMode::Exact:
-					return camera && analyzePresetCompatibility(camera, preset).exact;
-				case PresetFilterMode::BestEffort:
-					return camera && !analyzePresetCompatibility(camera, preset).exact;
-				default:
-					return true;
-			}
+			return analyzePresetForUi(camera, preset).matchesFilter(m_presetFilterMode);
 		}
 
 		inline bool isGoalFinite(const CCameraGoal& goal) const
@@ -1450,33 +1515,6 @@ class App final : public examples::SimpleWindowedApplication
 				(!std::isfinite(goal.dynamicPerspectiveState.baseFov) || !std::isfinite(goal.dynamicPerspectiveState.referenceDistance)))
 				return false;
 			return true;
-		}
-
-		inline bool canMeaningfullyApplyPreset(ICamera* camera, const CameraPreset& preset) const
-		{
-			if (!camera)
-				return false;
-			return isGoalFinite(makeGoalFromPreset(preset));
-		}
-
-		inline std::string describePresetApplyPolicy(ICamera* camera, const CameraPreset& preset) const
-		{
-			if (!camera)
-				return "Blocked | no active camera";
-
-			if (!canMeaningfullyApplyPreset(camera, preset))
-				return "Blocked | invalid goal state";
-
-			const auto compatibility = analyzePresetCompatibility(camera, preset);
-			std::ostringstream oss;
-			oss << (compatibility.exact ? "Exact apply" : "Best-effort apply");
-			if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
-				oss << " | drops=" << describeGoalStateMask(compatibility.missingGoalStateMask);
-			else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
-				oss << " | shared goal state only";
-			else
-				oss << " | full preview available";
-			return oss.str();
 		}
 
 		inline bool comparePresetToCameraState(ICamera* camera, const CameraPreset& preset,
@@ -1631,7 +1669,8 @@ class App final : public examples::SimpleWindowedApplication
 		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 		{
 			const auto result = applyPresetToCameraDetailed(camera, preset);
-			m_lastPresetApplySummary = describeApplyResult(result) + " | " + describePresetCompatibility(camera, preset);
+			const auto presetUi = analyzePresetForUi(camera, preset);
+			m_lastPresetApplySummary = describeApplyResult(result) + " | " + presetUi.compatibilityLabel;
 			m_lastPresetApplySucceeded = result.succeeded();
 			m_lastPresetApplyApproximate = result.approximate();
 			return result;
