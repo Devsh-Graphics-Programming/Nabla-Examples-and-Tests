@@ -53,8 +53,8 @@ public:
         double deltaDistance = impulse.dVirtualTranslate.z;
 
         constexpr auto scalar = 0.01;
-        deltaU *= scalar * m_moveSpeedScale;
-        deltaV *= scalar * m_moveSpeedScale;
+        deltaU *= scalar * getMoveSpeedScale();
+        deltaV *= scalar * getMoveSpeedScale();
 
         m_u += deltaU;
         m_v += deltaV;

@@ -36,8 +36,8 @@ public:
 
         // TODO!
         constexpr auto nastyScalar = 0.01;
-        deltaU *= nastyScalar * m_moveSpeedScale;
-        deltaV *= nastyScalar * m_moveSpeedScale;
+        deltaU *= nastyScalar * getMoveSpeedScale();
+        deltaV *= nastyScalar * getMoveSpeedScale();
 
         m_u += deltaU;
         m_v += deltaV;

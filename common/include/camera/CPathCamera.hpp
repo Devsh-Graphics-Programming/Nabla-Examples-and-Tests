@@ -41,7 +41,7 @@ public:
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
         constexpr double translateScalar = 0.01;
-        const double moveScalar = translateScalar * m_moveSpeedScale;
+        const double moveScalar = translateScalar * getMoveSpeedScale();
 
         m_pathAngle += impulse.dVirtualTranslate.z * moveScalar;
         m_pathRadius = std::max(MinPathRadius, m_pathRadius + impulse.dVirtualTranslate.x * moveScalar);

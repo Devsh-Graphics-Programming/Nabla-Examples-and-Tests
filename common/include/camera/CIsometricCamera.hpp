@@ -37,7 +37,7 @@ public:
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
         constexpr double translateScalar = 0.01;
-        const double panScalar = translateScalar * m_moveSpeedScale;
+        const double panScalar = translateScalar * getMoveSpeedScale();
         const double deltaPanX = impulse.dVirtualTranslate.x * panScalar;
         const double deltaPanY = impulse.dVirtualTranslate.y * panScalar;
         const double deltaDistance = impulse.dVirtualTranslate.z * translateScalar;

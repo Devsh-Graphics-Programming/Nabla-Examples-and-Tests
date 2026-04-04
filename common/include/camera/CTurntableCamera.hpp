@@ -39,8 +39,8 @@ public:
 
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = impulse.dVirtualRotation.y * m_rotationSpeedScale;
-        const double deltaPitch = impulse.dVirtualRotation.x * m_rotationSpeedScale;
+        const double deltaYaw = impulse.dVirtualRotation.y * getRotationSpeedScale();
+        const double deltaPitch = impulse.dVirtualRotation.x * getRotationSpeedScale();
 
         constexpr double translateScalar = 0.01;
         const double deltaDistance = impulse.dVirtualTranslate.z * translateScalar;

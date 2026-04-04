@@ -96,7 +96,7 @@ public:
             const float rForwardZ = static_cast<float>(reference.frame[2].z);
             const float rPitch = std::atan2(std::hypot(rForwardX, rForwardZ), rForwardY) - HalfPi;
             const float gYaw = std::atan2(rForwardX, rForwardZ);
-            const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
+            const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * getRotationSpeedScale(), MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * getRotationSpeedScale();
 
             if(validateReference()) m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
             m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));

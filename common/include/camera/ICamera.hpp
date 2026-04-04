@@ -207,8 +207,6 @@ public:
 
 protected:
     SRigConfig m_rigConfig;
-    double& m_moveSpeedScale = m_rigConfig.moveSpeedScale;
-    double& m_rotationSpeedScale = m_rigConfig.rotationSpeedScale;
 };
 
 }
