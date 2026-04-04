@@ -180,6 +180,15 @@ public:
 
     // Camera core contract: consume virtual events only. Raw input binding and absolute goal solving live outside ICamera.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) = 0;
+    inline bool manipulateWithMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame, const double moveScale, const double rotationScale)
+    {
+        auto scopedOverride = overrideMotionScales(moveScale, rotationScale);
+        return manipulate(virtualEvents, referenceFrame);
+    }
+    inline bool manipulateWithUnitMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr)
+    {
+        return manipulateWithMotionScales(virtualEvents, referenceFrame, 1.0, 1.0);
+    }
 
     // VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
 	virtual const uint32_t getAllowedVirtualEvents() = 0u;

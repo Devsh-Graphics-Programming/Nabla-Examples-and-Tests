@@ -164,9 +164,8 @@ void App::TransformEditorContents()
 			// generate virtual events given delta TRS matrix
 			if (boundCameraToManipulate)
 			{
-				auto unitMotionOverride = boundCameraToManipulate->overrideMotionScales(1.0, 1.0);
 				auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
-				boundCameraToManipulate->manipulate({}, &referenceFrame);
+				boundCameraToManipulate->manipulateWithUnitMotionScales({}, &referenceFrame);
 
 				/*
 				{
