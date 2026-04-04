@@ -1708,6 +1708,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 							const auto projectionIx = viewport["projection"].get<uint32_t>();
 							auto& projection = planar->getPlanarProjections().emplace_back(projections[projectionIx]);
+							auto& projectionBinding = projection.getInputBinding();
 
 							const bool hasKeyboardBound = viewport["controllers"].contains("keyboard");
 							const bool hasMouseBound = viewport["controllers"].contains("mouse");
@@ -1715,18 +1716,18 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							if (hasKeyboardBound)
 							{
 								auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-								projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
+								projectionBinding.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
 							}
 							else
-								projection.updateKeyboardMapping([&](auto& map) { map = {}; }); // clean the map if not bound
+								projectionBinding.updateKeyboardMapping([&](auto& map) { map = {}; }); // clean the map if not bound
 
 							if (hasMouseBound)
 							{
 								auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
-								projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+								projectionBinding.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
 							}
 							else
-								projection.updateMouseMapping([&](auto& map) { map = {}; }); // clean the map if not bound
+								projectionBinding.updateMouseMapping([&](auto& map) { map = {}; }); // clean the map if not bound
 						}
 
 						{

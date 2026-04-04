@@ -1,6 +1,7 @@
 #ifndef _NBL_I_PLANAR_PROJECTION_HPP_
 #define _NBL_I_PLANAR_PROJECTION_HPP_
 
+#include "CGimbalInputBinder.hpp"
 #include "ILinearProjection.hpp"
 
 namespace nbl::hlsl
@@ -9,7 +10,7 @@ namespace nbl::hlsl
 class IPlanarProjection : public ILinearProjection
 {
 public:
-    struct CProjection : public ILinearProjection::CProjection, public IGimbalController
+    struct CProjection : public ILinearProjection::CProjection
     {
         using base_t = ILinearProjection::CProjection;
 
@@ -104,9 +105,12 @@ public:
         }
 
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
+        inline const CGimbalInputBinder& getInputBinding() const { return m_inputBinding; }
+        inline CGimbalInputBinder& getInputBinding() { return m_inputBinding; }
     private:
         CProjection() = default;
         ProjectionParameters m_parameters;
+        CGimbalInputBinder m_inputBinding;
     };
 
 protected:

@@ -2263,7 +2263,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (binding.inputBindingPlanarIx == binding.activePlanarIx && binding.inputBindingProjectionIx == projectionIx)
 				return;
 
-			binding.inputBinding.copyActiveBindingsFromEncoder(projections[projectionIx]);
+			binding.inputBinding.copyBindingLayoutFrom(projections[projectionIx].getInputBinding());
 			binding.inputBindingPlanarIx = binding.activePlanarIx;
 			binding.inputBindingProjectionIx = projectionIx;
 		}
@@ -2284,7 +2284,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (projectionIx >= projections.size())
 				return;
 
-			binding.inputBinding.copyActiveBindingsToEncoder(projections[projectionIx]);
+			projections[projectionIx].getInputBinding().copyBindingLayoutFrom(binding.inputBinding);
 			binding.inputBindingPlanarIx = binding.activePlanarIx;
 			binding.inputBindingProjectionIx = projectionIx;
 		}
