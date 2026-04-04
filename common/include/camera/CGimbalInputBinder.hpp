@@ -40,40 +40,55 @@ public:
         clearActiveBindings();
     }
 
-    inline void copyActiveBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
+    inline void copyActiveBindingsFromLayout(const IGimbalBindingLayout& layout)
     {
-        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(encoder.getKeyboardVirtualEventMap()); });
-        updateMouseMapping([&](auto& map) { map = sanitizeMapping(encoder.getMouseVirtualEventMap()); });
-        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(encoder.getImguizmoVirtualEventMap()); });
+        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardVirtualEventMap()); });
+        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseVirtualEventMap()); });
+        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoVirtualEventMap()); });
     }
 
-    inline void copyBindingLayoutFrom(const IGimbalManipulateEncoder& encoder)
+    inline void copyBindingLayoutFrom(const IGimbalBindingLayout& layout)
     {
-        copyActiveBindingsFromEncoder(encoder);
+        copyActiveBindingsFromLayout(layout);
+    }
+
+    inline void copyDefaultBindingsFromLayout(const IGimbalBindingLayout& layout)
+    {
+        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardMappingPreset()); });
+        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseMappingPreset()); });
+        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoMappingPreset()); });
+    }
+
+    inline void copyPresetLayoutFrom(const IGimbalBindingLayout& layout)
+    {
+        copyDefaultBindingsFromLayout(layout);
+    }
+
+    inline void copyActiveBindingsToLayout(IGimbalBindingLayout& layout) const
+    {
+        layout.updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(getKeyboardVirtualEventMap()); });
+        layout.updateMouseMapping([&](auto& map) { map = sanitizeMapping(getMouseVirtualEventMap()); });
+        layout.updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(getImguizmoVirtualEventMap()); });
+    }
+
+    inline void copyBindingLayoutTo(IGimbalBindingLayout& layout) const
+    {
+        copyActiveBindingsToLayout(layout);
+    }
+
+    inline void copyActiveBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
+    {
+        copyActiveBindingsFromLayout(encoder);
     }
 
     inline void copyDefaultBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
     {
-        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(encoder.getKeyboardMappingPreset()); });
-        updateMouseMapping([&](auto& map) { map = sanitizeMapping(encoder.getMouseMappingPreset()); });
-        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(encoder.getImguizmoMappingPreset()); });
-    }
-
-    inline void copyPresetLayoutFrom(const IGimbalManipulateEncoder& encoder)
-    {
-        copyDefaultBindingsFromEncoder(encoder);
+        copyDefaultBindingsFromLayout(encoder);
     }
 
     inline void copyActiveBindingsToEncoder(IGimbalManipulateEncoder& encoder) const
     {
-        encoder.updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(getKeyboardVirtualEventMap()); });
-        encoder.updateMouseMapping([&](auto& map) { map = sanitizeMapping(getMouseVirtualEventMap()); });
-        encoder.updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(getImguizmoVirtualEventMap()); });
-    }
-
-    inline void copyBindingLayoutTo(IGimbalManipulateEncoder& encoder) const
-    {
-        copyActiveBindingsToEncoder(encoder);
+        copyActiveBindingsToLayout(encoder);
     }
 
     inline SCollectedVirtualEvents collectVirtualEvents(

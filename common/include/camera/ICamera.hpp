@@ -12,7 +12,7 @@
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-class ICamera : public IGimbalManipulateEncoder, virtual public core::IReferenceCounted
+class ICamera : public IGimbalBindingLayout, virtual public core::IReferenceCounted
 { 
 public:
     enum class CameraKind : uint8_t

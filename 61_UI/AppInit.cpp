@@ -407,7 +407,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
 					camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
 					CGimbalInputBinder inputBinder;
-					inputBinder.copyDefaultBindingsFromEncoder(*camera);
+					inputBinder.copyDefaultBindingsFromLayout(*camera);
 
 					const auto initialPreset = capturePreset(camera, "smoke-initial");
 					const auto initialCompatibility = analyzePresetCompatibility(camera, initialPreset);
@@ -549,7 +549,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					double keyboardRotDelta = 0.0;
 					for (const auto key : keyboardCandidates)
 					{
-						inputBinder.copyDefaultBindingsFromEncoder(*camera);
+						inputBinder.copyDefaultBindingsFromLayout(*camera);
 						auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 						if (keyboardEvents.empty())
 							continue;
@@ -591,7 +591,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (isOrbitLikeCamera(camera) && hasBlockedMovement)
 							return fail("Orbit mouse movement gate failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						inputBinder.copyDefaultBindingsFromEncoder(*camera);
+						inputBinder.copyDefaultBindingsFromLayout(*camera);
 						auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -611,7 +611,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
 						auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
 
-						inputBinder.copyDefaultBindingsFromEncoder(*camera);
+						inputBinder.copyDefaultBindingsFromLayout(*camera);
 						auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -1562,8 +1562,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				struct
 				{
-					std::vector<IGimbalManipulateEncoder::keyboard_to_virtual_events_t> keyboard;
-					std::vector<IGimbalManipulateEncoder::mouse_to_virtual_events_t> mouse;
+					std::vector<IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
+					std::vector<IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
 				} controllers;
 
 				if (j.contains("controllers"))

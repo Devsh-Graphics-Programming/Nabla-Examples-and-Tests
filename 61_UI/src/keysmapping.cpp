@@ -2,7 +2,7 @@
 #include <string>
 #include <unordered_map>
 
-bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     bool anyMapUpdated = false;
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
@@ -28,7 +28,7 @@ bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IG
     }
 
     ImGui::TableSetColumnIndex(1);
-    if (activeController == IGimbalManipulateEncoder::Keyboard)
+    if (activeController == IGimbalBindingLayout::Keyboard)
     {
         char newKeyDisplay[2] = { ui::keyCodeToChar(newKey, true), '\0' };
         if (ImGui::BeginCombo("##selectKey", newKeyDisplay))
@@ -65,10 +65,10 @@ bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IG
     if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
     {
         anyMapUpdated |= true;
-        if (activeController == IGimbalManipulateEncoder::Keyboard)
-            encoder->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
+        if (activeController == IGimbalBindingLayout::Keyboard)
+            layout->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
         else
-            encoder->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
+            layout->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
         addMode = false;
     }
 
@@ -77,11 +77,11 @@ bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IG
     return anyMapUpdated;
 }
 
-bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder, bool spawnWindow)
+bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool spawnWindow)
 {
     bool anyMapUpdated = false;
 
-    if (!encoder) return anyMapUpdated;
+    if (!layout) return anyMapUpdated;
 
     struct MappingState
     {
@@ -89,14 +89,14 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
         CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
         ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
         ui::E_MOUSE_CODE newMouseCode = ui::EMC_LEFT_BUTTON;
-        IGimbalManipulateEncoder::EncoderType activeController = IGimbalManipulateEncoder::Keyboard;
+        IGimbalBindingLayout::EncoderType activeController = IGimbalBindingLayout::Keyboard;
     };
 
-    static std::unordered_map<IGimbalManipulateEncoder*, MappingState> cameraStates;
-    auto& state = cameraStates[encoder];
+    static std::unordered_map<IGimbalBindingLayout*, MappingState> cameraStates;
+    auto& state = cameraStates[layout];
 
-    const auto& keyboardMappings = encoder->getKeyboardVirtualEventMap();
-    const auto& mouseMappings = encoder->getMouseVirtualEventMap();
+    const auto& keyboardMappings = layout->getKeyboardVirtualEventMap();
+    const auto& mouseMappings = layout->getMouseVirtualEventMap();
 
     if (spawnWindow)
     {
@@ -108,7 +108,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
     {
         if (ImGui::BeginTabItem("Keyboard"))
         {
-            state.activeController = IGimbalManipulateEncoder::Keyboard;
+            state.activeController = IGimbalBindingLayout::Keyboard;
             ImGui::Separator();
 
             if (ImGui::Button("Add Key", ImVec2(100, 30)))
@@ -149,7 +149,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
                 if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(keyboardCode))).c_str()))
                 {
                     anyMapUpdated |= true;
-                    encoder->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
+                    layout->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
                     break;
                 }
             }
@@ -158,7 +158,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
             if (state.addMode)
             {
                 ImGui::Separator();
-                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", layout, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
 
             ImGui::EndTabItem();
@@ -166,7 +166,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
 
         if (ImGui::BeginTabItem("Mouse"))
         {
-            state.activeController = IGimbalManipulateEncoder::Mouse;
+            state.activeController = IGimbalBindingLayout::Mouse;
             ImGui::Separator();
 
             if (ImGui::Button("Add Key", ImVec2(100, 30)))
@@ -207,7 +207,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
                 if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(mouseCode))).c_str()))
                 {
                     anyMapUpdated |= true;
-                    encoder->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
+                    layout->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
                     break;
                 }
             }
@@ -216,7 +216,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
             if (state.addMode)
             {
                 ImGui::Separator();
-                handleAddMapping("AddMouseMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                handleAddMapping("AddMouseMappingTable", layout, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
             ImGui::EndTabItem();
         }

@@ -3,7 +3,7 @@
 
 #include "common.hpp"
 
-bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode);
-bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder, bool spawnWindow = false);
+bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode);
+bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool spawnWindow = false);
 
 #endif // __NBL_KEYSMAPPING_H_INCLUDED__

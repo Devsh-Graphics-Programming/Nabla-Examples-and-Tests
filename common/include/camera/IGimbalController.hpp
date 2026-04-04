@@ -17,10 +17,10 @@ namespace ImGuizmo
 namespace nbl::hlsl 
 {
 
-struct IGimbalManipulateEncoder
+struct IGimbalBindingLayout
 {
-    IGimbalManipulateEncoder() {}
-    virtual ~IGimbalManipulateEncoder() {}
+    IGimbalBindingLayout() {}
+    virtual ~IGimbalBindingLayout() {}
 
     //! output of any controller process method
     using gimbal_event_t = CVirtualGimbalEvent;
@@ -94,10 +94,12 @@ struct IGimbalManipulateEncoder
     virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) = 0;
 };
 
-class IGimbalController : public IGimbalManipulateEncoder
+using IGimbalManipulateEncoder = IGimbalBindingLayout;
+
+class IGimbalController : public IGimbalBindingLayout
 {
 public:
-    using IGimbalManipulateEncoder::IGimbalManipulateEncoder;
+    using IGimbalBindingLayout::IGimbalBindingLayout;
 
     IGimbalController() {}
     virtual ~IGimbalController() {}
