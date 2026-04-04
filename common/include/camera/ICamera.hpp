@@ -15,6 +15,13 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 class ICamera : public IGimbalBindingLayout, virtual public core::IReferenceCounted
 { 
 public:
+    struct SRigConfig
+    {
+        double moveSpeedScale = 0.01;
+        double rotationSpeedScale = 0.003;
+        CGimbalBindingLayoutStorage defaultInputBinding;
+    };
+
     enum class CameraKind : uint8_t
     {
         Unknown,
@@ -100,13 +107,13 @@ public:
     ICamera() {}
 	virtual ~ICamera() = default;
 
-    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_defaultInputBinding.getKeyboardVirtualEventMap(); }
-    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_defaultInputBinding.getMouseVirtualEventMap(); }
-    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_defaultInputBinding.getImguizmoVirtualEventMap(); }
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getKeyboardVirtualEventMap(); }
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getMouseVirtualEventMap(); }
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_rigConfig.defaultInputBinding.getImguizmoVirtualEventMap(); }
 
-    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateKeyboardMapping(mapKeys); }
-    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateMouseMapping(mapKeys); }
-    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { m_defaultInputBinding.updateImguizmoMapping(mapKeys); }
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateKeyboardMapping(mapKeys); }
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateMouseMapping(mapKeys); }
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { m_rigConfig.defaultInputBinding.updateImguizmoMapping(mapKeys); }
 
 	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
@@ -185,24 +192,23 @@ public:
     // (***)
     inline void setMoveSpeedScale(double scalar)
     {
-        m_moveSpeedScale = scalar;
+        m_rigConfig.moveSpeedScale = scalar;
     }
 
     // (***)
     inline void setRotationSpeedScale(double scalar)
     {
-        m_rotationSpeedScale = scalar;
+        m_rigConfig.rotationSpeedScale = scalar;
     }
 
-    inline double getMoveSpeedScale() const { return m_moveSpeedScale; }
-    inline double getRotationSpeedScale() const { return m_rotationSpeedScale; }
+    inline double getMoveSpeedScale() const { return m_rigConfig.moveSpeedScale; }
+    inline double getRotationSpeedScale() const { return m_rigConfig.rotationSpeedScale; }
+    inline const SRigConfig& getRigConfig() const { return m_rigConfig; }
 
 protected:
-    
-    // (***) TODO: I need to think whether a camera should own this or controllers should be able 
-    // to set sensitivity to scale magnitudes of generated events we put into manipulate method
-    double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;
-    CGimbalBindingLayoutStorage m_defaultInputBinding;
+    SRigConfig m_rigConfig;
+    double& m_moveSpeedScale = m_rigConfig.moveSpeedScale;
+    double& m_rotationSpeedScale = m_rigConfig.rotationSpeedScale;
 };
 
 }

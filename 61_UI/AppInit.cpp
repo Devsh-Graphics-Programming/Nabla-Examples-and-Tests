@@ -46,6 +46,118 @@ namespace
 		in.read(reinterpret_cast<char*>(outPayload.data()), static_cast<std::streamsize>(outPayload.size()));
 		return in.gcount() == static_cast<std::streamsize>(outPayload.size());
 	}
+
+	constexpr float CameraDefaultMoveScale = 0.01f;
+	constexpr float CameraDefaultRotateScale = 0.003f;
+	constexpr float CameraOrbitMoveScale = 0.5f;
+
+	void initializeCameraRigConfig(nbl::hlsl::ICamera& camera, const double moveScale, const double rotationScale)
+	{
+		camera.setMoveSpeedScale(moveScale);
+		camera.setRotationSpeedScale(rotationScale);
+		camera.updateKeyboardMapping([&](auto& map) { map = camera.getKeyboardMappingPreset(); });
+		camera.updateMouseMapping([&](auto& map) { map = camera.getMouseMappingPreset(); });
+		camera.updateImguizmoMapping([&](auto& map) { map = camera.getImguizmoMappingPreset(); });
+	}
+
+	bool createCameraFromJson(const nbl_json& jCamera, std::string& error, smart_refctd_ptr<nbl::hlsl::ICamera>& outCamera)
+	{
+		using namespace nbl::hlsl;
+
+		if (!jCamera.contains("type"))
+		{
+			error = "Camera entry missing \"type\".";
+			return false;
+		}
+
+		if (!jCamera.contains("position"))
+		{
+			error = "Camera entry missing \"position\".";
+			return false;
+		}
+
+		const std::string type = jCamera["type"].get<std::string>();
+		const bool withOrientation = jCamera.contains("orientation");
+		const bool withTarget = jCamera.contains("target");
+
+		auto position = [&]()
+		{
+			const auto jret = jCamera["position"].get<std::array<float, 3>>();
+			return float32_t3(jret[0], jret[1], jret[2]);
+		}();
+
+		auto getOrientation = [&]()
+		{
+			const auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+			return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+		};
+
+		auto getTarget = [&]()
+		{
+			const auto jret = jCamera["target"].get<std::array<float, 3>>();
+			return float32_t3(jret[0], jret[1], jret[2]);
+		};
+
+		auto finalize = [&](auto&& camera, const double moveScale, const double rotationScale)
+		{
+			initializeCameraRigConfig(*camera, moveScale, rotationScale);
+			outCamera = std::move(camera);
+			return true;
+		};
+
+		if (type == "FPS")
+		{
+			if (!withOrientation)
+			{
+				error = "FPS camera requires \"orientation\".";
+				return false;
+			}
+			return finalize(make_smart_refctd_ptr<CFPSCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
+		}
+
+		if (type == "Free")
+		{
+			if (!withOrientation)
+			{
+				error = "Free camera requires \"orientation\".";
+				return false;
+			}
+			return finalize(make_smart_refctd_ptr<CFreeCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
+		}
+
+		if (!withTarget)
+		{
+			error = "Camera type \"" + type + "\" requires \"target\".";
+			return false;
+		}
+
+		if (type == "Orbit")
+			return finalize(make_smart_refctd_ptr<COrbitCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Arcball")
+			return finalize(make_smart_refctd_ptr<CArcballCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Turntable")
+			return finalize(make_smart_refctd_ptr<CTurntableCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "TopDown")
+			return finalize(make_smart_refctd_ptr<CTopDownCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Isometric")
+			return finalize(make_smart_refctd_ptr<CIsometricCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Chase")
+			return finalize(make_smart_refctd_ptr<CChaseCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Dolly")
+			return finalize(make_smart_refctd_ptr<CDollyCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "Path")
+			return finalize(make_smart_refctd_ptr<CPathCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		if (type == "DollyZoom")
+		{
+			float baseFov = 40.0f;
+			if (jCamera.contains("baseFov"))
+				baseFov = jCamera["baseFov"].get<float>();
+			return finalize(make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov), CameraOrbitMoveScale, CameraDefaultRotateScale);
+		}
+
+		error = "Unsupported camera type \"" + type + "\".";
+		return false;
+	}
 }
 
 bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
@@ -132,124 +244,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				cameras.reserve(j["cameras"].size());
 				for (const auto& jCamera : j["cameras"])
 				{
-					if (!jCamera.contains("type"))
-						return fail("Camera entry missing \"type\".");
-					if (!jCamera.contains("position"))
-						return fail("Camera entry missing \"position\".");
-
-					const auto withOrientation = jCamera.contains("orientation");
-					auto position = [&]()
-					{
-						auto jret = jCamera["position"].get<std::array<float, 3>>();
-						return float32_t3(jret[0], jret[1], jret[2]);
-					}();
-
-					auto getOrientation = [&]()
-					{
-						auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-						return glm::quat(jret[3], jret[0], jret[1], jret[2]);
-					};
-
-					auto getTarget = [&]()
-					{
-						auto jret = jCamera["target"].get<std::array<float, 3>>();
-						return float32_t3(jret[0], jret[1], jret[2]);
-					};
-
-					constexpr float DefaultMoveScale = 0.01f;
-					constexpr float DefaultRotateScale = 0.003f;
-					constexpr float OrbitMoveScale = 0.5f;
-					const auto type = jCamera["type"].get<std::string>();
-
-					if (type == "FPS")
-					{
-						if (!withOrientation)
-							return fail("FPS camera requires \"orientation\".");
-						auto camera = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
-						camera->setMoveSpeedScale(DefaultMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Free")
-					{
-						if (!withOrientation)
-							return fail("Free camera requires \"orientation\".");
-						auto camera = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
-						camera->setMoveSpeedScale(DefaultMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Orbit")
-					{
-						auto camera = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Arcball")
-					{
-						auto camera = make_smart_refctd_ptr<CArcballCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Turntable")
-					{
-						auto camera = make_smart_refctd_ptr<CTurntableCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "TopDown")
-					{
-						auto camera = make_smart_refctd_ptr<CTopDownCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Isometric")
-					{
-						auto camera = make_smart_refctd_ptr<CIsometricCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Chase")
-					{
-						auto camera = make_smart_refctd_ptr<CChaseCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Dolly")
-					{
-						auto camera = make_smart_refctd_ptr<CDollyCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "DollyZoom")
-					{
-						float baseFov = 40.0f;
-						if (jCamera.contains("baseFov"))
-							baseFov = jCamera["baseFov"].get<float>();
-
-						auto camera = make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov);
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else if (type == "Path")
-					{
-						auto camera = make_smart_refctd_ptr<CPathCamera>(position, getTarget());
-						camera->setMoveSpeedScale(OrbitMoveScale);
-						camera->setRotationSpeedScale(DefaultRotateScale);
-						cameras.emplace_back(std::move(camera));
-					}
-					else
-					{
-						return fail("Unsupported camera type \"" + type + "\".");
-					}
+					smart_refctd_ptr<ICamera> camera;
+					std::string error;
+					if (!createCameraFromJson(jCamera, error, camera))
+						return fail(error);
+					cameras.emplace_back(std::move(camera));
 				}
 
 				if (cameras.empty())
@@ -403,9 +402,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!camera)
 						return fail("Null camera instance.");
 
-					camera->updateKeyboardMapping([&](auto& map) { map = camera->getKeyboardMappingPreset(); });
-					camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
-					camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
 					CGimbalInputBinder inputBinder;
 					inputBinder.copyDefaultBindingsFromLayout(*camera);
 
@@ -1374,132 +1370,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 						}
 
-						const bool withOrientation = jCamera.contains("orientation");
-
-						auto position = [&]()
+						smart_refctd_ptr<ICamera> camera;
+						std::string error;
+						if (!createCameraFromJson(jCamera, error, camera))
 						{
-							auto jret = jCamera["position"].get<std::array<float, 3>>();
-							return float32_t3(jret[0], jret[1], jret[2]);
-						}();
-
-						auto getOrientation = [&]()
-						{
-							auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-
-							// order important for glm::quat,
-							// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-							// but memory layout (and json) is x,y,z,w
-							return glm::quat(jret[3], jret[0], jret[1], jret[2]);
-						};
-
-						auto getTarget = [&]()
-						{
-							auto jret = jCamera["target"].get<std::array<float, 3>>();
-							return float32_t3(jret[0], jret[1], jret[2]);
-						};
-
-						constexpr float DefaultMoveScale = 0.01f;
-						constexpr float DefaultRotateScale = 0.003f;
-						constexpr float OrbitMoveScale = 0.5f;
-
-						if (jCamera["type"] == "FPS")
-						{
-							if (!withOrientation)
-							{
-								logFail("Expected \"orientation\" keyword for FPS camera definition!");
-								return false;
-							}
-
-							auto camera = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
-							camera->setMoveSpeedScale(DefaultMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Free")
-						{
-							if (!withOrientation)
-							{
-								logFail("Expected \"orientation\" keyword for Free camera definition!");
-								return false;
-							}
-
-							auto camera = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
-							camera->setMoveSpeedScale(DefaultMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Orbit")
-						{
-							auto camera = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Arcball")
-						{
-							auto camera = make_smart_refctd_ptr<CArcballCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Turntable")
-						{
-							auto camera = make_smart_refctd_ptr<CTurntableCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "TopDown")
-						{
-							auto camera = make_smart_refctd_ptr<CTopDownCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Isometric")
-						{
-							auto camera = make_smart_refctd_ptr<CIsometricCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Chase")
-						{
-							auto camera = make_smart_refctd_ptr<CChaseCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Dolly")
-						{
-							auto camera = make_smart_refctd_ptr<CDollyCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "DollyZoom")
-						{
-							float baseFov = 40.0f;
-							if (jCamera.contains("baseFov"))
-								baseFov = jCamera["baseFov"].get<float>();
-
-							auto camera = make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov);
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else if (jCamera["type"] == "Path")
-						{
-							auto camera = make_smart_refctd_ptr<CPathCamera>(position, getTarget());
-							camera->setMoveSpeedScale(OrbitMoveScale);
-							camera->setRotationSpeedScale(DefaultRotateScale);
-							cameras.emplace_back(std::move(camera));
-						}
-						else
-						{
-							logFail("Unsupported camera type!");
+							logFail("%s", error.c_str());
 							return false;
 						}
+						cameras.emplace_back(std::move(camera));
 					}
 					else
 					{
@@ -1699,14 +1577,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								projectionBinding.updateMouseMapping([&](auto& map) { map = {}; }); // clean the map if not bound
 						}
 
-						{
-							auto* camera = planar->getCamera();
-							{
-								camera->updateKeyboardMapping([&](auto& map) { map = camera->getKeyboardMappingPreset(); });
-								camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
-								camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
-							}
-						}
 					}
 				}
 				else
