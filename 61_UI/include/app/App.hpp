@@ -1958,6 +1958,49 @@ class App final : public examples::SimpleWindowedApplication
 			return summary;
 		}
 
+		inline bool tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
+		{
+			if (m_keyframes.empty())
+				return false;
+
+			if (m_keyframes.size() == 1u)
+			{
+				preset = m_keyframes.front().preset;
+				return true;
+			}
+
+			const auto clampedTime = std::clamp(time, 0.f, m_keyframes.back().time);
+			size_t idx = 0u;
+			while (idx + 1u < m_keyframes.size() && m_keyframes[idx + 1u].time < clampedTime)
+				++idx;
+
+			const auto& a = m_keyframes[idx];
+			const auto& b = m_keyframes[std::min(idx + 1u, m_keyframes.size() - 1u)];
+			if (b.time <= a.time)
+			{
+				preset = a.preset;
+				return true;
+			}
+
+			const double alpha = static_cast<double>(clampedTime - a.time) / static_cast<double>(b.time - a.time);
+			preset = a.preset;
+			assignGoalToPreset(preset, blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
+			return true;
+		}
+
+		inline bool applyPlaybackAtTime(const float time)
+		{
+			CameraPreset preset;
+			if (!tryBuildPlaybackPresetAtTime(time, preset))
+			{
+				clearApplyStatusBanner(m_playbackApplyBanner);
+				return false;
+			}
+
+			storePlaybackApplySummary(applyPresetToTargets(preset));
+			return true;
+		}
+
 		inline void updatePlayback(double dtSec)
 		{
 			if (!m_playback.playing || m_keyframes.empty())
@@ -1968,7 +2011,7 @@ class App final : public examples::SimpleWindowedApplication
 			const float duration = m_keyframes.back().time;
 			if (duration <= 0.f)
 			{
-				storePlaybackApplySummary(applyPresetToTargets(m_keyframes.back().preset));
+				applyPlaybackAtTime(m_playback.time);
 				return;
 			}
 
@@ -1983,32 +2026,7 @@ class App final : public examples::SimpleWindowedApplication
 				m_playback.playing = false;
 			}
 
-			const auto time = m_playback.time;
-			if (m_keyframes.size() == 1)
-			{
-				storePlaybackApplySummary(applyPresetToTargets(m_keyframes.front().preset));
-				return;
-			}
-
-			size_t idx = 0u;
-			while (idx + 1u < m_keyframes.size() && m_keyframes[idx + 1u].time < time)
-				++idx;
-
-			const auto& a = m_keyframes[idx];
-			const auto& b = m_keyframes[std::min(idx + 1u, m_keyframes.size() - 1u)];
-
-			if (b.time <= a.time)
-			{
-				storePlaybackApplySummary(applyPresetToTargets(a.preset));
-				return;
-			}
-
-			const double alpha = static_cast<double>(time - a.time) / static_cast<double>(b.time - a.time);
-
-			CameraPreset blended = a.preset;
-			assignGoalToPreset(blended, blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
-
-			storePlaybackApplySummary(applyPresetToTargets(blended));
+			applyPlaybackAtTime(m_playback.time);
 		}
 
 		inline bool savePresetsToFile(const system::path& path)

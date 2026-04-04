@@ -850,14 +850,15 @@ void App::DrawControlPanel()
 						{
 							m_playback.playing = false;
 							m_playback.time = 0.f;
-							clearApplyStatusBanner(m_playbackApplyBanner);
+							applyPlaybackAtTime(m_playback.time);
 						}
 						DrawHoverHint("Stop playback and reset time");
 
 						if (!m_keyframes.empty())
 						{
 							const float duration = m_keyframes.back().time;
-							ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f");
+							if (ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f"))
+								applyPlaybackAtTime(m_playback.time);
 						}
 						if (m_playbackApplyBanner.visible())
 						{
