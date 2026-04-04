@@ -19,7 +19,7 @@ It contains a scripted-input harness that can drive camera actions in CI and val
 - DollyZoom
 - Path
 
-Each planar uses one of the configured controller mappings and can be switched at runtime by scripted `action` events.
+Each planar uses one of the configured input binding layouts and can be switched at runtime by scripted `action` events.
 
 ## Short math context
 

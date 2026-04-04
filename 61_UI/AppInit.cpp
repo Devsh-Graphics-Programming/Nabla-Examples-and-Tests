@@ -1564,81 +1564,83 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					std::vector<IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
 					std::vector<IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
-				} controllers;
+				} bindings;
 
-				if (j.contains("controllers"))
+				const char* bindingLayoutsKey = j.contains("bindings") ? "bindings" : (j.contains("controllers") ? "controllers" : nullptr);
+
+				if (bindingLayoutsKey)
 				{
-					const auto& jControllers = j["controllers"];
+					const auto& jBindings = j[bindingLayoutsKey];
 
-					if (jControllers.contains("keyboard"))
+					if (jBindings.contains("keyboard"))
 					{
-						for (const auto& jKeyboard : jControllers["keyboard"])
+						for (const auto& jKeyboard : jBindings["keyboard"])
 						{
 							if (jKeyboard.contains("mappings"))
 							{
-								auto& controller = controllers.keyboard.emplace_back();
+								auto& binding = bindings.keyboard.emplace_back();
 								for (const auto& [key, value] : jKeyboard["mappings"].items())
 								{
 									const auto nativeCode = stringToKeyCode(key.c_str());
 
 									if (nativeCode == EKC_NONE)
 									{
-										logFail("Invalid native key \"%s\" code mapping for keyboard controller", key.c_str());
+										logFail("Invalid native key \"%s\" code mapping for keyboard binding", key.c_str());
 										return false;
 									}
 
-									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+									binding[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
 								}
 							}
 							else
 							{
-								logFail("Expected \"mappings\" keyword for keyboard controller definition!");
+								logFail("Expected \"mappings\" keyword for keyboard binding definition!");
 								return false;
 							}
 						}
 					}
 					else
 					{
-						logFail("Expected \"keyboard\" keyword in controllers definition!");
+						logFail("Expected \"keyboard\" keyword in bindings definition!");
 						return false;
 					}
 
-					if (jControllers.contains("mouse"))
+					if (jBindings.contains("mouse"))
 					{
-						for (const auto& jMouse : jControllers["mouse"])
+						for (const auto& jMouse : jBindings["mouse"])
 						{
 							if (jMouse.contains("mappings"))
 							{
-								auto& controller = controllers.mouse.emplace_back();
+								auto& binding = bindings.mouse.emplace_back();
 								for (const auto& [key, value] : jMouse["mappings"].items())
 								{
 									const auto nativeCode = stringToMouseCode(key.c_str());
 
 									if (nativeCode == EMC_NONE)
 									{
-										logFail("Invalid native key \"%s\" code mapping for mouse controller", key.c_str());
+										logFail("Invalid native key \"%s\" code mapping for mouse binding", key.c_str());
 										return false;
 									}
 
-									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+									binding[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
 								}
 							}
 							else
 							{
-								logFail("Expected \"mappings\" keyword for mouse controller definition!");
+								logFail("Expected \"mappings\" keyword for mouse binding definition!");
 								return false;
 							}
 						}
 					}
 					else
 					{
-						logFail("Expected \"mouse\" keyword in controllers definition");
+						logFail("Expected \"mouse\" keyword in bindings definition");
 						return false;
 					}
 				}
 				else
 				{
-					logFail("Expected \"controllers\" keyword in controllers JSON");
+					logFail("Expected \"bindings\" keyword in camera JSON");
 					return false;
 				}
 
@@ -1665,31 +1667,33 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						for (const auto viewportIx : boundViewports)
 						{
 							auto& viewport = j["viewports"][viewportIx];
-							if (!viewport.contains("projection") || !viewport.contains("controllers"))
+							const char* viewportBindingsKey = viewport.contains("bindings") ? "bindings" : (viewport.contains("controllers") ? "controllers" : nullptr);
+							if (!viewport.contains("projection") || !viewportBindingsKey)
 							{
-								logFail("\"projection\" or \"controllers\" missing in viewport object index %d", viewportIx);
+								logFail("\"projection\" or \"bindings\" missing in viewport object index %d", viewportIx);
 								return false;
 							}
 
 							const auto projectionIx = viewport["projection"].get<uint32_t>();
 							auto& projection = planar->getPlanarProjections().emplace_back(projections[projectionIx]);
 							auto& projectionBinding = projection.getInputBinding();
+							const auto& jViewportBindings = viewport[viewportBindingsKey];
 
-							const bool hasKeyboardBound = viewport["controllers"].contains("keyboard");
-							const bool hasMouseBound = viewport["controllers"].contains("mouse");
+							const bool hasKeyboardBound = jViewportBindings.contains("keyboard");
+							const bool hasMouseBound = jViewportBindings.contains("mouse");
 
 							if (hasKeyboardBound)
 							{
-								auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-								projectionBinding.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
+								auto keyboardBindingIx = jViewportBindings["keyboard"].get<uint32_t>();
+								projectionBinding.updateKeyboardMapping([&](auto& map) { map = bindings.keyboard[keyboardBindingIx]; });
 							}
 							else
 								projectionBinding.updateKeyboardMapping([&](auto& map) { map = {}; }); // clean the map if not bound
 
 							if (hasMouseBound)
 							{
-								auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
-								projectionBinding.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+								auto mouseBindingIx = jViewportBindings["mouse"].get<uint32_t>();
+								projectionBinding.updateMouseMapping([&](auto& map) { map = bindings.mouse[mouseBindingIx]; });
 							}
 							else
 								projectionBinding.updateMouseMapping([&](auto& map) { map = {}; }); // clean the map if not bound

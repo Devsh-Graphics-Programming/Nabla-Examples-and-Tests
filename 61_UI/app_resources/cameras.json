@@ -74,91 +74,91 @@
     "viewports": [
       {
         "projection": 0,
-        "controllers": { "keyboard": 0, "mouse": 0 }
+        "bindings": { "keyboard": 0, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 0, "mouse": 0 }
+        "bindings": { "keyboard": 0, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 3, "mouse": 1 }
+        "bindings": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 3, "mouse": 1 }
+        "bindings": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 0, "mouse": 1 }
+        "bindings": { "keyboard": 0, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 0, "mouse": 1 }
+        "bindings": { "keyboard": 0, "mouse": 1 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 1, "mouse": 1 }
+        "bindings": { "keyboard": 1, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 1, "mouse": 1 }
+        "bindings": { "keyboard": 1, "mouse": 1 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 0 }
+        "bindings": { "keyboard": 2, "mouse": 0 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 3, "mouse": 1 }
+        "bindings": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 3, "mouse": 1 }
+        "bindings": { "keyboard": 3, "mouse": 1 }
       },
       {
         "projection": 0,
-        "controllers": { "keyboard": 2, "mouse": 1 }
+        "bindings": { "keyboard": 2, "mouse": 1 }
       },
       {
         "projection": 1,
-        "controllers": { "keyboard": 2, "mouse": 1 }
+        "bindings": { "keyboard": 2, "mouse": 1 }
       }
     ],
     "planars": [
@@ -174,7 +174,7 @@
       { "camera": 9, "viewports": [18, 19] },
       { "camera": 10, "viewports": [20, 21] }
     ],
-    "controllers": {
+    "bindings": {
       "keyboard": [
         {
           "mappings": {

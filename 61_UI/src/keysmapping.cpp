@@ -101,10 +101,10 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
     if (spawnWindow)
     {
         ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Controller Mappings & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        ImGui::Begin("Binding Layouts & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
     }
 
-    if (ImGui::BeginTabBar("ControllersTabBar"))
+    if (ImGui::BeginTabBar("BindingsTabBar"))
     {
         if (ImGui::BeginTabItem("Keyboard"))
         {
