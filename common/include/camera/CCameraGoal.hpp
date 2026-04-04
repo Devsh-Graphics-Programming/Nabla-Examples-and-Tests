@@ -17,6 +17,9 @@
 namespace nbl::hlsl
 {
 
+/**
+* Typed transport object for camera state used by capture, comparison, presets, and playback.
+*/
 struct CCameraGoal
 {
     float64_t3 position = float64_t3(0.0);

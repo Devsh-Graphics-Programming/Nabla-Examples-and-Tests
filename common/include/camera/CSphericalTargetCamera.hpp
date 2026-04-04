@@ -9,6 +9,11 @@
 namespace nbl::hlsl
 {
 
+/**
+* Common base for cameras orbiting or tracking a target with spherical coordinates.
+*
+* The shared state is target position, distance, and orbit angles `u/v`.
+*/
 class CSphericalTargetCamera : public ICamera
 {
 public:

@@ -13,6 +13,7 @@
 namespace nbl::hlsl
 {
 
+//! Named persisted camera state built on top of `CCameraGoal`.
 struct CCameraPreset
 {
     std::string name;
@@ -20,6 +21,7 @@ struct CCameraPreset
     CCameraGoal goal = {};
 };
 
+//! Time-stamped preset entry used by playback and authoring tools.
 struct CCameraKeyframe
 {
     CCameraPreset preset;

@@ -8,6 +8,12 @@
 namespace nbl::hlsl
 {
 
+/**
+* High-level runtime binder for examples and viewport glue.
+*
+* It owns active runtime mappings and collects one frame of virtual events
+* from raw keyboard, mouse, and ImGuizmo input.
+*/
 class CGimbalInputBinder final : public IGimbalInputProcessor
 {
 public:
@@ -16,6 +22,7 @@ public:
 
     struct SCollectedVirtualEvents
     {
+        //! Concatenated output buffer plus per-domain counts for diagnostics.
         std::vector<gimbal_event_t> events;
         uint32_t keyboardCount = 0u;
         uint32_t mouseCount = 0u;

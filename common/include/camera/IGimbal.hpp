@@ -8,6 +8,12 @@
 // TODO: DIFFERENT NAMESPACE
 namespace nbl::hlsl
 {
+    /**
+    * Shared semantic camera command.
+    *
+    * Input processors and scripted tools emit these events.
+    * Camera implementations consume them through `ICamera::manipulate(...)`.
+    */
     struct CVirtualGimbalEvent
     {
         enum VirtualEventType : uint32_t
@@ -137,7 +143,7 @@ namespace nbl::hlsl
             vector<precision_t, 3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 1.0f };
         };
 
-        //! Accumulates virtual impulse given allowed virtual event bitmap. Input virtual events are already deltas with respect to some base frame, the utility filters the events & outputs the impulse
+        //! Accumulates one frame of virtual events into a translation/rotation/scale impulse.
         template <uint32_t AllowedEvents>
         VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents, const vector<precision_t, 3u>& gRightOverride, const vector<precision_t, 3u>& gUpOverride, const vector<precision_t, 3u>& gForwardOverride)
         {

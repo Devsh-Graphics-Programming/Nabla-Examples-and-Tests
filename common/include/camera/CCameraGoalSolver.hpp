@@ -15,9 +15,16 @@
 namespace nbl::hlsl
 {
 
+/**
+* Best-effort absolute layer built on top of the event-only camera core.
+*
+* It captures typed camera state into `CCameraGoal`, analyzes compatibility,
+* and tries to apply goals back to cameras using typed hooks and virtual-event replay.
+*/
 class CCameraGoalSolver
 {
 public:
+    //! Detailed capture result for tooling code.
     struct SCaptureResult
     {
         bool hasCamera = false;
@@ -31,6 +38,7 @@ public:
         }
     };
 
+    //! Compatibility of a goal with a target camera kind and state mask.
     struct SCompatibilityResult
     {
         bool sameKind = false;
@@ -40,6 +48,7 @@ public:
         uint32_t missingGoalStateMask = ICamera::GoalStateNone;
     };
 
+    //! Outcome of a best-effort goal apply attempt.
     struct SApplyResult
     {
         enum class EStatus : uint8_t

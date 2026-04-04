@@ -16,6 +16,11 @@ namespace ImGuizmo
 namespace nbl::hlsl 
 {
 
+/**
+* Runtime processor that turns keyboard, mouse, and ImGuizmo input into virtual events.
+*
+* The filename is legacy. The intended public type is `IGimbalInputProcessor`.
+*/
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:

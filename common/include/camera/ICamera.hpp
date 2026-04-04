@@ -13,6 +13,13 @@
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
+/**
+* Shared camera contract used by examples.
+*
+* The hot runtime path is event-only: cameras consume `CVirtualGimbalEvent`
+* streams through `manipulate(...)`. Optional typed state hooks exist only for
+* tooling features such as capture, compatibility analysis, presets, and playback.
+*/
 class ICamera : virtual public core::IReferenceCounted
 { 
 public:
@@ -30,12 +37,14 @@ public:
 
     struct SMotionConfig
     {
+        //! Camera-local scales applied by implementations to virtual motion magnitude.
         double moveSpeedScale = 0.01;
         double rotationSpeedScale = 0.003;
     };
 
     struct SInputBindingConfig
     {
+        //! Default binding layout advertised by this camera type.
         CGimbalBindingLayoutStorage defaultBindingLayout;
     };
 
@@ -93,7 +102,7 @@ public:
         double height = 0.0;
     };
 
-    // Gimbal with view parameters representing a camera in world space
+    //! Gimbal that models the camera pose and cached view matrix in world space.
     class CGimbal : public IGimbal<float64_t>
     {
     public:

@@ -14,6 +14,7 @@
 namespace nbl::hlsl
 {
 
+//! Reusable keyframe container plus selection state for playback tooling.
 struct CCameraKeyframeTrack
 {
     std::vector<CCameraKeyframe> keyframes;
