@@ -40,6 +40,14 @@ public:
         DynamicPerspectiveFov = core::createBitmask({ 1 })
     };
 
+    enum GoalStateMask : uint32_t
+    {
+        GoalStateNone = 0u,
+        GoalStateSphericalTarget = core::createBitmask({ 0 }),
+        GoalStateDynamicPerspective = core::createBitmask({ 1 }),
+        GoalStatePath = core::createBitmask({ 2 })
+    };
+
     struct SphericalTargetState
     {
         float64_t3 target = float64_t3(0.0);
@@ -97,8 +105,7 @@ public:
 	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
 
-    // Manipulates camera with virtual events, returns true if *any* manipulation happens, it may fail partially or fully because each camera type has certain constraints which determine how it actually works
-    // TODO: this really needs to be moved to more abstract interface, eg. IObjectTransform or something and ICamera should inherit it (its also an object!)
+    // Camera core contract: consume virtual events only. Raw input binding and absolute goal solving live outside ICamera.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) = 0;
 
     // VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
@@ -106,6 +113,15 @@ public:
 
     virtual CameraKind getKind() const = 0;
     virtual uint32_t getCapabilities() const { return None; }
+    virtual uint32_t getGoalStateMask() const
+    {
+        uint32_t mask = GoalStateNone;
+        if (hasCapability(SphericalTarget))
+            mask |= GoalStateSphericalTarget;
+        if (hasCapability(DynamicPerspectiveFov))
+            mask |= GoalStateDynamicPerspective;
+        return mask;
+    }
 
     // Identifier of a camera type
     virtual const std::string_view getIdentifier() = 0u;
@@ -113,6 +129,11 @@ public:
     inline bool hasCapability(CameraCapability capability) const
     {
         return (getCapabilities() & capability) == capability;
+    }
+
+    inline bool supportsGoalState(GoalStateMask goalState) const
+    {
+        return (getGoalStateMask() & goalState) == goalState;
     }
 
     virtual bool tryGetSphericalTargetState(SphericalTargetState& out) const

@@ -52,6 +52,7 @@ public:
 
     virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Path; }
+    virtual uint32_t getGoalStateMask() const override { return base_t::getGoalStateMask() | base_t::GoalStatePath; }
     virtual bool tryGetPathState(PathState& out) const override
     {
         out.angle = m_pathAngle;

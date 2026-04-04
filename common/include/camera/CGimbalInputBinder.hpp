@@ -12,32 +12,53 @@ public:
     using base_t = IGimbalController;
     using base_t::base_t;
 
-    inline void clearBindingLayout()
+    // Runtime input binder. It translates external keyboard/mouse/ImGuizmo input into virtual events.
+    inline void clearActiveBindings()
     {
         updateKeyboardMapping([](auto& map) { map.clear(); });
         updateMouseMapping([](auto& map) { map.clear(); });
         updateImguizmoMapping([](auto& map) { map.clear(); });
     }
 
-    inline void copyBindingLayoutFrom(const IGimbalManipulateEncoder& encoder)
+    inline void clearBindingLayout()
+    {
+        clearActiveBindings();
+    }
+
+    inline void copyActiveBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
     {
         updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(encoder.getKeyboardVirtualEventMap()); });
         updateMouseMapping([&](auto& map) { map = sanitizeMapping(encoder.getMouseVirtualEventMap()); });
         updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(encoder.getImguizmoVirtualEventMap()); });
     }
 
-    inline void copyPresetLayoutFrom(const IGimbalManipulateEncoder& encoder)
+    inline void copyBindingLayoutFrom(const IGimbalManipulateEncoder& encoder)
+    {
+        copyActiveBindingsFromEncoder(encoder);
+    }
+
+    inline void copyDefaultBindingsFromEncoder(const IGimbalManipulateEncoder& encoder)
     {
         updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(encoder.getKeyboardMappingPreset()); });
         updateMouseMapping([&](auto& map) { map = sanitizeMapping(encoder.getMouseMappingPreset()); });
         updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(encoder.getImguizmoMappingPreset()); });
     }
 
-    inline void copyBindingLayoutTo(IGimbalManipulateEncoder& encoder) const
+    inline void copyPresetLayoutFrom(const IGimbalManipulateEncoder& encoder)
+    {
+        copyDefaultBindingsFromEncoder(encoder);
+    }
+
+    inline void copyActiveBindingsToEncoder(IGimbalManipulateEncoder& encoder) const
     {
         encoder.updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(getKeyboardVirtualEventMap()); });
         encoder.updateMouseMapping([&](auto& map) { map = sanitizeMapping(getMouseVirtualEventMap()); });
         encoder.updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(getImguizmoVirtualEventMap()); });
+    }
+
+    inline void copyBindingLayoutTo(IGimbalManipulateEncoder& encoder) const
+    {
+        copyActiveBindingsToEncoder(encoder);
     }
 
 private:

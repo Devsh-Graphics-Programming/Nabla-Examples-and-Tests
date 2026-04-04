@@ -542,12 +542,9 @@ class App final : public examples::SimpleWindowedApplication
 			return camera && camera->hasCapability(ICamera::SphericalTarget);
 		}
 
-		inline std::string_view getCameraTypeLabel(const ICamera* camera) const
+		inline std::string_view getCameraTypeLabel(const ICamera::CameraKind kind) const
 		{
-			if (!camera)
-				return "Unknown";
-
-			switch (camera->getKind())
+			switch (kind)
 			{
 				case ICamera::CameraKind::FPS: return "FPS";
 				case ICamera::CameraKind::Free: return "Free";
@@ -562,6 +559,11 @@ class App final : public examples::SimpleWindowedApplication
 				case ICamera::CameraKind::Path: return "Path";
 				default: return "Unknown";
 			}
+		}
+
+		inline std::string_view getCameraTypeLabel(const ICamera* camera) const
+		{
+			return camera ? getCameraTypeLabel(camera->getKind()) : "Unknown";
 		}
 
 		inline std::string_view getCameraTypeDescription(const ICamera* camera) const
@@ -1111,6 +1113,7 @@ class App final : public examples::SimpleWindowedApplication
 			blended.orientation = glm::slerp(a.orientation, b.orientation, static_cast<float>(alpha));
 			blended.sourceKind = (a.sourceKind == b.sourceKind) ? a.sourceKind : ICamera::CameraKind::Unknown;
 			blended.sourceCapabilities = a.sourceCapabilities & b.sourceCapabilities;
+			blended.sourceGoalStateMask = a.sourceGoalStateMask | b.sourceGoalStateMask;
 			blended.hasTargetPosition = a.hasTargetPosition || b.hasTargetPosition;
 			if (blended.hasTargetPosition)
 			{
@@ -1163,6 +1166,27 @@ class App final : public examples::SimpleWindowedApplication
 		inline bool tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
 		{
 			return m_cameraGoalSolver.capture(camera, out);
+		}
+
+		inline std::string describeGoalStateMask(uint32_t mask) const
+		{
+			if (mask == ICamera::GoalStateNone)
+				return "Pose only";
+
+			std::string out;
+			auto append = [&](const char* label, const uint32_t bit) -> void
+			{
+				if ((mask & bit) != bit)
+					return;
+				if (!out.empty())
+					out += ", ";
+				out += label;
+			};
+
+			append("Spherical target", ICamera::GoalStateSphericalTarget);
+			append("Dynamic perspective", ICamera::GoalStateDynamicPerspective);
+			append("Path", ICamera::GoalStatePath);
+			return out;
 		}
 
 		template<typename Vec>
@@ -1348,6 +1372,30 @@ class App final : public examples::SimpleWindowedApplication
 			return oss.str();
 		}
 
+		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
+		{
+			return m_cameraGoalSolver.analyzeCompatibility(camera, makeGoalFromPreset(preset));
+		}
+
+		inline std::string describePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
+		{
+			if (!camera)
+				return "No active camera";
+
+			const auto compatibility = analyzePresetCompatibility(camera, preset);
+			std::ostringstream oss;
+			oss << (compatibility.exact ? "Exact" : "Best-effort")
+				<< " | source=" << getCameraTypeLabel(preset.goal.sourceKind)
+				<< " | target=" << getCameraTypeLabel(camera);
+
+			if (compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+				oss << " | missing=" << describeGoalStateMask(compatibility.missingGoalStateMask);
+			else if (!compatibility.sameKind && preset.goal.sourceKind != ICamera::CameraKind::Unknown)
+				oss << " | shared goal state only";
+
+			return oss.str();
+		}
+
 		inline bool comparePresetToCameraState(ICamera* camera, const CameraPreset& preset,
 			const double posEps, const double rotEpsDeg, const double scalarEps) const
 		{
@@ -1380,6 +1428,7 @@ class App final : public examples::SimpleWindowedApplication
 			j["orientation"] = { goal.orientation.x, goal.orientation.y, goal.orientation.z, goal.orientation.w };
 			j["camera_kind"] = static_cast<uint32_t>(goal.sourceKind);
 			j["camera_capabilities"] = goal.sourceCapabilities;
+			j["camera_goal_state_mask"] = goal.sourceGoalStateMask;
 			if (goal.hasTargetPosition)
 				j["target_position"] = { goal.targetPosition.x, goal.targetPosition.y, goal.targetPosition.z };
 			if (goal.hasDistance)
@@ -1411,6 +1460,8 @@ class App final : public examples::SimpleWindowedApplication
 				goal.sourceKind = static_cast<ICamera::CameraKind>(entry["camera_kind"].get<uint32_t>());
 			if (entry.contains("camera_capabilities"))
 				goal.sourceCapabilities = entry["camera_capabilities"].get<uint32_t>();
+			if (entry.contains("camera_goal_state_mask"))
+				goal.sourceGoalStateMask = entry["camera_goal_state_mask"].get<uint32_t>();
 			if (entry.contains("position") && entry["position"].is_array())
 			{
 				auto arr = entry["position"];
@@ -1492,6 +1543,15 @@ class App final : public examples::SimpleWindowedApplication
 				return {};
 
 			return m_cameraGoalSolver.applyDetailed(camera, makeGoalFromPreset(preset));
+		}
+
+		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
+		{
+			const auto result = applyPresetToCameraDetailed(camera, preset);
+			m_lastPresetApplySummary = describeApplyResult(result) + " | " + describePresetCompatibility(camera, preset);
+			m_lastPresetApplySucceeded = result.succeeded();
+			m_lastPresetApplyApproximate = result.approximate();
+			return result;
 		}
 
 		inline bool applyPresetToCamera(ICamera* camera, const CameraPreset& preset)
@@ -2120,7 +2180,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (binding.inputBindingPlanarIx == binding.activePlanarIx && binding.inputBindingProjectionIx == projectionIx)
 				return;
 
-			binding.inputBinding.copyBindingLayoutFrom(projections[projectionIx]);
+			binding.inputBinding.copyActiveBindingsFromEncoder(projections[projectionIx]);
 			binding.inputBindingPlanarIx = binding.activePlanarIx;
 			binding.inputBindingProjectionIx = projectionIx;
 		}
@@ -2141,7 +2201,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (projectionIx >= projections.size())
 				return;
 
-			binding.inputBinding.copyBindingLayoutTo(projections[projectionIx]);
+			binding.inputBinding.copyActiveBindingsToEncoder(projections[projectionIx]);
 			binding.inputBindingPlanarIx = binding.activePlanarIx;
 			binding.inputBindingProjectionIx = projectionIx;
 		}
@@ -2318,6 +2378,9 @@ class App final : public examples::SimpleWindowedApplication
 		std::vector<CameraKeyframe> m_keyframes;
 		CameraPlaybackState m_playback;
 		CCameraGoalSolver m_cameraGoalSolver;
+		std::string m_lastPresetApplySummary;
+		bool m_lastPresetApplySucceeded = false;
+		bool m_lastPresetApplyApproximate = false;
 		bool m_playbackAffectsAll = false;
 		float m_newKeyframeTime = 0.f;
 		char m_presetName[64] = "Preset";

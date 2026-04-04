@@ -21,6 +21,7 @@ struct CCameraGoal
     glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
     uint32_t sourceCapabilities = ICamera::None;
+    uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
     bool hasTargetPosition = false;
     float64_t3 targetPosition = float64_t3(0.0);
     bool hasDistance = false;
@@ -38,6 +39,15 @@ struct CCameraGoal
 class CCameraGoalSolver
 {
 public:
+    struct SCompatibilityResult
+    {
+        bool sameKind = false;
+        bool exact = false;
+        uint32_t requiredGoalStateMask = ICamera::GoalStateNone;
+        uint32_t supportedGoalStateMask = ICamera::GoalStateNone;
+        uint32_t missingGoalStateMask = ICamera::GoalStateNone;
+    };
+
     struct SApplyResult
     {
         enum class EStatus : uint8_t
@@ -111,6 +121,7 @@ public:
         out.orientation = gimbal.getOrientation();
         out.sourceKind = camera->getKind();
         out.sourceCapabilities = camera->getCapabilities();
+        out.sourceGoalStateMask = camera->getGoalStateMask();
 
         ICamera::SphericalTargetState sphericalState;
         if (camera->tryGetSphericalTargetState(sphericalState))
@@ -140,6 +151,20 @@ public:
         }
 
         return true;
+    }
+
+    SCompatibilityResult analyzeCompatibility(const ICamera* camera, const CCameraGoal& target) const
+    {
+        SCompatibilityResult result;
+        if (!camera)
+            return result;
+
+        result.sameKind = target.sourceKind == ICamera::CameraKind::Unknown || target.sourceKind == camera->getKind();
+        result.supportedGoalStateMask = camera->getGoalStateMask();
+        result.requiredGoalStateMask = getRequiredGoalStateMask(target);
+        result.missingGoalStateMask = result.requiredGoalStateMask & ~result.supportedGoalStateMask;
+        result.exact = result.missingGoalStateMask == ICamera::GoalStateNone;
+        return result;
     }
 
     SApplyResult applyDetailed(ICamera* camera, const CCameraGoal& target) const
@@ -371,6 +396,18 @@ private:
     inline bool nearlyEqual(double a, double b, double eps = 1e-6) const
     {
         return std::abs(a - b) <= eps;
+    }
+
+    inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target) const
+    {
+        uint32_t mask = ICamera::GoalStateNone;
+        if (target.hasTargetPosition || target.hasDistance || target.hasOrbitState)
+            mask |= ICamera::GoalStateSphericalTarget;
+        if (target.hasDynamicPerspectiveState)
+            mask |= ICamera::GoalStateDynamicPerspective;
+        if (target.hasPathState)
+            mask |= ICamera::GoalStatePath;
+        return mask;
     }
 
     inline void appendSignedEvent(std::vector<CVirtualGimbalEvent>& events, double value,

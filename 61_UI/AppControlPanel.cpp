@@ -704,14 +704,37 @@ void App::DrawControlPanel()
 
 							if (selectedPreset >= 0 && static_cast<size_t>(selectedPreset) < m_presets.size())
 							{
+								auto* activeCamera = getActiveCamera();
+								const auto& preset = m_presets[static_cast<size_t>(selectedPreset)];
+								const auto compatibility = analyzePresetCompatibility(activeCamera, preset);
+								const ImVec4 warn = ImVec4(0.95f, 0.72f, 0.28f, 1.0f);
+								const ImVec4 compatibilityColor = !activeCamera ? bad : (compatibility.exact ? good : warn);
+
+								ImGui::TextDisabled("Preset source");
+								ImGui::SameLine();
+								ImGui::TextColored(muted, "%s", getCameraTypeLabel(preset.goal.sourceKind).data());
+								ImGui::TextDisabled("Goal state");
+								ImGui::SameLine();
+								ImGui::TextColored(muted, "%s", describeGoalStateMask(preset.goal.sourceGoalStateMask).c_str());
+								ImGui::TextDisabled("Apply mode");
+								ImGui::SameLine();
+								ImGui::TextColored(compatibilityColor, "%s", describePresetCompatibility(activeCamera, preset).c_str());
+
 								if (ImGui::Button("Apply preset"))
-									applyPresetToCamera(getActiveCamera(), m_presets[static_cast<size_t>(selectedPreset)]);
+									applyPresetFromUi(activeCamera, preset);
 								DrawHoverHint("Apply selected preset to the active camera");
 								ImGui::SameLine();
 								if (ImGui::Button("Remove preset"))
 									m_presets.erase(m_presets.begin() + selectedPreset);
 								DrawHoverHint("Remove selected preset");
 							}
+						}
+
+						if (!m_lastPresetApplySummary.empty())
+						{
+							const ImVec4 warn = ImVec4(0.95f, 0.72f, 0.28f, 1.0f);
+							const ImVec4 resultColor = m_lastPresetApplySucceeded ? (m_lastPresetApplyApproximate ? warn : good) : bad;
+							ImGui::TextColored(resultColor, "%s", m_lastPresetApplySummary.c_str());
 						}
 
 						DrawSectionHeader("PresetsStorageHeader", "Storage", accent);

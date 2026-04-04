@@ -325,19 +325,19 @@ void App::update()
 				uint32_t vMouseEventsCount = {};
 
 				syncWindowInputBinding(binding);
-				auto& inputBinding = binding.inputBinding;
+				auto& inputBinder = binding.inputBinding;
 
-				inputBinding.beginInputProcessing(m_nextPresentationTimestamp);
+				inputBinder.beginInputProcessing(m_nextPresentationTimestamp);
 				{
-					inputBinding.processKeyboard(nullptr, vKeyboardEventsCount, {});
-					inputBinding.processMouse(nullptr, vMouseEventsCount, {});
+					inputBinder.processKeyboard(nullptr, vKeyboardEventsCount, {});
+					inputBinder.processMouse(nullptr, vMouseEventsCount, {});
 
 					const auto totalCount = vKeyboardEventsCount + vMouseEventsCount;
 					if (virtualEvents.size() < totalCount)
 						virtualEvents.resize(totalCount);
 
 					auto* output = virtualEvents.data();
-					inputBinding.processKeyboard(output, vKeyboardEventsCount, { cameraKeyboardEvents.data(), cameraKeyboardEvents.size() });
+					inputBinder.processKeyboard(output, vKeyboardEventsCount, { cameraKeyboardEvents.data(), cameraKeyboardEvents.size() });
 					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
 						output[i].magnitude *= m_cameraControls.keyboardScale;
 					output += vKeyboardEventsCount;
@@ -354,16 +354,16 @@ void App::update()
 								continue;
 							filteredOrbitMouseEvents.emplace_back(ev);
 						}
-						inputBinding.processMouse(output, vMouseEventsCount, { filteredOrbitMouseEvents.data(), filteredOrbitMouseEvents.size() });
+						inputBinder.processMouse(output, vMouseEventsCount, { filteredOrbitMouseEvents.data(), filteredOrbitMouseEvents.size() });
 					}
 					else
 					{
-						inputBinding.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
+						inputBinder.processMouse(output, vMouseEventsCount, { cameraMouseEvents.data(), cameraMouseEvents.size() });
 					}
 
 					vCount = vKeyboardEventsCount + vMouseEventsCount;
 				}
-				inputBinding.endInputProcessing();
+				inputBinder.endInputProcessing();
 
 				if (vCount)
 				{
@@ -441,7 +441,7 @@ void App::update()
 				static std::vector<CVirtualGimbalEvent> imguizmoEvents(0x20);
 				uint32_t vCount = 0u;
 				CGimbalInputBinder imguizmoBinding;
-				imguizmoBinding.copyPresetLayoutFrom(*camera);
+				imguizmoBinding.copyDefaultBindingsFromEncoder(*camera);
 
 				imguizmoBinding.beginInputProcessing(m_nextPresentationTimestamp);
 				{

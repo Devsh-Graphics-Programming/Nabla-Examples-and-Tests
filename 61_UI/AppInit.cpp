@@ -438,9 +438,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
 					camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
 					CGimbalInputBinder inputBinder;
-					inputBinder.copyPresetLayoutFrom(*camera);
+					inputBinder.copyDefaultBindingsFromEncoder(*camera);
 
 					const auto initialPreset = capturePreset(camera, "smoke-initial");
+					const auto initialCompatibility = analyzePresetCompatibility(camera, initialPreset);
+					if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
+						return fail("Preset compatibility smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". missing=" + describeGoalStateMask(initialCompatibility.missingGoalStateMask));
 					switch (camera->getKind())
 					{
 						case ICamera::CameraKind::Orbit:
@@ -569,7 +572,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					double keyboardRotDelta = 0.0;
 					for (const auto key : keyboardCandidates)
 					{
-						inputBinder.copyPresetLayoutFrom(*camera);
+						inputBinder.copyDefaultBindingsFromEncoder(*camera);
 						auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 						if (keyboardEvents.empty())
 							continue;
@@ -611,7 +614,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (isOrbitLikeCamera(camera) && hasBlockedMovement)
 							return fail("Orbit mouse movement gate failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						inputBinder.copyPresetLayoutFrom(*camera);
+						inputBinder.copyDefaultBindingsFromEncoder(*camera);
 						auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -631,7 +634,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
 						auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
 
-						inputBinder.copyPresetLayoutFrom(*camera);
+						inputBinder.copyDefaultBindingsFromEncoder(*camera);
 						auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -667,6 +670,29 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					if (!targetCamera)
 						return true;
+
+					uint32_t expectedMissingGoalStateMask = ICamera::GoalStateNone;
+					switch (expectedIssue)
+					{
+						case CCameraGoalSolver::SApplyResult::MissingPathState:
+							expectedMissingGoalStateMask = ICamera::GoalStatePath;
+							break;
+						case CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState:
+							expectedMissingGoalStateMask = ICamera::GoalStateDynamicPerspective;
+							break;
+						case CCameraGoalSolver::SApplyResult::MissingSphericalTargetState:
+							expectedMissingGoalStateMask = ICamera::GoalStateSphericalTarget;
+							break;
+						default:
+							break;
+					}
+
+					const auto compatibility = analyzePresetCompatibility(targetCamera, sourcePreset);
+					if (compatibility.exact || compatibility.missingGoalStateMask != expectedMissingGoalStateMask)
+					{
+						return fail(std::string("Cross-kind preset compatibility smoke failed for ") + label +
+							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
+					}
 
 					const auto baselinePreset = capturePreset(targetCamera, std::string(label) + "-baseline");
 					const auto applyResult = applyPresetToCameraDetailed(targetCamera, sourcePreset);
