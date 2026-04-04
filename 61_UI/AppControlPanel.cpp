@@ -680,13 +680,24 @@ void App::DrawControlPanel()
 						ImGui::PushItemWidth(-1.0f);
 						DrawSectionHeader("PresetsHeader", "Presets", accent);
 						ImGui::InputText("Preset name", m_presetName, IM_ARRAYSIZE(m_presetName));
+						auto* activeCamera = getActiveCamera();
+						const auto presetCaptureUi = analyzeCameraCaptureForUi(activeCamera);
+						if (!presetCaptureUi.canCapture)
+							ImGui::BeginDisabled();
 						if (ImGui::Button("Add preset"))
 						{
-							auto* activeCamera = getActiveCamera();
-							m_presets.emplace_back(capturePreset(activeCamera, m_presetName));
-							m_selectedPresetIx = static_cast<int>(m_presets.size()) - 1;
+							CameraPreset preset;
+							if (tryCapturePreset(activeCamera, m_presetName, preset))
+							{
+								m_presets.emplace_back(std::move(preset));
+								m_selectedPresetIx = static_cast<int>(m_presets.size()) - 1;
+							}
 						}
-						DrawHoverHint("Store current camera as a preset");
+						if (!presetCaptureUi.canCapture)
+							ImGui::EndDisabled();
+						DrawHoverHint(presetCaptureUi.canCapture ?
+							"Store current camera as a preset" :
+							"Preset capture is blocked because there is no active camera or the current goal state is invalid");
 						ImGui::SameLine();
 						if (ImGui::Button("Clear presets"))
 						{
@@ -694,10 +705,12 @@ void App::DrawControlPanel()
 							m_selectedPresetIx = -1;
 						}
 						DrawHoverHint("Remove all presets");
+						ImGui::TextDisabled("Capture");
+						ImGui::SameLine();
+						ImGui::TextColored(presetCaptureUi.canCapture ? good : bad, "%s", presetCaptureUi.policyLabel.c_str());
 
 						if (!m_presets.empty())
 						{
-							auto* activeCamera = getActiveCamera();
 							const char* presetFilterLabels[] = { "All", "Exact", "Best-effort" };
 							int presetFilterIx = static_cast<int>(m_presetFilterMode);
 							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
@@ -869,16 +882,28 @@ void App::DrawControlPanel()
 						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
 						ImGui::InputFloat("New keyframe time", &m_newKeyframeTime, 0.1f, 1.f, "%.3f");
 						DrawHoverHint("Time value for new keyframe");
+						auto* activeCamera = getActiveCamera();
+						const auto keyframeCaptureUi = analyzeCameraCaptureForUi(activeCamera);
+						if (!keyframeCaptureUi.canCapture)
+							ImGui::BeginDisabled();
 						if (ImGui::Button("Add keyframe"))
 						{
-							auto* activeCamera = getActiveCamera();
 							CameraKeyframe keyframe;
 							keyframe.time = m_newKeyframeTime;
-							keyframe.preset = capturePreset(activeCamera, "Keyframe");
-							m_keyframes.emplace_back(std::move(keyframe));
-							std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+							if (tryCapturePreset(activeCamera, "Keyframe", keyframe.preset))
+							{
+								m_keyframes.emplace_back(std::move(keyframe));
+								std::sort(m_keyframes.begin(), m_keyframes.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+							}
 						}
-						DrawHoverHint("Add keyframe from current camera");
+						if (!keyframeCaptureUi.canCapture)
+							ImGui::EndDisabled();
+						DrawHoverHint(keyframeCaptureUi.canCapture ?
+							"Add keyframe from current camera" :
+							"Keyframe capture is blocked because there is no active camera or the current goal state is invalid");
+						ImGui::TextDisabled("Capture");
+						ImGui::SameLine();
+						ImGui::TextColored(keyframeCaptureUi.canCapture ? good : bad, "%s", keyframeCaptureUi.policyLabel.c_str());
 						ImGui::SameLine();
 						if (ImGui::Button("Clear keyframes"))
 						{

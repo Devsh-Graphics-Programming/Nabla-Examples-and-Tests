@@ -541,6 +541,16 @@ class App final : public examples::SimpleWindowedApplication
 			}
 		};
 
+		struct CaptureUiAnalysis
+		{
+			CCameraGoal goal = {};
+			bool hasActiveCamera = false;
+			bool capturedGoal = false;
+			bool finiteGoal = false;
+			bool canCapture = false;
+			std::string policyLabel;
+		};
+
 		struct CameraPlaybackState
 		{
 			bool playing = false;
@@ -1508,6 +1518,39 @@ class App final : public examples::SimpleWindowedApplication
 			return analysis;
 		}
 
+		inline CaptureUiAnalysis analyzeCameraCaptureForUi(ICamera* camera) const
+		{
+			CaptureUiAnalysis analysis;
+			analysis.hasActiveCamera = camera != nullptr;
+			if (!analysis.hasActiveCamera)
+			{
+				analysis.policyLabel = "Blocked | no active camera";
+				return analysis;
+			}
+
+			analysis.capturedGoal = m_cameraGoalSolver.capture(camera, analysis.goal);
+			if (!analysis.capturedGoal)
+			{
+				analysis.policyLabel = "Blocked | goal capture failed";
+				return analysis;
+			}
+
+			analysis.goal = canonicalizeGoal(analysis.goal);
+			analysis.finiteGoal = isGoalFinite(analysis.goal);
+			if (!analysis.finiteGoal)
+			{
+				analysis.policyLabel = "Blocked | invalid goal state";
+				return analysis;
+			}
+
+			analysis.canCapture = true;
+			std::ostringstream oss;
+			oss << "Ready | source=" << getCameraTypeLabel(camera)
+				<< " | goal=" << describeGoalStateMask(analysis.goal.sourceGoalStateMask);
+			analysis.policyLabel = oss.str();
+			return analysis;
+		}
+
 		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 		{
 			return analyzePresetForUi(camera, preset).compatibility;
@@ -1678,18 +1721,23 @@ class App final : public examples::SimpleWindowedApplication
 			}
 		}
 
+		inline bool tryCapturePreset(ICamera* camera, const std::string& name, CameraPreset& preset)
+		{
+			const auto captureUi = analyzeCameraCaptureForUi(camera);
+			preset = {};
+			preset.name = name;
+			if (!captureUi.canCapture || !camera)
+				return false;
+
+			preset.identifier = std::string(camera->getIdentifier());
+			assignGoalToPreset(preset, captureUi.goal);
+			return true;
+		}
+
 		inline CameraPreset capturePreset(ICamera* camera, const std::string& name)
 		{
 			CameraPreset preset;
-			preset.name = name;
-			if (!camera)
-				return preset;
-
-			preset.identifier = std::string(camera->getIdentifier());
-			CCameraGoal goal;
-			if (m_cameraGoalSolver.capture(camera, goal))
-				assignGoalToPreset(preset, goal);
-
+			tryCapturePreset(camera, name, preset);
 			return preset;
 		}
 
