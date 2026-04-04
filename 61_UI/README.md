@@ -3,6 +3,25 @@
 This example demonstrates interactive camera control in the ImGui-based UI sample.
 It contains a scripted-input harness that can drive camera actions in CI and validate behavior with frame-based checks.
 
+## Shared camera API
+
+`61_UI` is the active integration and validation surface for the reusable camera stack in `../common/include/camera`.
+
+See:
+
+- [`../common/include/camera/README.md`](../common/include/camera/README.md)
+
+That shared layer covers:
+
+- virtual gimbal events
+- binding layouts and runtime input binders
+- reusable camera kinds and typed state hooks
+- best-effort goal capture and apply utilities
+- preset and keyframe-track storage helpers
+
+At the moment other examples are not being migrated yet.
+The reusable API is growing in `common/include/camera`, while `61_UI` stays the only active call-site.
+
 ## Cameras in this scene
 
 `app_resources/cameras.json` defines 11 camera types:
