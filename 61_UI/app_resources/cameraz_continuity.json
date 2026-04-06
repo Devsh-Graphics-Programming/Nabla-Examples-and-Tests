@@ -79,6 +79,41 @@
             "orbit_distance_delta": -1.35
           }
         }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.2,
+              -0.8,
+              0.4
+            ],
+            "rotation_euler_deg_offset": [
+              16.0,
+              32.0,
+              -18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              3.2,
+              -1.8,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              34.0,
+              78.0,
+              -42.0
+            ]
+          }
+        }
       ]
     },
     {
@@ -125,6 +160,41 @@
             "orbit_distance_delta": -0.7
           }
         }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              -1.0,
+              1.1,
+              0.6
+            ],
+            "rotation_euler_deg_offset": [
+              20.0,
+              28.0,
+              18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              -2.5,
+              2.7,
+              1.4
+            ],
+            "rotation_euler_deg_offset": [
+              42.0,
+              68.0,
+              44.0
+            ]
+          }
+        }
       ]
     },
     {
@@ -144,6 +214,41 @@
             ],
             "orbit_u_delta_deg": 92.0,
             "orbit_distance_delta": -1.75
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              0.9,
+              1.5,
+              0.3
+            ],
+            "rotation_euler_deg_offset": [
+              10.0,
+              34.0,
+              -20.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              2.6,
+              3.7,
+              0.8
+            ],
+            "rotation_euler_deg_offset": [
+              24.0,
+              84.0,
+              -46.0
+            ]
           }
         }
       ]
@@ -179,6 +284,41 @@
             "orbit_distance_delta": -3.0
           }
         }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.8,
+              -1.2,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              30.0,
+              22.0,
+              18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.8,
+              -3.4,
+              2.1
+            ],
+            "rotation_euler_deg_offset": [
+              68.0,
+              58.0,
+              38.0
+            ]
+          }
+        }
       ]
     },
     {
@@ -199,6 +339,41 @@
             "orbit_distance_delta": -2.25
           }
         }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.6,
+              1.2,
+              0.9
+            ],
+            "rotation_euler_deg_offset": [
+              24.0,
+              -26.0,
+              20.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.0,
+              3.0,
+              1.8
+            ],
+            "rotation_euler_deg_offset": [
+              52.0,
+              -64.0,
+              46.0
+            ]
+          }
+        }
       ]
     },
     {
@@ -207,17 +382,40 @@
       "keyframes": [
         {
           "time": 0.0
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.5,
+              -1.2,
+              0.6
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              10.0,
+              0.0
+            ]
+          }
         },
         {
           "time": 4.0,
           "delta": {
-            "target_offset": [
-              1.4,
-              -1.8,
-              0.6
+            "position_offset": [
+              4.5,
+              -3.4,
+              1.4
             ],
-            "orbit_u_delta_deg": -44.0,
-            "orbit_distance_delta": -1.4
+            "rotation_euler_deg_offset": [
+              0.0,
+              30.0,
+              0.0
+            ]
           }
         }
       ]
@@ -228,16 +426,40 @@
       "keyframes": [
         {
           "time": 0.0
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.8,
+              1.0,
+              0.2
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              -10.0,
+              0.0
+            ]
+          }
         },
         {
           "time": 4.0,
           "delta": {
-            "target_offset": [
-              2.6,
-              0.8,
-              -0.4
+            "position_offset": [
+              5.3,
+              3.1,
+              -0.1
             ],
-            "orbit_distance_delta": -2.8
+            "rotation_euler_deg_offset": [
+              0.0,
+              -28.0,
+              0.0
+            ]
           }
         }
       ]
@@ -263,6 +485,41 @@
             "dynamic_reference_distance_delta": 2.5
           }
         }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              0.8,
+              -0.5,
+              0.4
+            ],
+            "rotation_euler_deg_offset": [
+              12.0,
+              30.0,
+              16.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              2.4,
+              -1.4,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              26.0,
+              74.0,
+              38.0
+            ]
+          }
+        }
       ]
     },
     {
@@ -286,6 +543,41 @@
             "path_angle_delta_deg": 115.0,
             "path_radius_delta": -8.0,
             "path_height_delta": 2.2
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.4,
+              0.8,
+              0.8
+            ],
+            "rotation_euler_deg_offset": [
+              18.0,
+              38.0,
+              22.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.0,
+              2.5,
+              1.9
+            ],
+            "rotation_euler_deg_offset": [
+              42.0,
+              102.0,
+              48.0
+            ]
           }
         }
       ]

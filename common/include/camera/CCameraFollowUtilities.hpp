@@ -104,6 +104,33 @@ inline constexpr const char* getCameraFollowModeLabel(const ECameraFollowMode mo
     }
 }
 
+inline constexpr const char* getCameraFollowModeDescription(const ECameraFollowMode mode)
+{
+    switch (mode)
+    {
+        case ECameraFollowMode::Disabled: return "Follow disabled";
+        case ECameraFollowMode::OrbitTarget: return "Keep orbit around moving target and keep it centered";
+        case ECameraFollowMode::LookAtTarget: return "Keep camera position and lock the view onto the target";
+        case ECameraFollowMode::KeepWorldOffset: return "Move with the target in world offset and keep it centered";
+        case ECameraFollowMode::KeepLocalOffset: return "Move with the target in target-local offset and keep it centered";
+        default: return "Unknown follow mode";
+    }
+}
+
+inline constexpr bool cameraFollowModeLocksViewToTarget(const ECameraFollowMode mode)
+{
+    switch (mode)
+    {
+        case ECameraFollowMode::OrbitTarget:
+        case ECameraFollowMode::LookAtTarget:
+        case ECameraFollowMode::KeepWorldOffset:
+        case ECameraFollowMode::KeepLocalOffset:
+            return true;
+        default:
+            return false;
+    }
+}
+
 inline constexpr bool cameraFollowModeUsesWorldOffset(const ECameraFollowMode mode)
 {
     return mode == ECameraFollowMode::KeepWorldOffset;
@@ -112,6 +139,11 @@ inline constexpr bool cameraFollowModeUsesWorldOffset(const ECameraFollowMode mo
 inline constexpr bool cameraFollowModeUsesLocalOffset(const ECameraFollowMode mode)
 {
     return mode == ECameraFollowMode::KeepLocalOffset;
+}
+
+inline constexpr bool cameraFollowModeUsesCapturedOffset(const ECameraFollowMode mode)
+{
+    return cameraFollowModeUsesWorldOffset(mode) || cameraFollowModeUsesLocalOffset(mode);
 }
 
 inline float64_t3 transformFollowLocalOffset(const ICamera::CGimbal& gimbal, const float64_t3& localOffset)
@@ -230,6 +262,32 @@ inline bool captureFollowOffsetsFromCamera(
     const auto& targetGimbal = trackedTarget.getGimbal();
     ioConfig.worldOffset = capture.goal.position - targetGimbal.getPosition();
     ioConfig.localOffset = projectFollowWorldOffsetToLocal(targetGimbal, ioConfig.worldOffset);
+    return true;
+}
+
+inline bool tryComputeFollowTargetLockMetrics(
+    const ICamera::CGimbal& cameraGimbal,
+    const CTrackedTarget& trackedTarget,
+    float& outAngleDeg,
+    double* outDistance = nullptr)
+{
+    const auto toTarget = trackedTarget.getGimbal().getPosition() - cameraGimbal.getPosition();
+    const auto targetDistance = length(toTarget);
+    if (!std::isfinite(targetDistance) || targetDistance <= 1e-9)
+        return false;
+
+    const auto forward = normalize(cameraGimbal.getZAxis());
+    if (!isFiniteVec3(forward) || length(forward) <= 1e-9)
+        return false;
+
+    const auto targetDir = toTarget / targetDistance;
+    const auto dotForward = std::clamp(dot(forward, targetDir), -1.0, 1.0);
+    outAngleDeg = static_cast<float>(glm::degrees(std::acos(dotForward)));
+    if (!std::isfinite(outAngleDeg))
+        return false;
+
+    if (outDistance)
+        *outDistance = targetDistance;
     return true;
 }
 

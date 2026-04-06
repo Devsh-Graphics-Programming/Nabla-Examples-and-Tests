@@ -687,13 +687,17 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline float32_t3x4 computeFollowTargetMarkerWorld() const
 		{
-			auto markerWorld = getCastedMatrix<float32_t>(m_followTarget.getGimbal().operator()());
-			const float32_t3x4 markerLocal = {
-				float32_t4(0.22f, 0.0f, 0.0f, 0.0f),
-				float32_t4(0.0f, 0.35f, 0.0f, 0.45f),
-				float32_t4(0.0f, 0.0f, 0.22f, 0.0f)
+			const auto& targetGimbal = m_followTarget.getGimbal();
+			const auto position = getCastedVector<float32_t>(targetGimbal.getPosition());
+			const auto axisX = getCastedVector<float32_t>(targetGimbal.getXAxis());
+			const auto axisY = getCastedVector<float32_t>(targetGimbal.getYAxis());
+			const auto axisZ = getCastedVector<float32_t>(targetGimbal.getZAxis());
+			const float markerScale = (m_scriptedInput.enabled && m_scriptedInput.visualDebug) ? 0.6f : 0.28f;
+			return {
+				float32_t4(axisX * markerScale, position.x),
+				float32_t4(axisY * markerScale, position.y),
+				float32_t4(axisZ * markerScale, position.z)
 			};
-			return concatenateBFollowedByA(markerLocal, markerWorld);
 		}
 
 		inline void setFollowTargetTransform(const float64_t4x4& transform)
@@ -709,7 +713,63 @@ class App final : public examples::SimpleWindowedApplication
 			return nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, m_planarFollowConfigs[planarIx]);
 		}
 
-		inline void resetFollowTargetToModel()
+		inline bool followConfigUsesCapturedOffset(const SCameraFollowConfig& config) const
+		{
+			return config.enabled && nbl::hlsl::cameraFollowModeUsesCapturedOffset(config.mode);
+		}
+
+		inline void refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
+		{
+			if (planarIx >= m_planarProjections.size() || planarIx >= m_planarFollowConfigs.size())
+				return;
+
+			auto& config = m_planarFollowConfigs[planarIx];
+			if (!followConfigUsesCapturedOffset(config))
+				return;
+
+			auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
+			if (!camera)
+				return;
+
+			nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, config);
+		}
+
+		inline void refreshFollowOffsetConfigsForCamera(ICamera* camera)
+		{
+			if (!camera)
+				return;
+
+			for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size() && planarIx < m_planarFollowConfigs.size(); ++planarIx)
+			{
+				auto* planarCamera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
+				if (planarCamera != camera)
+					continue;
+				refreshFollowOffsetConfigForPlanar(planarIx);
+			}
+		}
+
+		inline void refreshAllFollowOffsetConfigs()
+		{
+			for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size() && planarIx < m_planarFollowConfigs.size(); ++planarIx)
+				refreshFollowOffsetConfigForPlanar(planarIx);
+		}
+
+		inline float64_t3 getDefaultFollowTargetPosition() const
+		{
+			return float64_t3(6.0, -4.5, 2.25);
+		}
+
+		inline glm::quat getDefaultFollowTargetOrientation() const
+		{
+			return glm::quat(1.0, 0.0, 0.0, 0.0);
+		}
+
+		inline void resetFollowTargetToDefault()
+		{
+			m_followTarget.setPose(getDefaultFollowTargetPosition(), getDefaultFollowTargetOrientation());
+		}
+
+		inline void snapFollowTargetToModel()
 		{
 			const auto modelTransform = hlsl::transpose(getMatrix3x4As4x4(m_model));
 			setFollowTargetTransform(getCastedMatrix<float64_t>(modelTransform));
@@ -745,9 +805,9 @@ class App final : public examples::SimpleWindowedApplication
 			return config;
 		}
 
-		inline void applyFollowToConfiguredCameras()
+		inline void applyFollowToConfiguredCameras(const bool allowDuringScriptedInput = false)
 		{
-			if (m_scriptedInput.enabled)
+			if (m_scriptedInput.enabled && !allowDuringScriptedInput)
 				return;
 			if (m_planarFollowConfigs.size() != m_planarProjections.size())
 				return;
@@ -846,6 +906,54 @@ class App final : public examples::SimpleWindowedApplication
 			outScreen.x = viewportPos.x + (ndcX * 0.5f + 0.5f) * viewportSize.x;
 			outScreen.y = viewportPos.y + (-ndcY * 0.5f + 0.5f) * viewportSize.y;
 			return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
+		}
+
+		inline void drawFollowTargetViewportOverlay(
+			const float32_t4x4& viewProjMatrix,
+			const ImVec2& viewportPos,
+			const ImVec2& viewportSize) const
+		{
+			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug && m_scriptedInput.visualFollowActive))
+				return;
+			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
+				return;
+
+			float ndcX = 0.0f;
+			float ndcY = 0.0f;
+			float ndcRadius = 0.0f;
+			if (!nbl::hlsl::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
+				return;
+
+			auto* drawList = ImGui::GetWindowDrawList();
+			if (!drawList)
+				return;
+
+			const ImVec2 center(
+				viewportPos.x + viewportSize.x * 0.5f,
+				viewportPos.y + viewportSize.y * 0.5f);
+			const ImVec2 target(
+				viewportPos.x + (ndcX * 0.5f + 0.5f) * viewportSize.x,
+				viewportPos.y + (-ndcY * 0.5f + 0.5f) * viewportSize.y);
+
+			const bool centered = ndcRadius <= 0.03f;
+			const ImU32 centerColor = IM_COL32(255, 170, 72, 235);
+			const ImU32 targetColor = centered ? IM_COL32(64, 255, 164, 245) : IM_COL32(90, 220, 255, 245);
+			const ImU32 targetFillColor = centered ? IM_COL32(24, 120, 76, 120) : IM_COL32(20, 92, 124, 120);
+			const ImU32 lineColor = centered ? IM_COL32(96, 255, 186, 200) : IM_COL32(120, 220, 255, 200);
+			const float centerRadius = 16.0f;
+			const float targetRadius = centered ? 18.0f : 14.0f;
+
+			drawList->AddCircle(center, centerRadius, centerColor, 32, 2.5f);
+			drawList->AddLine(ImVec2(center.x - 22.0f, center.y), ImVec2(center.x + 22.0f, center.y), centerColor, 2.0f);
+			drawList->AddLine(ImVec2(center.x, center.y - 22.0f), ImVec2(center.x, center.y + 22.0f), centerColor, 2.0f);
+
+			drawList->AddLine(center, target, lineColor, 2.0f);
+			drawList->AddCircleFilled(target, targetRadius, targetFillColor, 24);
+			drawList->AddCircle(target, targetRadius, targetColor, 32, 2.5f);
+			drawList->AddLine(ImVec2(target.x - 14.0f, target.y), ImVec2(target.x + 14.0f, target.y), targetColor, 2.0f);
+			drawList->AddLine(ImVec2(target.x, target.y - 14.0f), ImVec2(target.x, target.y + 14.0f), targetColor, 2.0f);
+
+			drawList->AddText(ImVec2(target.x + 16.0f, target.y - 28.0f), targetColor, "FOLLOW TARGET");
 		}
 
 		inline void drawWorldReferenceOverlay(
@@ -1153,7 +1261,9 @@ class App final : public examples::SimpleWindowedApplication
 					binding.activePlanarIx,
 					static_cast<unsigned long long>(m_realFrameIx));
 				}
-				const std::string lineBottom(lineBottomBuffer);
+				std::string lineBottom(lineBottomBuffer);
+				if (!m_scriptedInput.visualSegmentLabel.empty())
+					lineBottom += "  |  " + m_scriptedInput.visualSegmentLabel;
 				std::string lineHint = std::string(cameraHint);
 				float dynamicFov = 0.0f;
 				if (camera && camera->tryGetDynamicPerspectiveFov(dynamicFov))
@@ -1161,6 +1271,30 @@ class App final : public examples::SimpleWindowedApplication
 					char fovBuffer[96] = {};
 					std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", dynamicFov);
 					lineHint += fovBuffer;
+				}
+				if (m_scriptedInput.visualFollowActive)
+				{
+					lineHint += "  |  " + std::string(nbl::hlsl::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
+					if (m_scriptedInput.visualFollowLockValid)
+					{
+						char followBuffer[192] = {};
+						std::snprintf(
+							followBuffer,
+							sizeof(followBuffer),
+							"  |  lock %.2f deg  |  target %.2f  |  center err %.3f",
+							m_scriptedInput.visualFollowLockAngleDeg,
+							m_scriptedInput.visualFollowTargetDistance,
+							m_scriptedInput.visualFollowTargetCenterNdcRadius);
+						lineHint += followBuffer;
+					}
+					else
+					{
+						lineHint += "  |  lock n/a  |  target n/a  |  center err n/a";
+					}
+				}
+				else
+				{
+					lineHint += "  |  Follow off";
 				}
 
 				const float topSize = 50.f;
@@ -1238,6 +1372,8 @@ class App final : public examples::SimpleWindowedApplication
 		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 		{
 			const auto result = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
+			if (result.succeeded())
+				refreshFollowOffsetConfigsForCamera(camera);
 			const auto presetUi = analyzePresetForUi(camera, preset);
 			storeApplyStatusBanner(m_manualPresetApplyBanner,
 				describeApplyResult(result) + " | " + presetUi.compatibilityLabel,
@@ -1304,10 +1440,14 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline SCameraPresetApplySummary applyPresetToTargets(const CameraPreset& preset)
 		{
+			SCameraPresetApplySummary summary = {};
 			if (!m_playbackAffectsAll)
 			{
 				ICamera* activeCamera = getActiveCamera();
-				return nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u), preset);
+				summary = nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u), preset);
+				if (summary.succeeded())
+					refreshFollowOffsetConfigsForCamera(activeCamera);
+				return summary;
 			}
 
 			std::vector<ICamera*> cameras;
@@ -1326,7 +1466,10 @@ class App final : public examples::SimpleWindowedApplication
 					cameras.push_back(camera);
 			}
 
-			return nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(cameras.data(), cameras.size()), preset);
+			summary = nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(cameras.data(), cameras.size()), preset);
+			if (summary.succeeded())
+				refreshAllFollowOffsetConfigs();
+			return summary;
 		}
 
 		inline bool tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
@@ -1800,7 +1943,9 @@ class App final : public examples::SimpleWindowedApplication
 				Mouse,
 				Imguizmo,
 				Action,
-				Goal
+				Goal,
+				TrackedTargetTransform,
+				SegmentLabel
 			};
 
 			struct KeyboardData
@@ -1845,6 +1990,16 @@ class App final : public examples::SimpleWindowedApplication
 				bool requireExact = true;
 			};
 
+			struct TrackedTargetTransformData
+			{
+				float64_t4x4 transform = float64_t4x4(1.0);
+			};
+
+			struct SegmentLabelData
+			{
+				std::string label;
+			};
+
 			uint64_t frame = 0;
 			Type type = Type::Keyboard;
 			KeyboardData keyboard;
@@ -1852,6 +2007,8 @@ class App final : public examples::SimpleWindowedApplication
 			float32_t4x4 imguizmo = float32_t4x4(1.f);
 			ActionData action;
 			GoalData goal;
+			TrackedTargetTransformData trackedTargetTransform;
+			SegmentLabelData segmentLabel;
 		};
 
 		struct ScriptedInputCheck
@@ -1862,7 +2019,8 @@ class App final : public examples::SimpleWindowedApplication
 				ImguizmoVirtual,
 				GimbalNear,
 				GimbalDelta,
-				GimbalStep
+				GimbalStep,
+				FollowTargetLock
 			};
 
 			struct ExpectedVirtualEvent
@@ -1916,6 +2074,16 @@ class App final : public examples::SimpleWindowedApplication
 			bool visualActivePlanarValid = false;
 			uint32_t visualActivePlanarIx = 0u;
 			uint64_t visualActivePlanarStartFrame = 0u;
+			std::string visualSegmentLabel;
+			bool visualFollowActive = false;
+			ECameraFollowMode visualFollowMode = ECameraFollowMode::Disabled;
+			bool visualFollowLockValid = false;
+			float visualFollowLockAngleDeg = 0.0f;
+			float visualFollowTargetDistance = 0.0f;
+			bool visualFollowProjectedValid = false;
+			float visualFollowTargetCenterNdcX = 0.0f;
+			float visualFollowTargetCenterNdcY = 0.0f;
+			float visualFollowTargetCenterNdcRadius = 0.0f;
 			bool scriptedLeftMouseDown = false;
 			bool scriptedRightMouseDown = false;
 			bool framePacerInitialized = false;

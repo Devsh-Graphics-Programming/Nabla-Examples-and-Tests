@@ -337,6 +337,145 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
+				auto tryBuildFollowViewProjForCamera = [&](ICamera* camera, float32_t4x4& outViewProjMatrix) -> bool
+				{
+					if (!camera)
+						return false;
+
+					for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
+					{
+						auto& planar = m_planarProjections[planarIx];
+						if (!planar || planar->getCamera() != camera)
+							continue;
+
+						const auto& projections = planar->getPlanarProjections();
+						if (projections.empty())
+							return false;
+
+						uint32_t projectionIx = 0u;
+						for (uint32_t ix = 0u; ix < projections.size(); ++ix)
+						{
+							if (projections[ix].getParameters().m_type == IPlanarProjection::CProjection::Perspective)
+							{
+								projectionIx = ix;
+								break;
+							}
+						}
+
+						const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrix()));
+						const auto projectionMatrix = getCastedMatrix<float32_t>(projections[projectionIx].getProjectionMatrix());
+						outViewProjMatrix = mul(projectionMatrix, viewMatrix);
+						return true;
+					}
+
+					return false;
+				};
+
+				auto verifyFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
+					const SCameraFollowConfig& followConfig, const CCameraGoal& followGoal, const char* label) -> bool
+				{
+					nbl::hlsl::SCameraFollowRegressionResult regression = {};
+					std::string regressionError;
+					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
+					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
+					if (!nbl::hlsl::validateFollowTargetContract(
+						camera,
+						trackedTarget,
+						followConfig,
+						followGoal,
+						regression,
+						&regressionError,
+						0.1f,
+						1e-6,
+						1e-9,
+						hasViewProjMatrix ? &viewProjMatrix : nullptr,
+						0.03f))
+					{
+						return fail(std::string("Follow smoke contract failed for ") + label + ". " + regressionError);
+					}
+					return true;
+				};
+
+				auto verifyFollowTargetMarkerAlignment = [&](const CTrackedTarget& trackedTarget, const char* label) -> bool
+				{
+					m_followTarget.setPose(trackedTarget.getGimbal().getPosition(), trackedTarget.getGimbal().getOrientation());
+					const auto markerWorld = computeFollowTargetMarkerWorld();
+					const auto markerTransform = hlsl::transpose(getMatrix3x4As4x4(markerWorld));
+					const auto markerPosition = getCastedVector<float64_t>(float32_t3(markerTransform[3]));
+					const auto positionDelta = markerPosition - trackedTarget.getGimbal().getPosition();
+					const auto errorLength = length(positionDelta);
+					if (!std::isfinite(errorLength) || errorLength > 1e-9)
+					{
+						return fail(std::string("Follow target marker alignment smoke failed for ") + label + ".");
+					}
+					return true;
+				};
+
+				auto verifyOffsetFollowRecapture = [&](ICamera* camera, const CTrackedTarget& trackedTarget, const char* label) -> bool
+				{
+					if (!camera)
+						return true;
+
+					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " baseline");
+					SCameraFollowConfig followConfig = {};
+					followConfig.enabled = true;
+					followConfig.mode = ECameraFollowMode::KeepLocalOffset;
+
+					if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
+						return fail(std::string("Follow recapture smoke failed to capture initial offset for ") + label + ".");
+
+					const auto initialApply = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
+					if (!initialApply.succeeded())
+						return fail(std::string("Follow recapture smoke failed to apply initial follow for ") + label + ".");
+
+					auto editedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " edited");
+					if (!editedPreset.goal.hasOrbitState)
+						return fail(std::string("Follow recapture smoke missing orbit state for ") + label + ".");
+
+					editedPreset.goal.orbitU = nbl::hlsl::wrapAngleRad(editedPreset.goal.orbitU + glm::radians(18.0));
+					editedPreset.goal.orbitDistance = std::clamp(editedPreset.goal.orbitDistance + 0.75f, CSphericalTargetCamera::MinDistance, CSphericalTargetCamera::MaxDistance);
+					editedPreset.goal = nbl::hlsl::canonicalizeGoal(editedPreset.goal);
+					if (!nbl::hlsl::isGoalFinite(editedPreset.goal))
+						return fail(std::string("Follow recapture smoke produced a non-finite edited goal for ") + label + ".");
+
+					const auto editedApply = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, editedPreset);
+					if (!editedApply.succeeded() || !editedApply.changed())
+					{
+						return fail(std::string("Follow recapture smoke failed to apply edited preset for ") + label +
+							". " + describeApplyResult(editedApply));
+					}
+
+					const auto reachedEditedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " reached");
+
+					if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
+						return fail(std::string("Follow recapture smoke failed to recapture offset for ") + label + ".");
+
+					CCameraGoal recapturedGoal = {};
+					if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, camera, trackedTarget, followConfig, recapturedGoal))
+						return fail(std::string("Follow recapture smoke failed to rebuild follow goal for ") + label + ".");
+
+					const auto recapturedApply = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
+					if (!recapturedApply.succeeded())
+					{
+						return fail(std::string("Follow recapture smoke failed to apply recaptured follow for ") + label +
+							". " + describeApplyResult(recapturedApply));
+					}
+
+					if (!comparePresetToCamera(camera, reachedEditedPreset, 5e-6, 0.1, 5e-6))
+						return fail(std::string("Follow recapture smoke mismatch for ") + label + ". " + describePresetMismatch(camera, reachedEditedPreset));
+					if (!verifyFollowTargetContract(camera, trackedTarget, followConfig, recapturedGoal, label))
+						return false;
+
+					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, baselinePreset);
+					if (!restoreResult.succeeded() || !comparePresetToCamera(camera, baselinePreset, 1e-6, 0.1, 1e-6))
+					{
+						return fail(std::string("Follow recapture smoke failed to restore baseline for ") + label +
+							". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(camera, baselinePreset));
+					}
+
+					return true;
+				};
+
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
 				{
 					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
@@ -736,6 +875,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						glm::quat(glm::dvec3(0.18, -0.22, 0.41)),
 						"Smoke Target");
 
+					const auto movedTrackedTargetPosition = float64_t3(-1.5, 0.5, 2.25);
+					const auto movedTrackedTargetOrientation = glm::quat(glm::dvec3(-0.12, 0.35, 0.27));
+
 					if (orbitCamera)
 					{
 						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, orbitCamera, "orbit-follow-baseline");
@@ -752,10 +894,75 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Orbit follow smoke failed to apply follow goal.");
 						if (!compareGoalToCamera(orbitCamera, followGoal, "orbit follow"))
 							return false;
+						if (!verifyFollowTargetContract(orbitCamera, trackedTarget, followConfig, followGoal, "orbit follow"))
+							return false;
+						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "orbit follow"))
+							return false;
 
 						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Orbit follow smoke failed to restore the baseline preset.");
+
+						followConfig.mode = ECameraFollowMode::KeepWorldOffset;
+						followConfig.worldOffset = float64_t3(4.0, -1.5, 2.0);
+						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
+
+						CCameraGoal worldOffsetGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig, worldOffsetGoal))
+							return fail("Orbit keep-world-offset smoke failed to build follow goal.");
+
+						const auto worldOffsetApplyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig);
+						if (!worldOffsetApplyResult.succeeded())
+							return fail("Orbit keep-world-offset smoke failed to apply follow goal.");
+						if (!compareGoalToCamera(orbitCamera, worldOffsetGoal, "orbit keep-world-offset follow"))
+							return false;
+						if (!verifyFollowTargetContract(orbitCamera, trackedTarget, followConfig, worldOffsetGoal, "orbit keep-world-offset follow"))
+							return false;
+
+						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
+						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Orbit keep-world-offset smoke failed to restore the baseline preset.");
+					}
+
+					for (const auto& cameraRef : cameras)
+					{
+						auto* defaultFollowCamera = cameraRef.get();
+						if (!defaultFollowCamera)
+							continue;
+
+						auto followConfig = makeDefaultFollowConfig(defaultFollowCamera);
+						if (!followConfig.enabled || followConfig.mode == ECameraFollowMode::Disabled)
+							continue;
+
+						const auto label = std::string(defaultFollowCamera->getIdentifier()) + " default follow";
+						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, defaultFollowCamera, label + " baseline");
+
+						trackedTarget.setPose(float64_t3(2.25, -0.75, 1.25), glm::quat(glm::dvec3(0.18, -0.22, 0.41)));
+						if ((nbl::hlsl::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::hlsl::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
+							!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig))
+						{
+							return fail("Default follow smoke failed to capture offsets for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
+						}
+
+						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
+
+						CCameraGoal followGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig, followGoal))
+							return fail("Default follow smoke failed to build follow goal for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
+
+						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig);
+						if (!applyResult.succeeded())
+							return fail("Default follow smoke failed to apply follow goal for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
+						if (!compareGoalToCamera(defaultFollowCamera, followGoal, label.c_str()))
+							return false;
+						if (!verifyFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, followGoal, label.c_str()))
+							return false;
+						if (!verifyFollowTargetMarkerAlignment(trackedTarget, label.c_str()))
+							return false;
+
+						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, defaultFollowCamera, baselinePreset);
+						if (!restoreResult.succeeded() || !comparePresetToCamera(defaultFollowCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Default follow smoke failed to restore the baseline preset for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
 					}
 
 					if (freeCamera)
@@ -774,10 +981,34 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Free follow smoke failed to apply follow goal.");
 						if (!compareGoalToCamera(freeCamera, followGoal, "free look-at follow"))
 							return false;
+						if (!verifyFollowTargetContract(freeCamera, trackedTarget, followConfig, followGoal, "free look-at follow"))
+							return false;
+						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "free look-at follow"))
+							return false;
 
 						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Free follow smoke failed to restore the baseline preset.");
+
+						followConfig.mode = ECameraFollowMode::KeepWorldOffset;
+						followConfig.worldOffset = float64_t3(5.0, -2.0, 1.5);
+						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
+
+						CCameraGoal keepWorldGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig, keepWorldGoal))
+							return fail("Free keep-world-offset smoke failed to build follow goal.");
+
+						const auto keepWorldApplyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig);
+						if (!keepWorldApplyResult.succeeded())
+							return fail("Free keep-world-offset smoke failed to apply follow goal.");
+						if (!compareGoalToCamera(freeCamera, keepWorldGoal, "free keep-world-offset follow"))
+							return false;
+						if (!verifyFollowTargetContract(freeCamera, trackedTarget, followConfig, keepWorldGoal, "free keep-world-offset follow"))
+							return false;
+
+						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
+						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Free keep-world-offset smoke failed to restore the baseline preset.");
 					}
 
 					if (chaseCamera)
@@ -789,7 +1020,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig))
 							return fail("Chase follow smoke failed to capture local offset.");
 
-						trackedTarget.setPose(float64_t3(-1.5, 0.5, 2.25), glm::quat(glm::dvec3(-0.12, 0.35, 0.27)));
+						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
 						CCameraGoal followGoal = {};
 						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig, followGoal))
@@ -800,11 +1031,20 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Chase follow smoke failed to apply follow goal.");
 						if (!compareGoalToCamera(chaseCamera, followGoal, "chase local-offset follow"))
 							return false;
+						if (!verifyFollowTargetContract(chaseCamera, trackedTarget, followConfig, followGoal, "chase local-offset follow"))
+							return false;
+						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "chase local-offset follow"))
+							return false;
 
 						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, chaseCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(chaseCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Chase follow smoke failed to restore the baseline preset.");
 					}
+
+					if (!verifyOffsetFollowRecapture(chaseCamera, trackedTarget, "chase follow recapture"))
+						return false;
+					if (!verifyOffsetFollowRecapture(dollyCamera, trackedTarget, "dolly follow recapture"))
+						return false;
 				}
 
 				if (hasOrbitPreset && hasChasePreset)
@@ -2122,7 +2362,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_initialPlanarPresets.emplace_back(nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, presetName));
 				}
 
-				resetFollowTargetToModel();
+				resetFollowTargetToDefault();
 				m_planarFollowConfigs.clear();
 				m_planarFollowConfigs.reserve(m_planarProjections.size());
 				for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
@@ -2170,6 +2410,25 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							m_scriptedInput.events.emplace_back(std::move(entry));
 						};
 
+						auto pushTrackedTargetTransform = [&](const uint64_t frame, const CCameraSequenceTrackedTargetPose& pose) -> void
+						{
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::TrackedTargetTransform;
+							ICamera::CGimbal gimbal({ .position = pose.position, .orientation = pose.orientation });
+							entry.trackedTargetTransform.transform = gimbal.operator()<float64_t4x4>();
+							m_scriptedInput.events.emplace_back(std::move(entry));
+						};
+
+						auto pushSegmentLabel = [&](const uint64_t frame, std::string label) -> void
+						{
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::SegmentLabel;
+							entry.segmentLabel.label = std::move(label);
+							m_scriptedInput.events.emplace_back(std::move(entry));
+						};
+
 						auto pushStepCheck = [&](const uint64_t frame, const CCameraSequenceContinuitySettings& continuity) -> void
 						{
 							ScriptedInputCheck entry;
@@ -2187,6 +2446,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								entry.minEulerDeltaDeg = continuity.minEulerDeltaDeg;
 								entry.eulerToleranceDeg = continuity.maxEulerDeltaDeg;
 							}
+							m_scriptedInput.checks.emplace_back(std::move(entry));
+						};
+
+						auto pushFollowTargetLockCheck = [&](const uint64_t frame, const float toleranceDeg = 1.0f, const float screenToleranceNdc = 0.03f) -> void
+						{
+							ScriptedInputCheck entry;
+							entry.frame = frame;
+							entry.kind = ScriptedInputCheck::Kind::FollowTargetLock;
+							entry.eulerToleranceDeg = toleranceDeg;
+							entry.posTolerance = screenToleranceNdc;
 							m_scriptedInput.checks.emplace_back(std::move(entry));
 						};
 
@@ -2226,6 +2495,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						pushAction(0u, ScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
 
 						const double fps = std::max(1.0, static_cast<double>(sequence.fps));
+						const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
+							.position = getDefaultFollowTargetPosition(),
+							.orientation = getDefaultFollowTargetOrientation()
+						};
 						uint64_t frameCursor = 0u;
 						for (const auto& segment : sequence.segments)
 						{
@@ -2237,6 +2510,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 									segment.name.c_str(), kindLabel.c_str(), segment.cameraIdentifier.c_str());
 								return false;
 							}
+
+							pushSegmentLabel(frameCursor, segment.name);
+							const bool useTrackedTargetFollow = nbl::hlsl::sequenceSegmentUsesTrackedTargetTrack(segment) &&
+								planarIx.value() < m_planarFollowConfigs.size() &&
+								m_planarFollowConfigs[planarIx.value()].enabled &&
+								m_planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Disabled;
 
 							const auto presentations = getSequenceSegmentPresentations(sequence, segment);
 							if (presentations.size() > windowBindings.size())
@@ -2273,6 +2552,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								return false;
 							}
 
+							CCameraSequenceTrackedTargetTrack trackedTargetTrack;
+							if (nbl::hlsl::sequenceSegmentUsesTrackedTargetTrack(segment))
+							{
+								if (!nbl::hlsl::buildSequenceTrackedTargetTrackFromReference(referenceTrackedTargetPose, segment, trackedTargetTrack, &trackError))
+								{
+									logFail("Sequence segment \"%s\" failed to build tracked-target track: %s", segment.name.c_str(), trackError.c_str());
+									return false;
+								}
+							}
+
 							const float durationSeconds = getSequenceSegmentDurationSeconds(sequence, segment, &track);
 							const uint64_t durationFrames = std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(std::max(0.f, durationSeconds) * static_cast<float>(fps))));
 							for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
@@ -2286,6 +2575,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 									return false;
 								}
 								pushGoal(frameCursor + frameOffset, makeGoalFromPreset(preset));
+								if (!trackedTargetTrack.keyframes.empty())
+								{
+									CCameraSequenceTrackedTargetPose trackedTargetPose;
+									if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(trackedTargetTrack, sampleTime, trackedTargetPose))
+									{
+										logFail("Sequence segment \"%s\" failed to sample tracked-target track at t=%f.", segment.name.c_str(), sampleTime);
+										return false;
+									}
+									pushTrackedTargetTransform(frameCursor + frameOffset, trackedTargetPose);
+								}
 							}
 
 							const auto continuity = getSequenceSegmentContinuity(sequence, segment);
@@ -2299,7 +2598,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							if (continuity.step)
 							{
 								for (uint64_t frameOffset = 1u; frameOffset < durationFrames; ++frameOffset)
+								{
 									pushStepCheck(frameCursor + frameOffset, continuity);
+									if (useTrackedTargetFollow)
+										pushFollowTargetLockCheck(frameCursor + frameOffset);
+								}
 							}
 
 							for (const auto fraction : getSequenceSegmentCaptureFractions(sequence, segment))
@@ -2999,12 +3302,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					auto ix = 0u;
 					for (const auto& name : m_scene->getInitParams().geometryNames)
 					{
-						if (name == "Cone")
+						if (name == "Cube")
 						{
-							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
 							if (!m_followTargetGeometryIx.has_value())
 								m_followTargetGeometryIx = ix;
 						}
+						else if (name == "Cone")
+							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
 						else if (name == "Grid")
 							m_gridGeometryIx = ix;
 						ix++;

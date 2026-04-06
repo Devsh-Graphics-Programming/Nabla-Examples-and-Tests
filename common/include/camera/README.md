@@ -51,6 +51,10 @@ and tracked-target follow sits beside the same goal layer:
 
 `CTrackedTarget + SCameraFollowConfig -> CCameraGoal -> CCameraGoalSolver`
 
+and sequence-authored tracked-target motion can feed that same follow layer:
+
+`CCameraSequenceScript.target_keyframes -> CCameraSequenceTrackedTargetTrack -> CTrackedTarget`
+
 ## Core contracts
 
 ### `IGimbal.hpp`

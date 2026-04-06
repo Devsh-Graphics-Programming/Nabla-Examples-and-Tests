@@ -30,6 +30,7 @@
 #include "camera/CCameraPresentationUtilities.hpp"
 #include "camera/CCameraProjectionUtilities.hpp"
 #include "camera/CCameraFollowUtilities.hpp"
+#include "camera/CCameraFollowRegressionUtilities.hpp"
 #include "camera/CCameraTextUtilities.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
@@ -76,6 +77,8 @@ using nbl::hlsl::CCameraPlaybackCursor;
 using nbl::hlsl::CCameraSequenceScript;
 using nbl::hlsl::CCameraSequenceSegment;
 using nbl::hlsl::CCameraSequenceKeyframe;
+using nbl::hlsl::CCameraSequenceTrackedTargetPose;
+using nbl::hlsl::CCameraSequenceTrackedTargetTrack;
 using nbl::hlsl::CCameraSequencePresentation;
 using nbl::hlsl::CCameraSequenceContinuitySettings;
 using nbl::hlsl::SCameraPlaybackAdvanceResult;

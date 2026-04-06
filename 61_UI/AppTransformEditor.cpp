@@ -151,6 +151,8 @@ void App::TransformEditorContents()
 			{
 				auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
 				boundCameraToManipulate->manipulateWithUnitMotionScales({}, &referenceFrame);
+				if (boundPlanarCameraIxToManipulate.has_value())
+					refreshFollowOffsetConfigForPlanar(boundPlanarCameraIxToManipulate.value());
 
 				/*
 				{

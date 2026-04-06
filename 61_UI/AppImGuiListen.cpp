@@ -137,9 +137,12 @@ void App::imguiListen()
 						imguizmoPlanar.projection = getCastedMatrix<float32_t>(hlsl::transpose(projection.getProjectionMatrix()));
 						const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(planarViewCameraBound->getGimbal().getViewMatrix()));
 						const auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
+						const auto viewProjMatrix = mul(projectionMatrix, viewMatrix);
 
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+						drawFollowTargetViewportOverlay(viewProjMatrix, cursorPos, contentRegionSize);
 
 						if (!hideSceneGizmos)
 						{
@@ -282,6 +285,7 @@ void App::imguiListen()
 												// in order for camera to not keep any magnitude scalars like move or rotation speed scales
 
 												targetGimbalManipulationCamera->manipulateWithUnitMotionScales({ virtualEvents.data(), vCount }, &referenceFrame);
+												refreshFollowOffsetConfigForPlanar(planarIx.value());
 											}
 
 										}
@@ -415,6 +419,19 @@ void App::imguiListen()
 
 					ImGui::Image(info, contentRegionSize);
 					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+					{
+						auto& binding = windowBindings[activeRenderWindowIx];
+						auto& planarBound = m_planarProjections[binding.activePlanarIx];
+						auto* planarViewCameraBound = planarBound ? planarBound->getCamera() : nullptr;
+						if (planarViewCameraBound && binding.boundProjectionIx.has_value())
+						{
+							auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+							const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(planarViewCameraBound->getGimbal().getViewMatrix()));
+							const auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
+							const auto viewProjMatrix = mul(projectionMatrix, viewMatrix);
+							drawFollowTargetViewportOverlay(viewProjMatrix, cursorPos, contentRegionSize);
+						}
+					}
 
 					ImGui::End();
 					ImGui::PopStyleColor(1);
@@ -443,13 +460,13 @@ void App::imguiListen()
 					projection.update(binding.leftHandedProjection, binding.aspectRatio);
 					binding.isOrthographicProjection = projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic;
 
-					auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
-					auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
-					auto viewProjMatrix = mul(projectionMatrix, getMatrix3x4As4x4(viewMatrix));
+						auto viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
+						auto projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
+						auto viewProjMatrix = mul(projectionMatrix, getMatrix3x4As4x4(viewMatrix));
 
-					binding.viewMatrix = viewMatrix;
-					binding.projectionMatrix = projectionMatrix;
-					binding.viewProjMatrix = viewProjMatrix;
+						binding.viewMatrix = viewMatrix;
+						binding.projectionMatrix = projectionMatrix;
+						binding.viewProjMatrix = viewProjMatrix;
 				}
 			}
 

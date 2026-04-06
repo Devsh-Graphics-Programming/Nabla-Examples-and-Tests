@@ -14,6 +14,7 @@
 
 #include "CCameraKeyframeTrack.hpp"
 #include "IPlanarProjection.hpp"
+#include "glm/glm/gtc/quaternion.hpp"
 
 namespace nbl::hlsl
 {
@@ -26,6 +27,7 @@ namespace nbl::hlsl
 * - which camera kind a segment targets
 * - which reusable projection presentations should be shown
 * - which keyframed camera goals should be sampled over time
+* - which tracked-target poses should be sampled over time
 * - which continuity thresholds and capture points should be generated
 *
 * The format intentionally does not store:
@@ -108,6 +110,48 @@ struct CCameraSequenceKeyframe
     CCameraSequenceGoalDelta delta = {};
 };
 
+//! Concrete tracked-target pose sampled from a shared authored sequence.
+struct CCameraSequenceTrackedTargetPose
+{
+    float64_t3 position = float64_t3(0.0);
+    glm::quat orientation = glm::quat(1.0, 0.0, 0.0, 0.0);
+};
+
+//! Relative tracked-target adjustment authored against an initial tracked-target pose.
+struct CCameraSequenceTrackedTargetDelta
+{
+    bool hasPositionOffset = false;
+    float64_t3 positionOffset = float64_t3(0.0);
+
+    bool hasRotationEulerDegOffset = false;
+    float32_t3 rotationEulerDegOffset = float32_t3(0.f);
+};
+
+//! One authored tracked-target keyframe inside a reusable camera-sequence segment.
+//! Target keyframes stay camera-domain and can drive follow behavior without example-specific object references.
+struct CCameraSequenceTrackedTargetKeyframe
+{
+    float time = 0.f;
+    bool hasAbsolutePosition = false;
+    float64_t3 absolutePosition = float64_t3(0.0);
+    bool hasAbsoluteRotationEulerDeg = false;
+    float32_t3 absoluteRotationEulerDeg = float32_t3(0.f);
+    bool hasDelta = false;
+    CCameraSequenceTrackedTargetDelta delta = {};
+};
+
+//! Runtime sampled tracked-target track built from an authored segment plus a reference pose.
+struct CCameraSequenceTrackedTargetTrack
+{
+    struct SKeyframe
+    {
+        float time = 0.f;
+        CCameraSequenceTrackedTargetPose pose = {};
+    };
+
+    std::vector<SKeyframe> keyframes;
+};
+
 //! Defaults shared by all camera-sequence segments unless overridden locally.
 struct CCameraSequenceSegmentDefaults
 {
@@ -141,6 +185,7 @@ struct CCameraSequenceSegment
     std::vector<float> captureFractions;
 
     std::vector<CCameraSequenceKeyframe> keyframes;
+    std::vector<CCameraSequenceTrackedTargetKeyframe> targetKeyframes;
 };
 
 //! Top-level reusable camera-sequence script.
@@ -452,6 +497,77 @@ inline bool deserializeSequenceKeyframe(const nlohmann::json& root, CCameraSeque
     return true;
 }
 
+inline bool deserializeSequenceTrackedTargetDelta(const nlohmann::json& root, CCameraSequenceTrackedTargetDelta& out, std::string* error = nullptr)
+{
+    if (!root.is_object())
+    {
+        if (error)
+            *error = "Sequence target delta must be an object.";
+        return false;
+    }
+
+    out = {};
+    auto readFloat3 = [](const nlohmann::json& entry, auto& outValue) -> void
+    {
+        const auto arr = entry.get<std::array<float, 3>>();
+        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
+    };
+    auto readDouble3 = [](const nlohmann::json& entry, auto& outValue) -> void
+    {
+        const auto arr = entry.get<std::array<double, 3>>();
+        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
+    };
+
+    if (root.contains("position_offset"))
+    {
+        readDouble3(root["position_offset"], out.positionOffset);
+        out.hasPositionOffset = true;
+    }
+    if (root.contains("rotation_euler_deg_offset"))
+    {
+        readFloat3(root["rotation_euler_deg_offset"], out.rotationEulerDegOffset);
+        out.hasRotationEulerDegOffset = true;
+    }
+
+    return true;
+}
+
+inline bool deserializeSequenceTrackedTargetKeyframe(const nlohmann::json& root, CCameraSequenceTrackedTargetKeyframe& out, std::string* error = nullptr)
+{
+    if (!root.is_object())
+    {
+        if (error)
+            *error = "Sequence target keyframe must be an object.";
+        return false;
+    }
+
+    out = {};
+    if (root.contains("time"))
+        out.time = std::max(0.f, root["time"].get<float>());
+
+    if (root.contains("delta"))
+    {
+        if (!deserializeSequenceTrackedTargetDelta(root["delta"], out.delta, error))
+            return false;
+        out.hasDelta = true;
+    }
+
+    if (root.contains("position"))
+    {
+        const auto arr = root["position"].get<std::array<double, 3>>();
+        out.absolutePosition = float64_t3(arr[0], arr[1], arr[2]);
+        out.hasAbsolutePosition = true;
+    }
+    if (root.contains("rotation_euler_deg"))
+    {
+        const auto arr = root["rotation_euler_deg"].get<std::array<float, 3>>();
+        out.absoluteRotationEulerDeg = float32_t3(arr[0], arr[1], arr[2]);
+        out.hasAbsoluteRotationEulerDeg = true;
+    }
+
+    return true;
+}
+
 inline bool deserializeSequenceSegment(const nlohmann::json& root, CCameraSequenceSegment& out, std::string* error = nullptr)
 {
     if (!root.is_object())
@@ -534,6 +650,22 @@ inline bool deserializeSequenceSegment(const nlohmann::json& root, CCameraSequen
             if (!deserializeSequenceKeyframe(entry, keyframe, error))
                 return false;
             out.keyframes.emplace_back(std::move(keyframe));
+        }
+    }
+    if (root.contains("target_keyframes"))
+    {
+        if (!root["target_keyframes"].is_array())
+        {
+            if (error)
+                *error = "Sequence segment target_keyframes must be an array.";
+            return false;
+        }
+        for (const auto& entry : root["target_keyframes"])
+        {
+            CCameraSequenceTrackedTargetKeyframe keyframe;
+            if (!deserializeSequenceTrackedTargetKeyframe(entry, keyframe, error))
+                return false;
+            out.targetKeyframes.emplace_back(std::move(keyframe));
         }
     }
 
@@ -833,6 +965,116 @@ inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, cons
     sortKeyframeTrackByTime(outTrack);
     normalizeSelectedKeyframeTrack(outTrack);
     return !outTrack.keyframes.empty();
+}
+
+inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
+{
+    return isFiniteVec3(pose.position) &&
+        std::isfinite(pose.orientation.x) &&
+        std::isfinite(pose.orientation.y) &&
+        std::isfinite(pose.orientation.z) &&
+        std::isfinite(pose.orientation.w);
+}
+
+inline bool buildSequenceTrackedTargetPoseFromReference(
+    const CCameraSequenceTrackedTargetPose& reference,
+    const CCameraSequenceTrackedTargetKeyframe& authored,
+    CCameraSequenceTrackedTargetPose& outPose,
+    std::string* error = nullptr)
+{
+    outPose = reference;
+
+    if (authored.hasAbsolutePosition)
+        outPose.position = authored.absolutePosition;
+    if (authored.hasAbsoluteRotationEulerDeg)
+        outPose.orientation = glm::quat(glm::radians(authored.absoluteRotationEulerDeg));
+
+    if (authored.hasDelta)
+    {
+        if (authored.delta.hasPositionOffset)
+            outPose.position += authored.delta.positionOffset;
+        if (authored.delta.hasRotationEulerDegOffset)
+            outPose.orientation = glm::normalize(outPose.orientation * glm::quat(glm::radians(authored.delta.rotationEulerDegOffset)));
+    }
+
+    if (!isSequenceTrackedTargetPoseFinite(outPose))
+    {
+        if (error)
+            *error = "Sequence target keyframe produced a non-finite pose.";
+        return false;
+    }
+
+    return true;
+}
+
+inline bool buildSequenceTrackedTargetTrackFromReference(
+    const CCameraSequenceTrackedTargetPose& reference,
+    const CCameraSequenceSegment& segment,
+    CCameraSequenceTrackedTargetTrack& outTrack,
+    std::string* error = nullptr)
+{
+    outTrack = {};
+    outTrack.keyframes.reserve(segment.targetKeyframes.size());
+
+    for (const auto& entry : segment.targetKeyframes)
+    {
+        CCameraSequenceTrackedTargetTrack::SKeyframe keyframe;
+        keyframe.time = std::max(0.f, entry.time);
+        if (!buildSequenceTrackedTargetPoseFromReference(reference, entry, keyframe.pose, error))
+            return false;
+        outTrack.keyframes.emplace_back(std::move(keyframe));
+    }
+
+    std::sort(outTrack.keyframes.begin(), outTrack.keyframes.end(),
+        [](const auto& lhs, const auto& rhs)
+        {
+            if (lhs.time == rhs.time)
+                return false;
+            return lhs.time < rhs.time;
+        });
+
+    return !outTrack.keyframes.empty();
+}
+
+inline bool tryBuildSequenceTrackedTargetPoseAtTime(
+    const CCameraSequenceTrackedTargetTrack& track,
+    const float time,
+    CCameraSequenceTrackedTargetPose& outPose)
+{
+    if (track.keyframes.empty())
+        return false;
+    if (track.keyframes.size() == 1u || time <= track.keyframes.front().time)
+    {
+        outPose = track.keyframes.front().pose;
+        return true;
+    }
+    if (time >= track.keyframes.back().time)
+    {
+        outPose = track.keyframes.back().pose;
+        return true;
+    }
+
+    for (size_t ix = 1u; ix < track.keyframes.size(); ++ix)
+    {
+        const auto& lhs = track.keyframes[ix - 1u];
+        const auto& rhs = track.keyframes[ix];
+        if (time > rhs.time)
+            continue;
+
+        const auto span = std::max(1e-6f, rhs.time - lhs.time);
+        const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
+        outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
+        outPose.orientation = glm::normalize(glm::slerp(lhs.pose.orientation, rhs.pose.orientation, alpha));
+        return true;
+    }
+
+    outPose = track.keyframes.back().pose;
+    return true;
+}
+
+inline bool sequenceSegmentUsesTrackedTargetTrack(const CCameraSequenceSegment& segment)
+{
+    return !segment.targetKeyframes.empty();
 }
 
 inline float getSequenceSegmentDurationSeconds(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment, const CCameraKeyframeTrack* track = nullptr)

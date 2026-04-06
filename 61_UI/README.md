@@ -114,9 +114,10 @@ Per authored segment:
 1. select planar
 2. store `baseline`
 3. build a reusable keyframe track from the active camera reference preset
-4. sample that track for `4.0 s` at `60 FPS`
-5. run `gimbal_step` on each generated frame step
-6. capture selected milestones such as `end`
+4. optionally build a tracked-target track from the default tracked-target pose
+5. sample the authored track(s) for `4.0 s` at `60 FPS`
+6. run `gimbal_step` on each generated frame step
+7. capture selected milestones such as `end`
 
 PASS means every step delta stayed inside configured continuity ranges.
 FAIL means any step exceeded max range or failed minimum expected motion.
@@ -126,6 +127,9 @@ Continuity also supports visual debug mode:
 - large top-center overlay with active camera type and segment progress
 - fixed frame pacing (`visual_debug_target_fps`) so camera time is human-readable
 - compact authored JSON that stays in camera-domain and is reusable outside `61_UI`
+
+For follow-enabled cameras, continuity can now also author `target_keyframes`.
+That drives the shared tracked target through the reusable follow layer instead of hardcoding camera hacks in `61_UI`.
 
 ## Build and run
 

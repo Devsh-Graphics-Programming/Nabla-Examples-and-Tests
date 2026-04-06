@@ -671,6 +671,8 @@ void App::DrawControlPanel()
 						if (activeFollowConfig)
 						{
 							auto& followConfig = *activeFollowConfig;
+							const bool prevFollowEnabled = followConfig.enabled;
+							const auto prevFollowMode = followConfig.mode;
 							ImGui::Checkbox("Enable follow", &followConfig.enabled);
 							DrawHoverHint("Apply tracked-target follow to the active planar camera");
 
@@ -684,6 +686,11 @@ void App::DrawControlPanel()
 							int followModeIx = static_cast<int>(followConfig.mode);
 							if (ImGui::Combo("Mode", &followModeIx, followModeLabels, IM_ARRAYSIZE(followModeLabels)))
 								followConfig.mode = static_cast<ECameraFollowMode>(followModeIx);
+							const bool followStateChanged = followConfig.enabled != prevFollowEnabled || followConfig.mode != prevFollowMode;
+							if (followStateChanged && followConfig.enabled && nbl::hlsl::cameraFollowModeUsesCapturedOffset(followConfig.mode))
+								captureFollowOffsetsForPlanar(getActivePlanarIx());
+							if (followStateChanged && followConfig.enabled)
+								applyFollowToConfiguredCameras();
 
 							auto trackedTarget = getCastedVector<float32_t>(m_followTarget.getGimbal().getPosition());
 							if (ImGui::InputFloat3("Tracked target", &trackedTarget[0]))
@@ -692,9 +699,13 @@ void App::DrawControlPanel()
 							ImGui::Checkbox("Show target marker", &m_followTargetVisible);
 							DrawHoverHint("Render the tracked target marker in the scene");
 
-							if (ImGui::Button("Target = model"))
-								resetFollowTargetToModel();
-							DrawHoverHint("Snap tracked target pose to the model transform");
+							if (ImGui::Button("Reset target"))
+								resetFollowTargetToDefault();
+							DrawHoverHint("Reset tracked target gimbal to the default world-space follow pose");
+							ImGui::SameLine();
+							if (ImGui::Button("Snap to model"))
+								snapFollowTargetToModel();
+							DrawHoverHint("Optionally snap tracked target gimbal to the model transform");
 							ImGui::SameLine();
 							if (ImGui::Button("Target origin"))
 								m_followTarget.setPose(float64_t3(0.0), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
