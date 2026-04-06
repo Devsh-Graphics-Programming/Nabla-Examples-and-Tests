@@ -83,13 +83,17 @@ FAIL means missing movement, out-of-range movement, invalid state, or missing re
 
 Goal: verify smooth frame-to-frame behavior (no visible teleport-like jumps).
 
-Per camera sequence:
+The continuity asset is now a compact authored camera-sequence spec, not a committed frame dump.
+`61_UI` expands that shared camera-domain description into its own runtime scripted checks.
+
+Per authored segment:
 
 1. select planar
 2. store `baseline`
-3. hold camera segment for `3.0 s` (`180` frames at `60 FPS`)
-4. apply 3 small `imguizmo` movement steps spread over the segment
-5. run `gimbal_step` after each step
+3. build a reusable keyframe track from the active camera reference preset
+4. sample that track for `4.0 s` at `60 FPS`
+5. run `gimbal_step` on each generated frame step
+6. capture selected milestones such as `end`
 
 PASS means every step delta stayed inside configured continuity ranges.
 FAIL means any step exceeded max range or failed minimum expected motion.
@@ -98,6 +102,7 @@ Continuity also supports visual debug mode:
 
 - large top-center overlay with active camera type and segment progress
 - fixed frame pacing (`visual_debug_target_fps`) so camera time is human-readable
+- compact authored JSON that stays in camera-domain and is reusable outside `61_UI`
 
 ## Build and run
 
@@ -121,7 +126,8 @@ For CI-style exit with automatic screenshot/capture behavior:
 
 Notes:
 
-- continuity visual run takes about `33 s` (`11` cameras × `3 s`)
+- continuity visual run takes about `47 s`
+- the authored continuity JSON is compact and segment-based rather than frame-by-frame
 - if `visual_debug` is present in json, CLI flag is optional
 
 ## CTest entries

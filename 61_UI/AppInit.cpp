@@ -1,10 +1,12 @@
 #include "app/App.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <span>
 #include <vector>
@@ -1230,8 +1232,33 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return true;
 				};
 
+				std::optional<CCameraSequenceScript> pendingScriptedSequence;
+				bool scriptedInputParseFailed = false;
+				std::string scriptedInputParseError;
+
+				auto finalizeScriptedInput = [&]() -> void
+				{
+					std::sort(m_scriptedInput.events.begin(), m_scriptedInput.events.end(),
+						[](const ScriptedInputEvent& a, const ScriptedInputEvent& b) { return a.frame < b.frame; });
+					std::sort(m_scriptedInput.checks.begin(), m_scriptedInput.checks.end(),
+						[](const ScriptedInputCheck& a, const ScriptedInputCheck& b) { return a.frame < b.frame; });
+					if (!m_scriptedInput.captureFrames.empty())
+					{
+						std::sort(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end());
+						m_scriptedInput.captureFrames.erase(std::unique(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end()), m_scriptedInput.captureFrames.end());
+					}
+					if (m_disableScreenshotsCli)
+					{
+						m_scriptedInput.captureFrames.clear();
+						m_scriptedInput.nextCaptureIndex = 0;
+					}
+				};
+
 				auto parseScriptedInput = [&](const nbl_json& script) -> void
 				{
+					pendingScriptedSequence.reset();
+					scriptedInputParseFailed = false;
+					scriptedInputParseError.clear();
 					m_scriptedInput.events.clear();
 					m_scriptedInput.checks.clear();
 					m_scriptedInput.captureFrames.clear();
@@ -1314,6 +1341,21 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							m_cameraControls.translationScale = controls["translation_scale"].get<float>();
 						if (controls.contains("rotation_scale"))
 							m_cameraControls.rotationScale = controls["rotation_scale"].get<float>();
+					}
+
+					if (script.contains("segments"))
+					{
+						CCameraSequenceScript sequence;
+						std::string sequenceError;
+						if (!deserializeCameraSequenceScript(script, sequence, &sequenceError))
+						{
+							scriptedInputParseFailed = true;
+							scriptedInputParseError = std::move(sequenceError);
+						}
+						else
+						{
+							pendingScriptedSequence = std::move(sequence);
+						}
 					}
 
 					if (script.contains("events"))
@@ -1720,10 +1762,20 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!loadScriptJson(scriptPath.string(), scriptJson))
 						return false;
 					parseScriptedInput(scriptJson);
+					if (scriptedInputParseFailed)
+					{
+						logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
+						return false;
+					}
 				}
 				else if (j.contains("scripted_input"))
 				{
 					parseScriptedInput(j["scripted_input"]);
+					if (scriptedInputParseFailed)
+					{
+						logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
+						return false;
+					}
 				}
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
@@ -1980,6 +2032,192 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					auto* camera = m_planarProjections[planarIx]->getCamera();
 					const std::string presetName = "Planar " + std::to_string(planarIx);
 					m_initialPlanarPresets.emplace_back(nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, presetName));
+				}
+
+				if (pendingScriptedSequence.has_value())
+				{
+					auto expandCameraSequenceScript = [&](const CCameraSequenceScript& sequence) -> bool
+					{
+						m_scriptedInput.events.clear();
+						m_scriptedInput.checks.clear();
+						m_scriptedInput.captureFrames.clear();
+						m_scriptedInput.nextEventIndex = 0;
+						m_scriptedInput.nextCheckIndex = 0;
+						m_scriptedInput.nextCaptureIndex = 0;
+						m_scriptedInput.failed = false;
+						m_scriptedInput.summaryReported = false;
+						m_scriptedInput.baselineValid = false;
+						m_scriptedInput.stepValid = false;
+
+						auto pushAction = [&](const uint64_t frame, const ScriptedInputEvent::ActionData::Kind kind, const int32_t value) -> void
+						{
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Action;
+							entry.action.kind = kind;
+							entry.action.value = value;
+							m_scriptedInput.events.emplace_back(std::move(entry));
+						};
+
+						auto pushGoal = [&](const uint64_t frame, const CCameraGoal& goal) -> void
+						{
+							ScriptedInputEvent entry;
+							entry.frame = frame;
+							entry.type = ScriptedInputEvent::Type::Goal;
+							entry.goal.goal = goal;
+							entry.goal.requireExact = true;
+							m_scriptedInput.events.emplace_back(std::move(entry));
+						};
+
+						auto pushStepCheck = [&](const uint64_t frame, const CCameraSequenceContinuitySettings& continuity) -> void
+						{
+							ScriptedInputCheck entry;
+							entry.frame = frame;
+							entry.kind = ScriptedInputCheck::Kind::GimbalStep;
+							if (continuity.hasPosDeltaConstraint)
+							{
+								entry.hasPosDeltaConstraint = true;
+								entry.minPosDelta = continuity.minPosDelta;
+								entry.posTolerance = continuity.maxPosDelta;
+							}
+							if (continuity.hasEulerDeltaConstraint)
+							{
+								entry.hasEulerDeltaConstraint = true;
+								entry.minEulerDeltaDeg = continuity.minEulerDeltaDeg;
+								entry.eulerToleranceDeg = continuity.maxEulerDeltaDeg;
+							}
+							m_scriptedInput.checks.emplace_back(std::move(entry));
+						};
+
+						auto resolvePlanarIx = [&](const CCameraSequenceSegment& segment) -> std::optional<uint32_t>
+						{
+							std::optional<uint32_t> match;
+							for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
+							{
+								auto* camera = m_planarProjections[planarIx]->getCamera();
+								if (!camera)
+									continue;
+
+								const bool kindMatch = segment.cameraKind == ICamera::CameraKind::Unknown || camera->getKind() == segment.cameraKind;
+								const bool identifierMatch = segment.cameraIdentifier.empty() || camera->getIdentifier() == segment.cameraIdentifier;
+								if (!(kindMatch && identifierMatch))
+									continue;
+
+								if (match.has_value())
+									return std::nullopt;
+								match = planarIx;
+							}
+							return match;
+						};
+
+						bool useWindow = sequence.defaults.presentations.size() > 1u;
+						if (!useWindow)
+						{
+							for (const auto& segment : sequence.segments)
+							{
+								if (getSequenceSegmentPresentations(sequence, segment).size() > 1u)
+								{
+									useWindow = true;
+									break;
+								}
+							}
+						}
+						pushAction(0u, ScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
+
+						const double fps = std::max(1.0, static_cast<double>(sequence.fps));
+						uint64_t frameCursor = 0u;
+						for (const auto& segment : sequence.segments)
+						{
+							auto planarIx = resolvePlanarIx(segment);
+							if (!planarIx.has_value())
+							{
+								const auto kindLabel = segment.cameraKind != ICamera::CameraKind::Unknown ? std::string(getCameraTypeLabel(segment.cameraKind)) : std::string("Unknown");
+								logFail("Sequence segment \"%s\" has ambiguous or missing camera match for kind \"%s\" identifier \"%s\".",
+									segment.name.c_str(), kindLabel.c_str(), segment.cameraIdentifier.c_str());
+								return false;
+							}
+
+							const auto presentations = getSequenceSegmentPresentations(sequence, segment);
+							if (presentations.size() > windowBindings.size())
+							{
+								m_logger->log("Sequence segment \"%s\" requests %zu presentations, only %zu windows are available. Extra presentations will be ignored.",
+									ILogger::ELL_WARNING, segment.name.c_str(), presentations.size(), windowBindings.size());
+							}
+
+							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
+							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
+							if (!presentations.empty())
+							{
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(presentations[0].projection));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, presentations[0].leftHanded ? 1 : 0);
+							}
+							if (getSequenceSegmentResetCamera(sequence, segment))
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::ResetActiveCamera, 1);
+
+							for (size_t windowIx = 1u; windowIx < std::min(presentations.size(), windowBindings.size()); ++windowIx)
+							{
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, static_cast<int32_t>(windowIx));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(presentations[windowIx].projection));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, presentations[windowIx].leftHanded ? 1 : 0);
+							}
+							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
+
+							const auto& referencePreset = m_initialPlanarPresets[planarIx.value()];
+							CCameraKeyframeTrack track;
+							std::string trackError;
+							if (!buildSequenceTrackFromReference(referencePreset, segment, track, &trackError))
+							{
+								logFail("Sequence segment \"%s\" failed to build track: %s", segment.name.c_str(), trackError.c_str());
+								return false;
+							}
+
+							const float durationSeconds = getSequenceSegmentDurationSeconds(sequence, segment, &track);
+							const uint64_t durationFrames = std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(std::max(0.f, durationSeconds) * static_cast<float>(fps))));
+							for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
+							{
+								const float alpha = durationFrames > 1u ? static_cast<float>(frameOffset) / static_cast<float>(durationFrames - 1u) : 0.f;
+								const float sampleTime = durationSeconds * alpha;
+								CCameraPreset preset;
+								if (!tryBuildKeyframeTrackPresetAtTime(track, sampleTime, preset))
+								{
+									logFail("Sequence segment \"%s\" failed to sample track at t=%f.", segment.name.c_str(), sampleTime);
+									return false;
+								}
+								pushGoal(frameCursor + frameOffset, makeGoalFromPreset(preset));
+							}
+
+							const auto continuity = getSequenceSegmentContinuity(sequence, segment);
+							if (continuity.baseline)
+							{
+								ScriptedInputCheck baseline;
+								baseline.frame = frameCursor;
+								baseline.kind = ScriptedInputCheck::Kind::Baseline;
+								m_scriptedInput.checks.emplace_back(std::move(baseline));
+							}
+							if (continuity.step)
+							{
+								for (uint64_t frameOffset = 1u; frameOffset < durationFrames; ++frameOffset)
+									pushStepCheck(frameCursor + frameOffset, continuity);
+							}
+
+							for (const auto fraction : getSequenceSegmentCaptureFractions(sequence, segment))
+							{
+								const auto offset = durationFrames > 1u ?
+									static_cast<uint64_t>(std::llround(static_cast<double>(fraction) * static_cast<double>(durationFrames - 1u))) :
+									0u;
+								m_scriptedInput.captureFrames.emplace_back(frameCursor + offset);
+							}
+
+							frameCursor += durationFrames;
+						}
+
+						finalizeScriptedInput();
+						return true;
+					};
+
+					if (!expandCameraSequenceScript(*pendingScriptedSequence))
+						return false;
 				}
 			}
 

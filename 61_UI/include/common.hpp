@@ -23,6 +23,7 @@
 #include "camera/CCameraKeyframeTrack.hpp"
 #include "camera/CCameraPlaybackTimeline.hpp"
 #include "camera/CCameraPersistence.hpp"
+#include "camera/CCameraSequenceScript.hpp"
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CCameraManipulationUtilities.hpp"
@@ -70,6 +71,11 @@ using nbl::hlsl::CCameraPreset;
 using nbl::hlsl::CCameraKeyframe;
 using nbl::hlsl::CCameraKeyframeTrack;
 using nbl::hlsl::CCameraPlaybackCursor;
+using nbl::hlsl::CCameraSequenceScript;
+using nbl::hlsl::CCameraSequenceSegment;
+using nbl::hlsl::CCameraSequenceKeyframe;
+using nbl::hlsl::CCameraSequencePresentation;
+using nbl::hlsl::CCameraSequenceContinuitySettings;
 using nbl::hlsl::SCameraPlaybackAdvanceResult;
 using nbl::hlsl::SCameraPresetApplySummary;
 using nbl::hlsl::SCameraGoalApplyAnalysis;

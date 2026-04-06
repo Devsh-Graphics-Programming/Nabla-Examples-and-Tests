@@ -60,6 +60,7 @@ void App::update()
 			std::vector<SKeyboardEvent> scriptedKeyboard;
 			std::vector<float32_t4x4> scriptedImguizmo;
 			std::vector<ScriptedInputEvent::ActionData> scriptedActions;
+			std::vector<ScriptedInputEvent::GoalData> scriptedGoals;
 			const CVirtualGimbalEvent* scriptedImguizmoVirtual = nullptr;
 			uint32_t scriptedImguizmoVirtualCount = 0u;
 
@@ -110,6 +111,10 @@ void App::update()
 					else if (ev.type == ScriptedInputEvent::Type::Action)
 					{
 						scriptedActions.emplace_back(ev.action);
+					}
+					else if (ev.type == ScriptedInputEvent::Type::Goal)
+					{
+						scriptedGoals.emplace_back(ev.goal);
 					}
 
 					++m_scriptedInput.nextEventIndex;
@@ -301,13 +306,14 @@ void App::update()
 				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
 
-			if (m_scriptedInput.log && (scriptedKeyboard.size() || scriptedMouse.size() || scriptedImguizmo.size()))
+			if (m_scriptedInput.log && (scriptedKeyboard.size() || scriptedMouse.size() || scriptedImguizmo.size() || scriptedGoals.size()))
 			{
-				m_logger->log("[script] frame %llu input kb=%zu mouse=%zu imguizmo=%zu", ILogger::ELL_INFO,
+				m_logger->log("[script] frame %llu input kb=%zu mouse=%zu imguizmo=%zu goals=%zu", ILogger::ELL_INFO,
 					static_cast<unsigned long long>(m_realFrameIx),
 					scriptedKeyboard.size(),
 					scriptedMouse.size(),
-					scriptedImguizmo.size());
+					scriptedImguizmo.size(),
+					scriptedGoals.size());
 			}
 
 			if (enableActiveCameraMovement && !skipCameraInput)
@@ -453,6 +459,48 @@ void App::update()
 
 				scriptedImguizmoVirtual = vCount ? imguizmoEvents.data() : nullptr;
 				scriptedImguizmoVirtualCount = vCount;
+			}
+
+			if (m_scriptedInput.enabled && scriptedGoals.size() && !skipCameraInput)
+			{
+				auto& binding = windowBindings[activeRenderWindowIx];
+				auto& planar = m_planarProjections[binding.activePlanarIx];
+				auto* camera = planar->getCamera();
+
+				auto logGoalFail = [&](const char* fmt, auto&&... args) -> void
+				{
+					m_scriptedInput.failed = true;
+					m_logger->log(fmt, ILogger::ELL_ERROR, std::forward<decltype(args)>(args)...);
+				};
+
+				for (const auto& goalEvent : scriptedGoals)
+				{
+					const auto result = m_cameraGoalSolver.applyDetailed(camera, goalEvent.goal);
+					if (!result.succeeded() || (goalEvent.requireExact && !result.exact))
+					{
+						logGoalFail("[script][fail] goal_apply frame=%llu status=%s exact=%d details=%s",
+							static_cast<unsigned long long>(m_realFrameIx),
+							result.succeeded() ? "inexact" : "failed",
+							result.exact ? 1 : 0,
+							describeApplyResult(result).c_str());
+						continue;
+					}
+				}
+
+				if (camera)
+				{
+					for (auto& projection : planar->getPlanarProjections())
+						nbl::hlsl::syncDynamicPerspectiveProjection(camera, projection);
+				}
+
+				if (m_scriptedInput.log && camera)
+				{
+					const auto& gimbal = camera->getGimbal();
+					const auto pos = gimbal.getPosition();
+					const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+					m_logger->log("[script] goal_apply gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
+						pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
+				}
 			}
 
 			if (m_scriptedInput.enabled && m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size())
@@ -654,23 +702,41 @@ void App::update()
 						const auto dmax = std::max(dx, std::max(dy, dz));
 
 						bool ok = true;
+						bool requiresProgress = false;
+						bool hasProgress = false;
 						if (check.hasPosDeltaConstraint)
 						{
-							if (dpos < check.minPosDelta || dpos > check.posTolerance)
+							if (dpos > check.posTolerance)
 							{
 								ok = false;
-								logFail("[script][fail] gimbal_step frame=%llu pos_delta=%.6f expected=[%.6f, %.6f]",
-									static_cast<unsigned long long>(frame), dpos, check.minPosDelta, check.posTolerance);
+								logFail("[script][fail] gimbal_step frame=%llu pos_delta=%.6f max=%.6f",
+									static_cast<unsigned long long>(frame), dpos, check.posTolerance);
+							}
+							if (check.minPosDelta > 0.0f)
+							{
+								requiresProgress = true;
+								hasProgress = hasProgress || dpos >= check.minPosDelta;
 							}
 						}
 						if (check.hasEulerDeltaConstraint)
 						{
-							if (dmax < check.minEulerDeltaDeg || dmax > check.eulerToleranceDeg)
+							if (dmax > check.eulerToleranceDeg)
 							{
 								ok = false;
-								logFail("[script][fail] gimbal_step frame=%llu euler_delta=%.6f expected=[%.6f, %.6f]",
-									static_cast<unsigned long long>(frame), dmax, check.minEulerDeltaDeg, check.eulerToleranceDeg);
+								logFail("[script][fail] gimbal_step frame=%llu euler_delta=%.6f max=%.6f",
+									static_cast<unsigned long long>(frame), dmax, check.eulerToleranceDeg);
 							}
+							if (check.minEulerDeltaDeg > 0.0f)
+							{
+								requiresProgress = true;
+								hasProgress = hasProgress || dmax >= check.minEulerDeltaDeg;
+							}
+						}
+						if (requiresProgress && !hasProgress)
+						{
+							ok = false;
+							logFail("[script][fail] gimbal_step frame=%llu missing progress pos_delta=%.6f euler_delta=%.6f",
+								static_cast<unsigned long long>(frame), dpos, dmax);
 						}
 
 						if (ok)

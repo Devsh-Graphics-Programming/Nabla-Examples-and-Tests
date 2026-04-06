@@ -12,6 +12,7 @@ The current design goal is:
 - reusable preset capture and apply flow helpers live in shared headers
 - reusable playback cursor and timeline helpers live in shared headers
 - reusable preset and keyframe persistence helpers live in shared headers
+- reusable compact camera-sequence scripting helpers live in shared headers
 - `61_UI` is the current integration and validation surface
 
 ## Mental model
@@ -40,6 +41,10 @@ The best-effort absolute layer sits beside that flow:
 and the playback cursor sits beside that state:
 
 `CCameraPlaybackCursor <-> CCameraKeyframeTrack`
+
+and compact authored sequence scripts sit above the same shared camera-domain state:
+
+`CCameraSequenceScript -> CCameraKeyframeTrack -> CCameraPreset -> CCameraGoal`
 
 ## Core contracts
 
@@ -365,6 +370,36 @@ Provides:
 - per-frame time advance with loop and stop semantics
 
 This keeps playback-time progression reusable without forcing examples to reimplement cursor stepping rules.
+
+### `CCameraSequenceScript.hpp`
+
+Reusable compact authored camera-sequence format for playback and validation.
+
+Provides:
+
+- `CCameraSequencePresentation`
+- `CCameraSequenceContinuitySettings`
+- `CCameraSequenceGoalDelta`
+- `CCameraSequenceKeyframe`
+- `CCameraSequenceSegment`
+- `CCameraSequenceScript`
+- parsing and normalization helpers
+- reusable sequence-to-track construction from captured reference presets
+
+The important design rule is that the authored format stays camera-domain:
+
+- segment and keyframe based
+- keyed by camera kind or identifier
+- keyed by projection presentation requests
+- keyed by compact continuity thresholds and capture fractions
+
+and deliberately does not store:
+
+- expanded per-frame event dumps
+- `61_UI`-specific window-routing commands as authored source data
+- ImGuizmo matrices as the authored motion primitive
+
+That makes the same authored sequence usable by any future consumer that understands the shared camera API, even if its runtime expansion path differs from `61_UI`.
 
 ### `CCameraPersistence.hpp`
 

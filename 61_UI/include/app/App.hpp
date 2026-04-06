@@ -1549,7 +1549,8 @@ class App final : public examples::SimpleWindowedApplication
 				Keyboard,
 				Mouse,
 				Imguizmo,
-				Action
+				Action,
+				Goal
 			};
 
 			struct KeyboardData
@@ -1588,12 +1589,19 @@ class App final : public examples::SimpleWindowedApplication
 				int32_t value = 0;
 			};
 
+			struct GoalData
+			{
+				CCameraGoal goal = {};
+				bool requireExact = true;
+			};
+
 			uint64_t frame = 0;
 			Type type = Type::Keyboard;
 			KeyboardData keyboard;
 			MouseData mouse;
 			float32_t4x4 imguizmo = float32_t4x4(1.f);
 			ActionData action;
+			GoalData goal;
 		};
 
 		struct ScriptedInputCheck
