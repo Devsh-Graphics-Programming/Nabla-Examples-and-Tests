@@ -74,6 +74,18 @@ private:
     gimbal_t m_gimbal;
 };
 
+/**
+* Follow policy layered on top of a tracked target gimbal.
+*
+* The modes are intentionally explicit because `follow` is not one behavior:
+*
+* - `OrbitTarget` keeps a target-relative orbit/path rig and re-centers the tracked target
+* - `LookAtTarget` keeps the camera world position and only rotates the view toward the target
+* - `KeepWorldOffset` keeps a world-space camera offset from the target and locks the view onto it
+* - `KeepLocalOffset` keeps a target-local camera offset and locks the view onto it
+*
+* The tracked target remains the source of truth. The camera does not own the tracked subject.
+*/
 enum class ECameraFollowMode : uint8_t
 {
     Disabled,
@@ -83,6 +95,8 @@ enum class ECameraFollowMode : uint8_t
     KeepLocalOffset
 };
 
+//! Reusable follow configuration interpreted against a tracked target gimbal.
+//! `worldOffset` and `localOffset` are only meaningful for their matching offset-based modes.
 struct SCameraFollowConfig
 {
     bool enabled = false;
@@ -131,12 +145,35 @@ inline constexpr bool cameraFollowModeLocksViewToTarget(const ECameraFollowMode 
     }
 }
 
+inline constexpr bool cameraFollowModeMovesCameraPosition(const ECameraFollowMode mode)
+{
+    switch (mode)
+    {
+        case ECameraFollowMode::OrbitTarget:
+        case ECameraFollowMode::KeepWorldOffset:
+        case ECameraFollowMode::KeepLocalOffset:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline constexpr bool cameraFollowModeKeepsCameraWorldPosition(const ECameraFollowMode mode)
+{
+    return mode == ECameraFollowMode::LookAtTarget;
+}
+
 inline constexpr bool cameraFollowModeUsesWorldOffset(const ECameraFollowMode mode)
 {
     return mode == ECameraFollowMode::KeepWorldOffset;
 }
 
 inline constexpr bool cameraFollowModeUsesLocalOffset(const ECameraFollowMode mode)
+{
+    return mode == ECameraFollowMode::KeepLocalOffset;
+}
+
+inline constexpr bool cameraFollowModeUsesTrackedTargetLocalFrame(const ECameraFollowMode mode)
 {
     return mode == ECameraFollowMode::KeepLocalOffset;
 }

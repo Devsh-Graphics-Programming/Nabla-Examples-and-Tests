@@ -141,6 +141,7 @@ struct CCameraSequenceTrackedTargetKeyframe
 };
 
 //! Runtime sampled tracked-target track built from an authored segment plus a reference pose.
+//! Keyframes are normalized by time before sampling. Duplicate times collapse to the last authored pose.
 struct CCameraSequenceTrackedTargetTrack
 {
     struct SKeyframe
@@ -205,6 +206,39 @@ struct CCameraSequenceScript
     float fps = 60.f;
     CCameraSequenceSegmentDefaults defaults = {};
     std::vector<CCameraSequenceSegment> segments;
+};
+
+//! Reusable compiled sequence segment derived from authored data plus captured references.
+//! Consumers can build their own runtime actions/checks from this normalized representation.
+struct CCameraSequenceCompiledSegment
+{
+    std::string name;
+    std::vector<CCameraSequencePresentation> presentations;
+    CCameraSequenceContinuitySettings continuity = {};
+    bool resetCamera = true;
+    float durationSeconds = 0.f;
+    uint64_t durationFrames = 0ull;
+    std::vector<float> sampleTimes;
+    std::vector<uint64_t> captureFrameOffsets;
+    CCameraKeyframeTrack track = {};
+    CCameraSequenceTrackedTargetTrack trackedTargetTrack = {};
+
+    inline bool usesTrackedTargetTrack() const
+    {
+        return !trackedTargetTrack.keyframes.empty();
+    }
+};
+
+//! One compiled frame policy entry derived from a reusable compiled segment.
+//! Consumers can map these booleans to their own runtime checks and capture requests.
+struct CCameraSequenceCompiledFramePolicy
+{
+    uint64_t frameOffset = 0ull;
+    float sampleTime = 0.f;
+    bool capture = false;
+    bool baseline = false;
+    bool continuityStep = false;
+    bool followTargetLock = false;
 };
 
 inline bool tryParseCameraKind(std::string_view value, ICamera::CameraKind& outKind)
@@ -1025,13 +1059,24 @@ inline bool buildSequenceTrackedTargetTrackFromReference(
         outTrack.keyframes.emplace_back(std::move(keyframe));
     }
 
-    std::sort(outTrack.keyframes.begin(), outTrack.keyframes.end(),
+    std::stable_sort(outTrack.keyframes.begin(), outTrack.keyframes.end(),
         [](const auto& lhs, const auto& rhs)
         {
             if (lhs.time == rhs.time)
                 return false;
             return lhs.time < rhs.time;
         });
+
+    std::vector<CCameraSequenceTrackedTargetTrack::SKeyframe> normalized;
+    normalized.reserve(outTrack.keyframes.size());
+    for (const auto& keyframe : outTrack.keyframes)
+    {
+        if (!normalized.empty() && std::abs(normalized.back().time - keyframe.time) <= 1e-6f)
+            normalized.back() = keyframe;
+        else
+            normalized.emplace_back(keyframe);
+    }
+    outTrack.keyframes = std::move(normalized);
 
     return !outTrack.keyframes.empty();
 }
@@ -1108,6 +1153,125 @@ inline std::vector<float> getSequenceSegmentCaptureFractions(const CCameraSequen
 inline bool getSequenceSegmentResetCamera(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
 {
     return segment.hasResetCamera ? segment.resetCamera : script.defaults.resetCamera;
+}
+
+inline bool sequenceScriptUsesMultiplePresentations(const CCameraSequenceScript& script)
+{
+    if (script.defaults.presentations.size() > 1u)
+        return true;
+
+    for (const auto& segment : script.segments)
+    {
+        if (getSequenceSegmentPresentations(script, segment).size() > 1u)
+            return true;
+    }
+
+    return false;
+}
+
+inline uint64_t buildSequenceDurationFrames(const float durationSeconds, const float fps)
+{
+    const auto safeDuration = std::max(0.f, durationSeconds);
+    const auto safeFps = std::max(1.f, fps);
+    return std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(static_cast<double>(safeDuration) * static_cast<double>(safeFps))));
+}
+
+//! Build one sampled time per authored frame in the compiled segment.
+inline void buildSequenceSampleTimes(const float durationSeconds, const uint64_t durationFrames, std::vector<float>& outTimes)
+{
+    outTimes.clear();
+    outTimes.reserve(durationFrames);
+
+    for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
+    {
+        const float alpha = durationFrames > 1u ? static_cast<float>(frameOffset) / static_cast<float>(durationFrames - 1u) : 0.f;
+        outTimes.emplace_back(durationSeconds * alpha);
+    }
+}
+
+//! Expand normalized capture fractions into concrete frame offsets inside the compiled segment.
+inline void buildSequenceCaptureFrameOffsets(
+    const uint64_t durationFrames,
+    const std::vector<float>& captureFractions,
+    std::vector<uint64_t>& outOffsets)
+{
+    outOffsets.clear();
+    outOffsets.reserve(captureFractions.size());
+
+    for (const auto fraction : captureFractions)
+    {
+        const auto offset = durationFrames > 1u ?
+            static_cast<uint64_t>(std::llround(static_cast<double>(fraction) * static_cast<double>(durationFrames - 1u))) :
+            0ull;
+        outOffsets.emplace_back(offset);
+    }
+
+    std::sort(outOffsets.begin(), outOffsets.end());
+    outOffsets.erase(std::unique(outOffsets.begin(), outOffsets.end()), outOffsets.end());
+}
+
+//! Compile one authored sequence segment into normalized reusable data for runtime consumers.
+inline bool compileSequenceSegmentFromReference(
+    const CCameraSequenceScript& script,
+    const CCameraSequenceSegment& segment,
+    const CCameraPreset& referencePreset,
+    const CCameraSequenceTrackedTargetPose& referenceTrackedTargetPose,
+    CCameraSequenceCompiledSegment& outSegment,
+    std::string* error = nullptr)
+{
+    outSegment = {};
+    outSegment.name = segment.name;
+    outSegment.presentations = getSequenceSegmentPresentations(script, segment);
+    outSegment.continuity = getSequenceSegmentContinuity(script, segment);
+    outSegment.resetCamera = getSequenceSegmentResetCamera(script, segment);
+
+    if (!buildSequenceTrackFromReference(referencePreset, segment, outSegment.track, error))
+        return false;
+
+    if (sequenceSegmentUsesTrackedTargetTrack(segment) &&
+        !buildSequenceTrackedTargetTrackFromReference(referenceTrackedTargetPose, segment, outSegment.trackedTargetTrack, error))
+    {
+        return false;
+    }
+
+    outSegment.durationSeconds = getSequenceSegmentDurationSeconds(script, segment, &outSegment.track);
+    outSegment.durationFrames = buildSequenceDurationFrames(outSegment.durationSeconds, script.fps);
+    buildSequenceSampleTimes(outSegment.durationSeconds, outSegment.durationFrames, outSegment.sampleTimes);
+    buildSequenceCaptureFrameOffsets(outSegment.durationFrames, getSequenceSegmentCaptureFractions(script, segment), outSegment.captureFrameOffsets);
+    return true;
+}
+
+inline bool buildCompiledSegmentFramePolicies(
+    const CCameraSequenceCompiledSegment& segment,
+    std::vector<CCameraSequenceCompiledFramePolicy>& outPolicies,
+    const bool includeFollowTargetLock = false)
+{
+    if (segment.sampleTimes.size() != segment.durationFrames)
+        return false;
+
+    outPolicies.clear();
+    outPolicies.reserve(segment.durationFrames);
+
+    size_t captureIx = 0u;
+    for (uint64_t frameOffset = 0u; frameOffset < segment.durationFrames; ++frameOffset)
+    {
+        CCameraSequenceCompiledFramePolicy policy;
+        policy.frameOffset = frameOffset;
+        policy.sampleTime = segment.sampleTimes[frameOffset];
+        policy.baseline = segment.continuity.baseline && frameOffset == 0u;
+        policy.continuityStep = segment.continuity.step && frameOffset > 0u;
+        policy.followTargetLock = includeFollowTargetLock && segment.usesTrackedTargetTrack() && policy.continuityStep;
+
+        while (captureIx < segment.captureFrameOffsets.size() && segment.captureFrameOffsets[captureIx] < frameOffset)
+            ++captureIx;
+        policy.capture = captureIx < segment.captureFrameOffsets.size() && segment.captureFrameOffsets[captureIx] == frameOffset;
+        if (policy.capture)
+            ++captureIx;
+
+        outPolicies.emplace_back(std::move(policy));
+    }
+
+    return true;
 }
 
 } // namespace nbl::hlsl

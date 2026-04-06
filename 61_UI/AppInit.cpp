@@ -327,16 +327,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return nbl::hlsl::describePresetCameraMismatch(m_cameraGoalSolver, camera, preset);
 				};
 
-				auto compareGoalToCamera = [&](ICamera* camera, const CCameraGoal& goal, const char* label) -> bool
-				{
-					auto capture = m_cameraGoalSolver.captureDetailed(camera);
-					if (!capture.canUseGoal())
-						return fail(std::string("Follow smoke failed to capture camera state for ") + label + ".");
-					if (!nbl::hlsl::compareGoals(capture.goal, goal, 1e-6, 0.1, 1e-6))
-						return fail(std::string("Follow smoke mismatch for ") + label + ". " + nbl::hlsl::describeGoalMismatch(capture.goal, goal));
-					return true;
-				};
-
 				auto tryBuildFollowViewProjForCamera = [&](ICamera* camera, float32_t4x4& outViewProjMatrix) -> bool
 				{
 					if (!camera)
@@ -369,6 +359,26 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					}
 
 					return false;
+				};
+
+				auto buildAndValidateFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
+					const SCameraFollowConfig& followConfig, const char* label, nbl::hlsl::SCameraFollowApplyValidationResult& outResult) -> bool
+				{
+					std::string regressionError;
+					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
+					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
+					if (!nbl::hlsl::buildApplyAndValidateFollowTargetContract(
+						m_cameraGoalSolver,
+						camera,
+						trackedTarget,
+						followConfig,
+						outResult,
+						&regressionError,
+						hasViewProjMatrix ? &viewProjMatrix : nullptr))
+					{
+						return fail(std::string("Follow smoke contract failed for ") + label + ". " + regressionError);
+					}
+					return true;
 				};
 
 				auto verifyFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
@@ -885,16 +895,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::OrbitTarget;
 
-						CCameraGoal followGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig, followGoal))
-							return fail("Orbit follow smoke failed to build follow goal.");
-
-						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig);
-						if (!applyResult.succeeded())
-							return fail("Orbit follow smoke failed to apply follow goal.");
-						if (!compareGoalToCamera(orbitCamera, followGoal, "orbit follow"))
-							return false;
-						if (!verifyFollowTargetContract(orbitCamera, trackedTarget, followConfig, followGoal, "orbit follow"))
+						nbl::hlsl::SCameraFollowApplyValidationResult followResult = {};
+						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit follow", followResult))
 							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "orbit follow"))
 							return false;
@@ -907,16 +909,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(4.0, -1.5, 2.0);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						CCameraGoal worldOffsetGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig, worldOffsetGoal))
-							return fail("Orbit keep-world-offset smoke failed to build follow goal.");
-
-						const auto worldOffsetApplyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig);
-						if (!worldOffsetApplyResult.succeeded())
-							return fail("Orbit keep-world-offset smoke failed to apply follow goal.");
-						if (!compareGoalToCamera(orbitCamera, worldOffsetGoal, "orbit keep-world-offset follow"))
-							return false;
-						if (!verifyFollowTargetContract(orbitCamera, trackedTarget, followConfig, worldOffsetGoal, "orbit keep-world-offset follow"))
+						nbl::hlsl::SCameraFollowApplyValidationResult worldOffsetResult = {};
+						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow", worldOffsetResult))
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
@@ -946,16 +940,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						CCameraGoal followGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig, followGoal))
-							return fail("Default follow smoke failed to build follow goal for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
-
-						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig);
-						if (!applyResult.succeeded())
-							return fail("Default follow smoke failed to apply follow goal for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
-						if (!compareGoalToCamera(defaultFollowCamera, followGoal, label.c_str()))
-							return false;
-						if (!verifyFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, followGoal, label.c_str()))
+						nbl::hlsl::SCameraFollowApplyValidationResult defaultFollowResult = {};
+						if (!buildAndValidateFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, label.c_str(), defaultFollowResult))
 							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, label.c_str()))
 							return false;
@@ -972,16 +958,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::LookAtTarget;
 
-						CCameraGoal followGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig, followGoal))
-							return fail("Free follow smoke failed to build follow goal.");
-
-						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig);
-						if (!applyResult.succeeded())
-							return fail("Free follow smoke failed to apply follow goal.");
-						if (!compareGoalToCamera(freeCamera, followGoal, "free look-at follow"))
-							return false;
-						if (!verifyFollowTargetContract(freeCamera, trackedTarget, followConfig, followGoal, "free look-at follow"))
+						nbl::hlsl::SCameraFollowApplyValidationResult lookAtResult = {};
+						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free look-at follow", lookAtResult))
 							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "free look-at follow"))
 							return false;
@@ -994,16 +972,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(5.0, -2.0, 1.5);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						CCameraGoal keepWorldGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig, keepWorldGoal))
-							return fail("Free keep-world-offset smoke failed to build follow goal.");
-
-						const auto keepWorldApplyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig);
-						if (!keepWorldApplyResult.succeeded())
-							return fail("Free keep-world-offset smoke failed to apply follow goal.");
-						if (!compareGoalToCamera(freeCamera, keepWorldGoal, "free keep-world-offset follow"))
-							return false;
-						if (!verifyFollowTargetContract(freeCamera, trackedTarget, followConfig, keepWorldGoal, "free keep-world-offset follow"))
+						nbl::hlsl::SCameraFollowApplyValidationResult keepWorldResult = {};
+						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow", keepWorldResult))
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
@@ -1022,16 +992,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						CCameraGoal followGoal = {};
-						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig, followGoal))
-							return fail("Chase follow smoke failed to build follow goal.");
-
-						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig);
-						if (!applyResult.succeeded())
-							return fail("Chase follow smoke failed to apply follow goal.");
-						if (!compareGoalToCamera(chaseCamera, followGoal, "chase local-offset follow"))
-							return false;
-						if (!verifyFollowTargetContract(chaseCamera, trackedTarget, followConfig, followGoal, "chase local-offset follow"))
+						nbl::hlsl::SCameraFollowApplyValidationResult localOffsetResult = {};
+						if (!buildAndValidateFollowTargetContract(chaseCamera, trackedTarget, followConfig, "chase local-offset follow", localOffsetResult))
 							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "chase local-offset follow"))
 							return false;
@@ -1287,6 +1249,104 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					nbl::hlsl::clampPlaybackCursorToTrack(playbackTrack, cursor);
 					if (std::abs(static_cast<double>(cursor.time - 2.f)) > 1e-6)
 						return fail("Playback timeline smoke failed to clamp cursor time.");
+				}
+
+				if (hasOrbitPreset)
+				{
+					CCameraSequenceScript sequence;
+					sequence.fps = 4.f;
+					sequence.defaults.durationSeconds = 2.f;
+					sequence.defaults.presentations = {
+						{ .projection = IPlanarProjection::CProjection::Perspective, .leftHanded = true },
+						{ .projection = IPlanarProjection::CProjection::Orthographic, .leftHanded = false }
+					};
+					sequence.defaults.captureFractions = { 0.f, 0.5f, 1.f };
+
+					CCameraSequenceSegment segment;
+					segment.name = "sequence_compile_smoke";
+					segment.cameraKind = ICamera::CameraKind::Orbit;
+					{
+						CCameraSequenceKeyframe keyframe;
+						keyframe.time = 0.f;
+						keyframe.hasAbsolutePreset = true;
+						keyframe.absolutePreset = initialOrbitPreset;
+						segment.keyframes.push_back(keyframe);
+					}
+					{
+						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						keyframe.time = 0.f;
+						keyframe.hasAbsolutePosition = true;
+						keyframe.absolutePosition = float64_t3(1.0, 2.0, 3.0);
+						segment.targetKeyframes.push_back(keyframe);
+					}
+					{
+						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						keyframe.time = 1.f;
+						keyframe.hasAbsolutePosition = true;
+						keyframe.absolutePosition = float64_t3(4.0, 5.0, 6.0);
+						segment.targetKeyframes.push_back(keyframe);
+					}
+					{
+						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						keyframe.time = 1.f;
+						keyframe.hasAbsolutePosition = true;
+						keyframe.absolutePosition = float64_t3(7.0, 8.0, 9.0);
+						segment.targetKeyframes.push_back(keyframe);
+					}
+					sequence.segments.push_back(segment);
+
+					if (!nbl::hlsl::sequenceScriptUsesMultiplePresentations(sequence))
+						return fail("Sequence compile smoke failed to detect multi-presentation authored defaults.");
+
+					const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
+						.position = getDefaultFollowTargetPosition(),
+						.orientation = getDefaultFollowTargetOrientation()
+					};
+
+					nbl::hlsl::CCameraSequenceCompiledSegment compiledSegment;
+					std::string compileError;
+					if (!nbl::hlsl::compileSequenceSegmentFromReference(
+						sequence,
+						sequence.segments.front(),
+						initialOrbitPreset,
+						referenceTrackedTargetPose,
+						compiledSegment,
+						&compileError))
+					{
+						return fail("Sequence compile smoke failed to compile a shared segment. " + compileError);
+					}
+
+					if (compiledSegment.durationFrames != 8ull || compiledSegment.sampleTimes.size() != 8u)
+						return fail("Sequence compile smoke produced wrong sampled frame count.");
+					if (compiledSegment.captureFrameOffsets.size() != 3u ||
+						compiledSegment.captureFrameOffsets[0] != 0ull ||
+						compiledSegment.captureFrameOffsets[1] != 4ull ||
+						compiledSegment.captureFrameOffsets[2] != 7ull)
+					{
+						return fail("Sequence compile smoke produced wrong capture frame offsets.");
+					}
+					if (compiledSegment.presentations.size() != 2u)
+						return fail("Sequence compile smoke lost authored presentations.");
+					if (!compiledSegment.usesTrackedTargetTrack() || compiledSegment.trackedTargetTrack.keyframes.size() != 2u)
+						return fail("Sequence compile smoke failed to normalize tracked-target keyframes.");
+
+					std::vector<nbl::hlsl::CCameraSequenceCompiledFramePolicy> framePolicies;
+					if (!nbl::hlsl::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, true))
+						return fail("Sequence compile smoke failed to build shared frame policies.");
+					if (framePolicies.size() != 8u)
+						return fail("Sequence compile smoke produced wrong frame-policy count.");
+					if (!framePolicies[0].baseline || framePolicies[0].continuityStep || !framePolicies[0].capture)
+						return fail("Sequence compile smoke produced wrong first-frame policy.");
+					if (!framePolicies[1].continuityStep || !framePolicies[1].followTargetLock || framePolicies[1].baseline)
+						return fail("Sequence compile smoke produced wrong continuity follow policy.");
+					if (!framePolicies[4].capture || !framePolicies[7].capture)
+						return fail("Sequence compile smoke produced wrong capture milestone policy.");
+
+					CCameraSequenceTrackedTargetPose poseAtOne;
+					if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, 1.f, poseAtOne))
+						return fail("Sequence compile smoke failed to sample normalized tracked-target track.");
+					if (length(poseAtOne.position - float64_t3(7.0, 8.0, 9.0)) > 1e-9)
+						return fail("Sequence compile smoke did not keep the last authored target pose for duplicate keyframe time.");
 				}
 
 				if (hasOrbitPreset && orbitCamera)
@@ -2480,21 +2540,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return match;
 						};
 
-						bool useWindow = sequence.defaults.presentations.size() > 1u;
-						if (!useWindow)
-						{
-							for (const auto& segment : sequence.segments)
-							{
-								if (getSequenceSegmentPresentations(sequence, segment).size() > 1u)
-								{
-									useWindow = true;
-									break;
-								}
-							}
-						}
+						const bool useWindow = nbl::hlsl::sequenceScriptUsesMultiplePresentations(sequence);
 						pushAction(0u, ScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
 
-						const double fps = std::max(1.0, static_cast<double>(sequence.fps));
 						const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
 							.position = getDefaultFollowTargetPosition(),
 							.orientation = getDefaultFollowTargetOrientation()
@@ -2517,103 +2565,88 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								m_planarFollowConfigs[planarIx.value()].enabled &&
 								m_planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Disabled;
 
-							const auto presentations = getSequenceSegmentPresentations(sequence, segment);
-							if (presentations.size() > windowBindings.size())
+							nbl::hlsl::CCameraSequenceCompiledSegment compiledSegment;
+							std::string trackError;
+							if (!nbl::hlsl::compileSequenceSegmentFromReference(
+								sequence,
+								segment,
+								m_initialPlanarPresets[planarIx.value()],
+								referenceTrackedTargetPose,
+								compiledSegment,
+								&trackError))
+							{
+								logFail("Sequence segment \"%s\" failed to compile: %s", segment.name.c_str(), trackError.c_str());
+								return false;
+							}
+
+							if (compiledSegment.presentations.size() > windowBindings.size())
 							{
 								m_logger->log("Sequence segment \"%s\" requests %zu presentations, only %zu windows are available. Extra presentations will be ignored.",
-									ILogger::ELL_WARNING, segment.name.c_str(), presentations.size(), windowBindings.size());
+									ILogger::ELL_WARNING, segment.name.c_str(), compiledSegment.presentations.size(), windowBindings.size());
 							}
 
 							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
 							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
-							if (!presentations.empty())
+							if (!compiledSegment.presentations.empty())
 							{
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(presentations[0].projection));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, presentations[0].leftHanded ? 1 : 0);
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(compiledSegment.presentations[0].projection));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, compiledSegment.presentations[0].leftHanded ? 1 : 0);
 							}
-							if (getSequenceSegmentResetCamera(sequence, segment))
+							if (compiledSegment.resetCamera)
 								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::ResetActiveCamera, 1);
 
-							for (size_t windowIx = 1u; windowIx < std::min(presentations.size(), windowBindings.size()); ++windowIx)
+							for (size_t windowIx = 1u; windowIx < std::min(compiledSegment.presentations.size(), windowBindings.size()); ++windowIx)
 							{
 								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, static_cast<int32_t>(windowIx));
 								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(presentations[windowIx].projection));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, presentations[windowIx].leftHanded ? 1 : 0);
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(compiledSegment.presentations[windowIx].projection));
+								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, compiledSegment.presentations[windowIx].leftHanded ? 1 : 0);
 							}
 							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
 
-							const auto& referencePreset = m_initialPlanarPresets[planarIx.value()];
-							CCameraKeyframeTrack track;
-							std::string trackError;
-							if (!buildSequenceTrackFromReference(referencePreset, segment, track, &trackError))
+							std::vector<nbl::hlsl::CCameraSequenceCompiledFramePolicy> framePolicies;
+							if (!nbl::hlsl::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, useTrackedTargetFollow))
 							{
-								logFail("Sequence segment \"%s\" failed to build track: %s", segment.name.c_str(), trackError.c_str());
+								logFail("Sequence segment \"%s\" failed to build compiled frame policies.", segment.name.c_str());
 								return false;
 							}
 
-							CCameraSequenceTrackedTargetTrack trackedTargetTrack;
-							if (nbl::hlsl::sequenceSegmentUsesTrackedTargetTrack(segment))
+							for (const auto& policy : framePolicies)
 							{
-								if (!nbl::hlsl::buildSequenceTrackedTargetTrackFromReference(referenceTrackedTargetPose, segment, trackedTargetTrack, &trackError))
-								{
-									logFail("Sequence segment \"%s\" failed to build tracked-target track: %s", segment.name.c_str(), trackError.c_str());
-									return false;
-								}
-							}
-
-							const float durationSeconds = getSequenceSegmentDurationSeconds(sequence, segment, &track);
-							const uint64_t durationFrames = std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(std::max(0.f, durationSeconds) * static_cast<float>(fps))));
-							for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
-							{
-								const float alpha = durationFrames > 1u ? static_cast<float>(frameOffset) / static_cast<float>(durationFrames - 1u) : 0.f;
-								const float sampleTime = durationSeconds * alpha;
 								CCameraPreset preset;
-								if (!tryBuildKeyframeTrackPresetAtTime(track, sampleTime, preset))
+								if (!tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
 								{
-									logFail("Sequence segment \"%s\" failed to sample track at t=%f.", segment.name.c_str(), sampleTime);
+									logFail("Sequence segment \"%s\" failed to sample track at t=%f.", segment.name.c_str(), policy.sampleTime);
 									return false;
 								}
-								pushGoal(frameCursor + frameOffset, makeGoalFromPreset(preset));
-								if (!trackedTargetTrack.keyframes.empty())
+								pushGoal(frameCursor + policy.frameOffset, makeGoalFromPreset(preset));
+								if (compiledSegment.usesTrackedTargetTrack())
 								{
 									CCameraSequenceTrackedTargetPose trackedTargetPose;
-									if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(trackedTargetTrack, sampleTime, trackedTargetPose))
+									if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
 									{
-										logFail("Sequence segment \"%s\" failed to sample tracked-target track at t=%f.", segment.name.c_str(), sampleTime);
+										logFail("Sequence segment \"%s\" failed to sample tracked-target track at t=%f.", segment.name.c_str(), policy.sampleTime);
 										return false;
 									}
-									pushTrackedTargetTransform(frameCursor + frameOffset, trackedTargetPose);
+									pushTrackedTargetTransform(frameCursor + policy.frameOffset, trackedTargetPose);
 								}
-							}
 
-							const auto continuity = getSequenceSegmentContinuity(sequence, segment);
-							if (continuity.baseline)
-							{
-								ScriptedInputCheck baseline;
-								baseline.frame = frameCursor;
-								baseline.kind = ScriptedInputCheck::Kind::Baseline;
-								m_scriptedInput.checks.emplace_back(std::move(baseline));
-							}
-							if (continuity.step)
-							{
-								for (uint64_t frameOffset = 1u; frameOffset < durationFrames; ++frameOffset)
+								if (policy.baseline)
 								{
-									pushStepCheck(frameCursor + frameOffset, continuity);
-									if (useTrackedTargetFollow)
-										pushFollowTargetLockCheck(frameCursor + frameOffset);
+									ScriptedInputCheck baseline;
+									baseline.frame = frameCursor + policy.frameOffset;
+									baseline.kind = ScriptedInputCheck::Kind::Baseline;
+									m_scriptedInput.checks.emplace_back(std::move(baseline));
 								}
+								if (policy.continuityStep)
+									pushStepCheck(frameCursor + policy.frameOffset, compiledSegment.continuity);
+								if (policy.followTargetLock)
+									pushFollowTargetLockCheck(frameCursor + policy.frameOffset);
+								if (policy.capture)
+									m_scriptedInput.captureFrames.emplace_back(frameCursor + policy.frameOffset);
 							}
 
-							for (const auto fraction : getSequenceSegmentCaptureFractions(sequence, segment))
-							{
-								const auto offset = durationFrames > 1u ?
-									static_cast<uint64_t>(std::llround(static_cast<double>(fraction) * static_cast<double>(durationFrames - 1u))) :
-									0u;
-								m_scriptedInput.captureFrames.emplace_back(frameCursor + offset);
-							}
-
-							frameCursor += durationFrames;
+							frameCursor += compiledSegment.durationFrames;
 						}
 
 						finalizeScriptedInput();

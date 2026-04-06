@@ -59,9 +59,12 @@ The current default follow setup is:
 - `Chase`, `Dolly`
   use `KeepLocalOffset`
 
-The follow layer is live-scene behavior only for now.
-Scripted continuity/CI runs intentionally do not re-apply follow every frame yet, because the
-current sequence asset does not author target animation separately from camera motion.
+The tracked target is not the large cone or any particular scene model.
+The tracked target is the reusable `CTrackedTarget` gimbal.
+`61_UI` only renders a marker and optional reference geometry for that gimbal.
+
+Scripted continuity/CI runs now drive the same follow layer through authored `target_keyframes`.
+That means live runtime and scripted validation both consume the same tracked-target semantics.
 
 ## Short math context
 
@@ -107,7 +110,7 @@ FAIL means missing movement, out-of-range movement, invalid state, or missing re
 Goal: verify smooth frame-to-frame behavior (no visible teleport-like jumps).
 
 The continuity asset is now a compact authored camera-sequence spec, not a committed frame dump.
-`61_UI` expands that shared camera-domain description into its own runtime scripted checks.
+`61_UI` first compiles that shared camera-domain description into normalized sampled segments and shared frame-policy schedules, and only then expands it into its own runtime scripted checks.
 
 Per authored segment:
 

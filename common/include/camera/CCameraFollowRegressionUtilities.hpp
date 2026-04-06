@@ -37,6 +37,19 @@ struct SCameraFollowRegressionResult
     float sphericalDistance = 0.0f;
 };
 
+//! Bundled reusable follow regression flow.
+//! The helper builds a follow goal, applies it, verifies the resulting camera state,
+//! and then checks the lock/writeback follow contract.
+struct SCameraFollowApplyValidationResult
+{
+    bool hasGoal = false;
+    CCameraGoal goal = {};
+    CCameraGoalSolver::SApplyResult applyResult = {};
+    bool hasCapturedGoal = false;
+    CCameraGoal capturedGoal = {};
+    SCameraFollowRegressionResult regression = {};
+};
+
 inline bool tryComputeProjectedFollowTargetMetrics(
     const float32_t4x4& viewProjMatrix,
     const CTrackedTarget& trackedTarget,
@@ -212,6 +225,76 @@ inline bool validateFollowTargetContract(
     }
 
     out.passed = true;
+    return true;
+}
+
+inline bool buildApplyAndValidateFollowTargetContract(
+    const CCameraGoalSolver& solver,
+    ICamera* camera,
+    const CTrackedTarget& trackedTarget,
+    const SCameraFollowConfig& followConfig,
+    SCameraFollowApplyValidationResult& out,
+    std::string* error = nullptr,
+    const float32_t4x4* viewProjMatrix = nullptr,
+    const float lockAngleToleranceDeg = 0.1f,
+    const double distanceTolerance = 1e-6,
+    const double targetTolerance = 1e-9,
+    const float projectedNdcTolerance = 0.03f,
+    const double posTolerance = 1e-6,
+    const double rotToleranceDeg = 0.1,
+    const double scalarTolerance = 1e-6)
+{
+    out = {};
+
+    if (!tryBuildFollowGoal(solver, camera, trackedTarget, followConfig, out.goal))
+    {
+        if (error)
+            *error = "failed to build follow goal";
+        return false;
+    }
+    out.hasGoal = true;
+
+    out.applyResult = applyFollowToCamera(solver, camera, trackedTarget, followConfig);
+    if (!out.applyResult.succeeded())
+    {
+        if (error)
+            *error = "failed to apply follow goal";
+        return false;
+    }
+
+    const auto capture = solver.captureDetailed(camera);
+    if (!capture.canUseGoal())
+    {
+        if (error)
+            *error = "failed to capture camera state after follow apply";
+        return false;
+    }
+
+    out.hasCapturedGoal = true;
+    out.capturedGoal = capture.goal;
+    if (!compareGoals(out.capturedGoal, out.goal, posTolerance, rotToleranceDeg, scalarTolerance))
+    {
+        if (error)
+            *error = std::string("follow goal mismatch. ") + describeGoalMismatch(out.capturedGoal, out.goal);
+        return false;
+    }
+
+    if (!validateFollowTargetContract(
+        camera,
+        trackedTarget,
+        followConfig,
+        out.goal,
+        out.regression,
+        error,
+        lockAngleToleranceDeg,
+        distanceTolerance,
+        targetTolerance,
+        viewProjMatrix,
+        projectedNdcTolerance))
+    {
+        return false;
+    }
+
     return true;
 }
 

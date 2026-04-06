@@ -278,6 +278,7 @@ Important design points:
 - the tracked subject owns its own gimbal through `CTrackedTarget`
 - follow modes map target motion into `CCameraGoal`
 - goal application still goes through `CCameraGoalSolver`
+- follow semantics are defined against the tracked-target gimbal, not against any scene model or mesh
 
 Current follow modes:
 
@@ -285,6 +286,22 @@ Current follow modes:
 - `OrbitTarget`
 - `KeepWorldOffset`
 - `KeepLocalOffset`
+
+Current follow invariants:
+
+- all enabled follow modes lock the final camera view onto the tracked-target position
+- `LookAtTarget` keeps the camera world position and only rotates it toward the target
+- `OrbitTarget` keeps the camera on a target-relative spherical/path rig and recenters the tracked target
+- `KeepWorldOffset` keeps a world-space offset from the tracked target and recenters it
+- `KeepLocalOffset` keeps an offset in the tracked-target local frame and recenters it
+- the tracked target remains the source of truth; the camera does not own the subject
+
+This is why the regression layer validates:
+
+- camera forward axis vs. camera-to-target direction
+- projected target center error in NDC
+- spherical target writeback for spherical cameras
+- target distance consistency after apply
 
 This keeps the camera runtime contract event-driven while still allowing higher-level
 tracking behavior to be reused by tools and examples.
@@ -413,8 +430,12 @@ Provides:
 - `CCameraSequenceKeyframe`
 - `CCameraSequenceSegment`
 - `CCameraSequenceScript`
+- `CCameraSequenceCompiledSegment`
+- `CCameraSequenceCompiledFramePolicy`
 - parsing and normalization helpers
 - reusable sequence-to-track construction from captured reference presets
+- reusable segment compilation from authored data into sampled times, capture offsets, and normalized tracks
+- reusable frame-policy scheduling for baseline, continuity-step, follow-lock, and capture milestones
 
 The important design rule is that the authored format stays camera-domain:
 
@@ -428,6 +449,18 @@ and deliberately does not store:
 - expanded per-frame event dumps
 - `61_UI`-specific window-routing commands as authored source data
 - ImGuizmo matrices as the authored motion primitive
+
+Tracked-target motion follows the same rule:
+
+- authored `target_keyframes` describe only tracked-target pose over time
+- they do not refer to a scene object id, mesh, or `61_UI` model
+- consumers may map those poses to their own runtime objects, but the authored source of truth stays a tracked-target gimbal track
+
+Track normalization rules:
+
+- negative keyframe times clamp to `0`
+- tracked-target keyframes are sorted by time before sampling
+- duplicate tracked-target keyframe times collapse to the last authored pose
 
 That makes the same authored sequence usable by any future consumer that understands the shared camera API, even if its runtime expansion path differs from `61_UI`.
 
