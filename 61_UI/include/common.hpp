@@ -29,6 +29,7 @@
 #include "camera/CCameraManipulationUtilities.hpp"
 #include "camera/CCameraPresentationUtilities.hpp"
 #include "camera/CCameraProjectionUtilities.hpp"
+#include "camera/CCameraFollowUtilities.hpp"
 #include "camera/CCameraTextUtilities.hpp"
 #include "camera/CGimbalInputBinder.hpp"
 
@@ -67,6 +68,7 @@ using nbl::hlsl::CDollyCamera;
 using nbl::hlsl::CDollyZoomCamera;
 using nbl::hlsl::CPathCamera;
 using nbl::hlsl::CCameraGoal;
+using nbl::hlsl::CTrackedTarget;
 using nbl::hlsl::CCameraPreset;
 using nbl::hlsl::CCameraKeyframe;
 using nbl::hlsl::CCameraKeyframeTrack;
@@ -80,12 +82,14 @@ using nbl::hlsl::SCameraPlaybackAdvanceResult;
 using nbl::hlsl::SCameraPresetApplySummary;
 using nbl::hlsl::SCameraGoalApplyAnalysis;
 using nbl::hlsl::SCameraCaptureAnalysis;
+using nbl::hlsl::SCameraFollowConfig;
 using nbl::hlsl::SCameraGoalApplyPresentation;
 using nbl::hlsl::SCameraGoalApplyPresentationBadges;
 using nbl::hlsl::SCameraCapturePresentation;
 using nbl::hlsl::SCameraConstraintSettings;
 using nbl::hlsl::CCameraGoalSolver;
 using nbl::hlsl::CGimbalInputBinder;
+using nbl::hlsl::ECameraFollowMode;
 using nbl::hlsl::EPresetApplyPresentationFilter;
 using nbl::hlsl::IGimbalBindingLayout;
 using nbl::hlsl::IPlanarProjection;
@@ -104,11 +108,14 @@ using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
 using nbl::hlsl::describeApplyResult;
 using nbl::hlsl::describeGoalStateMask;
+using nbl::hlsl::getCameraFollowModeLabel;
 using nbl::hlsl::getCameraTypeDescription;
 using nbl::hlsl::getCameraTypeLabel;
 using nbl::hlsl::getCastedMatrix;
 using nbl::hlsl::getCastedVector;
 using nbl::hlsl::getMatrix3x4As4x4;
+using nbl::hlsl::cameraFollowModeUsesLocalOffset;
+using nbl::hlsl::cameraFollowModeUsesWorldOffset;
 using nbl::hlsl::concatenateBFollowedByA;
 using nbl::hlsl::mul;
 using nbl::hlsl::syncDynamicPerspectiveProjection;

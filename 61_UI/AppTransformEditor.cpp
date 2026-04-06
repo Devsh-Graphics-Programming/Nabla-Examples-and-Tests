@@ -7,48 +7,33 @@ void App::TransformEditorContents()
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
 
-			const size_t objectsCount = m_planarProjections.size() + 1u;
+			const size_t objectsCount = getManipulableObjectCount();
 			assert(objectsCount);
 
 			std::vector<std::string> sbels(objectsCount);
 			for (size_t i = 0; i < objectsCount; ++i)
-				sbels[i] = "Object " + std::to_string(i);
+				sbels[i] = getManipulableObjectLabel(static_cast<uint32_t>(i));
 
 			std::vector<const char*> labels(objectsCount);
 			for (size_t i = 0; i < objectsCount; ++i)
 				labels[i] = sbels[i].c_str();
 
-			int activeObject = boundCameraToManipulate ? static_cast<int>(boundPlanarCameraIxToManipulate.value() + 1u) : 0;
+			int activeObject = static_cast<int>(getManipulatedObjectIx());
 			if (ImGui::Combo("Active Object", &activeObject, labels.data(), static_cast<int>(labels.size())))
-			{
-				const auto newActiveObject = static_cast<uint32_t>(activeObject);
-
-				if (newActiveObject) // camera
-				{
-					boundPlanarCameraIxToManipulate = newActiveObject - 1u;
-					ICamera* const targetGimbalManipulationCamera = m_planarProjections[boundPlanarCameraIxToManipulate.value()]->getCamera();
-					boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
-				}
-				else // gc model
-				{
-					boundPlanarCameraIxToManipulate = std::nullopt;
-					boundCameraToManipulate = nullptr;
-				}
-			}
+				bindManipulatedObjectByIx(static_cast<uint32_t>(activeObject));
 
 			ImGuizmoModelM16InOut imguizmoModel;
 
-			if (boundCameraToManipulate)
-				imguizmoModel.inTRS = getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal().template operator() < float64_t4x4 > ());
-			else
-				imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
+			imguizmoModel.inTRS = getManipulableObjectTransform(static_cast<uint32_t>(activeObject));
 
 			imguizmoModel.outTRS = imguizmoModel.inTRS;
 			float* m16TRSmatrix = &imguizmoModel.outTRS[0][0];
 
 			std::string indent; 
-			if (boundCameraToManipulate)
+			if (m_manipulatedObjectKind == SceneManipulatedObjectKind::Camera && boundCameraToManipulate)
 				indent = boundCameraToManipulate->getIdentifier();
+			else if (m_manipulatedObjectKind == SceneManipulatedObjectKind::FollowTarget)
+				indent = m_followTarget.getIdentifier();
 			else
 				indent = "Geometry Creator Object";
 
@@ -84,7 +69,7 @@ void App::TransformEditorContents()
 
 			ImGui::Separator();
 
-			if (!boundCameraToManipulate)
+			if (m_manipulatedObjectKind == SceneManipulatedObjectKind::Model)
 			{
 				const auto& names = m_scene->getInitParams().geometryNames;
 				if (!names.empty())
@@ -162,7 +147,7 @@ void App::TransformEditorContents()
 			}
 
 			// generate virtual events given delta TRS matrix
-			if (boundCameraToManipulate)
+			if (m_manipulatedObjectKind == SceneManipulatedObjectKind::Camera && boundCameraToManipulate)
 			{
 				auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
 				boundCameraToManipulate->manipulateWithUnitMotionScales({}, &referenceFrame);
@@ -209,9 +194,13 @@ void App::TransformEditorContents()
 				}
 				*/
 			}
+			else if (m_manipulatedObjectKind == SceneManipulatedObjectKind::FollowTarget)
+			{
+				setFollowTargetTransform(getCastedMatrix<float64_t>(imguizmoModel.outTRS));
+				applyFollowToConfiguredCameras();
+			}
 			else
 			{
-				// for scene demo model full affine transformation without limits is assumed 
 				m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
 			}
 

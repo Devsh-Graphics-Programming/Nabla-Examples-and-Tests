@@ -160,12 +160,13 @@ void App::workLoopBody()
 						instance.packedGeo = m_renderer->getGeometries().data() + gcIndex;
 					}
 
-					if (m_gridGeometryIx.has_value() && m_renderer->m_instances.size() > 1u)
+					const uint32_t gridInstanceIx = 1u;
+					if (m_gridGeometryIx.has_value() && m_renderer->m_instances.size() > gridInstanceIx)
 					{
 						const auto gridIx = m_gridGeometryIx.value();
 						if (gridIx < geomCount)
 						{
-							auto& gridInstance = m_renderer->m_instances[1];
+							auto& gridInstance = m_renderer->m_instances[gridInstanceIx];
 							gridInstance.packedGeo = m_renderer->getGeometries().data() + gridIx;
 
 							constexpr float gridExtent = 32.0f;
@@ -174,6 +175,22 @@ void App::workLoopBody()
 							gridWorld[1] = float32_t4(0.0f, 1.0f, 0.0f, -0.5f);
 							gridWorld[2] = float32_t4(0.0f, 0.0f, gridExtent, -0.5f * gridExtent);
 							gridInstance.world = gridWorld;
+						}
+					}
+
+					const uint32_t followInstanceIx = 1u + (m_gridGeometryIx.has_value() ? 1u : 0u);
+					if (m_renderer->m_instances.size() > followInstanceIx)
+					{
+						auto& followInstance = m_renderer->m_instances[followInstanceIx];
+						if (m_followTargetVisible && m_followTargetGeometryIx.has_value() && m_followTargetGeometryIx.value() < geomCount)
+						{
+							followInstance.packedGeo = m_renderer->getGeometries().data() + m_followTargetGeometryIx.value();
+							followInstance.world = computeFollowTargetMarkerWorld();
+						}
+						else
+						{
+							followInstance.packedGeo = nullptr;
+							followInstance.world = float32_t3x4(1.0f);
 						}
 					}
 				}

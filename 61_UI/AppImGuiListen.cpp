@@ -18,20 +18,6 @@ void App::imguiListen()
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
-				// ORBIT CAMERA TEST
-				{
-					for (auto& planar : m_planarProjections)
-					{
-						auto* camera = planar->getCamera();
-						if (camera)
-						{
-							const auto targetPosition = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
-							if (camera->trySetSphericalTarget(float64_t3(targetPosition.x, targetPosition.y, targetPosition.z)))
-								camera->manipulate({}, {});
-						}
-					}
-				}
-
 				// render bound planar camera views onto GUI windows
 				if (useWindow)
 				{
@@ -44,7 +30,8 @@ void App::imguiListen()
 
 					size_t gizmoIx = {};
 					size_t manipulationCounter = {};
-					const std::optional<uint32_t> modelInUseIx = ImGuizmo::IsUsingAny() ? std::optional<uint32_t>(boundPlanarCameraIxToManipulate.has_value() ? 1u + boundPlanarCameraIxToManipulate.value() : 0u) : std::optional<uint32_t>(std::nullopt);
+					const std::optional<uint32_t> modelInUseIx = ImGuizmo::IsUsingAny() ? std::optional<uint32_t>(getManipulatedObjectIx()) : std::optional<uint32_t>(std::nullopt);
+					(void)modelInUseIx;
 
 					for (uint32_t windowIx = 0; windowIx < windowBindings.size(); ++windowIx)
 					{
@@ -156,16 +143,14 @@ void App::imguiListen()
 
 						if (!hideSceneGizmos)
 						{
-							for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
+							for (uint32_t objectIx = 0u; objectIx < getManipulableObjectCount(); ++objectIx)
 							{
 								ImGuizmo::PushID(gizmoIx); ++gizmoIx;
 
-								const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are planar cameras
-								ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
+								const auto planarIx = getManipulableObjectPlanarIx(objectIx);
+								const bool isFollowTarget = isManipulableObjectFollowTarget(objectIx);
+								ICamera* const targetGimbalManipulationCamera = planarIx.has_value() ? m_planarProjections[planarIx.value()]->getCamera() : nullptr;
 
-							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
-							// EDIT: it actually makes some sense if you assume render planar view is rendered with ortho projection, but we would need to add imguizmo controller virtual map
-							// to ban forward/backward in this mode if this condition is true
 								if (targetGimbalManipulationCamera == planarViewCameraBound)
 								{
 									ImGuizmo::PopID();
@@ -173,24 +158,10 @@ void App::imguiListen()
 								}
 
 								ImGuizmoModelM16InOut imguizmoModel;
+								imguizmoModel.inTRS = getManipulableObjectTransform(objectIx);
 
-								if (isCameraGimbalTarget)
-								{
-									assert(targetGimbalManipulationCamera);
-									imguizmoModel.inTRS = getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal().template operator() < float64_t4x4 > ());
-								}
-								else
-									imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
-
-								const float gizmoWorldRadius = 0.22f;
-								float32_t3 gizmoWorldPos = {};
-								if (isCameraGimbalTarget)
-									gizmoWorldPos = getCastedVector<float32_t>(targetGimbalManipulationCamera->getGimbal().getPosition());
-								else
-								{
-									const auto modelPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
-									gizmoWorldPos = float32_t3(modelPos.x, modelPos.y, modelPos.z);
-								}
+								const float gizmoWorldRadius = isFollowTarget ? 0.35f : 0.22f;
+								const auto gizmoWorldPos = getManipulableObjectWorldPosition(objectIx);
 
 								const auto viewPos = mul(viewMatrix, float32_t4(gizmoWorldPos, 1.0f));
 								const float depth = std::max(0.001f, std::abs(viewPos.z));
@@ -210,9 +181,7 @@ void App::imguiListen()
 									if (targetGimbalManipulationCamera)
 									{
 										const auto referenceFrame = getCastedMatrix<float64_t>(*reinterpret_cast<float32_t4x4*>(ImGuizmo::GetReferenceFrame()));
-
-										boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
-										boundPlanarCameraIxToManipulate = modelIx - 1u;
+										bindManipulatedCamera(planarIx.value());
 
 										// TODO: TO BE REMOVED, ONLY FOR TESTING ITS INCOMPLETE TYPE!
 										const auto& imguizmoCtx = ImGuizmo::GetContext();
@@ -317,12 +286,16 @@ void App::imguiListen()
 
 										}
 									}
+									else if (isFollowTarget)
+									{
+										setFollowTargetTransform(getCastedMatrix<float64_t>(imguizmoModel.outTRS));
+										bindManipulatedFollowTarget();
+										applyFollowToConfiguredCameras();
+									}
 									else
 									{
-										// again, for scene demo model full affine transformation without limits is assumed 
 										m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
-										boundCameraToManipulate = nullptr;
-										boundPlanarCameraIxToManipulate = std::nullopt;
+										bindManipulatedModel();
 									}
 								}
 
@@ -330,7 +303,7 @@ void App::imguiListen()
 									{
 									if (targetGimbalManipulationCamera && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 									{
-										const uint32_t newPlanarIx = modelIx - 1u;
+										const uint32_t newPlanarIx = planarIx.value();
 										if (newPlanarIx < m_planarProjections.size())
 										{
 											binding.activePlanarIx = newPlanarIx;
@@ -339,6 +312,10 @@ void App::imguiListen()
 												activeRenderWindowIx = windowIx;
 										}
 									}
+									else if (isFollowTarget && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+										bindManipulatedFollowTarget();
+									else if (!targetGimbalManipulationCamera && !isFollowTarget && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+										bindManipulatedModel();
 
 									ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
 									ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -357,17 +334,26 @@ void App::imguiListen()
 
 									if (targetGimbalManipulationCamera)
 										ident = targetGimbalManipulationCamera->getIdentifier();
+									else if (isFollowTarget)
+										ident = m_followTarget.getIdentifier();
 									else
 										ident = "Geometry Creator Object";
 
 									ImGui::Text("Identifier: %s", ident.c_str());
-									ImGui::Text("Object Ix: %u", modelIx);
+									ImGui::Text("Object Ix: %u", objectIx);
 									if (targetGimbalManipulationCamera)
 									{
 										ImGui::Separator();
 										ImGui::TextDisabled("RMB: switch view to this camera");
 										ImGui::TextDisabled("LMB drag: manipulate gizmo");
 										ImGui::TextDisabled("SPACE: toggle move mode");
+									}
+									else if (isFollowTarget)
+									{
+										ImGui::Separator();
+										ImGui::TextDisabled("RMB: select follow target");
+										ImGui::TextDisabled("LMB drag: move or rotate tracked target");
+										ImGui::TextDisabled("Enabled follow cameras update on the next frame");
 									}
 
 									ImGui::End();
@@ -439,6 +425,7 @@ void App::imguiListen()
 			DrawControlPanel();
 			UpdateBoundCameraMovement();
 			UpdateCursorVisibility();
+			applyFollowToConfiguredCameras();
 
 			// update camera matrices for scene rendering
 			{

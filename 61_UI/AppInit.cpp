@@ -327,6 +327,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return nbl::hlsl::describePresetCameraMismatch(m_cameraGoalSolver, camera, preset);
 				};
 
+				auto compareGoalToCamera = [&](ICamera* camera, const CCameraGoal& goal, const char* label) -> bool
+				{
+					auto capture = m_cameraGoalSolver.captureDetailed(camera);
+					if (!capture.canUseGoal())
+						return fail(std::string("Follow smoke failed to capture camera state for ") + label + ".");
+					if (!nbl::hlsl::compareGoals(capture.goal, goal, 1e-6, 0.1, 1e-6))
+						return fail(std::string("Follow smoke mismatch for ") + label + ". " + nbl::hlsl::describeGoalMismatch(capture.goal, goal));
+					return true;
+				};
+
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
 				{
 					static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
@@ -719,6 +729,84 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				ICamera* chaseCamera = findCameraByKind(ICamera::CameraKind::Chase);
 				ICamera* dollyCamera = findCameraByKind(ICamera::CameraKind::Dolly);
 				ICamera* dollyZoomCamera = findCameraByKind(ICamera::CameraKind::DollyZoom);
+
+				{
+					CTrackedTarget trackedTarget(
+						float64_t3(2.25, -0.75, 1.25),
+						glm::quat(glm::dvec3(0.18, -0.22, 0.41)),
+						"Smoke Target");
+
+					if (orbitCamera)
+					{
+						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, orbitCamera, "orbit-follow-baseline");
+						SCameraFollowConfig followConfig = {};
+						followConfig.enabled = true;
+						followConfig.mode = ECameraFollowMode::OrbitTarget;
+
+						CCameraGoal followGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig, followGoal))
+							return fail("Orbit follow smoke failed to build follow goal.");
+
+						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera, trackedTarget, followConfig);
+						if (!applyResult.succeeded())
+							return fail("Orbit follow smoke failed to apply follow goal.");
+						if (!compareGoalToCamera(orbitCamera, followGoal, "orbit follow"))
+							return false;
+
+						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
+						if (!restoreResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Orbit follow smoke failed to restore the baseline preset.");
+					}
+
+					if (freeCamera)
+					{
+						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, freeCamera, "free-follow-baseline");
+						SCameraFollowConfig followConfig = {};
+						followConfig.enabled = true;
+						followConfig.mode = ECameraFollowMode::LookAtTarget;
+
+						CCameraGoal followGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig, followGoal))
+							return fail("Free follow smoke failed to build follow goal.");
+
+						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, freeCamera, trackedTarget, followConfig);
+						if (!applyResult.succeeded())
+							return fail("Free follow smoke failed to apply follow goal.");
+						if (!compareGoalToCamera(freeCamera, followGoal, "free look-at follow"))
+							return false;
+
+						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
+						if (!restoreResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Free follow smoke failed to restore the baseline preset.");
+					}
+
+					if (chaseCamera)
+					{
+						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, chaseCamera, "chase-follow-baseline");
+						SCameraFollowConfig followConfig = {};
+						followConfig.enabled = true;
+						followConfig.mode = ECameraFollowMode::KeepLocalOffset;
+						if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig))
+							return fail("Chase follow smoke failed to capture local offset.");
+
+						trackedTarget.setPose(float64_t3(-1.5, 0.5, 2.25), glm::quat(glm::dvec3(-0.12, 0.35, 0.27)));
+
+						CCameraGoal followGoal = {};
+						if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig, followGoal))
+							return fail("Chase follow smoke failed to build follow goal.");
+
+						const auto applyResult = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig);
+						if (!applyResult.succeeded())
+							return fail("Chase follow smoke failed to apply follow goal.");
+						if (!compareGoalToCamera(chaseCamera, followGoal, "chase local-offset follow"))
+							return false;
+
+						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, chaseCamera, baselinePreset);
+						if (!restoreResult.succeeded() || !comparePresetToCamera(chaseCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+							return fail("Chase follow smoke failed to restore the baseline preset.");
+					}
+				}
+
 				if (hasOrbitPreset && hasChasePreset)
 				{
 					if (!verifyExactCrossKindApply(orbitCamera, initialChasePreset, "Chase->Orbit"))
@@ -2034,6 +2122,19 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_initialPlanarPresets.emplace_back(nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, presetName));
 				}
 
+				resetFollowTargetToModel();
+				m_planarFollowConfigs.clear();
+				m_planarFollowConfigs.reserve(m_planarProjections.size());
+				for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
+				{
+					auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
+					auto config = makeDefaultFollowConfig(camera);
+					m_planarFollowConfigs.emplace_back(config);
+					if (config.enabled)
+						captureFollowOffsetsForPlanar(planarIx);
+				}
+				bindManipulatedModel();
+
 				if (pendingScriptedSequence.has_value())
 				{
 					auto expandCameraSequenceScript = [&](const CCameraSequenceScript& sequence) -> bool
@@ -2894,17 +2995,22 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					const auto& pipelines = m_renderer->getInitParams().pipelines;
 					m_gridGeometryIx = std::nullopt;
+					m_followTargetGeometryIx = std::nullopt;
 					auto ix = 0u;
 					for (const auto& name : m_scene->getInitParams().geometryNames)
 					{
 						if (name == "Cone")
+						{
 							m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+							if (!m_followTargetGeometryIx.has_value())
+								m_followTargetGeometryIx = ix;
+						}
 						else if (name == "Grid")
 							m_gridGeometryIx = ix;
 						ix++;
 					}
 				}
-				m_renderer->m_instances.resize(m_gridGeometryIx.has_value() ? 2u : 1u);
+				m_renderer->m_instances.resize(1u + (m_gridGeometryIx.has_value() ? 1u : 0u) + (m_followTargetGeometryIx.has_value() ? 1u : 0u));
 
 				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
 				for (uint32_t i = 0u; i < windowBindings.size(); ++i)

@@ -503,6 +503,8 @@ void App::update()
 				}
 			}
 
+			applyFollowToConfiguredCameras();
+
 			if (m_scriptedInput.enabled && m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size())
 			{
 				auto* camera = [&]() -> ICamera*

@@ -18,6 +18,7 @@ That shared layer covers:
 - reusable camera kinds and typed state hooks
 - best-effort goal capture and apply utilities
 - preset and keyframe-track storage helpers
+- tracked-target and follow helpers built on top of shared goals
 
 At the moment other examples are not being migrated yet.
 The reusable API is growing in `common/include/camera`, while `61_UI` stays the only active call-site.
@@ -39,6 +40,28 @@ The reusable API is growing in `common/include/camera`, while `61_UI` stays the 
 - Path
 
 Each planar uses one of the configured input binding layouts and can be switched at runtime by scripted `action` events.
+
+## Follow target integration
+
+`61_UI` also exposes one tracked target in the default scene.
+
+That target owns its own gimbal and is integrated through the shared follow layer rather than
+through direct camera hacks. The example can:
+
+- manipulate the tracked target with the scene gizmo
+- show a marker for the tracked target
+- let selected cameras follow it through reusable follow modes
+
+The current default follow setup is:
+
+- `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path`
+  use `OrbitTarget`
+- `Chase`, `Dolly`
+  use `KeepLocalOffset`
+
+The follow layer is live-scene behavior only for now.
+Scripted continuity/CI runs intentionally do not re-apply follow every frame yet, because the
+current sequence asset does not author target animation separately from camera motion.
 
 ## Short math context
 

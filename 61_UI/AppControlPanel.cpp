@@ -531,7 +531,7 @@ void App::DrawControlPanel()
 						if (ImGui::TreeNodeEx("Bound Camera", flags))
 						{
 							ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
-							ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
+							ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 2u).c_str());
 							ImGui::Separator();
 							{
 								ICamera::SphericalTargetState sphericalState;
@@ -664,6 +664,62 @@ void App::DrawControlPanel()
 						if (!hasOrbitTarget)
 						{
 							ImGui::TextDisabled("Active camera is not orbit.");
+						}
+
+						DrawSectionHeader("FollowHeader", "Follow Target", accent);
+						auto* activeFollowConfig = getActiveFollowConfig();
+						if (activeFollowConfig)
+						{
+							auto& followConfig = *activeFollowConfig;
+							ImGui::Checkbox("Enable follow", &followConfig.enabled);
+							DrawHoverHint("Apply tracked-target follow to the active planar camera");
+
+							const char* followModeLabels[] = {
+								getCameraFollowModeLabel(ECameraFollowMode::Disabled),
+								getCameraFollowModeLabel(ECameraFollowMode::OrbitTarget),
+								getCameraFollowModeLabel(ECameraFollowMode::LookAtTarget),
+								getCameraFollowModeLabel(ECameraFollowMode::KeepWorldOffset),
+								getCameraFollowModeLabel(ECameraFollowMode::KeepLocalOffset)
+							};
+							int followModeIx = static_cast<int>(followConfig.mode);
+							if (ImGui::Combo("Mode", &followModeIx, followModeLabels, IM_ARRAYSIZE(followModeLabels)))
+								followConfig.mode = static_cast<ECameraFollowMode>(followModeIx);
+
+							auto trackedTarget = getCastedVector<float32_t>(m_followTarget.getGimbal().getPosition());
+							if (ImGui::InputFloat3("Tracked target", &trackedTarget[0]))
+								m_followTarget.setPosition(getCastedVector<float64_t>(trackedTarget));
+
+							ImGui::Checkbox("Show target marker", &m_followTargetVisible);
+							DrawHoverHint("Render the tracked target marker in the scene");
+
+							if (ImGui::Button("Target = model"))
+								resetFollowTargetToModel();
+							DrawHoverHint("Snap tracked target pose to the model transform");
+							ImGui::SameLine();
+							if (ImGui::Button("Target origin"))
+								m_followTarget.setPose(float64_t3(0.0), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+							DrawHoverHint("Reset tracked target to identity at world origin");
+							ImGui::SameLine();
+							if (ImGui::Button("Capture current offset"))
+								captureFollowOffsetsForPlanar(getActivePlanarIx());
+							DrawHoverHint("Store current camera-to-target relation into the active follow config");
+
+							if (cameraFollowModeUsesWorldOffset(followConfig.mode))
+							{
+								auto worldOffset = getCastedVector<float32_t>(followConfig.worldOffset);
+								if (ImGui::InputFloat3("World offset", &worldOffset[0]))
+									followConfig.worldOffset = getCastedVector<float64_t>(worldOffset);
+							}
+							if (cameraFollowModeUsesLocalOffset(followConfig.mode))
+							{
+								auto localOffset = getCastedVector<float32_t>(followConfig.localOffset);
+								if (ImGui::InputFloat3("Local offset", &localOffset[0]))
+									followConfig.localOffset = getCastedVector<float64_t>(localOffset);
+							}
+						}
+						else
+						{
+							ImGui::TextDisabled("No active follow config.");
 						}
 						ImGui::PopItemWidth();
 					}

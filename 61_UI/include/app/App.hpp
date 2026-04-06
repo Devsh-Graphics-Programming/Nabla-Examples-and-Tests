@@ -505,6 +505,13 @@ class App final : public examples::SimpleWindowedApplication
 			}
 		};
 
+		enum class SceneManipulatedObjectKind : uint8_t
+		{
+			Model,
+			FollowTarget,
+			Camera
+		};
+
 		struct CameraControlSettings
 		{
 			bool mirrorInput = false;
@@ -523,6 +530,246 @@ class App final : public examples::SimpleWindowedApplication
 			auto& binding = windowBindings[activeRenderWindowIx];
 			auto& planar = m_planarProjections[binding.activePlanarIx];
 			return planar ? planar->getCamera() : nullptr;
+		}
+
+		inline uint32_t getActivePlanarIx() const
+		{
+			return windowBindings[activeRenderWindowIx].activePlanarIx;
+		}
+
+		inline SCameraFollowConfig* getActiveFollowConfig()
+		{
+			const auto planarIx = getActivePlanarIx();
+			if (planarIx >= m_planarFollowConfigs.size())
+				return nullptr;
+			return &m_planarFollowConfigs[planarIx];
+		}
+
+		inline const SCameraFollowConfig* getActiveFollowConfig() const
+		{
+			const auto planarIx = getActivePlanarIx();
+			if (planarIx >= m_planarFollowConfigs.size())
+				return nullptr;
+			return &m_planarFollowConfigs[planarIx];
+		}
+
+		inline uint32_t getManipulableObjectCount() const
+		{
+			return 2u + static_cast<uint32_t>(m_planarProjections.size());
+		}
+
+		inline bool isManipulableObjectFollowTarget(const uint32_t objectIx) const
+		{
+			return objectIx == 1u;
+		}
+
+		inline std::optional<uint32_t> getManipulableObjectPlanarIx(const uint32_t objectIx) const
+		{
+			if (objectIx < 2u)
+				return std::nullopt;
+			const auto planarIx = objectIx - 2u;
+			if (planarIx >= m_planarProjections.size())
+				return std::nullopt;
+			return planarIx;
+		}
+
+		inline uint32_t getManipulatedObjectIx() const
+		{
+			switch (m_manipulatedObjectKind)
+			{
+				case SceneManipulatedObjectKind::Model:
+					return 0u;
+				case SceneManipulatedObjectKind::FollowTarget:
+					return 1u;
+				case SceneManipulatedObjectKind::Camera:
+				default:
+					return boundPlanarCameraIxToManipulate.has_value() ? (boundPlanarCameraIxToManipulate.value() + 2u) : 0u;
+			}
+		}
+
+		inline void bindManipulatedModel()
+		{
+			m_manipulatedObjectKind = SceneManipulatedObjectKind::Model;
+			boundCameraToManipulate = nullptr;
+			boundPlanarCameraIxToManipulate = std::nullopt;
+		}
+
+		inline void bindManipulatedFollowTarget()
+		{
+			m_manipulatedObjectKind = SceneManipulatedObjectKind::FollowTarget;
+			boundCameraToManipulate = nullptr;
+			boundPlanarCameraIxToManipulate = std::nullopt;
+		}
+
+		inline void bindManipulatedCamera(const uint32_t planarIx)
+		{
+			if (planarIx >= m_planarProjections.size())
+			{
+				bindManipulatedModel();
+				return;
+			}
+
+			auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
+			if (!camera)
+			{
+				bindManipulatedModel();
+				return;
+			}
+
+			m_manipulatedObjectKind = SceneManipulatedObjectKind::Camera;
+			boundPlanarCameraIxToManipulate = planarIx;
+			boundCameraToManipulate = smart_refctd_ptr<ICamera>(camera);
+		}
+
+		inline void bindManipulatedObjectByIx(const uint32_t objectIx)
+		{
+			if (objectIx == 0u)
+				return bindManipulatedModel();
+			if (isManipulableObjectFollowTarget(objectIx))
+				return bindManipulatedFollowTarget();
+			if (const auto planarIx = getManipulableObjectPlanarIx(objectIx); planarIx.has_value())
+				return bindManipulatedCamera(planarIx.value());
+			bindManipulatedModel();
+		}
+
+		inline std::string getManipulableObjectLabel(const uint32_t objectIx) const
+		{
+			if (objectIx == 0u)
+				return "Model";
+			if (isManipulableObjectFollowTarget(objectIx))
+				return m_followTarget.getIdentifier();
+			if (const auto planarIx = getManipulableObjectPlanarIx(objectIx); planarIx.has_value())
+			{
+				auto* camera = m_planarProjections[planarIx.value()] ? m_planarProjections[planarIx.value()]->getCamera() : nullptr;
+				if (!camera)
+					return "Camera " + std::to_string(planarIx.value());
+				return std::string(getCameraTypeLabel(camera)) + " Camera";
+			}
+			return "Unknown";
+		}
+
+		inline float32_t4x4 getManipulableObjectTransform(const uint32_t objectIx) const
+		{
+			if (objectIx == 0u)
+				return hlsl::transpose(getMatrix3x4As4x4(m_model));
+			if (isManipulableObjectFollowTarget(objectIx))
+				return getCastedMatrix<float32_t>(m_followTarget.getGimbal().template operator()<float64_t4x4>());
+
+			if (const auto planarIx = getManipulableObjectPlanarIx(objectIx); planarIx.has_value())
+			{
+				auto* camera = m_planarProjections[planarIx.value()] ? m_planarProjections[planarIx.value()]->getCamera() : nullptr;
+				if (camera)
+					return getCastedMatrix<float32_t>(camera->getGimbal().template operator()<float64_t4x4>());
+			}
+
+			return float32_t4x4(1.0f);
+		}
+
+		inline float32_t3 getManipulableObjectWorldPosition(const uint32_t objectIx) const
+		{
+			if (objectIx == 0u)
+			{
+				const auto modelPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
+				return float32_t3(modelPos.x, modelPos.y, modelPos.z);
+			}
+			if (isManipulableObjectFollowTarget(objectIx))
+				return getCastedVector<float32_t>(m_followTarget.getGimbal().getPosition());
+
+			if (const auto planarIx = getManipulableObjectPlanarIx(objectIx); planarIx.has_value())
+			{
+				auto* camera = m_planarProjections[planarIx.value()] ? m_planarProjections[planarIx.value()]->getCamera() : nullptr;
+				if (camera)
+					return getCastedVector<float32_t>(camera->getGimbal().getPosition());
+			}
+
+			return float32_t3(0.0f);
+		}
+
+		inline float32_t3x4 computeFollowTargetMarkerWorld() const
+		{
+			auto markerWorld = getCastedMatrix<float32_t>(m_followTarget.getGimbal().operator()());
+			const float32_t3x4 markerLocal = {
+				float32_t4(0.22f, 0.0f, 0.0f, 0.0f),
+				float32_t4(0.0f, 0.35f, 0.0f, 0.45f),
+				float32_t4(0.0f, 0.0f, 0.22f, 0.0f)
+			};
+			return concatenateBFollowedByA(markerLocal, markerWorld);
+		}
+
+		inline void setFollowTargetTransform(const float64_t4x4& transform)
+		{
+			m_followTarget.trySetFromTransform(transform);
+		}
+
+		inline bool captureFollowOffsetsForPlanar(const uint32_t planarIx)
+		{
+			if (planarIx >= m_planarProjections.size() || planarIx >= m_planarFollowConfigs.size())
+				return false;
+			auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
+			return nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, m_planarFollowConfigs[planarIx]);
+		}
+
+		inline void resetFollowTargetToModel()
+		{
+			const auto modelTransform = hlsl::transpose(getMatrix3x4As4x4(m_model));
+			setFollowTargetTransform(getCastedMatrix<float64_t>(modelTransform));
+		}
+
+		inline SCameraFollowConfig makeDefaultFollowConfig(ICamera* camera)
+		{
+			SCameraFollowConfig config = {};
+			if (!camera)
+				return config;
+
+			switch (camera->getKind())
+			{
+				case ICamera::CameraKind::Orbit:
+				case ICamera::CameraKind::Arcball:
+				case ICamera::CameraKind::Turntable:
+				case ICamera::CameraKind::TopDown:
+				case ICamera::CameraKind::Isometric:
+				case ICamera::CameraKind::DollyZoom:
+				case ICamera::CameraKind::Path:
+					config.enabled = true;
+					config.mode = ECameraFollowMode::OrbitTarget;
+					break;
+				case ICamera::CameraKind::Chase:
+				case ICamera::CameraKind::Dolly:
+					config.enabled = true;
+					config.mode = ECameraFollowMode::KeepLocalOffset;
+					break;
+				default:
+					break;
+			}
+
+			return config;
+		}
+
+		inline void applyFollowToConfiguredCameras()
+		{
+			if (m_scriptedInput.enabled)
+				return;
+			if (m_planarFollowConfigs.size() != m_planarProjections.size())
+				return;
+
+			for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
+			{
+				auto& planar = m_planarProjections[planarIx];
+				auto* camera = planar ? planar->getCamera() : nullptr;
+				if (!camera)
+					continue;
+
+				const auto& config = m_planarFollowConfigs[planarIx];
+				if (!config.enabled || config.mode == ECameraFollowMode::Disabled)
+					continue;
+
+				const auto result = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, m_followTarget, config);
+				if (!result.succeeded())
+					continue;
+
+				for (auto& projection : planar->getPlanarProjections())
+					nbl::hlsl::syncDynamicPerspectiveProjection(camera, projection);
+			}
 		}
 
 		inline bool isOrbitLikeCamera(ICamera* camera)
@@ -1438,9 +1685,12 @@ class App final : public examples::SimpleWindowedApplication
 
 		// one model object in the world, testing multiuple cameraz for which view is rendered to separate frame buffers (so what they see) with new controller API including imguizmo
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
+		CTrackedTarget m_followTarget;
+		std::vector<SCameraFollowConfig> m_planarFollowConfigs;
+		bool m_followTargetVisible = true;
+		std::optional<uint32_t> m_followTargetGeometryIx = std::nullopt;
+		SceneManipulatedObjectKind m_manipulatedObjectKind = SceneManipulatedObjectKind::Model;
 
-		// if we had working IObjectTransform or something similar then it would be it instead, it is "last manipulated object" I need for TRS editor
-		// in reality we should store range of those IObjectTransforem interface range & index to object representing last manipulated one
 		nbl::core::smart_refctd_ptr<ICamera> boundCameraToManipulate = nullptr;
 		std::optional<uint32_t> boundPlanarCameraIxToManipulate = std::nullopt;
 

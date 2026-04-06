@@ -13,6 +13,7 @@ The current design goal is:
 - reusable playback cursor and timeline helpers live in shared headers
 - reusable preset and keyframe persistence helpers live in shared headers
 - reusable compact camera-sequence scripting helpers live in shared headers
+- reusable tracked-target and follow helpers live in shared headers
 - `61_UI` is the current integration and validation surface
 
 ## Mental model
@@ -45,6 +46,10 @@ and the playback cursor sits beside that state:
 and compact authored sequence scripts sit above the same shared camera-domain state:
 
 `CCameraSequenceScript -> CCameraKeyframeTrack -> CCameraPreset -> CCameraGoal`
+
+and tracked-target follow sits beside the same goal layer:
+
+`CTrackedTarget + SCameraFollowConfig -> CCameraGoal -> CCameraGoalSolver`
 
 ## Core contracts
 
@@ -258,6 +263,27 @@ This keeps policy analysis out of example-local UI code.
 ### `CCameraTextUtilities.hpp`
 
 Reusable human-readable metadata and diagnostic text helpers for cameras.
+
+### `CCameraFollowUtilities.hpp`
+
+Reusable tracked-target and follow helpers layered on top of the shared camera API.
+
+Important design points:
+
+- follow stays outside `ICamera`
+- the tracked subject owns its own gimbal through `CTrackedTarget`
+- follow modes map target motion into `CCameraGoal`
+- goal application still goes through `CCameraGoalSolver`
+
+Current follow modes:
+
+- `LookAtTarget`
+- `OrbitTarget`
+- `KeepWorldOffset`
+- `KeepLocalOffset`
+
+This keeps the camera runtime contract event-driven while still allowing higher-level
+tracking behavior to be reused by tools and examples.
 
 Provides:
 
