@@ -309,6 +309,7 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 		};
 		utils->updateImageViaStagingBuffer(info,data.data(),params.format,immutables.scrambleKey.image.get(),IGPUImage::LAYOUT::GENERAL,{&region,1});
 	}
+	// TODO: don't clear the images, the pipelines do it (still requires transitioning the images though - but right after creation)
 	// clear all other images
 	{
 		IGPUCommandBuffer::SClearColorValue color;

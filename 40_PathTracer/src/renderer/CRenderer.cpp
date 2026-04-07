@@ -479,7 +479,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 					{
 						SBufferRange<const IGPUBuffer> range = {.size=handles.size()*handleSizeAligned};
 						range.offset = allocator.alloc_addr(range.size,limits.shaderGroupBaseAlignment);
-						memRsc->storage.resize(allocator.get_allocated_size());
+						memRsc->storage.resize(core::alignUp(allocator.get_allocated_size(),limits.shaderGroupBaseAlignment));
 						uint8_t* out = memRsc->storage.data()+range.offset;
 						for (const auto& handle : handles)
 						{
@@ -778,6 +778,12 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			case CSession::RenderMode::Debug:
 			{
 				SDebugPushConstants pc = {sessionResources.currentSensorState};
+				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
+				break;
+			}
+			case CSession::RenderMode::Beauty:
+			{
+				SBeautyPushConstants pc = {.sensorDynamics=sessionResources.currentSensorState};
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}
