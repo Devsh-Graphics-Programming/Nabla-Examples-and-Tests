@@ -105,32 +105,6 @@ struct SCameraFollowConfig
     float64_t3 localOffset = float64_t3(0.0);
 };
 
-inline constexpr const char* getCameraFollowModeLabel(const ECameraFollowMode mode)
-{
-    switch (mode)
-    {
-        case ECameraFollowMode::Disabled: return "Disabled";
-        case ECameraFollowMode::OrbitTarget: return "Orbit target";
-        case ECameraFollowMode::LookAtTarget: return "Look at target";
-        case ECameraFollowMode::KeepWorldOffset: return "Keep world offset";
-        case ECameraFollowMode::KeepLocalOffset: return "Keep local offset";
-        default: return "Unknown";
-    }
-}
-
-inline constexpr const char* getCameraFollowModeDescription(const ECameraFollowMode mode)
-{
-    switch (mode)
-    {
-        case ECameraFollowMode::Disabled: return "Follow disabled";
-        case ECameraFollowMode::OrbitTarget: return "Keep orbit around moving target and keep it centered";
-        case ECameraFollowMode::LookAtTarget: return "Keep camera position and lock the view onto the target";
-        case ECameraFollowMode::KeepWorldOffset: return "Move with the target in world offset and keep it centered";
-        case ECameraFollowMode::KeepLocalOffset: return "Move with the target in target-local offset and keep it centered";
-        default: return "Unknown follow mode";
-    }
-}
-
 inline constexpr bool cameraFollowModeLocksViewToTarget(const ECameraFollowMode mode)
 {
     switch (mode)

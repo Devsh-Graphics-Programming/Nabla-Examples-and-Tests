@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 
+#include "CCameraFollowUtilities.hpp"
 #include "CCameraGoalAnalysis.hpp"
 #include "CCameraPresetFlow.hpp"
 
@@ -65,6 +66,34 @@ inline std::string_view getCameraTypeDescription(const core::ICamera::CameraKind
 inline std::string_view getCameraTypeDescription(const core::ICamera* camera)
 {
 	return camera ? getCameraTypeDescription(camera->getKind()) : "Unspecified camera behavior";
+}
+
+//! Return a short human-readable label for a follow mode.
+inline constexpr const char* getCameraFollowModeLabel(const core::ECameraFollowMode mode)
+{
+	switch (mode)
+	{
+		case core::ECameraFollowMode::Disabled: return "Disabled";
+		case core::ECameraFollowMode::OrbitTarget: return "Orbit target";
+		case core::ECameraFollowMode::LookAtTarget: return "Look at target";
+		case core::ECameraFollowMode::KeepWorldOffset: return "Keep world offset";
+		case core::ECameraFollowMode::KeepLocalOffset: return "Keep local offset";
+		default: return "Unknown";
+	}
+}
+
+//! Return a short human-readable description for a follow mode.
+inline constexpr const char* getCameraFollowModeDescription(const core::ECameraFollowMode mode)
+{
+	switch (mode)
+	{
+		case core::ECameraFollowMode::Disabled: return "Follow disabled";
+		case core::ECameraFollowMode::OrbitTarget: return "Keep orbit around moving target and keep it centered";
+		case core::ECameraFollowMode::LookAtTarget: return "Keep camera position and lock the view onto the target";
+		case core::ECameraFollowMode::KeepWorldOffset: return "Move with the target in world offset and keep it centered";
+		case core::ECameraFollowMode::KeepLocalOffset: return "Move with the target in target-local offset and keep it centered";
+		default: return "Unknown follow mode";
+	}
 }
 
 //! Describe the typed goal-state mask in a stable human-readable format.

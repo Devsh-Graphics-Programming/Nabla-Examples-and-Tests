@@ -1269,7 +1269,7 @@ class App final : public examples::SimpleWindowedApplication
 				}
 				if (m_scriptedInput.visualFollowActive)
 				{
-					lineHint += "  |  " + std::string(nbl::core::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
+					lineHint += "  |  " + std::string(nbl::ui::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
 					if (m_scriptedInput.visualFollowLockValid)
 					{
 						char followBuffer[192] = {};
