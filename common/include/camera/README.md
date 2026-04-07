@@ -46,7 +46,7 @@ The stack is split across existing Nabla namespaces:
 - `nbl::core`
   camera runtime model, goals, presets, tracks, playback, follow, and authored sequence data
 - `nbl::ui`
-  binding layouts, input processors, binders, and default input mappings
+  binding layouts, input processors, binders, default input mappings, and user-facing presentation/text helpers
 - `nbl::system`
   persistence, scripted runtime payloads, scripted parsing, and scripted check execution
 
@@ -263,7 +263,7 @@ It covers:
 - preset storage
 - keyframe playback
 - persistence
-- diagnostics and presentation helpers
+- UI-facing diagnostics and presentation helpers
 
 ### 7. Follow
 

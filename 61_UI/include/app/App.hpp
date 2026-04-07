@@ -1346,12 +1346,12 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
-			return nbl::core::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
+			return nbl::ui::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
 		}
 
 		inline CaptureUiAnalysis analyzeCameraCaptureForUi(ICamera* camera) const
 		{
-			return nbl::core::analyzeCapturePresentation(m_cameraGoalSolver, camera);
+			return nbl::ui::analyzeCapturePresentation(m_cameraGoalSolver, camera);
 		}
 
 		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
@@ -1394,7 +1394,7 @@ class App final : public examples::SimpleWindowedApplication
 		inline void storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 		{
 			storeApplyStatusBanner(m_playbackApplyBanner,
-				nbl::core::describePresetApplySummary(summary, m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
+				nbl::ui::describePresetApplySummary(summary, m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
 				summary.succeeded(),
 				summary.approximate());
 		}

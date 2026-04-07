@@ -806,9 +806,9 @@ void App::DrawControlPanel()
 						if (!m_presets.empty())
 						{
 							const char* presetFilterLabels[] = {
-								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
-								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
-								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
+								nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
+								nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
+								nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
 							};
 							int presetFilterIx = static_cast<int>(m_presetFilterMode);
 							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))

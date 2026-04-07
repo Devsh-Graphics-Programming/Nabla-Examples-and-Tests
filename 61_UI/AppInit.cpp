@@ -1338,14 +1338,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (hasOrbitPreset)
 				{
-					if (std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
-						std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
-						std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
+					if (std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
+						std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
+						std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
 					{
 						return fail("Presentation utilities smoke returned an unexpected filter label.");
 					}
 
-					const auto blockedPresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, nullptr, initialOrbitPreset);
+					const auto blockedPresentation = nbl::ui::analyzePresetPresentation(m_cameraGoalSolver, nullptr, initialOrbitPreset);
 					if (blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 						blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
 					{
@@ -1354,13 +1354,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (blockedPresentation.sourceKindLabel.empty() || blockedPresentation.goalStateLabel.empty())
 						return fail("Presentation utilities smoke produced empty blocked presentation labels.");
 
-					const auto blockedBadges = nbl::core::collectGoalApplyPresentationBadges(blockedPresentation);
+					const auto blockedBadges = nbl::ui::collectGoalApplyPresentationBadges(blockedPresentation);
 					if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort || blockedPresentation.badges.blocked != blockedBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong blocked badge flags.");
 
 					if (orbitCamera)
 					{
-						const auto exactPresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
+						const auto exactPresentation = nbl::ui::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
 						if (!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 							!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 							exactPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -1368,13 +1368,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Presentation utilities smoke failed exact filtering.");
 						}
 
-						const auto exactBadges = nbl::core::collectGoalApplyPresentationBadges(exactPresentation);
+						const auto exactBadges = nbl::ui::collectGoalApplyPresentationBadges(exactPresentation);
 						if (!exactBadges.exact || exactBadges.bestEffort || exactBadges.dropsState || exactBadges.sharedStateOnly || exactBadges.blocked)
 							return fail("Presentation utilities smoke produced wrong exact badge flags.");
 						if (exactPresentation.sourceKindLabel.empty() || exactPresentation.goalStateLabel.empty())
 							return fail("Presentation utilities smoke produced empty exact presentation labels.");
 
-						const auto capturePresentation = nbl::core::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
+						const auto capturePresentation = nbl::ui::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
 						if (!capturePresentation.canCapture || capturePresentation.policyLabel.empty())
 							return fail("Presentation utilities smoke failed orbit capture presentation.");
 					}
@@ -1382,7 +1382,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (hasOrbitPreset && hasPathPreset && orbitCamera)
 				{
-					const auto approximatePresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialPathPreset);
+					const auto approximatePresentation = nbl::ui::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialPathPreset);
 					if (!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 						approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 						!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -1390,7 +1390,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Presentation utilities smoke failed best-effort filtering.");
 					}
 
-					const auto approximateBadges = nbl::core::collectGoalApplyPresentationBadges(approximatePresentation);
+					const auto approximateBadges = nbl::ui::collectGoalApplyPresentationBadges(approximatePresentation);
 					if (approximateBadges.exact || !approximateBadges.bestEffort || !approximateBadges.dropsState || approximateBadges.sharedStateOnly || approximateBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong best-effort badge flags.");
 					if (approximatePresentation.sourceKindLabel.empty() || approximatePresentation.goalStateLabel.empty())
@@ -1854,7 +1854,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					summary.targetCount = 2u;
 					summary.successCount = 2u;
 					summary.approximateCount = 1u;
-					const auto summaryText = nbl::core::describePresetApplySummary(summary, "none");
+					const auto summaryText = nbl::ui::describePresetApplySummary(summary, "none");
 					if (summaryText.find("targets=2") == std::string::npos || summaryText.find("approximate=1") == std::string::npos)
 						return fail("Camera text utilities smoke failed for preset-apply summary description.");
 				}

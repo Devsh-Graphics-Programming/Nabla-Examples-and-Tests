@@ -12,57 +12,57 @@
 #include "CCameraGoalAnalysis.hpp"
 #include "CCameraPresetFlow.hpp"
 
-namespace nbl::core
+namespace nbl::ui
 {
 
 //! Return a short human-readable label for a camera kind.
-inline std::string_view getCameraTypeLabel(const ICamera::CameraKind kind)
+inline std::string_view getCameraTypeLabel(const core::ICamera::CameraKind kind)
 {
 	switch (kind)
 	{
-		case ICamera::CameraKind::FPS: return "FPS";
-		case ICamera::CameraKind::Free: return "Free";
-		case ICamera::CameraKind::Orbit: return "Orbit";
-		case ICamera::CameraKind::Arcball: return "Arcball";
-		case ICamera::CameraKind::Turntable: return "Turntable";
-		case ICamera::CameraKind::TopDown: return "TopDown";
-		case ICamera::CameraKind::Isometric: return "Isometric";
-		case ICamera::CameraKind::Chase: return "Chase";
-		case ICamera::CameraKind::Dolly: return "Dolly";
-		case ICamera::CameraKind::DollyZoom: return "Dolly Zoom";
-		case ICamera::CameraKind::Path: return "Path";
+		case core::ICamera::CameraKind::FPS: return "FPS";
+		case core::ICamera::CameraKind::Free: return "Free";
+		case core::ICamera::CameraKind::Orbit: return "Orbit";
+		case core::ICamera::CameraKind::Arcball: return "Arcball";
+		case core::ICamera::CameraKind::Turntable: return "Turntable";
+		case core::ICamera::CameraKind::TopDown: return "TopDown";
+		case core::ICamera::CameraKind::Isometric: return "Isometric";
+		case core::ICamera::CameraKind::Chase: return "Chase";
+		case core::ICamera::CameraKind::Dolly: return "Dolly";
+		case core::ICamera::CameraKind::DollyZoom: return "Dolly Zoom";
+		case core::ICamera::CameraKind::Path: return "Path";
 		default: return "Unknown";
 	}
 }
 
 //! Return a short human-readable label for a concrete camera instance.
-inline std::string_view getCameraTypeLabel(const ICamera* camera)
+inline std::string_view getCameraTypeLabel(const core::ICamera* camera)
 {
 	return camera ? getCameraTypeLabel(camera->getKind()) : "Unknown";
 }
 
 //! Return a short human-readable description for a camera kind.
-inline std::string_view getCameraTypeDescription(const ICamera::CameraKind kind)
+inline std::string_view getCameraTypeDescription(const core::ICamera::CameraKind kind)
 {
 	switch (kind)
 	{
-		case ICamera::CameraKind::FPS: return "First-person WASD + mouse look";
-		case ICamera::CameraKind::Free: return "Free-fly 6DOF with full rotation";
-		case ICamera::CameraKind::Orbit: return "Orbit around target with dolly";
-		case ICamera::CameraKind::Arcball: return "Arcball trackball around target";
-		case ICamera::CameraKind::Turntable: return "Turntable yaw/pitch around target";
-		case ICamera::CameraKind::TopDown: return "Fixed pitch top-down pan";
-		case ICamera::CameraKind::Isometric: return "Fixed isometric view with pan";
-		case ICamera::CameraKind::Chase: return "Target follow with chase controls";
-		case ICamera::CameraKind::Dolly: return "Rig truck/dolly with look-at";
-		case ICamera::CameraKind::DollyZoom: return "Orbit with dolly-zoom FOV";
-		case ICamera::CameraKind::Path: return "Move along a target path";
+		case core::ICamera::CameraKind::FPS: return "First-person WASD + mouse look";
+		case core::ICamera::CameraKind::Free: return "Free-fly 6DOF with full rotation";
+		case core::ICamera::CameraKind::Orbit: return "Orbit around target with dolly";
+		case core::ICamera::CameraKind::Arcball: return "Arcball trackball around target";
+		case core::ICamera::CameraKind::Turntable: return "Turntable yaw/pitch around target";
+		case core::ICamera::CameraKind::TopDown: return "Fixed pitch top-down pan";
+		case core::ICamera::CameraKind::Isometric: return "Fixed isometric view with pan";
+		case core::ICamera::CameraKind::Chase: return "Target follow with chase controls";
+		case core::ICamera::CameraKind::Dolly: return "Rig truck/dolly with look-at";
+		case core::ICamera::CameraKind::DollyZoom: return "Orbit with dolly-zoom FOV";
+		case core::ICamera::CameraKind::Path: return "Move along a target path";
 		default: return "Unspecified camera behavior";
 	}
 }
 
 //! Return a short human-readable description for a concrete camera instance.
-inline std::string_view getCameraTypeDescription(const ICamera* camera)
+inline std::string_view getCameraTypeDescription(const core::ICamera* camera)
 {
 	return camera ? getCameraTypeDescription(camera->getKind()) : "Unspecified camera behavior";
 }
@@ -70,7 +70,7 @@ inline std::string_view getCameraTypeDescription(const ICamera* camera)
 //! Describe the typed goal-state mask in a stable human-readable format.
 inline std::string describeGoalStateMask(const uint32_t mask)
 {
-	if (mask == ICamera::GoalStateNone)
+	if (mask == core::ICamera::GoalStateNone)
 		return "Pose only";
 
 	std::string out;
@@ -83,34 +83,34 @@ inline std::string describeGoalStateMask(const uint32_t mask)
 		out += label;
 	};
 
-	append("Spherical target", ICamera::GoalStateSphericalTarget);
-	append("Dynamic perspective", ICamera::GoalStateDynamicPerspective);
-	append("Path", ICamera::GoalStatePath);
+	append("Spherical target", core::ICamera::GoalStateSphericalTarget);
+	append("Dynamic perspective", core::ICamera::GoalStateDynamicPerspective);
+	append("Path", core::ICamera::GoalStatePath);
 	return out;
 }
 
 //! Describe a detailed goal-apply result for logs, smoke tests, and UI summaries.
-inline std::string describeApplyResult(const CCameraGoalSolver::SApplyResult& result)
+inline std::string describeApplyResult(const core::CCameraGoalSolver::SApplyResult& result)
 {
 	std::ostringstream oss;
 	oss << "status=";
 	switch (result.status)
 	{
-		case CCameraGoalSolver::SApplyResult::EStatus::Unsupported: oss << "Unsupported"; break;
-		case CCameraGoalSolver::SApplyResult::EStatus::Failed: oss << "Failed"; break;
-		case CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied: oss << "AlreadySatisfied"; break;
-		case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly: oss << "AppliedAbsoluteOnly"; break;
-		case CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents: oss << "AppliedVirtualEvents"; break;
-		case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents: oss << "AppliedAbsoluteAndVirtualEvents"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::Unsupported: oss << "Unsupported"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::Failed: oss << "Failed"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied: oss << "AlreadySatisfied"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly: oss << "AppliedAbsoluteOnly"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents: oss << "AppliedVirtualEvents"; break;
+		case core::CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents: oss << "AppliedAbsoluteAndVirtualEvents"; break;
 	}
 	oss << " exact=" << (result.exact ? "true" : "false")
 		<< " events=" << result.eventCount;
 
-	if (result.issues != CCameraGoalSolver::SApplyResult::NoIssue)
+	if (result.issues != core::CCameraGoalSolver::SApplyResult::NoIssue)
 	{
 		oss << " issues=";
 		bool first = true;
-		auto appendIssue = [&](const char* label, const CCameraGoalSolver::SApplyResult::EIssue issue) -> void
+		auto appendIssue = [&](const char* label, const core::CCameraGoalSolver::SApplyResult::EIssue issue) -> void
 		{
 			if (!result.hasIssue(issue))
 				return;
@@ -120,18 +120,18 @@ inline std::string describeApplyResult(const CCameraGoalSolver::SApplyResult& re
 			first = false;
 		};
 
-		appendIssue("absolute_pose_fallback", CCameraGoalSolver::SApplyResult::UsedAbsolutePoseFallback);
-		appendIssue("missing_spherical_state", CCameraGoalSolver::SApplyResult::MissingSphericalTargetState);
-		appendIssue("missing_path_state", CCameraGoalSolver::SApplyResult::MissingPathState);
-		appendIssue("missing_dynamic_perspective_state", CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState);
-		appendIssue("virtual_event_replay_failed", CCameraGoalSolver::SApplyResult::VirtualEventReplayFailed);
+		appendIssue("absolute_pose_fallback", core::CCameraGoalSolver::SApplyResult::UsedAbsolutePoseFallback);
+		appendIssue("missing_spherical_state", core::CCameraGoalSolver::SApplyResult::MissingSphericalTargetState);
+		appendIssue("missing_path_state", core::CCameraGoalSolver::SApplyResult::MissingPathState);
+		appendIssue("missing_dynamic_perspective_state", core::CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState);
+		appendIssue("virtual_event_replay_failed", core::CCameraGoalSolver::SApplyResult::VirtualEventReplayFailed);
 	}
 
 	return oss.str();
 }
 
 //! Describe compatibility preview for applying one analyzed goal to a target camera.
-inline std::string describeGoalApplyCompatibility(const SCameraGoalApplyAnalysis& analysis, const ICamera* targetCamera)
+inline std::string describeGoalApplyCompatibility(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
 {
 	if (!analysis.hasCamera)
 		return "No active camera";
@@ -141,16 +141,16 @@ inline std::string describeGoalApplyCompatibility(const SCameraGoalApplyAnalysis
 		<< " | source=" << getCameraTypeLabel(analysis.goal.sourceKind)
 		<< " | target=" << getCameraTypeLabel(targetCamera);
 
-	if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+	if (analysis.compatibility.missingGoalStateMask != core::ICamera::GoalStateNone)
 		oss << " | missing=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
-	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != core::ICamera::CameraKind::Unknown)
 		oss << " | shared goal state only";
 
 	return oss.str();
 }
 
 //! Describe whether an analyzed goal can be meaningfully applied to the target camera.
-inline std::string describeGoalApplyPolicy(const SCameraGoalApplyAnalysis& analysis)
+inline std::string describeGoalApplyPolicy(const core::SCameraGoalApplyAnalysis& analysis)
 {
 	if (!analysis.hasCamera)
 		return "Blocked | no active camera";
@@ -159,9 +159,9 @@ inline std::string describeGoalApplyPolicy(const SCameraGoalApplyAnalysis& analy
 
 	std::ostringstream oss;
 	oss << (analysis.compatibility.exact ? "Exact apply" : "Best-effort apply");
-	if (analysis.compatibility.missingGoalStateMask != ICamera::GoalStateNone)
+	if (analysis.compatibility.missingGoalStateMask != core::ICamera::GoalStateNone)
 		oss << " | drops=" << describeGoalStateMask(analysis.compatibility.missingGoalStateMask);
-	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != ICamera::CameraKind::Unknown)
+	else if (!analysis.compatibility.sameKind && analysis.goal.sourceKind != core::ICamera::CameraKind::Unknown)
 		oss << " | shared goal state only";
 	else
 		oss << " | full preview available";
@@ -170,7 +170,7 @@ inline std::string describeGoalApplyPolicy(const SCameraGoalApplyAnalysis& analy
 }
 
 //! Describe whether one analyzed camera state can be captured into a reusable goal.
-inline std::string describeCameraCapturePolicy(const SCameraCaptureAnalysis& analysis, const ICamera* camera)
+inline std::string describeCameraCapturePolicy(const core::SCameraCaptureAnalysis& analysis, const core::ICamera* camera)
 {
 	if (!analysis.hasCamera)
 		return "Blocked | no active camera";
@@ -186,7 +186,7 @@ inline std::string describeCameraCapturePolicy(const SCameraCaptureAnalysis& ana
 }
 
 //! Describe the aggregate outcome of applying one preset to multiple cameras.
-inline std::string describePresetApplySummary(const SCameraPresetApplySummary& summary, std::string_view noTargetsLabel, std::string_view prefix = "Playback apply")
+inline std::string describePresetApplySummary(const core::SCameraPresetApplySummary& summary, std::string_view noTargetsLabel, std::string_view prefix = "Playback apply")
 {
 	if (!summary.hasTargets())
 		return std::string(noTargetsLabel);
@@ -200,6 +200,6 @@ inline std::string describePresetApplySummary(const SCameraPresetApplySummary& s
 	return oss.str();
 }
 
-} // namespace nbl::core
+} // namespace nbl::ui
 
 #endif // _C_CAMERA_TEXT_UTILITIES_HPP_

@@ -9,7 +9,7 @@
 
 #include "CCameraTextUtilities.hpp"
 
-namespace nbl::core
+namespace nbl::ui
 {
 
 //! Shared exactness-oriented filter used by preset presentation surfaces.
@@ -31,7 +31,7 @@ struct SCameraGoalApplyPresentationBadges final
 };
 
 //! Presentation-ready wrapper around analyzed goal apply compatibility.
-struct SCameraGoalApplyPresentation final : SCameraGoalApplyAnalysis
+struct SCameraGoalApplyPresentation final : core::SCameraGoalApplyAnalysis
 {
     SCameraGoalApplyPresentationBadges badges;
     std::string sourceKindLabel;
@@ -56,7 +56,7 @@ struct SCameraGoalApplyPresentation final : SCameraGoalApplyAnalysis
 };
 
 //! Presentation-ready wrapper around analyzed camera capture viability.
-struct SCameraCapturePresentation final : SCameraCaptureAnalysis
+struct SCameraCapturePresentation final : core::SCameraCaptureAnalysis
 {
     std::string policyLabel;
 };
@@ -80,10 +80,10 @@ inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPrese
 }
 
 //! Build presentation text for one analyzed goal-apply result.
-inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const SCameraGoalApplyAnalysis& analysis, const ICamera* targetCamera)
+inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
 {
     SCameraGoalApplyPresentation presentation;
-    static_cast<SCameraGoalApplyAnalysis&>(presentation) = analysis;
+    static_cast<core::SCameraGoalApplyAnalysis&>(presentation) = analysis;
     presentation.badges = collectGoalApplyPresentationBadges(presentation);
     presentation.sourceKindLabel = std::string(getCameraTypeLabel(presentation.goal.sourceKind));
     presentation.goalStateLabel = describeGoalStateMask(presentation.goal.sourceGoalStateMask);
@@ -93,9 +93,9 @@ inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const SCameraGoalA
 }
 
 //! Analyze one preset against one camera and return reusable presentation data.
-inline SCameraGoalApplyPresentation analyzePresetPresentation(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraPreset& preset)
+inline SCameraGoalApplyPresentation analyzePresetPresentation(const core::CCameraGoalSolver& solver, const core::ICamera* camera, const core::CCameraPreset& preset)
 {
-    return makeGoalApplyPresentation(analyzePresetApply(solver, camera, preset), camera);
+    return makeGoalApplyPresentation(core::analyzePresetApply(solver, camera, preset), camera);
 }
 
 //! Build reusable badge flags for one preset/keyframe compatibility answer.
@@ -111,14 +111,14 @@ inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(con
 }
 
 //! Analyze one camera capture path and return reusable presentation data.
-inline SCameraCapturePresentation analyzeCapturePresentation(const CCameraGoalSolver& solver, ICamera* camera)
+inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCameraGoalSolver& solver, core::ICamera* camera)
 {
     SCameraCapturePresentation presentation;
-    static_cast<SCameraCaptureAnalysis&>(presentation) = analyzeCameraCapture(solver, camera);
+    static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::analyzeCameraCapture(solver, camera);
     presentation.policyLabel = describeCameraCapturePolicy(presentation, camera);
     return presentation;
 }
 
-} // namespace nbl::core
+} // namespace nbl::ui
 
 #endif // _C_CAMERA_PRESENTATION_UTILITIES_HPP_
