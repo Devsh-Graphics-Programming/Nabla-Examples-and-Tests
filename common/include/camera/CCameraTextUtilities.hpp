@@ -12,7 +12,7 @@
 #include "CCameraGoalAnalysis.hpp"
 #include "CCameraPresetFlow.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Return a short human-readable label for a camera kind.
@@ -200,6 +200,6 @@ inline std::string describePresetApplySummary(const SCameraPresetApplySummary& s
 	return oss.str();
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_TEXT_UTILITIES_HPP_

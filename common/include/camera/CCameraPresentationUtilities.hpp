@@ -9,7 +9,7 @@
 
 #include "CCameraTextUtilities.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Shared exactness-oriented filter used by preset presentation surfaces.
@@ -119,6 +119,6 @@ inline SCameraCapturePresentation analyzeCapturePresentation(const CCameraGoalSo
     return presentation;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_PRESENTATION_UTILITIES_HPP_

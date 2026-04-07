@@ -329,7 +329,7 @@ void App::workLoopBody()
 				m_realFrameIx++;
 
 				const uint64_t renderedFrameIx = m_realFrameIx - 1u;
-				auto captureScreenshot = [&](const system::path& outPath, const char* tag) -> void
+				auto captureScreenshot = [&](const nbl::system::path& outPath, const char* tag) -> void
 				{
 					if (!m_device || !m_assetManager || !m_surface)
 						return;

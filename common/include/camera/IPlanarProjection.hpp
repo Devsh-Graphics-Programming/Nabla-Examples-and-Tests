@@ -4,7 +4,7 @@
 #include "IGimbalBindingLayout.hpp"
 #include "ILinearProjection.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -77,9 +77,9 @@ public:
                     const auto& fov = m_parameters.m_planar.perspective.fov;
 
                     if (leftHanded)
-                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovLH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                     else
-                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovRH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                 } break;
 
                 case Orthographic:
@@ -88,9 +88,9 @@ public:
                     const auto viewHeight = orthoW * core::reciprocal(aspectRatio);
 
                     if (leftHanded)
-                        base_t::setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoLH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
                     else
-                        base_t::setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoRH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
                 } break;
             }
         }
@@ -112,12 +112,12 @@ public:
         }
 
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
-        inline const CGimbalBindingLayoutStorage& getInputBinding() const { return m_inputBinding; }
-        inline CGimbalBindingLayoutStorage& getInputBinding() { return m_inputBinding; }
+        inline const ui::CGimbalBindingLayoutStorage& getInputBinding() const { return m_inputBinding; }
+        inline ui::CGimbalBindingLayoutStorage& getInputBinding() { return m_inputBinding; }
     private:
         CProjection() = default;
         ProjectionParameters m_parameters;
-        CGimbalBindingLayoutStorage m_inputBinding;
+        ui::CGimbalBindingLayoutStorage m_inputBinding;
     };
 
 protected:
@@ -126,6 +126,6 @@ protected:
     virtual ~IPlanarProjection() = default;
 };
 
-} // nbl::hlsl namespace
+} // namespace nbl::core
 
 #endif // _NBL_I_PLANAR_PROJECTION_HPP_

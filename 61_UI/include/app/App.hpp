@@ -17,16 +17,12 @@
 #include <thread>
 #include <unordered_set>
 #include <utility>
-#include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
-using nbl_json = nlohmann::json;
 
 #include "common.hpp"
 #include "keysmapping.hpp"
 #include "app/AppTypes.hpp"
 #include "camera/CCubeProjection.hpp"
-#include "glm/glm/ext/matrix_clip_space.hpp"
-#include "glm/gtc/quaternion.hpp"
 #include "nbl/ext/Frustum/CDrawFrustum.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
@@ -38,7 +34,7 @@ using nbl_json = nlohmann::json;
 #include "nbl/this_example/builtin/build/CArchive.h"
 #endif
 
-class CUIEventCallback : public nbl::video::ISmoothResizeSurface::ICallback // I cannot use common CEventCallback because I MUST inherit this callback in order to use smooth resize surface with window callback (for my input events)
+class CUIEventCallback : public nbl::video::ISmoothResizeSurface::ICallback
 {
 public:
 	CUIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
@@ -127,7 +123,7 @@ protected:
 					.baseArrayLayer = 0,
 					.layerCount = 1
 				},
-				.oldLayout = IGPUImage::LAYOUT::UNDEFINED, // I do not care about previous contents of the swapchain
+				.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
 				.newLayout = blitDstLayout
 			},
 			{
@@ -154,7 +150,6 @@ protected:
 		depInfo.imgBarriers = { preBarriers,needToAcquireSrcOwnership ? 2ull : 1ull };
 		success &= cmdbuf->pipelineBarrier(asset::EDF_NONE, depInfo);
 
-		// TODO: Implement scaling modes other than a plain STRETCH, and allow for using subrectangles of the initial contents
 		{
 			const auto srcOffset = source.rect.offset;
 			const auto srcExtent = source.rect.extent;
@@ -327,12 +322,12 @@ class App final : public examples::SimpleWindowedApplication
 		}
 
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override;
-		core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
+		core::bitflag<nbl::system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
 		{
-			return core::bitflag<system::ILogger::E_LOG_LEVEL>(system::ILogger::ELL_INFO) |
-				system::ILogger::ELL_WARNING |
-				system::ILogger::ELL_PERFORMANCE |
-				system::ILogger::ELL_ERROR;
+			return core::bitflag<nbl::system::ILogger::E_LOG_LEVEL>(nbl::system::ILogger::ELL_INFO) |
+				nbl::system::ILogger::ELL_WARNING |
+				nbl::system::ILogger::ELL_PERFORMANCE |
+				nbl::system::ILogger::ELL_ERROR;
 		}
 
 		bool updateGUIDescriptorSet()
@@ -474,7 +469,7 @@ class App final : public examples::SimpleWindowedApplication
 			CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
 			float64_t magnitude = 0.0;
 			std::string source;
-			std::string controller;
+			std::string inputSource;
 			std::string camera;
 			uint32_t planarIx = 0u;
 			std::string line;
@@ -710,12 +705,12 @@ class App final : public examples::SimpleWindowedApplication
 			if (planarIx >= m_planarProjections.size() || planarIx >= m_planarFollowConfigs.size())
 				return false;
 			auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
-			return nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, m_planarFollowConfigs[planarIx]);
+			return nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, m_planarFollowConfigs[planarIx]);
 		}
 
 		inline bool followConfigUsesCapturedOffset(const SCameraFollowConfig& config) const
 		{
-			return config.enabled && nbl::hlsl::cameraFollowModeUsesCapturedOffset(config.mode);
+			return config.enabled && nbl::core::cameraFollowModeUsesCapturedOffset(config.mode);
 		}
 
 		inline void refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
@@ -731,7 +726,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!camera)
 				return;
 
-			nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, config);
+			nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_followTarget, config);
 		}
 
 		inline void refreshFollowOffsetConfigsForCamera(ICamera* camera)
@@ -759,9 +754,9 @@ class App final : public examples::SimpleWindowedApplication
 			return float64_t3(6.0, -4.5, 2.25);
 		}
 
-		inline glm::quat getDefaultFollowTargetOrientation() const
+		inline camera_quaternion_t<float64_t> getDefaultFollowTargetOrientation() const
 		{
-			return glm::quat(1.0, 0.0, 0.0, 0.0);
+			return makeIdentityQuaternion<float64_t>();
 		}
 
 		inline void resetFollowTargetToDefault()
@@ -823,12 +818,12 @@ class App final : public examples::SimpleWindowedApplication
 				if (!config.enabled || config.mode == ECameraFollowMode::Disabled)
 					continue;
 
-				const auto result = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, m_followTarget, config);
+				const auto result = nbl::core::applyFollowToCamera(m_cameraGoalSolver, camera, m_followTarget, config);
 				if (!result.succeeded())
 					continue;
 
 				for (auto& projection : planar->getPlanarProjections())
-					nbl::hlsl::syncDynamicPerspectiveProjection(camera, projection);
+					nbl::core::syncDynamicPerspectiveProjection(camera, projection);
 			}
 		}
 
@@ -921,7 +916,7 @@ class App final : public examples::SimpleWindowedApplication
 			float ndcX = 0.0f;
 			float ndcY = 0.0f;
 			float ndcRadius = 0.0f;
-			if (!nbl::hlsl::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
+			if (!nbl::core::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
 				return;
 
 			auto* drawList = ImGui::GetWindowDrawList();
@@ -1274,7 +1269,7 @@ class App final : public examples::SimpleWindowedApplication
 				}
 				if (m_scriptedInput.visualFollowActive)
 				{
-					lineHint += "  |  " + std::string(nbl::hlsl::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
+					lineHint += "  |  " + std::string(nbl::core::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
 					if (m_scriptedInput.visualFollowLockValid)
 					{
 						char followBuffer[192] = {};
@@ -1351,17 +1346,17 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline PresetUiAnalysis analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 		{
-			return nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
+			return nbl::core::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
 		}
 
 		inline CaptureUiAnalysis analyzeCameraCaptureForUi(ICamera* camera) const
 		{
-			return nbl::hlsl::analyzeCapturePresentation(m_cameraGoalSolver, camera);
+			return nbl::core::analyzeCapturePresentation(m_cameraGoalSolver, camera);
 		}
 
 		inline CCameraGoalSolver::SCompatibilityResult analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 		{
-			return nbl::hlsl::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
+			return nbl::core::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
 		}
 
 		inline bool presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
@@ -1371,7 +1366,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline CCameraGoalSolver::SApplyResult applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 		{
-			const auto result = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
+			const auto result = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
 			if (result.succeeded())
 				refreshFollowOffsetConfigsForCamera(camera);
 			const auto presetUi = analyzePresetForUi(camera, preset);
@@ -1399,25 +1394,25 @@ class App final : public examples::SimpleWindowedApplication
 		inline void storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 		{
 			storeApplyStatusBanner(m_playbackApplyBanner,
-				nbl::hlsl::describePresetApplySummary(summary, m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
+				nbl::core::describePresetApplySummary(summary, m_playbackAffectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
 				summary.succeeded(),
 				summary.approximate());
 		}
 
-		inline void appendVirtualEventLog(std::string_view source, std::string_view controller, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
+		inline void appendVirtualEventLog(std::string_view source, std::string_view inputSource, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count)
 		{
 			m_uiVirtualEventsThisFrame += count;
 			const std::string sourceStr(source);
-			const std::string controllerStr(controller);
+			const std::string inputSourceStr(inputSource);
 			const std::string cameraName = camera ? std::string(camera->getIdentifier()) : std::string("None");
 			for (uint32_t i = 0u; i < count; ++i)
 			{
 				const auto* eventName = CVirtualGimbalEvent::virtualEventToString(events[i].type).data();
 				auto line = m_logFormatter->format(ILogger::ELL_INFO,
-					"virtual frame=%llu src=%s ctrl=%s cam=%s planar=%u event=%s mag=%.6f",
+					"virtual frame=%llu src=%s input=%s cam=%s planar=%u event=%s mag=%.6f",
 					static_cast<unsigned long long>(m_realFrameIx),
 					sourceStr.c_str(),
-					controllerStr.c_str(),
+					inputSourceStr.c_str(),
 					cameraName.c_str(),
 					planarIx,
 					eventName,
@@ -1427,7 +1422,7 @@ class App final : public examples::SimpleWindowedApplication
 					events[i].type,
 					events[i].magnitude,
 					sourceStr,
-					controllerStr,
+					inputSourceStr,
 					cameraName,
 					planarIx,
 					std::move(line)
@@ -1444,7 +1439,7 @@ class App final : public examples::SimpleWindowedApplication
 			if (!m_playbackAffectsAll)
 			{
 				ICamera* activeCamera = getActiveCamera();
-				summary = nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u), preset);
+				summary = nbl::core::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u), preset);
 				if (summary.succeeded())
 					refreshFollowOffsetConfigsForCamera(activeCamera);
 				return summary;
@@ -1452,7 +1447,7 @@ class App final : public examples::SimpleWindowedApplication
 
 			std::vector<ICamera*> cameras;
 			cameras.reserve(windowBindings.size());
-			std::unordered_set<uintptr_t> visited;
+			std::unordered_set<const ICamera*> visited;
 			for (auto& binding : windowBindings)
 			{
 				auto& planar = m_planarProjections[binding.activePlanarIx];
@@ -1461,12 +1456,11 @@ class App final : public examples::SimpleWindowedApplication
 				auto* camera = planar->getCamera();
 				if (!camera)
 					continue;
-				const auto id = camera->getGimbal().getID();
-				if (visited.insert(id).second)
+				if (visited.insert(camera).second)
 					cameras.push_back(camera);
 			}
 
-			summary = nbl::hlsl::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(cameras.data(), cameras.size()), preset);
+			summary = nbl::core::applyPresetToCameraRange(m_cameraGoalSolver, std::span<ICamera* const>(cameras.data(), cameras.size()), preset);
 			if (summary.succeeded())
 				refreshAllFollowOffsetConfigs();
 			return summary;
@@ -1474,7 +1468,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline bool tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
 		{
-			return nbl::hlsl::tryBuildKeyframeTrackPresetAtTime(m_keyframeTrack, time, preset);
+			return nbl::core::tryBuildKeyframeTrackPresetAtTime(m_keyframeTrack, time, preset);
 		}
 
 		inline bool applyPlaybackAtTime(const float time)
@@ -1492,32 +1486,32 @@ class App final : public examples::SimpleWindowedApplication
 
 		inline void sortKeyframesByTime()
 		{
-			nbl::hlsl::sortKeyframeTrackByTime(m_keyframeTrack);
+			nbl::core::sortKeyframeTrackByTime(m_keyframeTrack);
 		}
 
 		inline void clampPlaybackTimeToKeyframes()
 		{
-			nbl::hlsl::clampPlaybackCursorToTrack(m_keyframeTrack, m_playback);
+			nbl::core::clampPlaybackCursorToTrack(m_keyframeTrack, m_playback);
 		}
 
 		inline int selectKeyframeNearestTime(const float time)
 		{
-			return nbl::hlsl::selectKeyframeTrackNearestTime(m_keyframeTrack, time);
+			return nbl::core::selectKeyframeTrackNearestTime(m_keyframeTrack, time);
 		}
 
 		inline void normalizeSelectedKeyframe()
 		{
-			nbl::hlsl::normalizeSelectedKeyframeTrack(m_keyframeTrack);
+			nbl::core::normalizeSelectedKeyframeTrack(m_keyframeTrack);
 		}
 
 		inline CameraKeyframe* getSelectedKeyframe()
 		{
-			return nbl::hlsl::getSelectedKeyframe(m_keyframeTrack);
+			return nbl::core::getSelectedKeyframe(m_keyframeTrack);
 		}
 
 		inline const CameraKeyframe* getSelectedKeyframe() const
 		{
-			return nbl::hlsl::getSelectedKeyframe(m_keyframeTrack);
+			return nbl::core::getSelectedKeyframe(m_keyframeTrack);
 		}
 
 		inline bool replaceSelectedKeyframeFromCamera(ICamera* camera)
@@ -1528,46 +1522,25 @@ class App final : public examples::SimpleWindowedApplication
 
 			CameraPreset updatedPreset;
 			const auto keyframeName = selected->preset.name.empty() ? std::string("Keyframe") : selected->preset.name;
-			if (!nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
+			if (!nbl::core::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
 				return false;
 
-			return nbl::hlsl::replaceSelectedKeyframePreset(m_keyframeTrack, std::move(updatedPreset));
+			return nbl::core::replaceSelectedKeyframePreset(m_keyframeTrack, std::move(updatedPreset));
 		}
 
 		inline void updatePlayback(double dtSec)
 		{
-			const auto advance = nbl::hlsl::advancePlaybackCursor(m_playback, m_keyframeTrack, dtSec);
+			const auto advance = nbl::core::advancePlaybackCursor(m_playback, m_keyframeTrack, dtSec);
 			if (!advance.hasTrack || !advance.changedTime)
 				return;
 
 			applyPlaybackAtTime(m_playback.time);
 		}
 
-		inline bool savePresetsToFile(const system::path& path)
-		{
-			return nbl::hlsl::savePresetCollectionToFile(path, std::span<const CameraPreset>(m_presets.data(), m_presets.size()));
-		}
-
-		inline bool loadPresetsFromFile(const system::path& path)
-		{
-			return nbl::hlsl::loadPresetCollectionFromFile(path, m_presets);
-		}
-
-		inline bool saveKeyframesToFile(const system::path& path)
-		{
-			return nbl::hlsl::saveKeyframeTrackToFile(path, m_keyframeTrack);
-		}
-
-		inline bool loadKeyframesFromFile(const system::path& path)
-		{
-			if (!nbl::hlsl::loadKeyframeTrackFromFile(path, m_keyframeTrack))
-				return false;
-
-			clampPlaybackTimeToKeyframes();
-			if (m_keyframeTrack.keyframes.empty())
-				clearApplyStatusBanner(m_playbackApplyBanner);
-			return true;
-		}
+		bool savePresetsToFile(const nbl::system::path& path);
+		bool loadPresetsFromFile(const nbl::system::path& path);
+		bool saveKeyframesToFile(const nbl::system::path& path);
+		bool loadKeyframesFromFile(const nbl::system::path& path);
 
 		void imguiListen();
 
@@ -1826,7 +1799,7 @@ class App final : public examples::SimpleWindowedApplication
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 		};
 
-		// one model object in the world, testing multiuple cameraz for which view is rendered to separate frame buffers (so what they see) with new controller API including imguizmo
+		// Demo scene object rendered into the viewports alongside the tracked target and cameras.
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
 		CTrackedTarget m_followTarget;
 		std::vector<SCameraFollowConfig> m_planarFollowConfigs;
@@ -1949,7 +1922,7 @@ class App final : public examples::SimpleWindowedApplication
 			CCameraScriptedCheckRuntimeState checkRuntime = {};
 			size_t nextCaptureIndex = 0;
 			std::string capturePrefix = "script";
-			system::path captureOutputDir;
+			nbl::system::path captureOutputDir;
 			bool failed = false;
 			bool summaryReported = false;
 			bool visualActivePlanarValid = false;
@@ -2000,7 +1973,7 @@ class App final : public examples::SimpleWindowedApplication
 		bool m_ciMode = false;
 		bool m_ciScreenshotDone = false;
 		uint32_t m_ciFrameCounter = 0u;
-		system::path m_ciScreenshotPath;
+		nbl::system::path m_ciScreenshotPath;
 		clock_t::time_point m_ciStartedAt = clock_t::time_point::min();
 		bool m_scriptVisualDebugCli = false;
 		bool m_disableScreenshotsCli = false;

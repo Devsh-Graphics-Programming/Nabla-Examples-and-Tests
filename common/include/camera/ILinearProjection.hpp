@@ -1,10 +1,10 @@
-﻿#ifndef _NBL_I_LINEAR_PROJECTION_HPP_
+#ifndef _NBL_I_LINEAR_PROJECTION_HPP_
 #define _NBL_I_LINEAR_PROJECTION_HPP_
 
 #include "IProjection.hpp"
 #include "ICamera.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**

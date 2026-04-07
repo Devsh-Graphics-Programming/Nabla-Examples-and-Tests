@@ -1,13 +1,7 @@
 # Shared Camera API
 
-This directory contains the reusable camera stack.
-The current full consumer and validation harness is [`61_UI`](../../../61_UI/README.md).
-
-It intentionally lives in `examples_tests/common` instead of engine core:
-
-- the API is meant to be reusable across consumers and tools
-- the API is still being shaped through one active integration surface
-- the current goal is to stabilize the design before promoting any part of it deeper into Nabla
+This directory contains the shared camera stack.
+A complete runnable integration is [`61_UI`](../../../61_UI/README.md).
 
 ## What this stack is
 
@@ -28,7 +22,6 @@ That split is the core design decision.
 This stack is not:
 
 - engine-core Nabla camera API
-- a promise that every potential consumer already uses it
 - a generic scene animation system
 - a direct scene-object-follow system
 - a setter-heavy camera API with arbitrary absolute pose mutation in the hot runtime path
@@ -40,9 +33,22 @@ The design goals are:
 - one semantic command language for keyboard, mouse, gizmo, scripts, and CI
 - no input-device assumptions inside camera models
 - no viewport glue inside camera models
-- no direct dependence on consumer-specific UI concepts in the reusable camera layer
+- no direct dependence on application-specific UI concepts in the reusable camera layer
 - best-effort absolute restore for tooling without turning cameras into mutable state bags
 - reusable persistence, analysis, playback, follow, and validation helpers
+
+## Namespace split
+
+The stack is split across existing Nabla namespaces:
+
+- `nbl::hlsl`
+  math types and camera math helpers
+- `nbl::core`
+  camera runtime model, goals, presets, tracks, playback, follow, and authored sequence data
+- `nbl::ui`
+  binding layouts, input processors, binders, and default input mappings
+- `nbl::system`
+  persistence, scripted runtime payloads, scripted parsing, and scripted check execution
 
 ## Why virtual events and not absolute setters
 
@@ -406,7 +412,7 @@ It describes:
 
 It deliberately does not describe:
 
-- consumer-specific window actions as authored source data
+- runtime-specific window actions as authored source data
 - frame-by-frame event dumps
 - ImGuizmo matrices as authored motion primitives
 
@@ -424,11 +430,11 @@ It is split into:
 - per-frame dequeue
 - per-frame check evaluation
 
-This keeps one consumer from owning a private scripting subsystem.
+This keeps one runtime from owning a private scripting subsystem.
 
 ## Current validation story
 
-The current camera-focused validation is exercised through the active consumer harness.
+The current camera-focused validation is exercised through scripted smoke and continuity tests.
 
 ### Smoke
 
@@ -454,7 +460,7 @@ This test now runs on the compact authored sequence format rather than a large e
 auto camera = core::make_smart_refctd_ptr<COrbitCamera>(eye, target);
 
 CGimbalInputBinder binder;
-camera->copyDefaultInputBindingPresetTo(binder);
+applyDefaultCameraInputBindingPreset(binder, *camera);
 
 auto collected = binder.collectVirtualEvents(timestamp, {
     .mouseEvents = { mouseEvents.data(), mouseEvents.size() },
@@ -536,23 +542,7 @@ If any one of those concerns leaks into the others:
 - cameras become setter-heavy
 - projections become input processors
 - consumers own private copies of state math
-- scripts become consumer-specific
+- scripts become runtime-specific
 - follow becomes scene-object-specific
 
 The current refactor was mostly about removing exactly those leaks.
-
-## Practical status
-
-Today the stack is in a good place for:
-
-- reuse by additional consumers
-- reuse by camera-heavy tools
-- reuse by offline render or validation flows
-
-without assuming:
-
-- a specific scene object type
-- a specific input device
-- a specific renderer
-
-That is the main architectural win of the current design.

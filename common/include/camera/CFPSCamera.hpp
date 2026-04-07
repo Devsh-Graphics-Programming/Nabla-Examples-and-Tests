@@ -9,10 +9,9 @@
 
 #include "ICamera.hpp"
 
-namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
+namespace nbl::core
 {
 
-// FPS Camera
 class CFPSCamera final : public ICamera
 { 
 public:
@@ -20,7 +19,7 @@ public:
     static inline constexpr float HalfPi = 1.57079632679489661923f;
     static inline constexpr float RadToDeg = 57.2957795130823208768f;
 
-    CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+    CFPSCamera(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
     {
         m_gimbal.begin();
@@ -31,31 +30,19 @@ public:
             const float gForwardZ = static_cast<float>(gForward.z);
             const float gPitch = std::atan2(std::hypot(gForwardX, gForwardZ), gForwardY) - HalfPi;
             const float gYaw = std::atan2(gForwardX, gForwardZ);
-            auto test = glm::quat(glm::vec3(gPitch, gYaw, 0.0f));
-
-
-            m_gimbal.setOrientation(test);
+            m_gimbal.setOrientation(makeQuaternionFromEulerRadians(float64_t3(gPitch, gYaw, 0.0f)));
         }
         m_gimbal.end();
     }
 	~CFPSCamera() = default;
-
-    const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
-    const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
-    const base_t::imguizmo_to_virtual_events_t getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
 
     const typename base_t::CGimbal& getGimbal() override
     {
         return m_gimbal;
     }
 
-    // rotation events IN RADIANS
-
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
-        // TODO: note, for FPS camera its assumed tilt is performed with respect to "world" up vector which is (0,1,0)
-        // but in reality its all about where -(gravity force) vector is, we can just add it and construct yaw quat with respect to this new custom vector instead
-
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
@@ -68,10 +55,10 @@ public:
             if (referenceFrame)
             {
                 const auto& q = reference.orientation;
-                const float w = static_cast<float>(q.w);
-                const float x = static_cast<float>(q.x);
-                const float y = static_cast<float>(q.y);
-                const float z = static_cast<float>(q.z);
+                const float w = static_cast<float>(q.data.w);
+                const float x = static_cast<float>(q.data.x);
+                const float y = static_cast<float>(q.data.y);
+                const float z = static_cast<float>(q.data.z);
                 const float sinr_cosp = 2.f * (w * z + x * y);
                 const float cosr_cosp = 1.f - 2.f * (y * y + z * z);
                 const float roll = RadToDeg * std::atan2(sinr_cosp, cosr_cosp);
@@ -98,8 +85,9 @@ public:
             const float gYaw = std::atan2(rForwardX, rForwardZ);
             const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * getRotationSpeedScale(), MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * getRotationSpeedScale();
 
-            if(validateReference()) m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
-            m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
+            if (validateReference())
+                m_gimbal.setOrientation(makeQuaternionFromEulerRadians(float64_t3(newPitch, newYaw, 0.0f)));
+            m_gimbal.setPosition(float64_t3(reference.frame[3]) + rotateVectorByQuaternion(reference.orientation, float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 
@@ -111,7 +99,7 @@ public:
         return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override
+    virtual uint32_t getAllowedVirtualEvents() const override
     {
         return AllowedVirtualEvents;
     }
@@ -121,7 +109,7 @@ public:
         return CameraKind::FPS;
     }
 
-    virtual const std::string_view getIdentifier() override
+    virtual std::string_view getIdentifier() const override
     {
         return "FPS Camera";
     }
@@ -132,52 +120,6 @@ private:
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
     static inline constexpr float MaxVerticalAngle = 1.53588974175501f, MinVerticalAngle = -MaxVerticalAngle;
-
-    static inline const auto m_keyboard_to_virtual_events_preset = []()
-    {
-        typename base_t::keyboard_to_virtual_events_t preset;
-
-        preset[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
-        preset[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
-        preset[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
-        preset[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
-        preset[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
-
-        return preset;
-    }();
-
-    static inline const auto m_mouse_to_virtual_events_preset = []()
-    {
-        typename base_t::mouse_to_virtual_events_t preset;
-
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanRight;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanLeft;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltUp;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltDown;
-
-        return preset;
-    }();
-
-    static inline const auto m_imguizmo_to_virtual_events_preset = []()
-    {
-        typename base_t::imguizmo_to_virtual_events_t preset;
-
-        preset[CVirtualGimbalEvent::MoveForward] = CVirtualGimbalEvent::MoveForward;
-        preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
-        preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
-        preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
-        preset[CVirtualGimbalEvent::MoveUp] = CVirtualGimbalEvent::MoveUp;
-        preset[CVirtualGimbalEvent::MoveDown] = CVirtualGimbalEvent::MoveDown;
-        preset[CVirtualGimbalEvent::TiltDown] = CVirtualGimbalEvent::TiltDown;
-        preset[CVirtualGimbalEvent::TiltUp] = CVirtualGimbalEvent::TiltUp;
-        preset[CVirtualGimbalEvent::PanLeft] = CVirtualGimbalEvent::PanLeft;
-        preset[CVirtualGimbalEvent::PanRight] = CVirtualGimbalEvent::PanRight;
-
-        return preset;
-    }();
 };
 
 }

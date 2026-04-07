@@ -10,7 +10,7 @@
 
 #include "CCameraPresetFlow.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Reusable constraint settings for post-manipulation camera clamping.
@@ -30,6 +30,15 @@ struct SCameraConstraintSettings
     float minDistance = 0.1f;
     float maxDistance = 1000.f;
 };
+
+//! Apply an authored world-space reference frame through the shared camera runtime entry point.
+inline bool applyReferenceFrameToCamera(ICamera* camera, const float64_t4x4& referenceFrame)
+{
+    if (!camera)
+        return false;
+
+    return camera->manipulateWithUnitMotionScales({}, &referenceFrame);
+}
 
 //! Scale translation and rotation event magnitudes without touching unrelated event types.
 inline void scaleVirtualEvents(std::vector<CVirtualGimbalEvent>& events, const uint32_t count, const float translationScale, const float rotationScale)
@@ -143,25 +152,25 @@ inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* cam
 
     const auto& gimbal = camera->getGimbal();
     const auto pos = gimbal.getPosition();
-    const auto eulerDeg = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+    const auto eulerDeg = getQuaternionEulerDegrees(gimbal.getOrientation());
 
     auto clamped = eulerDeg;
     if (constraints.clampPitch)
-        clamped.x = std::clamp(clamped.x, constraints.pitchMinDeg, constraints.pitchMaxDeg);
+        clamped.x = std::clamp(clamped.x, static_cast<decltype(clamped.x)>(constraints.pitchMinDeg), static_cast<decltype(clamped.x)>(constraints.pitchMaxDeg));
     if (constraints.clampYaw)
-        clamped.y = std::clamp(clamped.y, constraints.yawMinDeg, constraints.yawMaxDeg);
+        clamped.y = std::clamp(clamped.y, static_cast<decltype(clamped.y)>(constraints.yawMinDeg), static_cast<decltype(clamped.y)>(constraints.yawMaxDeg));
     if (constraints.clampRoll)
-        clamped.z = std::clamp(clamped.z, constraints.rollMinDeg, constraints.rollMaxDeg);
+        clamped.z = std::clamp(clamped.z, static_cast<decltype(clamped.z)>(constraints.rollMinDeg), static_cast<decltype(clamped.z)>(constraints.rollMaxDeg));
 
     if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
         return false;
 
     CCameraPreset preset;
     preset.goal.position = pos;
-    preset.goal.orientation = glm::quat(hlsl::radians(clamped));
+    preset.goal.orientation = makeQuaternionFromEulerDegrees(clamped);
     return applyPreset(solver, camera, preset);
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_MANIPULATION_UTILITIES_HPP_

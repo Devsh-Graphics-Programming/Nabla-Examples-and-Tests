@@ -9,7 +9,7 @@
 
 #include "CCameraFollowUtilities.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -344,6 +344,6 @@ inline bool buildApplyAndValidateFollowTargetContract(
     return true;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_FOLLOW_REGRESSION_UTILITIES_HPP_

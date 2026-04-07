@@ -3,7 +3,7 @@
 
 #include "ILinearProjection.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**

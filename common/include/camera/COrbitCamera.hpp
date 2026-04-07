@@ -5,7 +5,7 @@
 #include <cmath>
 #include "CSphericalTargetCamera.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 class COrbitCamera final : public CSphericalTargetCamera
@@ -21,33 +21,26 @@ public:
     }
     ~COrbitCamera() = default;
 
-    const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
-    const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
-    const base_t::imguizmo_to_virtual_events_t getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
-
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
     {
-        // TODO: it must work differently, we should take another gimbal to control target
-
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
         double deltaU = impulse.dVirtualTranslate.y, deltaV = impulse.dVirtualTranslate.x, deltaDistance = impulse.dVirtualTranslate.z;
 
-        // TODO!
-        constexpr auto nastyScalar = 0.01;
-        deltaU *= nastyScalar * getMoveSpeedScale();
-        deltaV *= nastyScalar * getMoveSpeedScale();
+        constexpr auto orbitMotionScalar = 0.01;
+        deltaU *= orbitMotionScalar * getMoveSpeedScale();
+        deltaV *= orbitMotionScalar * getMoveSpeedScale();
 
         m_u += deltaU;
         m_v += deltaV;
    
-        m_distance = std::clamp<float>(m_distance += deltaDistance * nastyScalar, MinDistance, MaxDistance);
+        m_distance = std::clamp<float>(m_distance += deltaDistance * orbitMotionScalar, MinDistance, MaxDistance);
 
         return applyPose();
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override
+    virtual uint32_t getAllowedVirtualEvents() const override
     {
         return AllowedVirtualEvents;
     }
@@ -57,7 +50,7 @@ public:
         return CameraKind::Orbit;
     }
 
-    virtual const std::string_view getIdentifier() override
+    virtual std::string_view getIdentifier() const override
     {
         return "Orbit Camera";
     }
@@ -66,50 +59,6 @@ public:
     static inline constexpr float MaxDistance = base_t::MaxDistance;
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
-
-    static inline const auto m_keyboard_to_virtual_events_preset = []()
-    {
-        typename base_t::keyboard_to_virtual_events_t preset;
-
-        preset[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveUp;
-        preset[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveDown;
-        preset[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_KEY_CODE::EKC_E] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_KEY_CODE::EKC_Q] = CVirtualGimbalEvent::MoveBackward;
-
-        return preset;
-    }();
-
-    static inline const auto m_mouse_to_virtual_events_preset = []()
-    {
-        typename base_t::mouse_to_virtual_events_t preset;
-
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::MoveUp;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::MoveDown;
-        preset[ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL] = CVirtualGimbalEvent::MoveBackward;
-        preset[ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL] = CVirtualGimbalEvent::MoveBackward;
-
-        return preset;
-    }();
-
-    static inline const auto m_imguizmo_to_virtual_events_preset = []()
-    {
-        typename base_t::imguizmo_to_virtual_events_t preset;
-
-        preset[CVirtualGimbalEvent::MoveForward] = CVirtualGimbalEvent::MoveForward;
-        preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
-        preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
-        preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
-        preset[CVirtualGimbalEvent::MoveUp] = CVirtualGimbalEvent::MoveUp;
-        preset[CVirtualGimbalEvent::MoveDown] = CVirtualGimbalEvent::MoveDown;
-
-        return preset;
-    }();
 };
 
 }

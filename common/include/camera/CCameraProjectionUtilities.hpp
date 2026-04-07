@@ -7,7 +7,7 @@
 
 #include "IPlanarProjection.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Apply a camera-provided dynamic perspective FOV to one planar projection entry.
@@ -28,6 +28,6 @@ inline bool syncDynamicPerspectiveProjection(ICamera* camera, IPlanarProjection:
     return true;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_PROJECTION_UTILITIES_HPP_

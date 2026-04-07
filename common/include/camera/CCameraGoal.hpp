@@ -11,10 +11,8 @@
 #include <string>
 
 #include "ICamera.hpp"
-#include "CSphericalTargetCamera.hpp"
-#include "glm/glm/gtc/quaternion.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -23,7 +21,7 @@ namespace nbl::hlsl
 struct CCameraGoal
 {
     float64_t3 position = float64_t3(0.0);
-    glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    camera_quaternion_t<float64_t> orientation = makeIdentityQuaternion<float64_t>();
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
     uint32_t sourceCapabilities = ICamera::None;
     uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
@@ -41,19 +39,9 @@ struct CCameraGoal
     ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
 };
 
-inline double wrapAngleRad(double angle)
-{
-    constexpr double Pi = 3.14159265358979323846;
-    while (angle > Pi)
-        angle -= 2.0 * Pi;
-    while (angle < -Pi)
-        angle += 2.0 * Pi;
-    return angle;
-}
-
 inline double lerpWrappedAngleRad(double a, double b, double alpha)
 {
-    return a + wrapAngleRad(b - a) * alpha;
+    return a + hlsl::wrapAngleRad(b - a) * alpha;
 }
 
 inline bool nearlyEqualGoalScalar(double a, double b, double eps = 1e-6)
@@ -90,8 +78,8 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
 
     const float appliedDistance = std::clamp(
         static_cast<float>(distance),
-        CSphericalTargetCamera::MinDistance,
-        CSphericalTargetCamera::MaxDistance);
+        ICamera::SphericalMinDistance,
+        ICamera::SphericalMaxDistance);
     const auto local = offset / static_cast<double>(appliedDistance);
     goal.orbitU = std::atan2(local.y, local.x);
     goal.orbitV = std::asin(std::clamp(local.z, -1.0, 1.0));
@@ -113,7 +101,7 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
         -std::sin(goal.orbitV) * std::sin(goal.orbitU),
         std::cos(goal.orbitV)));
     const float64_t3 right = normalize(cross(up, forward));
-    goal.orientation = glm::quat_cast(glm::dmat3{ right, up, forward });
+    goal.orientation = makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -139,12 +127,7 @@ inline bool nearlyEqualVec3(const VecA& a, const VecB& b, const double epsilon)
 
 inline bool isGoalFinite(const CCameraGoal& goal)
 {
-    auto isFiniteQuat = [](const glm::quat& q) -> bool
-    {
-        return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
-    };
-
-    if (!isFiniteVec3(goal.position) || !isFiniteQuat(goal.orientation))
+    if (!isFiniteVec3(goal.position) || !isFiniteQuaternion(goal.orientation))
         return false;
     if (goal.hasTargetPosition && !isFiniteVec3(goal.targetPosition))
         return false;
@@ -163,11 +146,6 @@ inline bool isGoalFinite(const CCameraGoal& goal)
 inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     const double posEps, const double rotEpsDeg, const double scalarEps)
 {
-    auto isFiniteQuat = [](const glm::quat& q) -> bool
-    {
-        return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
-    };
-
     auto angleDiffRad = [](double a, double b) -> double
     {
         constexpr double Pi = 3.14159265358979323846;
@@ -178,17 +156,16 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
         return std::abs(d - Pi);
     };
 
-    const auto currentOrientation = glm::normalize(actual.orientation);
-    const auto expectedOrientation = glm::normalize(expected.orientation);
-    if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !isFiniteQuat(currentOrientation) || !isFiniteQuat(expectedOrientation))
+    const auto currentOrientation = normalizeQuaternion(actual.orientation);
+    const auto expectedOrientation = normalizeQuaternion(expected.orientation);
+    if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !isFiniteQuaternion(currentOrientation) || !isFiniteQuaternion(expectedOrientation))
         return false;
 
     const double dx = static_cast<double>(actual.position.x - expected.position.x);
     const double dy = static_cast<double>(actual.position.y - expected.position.y);
     const double dz = static_cast<double>(actual.position.z - expected.position.z);
     const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
-    const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+    const double rotDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
         return false;
 
@@ -217,7 +194,7 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     {
         if (!actual.hasPathState)
             return false;
-        if (std::abs(wrapAngleRad(expected.pathState.angle - actual.pathState.angle)) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+        if (std::abs(hlsl::wrapAngleRad(expected.pathState.angle - actual.pathState.angle)) > rotEpsDeg * (3.14159265358979323846 / 180.0))
             return false;
         if (std::abs(actual.pathState.radius - expected.pathState.radius) > scalarEps)
             return false;
@@ -240,20 +217,19 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
 inline std::string describeGoalMismatch(const CCameraGoal& actual, const CCameraGoal& expected)
 {
     std::ostringstream oss;
-    const auto currentOrientation = glm::normalize(actual.orientation);
-    const auto expectedOrientation = glm::normalize(expected.orientation);
+    const auto currentOrientation = normalizeQuaternion(actual.orientation);
+    const auto expectedOrientation = normalizeQuaternion(expected.orientation);
     const double dx = static_cast<double>(actual.position.x - expected.position.x);
     const double dy = static_cast<double>(actual.position.y - expected.position.y);
     const double dz = static_cast<double>(actual.position.z - expected.position.z);
     const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, expectedOrientation))), 0.0, 1.0);
-    const double rotDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+    const double rotDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     oss << "pos_delta=" << posDelta
         << " rot_delta_deg=" << rotDeltaDeg
         << " current_pos=(" << actual.position.x << "," << actual.position.y << "," << actual.position.z << ")"
         << " expected_pos=(" << expected.position.x << "," << expected.position.y << "," << expected.position.z << ")"
-        << " current_quat=(" << currentOrientation.x << "," << currentOrientation.y << "," << currentOrientation.z << "," << currentOrientation.w << ")"
-        << " expected_quat=(" << expectedOrientation.x << "," << expectedOrientation.y << "," << expectedOrientation.z << "," << expectedOrientation.w << ")";
+        << " current_quat=(" << currentOrientation.data.x << "," << currentOrientation.data.y << "," << currentOrientation.data.z << "," << currentOrientation.data.w << ")"
+        << " expected_quat=(" << expectedOrientation.data.x << "," << expectedOrientation.data.y << "," << expectedOrientation.data.z << "," << expectedOrientation.data.w << ")";
 
     if (actual.hasTargetPosition)
     {
@@ -295,7 +271,7 @@ inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double
 {
     CCameraGoal blended;
     blended.position = a.position + (b.position - a.position) * alpha;
-    blended.orientation = glm::slerp(a.orientation, b.orientation, static_cast<float>(alpha));
+    blended.orientation = slerpQuaternion(a.orientation, b.orientation, static_cast<float64_t>(alpha));
     blended.sourceKind = (a.sourceKind == b.sourceKind) ? a.sourceKind : ICamera::CameraKind::Unknown;
     blended.sourceCapabilities = a.sourceCapabilities & b.sourceCapabilities;
     blended.sourceGoalStateMask = a.sourceGoalStateMask | b.sourceGoalStateMask;
@@ -348,6 +324,6 @@ inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double
     return canonicalizeGoal(blended);
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_GOAL_HPP_

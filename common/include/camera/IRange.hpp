@@ -1,7 +1,7 @@
 #ifndef _NBL_IRANGE_HPP_
 #define _NBL_IRANGE_HPP_
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 template<typename R>
@@ -15,6 +15,6 @@ concept ContiguousGeneralPurposeRangeOf = GeneralPurposeRange<R> &&
 std::ranges::contiguous_range<R> &&
 std::same_as<std::ranges::range_value_t<R>, T>;
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _NBL_IRANGE_HPP_

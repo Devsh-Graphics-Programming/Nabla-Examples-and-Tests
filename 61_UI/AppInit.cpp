@@ -11,8 +11,14 @@
 #include <span>
 #include <vector>
 
+#include "camera/CCameraPersistence.hpp"
+#include "camera/CCameraScriptedRuntimePersistence.hpp"
+#include "nlohmann/json.hpp"
+
 namespace
 {
+	using camera_json_t = nlohmann::json;
+
 	struct SpaceEnvBlobHeader final
 	{
 		uint32_t magic = 0u;
@@ -53,16 +59,13 @@ namespace
 	constexpr float CameraDefaultRotateScale = 0.003f;
 	constexpr float CameraOrbitMoveScale = 0.5f;
 
-	void initializeCameraRigConfig(nbl::hlsl::ICamera& camera, const double moveScale, const double rotationScale)
+	void initializeCameraRigConfig(nbl::core::ICamera& camera, const double moveScale, const double rotationScale)
 	{
 		camera.setMotionScales(moveScale, rotationScale);
-		camera.resetDefaultInputBindingToPreset();
 	}
 
-	bool createCameraFromJson(const nbl_json& jCamera, std::string& error, smart_refctd_ptr<nbl::hlsl::ICamera>& outCamera)
+	bool createCameraFromJson(const camera_json_t& jCamera, std::string& error, smart_refctd_ptr<nbl::core::ICamera>& outCamera)
 	{
-		using namespace nbl::hlsl;
-
 		if (!jCamera.contains("type"))
 		{
 			error = "Camera entry missing \"type\".";
@@ -82,19 +85,19 @@ namespace
 		auto position = [&]()
 		{
 			const auto jret = jCamera["position"].get<std::array<float, 3>>();
-			return float32_t3(jret[0], jret[1], jret[2]);
+			return float64_t3(jret[0], jret[1], jret[2]);
 		}();
 
 		auto getOrientation = [&]()
 		{
 			const auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-			return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+			return makeQuaternionFromComponents<float64_t>(jret[0], jret[1], jret[2], jret[3]);
 		};
 
 		auto getTarget = [&]()
 		{
 			const auto jret = jCamera["target"].get<std::array<float, 3>>();
-			return float32_t3(jret[0], jret[1], jret[2]);
+			return float64_t3(jret[0], jret[1], jret[2]);
 		};
 
 		auto finalize = [&](auto&& camera, const double moveScale, const double rotationScale)
@@ -111,7 +114,7 @@ namespace
 				error = "FPS camera requires \"orientation\".";
 				return false;
 			}
-			return finalize(make_smart_refctd_ptr<CFPSCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
+			return finalize(make_smart_refctd_ptr<nbl::core::CFPSCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
 		}
 
 		if (type == "Free")
@@ -121,7 +124,7 @@ namespace
 				error = "Free camera requires \"orientation\".";
 				return false;
 			}
-			return finalize(make_smart_refctd_ptr<CFreeCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
+			return finalize(make_smart_refctd_ptr<nbl::core::CFreeCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
 		}
 
 		if (!withTarget)
@@ -220,7 +223,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return (localInputCWD / "app_resources" / "cameras.json").lexically_normal();
 				}();
 
-				nbl_json j;
+				camera_json_t j;
 				{
 					std::ifstream file(configPath);
 					if (!file.is_open())
@@ -279,7 +282,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return false;
 					const auto& gimbal = camera->getGimbal();
 					const auto afterPos = gimbal.getPosition();
-					const auto afterEuler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+					const auto afterEuler = getCastedVector<float32_t>(getQuaternionEulerDegrees(gimbal.getOrientation()));
 					if (!isFinite3(afterPos) || !isFinite3(afterEuler))
 						return false;
 
@@ -304,7 +307,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					const auto& beforeGimbal = camera->getGimbal();
 					const float64_t3 beforePos = beforeGimbal.getPosition();
-					const float32_t3 beforeEulerDeg = glm::degrees(glm::eulerAngles(beforeGimbal.getOrientation()));
+					const float32_t3 beforeEulerDeg = getCastedVector<float32_t>(getQuaternionEulerDegrees(beforeGimbal.getOrientation()));
 					if (!isFinite3(beforePos) || !isFinite3(beforeEulerDeg))
 						return false;
 
@@ -319,12 +322,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto comparePresetToCamera = [&](ICamera* camera, const CameraPreset& preset, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
 				{
-					return nbl::hlsl::comparePresetToCameraState(m_cameraGoalSolver, camera, preset, posEps, rotEpsDeg, scalarEps);
+					return nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, preset, posEps, rotEpsDeg, scalarEps);
 				};
 
 				auto describePresetMismatch = [&](ICamera* camera, const CameraPreset& preset) -> std::string
 				{
-					return nbl::hlsl::describePresetCameraMismatch(m_cameraGoalSolver, camera, preset);
+					return nbl::core::describePresetCameraMismatch(m_cameraGoalSolver, camera, preset);
 				};
 
 				auto tryBuildFollowViewProjForCamera = [&](ICamera* camera, float32_t4x4& outViewProjMatrix) -> bool
@@ -366,7 +369,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					return nbl::hlsl::buildFollowVisualMetrics(
+					return nbl::core::buildFollowVisualMetrics(
 						camera,
 						trackedTarget,
 						&followConfig,
@@ -374,12 +377,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				};
 
 				auto buildAndValidateFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
-					const SCameraFollowConfig& followConfig, const char* label, nbl::hlsl::SCameraFollowApplyValidationResult& outResult) -> bool
+					const SCameraFollowConfig& followConfig, const char* label, nbl::core::SCameraFollowApplyValidationResult& outResult) -> bool
 				{
 					std::string regressionError;
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					if (!nbl::hlsl::buildApplyAndValidateFollowTargetContract(
+					if (!nbl::core::buildApplyAndValidateFollowTargetContract(
 						m_cameraGoalSolver,
 						camera,
 						trackedTarget,
@@ -401,7 +404,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					const bool expectsProjectedMetrics = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
 					if (!metrics.active)
 						return fail(std::string("Follow visual metrics smoke was inactive for ") + label + ".");
-					if (nbl::hlsl::cameraFollowModeLocksViewToTarget(followConfig.mode) && !metrics.lockValid)
+					if (nbl::core::cameraFollowModeLocksViewToTarget(followConfig.mode) && !metrics.lockValid)
 						return fail(std::string("Follow visual metrics smoke was missing lock metrics for ") + label + ".");
 					if (expectsProjectedMetrics && !metrics.projectedValid)
 						return fail(std::string("Follow visual metrics smoke was missing projected metrics for ") + label + ".");
@@ -413,22 +416,22 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				auto verifyScriptedRuntimeFrameBatch = [&]() -> bool
 				{
 					CCameraScriptedTimeline timeline = {};
-					nbl::hlsl::appendScriptedActionEvent(timeline, 3u, CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar, 4);
+					nbl::system::appendScriptedActionEvent(timeline, 3u, CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar, 4);
 					{
 						CCameraGoal goal = {};
 						goal.position = float64_t3(1.0, 2.0, 3.0);
-						nbl::hlsl::appendScriptedGoalEvent(timeline, 3u, goal, true);
+						nbl::system::appendScriptedGoalEvent(timeline, 3u, goal, true);
 					}
-					nbl::hlsl::appendScriptedSegmentLabelEvent(timeline, 3u, "segment-three");
+					nbl::system::appendScriptedSegmentLabelEvent(timeline, 3u, "segment-three");
 					{
 						float64_t4x4 transform = float64_t4x4(1.0);
-						transform[3] = glm::dvec4(7.0, 8.0, 9.0, 1.0);
-						nbl::hlsl::appendScriptedTrackedTargetTransformEvent(timeline, 4u, transform);
+						transform[3] = float64_t4(7.0, 8.0, 9.0, 1.0);
+						nbl::system::appendScriptedTrackedTargetTransformEvent(timeline, 4u, transform);
 					}
 
 					size_t nextEventIndex = 0u;
 					CCameraScriptedFrameEvents batch;
-					nbl::hlsl::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 3u, batch);
+					nbl::system::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 3u, batch);
 					if (nextEventIndex != 3u || batch.actions.size() != 1u || batch.goals.size() != 1u ||
 						batch.segmentLabels.size() != 1u || !batch.mouse.empty() || !batch.keyboard.empty())
 					{
@@ -440,7 +443,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Scripted runtime frame batch payload smoke failed for frame 3.");
 					}
 
-					nbl::hlsl::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 4u, batch);
+					nbl::system::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 4u, batch);
 					if (nextEventIndex != timeline.events.size() || batch.trackedTargetTransforms.size() != 1u ||
 						!batch.actions.empty() || !batch.goals.empty())
 					{
@@ -455,45 +458,46 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto verifyScriptedRuntimeParser = [&]() -> bool
 				{
-					nbl_json script = {
-						{ "enabled", true },
-						{ "capture_prefix", "parser_smoke" },
-						{ "camera_controls", {
-							{ "keyboard_scale", 2.0f },
-							{ "rotation_scale", 0.5f }
-						} },
-						{ "events", nbl_json::array({
-							{
-								{ "frame", 2u },
-								{ "type", "action" },
-								{ "action", "set_active_planar" },
-								{ "value", 3 }
-							},
-							{
-								{ "frame", 2u },
-								{ "type", "keyboard" },
-								{ "key", "W" },
-								{ "action", "pressed" },
-								{ "capture", true }
-							}
-						}) },
-						{ "checks", nbl_json::array({
-							{
-								{ "frame", 2u },
-								{ "kind", "baseline" }
-							},
-							{
-								{ "frame", 3u },
-								{ "kind", "gimbal_step" },
-								{ "min_pos_delta", 0.01f },
-								{ "max_pos_delta", 1.0f }
-							}
-						}) }
-					};
+					std::stringstream script;
+					script << R"json({
+  "enabled": true,
+  "capture_prefix": "parser_smoke",
+  "camera_controls": {
+    "keyboard_scale": 2.0,
+    "rotation_scale": 0.5
+  },
+  "events": [
+    {
+      "frame": 2,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 3
+    },
+    {
+      "frame": 2,
+      "type": "keyboard",
+      "key": "W",
+      "action": "pressed",
+      "capture": true
+    }
+  ],
+  "checks": [
+    {
+      "frame": 2,
+      "kind": "baseline"
+    },
+    {
+      "frame": 3,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.01,
+      "max_pos_delta": 1.0
+    }
+  ]
+})json";
 
-					CCameraScriptedInputParseResult parsed;
+					nbl::system::CCameraScriptedInputParseResult parsed;
 					std::string parseError;
-					if (!nbl::hlsl::deserializeCameraScriptedInput(script, parsed, &parseError))
+					if (!nbl::system::readCameraScriptedInput(script, parsed, &parseError))
 						return fail("Scripted runtime parser smoke failed to parse low-level runtime payload. " + parseError);
 					if (!parsed.enabled || parsed.capturePrefix != "parser_smoke" || !parsed.cameraControls.hasKeyboardScale || !parsed.cameraControls.hasRotationScale)
 						return fail("Scripted runtime parser smoke lost top-level metadata.");
@@ -504,7 +508,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					size_t nextEventIndex = 0u;
 					CCameraScriptedFrameEvents batch;
-					nbl::hlsl::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, 2u, batch);
+					nbl::system::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, 2u, batch);
 					if (batch.actions.size() != 1u || batch.keyboard.size() != 1u || batch.actions.front().value != 3)
 						return fail("Scripted runtime parser smoke produced wrong frame-two batch.");
 					if (parsed.timeline.checks.front().kind != CCameraScriptedInputCheck::Kind::Baseline ||
@@ -521,12 +525,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					auto orbitCamera = core::make_smart_refctd_ptr<COrbitCamera>(float64_t3(0.0, 1.5, -6.0), float64_t3(0.0, 0.0, 0.0));
 					CTrackedTarget trackedTarget(
 						float64_t3(2.0, 0.5, -1.5),
-						glm::angleAxis(glm::radians(35.0), float64_t3(0.0, 1.0, 0.0)));
+						makeQuaternionFromAxisAngle(float64_t3(0.0, 1.0, 0.0), hlsl::radians(35.0)));
 
 					CCameraScriptedTimeline timeline = {};
-					nbl::hlsl::appendScriptedBaselineCheck(timeline, 1u);
-					nbl::hlsl::appendScriptedGimbalStepCheck(timeline, 2u, true, 2.0f, 0.005f, true, 45.0f, 0.05f);
-					nbl::hlsl::appendScriptedFollowTargetLockCheck(timeline, 3u, 0.1f, 0.03f);
+					nbl::system::appendScriptedBaselineCheck(timeline, 1u);
+					nbl::system::appendScriptedGimbalStepCheck(timeline, 2u, true, 2.0f, 0.005f, true, 45.0f, 0.05f);
+					nbl::system::appendScriptedFollowTargetLockCheck(timeline, 3u, 0.1f, 0.03f);
 
 					CCameraScriptedCheckRuntimeState state = {};
 					{
@@ -538,7 +542,28 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								.camera = orbitCamera.get()
 							});
 						if (frameResult.hadFailures || state.nextCheckIndex != 1u || !state.baselineValid || !state.stepValid)
-							return fail("Scripted check runner baseline smoke failed.");
+						{
+							const auto& gimbal = orbitCamera->getGimbal();
+							const auto pos = gimbal.getPosition();
+							const auto orientation = gimbal.getOrientation();
+							const auto basis = gimbal.getOrthonornalMatrix();
+							const auto eulerDeg = getQuaternionEulerDegrees(gimbal.getOrientation());
+							std::ostringstream oss;
+							oss << std::fixed << std::setprecision(6)
+								<< "Scripted check runner baseline smoke failed."
+								<< " nextCheckIndex=" << state.nextCheckIndex
+								<< " baselineValid=" << state.baselineValid
+								<< " stepValid=" << state.stepValid
+								<< " pos=(" << pos.x << ", " << pos.y << ", " << pos.z << ")"
+								<< " quat=(" << orientation.data.x << ", " << orientation.data.y << ", " << orientation.data.z << ", " << orientation.data.w << ")"
+								<< " basis_x=(" << basis[0].x << ", " << basis[0].y << ", " << basis[0].z << ")"
+								<< " basis_y=(" << basis[1].x << ", " << basis[1].y << ", " << basis[1].z << ")"
+								<< " basis_z=(" << basis[2].x << ", " << basis[2].y << ", " << basis[2].z << ")"
+								<< " euler_deg=(" << eulerDeg.x << ", " << eulerDeg.y << ", " << eulerDeg.z << ")";
+							if (!frameResult.logs.empty())
+								oss << ' ' << frameResult.logs.front().text;
+							return fail(oss.str());
+						}
 					}
 
 					{
@@ -565,7 +590,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					SCameraFollowConfig followConfig = {};
 					followConfig.enabled = true;
 					followConfig.mode = ECameraFollowMode::OrbitTarget;
-					if (!nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera.get(), trackedTarget, followConfig).succeeded())
+					CCameraGoal followGoal = {};
+					if (!nbl::core::applyFollowToCamera(m_cameraGoalSolver, orbitCamera.get(), trackedTarget, followConfig, &followGoal).succeeded())
 						return fail("Scripted check runner smoke failed to apply follow before follow-lock validation.");
 
 					{
@@ -582,7 +608,41 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (frameResult.hadFailures || state.nextCheckIndex != timeline.checks.size())
 						{
 							const auto details = !frameResult.logs.empty() ? frameResult.logs.front().text : std::string("missing log details");
-							return fail(std::string("Scripted check runner follow-lock smoke failed. ") + details);
+							const auto& gimbal = orbitCamera->getGimbal();
+							const auto cameraPos = gimbal.getPosition();
+							const auto cameraForward = gimbal.getZAxis();
+							const auto targetPos = trackedTarget.getGimbal().getPosition();
+							const auto desiredForward = normalize(targetPos - cameraPos);
+							const auto desiredRight = normalize(cross(float64_t3(0.0, 1.0, 0.0), desiredForward));
+							const auto desiredUp = normalize(cross(desiredForward, desiredRight));
+							const auto goalRightVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(1.0, 0.0, 0.0), true);
+							const auto goalUpVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 1.0, 0.0), true);
+							const auto goalForwardVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 0.0, 1.0), true);
+							const auto goalBasis = getQuaternionBasisMatrix(followGoal.orientation);
+							float lockAngle = 0.0f;
+							double targetDistance = 0.0;
+							const bool hasLockMetrics = nbl::core::tryComputeFollowTargetLockMetrics(gimbal, trackedTarget, lockAngle, &targetDistance);
+							std::ostringstream oss;
+							oss << std::fixed << std::setprecision(6)
+								<< "Scripted check runner follow-lock smoke failed. " << details
+								<< " camera_pos=(" << cameraPos.x << ", " << cameraPos.y << ", " << cameraPos.z << ")"
+								<< " camera_forward=(" << cameraForward.x << ", " << cameraForward.y << ", " << cameraForward.z << ")"
+								<< " target_pos=(" << targetPos.x << ", " << targetPos.y << ", " << targetPos.z << ")"
+								<< " desired_forward=(" << desiredForward.x << ", " << desiredForward.y << ", " << desiredForward.z << ")"
+								<< " desired_right=(" << desiredRight.x << ", " << desiredRight.y << ", " << desiredRight.z << ")"
+								<< " desired_up=(" << desiredUp.x << ", " << desiredUp.y << ", " << desiredUp.z << ")"
+								<< " goal_pos=(" << followGoal.position.x << ", " << followGoal.position.y << ", " << followGoal.position.z << ")"
+								<< " goal_quat=(" << followGoal.orientation.data.x << ", " << followGoal.orientation.data.y << ", "
+								<< followGoal.orientation.data.z << ", " << followGoal.orientation.data.w << ")"
+								<< " goal_right_vec=(" << goalRightVec.x << ", " << goalRightVec.y << ", " << goalRightVec.z << ")"
+								<< " goal_up_vec=(" << goalUpVec.x << ", " << goalUpVec.y << ", " << goalUpVec.z << ")"
+								<< " goal_forward_vec=(" << goalForwardVec.x << ", " << goalForwardVec.y << ", " << goalForwardVec.z << ")"
+								<< " goal_basis_x=(" << goalBasis[0].x << ", " << goalBasis[0].y << ", " << goalBasis[0].z << ")"
+								<< " goal_basis_y=(" << goalBasis[1].x << ", " << goalBasis[1].y << ", " << goalBasis[1].z << ")"
+								<< " goal_basis_z=(" << goalBasis[2].x << ", " << goalBasis[2].y << ", " << goalBasis[2].z << ")";
+							if (hasLockMetrics)
+								oss << " lock_angle_deg=" << lockAngle << " target_distance=" << targetDistance;
+							return fail(oss.str());
 						}
 					}
 
@@ -592,11 +652,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				auto verifyFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
 					const SCameraFollowConfig& followConfig, const CCameraGoal& followGoal, const char* label) -> bool
 				{
-					nbl::hlsl::SCameraFollowRegressionResult regression = {};
+					nbl::core::SCameraFollowRegressionResult regression = {};
 					std::string regressionError;
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					if (!nbl::hlsl::validateFollowTargetContract(
+					if (!nbl::core::validateFollowTargetContract(
 						camera,
 						trackedTarget,
 						followConfig,
@@ -634,45 +694,45 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!camera)
 						return true;
 
-					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " baseline");
+					const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " baseline");
 					SCameraFollowConfig followConfig = {};
 					followConfig.enabled = true;
 					followConfig.mode = ECameraFollowMode::KeepLocalOffset;
 
-					if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
+					if (!nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
 						return fail(std::string("Follow recapture smoke failed to capture initial offset for ") + label + ".");
 
-					const auto initialApply = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
+					const auto initialApply = nbl::core::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
 					if (!initialApply.succeeded())
 						return fail(std::string("Follow recapture smoke failed to apply initial follow for ") + label + ".");
 
-					auto editedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " edited");
+					auto editedPreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " edited");
 					if (!editedPreset.goal.hasOrbitState)
 						return fail(std::string("Follow recapture smoke missing orbit state for ") + label + ".");
 
-					editedPreset.goal.orbitU = nbl::hlsl::wrapAngleRad(editedPreset.goal.orbitU + glm::radians(18.0));
+					editedPreset.goal.orbitU = hlsl::wrapAngleRad(editedPreset.goal.orbitU + hlsl::radians(18.0));
 					editedPreset.goal.orbitDistance = std::clamp(editedPreset.goal.orbitDistance + 0.75f, CSphericalTargetCamera::MinDistance, CSphericalTargetCamera::MaxDistance);
-					editedPreset.goal = nbl::hlsl::canonicalizeGoal(editedPreset.goal);
-					if (!nbl::hlsl::isGoalFinite(editedPreset.goal))
+					editedPreset.goal = nbl::core::canonicalizeGoal(editedPreset.goal);
+					if (!nbl::core::isGoalFinite(editedPreset.goal))
 						return fail(std::string("Follow recapture smoke produced a non-finite edited goal for ") + label + ".");
 
-					const auto editedApply = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, editedPreset);
+					const auto editedApply = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, editedPreset);
 					if (!editedApply.succeeded() || !editedApply.changed())
 					{
 						return fail(std::string("Follow recapture smoke failed to apply edited preset for ") + label +
 							". " + describeApplyResult(editedApply));
 					}
 
-					const auto reachedEditedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " reached");
+					const auto reachedEditedPreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, std::string(label) + " reached");
 
-					if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
+					if (!nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig))
 						return fail(std::string("Follow recapture smoke failed to recapture offset for ") + label + ".");
 
 					CCameraGoal recapturedGoal = {};
-					if (!nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, camera, trackedTarget, followConfig, recapturedGoal))
+					if (!nbl::core::tryBuildFollowGoal(m_cameraGoalSolver, camera, trackedTarget, followConfig, recapturedGoal))
 						return fail(std::string("Follow recapture smoke failed to rebuild follow goal for ") + label + ".");
 
-					const auto recapturedApply = nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
+					const auto recapturedApply = nbl::core::applyFollowToCamera(m_cameraGoalSolver, camera, trackedTarget, followConfig);
 					if (!recapturedApply.succeeded())
 					{
 						return fail(std::string("Follow recapture smoke failed to apply recaptured follow for ") + label +
@@ -684,7 +744,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!verifyFollowTargetContract(camera, trackedTarget, followConfig, recapturedGoal, label))
 						return false;
 
-					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, baselinePreset);
+					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, baselinePreset);
 					if (!restoreResult.succeeded() || !comparePresetToCamera(camera, baselinePreset, 1e-6, 0.1, 1e-6))
 					{
 						return fail(std::string("Follow recapture smoke failed to restore baseline for ") + label +
@@ -778,9 +838,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Null camera instance.");
 
 					CGimbalInputBinder inputBinder;
-					camera->copyDefaultInputBindingPresetTo(inputBinder);
+					applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 
-					const auto initialPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, "smoke-initial");
+					const auto initialPreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, "smoke-initial");
 					const auto initialCompatibility = analyzePresetCompatibility(camera, initialPreset);
 					if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
 						return fail("Preset compatibility smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". missing=" + describeGoalStateMask(initialCompatibility.missingGoalStateMask));
@@ -813,7 +873,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						default:
 							break;
 					}
-					if (!nbl::hlsl::applyPreset(m_cameraGoalSolver, camera, initialPreset))
+					if (!nbl::core::applyPreset(m_cameraGoalSolver, camera, initialPreset))
 						return fail("Preset no-op smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 					if (initialPreset.goal.hasTargetPosition)
@@ -821,7 +881,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						CameraPreset shiftedPreset = initialPreset;
 						shiftedPreset.goal.targetPosition += float64_t3(0.5, -0.25, 0.75);
 
-						const auto shiftedResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
+						const auto shiftedResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !shiftedResult.exact)
 							return fail("Preset target apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult));
 
@@ -829,7 +889,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!camera->tryGetSphericalTargetState(shiftedState) || !nearlyEqual3(shiftedState.target, shiftedPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target writeback smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						const auto restoredResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
+						const auto restoredResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoredResult.succeeded() || !restoredResult.exact)
 							return fail("Preset restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult));
 
@@ -855,11 +915,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						shiftedPreset.goal.dynamicPerspectiveState.referenceDistance =
 							std::max(0.1f, initialPreset.goal.dynamicPerspectiveState.referenceDistance + 1.25f);
 
-						const auto shiftedResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
+						const auto shiftedResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
 						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !comparePresetToCamera(camera, shiftedPreset, 1e-6, 0.1, 1e-6))
 							return fail("Preset dynamic perspective apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult) + " " + describePresetMismatch(camera, shiftedPreset));
 
-						const auto restoredResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
+						const auto restoredResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoredResult.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-6, 0.1, 1e-6))
 							return fail("Preset dynamic perspective restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult) + " " + describePresetMismatch(camera, initialPreset));
 					}
@@ -905,16 +965,16 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!manipulateAndMeasure(camera, directEvents, directPosDelta, directRotDelta))
 						return fail("Direct manipulate smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					{
-						const auto modifiedPreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, "smoke-direct");
-						const auto restoreInitial = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
+						const auto modifiedPreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, "smoke-direct");
+						const auto restoreInitial = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoreInitial.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset restore from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 
-						const auto applyModified = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, modifiedPreset);
+						const auto applyModified = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, modifiedPreset);
 						if (!applyModified.succeeded() || !applyModified.changed() || !comparePresetToCamera(camera, modifiedPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset apply from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, modifiedPreset));
 
-						const auto restoreAgain = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
+						const auto restoreAgain = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
 						if (!restoreAgain.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
 							return fail("Preset final restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 					}
@@ -924,7 +984,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					double keyboardRotDelta = 0.0;
 					for (const auto key : keyboardCandidates)
 					{
-						camera->copyDefaultInputBindingPresetTo(inputBinder);
+						applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 						auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 						if (keyboardEvents.empty())
 							continue;
@@ -937,7 +997,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!keyboardOk)
 						return fail("Keyboard binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					const auto mousePreset = camera->getMouseMappingPreset();
+					const auto& mousePreset = getDefaultCameraMouseMappingPreset(*camera);
 					const bool hasMoveMapping =
 						mousePreset.find(ui::EMC_RELATIVE_POSITIVE_MOVEMENT_X) != mousePreset.end() ||
 						mousePreset.find(ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_X) != mousePreset.end() ||
@@ -966,7 +1026,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (isOrbitLikeCamera(camera) && hasBlockedMovement)
 							return fail("Orbit mouse movement gate failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						camera->copyDefaultInputBindingPresetTo(inputBinder);
+						applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 						auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -986,7 +1046,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
 						auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
 
-						camera->copyDefaultInputBindingPresetTo(inputBinder);
+						applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 						auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
@@ -1046,12 +1106,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
 					}
 
-					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
-					const auto applyResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
+					const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
 					if (!applyResult.succeeded() || !applyResult.approximate() || !applyResult.hasIssue(expectedIssue))
 						return fail(std::string("Cross-kind preset smoke failed for ") + label + ". " + describeApplyResult(applyResult));
 
-					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
+					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
 					if (!restoreResult.succeeded() || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 						return fail(std::string("Cross-kind preset restore smoke failed for ") + label + ". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
 
@@ -1070,15 +1130,15 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask));
 					}
 
-					const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
-					const auto applyResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
+					const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
+					const auto applyResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
 					if (!applyResult.succeeded() || !applyResult.exact || !comparePresetToCamera(targetCamera, sourcePreset, 1e-6, 0.1, 1e-6))
 					{
 						return fail(std::string("Exact cross-kind preset smoke failed for ") + label + ". " +
 							describeApplyResult(applyResult) + " " + describePresetMismatch(targetCamera, sourcePreset));
 					}
 
-					const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
+					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
 					if (!restoreResult.succeeded() || !restoreResult.exact || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 					{
 						return fail(std::string("Exact cross-kind preset restore smoke failed for ") + label + ". " +
@@ -1097,20 +1157,20 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					CTrackedTarget trackedTarget(
 						float64_t3(2.25, -0.75, 1.25),
-						glm::quat(glm::dvec3(0.18, -0.22, 0.41)),
+						makeQuaternionFromEulerRadians(float64_t3(0.18, -0.22, 0.41)),
 						"Smoke Target");
 
 					const auto movedTrackedTargetPosition = float64_t3(-1.5, 0.5, 2.25);
-					const auto movedTrackedTargetOrientation = glm::quat(glm::dvec3(-0.12, 0.35, 0.27));
+					const auto movedTrackedTargetOrientation = makeQuaternionFromEulerRadians(float64_t3(-0.12, 0.35, 0.27));
 
 					if (orbitCamera)
 					{
-						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, orbitCamera, "orbit-follow-baseline");
+						const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, orbitCamera, "orbit-follow-baseline");
 						SCameraFollowConfig followConfig = {};
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::OrbitTarget;
 
-						nbl::hlsl::SCameraFollowApplyValidationResult followResult = {};
+						nbl::core::SCameraFollowApplyValidationResult followResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit follow", followResult))
 							return false;
 						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit follow"))
@@ -1118,7 +1178,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "orbit follow"))
 							return false;
 
-						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
+						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Orbit follow smoke failed to restore the baseline preset.");
 
@@ -1126,13 +1186,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(4.0, -1.5, 2.0);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::hlsl::SCameraFollowApplyValidationResult worldOffsetResult = {};
+						nbl::core::SCameraFollowApplyValidationResult worldOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow", worldOffsetResult))
 							return false;
 						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow"))
 							return false;
 
-						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
+						const auto restoreWorldOffsetResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
 						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Orbit keep-world-offset smoke failed to restore the baseline preset.");
 					}
@@ -1148,18 +1208,18 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							continue;
 
 						const auto label = std::string(defaultFollowCamera->getIdentifier()) + " default follow";
-						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, defaultFollowCamera, label + " baseline");
+						const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, defaultFollowCamera, label + " baseline");
 
-						trackedTarget.setPose(float64_t3(2.25, -0.75, 1.25), glm::quat(glm::dvec3(0.18, -0.22, 0.41)));
-						if ((nbl::hlsl::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::hlsl::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
-							!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig))
+						trackedTarget.setPose(float64_t3(2.25, -0.75, 1.25), makeQuaternionFromEulerRadians(float64_t3(0.18, -0.22, 0.41)));
+						if ((nbl::core::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::core::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
+							!nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, defaultFollowCamera, trackedTarget, followConfig))
 						{
 							return fail("Default follow smoke failed to capture offsets for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
 						}
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::hlsl::SCameraFollowApplyValidationResult defaultFollowResult = {};
+						nbl::core::SCameraFollowApplyValidationResult defaultFollowResult = {};
 						if (!buildAndValidateFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, label.c_str(), defaultFollowResult))
 							return false;
 						if (!verifyFollowVisualMetrics(defaultFollowCamera, trackedTarget, followConfig, label.c_str()))
@@ -1167,19 +1227,19 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, label.c_str()))
 							return false;
 
-						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, defaultFollowCamera, baselinePreset);
+						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, defaultFollowCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(defaultFollowCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Default follow smoke failed to restore the baseline preset for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
 					}
 
 					if (freeCamera)
 					{
-						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, freeCamera, "free-follow-baseline");
+						const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, freeCamera, "free-follow-baseline");
 						SCameraFollowConfig followConfig = {};
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::LookAtTarget;
 
-						nbl::hlsl::SCameraFollowApplyValidationResult lookAtResult = {};
+						nbl::core::SCameraFollowApplyValidationResult lookAtResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free look-at follow", lookAtResult))
 							return false;
 						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free look-at follow"))
@@ -1187,7 +1247,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "free look-at follow"))
 							return false;
 
-						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
+						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Free follow smoke failed to restore the baseline preset.");
 
@@ -1195,29 +1255,29 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(5.0, -2.0, 1.5);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::hlsl::SCameraFollowApplyValidationResult keepWorldResult = {};
+						nbl::core::SCameraFollowApplyValidationResult keepWorldResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow", keepWorldResult))
 							return false;
 						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow"))
 							return false;
 
-						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
+						const auto restoreWorldOffsetResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
 						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Free keep-world-offset smoke failed to restore the baseline preset.");
 					}
 
 					if (chaseCamera)
 					{
-						const auto baselinePreset = nbl::hlsl::capturePreset(m_cameraGoalSolver, chaseCamera, "chase-follow-baseline");
+						const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, chaseCamera, "chase-follow-baseline");
 						SCameraFollowConfig followConfig = {};
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::KeepLocalOffset;
-						if (!nbl::hlsl::captureFollowOffsetsFromCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig))
+						if (!nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, chaseCamera, trackedTarget, followConfig))
 							return fail("Chase follow smoke failed to capture local offset.");
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::hlsl::SCameraFollowApplyValidationResult localOffsetResult = {};
+						nbl::core::SCameraFollowApplyValidationResult localOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(chaseCamera, trackedTarget, followConfig, "chase local-offset follow", localOffsetResult))
 							return false;
 						if (!verifyFollowVisualMetrics(chaseCamera, trackedTarget, followConfig, "chase local-offset follow"))
@@ -1225,7 +1285,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "chase local-offset follow"))
 							return false;
 
-						const auto restoreResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, chaseCamera, baselinePreset);
+						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, chaseCamera, baselinePreset);
 						if (!restoreResult.succeeded() || !comparePresetToCamera(chaseCamera, baselinePreset, 1e-6, 0.1, 1e-6))
 							return fail("Chase follow smoke failed to restore the baseline preset.");
 					}
@@ -1278,14 +1338,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (hasOrbitPreset)
 				{
-					if (std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
-						std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
-						std::string_view(nbl::hlsl::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
+					if (std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
+						std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
+						std::string_view(nbl::core::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
 					{
 						return fail("Presentation utilities smoke returned an unexpected filter label.");
 					}
 
-					const auto blockedPresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, nullptr, initialOrbitPreset);
+					const auto blockedPresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, nullptr, initialOrbitPreset);
 					if (blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 						blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
 					{
@@ -1294,13 +1354,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (blockedPresentation.sourceKindLabel.empty() || blockedPresentation.goalStateLabel.empty())
 						return fail("Presentation utilities smoke produced empty blocked presentation labels.");
 
-					const auto blockedBadges = nbl::hlsl::collectGoalApplyPresentationBadges(blockedPresentation);
+					const auto blockedBadges = nbl::core::collectGoalApplyPresentationBadges(blockedPresentation);
 					if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort || blockedPresentation.badges.blocked != blockedBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong blocked badge flags.");
 
 					if (orbitCamera)
 					{
-						const auto exactPresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
+						const auto exactPresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
 						if (!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 							!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 							exactPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -1308,13 +1368,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Presentation utilities smoke failed exact filtering.");
 						}
 
-						const auto exactBadges = nbl::hlsl::collectGoalApplyPresentationBadges(exactPresentation);
+						const auto exactBadges = nbl::core::collectGoalApplyPresentationBadges(exactPresentation);
 						if (!exactBadges.exact || exactBadges.bestEffort || exactBadges.dropsState || exactBadges.sharedStateOnly || exactBadges.blocked)
 							return fail("Presentation utilities smoke produced wrong exact badge flags.");
 						if (exactPresentation.sourceKindLabel.empty() || exactPresentation.goalStateLabel.empty())
 							return fail("Presentation utilities smoke produced empty exact presentation labels.");
 
-						const auto capturePresentation = nbl::hlsl::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
+						const auto capturePresentation = nbl::core::analyzeCapturePresentation(m_cameraGoalSolver, orbitCamera);
 						if (!capturePresentation.canCapture || capturePresentation.policyLabel.empty())
 							return fail("Presentation utilities smoke failed orbit capture presentation.");
 					}
@@ -1322,7 +1382,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (hasOrbitPreset && hasPathPreset && orbitCamera)
 				{
-					const auto approximatePresentation = nbl::hlsl::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialPathPreset);
+					const auto approximatePresentation = nbl::core::analyzePresetPresentation(m_cameraGoalSolver, orbitCamera, initialPathPreset);
 					if (!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 						approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 						!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -1330,7 +1390,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Presentation utilities smoke failed best-effort filtering.");
 					}
 
-					const auto approximateBadges = nbl::hlsl::collectGoalApplyPresentationBadges(approximatePresentation);
+					const auto approximateBadges = nbl::core::collectGoalApplyPresentationBadges(approximatePresentation);
 					if (approximateBadges.exact || !approximateBadges.bestEffort || !approximateBadges.dropsState || approximateBadges.sharedStateOnly || approximateBadges.blocked)
 						return fail("Presentation utilities smoke produced wrong best-effort badge flags.");
 					if (approximatePresentation.sourceKindLabel.empty() || approximatePresentation.goalStateLabel.empty())
@@ -1354,13 +1414,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Preset persistence smoke failed to collect source presets.");
 
 					std::stringstream presetBuffer;
-					if (!nbl::hlsl::writePresetCollection(presetBuffer, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
+					if (!nbl::system::writePresetCollection(presetBuffer, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
 						return fail("Preset persistence smoke failed to serialize preset collection.");
 
 					std::vector<CameraPreset> loadedPresets;
-					if (!nbl::hlsl::readPresetCollection(presetBuffer, loadedPresets))
+					if (!nbl::system::readPresetCollection(presetBuffer, loadedPresets))
 						return fail("Preset persistence smoke failed to deserialize preset collection.");
-					if (!nbl::hlsl::comparePresetCollections(
+					if (!nbl::core::comparePresetCollections(
 						std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size()),
 						std::span<const CameraPreset>(loadedPresets.data(), loadedPresets.size()),
 						1e-6, 0.1, 1e-6))
@@ -1380,13 +1440,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					sourceTrack.selectedKeyframeIx = static_cast<int>(sourceTrack.keyframes.size()) - 1;
 
 					std::stringstream keyframeBuffer;
-					if (!nbl::hlsl::writeKeyframeTrack(keyframeBuffer, sourceTrack))
+					if (!nbl::system::writeKeyframeTrack(keyframeBuffer, sourceTrack))
 						return fail("Keyframe persistence smoke failed to serialize track.");
 
 					CCameraKeyframeTrack loadedTrack;
-					if (!nbl::hlsl::readKeyframeTrack(keyframeBuffer, loadedTrack))
+					if (!nbl::system::readKeyframeTrack(keyframeBuffer, loadedTrack))
 						return fail("Keyframe persistence smoke failed to deserialize track.");
-					if (!nbl::hlsl::compareKeyframeTrackContent(sourceTrack, loadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+					if (!nbl::core::compareKeyframeTrackContent(sourceTrack, loadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
 						return fail("Keyframe persistence smoke changed stream track content.");
 
 					struct TempFileCleanup final
@@ -1406,13 +1466,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					const auto keyframeFile = tempDir / ("nabla_cameraz_keyframes_" + uniqueSuffix + ".json");
 					tempFiles.paths = { presetFile, keyframeFile };
 
-					if (!nbl::hlsl::savePresetCollectionToFile(presetFile, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
+					if (!nbl::system::savePresetCollectionToFile(presetFile, std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size())))
 						return fail("Preset persistence smoke failed to save preset collection file.");
 
 					std::vector<CameraPreset> fileLoadedPresets;
-					if (!nbl::hlsl::loadPresetCollectionFromFile(presetFile, fileLoadedPresets))
+					if (!nbl::system::loadPresetCollectionFromFile(presetFile, fileLoadedPresets))
 						return fail("Preset persistence smoke failed to load preset collection file.");
-					if (!nbl::hlsl::comparePresetCollections(
+					if (!nbl::core::comparePresetCollections(
 						std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size()),
 						std::span<const CameraPreset>(fileLoadedPresets.data(), fileLoadedPresets.size()),
 						1e-6, 0.1, 1e-6))
@@ -1420,13 +1480,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Preset persistence smoke changed file preset collection content.");
 					}
 
-					if (!nbl::hlsl::saveKeyframeTrackToFile(keyframeFile, sourceTrack))
+					if (!nbl::system::saveKeyframeTrackToFile(keyframeFile, sourceTrack))
 						return fail("Keyframe persistence smoke failed to save track file.");
 
 					CCameraKeyframeTrack fileLoadedTrack;
-					if (!nbl::hlsl::loadKeyframeTrackFromFile(keyframeFile, fileLoadedTrack))
+					if (!nbl::system::loadKeyframeTrackFromFile(keyframeFile, fileLoadedTrack))
 						return fail("Keyframe persistence smoke failed to load track file.");
-					if (!nbl::hlsl::compareKeyframeTrackContent(sourceTrack, fileLoadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+					if (!nbl::core::compareKeyframeTrackContent(sourceTrack, fileLoadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
 						return fail("Keyframe persistence smoke changed file track content.");
 				}
 
@@ -1452,13 +1512,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					cursor.speed = 1.f;
 					cursor.time = 1.5f;
 
-					const auto advanceToEnd = nbl::hlsl::advancePlaybackCursor(cursor, playbackTrack, 1.0);
+					const auto advanceToEnd = nbl::core::advancePlaybackCursor(cursor, playbackTrack, 1.0);
 					if (!advanceToEnd.hasTrack || !advanceToEnd.changedTime || !advanceToEnd.reachedEnd || !advanceToEnd.stopped || advanceToEnd.wrapped)
 						return fail("Playback timeline smoke failed for non-loop end-of-track advance.");
 					if (std::abs(static_cast<double>(advanceToEnd.time - 2.f)) > 1e-6)
 						return fail("Playback timeline smoke produced wrong end-of-track time.");
 
-					nbl::hlsl::resetPlaybackCursor(cursor, 1.25f);
+					nbl::core::resetPlaybackCursor(cursor, 1.25f);
 					if (cursor.playing || std::abs(static_cast<double>(cursor.time - 1.25f)) > 1e-6)
 						return fail("Playback timeline smoke failed to reset cursor.");
 
@@ -1466,14 +1526,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					cursor.loop = true;
 					cursor.speed = 1.f;
 					cursor.time = 1.5f;
-					const auto advanceLoop = nbl::hlsl::advancePlaybackCursor(cursor, playbackTrack, 1.0);
+					const auto advanceLoop = nbl::core::advancePlaybackCursor(cursor, playbackTrack, 1.0);
 					if (!advanceLoop.hasTrack || !advanceLoop.changedTime || !advanceLoop.wrapped || advanceLoop.stopped || advanceLoop.reachedEnd)
 						return fail("Playback timeline smoke failed for looped advance.");
 					if (std::abs(static_cast<double>(advanceLoop.time - 0.5f)) > 1e-6)
 						return fail("Playback timeline smoke produced wrong wrapped time.");
 
 					cursor.time = 9.f;
-					nbl::hlsl::clampPlaybackCursorToTrack(playbackTrack, cursor);
+					nbl::core::clampPlaybackCursorToTrack(playbackTrack, cursor);
 					if (std::abs(static_cast<double>(cursor.time - 2.f)) > 1e-6)
 						return fail("Playback timeline smoke failed to clamp cursor time.");
 				}
@@ -1500,21 +1560,21 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						segment.keyframes.push_back(keyframe);
 					}
 					{
-						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						nbl::core::CCameraSequenceTrackedTargetKeyframe keyframe;
 						keyframe.time = 0.f;
 						keyframe.hasAbsolutePosition = true;
 						keyframe.absolutePosition = float64_t3(1.0, 2.0, 3.0);
 						segment.targetKeyframes.push_back(keyframe);
 					}
 					{
-						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						nbl::core::CCameraSequenceTrackedTargetKeyframe keyframe;
 						keyframe.time = 1.f;
 						keyframe.hasAbsolutePosition = true;
 						keyframe.absolutePosition = float64_t3(4.0, 5.0, 6.0);
 						segment.targetKeyframes.push_back(keyframe);
 					}
 					{
-						nbl::hlsl::CCameraSequenceTrackedTargetKeyframe keyframe;
+						nbl::core::CCameraSequenceTrackedTargetKeyframe keyframe;
 						keyframe.time = 1.f;
 						keyframe.hasAbsolutePosition = true;
 						keyframe.absolutePosition = float64_t3(7.0, 8.0, 9.0);
@@ -1522,7 +1582,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					}
 					sequence.segments.push_back(segment);
 
-					if (!nbl::hlsl::sequenceScriptUsesMultiplePresentations(sequence))
+					if (!nbl::core::sequenceScriptUsesMultiplePresentations(sequence))
 						return fail("Sequence compile smoke failed to detect multi-presentation authored defaults.");
 
 					const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
@@ -1530,9 +1590,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						.orientation = getDefaultFollowTargetOrientation()
 					};
 
-					nbl::hlsl::CCameraSequenceCompiledSegment compiledSegment;
+					nbl::core::CCameraSequenceCompiledSegment compiledSegment;
 					std::string compileError;
-					if (!nbl::hlsl::compileSequenceSegmentFromReference(
+					if (!nbl::core::compileSequenceSegmentFromReference(
 						sequence,
 						sequence.segments.front(),
 						initialOrbitPreset,
@@ -1557,8 +1617,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!compiledSegment.usesTrackedTargetTrack() || compiledSegment.trackedTargetTrack.keyframes.size() != 2u)
 						return fail("Sequence compile smoke failed to normalize tracked-target keyframes.");
 
-					std::vector<nbl::hlsl::CCameraSequenceCompiledFramePolicy> framePolicies;
-					if (!nbl::hlsl::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, true))
+					std::vector<nbl::core::CCameraSequenceCompiledFramePolicy> framePolicies;
+					if (!nbl::core::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, true))
 						return fail("Sequence compile smoke failed to build shared frame policies.");
 					if (framePolicies.size() != 8u)
 						return fail("Sequence compile smoke produced wrong frame-policy count.");
@@ -1570,14 +1630,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Sequence compile smoke produced wrong capture milestone policy.");
 
 					CCameraSequenceTrackedTargetPose poseAtOne;
-					if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, 1.f, poseAtOne))
+					if (!nbl::core::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, 1.f, poseAtOne))
 						return fail("Sequence compile smoke failed to sample normalized tracked-target track.");
 					if (length(poseAtOne.position - float64_t3(7.0, 8.0, 9.0)) > 1e-9)
 						return fail("Sequence compile smoke did not keep the last authored target pose for duplicate keyframe time.");
 
 					CCameraScriptedTimeline scriptedTimeline;
 					std::string runtimeBuildError;
-					if (!nbl::hlsl::appendCompiledSequenceSegmentToScriptedTimeline(
+					if (!nbl::system::appendCompiledSequenceSegmentToScriptedTimeline(
 						scriptedTimeline,
 						11u,
 						compiledSegment,
@@ -1591,7 +1651,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					{
 						return fail("Sequence runtime builder smoke failed to append a compiled segment. " + runtimeBuildError);
 					}
-					nbl::hlsl::finalizeScriptedTimeline(scriptedTimeline);
+					nbl::system::finalizeScriptedTimeline(scriptedTimeline);
 
 					if (scriptedTimeline.captureFrames.size() != 3u ||
 						scriptedTimeline.captureFrames[0] != 11ull ||
@@ -1626,7 +1686,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					size_t runtimeNextEventIndex = 0u;
 					CCameraScriptedFrameEvents runtimeBatch;
-					nbl::hlsl::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, 11u, runtimeBatch);
+					nbl::system::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, 11u, runtimeBatch);
 					if (runtimeBatch.actions.size() != 10u || runtimeBatch.goals.size() != 1u ||
 						runtimeBatch.trackedTargetTransforms.size() != 1u || runtimeBatch.segmentLabels.size() != 1u)
 					{
@@ -1642,7 +1702,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				if (hasOrbitPreset && orbitCamera)
 				{
 					std::array<ICamera*, 2u> exactTargets = { orbitCamera, nullptr };
-					const auto exactSummary = nbl::hlsl::applyPresetToCameraRange(
+					const auto exactSummary = nbl::core::applyPresetToCameraRange(
 						m_cameraGoalSolver,
 						std::span<ICamera* const>(exactTargets.data(), exactTargets.size()),
 						initialOrbitPreset);
@@ -1653,7 +1713,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				if (hasPathPreset && orbitCamera)
 				{
 					std::array<ICamera*, 1u> approximateTargets = { orbitCamera };
-					const auto approximateSummary = nbl::hlsl::applyPresetToCameraRange(
+					const auto approximateSummary = nbl::core::applyPresetToCameraRange(
 						m_cameraGoalSolver,
 						std::span<ICamera* const>(approximateTargets.data(), approximateTargets.size()),
 						initialPathPreset);
@@ -1669,7 +1729,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					scaledEvents[1].magnitude = 3.0;
 					scaledEvents[2].type = CVirtualGimbalEvent::ScaleXInc;
 					scaledEvents[2].magnitude = 4.0;
-					nbl::hlsl::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
+					nbl::core::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
 					if (std::abs(scaledEvents[0].magnitude - 1.0) > 1e-9 ||
 						std::abs(scaledEvents[1].magnitude - 6.0) > 1e-9 ||
 						std::abs(scaledEvents[2].magnitude - 4.0) > 1e-9)
@@ -1681,8 +1741,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				if (hasFreePreset && freeCamera)
 				{
 					CameraPreset orientedPreset = initialFreePreset;
-					orientedPreset.goal.orientation = glm::quat(hlsl::radians(float32_t3(0.f, 90.f, 0.f)));
-					const auto orientResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, orientedPreset);
+					orientedPreset.goal.orientation = makeQuaternionFromEulerDegrees(float64_t3(0.0, 90.0, 0.0));
+					const auto orientResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, orientedPreset);
 					if (!orientResult.succeeded() || !comparePresetToCamera(freeCamera, orientedPreset, 1e-6, 0.1, 1e-6))
 						return fail("Camera manipulation utilities smoke failed to orient Free camera before translation remap.");
 
@@ -1694,7 +1754,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					worldTranslationEvents[2].type = CVirtualGimbalEvent::MoveForward;
 					worldTranslationEvents[2].magnitude = 2.0;
 					uint32_t remappedCount = static_cast<uint32_t>(worldTranslationEvents.size());
-					nbl::hlsl::remapTranslationEventsFromWorldToCameraLocal(freeCamera, worldTranslationEvents, remappedCount);
+					nbl::core::remapTranslationEventsFromWorldToCameraLocal(freeCamera, worldTranslationEvents, remappedCount);
 					if (remappedCount == 0u)
 						return fail("Camera manipulation utilities smoke produced empty translation remap.");
 
@@ -1708,8 +1768,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Camera manipulation utilities smoke changed world-space translation semantics.");
 
 					CameraPreset pitchPreset = initialFreePreset;
-					pitchPreset.goal.orientation = glm::quat(hlsl::radians(float32_t3(60.f, 0.f, 0.f)));
-					const auto pitchResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, pitchPreset);
+					pitchPreset.goal.orientation = makeQuaternionFromEulerDegrees(float64_t3(60.0, 0.0, 0.0));
+					const auto pitchResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, pitchPreset);
 					if (!pitchResult.succeeded())
 						return fail("Camera manipulation utilities smoke failed to prepare Free camera pitch clamp.");
 
@@ -1718,14 +1778,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					freeConstraints.clampPitch = true;
 					freeConstraints.pitchMinDeg = -15.f;
 					freeConstraints.pitchMaxDeg = 15.f;
-					if (!nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, freeCamera, freeConstraints))
+					if (!nbl::core::applyCameraConstraints(m_cameraGoalSolver, freeCamera, freeConstraints))
 						return fail("Camera manipulation utilities smoke failed to clamp Free camera orientation.");
 
-					const auto freeEulerDeg = glm::degrees(glm::eulerAngles(freeCamera->getGimbal().getOrientation()));
+					const auto freeEulerDeg = getQuaternionEulerDegrees(freeCamera->getGimbal().getOrientation());
 					if (std::abs(static_cast<double>(freeEulerDeg.x - 15.f)) > 0.1)
 						return fail("Camera manipulation utilities smoke produced wrong clamped Free camera pitch.");
 
-					const auto restoreFree = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, initialFreePreset);
+					const auto restoreFree = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, initialFreePreset);
 					if (!restoreFree.succeeded() || !comparePresetToCamera(freeCamera, initialFreePreset, 1e-6, 0.1, 1e-6))
 						return fail("Camera manipulation utilities smoke failed to restore Free camera baseline.");
 				}
@@ -1734,7 +1794,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					CameraPreset farOrbitPreset = initialOrbitPreset;
 					farOrbitPreset.goal.distance = initialOrbitPreset.goal.distance + 10.f;
-					const auto farOrbitResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, farOrbitPreset);
+					const auto farOrbitResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, farOrbitPreset);
 					if (!farOrbitResult.succeeded())
 						return fail("Camera manipulation utilities smoke failed to prepare Orbit distance clamp.");
 
@@ -1743,7 +1803,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					orbitConstraints.clampDistance = true;
 					orbitConstraints.minDistance = std::max(0.1f, initialOrbitPreset.goal.distance * 0.5f);
 					orbitConstraints.maxDistance = initialOrbitPreset.goal.distance * 0.75f;
-					if (!nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, orbitCamera, orbitConstraints))
+					if (!nbl::core::applyCameraConstraints(m_cameraGoalSolver, orbitCamera, orbitConstraints))
 						return fail("Camera manipulation utilities smoke failed to clamp Orbit distance.");
 
 					ICamera::SphericalTargetState clampedOrbitState;
@@ -1753,7 +1813,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Camera manipulation utilities smoke produced wrong clamped Orbit distance.");
 					}
 
-					const auto restoreOrbit = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
+					const auto restoreOrbit = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
 					if (!restoreOrbit.succeeded() || !comparePresetToCamera(orbitCamera, initialOrbitPreset, 1e-6, 0.1, 1e-6))
 						return fail("Camera manipulation utilities smoke failed to restore Orbit baseline.");
 				}
@@ -1765,13 +1825,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Camera projection utilities smoke failed to query DollyZoom dynamic FOV.");
 
 					auto perspectiveProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(0.1f, 100.f, 60.f);
-					if (!nbl::hlsl::syncDynamicPerspectiveProjection(dollyZoomCamera, perspectiveProjection))
+					if (!nbl::core::syncDynamicPerspectiveProjection(dollyZoomCamera, perspectiveProjection))
 						return fail("Camera projection utilities smoke failed to sync dynamic perspective projection.");
 					if (std::abs(static_cast<double>(perspectiveProjection.getParameters().m_planar.perspective.fov - dynamicFov)) > 1e-6)
 						return fail("Camera projection utilities smoke produced wrong dynamic perspective FOV.");
 
 					auto orthographicProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(0.1f, 100.f, 10.f);
-					if (nbl::hlsl::syncDynamicPerspectiveProjection(dollyZoomCamera, orthographicProjection))
+					if (nbl::core::syncDynamicPerspectiveProjection(dollyZoomCamera, orthographicProjection))
 						return fail("Camera projection utilities smoke unexpectedly synced orthographic projection.");
 				}
 
@@ -1794,7 +1854,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					summary.targetCount = 2u;
 					summary.successCount = 2u;
 					summary.approximateCount = 1u;
-					const auto summaryText = nbl::hlsl::describePresetApplySummary(summary, "none");
+					const auto summaryText = nbl::core::describePresetApplySummary(summary, "none");
 					if (summaryText.find("targets=2") == std::string::npos || summaryText.find("approximate=1") == std::string::npos)
 						return fail("Camera text utilities smoke failed for preset-apply summary description.");
 				}
@@ -1823,7 +1883,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				return false;
 
 			{
-				smart_refctd_ptr<system::IFileArchive> examplesHeaderArch, examplesSourceArch, examplesBuildArch, thisExampleArch, thisExampleBuildArch;
+				smart_refctd_ptr<nbl::system::IFileArchive> examplesHeaderArch, examplesSourceArch, examplesBuildArch, thisExampleArch, thisExampleBuildArch;
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
 				examplesHeaderArch = core::make_smart_refctd_ptr<nbl::builtin::examples::include::CArchive>(smart_refctd_ptr(m_logger));
 				examplesSourceArch = core::make_smart_refctd_ptr<nbl::builtin::examples::src::CArchive>(smart_refctd_ptr(m_logger));
@@ -1837,12 +1897,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				thisExampleBuildArch = make_smart_refctd_ptr<nbl::this_example::builtin::build::CArchive>(smart_refctd_ptr(m_logger));
 	#endif
 #else
-				examplesHeaderArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
-				examplesSourceArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
-				examplesBuildArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
-				thisExampleArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
+				examplesHeaderArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
+				examplesSourceArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
+				examplesBuildArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
+				thisExampleArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
 	#ifdef NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-				thisExampleBuildArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
+				thisExampleBuildArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
 	#endif
 #endif
 				m_system->mount(std::move(examplesHeaderArch),"nbl/examples");
@@ -1857,7 +1917,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			{
 				const std::optional<std::string> cameraJsonFile = program.is_used("--file") ? program.get<std::string>("--file") : std::optional<std::string>(std::nullopt);
 
-				nbl_json j;
+				camera_json_t j;
 				auto loadDefaultConfig = [&]() -> bool
 				{
 #ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
@@ -1870,7 +1930,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					IFile::success_t result;
 					config.resize(pFile->getSize());
 					pFile->read(result, config.data(), 0, pFile->getSize());
-					j = nbl_json::parse(config);
+					j = camera_json_t::parse(config);
 					return true;
 #else
 					const auto fallbackPath = localInputCWD / "app_resources" / "cameras.json";
@@ -1898,18 +1958,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					file >> j;
 				}
 
-				auto loadScriptJson = [&](const std::string& path, nbl_json& out) -> bool
-				{
-					std::ifstream sfile(path);
-					if (!sfile.is_open())
-					{
-						m_logger->log("Cannot open scripted input file \"%s\".", ILogger::ELL_ERROR, path.c_str());
-						return false;
-					}
-					sfile >> out;
-					return true;
-				};
-
 				std::optional<CCameraSequenceScript> pendingScriptedSequence;
 				bool scriptedInputParseFailed = false;
 				std::string scriptedInputParseError;
@@ -1925,10 +1973,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				auto finalizeScriptedInput = [&]() -> void
 				{
-					nbl::hlsl::finalizeScriptedTimeline(m_scriptedInput.timeline, m_disableScreenshotsCli);
+					nbl::system::finalizeScriptedTimeline(m_scriptedInput.timeline, m_disableScreenshotsCli);
 				};
 
-				auto parseScriptedInput = [&](const nbl_json& script) -> void
+				auto applyParsedScriptedInput = [&](nbl::system::CCameraScriptedInputParseResult parsed) -> void
 				{
 					pendingScriptedSequence.reset();
 					scriptedInputParseFailed = false;
@@ -1948,13 +1996,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_scriptedInput.framePacerInitialized = false;
 					m_scriptedInput.capturePrefix = "script";
 					m_scriptedInput.captureOutputDir = localOutputCWD;
-
-					CCameraScriptedInputParseResult parsed;
-					if (!nbl::hlsl::deserializeCameraScriptedInput(script, parsed, &scriptedInputParseError))
-					{
-						scriptedInputParseFailed = true;
-						return;
-					}
 
 					m_scriptedInput.enabled = parsed.enabled;
 					if (parsed.hasLog)
@@ -2002,22 +2043,26 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (program.is_used("--script"))
 				{
-					system::path scriptPath = program.get<std::string>("--script");
+					nbl::system::path scriptPath = program.get<std::string>("--script");
 					if (scriptPath.is_relative())
 						scriptPath = localInputCWD / scriptPath;
-					nbl_json scriptJson;
-					if (!loadScriptJson(scriptPath.string(), scriptJson))
-						return false;
-					parseScriptedInput(scriptJson);
-					if (scriptedInputParseFailed)
+					nbl::system::CCameraScriptedInputParseResult parsed;
+					if (!nbl::system::loadCameraScriptedInputFromFile(scriptPath, parsed, &scriptedInputParseError))
 					{
 						logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
 						return false;
 					}
+					applyParsedScriptedInput(std::move(parsed));
 				}
 				else if (j.contains("scripted_input"))
 				{
-					parseScriptedInput(j["scripted_input"]);
+					std::stringstream scriptedInputStream;
+					scriptedInputStream << j["scripted_input"].dump();
+					nbl::system::CCameraScriptedInputParseResult parsed;
+					if (!nbl::system::readCameraScriptedInput(scriptedInputStream, parsed, &scriptedInputParseError))
+						scriptedInputParseFailed = true;
+					else
+						applyParsedScriptedInput(std::move(parsed));
 					if (scriptedInputParseFailed)
 					{
 						logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
@@ -2110,7 +2155,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					std::vector<IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
 				} bindings;
 
-				const char* bindingLayoutsKey = j.contains("bindings") ? "bindings" : (j.contains("controllers") ? "controllers" : nullptr);
+				const char* bindingLayoutsKey = j.contains("bindings") ? "bindings" : nullptr;
 
 				if (bindingLayoutsKey)
 				{
@@ -2211,7 +2256,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						for (const auto viewportIx : boundViewports)
 						{
 							auto& viewport = j["viewports"][viewportIx];
-							const char* viewportBindingsKey = viewport.contains("bindings") ? "bindings" : (viewport.contains("controllers") ? "controllers" : nullptr);
+							const char* viewportBindingsKey = viewport.contains("bindings") ? "bindings" : nullptr;
 							if (!viewport.contains("projection") || !viewportBindingsKey)
 							{
 								logFail("\"projection\" or \"bindings\" missing in viewport object index %d", viewportIx);
@@ -2278,7 +2323,23 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					auto* camera = m_planarProjections[planarIx]->getCamera();
 					const std::string presetName = "Planar " + std::to_string(planarIx);
-					m_initialPlanarPresets.emplace_back(nbl::hlsl::capturePreset(m_cameraGoalSolver, camera, presetName));
+					const auto captureAnalysis = nbl::core::analyzeCameraCapture(m_cameraGoalSolver, camera);
+					if (!captureAnalysis.canCapture)
+					{
+						const auto kindLabel = camera ? std::string(getCameraTypeLabel(camera->getKind())) : std::string("Unknown");
+						const auto reason = !captureAnalysis.hasCamera ? "missing camera" :
+							(!captureAnalysis.capturedGoal ? "capture failed" :
+								(!captureAnalysis.finiteGoal ? "non-finite goal" : "unknown"));
+						return logFail("Failed to capture initial planar preset %u for camera kind \"%s\": %s",
+							planarIx, kindLabel.c_str(), reason);
+					}
+
+					CameraPreset preset = {};
+					if (!nbl::core::tryCapturePreset(captureAnalysis, camera, presetName, preset))
+						return logFail("Failed to build initial planar preset %u for camera kind \"%s\".",
+							planarIx,
+							camera ? std::string(getCameraTypeLabel(camera->getKind())).c_str() : "Unknown");
+					m_initialPlanarPresets.emplace_back(std::move(preset));
 				}
 
 				resetFollowTargetToDefault();
@@ -2322,8 +2383,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return match;
 						};
 
-						const bool useWindow = nbl::hlsl::sequenceScriptUsesMultiplePresentations(sequence);
-						nbl::hlsl::appendScriptedActionEvent(timeline, 0u, CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
+						const bool useWindow = nbl::core::sequenceScriptUsesMultiplePresentations(sequence);
+						nbl::system::appendScriptedActionEvent(timeline, 0u, CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
 
 						const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
 							.position = getDefaultFollowTargetPosition(),
@@ -2340,14 +2401,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 									segment.name.c_str(), kindLabel.c_str(), segment.cameraIdentifier.c_str());
 								return false;
 							}
-							const bool useTrackedTargetFollow = nbl::hlsl::sequenceSegmentUsesTrackedTargetTrack(segment) &&
+							const bool useTrackedTargetFollow = nbl::core::sequenceSegmentUsesTrackedTargetTrack(segment) &&
 								planarIx.value() < m_planarFollowConfigs.size() &&
 								m_planarFollowConfigs[planarIx.value()].enabled &&
 								m_planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Disabled;
 
-							nbl::hlsl::CCameraSequenceCompiledSegment compiledSegment;
+							nbl::core::CCameraSequenceCompiledSegment compiledSegment;
 							std::string trackError;
-							if (!nbl::hlsl::compileSequenceSegmentFromReference(
+							if (!nbl::core::compileSequenceSegmentFromReference(
 								sequence,
 								segment,
 								m_initialPlanarPresets[planarIx.value()],
@@ -2366,7 +2427,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							}
 
 							std::string buildError;
-							if (!nbl::hlsl::appendCompiledSequenceSegmentToScriptedTimeline(
+							if (!nbl::system::appendCompiledSequenceSegmentToScriptedTimeline(
 								timeline,
 								frameCursor,
 								compiledSegment,
@@ -2386,7 +2447,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							frameCursor += compiledSegment.durationFrames;
 						}
 
-						nbl::hlsl::finalizeScriptedTimeline(timeline, m_disableScreenshotsCli);
+						nbl::system::finalizeScriptedTimeline(timeline, m_disableScreenshotsCli);
 						m_scriptedInput.timeline = std::move(timeline);
 						return true;
 					};
@@ -2471,7 +2532,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
-			// TODO: improve the queue allocation/choice and allocate a dedicated presentation queue to improve responsiveness and race to present.
 			ISwapchain::SSharedCreationParams sharedParams = {};
 			sharedParams.imageUsage |= IGPUImage::EUF_TRANSFER_SRC_BIT;
 			auto swapchainResources = std::make_unique<CSwapchainResources>();
@@ -2972,7 +3032,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							.immutableSamplers = &m_spaceEnvSampler
 						}
 					};
-					m_spaceEnvDescriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+					m_spaceEnvDescriptorSetLayout = m_device->createDescriptorSetLayout(std::span{ bindings });
 					if (!m_spaceEnvDescriptorSetLayout)
 						return logFail("Failed to create space environment descriptor set layout.");
 
@@ -3107,5 +3167,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			return true;
 
 }
+
+
 
 

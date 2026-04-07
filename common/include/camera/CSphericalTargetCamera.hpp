@@ -6,7 +6,7 @@
 
 #include "ICamera.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -21,7 +21,7 @@ public:
 
     CSphericalTargetCamera(const float64_t3& position, const float64_t3& target)
         : base_t(), m_targetPosition(target), m_distance(1.0f),
-          m_gimbal({ .position = position, .orientation = glm::quat(glm::vec3(0.0f)) })
+          m_gimbal({ .position = position, .orientation = makeIdentityQuaternion<float64_t>() })
     {
         initFromPosition(position);
     }
@@ -51,8 +51,8 @@ public:
     inline double getU() const { return m_u; }
     inline double getV() const { return m_v; }
 
-    static inline constexpr float MinDistance = 0.1f;
-    static inline constexpr float MaxDistance = 10000.f;
+    static inline constexpr float MinDistance = base_t::SphericalMinDistance;
+    static inline constexpr float MaxDistance = base_t::SphericalMaxDistance;
 
     virtual uint32_t getCapabilities() const override
     {
@@ -135,7 +135,7 @@ protected:
     {
         const auto basis = computeBasis(m_u, m_v, m_distance);
         const auto newPosition = basis.localSpherePosition + m_targetPosition;
-        const auto newOrientation = glm::quat_cast(glm::dmat3{ basis.right, basis.up, basis.forward });
+        const auto newOrientation = makeQuaternionFromBasis(basis.right, basis.up, basis.forward);
 
         m_gimbal.begin();
         {

@@ -7,7 +7,7 @@
 
 #include "ICamera.hpp"
 
-namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
+namespace nbl::core
 {
 // Free Lock Camera
 class CFreeCamera final : public ICamera
@@ -15,13 +15,9 @@ class CFreeCamera final : public ICamera
 public:
     using base_t = ICamera;
 
-    CFreeCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+    CFreeCamera(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
     ~CFreeCamera() = default;
-
-    const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
-    const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
-    const base_t::imguizmo_to_virtual_events_t getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
 
     const typename base_t::CGimbal& getGimbal() override
     {
@@ -43,12 +39,12 @@ public:
 
         m_gimbal.begin();
         {
-            glm::quat pitch = glm::angleAxis<float>(impulse.dVirtualRotation.x, glm::vec3(reference.frame[0]));
-            glm::quat yaw = glm::angleAxis<float>(impulse.dVirtualRotation.y, glm::vec3(reference.frame[1]));
-            glm::quat roll = glm::angleAxis<float>(impulse.dVirtualRotation.z, glm::vec3(reference.frame[2]));
+            const auto pitch = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[0])), impulse.dVirtualRotation.x);
+            const auto yaw = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[1])), impulse.dVirtualRotation.y);
+            const auto roll = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[2])), impulse.dVirtualRotation.z);
 
-            m_gimbal.setOrientation(yaw * pitch * roll * reference.orientation);
-            m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
+            m_gimbal.setOrientation(normalizeQuaternion(yaw * pitch * roll * reference.orientation));
+            m_gimbal.setPosition(float64_t3(reference.frame[3]) + rotateVectorByQuaternion(reference.orientation, float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 
@@ -60,7 +56,7 @@ public:
         return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override
+    virtual uint32_t getAllowedVirtualEvents() const override
     {
         return AllowedVirtualEvents;
     }
@@ -70,7 +66,7 @@ public:
         return CameraKind::Free;
     }
 
-    virtual const std::string_view getIdentifier() override
+    virtual std::string_view getIdentifier() const override
     {
         return "Free-Look Camera";
     }
@@ -79,56 +75,6 @@ private:
     typename base_t::CGimbal m_gimbal;
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-
-    static inline const auto m_keyboard_to_virtual_events_preset = []()
-    {
-        typename base_t::keyboard_to_virtual_events_t preset;
-
-        preset[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
-        preset[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
-        preset[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
-        preset[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
-        preset[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
-        preset[ui::E_KEY_CODE::EKC_Q] = CVirtualGimbalEvent::RollLeft;
-        preset[ui::E_KEY_CODE::EKC_E] = CVirtualGimbalEvent::RollRight;
-
-        return preset;
-    }();
-
-    static inline const auto m_mouse_to_virtual_events_preset = []()
-    {
-        typename base_t::mouse_to_virtual_events_t preset;
-
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanRight;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanLeft;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltUp;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltDown;
-
-        return preset;
-    }();
-
-    static inline const auto m_imguizmo_to_virtual_events_preset = []()
-    {
-        typename base_t::imguizmo_to_virtual_events_t preset;
-
-        preset[CVirtualGimbalEvent::MoveForward] = CVirtualGimbalEvent::MoveForward;
-        preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
-        preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
-        preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
-        preset[CVirtualGimbalEvent::MoveUp] = CVirtualGimbalEvent::MoveUp;
-        preset[CVirtualGimbalEvent::MoveDown] = CVirtualGimbalEvent::MoveDown;
-        preset[CVirtualGimbalEvent::TiltDown] = CVirtualGimbalEvent::TiltDown;
-        preset[CVirtualGimbalEvent::TiltUp] = CVirtualGimbalEvent::TiltUp;
-        preset[CVirtualGimbalEvent::PanLeft] = CVirtualGimbalEvent::PanLeft;
-        preset[CVirtualGimbalEvent::PanRight] = CVirtualGimbalEvent::PanRight;
-        preset[CVirtualGimbalEvent::RollLeft] = CVirtualGimbalEvent::RollLeft;
-        preset[CVirtualGimbalEvent::RollRight] = CVirtualGimbalEvent::RollRight;
-
-        return preset;
-    }();
 };
 
 }

@@ -63,7 +63,7 @@ void App::update()
 			uint32_t scriptedImguizmoVirtualCount = 0u;
 
 			if (m_scriptedInput.enabled && m_scriptedInput.nextEventIndex < m_scriptedInput.timeline.events.size())
-				nbl::hlsl::dequeueScriptedFrameEvents(
+				nbl::system::dequeueScriptedFrameEvents(
 					m_scriptedInput.timeline.events,
 					m_scriptedInput.nextEventIndex,
 					m_realFrameIx,
@@ -73,7 +73,10 @@ void App::update()
 			{
 				SKeyboardEvent e(m_nextPresentationTimestamp);
 				e.keyCode = authoredKeyboard.key;
-				e.action = authoredKeyboard.action;
+				e.action =
+					authoredKeyboard.action == CCameraScriptedInputEvent::KeyboardData::Action::Pressed ?
+					ui::SKeyboardEvent::ECA_PRESSED :
+					ui::SKeyboardEvent::ECA_RELEASED;
 				e.window = m_window.get();
 				scriptedKeyboard.emplace_back(e);
 			}
@@ -81,23 +84,30 @@ void App::update()
 			{
 				SMouseEvent e(m_nextPresentationTimestamp);
 				e.window = m_window.get();
-				e.type = authoredMouse.type;
-				if (authoredMouse.type == ui::SMouseEvent::EET_CLICK)
+				switch (authoredMouse.type)
 				{
-					e.clickEvent.mouseButton = authoredMouse.button;
-					e.clickEvent.action = authoredMouse.action;
-					e.clickEvent.clickPosX = authoredMouse.x;
-					e.clickEvent.clickPosY = authoredMouse.y;
-				}
-				else if (authoredMouse.type == ui::SMouseEvent::EET_SCROLL)
-				{
-					e.scrollEvent.verticalScroll = authoredMouse.v;
-					e.scrollEvent.horizontalScroll = authoredMouse.h;
-				}
-				else if (authoredMouse.type == ui::SMouseEvent::EET_MOVEMENT)
-				{
-					e.movementEvent.relativeMovementX = authoredMouse.dx;
-					e.movementEvent.relativeMovementY = authoredMouse.dy;
+					case CCameraScriptedInputEvent::MouseData::Type::Click:
+						e.type = ui::SMouseEvent::EET_CLICK;
+						e.clickEvent.mouseButton = authoredMouse.button;
+						e.clickEvent.action =
+							authoredMouse.action == CCameraScriptedInputEvent::MouseData::ClickAction::Pressed ?
+							ui::SMouseEvent::SClickEvent::EA_PRESSED :
+							ui::SMouseEvent::SClickEvent::EA_RELEASED;
+						e.clickEvent.clickPosX = authoredMouse.x;
+						e.clickEvent.clickPosY = authoredMouse.y;
+						break;
+					case CCameraScriptedInputEvent::MouseData::Type::Scroll:
+						e.type = ui::SMouseEvent::EET_SCROLL;
+						e.scrollEvent.verticalScroll = authoredMouse.v;
+						e.scrollEvent.horizontalScroll = authoredMouse.h;
+						break;
+					case CCameraScriptedInputEvent::MouseData::Type::Movement:
+						e.type = ui::SMouseEvent::EET_MOVEMENT;
+						e.movementEvent.relativeMovementX = authoredMouse.dx;
+						e.movementEvent.relativeMovementY = authoredMouse.dy;
+						break;
+					default:
+						continue;
 				}
 				scriptedMouse.emplace_back(e);
 			}
@@ -201,7 +211,7 @@ void App::update()
 							}
 
 							auto* camera = m_planarProjections[binding.activePlanarIx]->getCamera();
-							if (!nbl::hlsl::applyPreset(m_cameraGoalSolver, camera, m_initialPlanarPresets[binding.activePlanarIx]))
+							if (!nbl::core::applyPreset(m_cameraGoalSolver, camera, m_initialPlanarPresets[binding.activePlanarIx]))
 								m_logger->log("[script][warn] action reset_active_camera failed for planar: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
 						} break;
 					}
@@ -342,7 +352,7 @@ void App::update()
 					for (uint32_t i = 0u; i < vKeyboardEventsCount; ++i)
 						virtualEvents[i].magnitude *= m_cameraControls.keyboardScale;
 
-					nbl::hlsl::scaleVirtualEvents(virtualEvents, vCount, m_cameraControls.translationScale, m_cameraControls.rotationScale);
+					nbl::core::scaleVirtualEvents(virtualEvents, vCount, m_cameraControls.translationScale, m_cameraControls.rotationScale);
 
 					const char* bindingLabel = "Keyboard/Mouse";
 					auto applyEventsToCamera = [&](ICamera* target, uint32_t planarIx)
@@ -354,7 +364,7 @@ void App::update()
 						{
 							std::vector<CVirtualGimbalEvent> perCameraEvents(virtualEvents.begin(), virtualEvents.begin() + vCount);
 							uint32_t perCount = vCount;
-							nbl::hlsl::remapTranslationEventsFromWorldToCameraLocal(target, perCameraEvents, perCount);
+							nbl::core::remapTranslationEventsFromWorldToCameraLocal(target, perCameraEvents, perCount);
 							if (perCount)
 								target->manipulate({ perCameraEvents.data(), perCount });
 						}
@@ -363,7 +373,7 @@ void App::update()
 							target->manipulate({ virtualEvents.data(), vCount });
 						}
 
-						nbl::hlsl::applyCameraConstraints(m_cameraGoalSolver, target, m_cameraConstraints);
+						nbl::core::applyCameraConstraints(m_cameraGoalSolver, target, m_cameraConstraints);
 						if (!m_scriptedInput.enabled)
 							refreshFollowOffsetConfigForPlanar(planarIx);
 						appendVirtualEventLog("input", bindingLabel, planarIx, target, virtualEvents.data(), vCount);
@@ -371,7 +381,7 @@ void App::update()
 
 					if (m_cameraControls.mirrorInput)
 					{
-						std::unordered_set<uintptr_t> visited;
+						std::unordered_set<const ICamera*> visited;
 						for (size_t bindingIx = 0u; bindingIx < windowBindings.size(); ++bindingIx)
 						{
 							auto& bindingIt = windowBindings[bindingIx];
@@ -381,8 +391,7 @@ void App::update()
 							auto* target = planarIt->getCamera();
 							if (!target)
 								continue;
-							const auto id = target->getGimbal().getID();
-							if (!visited.insert(id).second)
+							if (!visited.insert(target).second)
 								continue;
 							applyEventsToCamera(target, bindingIt.activePlanarIx);
 						}
@@ -402,7 +411,7 @@ void App::update()
 
 						const auto& gimbal = camera->getGimbal();
 						const auto pos = gimbal.getPosition();
-						const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+						const auto euler = getQuaternionEulerDegrees(gimbal.getOrientation());
 						m_logger->log("[script] gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
 							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
 					}
@@ -416,7 +425,7 @@ void App::update()
 				auto* camera = planar->getCamera();
 
 				CGimbalInputBinder imguizmoBinding;
-				camera->copyDefaultInputBindingPresetTo(imguizmoBinding);
+				applyDefaultCameraInputBindingPreset(imguizmoBinding, *camera);
 				auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
 					.imguizmoEvents = { scriptedFrameEvents.imguizmo.data(), scriptedFrameEvents.imguizmo.size() }
 				});
@@ -438,7 +447,7 @@ void App::update()
 
 						const auto& gimbal = camera->getGimbal();
 						const auto pos = gimbal.getPosition();
-						const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+						const auto euler = getQuaternionEulerDegrees(gimbal.getOrientation());
 						m_logger->log("[script] imguizmo gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
 							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
 					}
@@ -477,14 +486,14 @@ void App::update()
 				if (camera)
 				{
 					for (auto& projection : planar->getPlanarProjections())
-						nbl::hlsl::syncDynamicPerspectiveProjection(camera, projection);
+						nbl::core::syncDynamicPerspectiveProjection(camera, projection);
 				}
 
 				if (m_scriptedInput.log && camera)
 				{
 					const auto& gimbal = camera->getGimbal();
 					const auto pos = gimbal.getPosition();
-					const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+					const auto euler = getQuaternionEulerDegrees(gimbal.getOrientation());
 					m_logger->log("[script] goal_apply gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)", ILogger::ELL_INFO,
 						pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
 				}
@@ -544,7 +553,7 @@ void App::update()
 							m_planarProjections[planarIx]->getCamera() : nullptr;
 						float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 						const float32_t4x4* viewProjMatrixPtr = tryBuildFollowViewProjForPlanar(planarIx, viewProjMatrix) ? &viewProjMatrix : nullptr;
-						followMetrics = nbl::hlsl::buildFollowVisualMetrics(
+						followMetrics = nbl::core::buildFollowVisualMetrics(
 							activeCamera,
 							m_followTarget,
 							&m_planarFollowConfigs[planarIx],
@@ -611,7 +620,7 @@ void App::update()
 					}
 				}
 
-				const auto checkResult = nbl::hlsl::evaluateScriptedChecksForFrame(
+				const auto checkResult = nbl::system::evaluateScriptedChecksForFrame(
 					m_scriptedInput.timeline.checks,
 					m_scriptedInput.checkRuntime,
 					{

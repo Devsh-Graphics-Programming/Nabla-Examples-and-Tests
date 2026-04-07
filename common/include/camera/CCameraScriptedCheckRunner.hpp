@@ -15,7 +15,7 @@
 #include "CCameraFollowRegressionUtilities.hpp"
 #include "CCameraScriptedRuntime.hpp"
 
-namespace nbl::hlsl
+namespace nbl::system
 {
 
 /**
@@ -32,24 +32,24 @@ struct CCameraScriptedCheckRuntimeState
 {
     size_t nextCheckIndex = 0u;
     bool baselineValid = false;
-    float32_t3 baselinePos = float32_t3(0.f);
-    float32_t3 baselineEulerDeg = float32_t3(0.f);
+    hlsl::float32_t3 baselinePos = hlsl::float32_t3(0.f);
+    hlsl::float32_t3 baselineEulerDeg = hlsl::float32_t3(0.f);
     bool stepValid = false;
-    float32_t3 stepPos = float32_t3(0.f);
-    float32_t3 stepEulerDeg = float32_t3(0.f);
+    hlsl::float32_t3 stepPos = hlsl::float32_t3(0.f);
+    hlsl::float32_t3 stepEulerDeg = hlsl::float32_t3(0.f);
 };
 
 //! Shared per-frame evaluation context for authored scripted checks.
 struct CCameraScriptedCheckContext
 {
     uint64_t frame = 0ull;
-    ICamera* camera = nullptr;
-    const CVirtualGimbalEvent* imguizmoVirtual = nullptr;
+    core::ICamera* camera = nullptr;
+    const core::CVirtualGimbalEvent* imguizmoVirtual = nullptr;
     uint32_t imguizmoVirtualCount = 0u;
-    const CTrackedTarget* trackedTarget = nullptr;
-    const SCameraFollowConfig* followConfig = nullptr;
-    const float32_t4x4* followViewProjMatrix = nullptr;
-    const CCameraGoalSolver* goalSolver = nullptr;
+    const core::CTrackedTarget* trackedTarget = nullptr;
+    const core::SCameraFollowConfig* followConfig = nullptr;
+    const hlsl::float32_t4x4* followViewProjMatrix = nullptr;
+    const core::CCameraGoalSolver* goalSolver = nullptr;
 };
 
 //! Reusable log entry produced by scripted check evaluation.
@@ -74,15 +74,15 @@ inline float scriptedCheckAngleDiffDeg(const float a, const float b)
     return std::abs(d - 180.0f);
 }
 
-inline bool scriptedCheckFinite3(const float32_t3& v)
+inline bool scriptedCheckFinite3(const hlsl::float32_t3& v)
 {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 
 inline void scriptedCheckSetStepReference(
     CCameraScriptedCheckRuntimeState& state,
-    const float32_t3& pos,
-    const float32_t3& eulerDeg)
+    const hlsl::float32_t3& pos,
+    const hlsl::float32_t3& eulerDeg)
 {
     state.stepValid = true;
     state.stepPos = pos;
@@ -136,7 +136,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
 
         const auto& gimbal = context.camera->getGimbal();
         const auto pos = gimbal.getPosition();
-        const auto eulerDeg = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getQuaternionEulerDegrees(gimbal.getOrientation()));
 
         if (!scriptedCheckFinite3(pos) || !scriptedCheckFinite3(eulerDeg))
         {
@@ -204,7 +204,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                                 {
                                     oss << std::fixed << std::setprecision(6);
                                     oss << "[script][fail] imguizmo_virtual frame=" << context.frame
-                                        << " type=" << CVirtualGimbalEvent::virtualEventToString(expected.type).data()
+                                        << " type=" << core::CVirtualGimbalEvent::virtualEventToString(expected.type).data()
                                         << " expected=" << expected.magnitude
                                         << " actual=" << actual
                                         << " tol=" << check.tolerance;
@@ -231,7 +231,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 bool ok = true;
                 if (check.hasExpectedPos)
                 {
-                    const auto diff = float32_t3(pos.x - check.expectedPos.x, pos.y - check.expectedPos.y, pos.z - check.expectedPos.z);
+                    const auto diff = hlsl::float32_t3(pos.x - check.expectedPos.x, pos.y - check.expectedPos.y, pos.z - check.expectedPos.z);
                     const auto distance = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
                     if (distance > check.posTolerance)
                     {
@@ -296,7 +296,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                const auto diff = float32_t3(pos.x - state.baselinePos.x, pos.y - state.baselinePos.y, pos.z - state.baselinePos.z);
+                const auto diff = hlsl::float32_t3(pos.x - state.baselinePos.x, pos.y - state.baselinePos.y, pos.z - state.baselinePos.z);
                 const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
                 const auto dx = scriptedCheckAngleDiffDeg(eulerDeg.x, state.baselineEulerDeg.x);
                 const auto dy = scriptedCheckAngleDiffDeg(eulerDeg.y, state.baselineEulerDeg.y);
@@ -356,7 +356,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     }
                 }
 
-                const auto diff = float32_t3(pos.x - state.stepPos.x, pos.y - state.stepPos.y, pos.z - state.stepPos.z);
+                const auto diff = hlsl::float32_t3(pos.x - state.stepPos.x, pos.y - state.stepPos.y, pos.z - state.stepPos.z);
                 const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
                 const auto dx = scriptedCheckAngleDiffDeg(eulerDeg.x, state.stepEulerDeg.x);
                 const auto dy = scriptedCheckAngleDiffDeg(eulerDeg.y, state.stepEulerDeg.y);
@@ -477,16 +477,16 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                SCameraFollowRegressionResult regression = {};
+                core::SCameraFollowRegressionResult regression = {};
                 std::string regressionError;
-                CCameraGoal expectedFollowGoal = {};
-                const bool ok = tryBuildFollowGoal(
+                core::CCameraGoal expectedFollowGoal = {};
+                const bool ok = core::tryBuildFollowGoal(
                         *context.goalSolver,
                         context.camera,
                         *context.trackedTarget,
                         *context.followConfig,
                         expectedFollowGoal) &&
-                    validateFollowTargetContract(
+                    core::validateFollowTargetContract(
                         context.camera,
                         *context.trackedTarget,
                         *context.followConfig,
@@ -534,6 +534,6 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
     return result;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::system
 
 #endif // _C_CAMERA_SCRIPTED_CHECK_RUNNER_HPP_

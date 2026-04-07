@@ -6,7 +6,7 @@
 
 #include "CSphericalTargetCamera.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 class CPathCamera final : public CSphericalTargetCamera
@@ -27,10 +27,6 @@ public:
     }
     ~CPathCamera() = default;
 
-    const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
-    const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
-    const base_t::imguizmo_to_virtual_events_t getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
-
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
@@ -50,7 +46,7 @@ public:
         return updateFromPath();
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override { return AllowedVirtualEvents; }
+    virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Path; }
     virtual uint32_t getGoalStateMask() const override { return base_t::getGoalStateMask() | base_t::GoalStatePath; }
     virtual bool tryGetPathState(PathState& out) const override
@@ -95,7 +91,7 @@ public:
         const double appliedDistance = std::sqrt(m_pathRadius * m_pathRadius + m_pathHeight * m_pathHeight);
         return inRange && std::abs(appliedDistance - static_cast<double>(clamped)) <= 1e-6;
     }
-    virtual const std::string_view getIdentifier() override { return "Path Camera"; }
+    virtual std::string_view getIdentifier() const override { return "Path Camera"; }
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
@@ -113,50 +109,6 @@ private:
         initFromPosition(position);
         return applyPose();
     }
-
-    static inline const auto m_keyboard_to_virtual_events_preset = []()
-    {
-        typename base_t::keyboard_to_virtual_events_t preset;
-
-        preset[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
-        preset[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_KEY_CODE::EKC_Q] = CVirtualGimbalEvent::MoveDown;
-        preset[ui::E_KEY_CODE::EKC_E] = CVirtualGimbalEvent::MoveUp;
-
-        return preset;
-    }();
-
-    static inline const auto m_mouse_to_virtual_events_preset = []()
-    {
-        typename base_t::mouse_to_virtual_events_t preset;
-
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::MoveRight;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::MoveLeft;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::MoveUp;
-        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::MoveDown;
-        preset[ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL] = CVirtualGimbalEvent::MoveForward;
-        preset[ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL] = CVirtualGimbalEvent::MoveBackward;
-        preset[ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL] = CVirtualGimbalEvent::MoveBackward;
-
-        return preset;
-    }();
-
-    static inline const auto m_imguizmo_to_virtual_events_preset = []()
-    {
-        typename base_t::imguizmo_to_virtual_events_t preset;
-
-        preset[CVirtualGimbalEvent::MoveForward] = CVirtualGimbalEvent::MoveForward;
-        preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
-        preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
-        preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
-        preset[CVirtualGimbalEvent::MoveUp] = CVirtualGimbalEvent::MoveUp;
-        preset[CVirtualGimbalEvent::MoveDown] = CVirtualGimbalEvent::MoveDown;
-
-        return preset;
-    }();
 };
 
 }

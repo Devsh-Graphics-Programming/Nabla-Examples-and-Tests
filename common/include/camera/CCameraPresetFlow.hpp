@@ -12,7 +12,7 @@
 
 #include "CCameraGoalAnalysis.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Reusable aggregate summary for applying one preset to multiple cameras.
@@ -137,6 +137,6 @@ inline SCameraPresetApplySummary applyPresetToCameraRange(const CCameraGoalSolve
     return summary;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_PRESET_FLOW_HPP_

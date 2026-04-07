@@ -12,9 +12,9 @@
 
 #include "CCameraGoal.hpp"
 #include "IGimbal.hpp"
-#include "nbl/ui/SInputEvent.h"
+#include "nbl/ui/KeyCodes.h"
 
-namespace nbl::hlsl
+namespace nbl::system
 {
 
 /**
@@ -22,7 +22,7 @@ namespace nbl::hlsl
 *
 * The compact authored sequence remains camera-domain. A concrete runtime may still expand it
 * into low-level per-frame events and checks, but those expanded payloads live in this shared
-* header rather than inside one example.
+* header rather than inside one consumer.
 */
 struct CCameraScriptedInputEvent
 {
@@ -39,15 +39,37 @@ struct CCameraScriptedInputEvent
 
     struct KeyboardData
     {
+        enum class Action : uint8_t
+        {
+            Uninitialized = 0,
+            Pressed = 1,
+            Released = 2
+        };
+
         ui::E_KEY_CODE key = ui::EKC_NONE;
-        ui::SKeyboardEvent::E_KEY_ACTION action = ui::SKeyboardEvent::ECA_UNITIALIZED;
+        Action action = Action::Uninitialized;
     };
 
     struct MouseData
     {
-        ui::SMouseEvent::E_EVENT_TYPE type = ui::SMouseEvent::EET_UNITIALIZED;
+        enum class Type : uint8_t
+        {
+            Uninitialized = 0,
+            Click = 1,
+            Scroll = 2,
+            Movement = 4
+        };
+
+        enum class ClickAction : uint8_t
+        {
+            Uninitialized = 0,
+            Pressed = 1,
+            Released = 2
+        };
+
+        Type type = Type::Uninitialized;
         ui::E_MOUSE_BUTTON button = ui::EMB_LEFT_BUTTON;
-        ui::SMouseEvent::SClickEvent::E_ACTION action = ui::SMouseEvent::SClickEvent::EA_UNITIALIZED;
+        ClickAction action = ClickAction::Uninitialized;
         int16_t x = 0;
         int16_t y = 0;
         int16_t dx = 0;
@@ -75,13 +97,13 @@ struct CCameraScriptedInputEvent
 
     struct GoalData
     {
-        CCameraGoal goal = {};
+        core::CCameraGoal goal = {};
         bool requireExact = true;
     };
 
     struct TrackedTargetTransformData
     {
-        float64_t4x4 transform = float64_t4x4(1.0);
+        hlsl::float64_t4x4 transform = hlsl::float64_t4x4(1.0);
     };
 
     struct SegmentLabelData
@@ -93,7 +115,7 @@ struct CCameraScriptedInputEvent
     Type type = Type::Keyboard;
     KeyboardData keyboard;
     MouseData mouse;
-    float32_t4x4 imguizmo = float32_t4x4(1.f);
+    hlsl::float32_t4x4 imguizmo = hlsl::float32_t4x4(1.f);
     ActionData action;
     GoalData goal;
     TrackedTargetTransformData trackedTargetTransform;
@@ -114,8 +136,8 @@ struct CCameraScriptedInputCheck
 
     struct ExpectedVirtualEvent
     {
-        CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
-        float64_t magnitude = 0.0;
+        core::CVirtualGimbalEvent::VirtualEventType type = core::CVirtualGimbalEvent::None;
+        hlsl::float64_t magnitude = 0.0;
     };
 
     uint64_t frame = 0;
@@ -123,8 +145,8 @@ struct CCameraScriptedInputCheck
     float tolerance = 1e-3f;
     std::vector<ExpectedVirtualEvent> expectedVirtualEvents;
 
-    float32_t3 expectedPos = float32_t3(0.f);
-    float32_t3 expectedEulerDeg = float32_t3(0.f);
+    hlsl::float32_t3 expectedPos = hlsl::float32_t3(0.f);
+    hlsl::float32_t3 expectedEulerDeg = hlsl::float32_t3(0.f);
     bool hasExpectedPos = false;
     bool hasExpectedEuler = false;
     float posTolerance = 0.05f;
@@ -196,7 +218,7 @@ inline void appendScriptedActionEvent(
 inline void appendScriptedGoalEvent(
     CCameraScriptedTimeline& timeline,
     const uint64_t frame,
-    const CCameraGoal& goal,
+    const core::CCameraGoal& goal,
     const bool requireExact = true)
 {
     CCameraScriptedInputEvent entry;
@@ -210,7 +232,7 @@ inline void appendScriptedGoalEvent(
 inline void appendScriptedTrackedTargetTransformEvent(
     CCameraScriptedTimeline& timeline,
     const uint64_t frame,
-    const float64_t4x4& transform)
+    const hlsl::float64_t4x4& transform)
 {
     CCameraScriptedInputEvent entry;
     entry.frame = frame;
@@ -291,7 +313,7 @@ struct CCameraScriptedFrameEvents
 {
     std::vector<CCameraScriptedInputEvent::KeyboardData> keyboard;
     std::vector<CCameraScriptedInputEvent::MouseData> mouse;
-    std::vector<float32_t4x4> imguizmo;
+    std::vector<hlsl::float32_t4x4> imguizmo;
     std::vector<CCameraScriptedInputEvent::ActionData> actions;
     std::vector<CCameraScriptedInputEvent::GoalData> goals;
     std::vector<CCameraScriptedInputEvent::TrackedTargetTransformData> trackedTargetTransforms;
@@ -355,6 +377,6 @@ inline void dequeueScriptedFrameEvents(
     }
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::system
 
 #endif

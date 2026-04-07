@@ -8,13 +8,13 @@
 #include <optional>
 #include <utility>
 
-#include "camera/IGimbalBindingLayout.hpp"
+#include "IGimbal.hpp"
 
-namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
+namespace nbl::core
 {
 
 /**
-* Shared camera contract used by examples.
+* Shared camera contract.
 *
 * The hot runtime path is event-only: cameras consume `CVirtualGimbalEvent`
 * streams through `manipulate(...)`. Optional typed state hooks exist only for
@@ -23,29 +23,14 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 class ICamera : virtual public core::IReferenceCounted
 { 
 public:
-    using binding_layout_t = IGimbalBindingLayout;
-    using gimbal_event_t = binding_layout_t::gimbal_event_t;
-    using encode_keyboard_code_t = binding_layout_t::encode_keyboard_code_t;
-    using encode_mouse_code_t = binding_layout_t::encode_mouse_code_t;
-    using encode_imguizmo_code_t = binding_layout_t::encode_imguizmo_code_t;
-    using BindingDomain = binding_layout_t::BindingDomain;
-    using CKeyInfo = binding_layout_t::CKeyInfo;
-    using CHashInfo = binding_layout_t::CHashInfo;
-    using keyboard_to_virtual_events_t = binding_layout_t::keyboard_to_virtual_events_t;
-    using mouse_to_virtual_events_t = binding_layout_t::mouse_to_virtual_events_t;
-    using imguizmo_to_virtual_events_t = binding_layout_t::imguizmo_to_virtual_events_t;
+    static inline constexpr float SphericalMinDistance = 0.1f;
+    static inline constexpr float SphericalMaxDistance = 10000.f;
 
     struct SMotionConfig
     {
         //! Camera-local scales applied by implementations to virtual motion magnitude.
         double moveSpeedScale = 0.01;
         double rotationSpeedScale = 0.003;
-    };
-
-    struct SInputBindingConfig
-    {
-        //! Default binding layout advertised by this camera type.
-        CGimbalBindingLayoutStorage defaultBindingLayout;
     };
 
     enum class CameraKind : uint8_t
@@ -171,20 +156,6 @@ public:
     ICamera() {}
 	virtual ~ICamera() = default;
 
-    virtual const keyboard_to_virtual_events_t getKeyboardMappingPreset() const { return {}; }
-    virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
-    virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
-
-    inline const IGimbalBindingLayout& getDefaultInputBindingLayout() const { return m_inputBindingConfig.defaultBindingLayout; }
-    inline IGimbalBindingLayout& getDefaultInputBindingLayout() { return m_inputBindingConfig.defaultBindingLayout; }
-    inline void copyDefaultInputBindingPresetTo(IGimbalBindingLayout& layout) const
-    {
-        layout.updateKeyboardMapping([&](auto& map) { map = getKeyboardMappingPreset(); });
-        layout.updateMouseMapping([&](auto& map) { map = getMouseMappingPreset(); });
-        layout.updateImguizmoMapping([&](auto& map) { map = getImguizmoMappingPreset(); });
-    }
-
-	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
 
     // Camera core contract: consume virtual events only. Raw input binding and absolute goal solving live outside ICamera.
@@ -199,8 +170,7 @@ public:
         return manipulateWithMotionScales(virtualEvents, referenceFrame, 1.0, 1.0);
     }
 
-    // VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
-	virtual const uint32_t getAllowedVirtualEvents() = 0u;
+	virtual uint32_t getAllowedVirtualEvents() const = 0u;
 
     virtual CameraKind getKind() const = 0;
     virtual uint32_t getCapabilities() const { return None; }
@@ -214,8 +184,7 @@ public:
         return mask;
     }
 
-    // Identifier of a camera type
-    virtual const std::string_view getIdentifier() = 0u;
+    virtual std::string_view getIdentifier() const = 0u;
 
     inline bool hasCapability(CameraCapability capability) const
     {
@@ -267,13 +236,11 @@ public:
         return false;
     }
 
-    // (***)
     inline void setMoveSpeedScale(double scalar)
     {
         m_motionConfig.moveSpeedScale = scalar;
     }
 
-    // (***)
     inline void setRotationSpeedScale(double scalar)
     {
         m_motionConfig.rotationSpeedScale = scalar;
@@ -288,19 +255,13 @@ public:
     inline double getMoveSpeedScale() const { return m_motionConfig.moveSpeedScale; }
     inline double getRotationSpeedScale() const { return m_motionConfig.rotationSpeedScale; }
     inline const SMotionConfig& getMotionConfig() const { return m_motionConfig; }
-    inline const SInputBindingConfig& getInputBindingConfig() const { return m_inputBindingConfig; }
     inline SScopedMotionScaleOverride overrideMotionScales(const double moveScale, const double rotationScale)
     {
         return SScopedMotionScaleOverride(this, moveScale, rotationScale);
     }
-    inline void resetDefaultInputBindingToPreset()
-    {
-        copyDefaultInputBindingPresetTo(m_inputBindingConfig.defaultBindingLayout);
-    }
 
 protected:
     SMotionConfig m_motionConfig;
-    SInputBindingConfig m_inputBindingConfig;
 };
 
 }

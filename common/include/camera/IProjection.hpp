@@ -3,7 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Interface class for any type of projection
@@ -65,6 +65,6 @@ public:
     virtual ProjectionType getProjectionType() const = 0;
 };
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _NBL_IPROJECTION_HPP_

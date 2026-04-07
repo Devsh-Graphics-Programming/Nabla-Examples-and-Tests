@@ -1,14 +1,12 @@
 # 61_UI Cameraz
 
-`61_UI` is the current integration, UX, and validation harness for the shared camera stack in
+`61_UI` is a full integration example and validation target for the shared camera stack in
 [`../common/include/camera`](../common/include/camera/README.md).
 
 If you want the architecture, design rationale, and reusable API breakdown, start there first.
 This README focuses on what `61_UI` adds on top of the shared layer.
 
 ## Role of this example
-
-`61_UI` is the only actively migrated consumer right now.
 
 It is used to:
 

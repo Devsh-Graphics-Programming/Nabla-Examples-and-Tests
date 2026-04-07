@@ -1,4 +1,31 @@
 #include "app/App.hpp"
+#include "camera/CCameraPersistence.hpp"
+
+bool App::savePresetsToFile(const nbl::system::path& path)
+{
+	return nbl::system::savePresetCollectionToFile(path, std::span<const CameraPreset>(m_presets.data(), m_presets.size()));
+}
+
+bool App::loadPresetsFromFile(const nbl::system::path& path)
+{
+	return nbl::system::loadPresetCollectionFromFile(path, m_presets);
+}
+
+bool App::saveKeyframesToFile(const nbl::system::path& path)
+{
+	return nbl::system::saveKeyframeTrackToFile(path, m_keyframeTrack);
+}
+
+bool App::loadKeyframesFromFile(const nbl::system::path& path)
+{
+	if (!nbl::system::loadKeyframeTrackFromFile(path, m_keyframeTrack))
+		return false;
+
+	clampPlaybackTimeToKeyframes();
+	if (m_keyframeTrack.keyframes.empty())
+		clearApplyStatusBanner(m_playbackApplyBanner);
+	return true;
+}
 
 void App::DrawControlPanel()
 {
@@ -277,7 +304,7 @@ void App::DrawControlPanel()
 						{
 							const auto& gimbal = activeCamera->getGimbal();
 							const auto pos = gimbal.getPosition();
-							const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
+							const auto euler = getQuaternionEulerDegrees(gimbal.getOrientation());
 
 							if (BeginCard("CameraCard", CalcCardHeight(5), cardTop, cardBottom, cardBorder))
 							{
@@ -562,7 +589,7 @@ void App::DrawControlPanel()
 							{
 								auto& gimbal = boundCamera->getGimbal();
 								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-								const auto& orientation = gimbal.getOrientation();
+								const auto orientation = getCastedVector<float32_t>(gimbal.getOrientation().data);
 								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
 
 								addMatrixTable("Position", ("PositionTable_" + activePlanarIxString).c_str(), 1, 3, &position[0], false);
@@ -687,7 +714,7 @@ void App::DrawControlPanel()
 							if (ImGui::Combo("Mode", &followModeIx, followModeLabels, IM_ARRAYSIZE(followModeLabels)))
 								followConfig.mode = static_cast<ECameraFollowMode>(followModeIx);
 							const bool followStateChanged = followConfig.enabled != prevFollowEnabled || followConfig.mode != prevFollowMode;
-							if (followStateChanged && followConfig.enabled && nbl::hlsl::cameraFollowModeUsesCapturedOffset(followConfig.mode))
+							if (followStateChanged && followConfig.enabled && nbl::core::cameraFollowModeUsesCapturedOffset(followConfig.mode))
 								captureFollowOffsetsForPlanar(getActivePlanarIx());
 							if (followStateChanged && followConfig.enabled)
 								applyFollowToConfiguredCameras();
@@ -708,7 +735,7 @@ void App::DrawControlPanel()
 							DrawHoverHint("Optionally snap tracked target gimbal to the model transform");
 							ImGui::SameLine();
 							if (ImGui::Button("Target origin"))
-								m_followTarget.setPose(float64_t3(0.0), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+								m_followTarget.setPose(float64_t3(0.0), makeIdentityQuaternion<float64_t>());
 							DrawHoverHint("Reset tracked target to identity at world origin");
 							ImGui::SameLine();
 							if (ImGui::Button("Capture current offset"))
@@ -754,7 +781,7 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Add preset"))
 						{
 							CameraPreset preset;
-							if (nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, activeCamera, m_presetName, preset))
+							if (nbl::core::tryCapturePreset(m_cameraGoalSolver, activeCamera, m_presetName, preset))
 							{
 								m_presets.emplace_back(std::move(preset));
 								m_selectedPresetIx = static_cast<int>(m_presets.size()) - 1;
@@ -779,9 +806,9 @@ void App::DrawControlPanel()
 						if (!m_presets.empty())
 						{
 							const char* presetFilterLabels[] = {
-								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
-								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
-								nbl::hlsl::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
+								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
+								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
+								nbl::core::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
 							};
 							int presetFilterIx = static_cast<int>(m_presetFilterMode);
 							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
@@ -895,14 +922,14 @@ void App::DrawControlPanel()
 						ImGui::InputText("Preset file", m_presetPath, IM_ARRAYSIZE(m_presetPath));
 						if (ImGui::Button("Save presets"))
 						{
-							if (!savePresetsToFile(system::path(m_presetPath)))
+							if (!savePresetsToFile(nbl::system::path(m_presetPath)))
 								m_logger->log("Failed to save presets to \"%s\".", ILogger::ELL_ERROR, m_presetPath);
 						}
 						DrawHoverHint("Save presets to JSON file");
 						ImGui::SameLine();
 						if (ImGui::Button("Load presets"))
 						{
-							if (!loadPresetsFromFile(system::path(m_presetPath)))
+							if (!loadPresetsFromFile(nbl::system::path(m_presetPath)))
 								m_logger->log("Failed to load presets from \"%s\".", ILogger::ELL_ERROR, m_presetPath);
 						}
 						DrawHoverHint("Load presets from JSON file");
@@ -936,14 +963,14 @@ void App::DrawControlPanel()
 						ImGui::SameLine();
 						if (ImGui::Button("Stop"))
 						{
-							nbl::hlsl::resetPlaybackCursor(m_playback);
+							nbl::core::resetPlaybackCursor(m_playback);
 							applyPlaybackAtTime(m_playback.time);
 						}
 						DrawHoverHint("Stop playback and reset time");
 
 						if (!m_keyframeTrack.keyframes.empty())
 						{
-							const float duration = nbl::hlsl::getPlaybackTrackDuration(m_keyframeTrack);
+							const float duration = nbl::core::getPlaybackTrackDuration(m_keyframeTrack);
 							if (ImGui::SliderFloat("Time", &m_playback.time, 0.f, duration, "%.3f"))
 								applyPlaybackAtTime(m_playback.time);
 						}
@@ -981,7 +1008,7 @@ void App::DrawControlPanel()
 							const float authoredTime = std::max(0.f, m_newKeyframeTime);
 							keyframe.time = authoredTime;
 							m_newKeyframeTime = authoredTime;
-							if (nbl::hlsl::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
+							if (nbl::core::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
 							{
 								m_keyframeTrack.keyframes.emplace_back(std::move(keyframe));
 								sortKeyframesByTime();
@@ -1000,7 +1027,7 @@ void App::DrawControlPanel()
 						if (ImGui::Button("Clear keyframes"))
 						{
 							m_keyframeTrack = {};
-							nbl::hlsl::resetPlaybackCursor(m_playback);
+							nbl::core::resetPlaybackCursor(m_playback);
 							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
 						DrawHoverHint("Remove all keyframes");
@@ -1110,14 +1137,14 @@ void App::DrawControlPanel()
 							ImGui::InputText("Keyframe file", m_keyframePath, IM_ARRAYSIZE(m_keyframePath));
 							if (ImGui::Button("Save keyframes"))
 							{
-								if (!saveKeyframesToFile(system::path(m_keyframePath)))
+								if (!saveKeyframesToFile(nbl::system::path(m_keyframePath)))
 									m_logger->log("Failed to save keyframes to \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
 							}
 							DrawHoverHint("Save keyframes to JSON file");
 							ImGui::SameLine();
 							if (ImGui::Button("Load keyframes"))
 							{
-								if (!loadKeyframesFromFile(system::path(m_keyframePath)))
+								if (!loadKeyframesFromFile(nbl::system::path(m_keyframePath)))
 									m_logger->log("Failed to load keyframes from \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
 							}
 							DrawHoverHint("Load keyframes from JSON file");

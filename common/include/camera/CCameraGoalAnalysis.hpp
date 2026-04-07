@@ -8,7 +8,7 @@
 #include "CCameraPreset.hpp"
 #include "CCameraGoalSolver.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Reusable typed answer for `goal/preset -> camera` compatibility checks.
@@ -80,6 +80,6 @@ inline SCameraCaptureAnalysis analyzeCameraCapture(const CCameraGoalSolver& solv
     return analysis;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_GOAL_ANALYSIS_HPP_

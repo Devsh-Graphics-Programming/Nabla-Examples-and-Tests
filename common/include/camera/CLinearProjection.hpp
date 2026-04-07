@@ -4,7 +4,7 @@
 #include "ILinearProjection.hpp"
 #include "IRange.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 	template<ContiguousGeneralPurposeRangeOf<ILinearProjection::CProjection> ProjectionsRange>
 	class CLinearProjection : public ILinearProjection

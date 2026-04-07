@@ -1,19 +1,12 @@
 #ifndef _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
 #define _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
 
-/////////////////////////
-// TODO: TEMPORARY!!!
-#include "common.hpp"
-namespace ImGuizmo
-{
-    void DecomposeMatrixToComponents(const float*, float*, float*, float*);
-}
-/////////////////////////
+#include "nbl/ui/KeyCodes.h"
+#include "nbl/ui/SInputEvent.h"
 
 #include "IGimbalBindingLayout.hpp"
 
-// TODO: DIFFERENT NAMESPACE
-namespace nbl::hlsl 
+namespace nbl::ui
 {
 
 /**
@@ -24,17 +17,17 @@ class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 public:
     using CGimbalBindingLayoutStorage::CGimbalBindingLayoutStorage;
 
-    IGimbalInputProcessor() {}
-    virtual ~IGimbalInputProcessor() {}
+    IGimbalInputProcessor() = default;
+    virtual ~IGimbalInputProcessor() = default;
 
-    //! input of keyboard gimbal controller process utility - Nabla UI event handler produces ui::SKeyboardEvent events
+    //! Keyboard events consumed by the processor.
     using input_keyboard_event_t = ui::SKeyboardEvent;
 
-    //! input of mouse gimbal controller process utility - Nabla UI event handler produces ui::SMouseEvent events 
+    //! Mouse events consumed by the processor.
     using input_mouse_event_t = ui::SMouseEvent;
 
-    //! input of ImGuizmo gimbal controller process utility - ImGuizmo manipulate utility produces "delta (TRS) matrix" events
-    using input_imguizmo_event_t = float32_t4x4;
+    //! ImGuizmo world-space delta transforms consumed by the processor.
+    using input_imguizmo_event_t = hlsl::float32_t4x4;
 
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
@@ -251,9 +244,9 @@ public:
     /**
     * @brief Processes input events from ImGuizmo and generates virtual gimbal events.
     *
-    * @note This function is intended to process transformations provided by ImGuizmo and convert
-    * them into virtual gimbal events for the ICamera::World mode (ICamera::Local is invalid!). 
-    * The function computes translation, rotation, and scale deltas from ImGuizmo's delta matrix, 
+    * @note This function processes world-space delta transforms authored by ImGuizmo and converts
+    * them into virtual gimbal events for world-space camera manipulation.
+    * The function computes translation, rotation, and scale deltas from each transform matrix,
     * which are then mapped to corresponding virtual events using a predefined mapping.
     *
     * @param "output" is pointer to the array where generated gimbal events will be stored.
@@ -289,11 +282,11 @@ public:
 
                 struct
                 {
-                    float32_t3 dTranslation, dRotation, dScale;
+                    hlsl::float32_t3 dTranslation, dRotation, dScale;
                 } world;
 
-                // TODO: write it in Nabla, this is temp
-                ImGuizmo::DecomposeMatrixToComponents(&deltaWorldTRS[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
+                if (!hlsl::decomposeTransformMatrix(deltaWorldTRS, world.dTranslation, world.dRotation, world.dScale))
+                    continue;
 
                 // Delta translation impulse
                 requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[0], std::abs(world.dTranslation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
@@ -301,7 +294,7 @@ public:
                 requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[2], std::abs(world.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                const float32_t3 dRotationRad =
+                const hlsl::float32_t3 dRotationRad =
                 {
                     hlsl::radians(world.dRotation[0]),
                     hlsl::radians(world.dRotation[1]),
@@ -323,7 +316,6 @@ public:
 
 private:
 
-    //! helper utility, for any controller this should be called before any update of hash map
     void preprocess(auto& map)
     {
         for (auto& [key, hash] : map)
@@ -335,7 +327,6 @@ private:
         }
     }
 
-    //! helper utility, for any controller this should be called after updating a hash map
     void postprocess(const auto& map, gimbal_event_t* output, uint32_t& count)
     {
         for (const auto& [key, hash] : map)
@@ -348,7 +339,6 @@ private:
             }
     }
 
-    //! helper utility, it *doesn't* assume we keep requested events alive but only increase their magnitude
     template <typename EncodeType, typename Map>
     void requestMagnitudeUpdateWithScalar(float signPivot, float dScalar, float dMagnitude, EncodeType positive, EncodeType negative, Map& map)
     {
@@ -365,6 +355,6 @@ private:
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
 
-} // nbl::hlsl namespace
+} // namespace nbl::ui
 
 #endif // _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_

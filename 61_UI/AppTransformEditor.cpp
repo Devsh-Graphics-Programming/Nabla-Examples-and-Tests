@@ -107,11 +107,14 @@ void App::TransformEditorContents()
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
 
 			float32_t3 matrixTranslation, matrixRotation, matrixScale;
-			CGimbalInputBinder::input_imguizmo_event_t decomposed, recomposed;
-			imguizmoModel.outDeltaTRS = CGimbalInputBinder::input_imguizmo_event_t(1);
+			imguizmoModel.outDeltaTRS = hlsl::float32_t4x4(1.0f);
 
-			ImGuizmo::DecomposeMatrixToComponents(m16TRSmatrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
-			decomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
+			if (!hlsl::decomposeTransformMatrix(imguizmoModel.outTRS, matrixTranslation, matrixRotation, matrixScale))
+			{
+				matrixTranslation = float32_t3(imguizmoModel.outTRS[3].x, imguizmoModel.outTRS[3].y, imguizmoModel.outTRS[3].z);
+				matrixRotation = float32_t3(0.0f);
+				matrixScale = float32_t3(1.0f);
+			}
 			{
 				ImGuiInputTextFlags flags = 0;
 
@@ -119,8 +122,11 @@ void App::TransformEditorContents()
 				ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f", flags);
 				ImGui::InputFloat3("Sc", &matrixScale[0], "%.3f", flags);
 			}
-			ImGuizmo::RecomposeMatrixFromComponents(&matrixTranslation[0], &matrixRotation[0], &matrixScale[0], m16TRSmatrix);
-			recomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
+			imguizmoModel.outTRS = hlsl::composeTransformMatrix(
+				matrixTranslation,
+				hlsl::makeQuaternionFromEulerDegrees(matrixRotation),
+				matrixScale);
+			m16TRSmatrix = &imguizmoModel.outTRS[0][0];
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
 			{
@@ -150,51 +156,9 @@ void App::TransformEditorContents()
 			if (m_manipulatedObjectKind == SceneManipulatedObjectKind::Camera && boundCameraToManipulate)
 			{
 				auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
-				boundCameraToManipulate->manipulateWithUnitMotionScales({}, &referenceFrame);
+				nbl::core::applyReferenceFrameToCamera(boundCameraToManipulate.get(), referenceFrame);
 				if (boundPlanarCameraIxToManipulate.has_value())
 					refreshFollowOffsetConfigForPlanar(boundPlanarCameraIxToManipulate.value());
-
-				/*
-				{
-					static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-
-					if (not enableActiveCameraMovement)
-					{
-						uint32_t vCount = {};
-
-						boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
-						{
-							boundCameraToManipulate->process(nullptr, vCount);
-
-							if (virtualEvents.size() < vCount)
-								virtualEvents.resize(vCount);
-
-							CGimbalInputBinder::SUpdateParameters params;
-							params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
-							boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
-						}
-						boundCameraToManipulate->endInputProcessing();
-
-						// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-						// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-
-						if (vCount)
-						{
-							const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
-							const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
-
-							boundCameraToManipulate->setMoveSpeedScale(1);
-							boundCameraToManipulate->setRotationSpeedScale(1);
-
-							auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
-							boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
-
-							boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
-							boundCameraToManipulate->setRotationSpeedScale(prSpeed);
-						}
-					}
-				}
-				*/
 			}
 			else if (m_manipulatedObjectKind == SceneManipulatedObjectKind::FollowTarget)
 			{

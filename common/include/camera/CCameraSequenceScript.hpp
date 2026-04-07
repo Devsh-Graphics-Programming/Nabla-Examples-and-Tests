@@ -12,11 +12,11 @@
 #include <string_view>
 #include <vector>
 
+#include "CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
 #include "IPlanarProjection.hpp"
-#include "glm/glm/gtc/quaternion.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -33,7 +33,7 @@ namespace nbl::hlsl
 * The format intentionally does not store:
 *
 * - per-frame low-level event dumps
-* - consumer-specific window actions as authored source data
+* - runtime-specific window actions as authored source data
 * - ImGuizmo transforms as the primary authored primitive
 *
 * A consumer may expand the compact sequence into its own runtime event/check representation, but
@@ -62,7 +62,7 @@ struct CCameraSequenceContinuitySettings
 };
 
 //! Relative goal adjustment authored against an initial preset captured from the target camera.
-//! Deltas stay camera-domain and avoid binding the authored file to any specific input device or example.
+//! Deltas stay camera-domain and avoid binding the authored file to any specific input device or consumer.
 struct CCameraSequenceGoalDelta
 {
     bool hasPositionOffset = false;
@@ -114,7 +114,7 @@ struct CCameraSequenceKeyframe
 struct CCameraSequenceTrackedTargetPose
 {
     float64_t3 position = float64_t3(0.0);
-    glm::quat orientation = glm::quat(1.0, 0.0, 0.0, 0.0);
+    camera_quaternion_t<float64_t> orientation = makeIdentityQuaternion<float64_t>();
 };
 
 //! Relative tracked-target adjustment authored against an initial tracked-target pose.
@@ -128,7 +128,7 @@ struct CCameraSequenceTrackedTargetDelta
 };
 
 //! One authored tracked-target keyframe inside a reusable camera-sequence segment.
-//! Target keyframes stay camera-domain and can drive follow behavior without example-specific object references.
+//! Target keyframes stay camera-domain and can drive follow behavior without runtime-object references.
 struct CCameraSequenceTrackedTargetKeyframe
 {
     float time = 0.f;
@@ -294,541 +294,6 @@ inline void normalizeCaptureFractions(std::vector<float>& fractions)
         fractions.end());
 }
 
-inline bool tryParseCaptureFraction(const nlohmann::json& entry, float& outFraction)
-{
-    if (entry.is_number())
-    {
-        outFraction = std::clamp(entry.get<float>(), 0.f, 1.f);
-        return true;
-    }
-
-    if (!entry.is_string())
-        return false;
-
-    const auto tag = entry.get<std::string>();
-    if (tag == "start")
-        outFraction = 0.f;
-    else if (tag == "mid" || tag == "middle")
-        outFraction = 0.5f;
-    else if (tag == "end")
-        outFraction = 1.f;
-    else
-        return false;
-
-    return true;
-}
-
-inline bool deserializeSequencePresentations(const nlohmann::json& root, std::vector<CCameraSequencePresentation>& out, std::string* error = nullptr)
-{
-    out.clear();
-    if (!root.is_array())
-    {
-        if (error)
-            *error = "Sequence presentations must be an array.";
-        return false;
-    }
-
-    for (const auto& entry : root)
-    {
-        if (!entry.is_object() || !entry.contains("projection"))
-        {
-            if (error)
-                *error = "Sequence presentation entry missing \"projection\".";
-            return false;
-        }
-
-        CCameraSequencePresentation presentation;
-        if (!tryParseProjectionType(entry["projection"].get<std::string>(), presentation.projection))
-        {
-            if (error)
-                *error = "Sequence presentation has invalid projection type.";
-            return false;
-        }
-        if (entry.contains("left_handed"))
-            presentation.leftHanded = entry["left_handed"].get<bool>();
-        out.emplace_back(presentation);
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceContinuity(const nlohmann::json& root, CCameraSequenceContinuitySettings& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence continuity settings must be an object.";
-        return false;
-    }
-
-    out = {};
-    if (root.contains("baseline"))
-        out.baseline = root["baseline"].get<bool>();
-    if (root.contains("step"))
-        out.step = root["step"].get<bool>();
-
-    if (root.contains("min_pos_delta"))
-    {
-        out.minPosDelta = root["min_pos_delta"].get<float>();
-        out.hasPosDeltaConstraint = true;
-    }
-    if (root.contains("max_pos_delta"))
-    {
-        out.maxPosDelta = root["max_pos_delta"].get<float>();
-        out.hasPosDeltaConstraint = true;
-    }
-    else if (root.contains("pos_tolerance"))
-    {
-        out.maxPosDelta = root["pos_tolerance"].get<float>();
-        out.hasPosDeltaConstraint = true;
-    }
-
-    if (root.contains("min_euler_delta_deg"))
-    {
-        out.minEulerDeltaDeg = root["min_euler_delta_deg"].get<float>();
-        out.hasEulerDeltaConstraint = true;
-    }
-    if (root.contains("max_euler_delta_deg"))
-    {
-        out.maxEulerDeltaDeg = root["max_euler_delta_deg"].get<float>();
-        out.hasEulerDeltaConstraint = true;
-    }
-    else if (root.contains("euler_tolerance_deg"))
-    {
-        out.maxEulerDeltaDeg = root["euler_tolerance_deg"].get<float>();
-        out.hasEulerDeltaConstraint = true;
-    }
-
-    if (root.contains("disable_pos_delta"))
-        out.hasPosDeltaConstraint = !root["disable_pos_delta"].get<bool>();
-    if (root.contains("disable_euler_delta"))
-        out.hasEulerDeltaConstraint = !root["disable_euler_delta"].get<bool>();
-
-    if (out.step && !(out.hasPosDeltaConstraint || out.hasEulerDeltaConstraint))
-    {
-        if (error)
-            *error = "Sequence continuity step checks require at least one delta constraint.";
-        return false;
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceGoalDelta(const nlohmann::json& root, CCameraSequenceGoalDelta& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence keyframe delta must be an object.";
-        return false;
-    }
-
-    out = {};
-    auto readFloat3 = [](const nlohmann::json& entry, auto& outValue) -> void
-    {
-        const auto arr = entry.get<std::array<float, 3>>();
-        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
-    };
-    auto readDouble3 = [](const nlohmann::json& entry, auto& outValue) -> void
-    {
-        const auto arr = entry.get<std::array<double, 3>>();
-        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
-    };
-
-    if (root.contains("position_offset"))
-    {
-        readDouble3(root["position_offset"], out.positionOffset);
-        out.hasPositionOffset = true;
-    }
-    if (root.contains("rotation_euler_deg_offset"))
-    {
-        readFloat3(root["rotation_euler_deg_offset"], out.rotationEulerDegOffset);
-        out.hasRotationEulerDegOffset = true;
-    }
-    if (root.contains("target_offset"))
-    {
-        readDouble3(root["target_offset"], out.targetOffset);
-        out.hasTargetOffset = true;
-    }
-    if (root.contains("orbit_u_delta_deg"))
-    {
-        out.orbitUDeltaDeg = root["orbit_u_delta_deg"].get<double>();
-        out.hasOrbitUDeltaDeg = true;
-    }
-    if (root.contains("orbit_v_delta_deg"))
-    {
-        out.orbitVDeltaDeg = root["orbit_v_delta_deg"].get<double>();
-        out.hasOrbitVDeltaDeg = true;
-    }
-    if (root.contains("orbit_distance_delta"))
-    {
-        out.orbitDistanceDelta = root["orbit_distance_delta"].get<float>();
-        out.hasOrbitDistanceDelta = true;
-    }
-    if (root.contains("path_angle_delta_deg"))
-    {
-        out.pathAngleDeltaDeg = root["path_angle_delta_deg"].get<double>();
-        out.hasPathAngleDeltaDeg = true;
-    }
-    if (root.contains("path_radius_delta"))
-    {
-        out.pathRadiusDelta = root["path_radius_delta"].get<double>();
-        out.hasPathRadiusDelta = true;
-    }
-    if (root.contains("path_height_delta"))
-    {
-        out.pathHeightDelta = root["path_height_delta"].get<double>();
-        out.hasPathHeightDelta = true;
-    }
-    if (root.contains("dynamic_base_fov_delta"))
-    {
-        out.dynamicBaseFovDelta = root["dynamic_base_fov_delta"].get<float>();
-        out.hasDynamicBaseFovDelta = true;
-    }
-    if (root.contains("dynamic_reference_distance_delta"))
-    {
-        out.dynamicReferenceDistanceDelta = root["dynamic_reference_distance_delta"].get<float>();
-        out.hasDynamicReferenceDistanceDelta = true;
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceKeyframe(const nlohmann::json& root, CCameraSequenceKeyframe& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence keyframe must be an object.";
-        return false;
-    }
-
-    out = {};
-    if (root.contains("time"))
-        out.time = std::max(0.f, root["time"].get<float>());
-
-    if (root.contains("delta"))
-    {
-        if (!deserializeSequenceGoalDelta(root["delta"], out.delta, error))
-            return false;
-        out.hasDelta = true;
-    }
-
-    if (root.contains("preset"))
-    {
-        deserializePreset(root["preset"], out.absolutePreset);
-        out.hasAbsolutePreset = true;
-    }
-    else if (root.contains("position") || root.contains("orientation") || root.contains("target_position") ||
-        root.contains("distance") || root.contains("orbit_u") || root.contains("orbit_v") ||
-        root.contains("orbit_distance") || root.contains("path_angle") || root.contains("path_radius") ||
-        root.contains("path_height") || root.contains("dynamic_base_fov") || root.contains("dynamic_reference_distance"))
-    {
-        deserializePreset(root, out.absolutePreset);
-        out.hasAbsolutePreset = true;
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceTrackedTargetDelta(const nlohmann::json& root, CCameraSequenceTrackedTargetDelta& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence target delta must be an object.";
-        return false;
-    }
-
-    out = {};
-    auto readFloat3 = [](const nlohmann::json& entry, auto& outValue) -> void
-    {
-        const auto arr = entry.get<std::array<float, 3>>();
-        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
-    };
-    auto readDouble3 = [](const nlohmann::json& entry, auto& outValue) -> void
-    {
-        const auto arr = entry.get<std::array<double, 3>>();
-        outValue = std::decay_t<decltype(outValue)>(arr[0], arr[1], arr[2]);
-    };
-
-    if (root.contains("position_offset"))
-    {
-        readDouble3(root["position_offset"], out.positionOffset);
-        out.hasPositionOffset = true;
-    }
-    if (root.contains("rotation_euler_deg_offset"))
-    {
-        readFloat3(root["rotation_euler_deg_offset"], out.rotationEulerDegOffset);
-        out.hasRotationEulerDegOffset = true;
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceTrackedTargetKeyframe(const nlohmann::json& root, CCameraSequenceTrackedTargetKeyframe& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence target keyframe must be an object.";
-        return false;
-    }
-
-    out = {};
-    if (root.contains("time"))
-        out.time = std::max(0.f, root["time"].get<float>());
-
-    if (root.contains("delta"))
-    {
-        if (!deserializeSequenceTrackedTargetDelta(root["delta"], out.delta, error))
-            return false;
-        out.hasDelta = true;
-    }
-
-    if (root.contains("position"))
-    {
-        const auto arr = root["position"].get<std::array<double, 3>>();
-        out.absolutePosition = float64_t3(arr[0], arr[1], arr[2]);
-        out.hasAbsolutePosition = true;
-    }
-    if (root.contains("rotation_euler_deg"))
-    {
-        const auto arr = root["rotation_euler_deg"].get<std::array<float, 3>>();
-        out.absoluteRotationEulerDeg = float32_t3(arr[0], arr[1], arr[2]);
-        out.hasAbsoluteRotationEulerDeg = true;
-    }
-
-    return true;
-}
-
-inline bool deserializeSequenceSegment(const nlohmann::json& root, CCameraSequenceSegment& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Sequence segment must be an object.";
-        return false;
-    }
-
-    out = {};
-    if (root.contains("name"))
-        out.name = root["name"].get<std::string>();
-    if (root.contains("camera_identifier"))
-        out.cameraIdentifier = root["camera_identifier"].get<std::string>();
-    if (root.contains("camera_kind"))
-    {
-        if (!tryParseCameraKind(root["camera_kind"].get<std::string>(), out.cameraKind))
-        {
-            if (error)
-                *error = "Sequence segment has invalid camera_kind.";
-            return false;
-        }
-    }
-    if (root.contains("duration_seconds"))
-    {
-        out.durationSeconds = std::max(0.f, root["duration_seconds"].get<float>());
-        out.hasDurationSeconds = true;
-    }
-    if (root.contains("reset_camera"))
-    {
-        out.resetCamera = root["reset_camera"].get<bool>();
-        out.hasResetCamera = true;
-    }
-    if (root.contains("presentations"))
-    {
-        if (!deserializeSequencePresentations(root["presentations"], out.presentations, error))
-            return false;
-    }
-    if (root.contains("continuity"))
-    {
-        if (!deserializeSequenceContinuity(root["continuity"], out.continuity, error))
-            return false;
-        out.hasContinuity = true;
-    }
-    if (root.contains("captures"))
-    {
-        if (!root["captures"].is_array())
-        {
-            if (error)
-                *error = "Sequence segment captures must be an array.";
-            return false;
-        }
-
-        out.captureFractions.clear();
-        for (const auto& entry : root["captures"])
-        {
-            float fraction = 0.f;
-            if (!tryParseCaptureFraction(entry, fraction))
-            {
-                if (error)
-                    *error = "Sequence segment capture entry is invalid.";
-                return false;
-            }
-            out.captureFractions.emplace_back(fraction);
-        }
-        normalizeCaptureFractions(out.captureFractions);
-        out.hasCaptureFractions = true;
-    }
-    if (root.contains("keyframes"))
-    {
-        if (!root["keyframes"].is_array())
-        {
-            if (error)
-                *error = "Sequence segment keyframes must be an array.";
-            return false;
-        }
-        for (const auto& entry : root["keyframes"])
-        {
-            CCameraSequenceKeyframe keyframe;
-            if (!deserializeSequenceKeyframe(entry, keyframe, error))
-                return false;
-            out.keyframes.emplace_back(std::move(keyframe));
-        }
-    }
-    if (root.contains("target_keyframes"))
-    {
-        if (!root["target_keyframes"].is_array())
-        {
-            if (error)
-                *error = "Sequence segment target_keyframes must be an array.";
-            return false;
-        }
-        for (const auto& entry : root["target_keyframes"])
-        {
-            CCameraSequenceTrackedTargetKeyframe keyframe;
-            if (!deserializeSequenceTrackedTargetKeyframe(entry, keyframe, error))
-                return false;
-            out.targetKeyframes.emplace_back(std::move(keyframe));
-        }
-    }
-
-    if (out.keyframes.empty())
-    {
-        if (error)
-            *error = "Sequence segment requires at least one keyframe.";
-        return false;
-    }
-    if (out.cameraKind == ICamera::CameraKind::Unknown && out.cameraIdentifier.empty())
-    {
-        if (error)
-            *error = "Sequence segment requires camera_kind or camera_identifier.";
-        return false;
-    }
-
-    return true;
-}
-
-inline bool deserializeCameraSequenceScript(const nlohmann::json& root, CCameraSequenceScript& out, std::string* error = nullptr)
-{
-    if (!root.is_object())
-    {
-        if (error)
-            *error = "Camera sequence script must be an object.";
-        return false;
-    }
-
-    out = {};
-    if (root.contains("enabled"))
-        out.enabled = root["enabled"].get<bool>();
-    if (root.contains("log"))
-        out.log = root["log"].get<bool>();
-    if (root.contains("exclusive"))
-        out.exclusive = root["exclusive"].get<bool>();
-    if (root.contains("exclusive_input"))
-        out.exclusive = root["exclusive_input"].get<bool>() || out.exclusive;
-    if (root.contains("hard_fail"))
-        out.hardFail = root["hard_fail"].get<bool>();
-    if (root.contains("visual_debug"))
-        out.visualDebug = root["visual_debug"].get<bool>();
-    if (root.contains("visual_debug_target_fps"))
-        out.visualDebugTargetFps = root["visual_debug_target_fps"].get<float>();
-    if (root.contains("visual_debug_hold_seconds"))
-        out.visualDebugHoldSeconds = root["visual_debug_hold_seconds"].get<float>();
-    if (root.contains("enableActiveCameraMovement"))
-    {
-        out.enableActiveCameraMovement = root["enableActiveCameraMovement"].get<bool>();
-        out.hasEnableActiveCameraMovement = true;
-    }
-    if (root.contains("capture_prefix"))
-        out.capturePrefix = root["capture_prefix"].get<std::string>();
-    if (root.contains("fps"))
-        out.fps = std::max(1.f, root["fps"].get<float>());
-
-    if (root.contains("defaults"))
-    {
-        const auto& defaults = root["defaults"];
-        if (!defaults.is_object())
-        {
-            if (error)
-                *error = "Camera sequence defaults must be an object.";
-            return false;
-        }
-
-        if (defaults.contains("duration_seconds"))
-            out.defaults.durationSeconds = std::max(0.f, defaults["duration_seconds"].get<float>());
-        if (defaults.contains("reset_camera"))
-            out.defaults.resetCamera = defaults["reset_camera"].get<bool>();
-        if (defaults.contains("presentations"))
-        {
-            if (!deserializeSequencePresentations(defaults["presentations"], out.defaults.presentations, error))
-                return false;
-        }
-        if (defaults.contains("continuity"))
-        {
-            if (!deserializeSequenceContinuity(defaults["continuity"], out.defaults.continuity, error))
-                return false;
-        }
-        if (defaults.contains("captures"))
-        {
-            if (!defaults["captures"].is_array())
-            {
-                if (error)
-                    *error = "Camera sequence default captures must be an array.";
-                return false;
-            }
-
-            out.defaults.captureFractions.clear();
-            for (const auto& entry : defaults["captures"])
-            {
-                float fraction = 0.f;
-                if (!tryParseCaptureFraction(entry, fraction))
-                {
-                    if (error)
-                        *error = "Camera sequence default capture entry is invalid.";
-                    return false;
-                }
-                out.defaults.captureFractions.emplace_back(fraction);
-            }
-            normalizeCaptureFractions(out.defaults.captureFractions);
-        }
-    }
-
-    if (!root.contains("segments") || !root["segments"].is_array())
-    {
-        if (error)
-            *error = "Camera sequence script requires a \"segments\" array.";
-        return false;
-    }
-
-    for (const auto& entry : root["segments"])
-    {
-        CCameraSequenceSegment segment;
-        if (!deserializeSequenceSegment(entry, segment, error))
-            return false;
-        out.segments.emplace_back(std::move(segment));
-    }
-
-    if (out.segments.empty())
-    {
-        if (error)
-            *error = "Camera sequence script must contain at least one segment.";
-        return false;
-    }
-
-    return true;
-}
-
 inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
 {
     if (!(goal.hasTargetPosition && goal.hasOrbitState))
@@ -836,7 +301,7 @@ inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
     if (!std::isfinite(goal.orbitU) || !std::isfinite(goal.orbitV) || !std::isfinite(goal.orbitDistance))
         return false;
 
-    const float appliedDistance = std::clamp(goal.orbitDistance, CSphericalTargetCamera::MinDistance, CSphericalTargetCamera::MaxDistance);
+    const float appliedDistance = std::clamp(goal.orbitDistance, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
     const float64_t3 spherePosition(
         std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
         std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
@@ -852,7 +317,7 @@ inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
         -std::sin(goal.orbitV) * std::sin(goal.orbitU),
         std::cos(goal.orbitV)));
     const float64_t3 right = normalize(cross(up, forward));
-    goal.orientation = glm::quat_cast(glm::dmat3{ right, up, forward });
+    goal.orientation = makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -891,8 +356,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
 
     if (delta.hasRotationEulerDegOffset)
     {
-        const auto deltaRadians = glm::radians(delta.rotationEulerDegOffset);
-        goal.orientation = glm::normalize(goal.orientation * glm::quat(deltaRadians));
+        goal.orientation = normalizeQuaternion(goal.orientation * makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(delta.rotationEulerDegOffset)));
     }
 
     if (delta.hasTargetOffset)
@@ -915,9 +379,9 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             return false;
         }
         if (delta.hasOrbitUDeltaDeg)
-            goal.orbitU = wrapAngleRad(goal.orbitU + glm::radians(delta.orbitUDeltaDeg));
+            goal.orbitU = wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
         if (delta.hasOrbitVDeltaDeg)
-            goal.orbitV = std::clamp(goal.orbitV + glm::radians(delta.orbitVDeltaDeg), -1.55334303427, 1.55334303427);
+            goal.orbitV = std::clamp(goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg), -1.55334303427, 1.55334303427);
         if (delta.hasOrbitDistanceDelta)
             goal.orbitDistance += delta.orbitDistanceDelta;
     }
@@ -931,7 +395,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             return false;
         }
         if (delta.hasPathAngleDeltaDeg)
-            goal.pathState.angle = wrapAngleRad(goal.pathState.angle + glm::radians(delta.pathAngleDeltaDeg));
+            goal.pathState.angle = wrapAngleRad(goal.pathState.angle + hlsl::radians(delta.pathAngleDeltaDeg));
         if (delta.hasPathRadiusDelta)
             goal.pathState.radius += delta.pathRadiusDelta;
         if (delta.hasPathHeightDelta)
@@ -1004,10 +468,10 @@ inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, cons
 inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
 {
     return isFiniteVec3(pose.position) &&
-        std::isfinite(pose.orientation.x) &&
-        std::isfinite(pose.orientation.y) &&
-        std::isfinite(pose.orientation.z) &&
-        std::isfinite(pose.orientation.w);
+        std::isfinite(pose.orientation.data.x) &&
+        std::isfinite(pose.orientation.data.y) &&
+        std::isfinite(pose.orientation.data.z) &&
+        std::isfinite(pose.orientation.data.w);
 }
 
 inline bool buildSequenceTrackedTargetPoseFromReference(
@@ -1021,14 +485,14 @@ inline bool buildSequenceTrackedTargetPoseFromReference(
     if (authored.hasAbsolutePosition)
         outPose.position = authored.absolutePosition;
     if (authored.hasAbsoluteRotationEulerDeg)
-        outPose.orientation = glm::quat(glm::radians(authored.absoluteRotationEulerDeg));
+        outPose.orientation = makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(authored.absoluteRotationEulerDeg));
 
     if (authored.hasDelta)
     {
         if (authored.delta.hasPositionOffset)
             outPose.position += authored.delta.positionOffset;
         if (authored.delta.hasRotationEulerDegOffset)
-            outPose.orientation = glm::normalize(outPose.orientation * glm::quat(glm::radians(authored.delta.rotationEulerDegOffset)));
+            outPose.orientation = normalizeQuaternion(outPose.orientation * makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(authored.delta.rotationEulerDegOffset)));
     }
 
     if (!isSequenceTrackedTargetPoseFinite(outPose))
@@ -1109,7 +573,7 @@ inline bool tryBuildSequenceTrackedTargetPoseAtTime(
         const auto span = std::max(1e-6f, rhs.time - lhs.time);
         const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
         outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
-        outPose.orientation = glm::normalize(glm::slerp(lhs.pose.orientation, rhs.pose.orientation, alpha));
+        outPose.orientation = slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<float64_t>(alpha));
         return true;
     }
 
@@ -1129,7 +593,7 @@ inline float getSequenceSegmentDurationSeconds(const CCameraSequenceScript& scri
     if (script.defaults.durationSeconds > 0.f)
         return script.defaults.durationSeconds;
     if (track)
-        return getPlaybackTrackDuration(*track);
+        return track->keyframes.empty() ? 0.f : track->keyframes.back().time;
     return 0.f;
 }
 
@@ -1274,6 +738,6 @@ inline bool buildCompiledSegmentFramePolicies(
     return true;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_SEQUENCE_SCRIPT_HPP_

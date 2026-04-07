@@ -11,7 +11,7 @@
 
 #include "CCameraPreset.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Reusable keyframe container plus selection state for playback tooling.
@@ -161,41 +161,6 @@ inline bool replaceSelectedKeyframePreset(CCameraKeyframeTrack& track, CCameraPr
     return true;
 }
 
-inline nlohmann::json serializeKeyframeTrack(const CCameraKeyframeTrack& track)
-{
-    nlohmann::json root;
-    root["keyframes"] = nlohmann::json::array();
-
-    for (const auto& keyframe : track.keyframes)
-    {
-        auto j = serializePreset(keyframe.preset);
-        j["time"] = keyframe.time;
-        root["keyframes"].push_back(std::move(j));
-    }
-
-    return root;
-}
-
-inline bool deserializeKeyframeTrack(const nlohmann::json& root, CCameraKeyframeTrack& track)
-{
-    if (!root.contains("keyframes"))
-        return false;
-
-    track = {};
-    for (const auto& entry : root["keyframes"])
-    {
-        CCameraKeyframe keyframe;
-        if (entry.contains("time"))
-            keyframe.time = std::max(0.f, entry["time"].get<float>());
-        deserializePreset(entry, keyframe.preset);
-        track.keyframes.emplace_back(std::move(keyframe));
-    }
-
-    sortKeyframeTrackByTime(track);
-    normalizeSelectedKeyframeTrack(track);
-    return true;
-}
-
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_KEYFRAME_TRACK_HPP_

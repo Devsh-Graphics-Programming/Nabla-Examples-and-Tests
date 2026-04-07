@@ -78,9 +78,6 @@ void App::imguiListen()
 						syncDynamicPerspectiveProjection(planarViewCameraBound, projection);
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
-						// TODO: 
-						// would be nice to normalize imguizmo visual vectors (possible with styles)
-
 						// first 0th texture is for UI texture atlas, then there are our window textures
 						auto fboImguiTextureID = windowIx + 1u;
 						info.textureID = fboImguiTextureID;
@@ -183,112 +180,10 @@ void App::imguiListen()
 								{
 									if (targetGimbalManipulationCamera)
 									{
-										const auto referenceFrame = getCastedMatrix<float64_t>(*reinterpret_cast<float32_t4x4*>(ImGuizmo::GetReferenceFrame()));
+										const auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
 										bindManipulatedCamera(planarIx.value());
-
-										// TODO: TO BE REMOVED, ONLY FOR TESTING ITS INCOMPLETE TYPE!
-										const auto& imguizmoCtx = ImGuizmo::GetContext();
-
-										struct
-										{
-											float32_t3 t, r, s;
-										} out, delta;
-
-										ImGuizmo::DecomposeMatrixToComponents(&imguizmoModel.outTRS[0][0], &out.t[0], &out.r[0], &out.s[0]);
-										ImGuizmo::DecomposeMatrixToComponents(&imguizmoModel.outDeltaTRS[0][0], &delta.t[0], &delta.r[0], &delta.s[0]);
-										{
-											std::vector<CVirtualGimbalEvent> virtualEvents;
-	
-											auto requestMagnitudeUpdateWithScalar = [&](float signPivot, float dScalar, float dMagnitude, auto positive, auto negative)
-											{
-												if (dScalar != signPivot)
-												{
-													auto& ev = virtualEvents.emplace_back();
-													auto code = (dScalar > signPivot) ? positive : negative;
-
-													ev.type = code;
-													ev.magnitude += dMagnitude;
-												}
-											};
-		
-											// TODO TESTING STUFF WITH MY IMGUIZMO UPDATES
-											// IT WILL BE REMOVED ONCE ALL TESTS ARE DONE 
-											// AND CONTROLLER API WILL BE USED INSTEAD
-
-											// translations
-											{
-												ImGuizmo::OPERATION ioType;
-												const auto dScalar = ImGuizmo::GetTranslationDeltaScalar(&ioType);
-
-												if (dScalar)
-												{
-													switch (ioType)
-													{
-													case ImGuizmo::OPERATION::TRANSLATE_X:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveRight, CVirtualGimbalEvent::VirtualEventType::MoveLeft);
-													} break;
-
-													case ImGuizmo::OPERATION::TRANSLATE_Y:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveUp, CVirtualGimbalEvent::VirtualEventType::MoveDown);
-													} break;
-
-													case ImGuizmo::OPERATION::TRANSLATE_Z:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveForward, CVirtualGimbalEvent::VirtualEventType::MoveBackward);
-													} break;
-
-													default: break;
-													}
-												}
-											}
-
-											// TODO: ok becuase I have only one reference from imguizmo I must do it differently when 
-											// I have local base && want to do rotation with respect to world instead; we almost there
-												
-											// rotations
-											{
-												ImGuizmo::OPERATION ioType;
-												float dRadians = ImGuizmo::GetRotationDeltaRadians(&ioType);
-
-												if (dRadians)
-												{
-													switch (ioType)
-													{
-													case ImGuizmo::OPERATION::ROTATE_X:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::TiltUp, CVirtualGimbalEvent::VirtualEventType::TiltDown);
-													} break;
-
-													case ImGuizmo::OPERATION::ROTATE_Y:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::PanRight, CVirtualGimbalEvent::VirtualEventType::PanLeft);
-													} break;
-
-													case ImGuizmo::OPERATION::ROTATE_Z:
-													{
-														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::RollRight, CVirtualGimbalEvent::VirtualEventType::RollLeft);
-													} break;
-
-													default:
-														assert(false); break; // should never be hit
-													}
-												}
-											}
-
-											const auto vCount = virtualEvents.size();
-
-											if (vCount)
-											{
-												// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-												// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-
-												targetGimbalManipulationCamera->manipulateWithUnitMotionScales({ virtualEvents.data(), vCount }, &referenceFrame);
-												refreshFollowOffsetConfigForPlanar(planarIx.value());
-											}
-
-										}
+										nbl::core::applyReferenceFrameToCamera(targetGimbalManipulationCamera, referenceFrame);
+										refreshFollowOffsetConfigForPlanar(planarIx.value());
 									}
 									else if (isFollowTarget)
 									{

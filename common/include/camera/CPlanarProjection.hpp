@@ -4,7 +4,7 @@
 #include "IPlanarProjection.hpp"
 #include "IRange.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 	template<ContiguousGeneralPurposeRangeOf<IPlanarProjection::CProjection> ProjectionsRange>
 	class CPlanarProjection : public IPlanarProjection

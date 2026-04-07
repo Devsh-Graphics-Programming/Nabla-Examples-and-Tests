@@ -3,7 +3,7 @@
 
 #include "IGimbal.hpp"
 
-namespace nbl::hlsl
+namespace nbl::ui
 {
 
 /**
@@ -16,7 +16,7 @@ struct IGimbalBindingLayout
     IGimbalBindingLayout() {}
     virtual ~IGimbalBindingLayout() {}
 
-    using gimbal_event_t = CVirtualGimbalEvent;
+    using gimbal_event_t = core::CVirtualGimbalEvent;
     using encode_keyboard_code_t = ui::E_KEY_CODE;
     using encode_mouse_code_t = ui::E_MOUSE_CODE;
     using encode_imguizmo_code_t = gimbal_event_t::VirtualEventType;
@@ -60,10 +60,6 @@ struct IGimbalBindingLayout
     using mouse_to_virtual_events_t = std::unordered_map<encode_mouse_code_t, CHashInfo>;
     using imguizmo_to_virtual_events_t = std::unordered_map<encode_imguizmo_code_t, CHashInfo>;
 
-    virtual const keyboard_to_virtual_events_t getKeyboardMappingPreset() const { return {}; }
-    virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
-    virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
-
     virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const = 0;
     virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const = 0;
     virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const = 0;
@@ -97,13 +93,6 @@ public:
         updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoVirtualEventMap()); });
     }
 
-    inline void copyPresetLayoutFrom(const IGimbalBindingLayout& layout)
-    {
-        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardMappingPreset()); });
-        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseMappingPreset()); });
-        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoMappingPreset()); });
-    }
-
     inline void copyBindingLayoutTo(IGimbalBindingLayout& layout) const
     {
         layout.updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(getKeyboardVirtualEventMap()); });
@@ -126,6 +115,6 @@ protected:
     imguizmo_to_virtual_events_t m_imguizmoVirtualEventMap;
 };
 
-} // namespace nbl::hlsl
+} // namespace nbl::ui
 
 #endif

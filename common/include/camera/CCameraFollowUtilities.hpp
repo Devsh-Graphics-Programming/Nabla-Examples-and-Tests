@@ -10,7 +10,7 @@
 
 #include "CCameraGoalSolver.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -26,7 +26,7 @@ public:
 
     CTrackedTarget(
         const float64_t3& position = float64_t3(0.0),
-        const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>(),
         std::string identifier = "Follow Target")
         : m_identifier(std::move(identifier)),
         m_gimbal({ .position = position, .orientation = orientation })
@@ -38,7 +38,7 @@ public:
     inline const gimbal_t& getGimbal() const { return m_gimbal; }
     inline gimbal_t& getGimbal() { return m_gimbal; }
 
-    inline void setPose(const float64_t3& position, const glm::quat& orientation)
+    inline void setPose(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation)
     {
         m_gimbal.begin();
         m_gimbal.setPosition(position);
@@ -52,7 +52,7 @@ public:
         setPose(position, m_gimbal.getOrientation());
     }
 
-    inline void setOrientation(const glm::quat& orientation)
+    inline void setOrientation(const camera_quaternion_t<float64_t>& orientation)
     {
         setPose(m_gimbal.getPosition(), orientation);
     }
@@ -65,7 +65,7 @@ public:
         if (!isOrthoBase(right, up, forward))
             return false;
 
-        setPose(float64_t3(transform[3]), glm::quat_cast(glm::dmat3{ right, up, forward }));
+        setPose(float64_t3(transform[3]), makeQuaternionFromBasis(right, up, forward));
         return true;
     }
 
@@ -202,7 +202,7 @@ inline bool buildFollowLookAtOrientation(
     const float64_t3& position,
     const float64_t3& targetPosition,
     const float64_t3& preferredUp,
-    glm::quat& outOrientation)
+    camera_quaternion_t<float64_t>& outOrientation)
 {
     const auto toTarget = targetPosition - position;
     const double toTargetLength = length(toTarget);
@@ -229,7 +229,7 @@ inline bool buildFollowLookAtOrientation(
     if (!isOrthoBase(right, up, forward))
         return false;
 
-    outOrientation = glm::quat_cast(glm::dmat3{ right, up, forward });
+    outOrientation = makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -243,7 +243,7 @@ inline bool applyFollowSphericalPose(
     if (!std::isfinite(orbitU) || !std::isfinite(orbitV) || !std::isfinite(distance))
         return false;
 
-    const float clampedDistance = std::clamp(distance, CSphericalTargetCamera::MinDistance, CSphericalTargetCamera::MaxDistance);
+    const float clampedDistance = std::clamp(distance, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
     const float64_t3 spherePosition(
         std::cos(orbitV) * std::cos(orbitU) * static_cast<double>(clampedDistance),
         std::cos(orbitV) * std::sin(orbitU) * static_cast<double>(clampedDistance),
@@ -267,7 +267,7 @@ inline bool applyFollowSphericalPose(
     goal.orbitV = orbitV;
     goal.orbitDistance = clampedDistance;
     goal.position = targetPosition + spherePosition;
-    goal.orientation = glm::quat_cast(glm::dmat3{ right, up, forward });
+    goal.orientation = makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -278,7 +278,7 @@ inline bool buildFollowSphericalGoalFromPose(CCameraGoal& goal, const float64_t3
     if (!std::isfinite(distance) || distance <= 1e-9)
         return false;
 
-    const float clampedDistance = std::clamp(static_cast<float>(distance), CSphericalTargetCamera::MinDistance, CSphericalTargetCamera::MaxDistance);
+    const float clampedDistance = std::clamp(static_cast<float>(distance), ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
     const auto local = offset / static_cast<double>(clampedDistance);
     const double orbitU = std::atan2(local.y, local.x);
     const double orbitV = std::asin(std::clamp(local.z, -1.0, 1.0));
@@ -319,7 +319,7 @@ inline bool tryComputeFollowTargetLockMetrics(
 
     const auto targetDir = toTarget / targetDistance;
     const auto dotForward = std::clamp(dot(forward, targetDir), -1.0, 1.0);
-    outAngleDeg = static_cast<float>(glm::degrees(std::acos(dotForward)));
+    outAngleDeg = static_cast<float>(hlsl::degrees(std::acos(dotForward)));
     if (!std::isfinite(outAngleDeg))
         return false;
 
@@ -421,6 +421,6 @@ inline CCameraGoalSolver::SApplyResult applyFollowToCamera(
     return solver.applyDetailed(camera, goal);
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_FOLLOW_UTILITIES_HPP_

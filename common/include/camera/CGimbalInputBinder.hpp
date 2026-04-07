@@ -5,11 +5,11 @@
 
 #include "IGimbalInputProcessor.hpp"
 
-namespace nbl::hlsl
+namespace nbl::ui
 {
 
 /**
-* High-level runtime binder for examples and viewport glue.
+* High-level runtime binder for consumers and viewport glue.
 *
 * It owns active runtime mappings and collects one frame of virtual events
 * from raw keyboard, mouse, and ImGuizmo input.
@@ -19,6 +19,9 @@ class CGimbalInputBinder final : public IGimbalInputProcessor
 public:
     using base_t = IGimbalInputProcessor;
     using base_t::base_t;
+    using input_keyboard_event_t = base_t::input_keyboard_event_t;
+    using input_mouse_event_t = base_t::input_mouse_event_t;
+    using input_imguizmo_event_t = base_t::input_imguizmo_event_t;
 
     struct SCollectedVirtualEvents
     {
@@ -57,18 +60,6 @@ public:
     inline void copyBindingLayoutFrom(const IGimbalBindingLayout& layout)
     {
         copyActiveBindingsFromLayout(layout);
-    }
-
-    inline void copyDefaultBindingsFromLayout(const IGimbalBindingLayout& layout)
-    {
-        updateKeyboardMapping([&](auto& map) { map = sanitizeMapping(layout.getKeyboardMappingPreset()); });
-        updateMouseMapping([&](auto& map) { map = sanitizeMapping(layout.getMouseMappingPreset()); });
-        updateImguizmoMapping([&](auto& map) { map = sanitizeMapping(layout.getImguizmoMappingPreset()); });
-    }
-
-    inline void copyPresetLayoutFrom(const IGimbalBindingLayout& layout)
-    {
-        copyDefaultBindingsFromLayout(layout);
     }
 
     inline void copyActiveBindingsToLayout(IGimbalBindingLayout& layout) const
@@ -137,6 +128,6 @@ private:
     }
 };
 
-} // namespace nbl::hlsl
+} // namespace nbl::ui
 
 #endif // _NBL_C_GIMBAL_INPUT_BINDER_HPP_

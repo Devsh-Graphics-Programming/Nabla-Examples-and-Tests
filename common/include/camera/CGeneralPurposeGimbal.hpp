@@ -3,8 +3,7 @@
 
 #include "IGimbal.hpp"
 
-// TODO: DIFFERENT NAMESPACE
-namespace nbl::hlsl
+namespace nbl::core
 {
     template<typename T = float64_t>
     class CGeneralPurposeGimbal : public IGimbal<T>
@@ -17,4 +16,4 @@ namespace nbl::hlsl
     };
 }
 
-#endif // _NBL_IGIMBAL_HPP_
+#endif // _NBL_CGENERAL_PURPOSE_GIMBAL_HPP_

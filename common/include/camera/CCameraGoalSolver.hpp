@@ -7,12 +7,8 @@
 #include <vector>
 
 #include "CCameraGoal.hpp"
-#include "CFPSCamera.hpp"
-#include "CFreeLockCamera.hpp"
-#include "CSphericalTargetCamera.hpp"
-#include "glm/glm/gtc/quaternion.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -425,18 +421,18 @@ private:
         return rotationScale == 0.0 ? 1.0 : rotationScale;
     }
 
-    inline std::pair<double, double> computePitchYawFromOrientation(const glm::quat& orientation) const
+    inline std::pair<double, double> computePitchYawFromOrientation(const camera_quaternion_t<float64_t>& orientation) const
     {
-        const auto mat = glm::mat3_cast(orientation);
+        const auto mat = getQuaternionBasisMatrix(orientation);
         const auto forward = float64_t3(mat[2][0], mat[2][1], mat[2][2]);
         const double pitch = std::atan2(std::sqrt(forward.x * forward.x + forward.z * forward.z), forward.y) - HalfPi;
         const double yaw = std::atan2(forward.x, forward.z);
         return { pitch, yaw };
     }
 
-    inline float64_t3 extractYawPitchRollYXZ(const glm::quat& delta) const
+    inline float64_t3 extractYawPitchRollYXZ(const camera_quaternion_t<float64_t>& delta) const
     {
-        const auto m = getMatrix3x3As4x4(matrix<float64_t, 3, 3>(glm::mat3_cast(delta)));
+        const auto m = getMatrix3x3As4x4(getQuaternionBasisMatrix(delta));
         const double yaw = std::atan2(static_cast<double>(m[2][0]), static_cast<double>(m[2][2]));
         const double c2 = std::sqrt(static_cast<double>(m[0][1] * m[0][1] + m[1][1] * m[1][1]));
         const double pitch = std::atan2(-static_cast<double>(m[2][1]), c2);
@@ -457,16 +453,15 @@ private:
 
         const auto& gimbal = camera->getGimbal();
         const auto currentPos = gimbal.getPosition();
-        const auto currentOrientation = glm::normalize(gimbal.getOrientation());
-        const auto targetOrientation = glm::normalize(target.orientation);
+        const auto currentOrientation = normalizeQuaternion(gimbal.getOrientation());
+        const auto targetOrientation = normalizeQuaternion(target.orientation);
 
         const double dx = static_cast<double>(currentPos.x - target.position.x);
         const double dy = static_cast<double>(currentPos.y - target.position.y);
         const double dz = static_cast<double>(currentPos.z - target.position.z);
         outPositionDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        const double orientationDot = std::clamp(static_cast<double>(std::abs(glm::dot(currentOrientation, targetOrientation))), 0.0, 1.0);
-        outRotationDeltaDeg = glm::degrees(2.0 * std::acos(orientationDot));
+        outRotationDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, targetOrientation);
         return std::isfinite(outPositionDelta) && std::isfinite(outRotationDeltaDeg);
     }
 
@@ -497,7 +492,7 @@ private:
             return true;
         }
 
-        auto targetFrame = getMatrix3x3As4x4(matrix<float64_t, 3, 3>(glm::mat3_cast(glm::normalize(target.orientation))));
+        auto targetFrame = getMatrix3x3As4x4(getQuaternionBasisMatrix(target.orientation));
         targetFrame[3] = float64_t4(target.position, 1.0);
 
         camera->manipulate({}, &targetFrame);
@@ -682,7 +677,7 @@ private:
 
             case ICamera::CameraKind::Free:
             {
-                const auto deltaQuat = glm::inverse(gimbal.getOrientation()) * glm::normalize(target.orientation);
+                const auto deltaQuat = inverseQuaternion(gimbal.getOrientation()) * normalizeQuaternion(target.orientation);
                 const auto angles = extractYawPitchRollYXZ(deltaQuat);
 
                 appendSignedEvent(out, angles.x, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
@@ -698,6 +693,6 @@ private:
     }
 };
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_GOAL_SOLVER_HPP_

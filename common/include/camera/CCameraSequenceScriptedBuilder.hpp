@@ -11,7 +11,7 @@
 #include "CCameraSequenceScript.hpp"
 #include "ICamera.hpp"
 
-namespace nbl::hlsl
+namespace nbl::system
 {
 
 /**
@@ -19,7 +19,7 @@ namespace nbl::hlsl
 *
 * This keeps authored sequence semantics in shared camera helpers instead of re-encoding
 * `Goal`, `TrackedTargetTransform`, `Baseline`, `GimbalStep`, and capture scheduling inside
-* one example.
+* one consumer.
 */
 struct CCameraSequenceScriptedSegmentBuildInfo
 {
@@ -37,11 +37,11 @@ struct CCameraSequenceScriptedSegmentBuildInfo
 inline bool appendCompiledSequenceSegmentToScriptedTimeline(
     CCameraScriptedTimeline& timeline,
     const uint64_t baseFrame,
-    const CCameraSequenceCompiledSegment& compiledSegment,
+    const core::CCameraSequenceCompiledSegment& compiledSegment,
     const CCameraSequenceScriptedSegmentBuildInfo& buildInfo,
     std::string* error = nullptr)
 {
-    std::vector<CCameraSequenceCompiledFramePolicy> framePolicies;
+    std::vector<core::CCameraSequenceCompiledFramePolicy> framePolicies;
     if (!buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, buildInfo.includeFollowTargetLock))
     {
         if (error)
@@ -74,7 +74,7 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
 
     for (const auto& policy : framePolicies)
     {
-        CCameraPreset preset;
+        core::CCameraPreset preset;
         if (!tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
         {
             if (error)
@@ -85,7 +85,7 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
 
         if (compiledSegment.usesTrackedTargetTrack())
         {
-            CCameraSequenceTrackedTargetPose trackedTargetPose;
+            core::CCameraSequenceTrackedTargetPose trackedTargetPose;
             if (!tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
             {
                 if (error)
@@ -93,8 +93,8 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
                 return false;
             }
 
-            ICamera::CGimbal gimbal({ .position = trackedTargetPose.position, .orientation = trackedTargetPose.orientation });
-            appendScriptedTrackedTargetTransformEvent(timeline, baseFrame + policy.frameOffset, gimbal.operator()<float64_t4x4>());
+            core::ICamera::CGimbal gimbal({ .position = trackedTargetPose.position, .orientation = trackedTargetPose.orientation });
+            appendScriptedTrackedTargetTransformEvent(timeline, baseFrame + policy.frameOffset, gimbal.operator()<hlsl::float64_t4x4>());
         }
 
         if (policy.baseline)
@@ -120,6 +120,6 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
     return true;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::system
 
 #endif

@@ -4,7 +4,7 @@
 #include "IRange.hpp"
 #include "IPerspectiveProjection.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 /**
@@ -63,7 +63,7 @@ public:
 
     void transformCube()
     {
-        // TODO: update m_quads
+        // Cube-face quad generation is not implemented yet.
     }
 
     virtual ProjectionType getProjectionType() const override { return ProjectionType::Cube; }
@@ -72,12 +72,12 @@ public:
     {
         auto direction = normalize(vecToProjectionSpace);
 
-        // TODO: project onto cube using quads representing faces
+        // Cube-face projection is not implemented yet.
     }
 
     virtual bool unproject(const projection_vector_t& vecFromProjectionSpace, projection_vector_t& output) const override
     {
-        // TODO: return back direction vector?
+        // Reverse projection is not implemented yet.
     }
 
     template<CubeFaces FaceIx>
@@ -95,6 +95,6 @@ private:
     std::array<CProjection, CubeFacesCount> m_quads;
 };
 
-} // nbl::hlsl namespace
+} // namespace nbl::core
 
 #endif // _NBL_CCUBE_PROJECTION_HPP_

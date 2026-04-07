@@ -7,11 +7,11 @@
 
 #include "CCameraKeyframeTrack.hpp"
 
-namespace nbl::hlsl
+namespace nbl::core
 {
 
 //! Shared playback cursor state for camera keyframe tracks.
-//! The cursor is intentionally transport-only so examples can own higher-level playback policy.
+//! The cursor is intentionally transport-only so consumers can own higher-level playback policy.
 struct CCameraPlaybackCursor
 {
     bool playing = false;
@@ -21,7 +21,7 @@ struct CCameraPlaybackCursor
 };
 
 //! Outcome of advancing a playback cursor against a keyframe track.
-//! This separates raw time stepping from higher-level example policy and UI feedback.
+//! This separates raw time stepping from higher-level consumer policy and UI feedback.
 struct SCameraPlaybackAdvanceResult
 {
     bool hasTrack = false;
@@ -94,6 +94,6 @@ inline SCameraPlaybackAdvanceResult advancePlaybackCursor(CCameraPlaybackCursor&
     return result;
 }
 
-} // namespace nbl::hlsl
+} // namespace nbl::core
 
 #endif // _C_CAMERA_PLAYBACK_TIMELINE_HPP_
