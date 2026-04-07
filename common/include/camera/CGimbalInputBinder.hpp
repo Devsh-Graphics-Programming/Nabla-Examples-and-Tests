@@ -3,7 +3,7 @@
 
 #include <vector>
 
-#include "IGimbalController.hpp"
+#include "IGimbalInputProcessor.hpp"
 
 namespace nbl::hlsl
 {

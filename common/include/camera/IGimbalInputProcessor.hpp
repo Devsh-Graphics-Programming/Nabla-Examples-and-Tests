@@ -1,5 +1,5 @@
-#ifndef _NBL_I_CAMERA_CONTROLLER_HPP_
-#define _NBL_I_CAMERA_CONTROLLER_HPP_
+#ifndef _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
+#define _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
 
 /////////////////////////
 // TODO: TEMPORARY!!!
@@ -18,8 +18,6 @@ namespace nbl::hlsl
 
 /**
 * Runtime processor that turns keyboard, mouse, and ImGuizmo input into virtual events.
-*
-* The filename is legacy. The intended public type is `IGimbalInputProcessor`.
 */
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
@@ -367,8 +365,6 @@ private:
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
 
-using IGimbalController = IGimbalInputProcessor;
-
 } // nbl::hlsl namespace
 
-#endif // _NBL_I_CAMERA_CONTROLLER_HPP_
+#endif // _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_

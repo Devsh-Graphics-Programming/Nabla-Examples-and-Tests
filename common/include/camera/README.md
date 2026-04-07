@@ -1,16 +1,13 @@
 # Shared Camera API
 
-This directory contains the reusable camera stack currently validated by [`61_UI`](../../../61_UI/README.md).
+This directory contains the reusable camera stack.
+The current full consumer and validation harness is [`61_UI`](../../../61_UI/README.md).
 
 It intentionally lives in `examples_tests/common` instead of engine core:
 
-- the API is meant to be reusable across examples and tools
+- the API is meant to be reusable across consumers and tools
 - the API is still being shaped through one active integration surface
 - the current goal is to stabilize the design before promoting any part of it deeper into Nabla
-
-At the moment the only migrated consumer is `61_UI`.
-That is intentional.
-The stack is designed to be reusable by other examples, offline tools, and future renderers, but they are not being migrated yet.
 
 ## What this stack is
 
@@ -31,7 +28,7 @@ That split is the core design decision.
 This stack is not:
 
 - engine-core Nabla camera API
-- a promise that all examples already use it
+- a promise that every potential consumer already uses it
 - a generic scene animation system
 - a direct scene-object-follow system
 - a setter-heavy camera API with arbitrary absolute pose mutation in the hot runtime path
@@ -43,7 +40,7 @@ The design goals are:
 - one semantic command language for keyboard, mouse, gizmo, scripts, and CI
 - no input-device assumptions inside camera models
 - no viewport glue inside camera models
-- no direct dependence on `61_UI` concepts in the reusable camera layer
+- no direct dependence on consumer-specific UI concepts in the reusable camera layer
 - best-effort absolute restore for tooling without turning cameras into mutable state bags
 - reusable persistence, analysis, playback, follow, and validation helpers
 
@@ -187,10 +184,9 @@ It only stores how input should map to the semantic command language.
 
 ### 3. Runtime input processing
 
-- [`IGimbalController.hpp`](IGimbalController.hpp)
+- [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
 - [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
 
-The filename `IGimbalController.hpp` is legacy.
 The main runtime type is `IGimbalInputProcessor`.
 
 This layer:
@@ -199,7 +195,7 @@ This layer:
 - receives ImGuizmo transforms
 - emits virtual events for the current frame
 
-`CGimbalInputBinder` is the convenience runtime binder that examples should usually use.
+`CGimbalInputBinder` is the convenience runtime binder that a consumer should usually use.
 
 ### 4. Camera core
 
@@ -272,7 +268,7 @@ Follow is deliberately not part of `ICamera`.
 The tracked subject owns its own gimbal through `CTrackedTarget`.
 Follow stays as a policy layer above the camera.
 
-That means the camera API does not know about meshes, scene nodes, or `61_UI`.
+That means the camera API does not know about meshes, scene nodes, or any particular UI harness.
 It only knows about:
 
 - camera
@@ -410,7 +406,7 @@ It describes:
 
 It deliberately does not describe:
 
-- `61_UI` window actions as authored source data
+- consumer-specific window actions as authored source data
 - frame-by-frame event dumps
 - ImGuizmo matrices as authored motion primitives
 
@@ -428,18 +424,11 @@ It is split into:
 - per-frame dequeue
 - per-frame check evaluation
 
-This keeps `61_UI` from owning a private scripting subsystem.
+This keeps one consumer from owning a private scripting subsystem.
 
 ## Current validation story
 
-The main active validation surface is:
-
-- [`61_UI`](../../../61_UI/README.md)
-
-The current camera-focused tests are:
-
-- `NBL_61_UI_CAMERA_SMOKE`
-- `NBL_61_UI_CAMERA_CONTINUITY`
+The current camera-focused validation is exercised through the active consumer harness.
 
 ### Smoke
 
@@ -456,15 +445,6 @@ Purpose:
 - prove that follow target lock remains valid during scripted target motion
 
 This test now runs on the compact authored sequence format rather than a large expanded frame dump.
-
-## Current consumer
-
-Current active consumer:
-
-- [`61_UI`](../../../61_UI/README.md)
-
-Other examples are intentionally not migrated yet.
-The idea is to stabilize one shared stack first, then reuse it elsewhere.
 
 ## Recommended integration patterns
 
@@ -555,29 +535,22 @@ If any one of those concerns leaks into the others:
 
 - cameras become setter-heavy
 - projections become input processors
-- examples own private copies of state math
-- scripts become example-specific
+- consumers own private copies of state math
+- scripts become consumer-specific
 - follow becomes scene-object-specific
 
 The current refactor was mostly about removing exactly those leaks.
-
-## Legacy and compatibility notes
-
-- [`CTargetPoseController.hpp`](CTargetPoseController.hpp) is a compatibility include for [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
-- [`IGimbalController.hpp`](IGimbalController.hpp) keeps the historical filename, but the active runtime-processing type is `IGimbalInputProcessor`
-- low-level scripted JSON still accepts legacy key names such as `KEY_KEY_W`
 
 ## Practical status
 
 Today the stack is in a good place for:
 
-- reuse by additional examples
+- reuse by additional consumers
 - reuse by camera-heavy tools
 - reuse by offline render or validation flows
 
 without assuming:
 
-- `61_UI`
 - a specific scene object type
 - a specific input device
 - a specific renderer

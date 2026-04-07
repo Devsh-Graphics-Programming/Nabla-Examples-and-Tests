@@ -472,7 +472,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							{
 								{ "frame", 2u },
 								{ "type", "keyboard" },
-								{ "key", "KEY_KEY_W" },
+								{ "key", "W" },
 								{ "action", "pressed" },
 								{ "capture", true }
 							}

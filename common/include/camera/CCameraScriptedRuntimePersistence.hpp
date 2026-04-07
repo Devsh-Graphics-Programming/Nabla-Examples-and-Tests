@@ -24,10 +24,10 @@ namespace nbl::hlsl
 /**
 * Shared JSON parser for low-level scripted runtime payloads.
 *
-* This keeps legacy `events/checks/capture_frames` authored data reusable and backward-compatible
-* without leaving parser glue inside one example.
+* The parser handles low-level `events/checks/capture_frames` payloads without leaving parser glue
+* inside one consumer.
 *
-* The parser can also detect compact `segments` and forward them into `CCameraSequenceScript`.
+* It can also detect compact `segments` and forward them into `CCameraSequenceScript`.
 */
 inline float32_t4x4 composeScriptedImguizmoTransform(
     const std::array<float, 3>& translation,

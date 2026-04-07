@@ -33,11 +33,11 @@ namespace nbl::hlsl
 * The format intentionally does not store:
 *
 * - per-frame low-level event dumps
-* - `61_UI`-specific window actions as authored source data
+* - consumer-specific window actions as authored source data
 * - ImGuizmo transforms as the primary authored primitive
 *
-* A consumer such as `61_UI` may expand the compact sequence into its own runtime event/check
-* representation, but the authored source of truth stays camera-domain and reusable.
+* A consumer may expand the compact sequence into its own runtime event/check representation, but
+* the authored source of truth stays camera-domain and reusable.
 */
 
 //! Authored projection view request for camera-sequence playback.
