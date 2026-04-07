@@ -1,31 +1,52 @@
 # 61_UI Cameraz
 
-This example demonstrates interactive camera control in the ImGui-based UI sample.
-It contains a scripted-input harness that can drive camera actions in CI and validate behavior with frame-based checks.
+`61_UI` is the current integration, UX, and validation harness for the shared camera stack in
+[`../common/include/camera`](../common/include/camera/README.md).
 
-## Shared camera API
+If you want the architecture, design rationale, and reusable API breakdown, start there first.
+This README focuses on what `61_UI` adds on top of the shared layer.
 
-`61_UI` is the active integration and validation surface for the reusable camera stack in `../common/include/camera`.
+## Role of this example
 
-See:
+`61_UI` is the only actively migrated consumer right now.
 
-- [`../common/include/camera/README.md`](../common/include/camera/README.md)
+It is used to:
 
-That shared layer covers:
+- exercise all current camera models in one scene
+- validate the shared input, goal, preset, playback, follow, and scripting layers
+- provide an interactive manual playground
+- provide CI-oriented smoke and continuity coverage
 
-- virtual gimbal events
-- binding layouts and runtime input binders
-- reusable camera kinds and typed state hooks
-- best-effort goal capture and apply utilities
-- preset and keyframe-track storage helpers
-- tracked-target and follow helpers built on top of shared goals
+The example is intentionally not the source of truth for camera semantics.
+Its job is to consume the shared camera APIs and expose them through a visible, testable UI.
 
-At the moment other examples are not being migrated yet.
-The reusable API is growing in `common/include/camera`, while `61_UI` stays the only active call-site.
+## What `61_UI` contributes locally
 
-## Cameras in this scene
+The reusable camera layer stops at shared camera-domain contracts.
+`61_UI` adds the local glue needed to turn that into an example application:
 
-`app_resources/cameras.json` defines 11 camera types:
+- scene setup and demo geometry
+- planar/window routing
+- ImGui control panel and transform editor
+- screenshot capture
+- scripted visual-debug HUD
+- local logging and failure reporting
+
+That means the shared camera layer owns:
+
+- camera semantics
+- follow semantics
+- compact sequence semantics
+- scripted runtime payloads
+- scripted check semantics
+
+and `61_UI` owns:
+
+- how those things are presented and driven in one concrete sample
+
+## Cameras in the scene
+
+`app_resources/cameras.json` configures the currently showcased camera set:
 
 - FPS
 - Orbit
@@ -39,137 +60,88 @@ The reusable API is growing in `common/include/camera`, while `61_UI` stays the 
 - DollyZoom
 - Path
 
-Each planar uses one of the configured input binding layouts and can be switched at runtime by scripted `action` events.
+These are exposed through the active planar/view configuration in the example UI.
 
-## Follow target integration
+## Follow target in `61_UI`
 
-`61_UI` also exposes one tracked target in the default scene.
+`61_UI` exposes one tracked target in the default scene.
 
-That target owns its own gimbal and is integrated through the shared follow layer rather than
-through direct camera hacks. The example can:
+Important rule:
 
-- manipulate the tracked target with the scene gizmo
-- show a marker for the tracked target
-- let selected cameras follow it through reusable follow modes
+- the tracked target is the reusable `CTrackedTarget` gimbal
+- it is not the large cone
+- it is not any scene object id
+- the rendered marker is only a visualization of that gimbal
 
-The current default follow setup is:
+This is important because the shared follow layer is intentionally modeled around:
+
+- tracked target pose
+- follow mode
+- follow config
+
+and not around a mesh reference.
+
+### Default follow usage in the scene
+
+Current default setup:
 
 - `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path`
   use `OrbitTarget`
 - `Chase`, `Dolly`
   use `KeepLocalOffset`
 
-The tracked target is not the large cone or any particular scene model.
-The tracked target is the reusable `CTrackedTarget` gimbal.
-`61_UI` only renders a marker and optional reference geometry for that gimbal.
+Manual runtime and scripted continuity both drive the same follow layer.
 
-Scripted continuity/CI runs now drive the same follow layer through authored `target_keyframes`.
-That means live runtime and scripted validation both consume the same tracked-target semantics.
+## Scripted assets
 
-## Short math context
-
-Each camera is represented by a gimbal pose `(R, p)` and produces a view matrix from camera basis vectors and position.
-
-For a world-space point `x_w`, clip-space projection is:
-
-`x_c = P * V * x_w`
-
-where:
-
-- `V` is camera view transform
-- `P` is selected planar projection (perspective or orthographic)
-
-The scripted smoothness checks use per-step deltas:
-
-- position delta: `d_pos = ||p_t - p_{t-1}||`
-- rotation delta: `d_rot = max(angleDiff(euler_t, euler_{t-1}))`
-
-and validate them against configured `[min, max]` ranges.
-
-## Scripted test assets
+`61_UI` currently uses two camera-focused scripted assets:
 
 - `app_resources/cameraz_smoke_all.json`
 - `app_resources/cameraz_continuity.json`
 
-### Smoke script
+### Smoke
 
-Goal: verify that every camera can be selected and responds to scripted input.
+Purpose:
 
-Per camera sequence:
+- validate basic camera selection and movement
+- validate helper contracts in a small, cheap run
 
-1. select planar
-2. store `baseline`
-3. apply one `imguizmo` movement step
-4. run `gimbal_step` check
+### Continuity
 
-PASS means each camera produced a finite and expected movement delta.
-FAIL means missing movement, out-of-range movement, invalid state, or missing reference.
+Purpose:
 
-### Continuity script
+- validate smooth frame-to-frame motion
+- validate tracked-target follow lock during scripted target motion
+- provide a readable visual-debug showcase
 
-Goal: verify smooth frame-to-frame behavior (no visible teleport-like jumps).
+The continuity asset is now a compact authored camera-sequence script.
+It is no longer a giant committed frame dump.
 
-The continuity asset is now a compact authored camera-sequence spec, not a committed frame dump.
+## Shared pieces consumed by `61_UI`
 
-`61_UI` also consumes shared scripted runtime helpers:
+The example now consumes these shared scripting and follow pieces directly:
 
-- `CCameraScriptedRuntime.hpp` for expanded per-frame payload types
-- `CCameraScriptedRuntimePersistence.hpp` for low-level scripted JSON parsing and backward compatibility
-- `CCameraSequenceScriptedBuilder.hpp` for compact-sequence to scripted-runtime expansion
-- `CCameraScriptedCheckRunner.hpp` for baseline/step/follow-lock check evaluation
+- [`CCameraSequenceScript.hpp`](../common/include/camera/CCameraSequenceScript.hpp)
+- [`CCameraScriptedRuntime.hpp`](../common/include/camera/CCameraScriptedRuntime.hpp)
+- [`CCameraScriptedRuntimePersistence.hpp`](../common/include/camera/CCameraScriptedRuntimePersistence.hpp)
+- [`CCameraSequenceScriptedBuilder.hpp`](../common/include/camera/CCameraSequenceScriptedBuilder.hpp)
+- [`CCameraScriptedCheckRunner.hpp`](../common/include/camera/CCameraScriptedCheckRunner.hpp)
+- [`CCameraFollowUtilities.hpp`](../common/include/camera/CCameraFollowUtilities.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](../common/include/camera/CCameraFollowRegressionUtilities.hpp)
 
-The example keeps only the runtime-object lookup and logging glue locally.
-`61_UI` first compiles that shared camera-domain description into normalized sampled segments and shared frame-policy schedules, then feeds the shared scripted-runtime contract before adapting it to the local example loop.
+That means `61_UI` no longer owns a private scripting model or private follow math.
 
-Per authored segment:
+## Manual usage
 
-1. select planar
-2. store `baseline`
-3. build a reusable keyframe track from the active camera reference preset
-4. optionally build a tracked-target track from the default tracked-target pose
-5. sample the authored track(s) for `4.0 s` at `60 FPS`
-6. run `gimbal_step` on each generated frame step
-7. capture selected milestones such as `end`
+Typical manual workflow:
 
-PASS means every step delta stayed inside configured continuity ranges.
-FAIL means any step exceeded max range or failed minimum expected motion.
+1. Pick a camera/planar in the UI.
+2. Manipulate the camera through mouse, keyboard, or ImGuizmo-backed controls.
+3. Use presets and playback tools if needed.
+4. Move the tracked target marker.
+5. Observe how follow-enabled cameras react.
 
-Continuity also supports visual debug mode:
-
-- large top-center overlay with active camera type and segment progress
-- fixed frame pacing (`visual_debug_target_fps`) so camera time is human-readable
-- compact authored JSON that stays in camera-domain and is reusable outside `61_UI`
-
-For follow-enabled cameras, continuity can now also author `target_keyframes`.
-That drives the shared tracked target through the reusable follow layer instead of hardcoding camera hacks in `61_UI`.
-
-## Build and run
-
-Build this example first:
-
-```powershell
-cmake --build build_vs2026/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
-```
-
-Run manually from executable directory:
-
-```powershell
-./61_ui_d.exe --script app_resources/cameraz_smoke_all.json --script-log
-```
-
-For CI-style exit with automatic screenshot/capture behavior:
-
-```powershell
-./61_ui_d.exe --ci --script app_resources/cameraz_continuity.json --script-log --script-visual-debug
-```
-
-Notes:
-
-- continuity visual run takes about `47 s`
-- the authored continuity JSON is compact and segment-based rather than frame-by-frame
-- if `visual_debug` is present in json, CLI flag is optional
-
-## CTest entries
+## CI and validation
 
 `CMakeLists.txt` registers two dedicated tests:
 
@@ -181,3 +153,29 @@ Run from `build_vs2026/examples_tests/61_UI`:
 ```powershell
 ctest -C Debug --output-on-failure -R NBL_61_UI_CAMERA_
 ```
+
+## Build and run
+
+Build:
+
+```powershell
+cmake --build build_vs2026/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
+```
+
+Run manual smoke-style playback:
+
+```powershell
+./61_ui_d.exe --script app_resources/cameraz_smoke_all.json --script-log
+```
+
+Run continuity in CI-style mode:
+
+```powershell
+./61_ui_d.exe --ci --script app_resources/cameraz_continuity.json --script-log --script-visual-debug
+```
+
+Notes:
+
+- continuity visual run is about `47 s`
+- `visual_debug` can also be authored in JSON
+- the compact continuity asset stays camera-domain and reusable instead of storing example-specific frame dumps
