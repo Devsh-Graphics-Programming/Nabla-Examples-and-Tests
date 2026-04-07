@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "CCameraGoal.hpp"
-#include "IGimbal.hpp"
+#include "CVirtualGimbalEvent.hpp"
 #include "nbl/ui/KeyCodes.h"
 
 namespace nbl::system

@@ -1,7 +1,11 @@
 #ifndef _NBL_I_GIMBAL_BINDING_LAYOUT_HPP_
 #define _NBL_I_GIMBAL_BINDING_LAYOUT_HPP_
 
-#include "IGimbal.hpp"
+#include <functional>
+#include <unordered_map>
+
+#include "CVirtualGimbalEvent.hpp"
+#include "nbl/ui/KeyCodes.h"
 
 namespace nbl::ui
 {
@@ -67,24 +71,6 @@ struct IGimbalBindingLayout
     virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) = 0;
     virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) = 0;
     virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) = 0;
-};
-
-class CGimbalBindingLayoutStorage : public IGimbalBindingLayout
-{
-public:
-    //! Mutable storage for active or preset binding layout.
-    using IGimbalBindingLayout::IGimbalBindingLayout;
-
-    CGimbalBindingLayoutStorage() {}
-    virtual ~CGimbalBindingLayoutStorage() {}
-
-    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
-    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
-    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
-
-    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
-    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
-    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
 
     inline void copyBindingLayoutFrom(const IGimbalBindingLayout& layout)
     {
@@ -109,6 +95,24 @@ protected:
             result.emplace(code, typename Map::mapped_type(hash.event.type));
         return result;
     }
+};
+
+class CGimbalBindingLayoutStorage : public IGimbalBindingLayout
+{
+public:
+    //! Mutable storage for active or preset binding layout.
+    using IGimbalBindingLayout::IGimbalBindingLayout;
+
+    CGimbalBindingLayoutStorage() {}
+    virtual ~CGimbalBindingLayoutStorage() {}
+
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
+
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
 
     keyboard_to_virtual_events_t m_keyboardVirtualEventMap;
     mouse_to_virtual_events_t m_mouseVirtualEventMap;

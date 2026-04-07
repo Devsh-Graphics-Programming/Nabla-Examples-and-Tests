@@ -136,7 +136,7 @@ ICamera
   <-> CCameraGoal
   <-> CCameraPreset
   <-> CCameraKeyframeTrack
-  <-> CCameraPlaybackCursor
+  <-> CCameraPlaybackTimeline
   <-> CCameraSequenceScript
 ```
 
@@ -163,13 +163,14 @@ CCameraSequenceScript
 
 ### 1. Gimbal and semantic commands
 
+- [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
 - [`IGimbal.hpp`](IGimbal.hpp)
 
 This is the mathematical foundation.
 
 It defines:
 
-- `CVirtualGimbalEvent`
+- the shared semantic event language in `CVirtualGimbalEvent`
 - low-level gimbal math
 - accumulation of multiple semantic commands into one camera impulse
 
@@ -222,7 +223,7 @@ Important properties:
 - `CameraCapability`
 - `GoalStateMask`
 - motion config
-- default input binding config
+- typed state hooks used by tooling
 
 ### 5. Projection layer
 
@@ -236,7 +237,7 @@ This layer handles projection state.
 
 Important rule:
 
-- projection may own binding layout storage
+- projection may own viewport-local binding layout state
 - projection does not own raw input processing
 
 That separation was one of the major cleanup goals of the refactor.
