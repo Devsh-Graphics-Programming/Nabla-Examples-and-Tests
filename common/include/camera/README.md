@@ -50,6 +50,9 @@ The stack is split across existing Nabla namespaces:
 - `nbl::system`
   persistence, scripted runtime payloads, scripted parsing, scripted check execution, and follow-contract validation helpers
 
+The shared camera math is written against `nbl::hlsl`.
+Consumers of this stack are expected to talk to camera math through `nbl::hlsl` types and helpers rather than through direct `glm::...` calls.
+
 ## Why virtual events and not absolute setters
 
 The runtime contract is intentionally built around virtual events such as:
@@ -165,6 +168,7 @@ CCameraSequenceScript
 
 - [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
 - [`IGimbal.hpp`](IGimbal.hpp)
+- [`CCameraMathUtilities.hpp`](CCameraMathUtilities.hpp)
 
 This is the mathematical foundation.
 
@@ -172,6 +176,7 @@ It defines:
 
 - the shared semantic event language in `CVirtualGimbalEvent`
 - low-level gimbal math
+- reusable camera-oriented math helpers in `nbl::hlsl`
 - accumulation of multiple semantic commands into one camera impulse
 
 This is the shared command language used by all camera types and all runtime input sources.
@@ -193,6 +198,7 @@ It only stores how input should map to the semantic command language.
 
 - [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
 - [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
+- [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
 
 The main runtime type is `IGimbalInputProcessor`.
 
@@ -201,6 +207,7 @@ This layer:
 - receives actual keyboard and mouse streams
 - receives ImGuizmo transforms
 - emits virtual events for the current frame
+- stores reusable default keyboard, mouse, and ImGuizmo binding presets for camera kinds
 
 `CGimbalInputBinder` is the convenience runtime binder that a consumer should usually use.
 
@@ -535,6 +542,13 @@ The design deliberately keeps these concerns separate:
 - absolute/tooling state
 - follow policy
 - scripted playback and validation
+
+It also keeps the math side explicit:
+
+- camera-space vectors, matrices, and quaternions come from `nbl::hlsl`
+- runtime camera semantics stay in `nbl::core`
+- input-device mappings stay in `nbl::ui`
+- scripting, persistence, and validation helpers stay in `nbl::system`
 
 That separation is what keeps the stack reusable.
 
