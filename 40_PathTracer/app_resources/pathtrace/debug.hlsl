@@ -49,7 +49,7 @@ void raygen()
 }
 
 [shader("closesthit")]
-void closesthit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+void closestHit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const uint32_t instanceCustomIndex = spirv::InstanceCustomIndexKHR;
     const uint32_t geometryIndex = spirv::RayGeometryIndexKHR;

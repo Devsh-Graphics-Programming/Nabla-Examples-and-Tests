@@ -319,20 +319,23 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 	{
 		IGPURayTracingPipeline::SCreationParams creationParams[RenderModeCount] = {};
 		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
-		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
 		IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
 		IGPURayTracingPipeline::SHitGroup hitShaders[RenderModeCount] = {};
 		{
 			for (uint8_t m=0; m<RenderModeCount; m++)
 			{
+				const bool isBeauty = m==uint8_t(CSession::RenderMode::Beauty);
 				const auto* const shader = m_construction.shaders[m].get();
 				missShaders[m] = {.shader=shader,.entryPoint="miss"};
-				hitShaders[m].closestHit = { .shader = shader,.entryPoint = "closesthit" };
+				hitShaders[m].closestHit = { .shader = shader,.entryPoint = "closestHit" };
+				core::bitflag<creation_flags_e> flags = creation_flags_e::NONE; // NO_NULL_INTERSECTION_SHADERS ?
+				if (!isBeauty) // TODO: With SER hit objdects will that still be true?
+					flags |= creation_flags_e::NO_NULL_MISS_SHADERS;
 				creationParams[m] = {
 					.layout = m_construction.renderingLayouts[m].get(),
 					.shaderGroups = {
 						.raygen = {.shader=shader,.entryPoint="raygen"},
-						.misses = {missShaders+m,1},
+						.misses = {missShaders+m,isBeauty ? 0ull:1ull},
 						.hits = {hitShaders+m,1}
 						// TODO: use Material Compiler to get callables for us
 					},
