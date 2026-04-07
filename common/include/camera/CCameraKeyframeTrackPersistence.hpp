@@ -13,10 +13,14 @@
 namespace nbl::system
 {
 
+//! Serialize one camera keyframe track into an existing stream.
 bool writeKeyframeTrack(std::ostream& out, const core::CCameraKeyframeTrack& track, int indent = 2);
+//! Deserialize one camera keyframe track from an existing stream.
 bool readKeyframeTrack(std::istream& in, core::CCameraKeyframeTrack& track);
 
+//! Save one camera keyframe track to a file.
 bool saveKeyframeTrackToFile(const path& path, const core::CCameraKeyframeTrack& track, int indent = 2);
+//! Load one camera keyframe track from a file.
 bool loadKeyframeTrackFromFile(const path& path, core::CCameraKeyframeTrack& track);
 
 } // namespace nbl::system

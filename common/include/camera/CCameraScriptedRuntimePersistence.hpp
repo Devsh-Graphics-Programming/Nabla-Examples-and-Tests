@@ -16,6 +16,7 @@
 namespace nbl::system
 {
 
+//! Optional scripted control overrides parsed alongside one runtime payload.
 struct CCameraScriptedControlOverrides
 {
     bool hasKeyboardScale = false;
@@ -30,6 +31,7 @@ struct CCameraScriptedControlOverrides
     float rotationScale = 1.f;
 };
 
+//! Parsed low-level scripted runtime payload plus optional compact authored sequence.
 struct CCameraScriptedInputParseResult
 {
     bool enabled = true;
@@ -54,7 +56,9 @@ inline void appendScriptedInputParseWarning(CCameraScriptedInputParseResult& out
     out.warnings.emplace_back(std::move(warning));
 }
 
+//! Parse one low-level scripted runtime payload from an existing stream.
 bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
+//! Load one low-level scripted runtime payload from a file.
 bool loadCameraScriptedInputFromFile(const path& path, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
 
 } // namespace nbl::system

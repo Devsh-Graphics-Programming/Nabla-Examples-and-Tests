@@ -7,6 +7,7 @@
 namespace nbl::ui
 {
 
+//! Reusable keyboard, mouse, and ImGuizmo binding preset grouped for one camera kind.
 struct SCameraInputBindingPreset
 {
     IGimbalBindingLayout::keyboard_to_virtual_events_t keyboard;

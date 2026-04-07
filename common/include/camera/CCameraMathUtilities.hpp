@@ -11,6 +11,7 @@
 namespace nbl::hlsl
 {
 
+//! Camera-oriented math aliases and helpers built on top of Nabla `nbl::hlsl` types.
 template<typename T>
 inline T wrapAngleRad(T angle)
 {
