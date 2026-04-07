@@ -37,6 +37,20 @@ struct SCameraFollowRegressionResult
     float sphericalDistance = 0.0f;
 };
 
+//! Reusable visual/debug metrics for one active follow configuration.
+struct SCameraFollowVisualMetrics
+{
+    bool active = false;
+    ECameraFollowMode mode = ECameraFollowMode::Disabled;
+    bool lockValid = false;
+    float lockAngleDeg = 0.0f;
+    float targetDistance = 0.0f;
+    bool projectedValid = false;
+    float projectedNdcX = 0.0f;
+    float projectedNdcY = 0.0f;
+    float projectedNdcRadius = 0.0f;
+};
+
 //! Bundled reusable follow regression flow.
 //! The helper builds a follow goal, applies it, verifies the resulting camera state,
 //! and then checks the lock/writeback follow contract.
@@ -105,6 +119,38 @@ inline bool validateProjectedFollowTargetContract(
     }
 
     return true;
+}
+
+inline SCameraFollowVisualMetrics buildFollowVisualMetrics(
+    ICamera* camera,
+    const CTrackedTarget& trackedTarget,
+    const SCameraFollowConfig* followConfig,
+    const float32_t4x4* viewProjMatrix = nullptr)
+{
+    SCameraFollowVisualMetrics out = {};
+    if (!camera || !followConfig || !followConfig->enabled || followConfig->mode == ECameraFollowMode::Disabled)
+        return out;
+
+    out.active = true;
+    out.mode = followConfig->mode;
+
+    double targetDistance = 0.0;
+    out.lockValid = cameraFollowModeLocksViewToTarget(followConfig->mode) &&
+        tryComputeFollowTargetLockMetrics(camera->getGimbal(), trackedTarget, out.lockAngleDeg, &targetDistance);
+    if (out.lockValid)
+        out.targetDistance = static_cast<float>(targetDistance);
+
+    if (out.lockValid && viewProjMatrix)
+    {
+        out.projectedValid = tryComputeProjectedFollowTargetMetrics(
+            *viewProjMatrix,
+            trackedTarget,
+            out.projectedNdcX,
+            out.projectedNdcY,
+            &out.projectedNdcRadius);
+    }
+
+    return out;
 }
 
 inline bool validateFollowTargetContract(

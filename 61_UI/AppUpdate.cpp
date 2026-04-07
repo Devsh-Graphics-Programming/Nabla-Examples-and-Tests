@@ -58,89 +58,60 @@ void App::update()
 
 			std::vector<SMouseEvent> scriptedMouse;
 			std::vector<SKeyboardEvent> scriptedKeyboard;
-			std::vector<float32_t4x4> scriptedImguizmo;
-			std::vector<ScriptedInputEvent::ActionData> scriptedActions;
-			std::vector<ScriptedInputEvent::GoalData> scriptedGoals;
-			std::vector<float64_t4x4> scriptedTrackedTargetTransforms;
-			std::vector<std::string> scriptedSegmentLabels;
+			CCameraScriptedFrameEvents scriptedFrameEvents;
 			const CVirtualGimbalEvent* scriptedImguizmoVirtual = nullptr;
 			uint32_t scriptedImguizmoVirtualCount = 0u;
 
-			if (m_scriptedInput.enabled && m_scriptedInput.nextEventIndex < m_scriptedInput.events.size())
+			if (m_scriptedInput.enabled && m_scriptedInput.nextEventIndex < m_scriptedInput.timeline.events.size())
+				nbl::hlsl::dequeueScriptedFrameEvents(
+					m_scriptedInput.timeline.events,
+					m_scriptedInput.nextEventIndex,
+					m_realFrameIx,
+					scriptedFrameEvents);
+
+			for (const auto& authoredKeyboard : scriptedFrameEvents.keyboard)
 			{
-				const auto frame = m_realFrameIx;
-				while (m_scriptedInput.nextEventIndex < m_scriptedInput.events.size() &&
-					m_scriptedInput.events[m_scriptedInput.nextEventIndex].frame == frame)
+				SKeyboardEvent e(m_nextPresentationTimestamp);
+				e.keyCode = authoredKeyboard.key;
+				e.action = authoredKeyboard.action;
+				e.window = m_window.get();
+				scriptedKeyboard.emplace_back(e);
+			}
+			for (const auto& authoredMouse : scriptedFrameEvents.mouse)
+			{
+				SMouseEvent e(m_nextPresentationTimestamp);
+				e.window = m_window.get();
+				e.type = authoredMouse.type;
+				if (authoredMouse.type == ui::SMouseEvent::EET_CLICK)
 				{
-					const auto& ev = m_scriptedInput.events[m_scriptedInput.nextEventIndex];
-
-					if (ev.type == ScriptedInputEvent::Type::Keyboard)
-					{
-						SKeyboardEvent e(m_nextPresentationTimestamp);
-						e.keyCode = ev.keyboard.key;
-						e.action = ev.keyboard.action;
-						e.window = m_window.get();
-						scriptedKeyboard.emplace_back(e);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::Mouse)
-					{
-						SMouseEvent e(m_nextPresentationTimestamp);
-						e.window = m_window.get();
-						e.type = ev.mouse.type;
-						if (ev.mouse.type == ui::SMouseEvent::EET_CLICK)
-						{
-							e.clickEvent.mouseButton = ev.mouse.button;
-							e.clickEvent.action = ev.mouse.action;
-							e.clickEvent.clickPosX = ev.mouse.x;
-							e.clickEvent.clickPosY = ev.mouse.y;
-						}
-						else if (ev.mouse.type == ui::SMouseEvent::EET_SCROLL)
-						{
-							e.scrollEvent.verticalScroll = ev.mouse.v;
-							e.scrollEvent.horizontalScroll = ev.mouse.h;
-						}
-						else if (ev.mouse.type == ui::SMouseEvent::EET_MOVEMENT)
-						{
-							e.movementEvent.relativeMovementX = ev.mouse.dx;
-							e.movementEvent.relativeMovementY = ev.mouse.dy;
-						}
-						scriptedMouse.emplace_back(e);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::Imguizmo)
-					{
-						scriptedImguizmo.emplace_back(ev.imguizmo);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::Action)
-					{
-						scriptedActions.emplace_back(ev.action);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::Goal)
-					{
-						scriptedGoals.emplace_back(ev.goal);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::TrackedTargetTransform)
-					{
-						scriptedTrackedTargetTransforms.emplace_back(ev.trackedTargetTransform.transform);
-					}
-					else if (ev.type == ScriptedInputEvent::Type::SegmentLabel)
-					{
-						scriptedSegmentLabels.emplace_back(ev.segmentLabel.label);
-					}
-
-					++m_scriptedInput.nextEventIndex;
+					e.clickEvent.mouseButton = authoredMouse.button;
+					e.clickEvent.action = authoredMouse.action;
+					e.clickEvent.clickPosX = authoredMouse.x;
+					e.clickEvent.clickPosY = authoredMouse.y;
 				}
+				else if (authoredMouse.type == ui::SMouseEvent::EET_SCROLL)
+				{
+					e.scrollEvent.verticalScroll = authoredMouse.v;
+					e.scrollEvent.horizontalScroll = authoredMouse.h;
+				}
+				else if (authoredMouse.type == ui::SMouseEvent::EET_MOVEMENT)
+				{
+					e.movementEvent.relativeMovementX = authoredMouse.dx;
+					e.movementEvent.relativeMovementY = authoredMouse.dy;
+				}
+				scriptedMouse.emplace_back(e);
 			}
 
-			if (!scriptedSegmentLabels.empty())
-				m_scriptedInput.visualSegmentLabel = scriptedSegmentLabels.back();
+			if (!scriptedFrameEvents.segmentLabels.empty())
+				m_scriptedInput.visualSegmentLabel = scriptedFrameEvents.segmentLabels.back();
 
-			if (m_scriptedInput.enabled && scriptedActions.size())
+			if (m_scriptedInput.enabled && scriptedFrameEvents.actions.size())
 			{
-				auto applyAction = [&](const ScriptedInputEvent::ActionData& action) -> void
+				auto applyAction = [&](const CCameraScriptedInputEvent::ActionData& action) -> void
 				{
 					switch (action.kind)
 					{
-						case ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow:
 						{
 							if (action.value < 0 || static_cast<size_t>(action.value) >= windowBindings.size())
 							{
@@ -150,7 +121,7 @@ void App::update()
 							activeRenderWindowIx = static_cast<uint32_t>(action.value);
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::SetActivePlanar:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar:
 						{
 							if (action.value < 0 || static_cast<size_t>(action.value) >= m_planarProjections.size())
 							{
@@ -165,7 +136,7 @@ void App::update()
 							m_scriptedInput.visualActivePlanarStartFrame = m_realFrameIx;
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::SetProjectionType:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetProjectionType:
 						{
 							auto& binding = windowBindings[activeRenderWindowIx];
 							if (!binding.lastBoundPerspectivePresetProjectionIx.has_value() || !binding.lastBoundOrthoPresetProjectionIx.has_value())
@@ -186,7 +157,7 @@ void App::update()
 							}
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::SetProjectionIndex:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetProjectionIndex:
 						{
 							auto& binding = windowBindings[activeRenderWindowIx];
 							auto& projections = m_planarProjections[binding.activePlanarIx]->getPlanarProjections();
@@ -204,18 +175,18 @@ void App::update()
 								binding.lastBoundOrthoPresetProjectionIx = ix;
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::SetUseWindow:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow:
 						{
 							useWindow = action.value != 0;
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::SetLeftHanded:
+						case CCameraScriptedInputEvent::ActionData::Kind::SetLeftHanded:
 						{
 							auto& binding = windowBindings[activeRenderWindowIx];
 							binding.leftHandedProjection = action.value != 0;
 						} break;
 
-						case ScriptedInputEvent::ActionData::Kind::ResetActiveCamera:
+						case CCameraScriptedInputEvent::ActionData::Kind::ResetActiveCamera:
 						{
 							auto& binding = windowBindings[activeRenderWindowIx];
 							if (binding.activePlanarIx >= m_planarProjections.size())
@@ -236,16 +207,16 @@ void App::update()
 					}
 				};
 
-				for (const auto& action : scriptedActions)
-					if (action.kind == ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+				for (const auto& action : scriptedFrameEvents.actions)
+					if (action.kind == CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
 						applyAction(action);
 
-				for (const auto& action : scriptedActions)
-					if (action.kind != ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+				for (const auto& action : scriptedFrameEvents.actions)
+					if (action.kind != CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
 						applyAction(action);
 
 				if (m_scriptedInput.log)
-					m_logger->log("[script] frame %llu actions=%zu", ILogger::ELL_INFO, static_cast<unsigned long long>(m_realFrameIx), scriptedActions.size());
+					m_logger->log("[script] frame %llu actions=%zu", ILogger::ELL_INFO, static_cast<unsigned long long>(m_realFrameIx), scriptedFrameEvents.actions.size());
 			}
 
 			if (m_scriptedInput.enabled && m_scriptedInput.visualDebug && !m_scriptedInput.visualActivePlanarValid)
@@ -319,15 +290,15 @@ void App::update()
 				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
 
-			if (m_scriptedInput.log && (scriptedKeyboard.size() || scriptedMouse.size() || scriptedImguizmo.size() || scriptedGoals.size() || scriptedTrackedTargetTransforms.size()))
+			if (m_scriptedInput.log && (scriptedKeyboard.size() || scriptedMouse.size() || scriptedFrameEvents.imguizmo.size() || scriptedFrameEvents.goals.size() || scriptedFrameEvents.trackedTargetTransforms.size()))
 			{
 				m_logger->log("[script] frame %llu input kb=%zu mouse=%zu imguizmo=%zu goals=%zu target=%zu", ILogger::ELL_INFO,
 					static_cast<unsigned long long>(m_realFrameIx),
 					scriptedKeyboard.size(),
 					scriptedMouse.size(),
-					scriptedImguizmo.size(),
-					scriptedGoals.size(),
-					scriptedTrackedTargetTransforms.size());
+					scriptedFrameEvents.imguizmo.size(),
+					scriptedFrameEvents.goals.size(),
+					scriptedFrameEvents.trackedTargetTransforms.size());
 			}
 
 			if (enableActiveCameraMovement && !skipCameraInput)
@@ -438,7 +409,7 @@ void App::update()
 				}
 			}
 
-			if (m_scriptedInput.enabled && scriptedImguizmo.size() && !skipCameraInput)
+			if (m_scriptedInput.enabled && scriptedFrameEvents.imguizmo.size() && !skipCameraInput)
 			{
 				auto& binding = windowBindings[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
@@ -447,7 +418,7 @@ void App::update()
 				CGimbalInputBinder imguizmoBinding;
 				camera->copyDefaultInputBindingPresetTo(imguizmoBinding);
 				auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
-					.imguizmoEvents = { scriptedImguizmo.data(), scriptedImguizmo.size() }
+					.imguizmoEvents = { scriptedFrameEvents.imguizmo.data(), scriptedFrameEvents.imguizmo.size() }
 				});
 				auto& imguizmoEvents = collectedEvents.events;
 				const uint32_t vCount = collectedEvents.imguizmoCount;
@@ -477,7 +448,7 @@ void App::update()
 				scriptedImguizmoVirtualCount = vCount;
 			}
 
-			if (m_scriptedInput.enabled && scriptedGoals.size() && !skipCameraInput)
+			if (m_scriptedInput.enabled && scriptedFrameEvents.goals.size() && !skipCameraInput)
 			{
 				auto& binding = windowBindings[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
@@ -489,7 +460,7 @@ void App::update()
 					m_logger->log(fmt, ILogger::ELL_ERROR, std::forward<decltype(args)>(args)...);
 				};
 
-				for (const auto& goalEvent : scriptedGoals)
+				for (const auto& goalEvent : scriptedFrameEvents.goals)
 				{
 					const auto result = m_cameraGoalSolver.applyDetailed(camera, goalEvent.goal);
 					if (!result.succeeded() || (goalEvent.requireExact && !result.exact))
@@ -519,7 +490,7 @@ void App::update()
 				}
 			}
 
-			auto tryComputeProjectedFollowMetricsForPlanar = [&](const uint32_t planarIx, float& ndcX, float& ndcY, float& ndcRadius) -> bool
+			auto tryBuildFollowViewProjForPlanar = [&](const uint32_t planarIx, float32_t4x4& outViewProjMatrix) -> bool
 			{
 				if (activeRenderWindowIx >= windowBindings.size())
 					return false;
@@ -542,73 +513,28 @@ void App::update()
 
 				const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrix()));
 				const auto projectionMatrix = getCastedMatrix<float32_t>(projections[projectionIx].getProjectionMatrix());
-				const auto viewProjMatrix = mul(projectionMatrix, viewMatrix);
-				return nbl::hlsl::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius);
+				outViewProjMatrix = mul(projectionMatrix, viewMatrix);
+				return true;
 			};
 
-			auto resetScriptedVisualFollowState = [&]() -> void
+			auto setScriptedVisualFollowState = [&](const SCameraFollowVisualMetrics& metrics) -> void
 			{
-				m_scriptedInput.visualFollowActive = false;
-				m_scriptedInput.visualFollowMode = ECameraFollowMode::Disabled;
-				m_scriptedInput.visualFollowLockValid = false;
-				m_scriptedInput.visualFollowLockAngleDeg = 0.0f;
-				m_scriptedInput.visualFollowTargetDistance = 0.0f;
-				m_scriptedInput.visualFollowProjectedValid = false;
-				m_scriptedInput.visualFollowTargetCenterNdcX = 0.0f;
-				m_scriptedInput.visualFollowTargetCenterNdcY = 0.0f;
-				m_scriptedInput.visualFollowTargetCenterNdcRadius = 0.0f;
+				m_scriptedInput.visualFollowActive = metrics.active;
+				m_scriptedInput.visualFollowMode = metrics.mode;
+				m_scriptedInput.visualFollowLockValid = metrics.lockValid;
+				m_scriptedInput.visualFollowLockAngleDeg = metrics.lockAngleDeg;
+				m_scriptedInput.visualFollowTargetDistance = metrics.targetDistance;
+				m_scriptedInput.visualFollowProjectedValid = metrics.projectedValid;
+				m_scriptedInput.visualFollowTargetCenterNdcX = metrics.projectedNdcX;
+				m_scriptedInput.visualFollowTargetCenterNdcY = metrics.projectedNdcY;
+				m_scriptedInput.visualFollowTargetCenterNdcRadius = metrics.projectedNdcRadius;
 			};
 
-			auto updateScriptedVisualFollowState = [&](const uint32_t planarIx, ICamera* activeCamera, const SCameraFollowConfig* config) -> void
+			if (!scriptedFrameEvents.trackedTargetTransforms.empty())
 			{
-				if (!activeCamera || !config || !config->enabled || config->mode == ECameraFollowMode::Disabled)
-				{
-					resetScriptedVisualFollowState();
-					return;
-				}
-
-				m_scriptedInput.visualFollowActive = true;
-				m_scriptedInput.visualFollowMode = config->mode;
-
-				float lockAngleDeg = 0.0f;
-				double targetDistance = 0.0;
-				m_scriptedInput.visualFollowLockValid = nbl::hlsl::cameraFollowModeLocksViewToTarget(config->mode) &&
-					nbl::hlsl::tryComputeFollowTargetLockMetrics(activeCamera->getGimbal(), m_followTarget, lockAngleDeg, &targetDistance);
-				if (m_scriptedInput.visualFollowLockValid)
-				{
-					m_scriptedInput.visualFollowLockAngleDeg = lockAngleDeg;
-					m_scriptedInput.visualFollowTargetDistance = static_cast<float>(targetDistance);
-				}
-				else
-				{
-					m_scriptedInput.visualFollowLockAngleDeg = 0.0f;
-					m_scriptedInput.visualFollowTargetDistance = 0.0f;
-				}
-
-				float ndcX = 0.0f;
-				float ndcY = 0.0f;
-				float ndcRadius = 0.0f;
-				m_scriptedInput.visualFollowProjectedValid =
-					m_scriptedInput.visualFollowLockValid &&
-					tryComputeProjectedFollowMetricsForPlanar(planarIx, ndcX, ndcY, ndcRadius);
-				if (m_scriptedInput.visualFollowProjectedValid)
-				{
-					m_scriptedInput.visualFollowTargetCenterNdcX = ndcX;
-					m_scriptedInput.visualFollowTargetCenterNdcY = ndcY;
-					m_scriptedInput.visualFollowTargetCenterNdcRadius = ndcRadius;
-				}
-				else
-				{
-					m_scriptedInput.visualFollowTargetCenterNdcX = 0.0f;
-					m_scriptedInput.visualFollowTargetCenterNdcY = 0.0f;
-					m_scriptedInput.visualFollowTargetCenterNdcRadius = 0.0f;
-				}
-			};
-
-			if (!scriptedTrackedTargetTransforms.empty())
-			{
-				setFollowTargetTransform(scriptedTrackedTargetTransforms.back());
+				setFollowTargetTransform(scriptedFrameEvents.trackedTargetTransforms.back().transform);
 				applyFollowToConfiguredCameras(true);
+				SCameraFollowVisualMetrics followMetrics = {};
 				if (activeRenderWindowIx < windowBindings.size())
 				{
 					const auto planarIx = windowBindings[activeRenderWindowIx].activePlanarIx;
@@ -616,21 +542,24 @@ void App::update()
 					{
 						auto* activeCamera = planarIx < m_planarProjections.size() && m_planarProjections[planarIx] ?
 							m_planarProjections[planarIx]->getCamera() : nullptr;
-						updateScriptedVisualFollowState(planarIx, activeCamera, &m_planarFollowConfigs[planarIx]);
+						float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
+						const float32_t4x4* viewProjMatrixPtr = tryBuildFollowViewProjForPlanar(planarIx, viewProjMatrix) ? &viewProjMatrix : nullptr;
+						followMetrics = nbl::hlsl::buildFollowVisualMetrics(
+							activeCamera,
+							m_followTarget,
+							&m_planarFollowConfigs[planarIx],
+							viewProjMatrixPtr);
 					}
-					else
-						resetScriptedVisualFollowState();
 				}
-				else
-					resetScriptedVisualFollowState();
+				setScriptedVisualFollowState(followMetrics);
 			}
 			else
 			{
 				applyFollowToConfiguredCameras();
-				resetScriptedVisualFollowState();
+				setScriptedVisualFollowState({});
 			}
 
-			if (m_scriptedInput.enabled && m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size())
+			if (m_scriptedInput.enabled && m_scriptedInput.checkRuntime.nextCheckIndex < m_scriptedInput.timeline.checks.size())
 			{
 				auto* camera = [&]() -> ICamera*
 				{
@@ -654,296 +583,62 @@ void App::update()
 						return;
 					m_logger->log(fmt, ILogger::ELL_INFO, std::forward<decltype(args)>(args)...);
 				};
-
-				auto angleDiffDeg = [](float a, float b) -> float
+				SCameraFollowConfig activeFollowConfig = {};
+				bool hasActiveFollowConfig = false;
+				bool hasFollowViewProjMatrix = false;
+				float32_t4x4 followViewProjMatrix = float32_t4x4(1.0f);
+				if (activeRenderWindowIx < windowBindings.size())
 				{
-					float d = std::fmod(a - b + 180.0f, 360.0f);
-					if (d < 0.0f)
-						d += 360.0f;
-					return std::abs(d - 180.0f);
-				};
-
-				auto isFinite3 = [](const float32_t3& v) -> bool
-				{
-					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-				};
-				auto setStepReference = [&](const float32_t3& newPos, const float32_t3& newEuler) -> void
-				{
-					m_scriptedInput.stepValid = true;
-					m_scriptedInput.stepPos = newPos;
-					m_scriptedInput.stepEulerDeg = newEuler;
-				};
-
-				const auto frame = m_realFrameIx;
-				while (m_scriptedInput.nextCheckIndex < m_scriptedInput.checks.size() &&
-					m_scriptedInput.checks[m_scriptedInput.nextCheckIndex].frame == frame)
-				{
-					const auto& check = m_scriptedInput.checks[m_scriptedInput.nextCheckIndex];
-
-					if (!camera)
+					const auto& binding = windowBindings[activeRenderWindowIx];
+					const auto planarIx = binding.activePlanarIx;
+					if (planarIx < m_planarFollowConfigs.size())
 					{
-						logFail("[script][fail] check frame=%llu no active camera", static_cast<unsigned long long>(frame));
-						++m_scriptedInput.nextCheckIndex;
-						continue;
+						activeFollowConfig = m_planarFollowConfigs[planarIx];
+						hasActiveFollowConfig = true;
 					}
-
-					const auto& gimbal = camera->getGimbal();
-					const auto pos = gimbal.getPosition();
-					const auto euler = glm::degrees(glm::eulerAngles(gimbal.getOrientation()));
-
-					if (!isFinite3(pos) || !isFinite3(euler))
+					if (camera && planarIx < m_planarProjections.size() && m_planarProjections[planarIx] && binding.boundProjectionIx.has_value())
 					{
-						logFail("[script][fail] check frame=%llu non-finite gimbal state", static_cast<unsigned long long>(frame));
-						++m_scriptedInput.nextCheckIndex;
-						continue;
-					}
-
-					if (check.kind == ScriptedInputCheck::Kind::Baseline)
-					{
-						m_scriptedInput.baselineValid = true;
-						m_scriptedInput.baselinePos = pos;
-						m_scriptedInput.baselineEulerDeg = euler;
-						setStepReference(pos, euler);
-						logPass("[script][pass] baseline frame=%llu pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)",
-							static_cast<unsigned long long>(frame),
-							pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
-					}
-					else if (check.kind == ScriptedInputCheck::Kind::ImguizmoVirtual)
-					{
-						bool ok = true;
-						if (!scriptedImguizmoVirtual || scriptedImguizmoVirtualCount == 0u)
+						auto& planar = m_planarProjections[planarIx];
+						const auto projectionIx = binding.boundProjectionIx.value();
+						auto& projections = planar->getPlanarProjections();
+						if (projectionIx < projections.size())
 						{
-							ok = false;
-						}
-						else
-						{
-							for (const auto& expected : check.expectedVirtualEvents)
-							{
-								bool found = false;
-								double actual = 0.0;
-								for (uint32_t i = 0u; i < scriptedImguizmoVirtualCount; ++i)
-								{
-									if (scriptedImguizmoVirtual[i].type == expected.type)
-									{
-										found = true;
-										actual = scriptedImguizmoVirtual[i].magnitude;
-										break;
-									}
-								}
-								if (!found || std::abs(actual - expected.magnitude) > check.tolerance)
-								{
-									ok = false;
-									logFail("[script][fail] imguizmo_virtual frame=%llu type=%s expected=%.6f actual=%.6f tol=%.6f",
-										static_cast<unsigned long long>(frame),
-										CVirtualGimbalEvent::virtualEventToString(expected.type).data(),
-										expected.magnitude,
-										actual,
-										check.tolerance);
-								}
-							}
-						}
-
-						if (ok)
-							logPass("[script][pass] imguizmo_virtual frame=%llu events=%zu", static_cast<unsigned long long>(frame), check.expectedVirtualEvents.size());
-					}
-					else if (check.kind == ScriptedInputCheck::Kind::GimbalNear)
-					{
-						bool ok = true;
-						if (check.hasExpectedPos)
-						{
-							const auto diff = float32_t3(pos.x - check.expectedPos.x, pos.y - check.expectedPos.y, pos.z - check.expectedPos.z);
-							const auto d = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-							if (d > check.posTolerance)
-							{
-								ok = false;
-								logFail("[script][fail] gimbal_near frame=%llu pos_diff=%.6f tol=%.6f",
-									static_cast<unsigned long long>(frame), d, check.posTolerance);
-							}
-						}
-						if (check.hasExpectedEuler)
-						{
-							const auto dx = angleDiffDeg(euler.x, check.expectedEulerDeg.x);
-							const auto dy = angleDiffDeg(euler.y, check.expectedEulerDeg.y);
-							const auto dz = angleDiffDeg(euler.z, check.expectedEulerDeg.z);
-							const auto dmax = std::max(dx, std::max(dy, dz));
-							if (dmax > check.eulerToleranceDeg)
-							{
-								ok = false;
-								logFail("[script][fail] gimbal_near frame=%llu euler_diff=%.6f tol=%.6f",
-									static_cast<unsigned long long>(frame), dmax, check.eulerToleranceDeg);
-							}
-						}
-
-						if (ok)
-							logPass("[script][pass] gimbal_near frame=%llu", static_cast<unsigned long long>(frame));
-					}
-					else if (check.kind == ScriptedInputCheck::Kind::GimbalDelta)
-					{
-						if (!m_scriptedInput.baselineValid)
-						{
-							logFail("[script][fail] gimbal_delta frame=%llu missing baseline", static_cast<unsigned long long>(frame));
-						}
-						else
-						{
-							const auto diff = float32_t3(pos.x - m_scriptedInput.baselinePos.x, pos.y - m_scriptedInput.baselinePos.y, pos.z - m_scriptedInput.baselinePos.z);
-							const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-							const auto dx = angleDiffDeg(euler.x, m_scriptedInput.baselineEulerDeg.x);
-							const auto dy = angleDiffDeg(euler.y, m_scriptedInput.baselineEulerDeg.y);
-							const auto dz = angleDiffDeg(euler.z, m_scriptedInput.baselineEulerDeg.z);
-							const auto dmax = std::max(dx, std::max(dy, dz));
-
-							if (dpos > check.posTolerance || dmax > check.eulerToleranceDeg)
-							{
-								logFail("[script][fail] gimbal_delta frame=%llu pos_diff=%.6f tol=%.6f euler_diff=%.6f tol=%.6f",
-									static_cast<unsigned long long>(frame),
-									dpos, check.posTolerance,
-									dmax, check.eulerToleranceDeg);
-							}
-							else
-							{
-								logPass("[script][pass] gimbal_delta frame=%llu pos_diff=%.6f euler_diff=%.6f",
-									static_cast<unsigned long long>(frame), dpos, dmax);
-							}
+							const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrix()));
+							const auto projectionMatrix = getCastedMatrix<float32_t>(projections[projectionIx].getProjectionMatrix());
+							followViewProjMatrix = mul(projectionMatrix, viewMatrix);
+							hasFollowViewProjMatrix = true;
 						}
 					}
-					else if (check.kind == ScriptedInputCheck::Kind::GimbalStep)
-					{
-						if (!m_scriptedInput.stepValid)
-						{
-							if (m_scriptedInput.baselineValid)
-								setStepReference(m_scriptedInput.baselinePos, m_scriptedInput.baselineEulerDeg);
-							else
-							{
-								logFail("[script][fail] gimbal_step frame=%llu missing step reference", static_cast<unsigned long long>(frame));
-								setStepReference(pos, euler);
-								++m_scriptedInput.nextCheckIndex;
-								continue;
-							}
-						}
-
-						const auto diff = float32_t3(pos.x - m_scriptedInput.stepPos.x, pos.y - m_scriptedInput.stepPos.y, pos.z - m_scriptedInput.stepPos.z);
-						const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-						const auto dx = angleDiffDeg(euler.x, m_scriptedInput.stepEulerDeg.x);
-						const auto dy = angleDiffDeg(euler.y, m_scriptedInput.stepEulerDeg.y);
-						const auto dz = angleDiffDeg(euler.z, m_scriptedInput.stepEulerDeg.z);
-						const auto dmax = std::max(dx, std::max(dy, dz));
-
-						bool ok = true;
-						bool requiresProgress = false;
-						bool hasProgress = false;
-						if (check.hasPosDeltaConstraint)
-						{
-							if (dpos > check.posTolerance)
-							{
-								ok = false;
-								logFail("[script][fail] gimbal_step frame=%llu pos_delta=%.6f max=%.6f",
-									static_cast<unsigned long long>(frame), dpos, check.posTolerance);
-							}
-							if (check.minPosDelta > 0.0f)
-							{
-								requiresProgress = true;
-								hasProgress = hasProgress || dpos >= check.minPosDelta;
-							}
-						}
-						if (check.hasEulerDeltaConstraint)
-						{
-							if (dmax > check.eulerToleranceDeg)
-							{
-								ok = false;
-								logFail("[script][fail] gimbal_step frame=%llu euler_delta=%.6f max=%.6f",
-									static_cast<unsigned long long>(frame), dmax, check.eulerToleranceDeg);
-							}
-							if (check.minEulerDeltaDeg > 0.0f)
-							{
-								requiresProgress = true;
-								hasProgress = hasProgress || dmax >= check.minEulerDeltaDeg;
-							}
-						}
-						if (requiresProgress && !hasProgress)
-						{
-							ok = false;
-							logFail("[script][fail] gimbal_step frame=%llu missing progress pos_delta=%.6f euler_delta=%.6f",
-								static_cast<unsigned long long>(frame), dpos, dmax);
-						}
-
-						if (ok)
-							logPass("[script][pass] gimbal_step frame=%llu pos_delta=%.6f euler_delta=%.6f",
-								static_cast<unsigned long long>(frame), dpos, dmax);
-						setStepReference(pos, euler);
-					}
-					else if (check.kind == ScriptedInputCheck::Kind::FollowTargetLock)
-					{
-						SCameraFollowConfig activeFollowConfig = {};
-						bool hasActiveFollowConfig = false;
-						bool hasFollowViewProjMatrix = false;
-						float32_t4x4 followViewProjMatrix = float32_t4x4(1.0f);
-						if (activeRenderWindowIx < windowBindings.size())
-						{
-							const auto& binding = windowBindings[activeRenderWindowIx];
-							const auto planarIx = binding.activePlanarIx;
-							if (planarIx < m_planarFollowConfigs.size())
-							{
-								activeFollowConfig = m_planarFollowConfigs[planarIx];
-								hasActiveFollowConfig = true;
-							}
-							if (planarIx < m_planarProjections.size() && m_planarProjections[planarIx] && binding.boundProjectionIx.has_value())
-							{
-								auto& planar = m_planarProjections[planarIx];
-								const auto projectionIx = binding.boundProjectionIx.value();
-								auto& projections = planar->getPlanarProjections();
-								if (projectionIx < projections.size())
-								{
-									const auto viewMatrix = getMatrix3x4As4x4(getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrix()));
-									const auto projectionMatrix = getCastedMatrix<float32_t>(projections[projectionIx].getProjectionMatrix());
-									followViewProjMatrix = mul(projectionMatrix, viewMatrix);
-									hasFollowViewProjMatrix = true;
-								}
-							}
-						}
-
-						nbl::hlsl::SCameraFollowRegressionResult regression = {};
-						std::string regressionError;
-						const auto expectedFollowGoal = hasActiveFollowConfig
-							? [&]() -> CCameraGoal
-							{
-								CCameraGoal goal = {};
-								nbl::hlsl::tryBuildFollowGoal(m_cameraGoalSolver, camera, m_followTarget, activeFollowConfig, goal);
-								return goal;
-							}()
-							: CCameraGoal{};
-						const bool ok = hasActiveFollowConfig &&
-							nbl::hlsl::validateFollowTargetContract(
-								camera,
-								m_followTarget,
-								activeFollowConfig,
-								expectedFollowGoal,
-								regression,
-								&regressionError,
-								check.eulerToleranceDeg,
-								1e-6,
-								1e-9,
-								hasFollowViewProjMatrix ? &followViewProjMatrix : nullptr,
-								check.posTolerance);
-						if (!ok)
-						{
-							logFail("[script][fail] follow_lock frame=%llu %s",
-								static_cast<unsigned long long>(frame),
-								regressionError.empty() ? "follow contract mismatch" : regressionError.c_str());
-						}
-						else
-						{
-							logPass("[script][pass] follow_lock frame=%llu angle_deg=%.6f target_distance=%.6f screen_ndc=%.6f",
-								static_cast<unsigned long long>(frame),
-								regression.lockAngleDeg,
-								regression.targetDistance,
-								regression.projectedNdcRadius);
-						}
-					}
-
-					++m_scriptedInput.nextCheckIndex;
 				}
 
-				if (!m_scriptedInput.summaryReported && m_scriptedInput.nextCheckIndex >= m_scriptedInput.checks.size())
+				const auto checkResult = nbl::hlsl::evaluateScriptedChecksForFrame(
+					m_scriptedInput.timeline.checks,
+					m_scriptedInput.checkRuntime,
+					{
+						.frame = m_realFrameIx,
+						.camera = camera,
+						.imguizmoVirtual = scriptedImguizmoVirtual,
+						.imguizmoVirtualCount = scriptedImguizmoVirtualCount,
+						.trackedTarget = &m_followTarget,
+						.followConfig = hasActiveFollowConfig ? &activeFollowConfig : nullptr,
+						.followViewProjMatrix = hasFollowViewProjMatrix ? &followViewProjMatrix : nullptr,
+						.goalSolver = &m_cameraGoalSolver
+					});
+
+				for (const auto& entry : checkResult.logs)
+				{
+					if (entry.failure)
+					{
+						m_scriptedInput.failed = true;
+						logFail("%s", entry.text.c_str());
+					}
+					else
+					{
+						logPass("%s", entry.text.c_str());
+					}
+				}
+
+				if (!m_scriptedInput.summaryReported && m_scriptedInput.checkRuntime.nextCheckIndex >= m_scriptedInput.timeline.checks.size())
 				{
 					m_scriptedInput.summaryReported = true;
 					if (m_scriptedInput.failed)

@@ -405,10 +405,10 @@ void App::workLoopBody()
 					}
 				}
 
-				if (!m_disableScreenshotsCli && m_scriptedInput.enabled && !m_scriptedInput.captureFrames.empty())
+				if (!m_disableScreenshotsCli && m_scriptedInput.enabled && !m_scriptedInput.timeline.captureFrames.empty())
 				{
-					while (m_scriptedInput.nextCaptureIndex < m_scriptedInput.captureFrames.size() &&
-						m_scriptedInput.captureFrames[m_scriptedInput.nextCaptureIndex] == renderedFrameIx)
+					while (m_scriptedInput.nextCaptureIndex < m_scriptedInput.timeline.captureFrames.size() &&
+						m_scriptedInput.timeline.captureFrames[m_scriptedInput.nextCaptureIndex] == renderedFrameIx)
 					{
 						const auto outPath = m_scriptedInput.captureOutputDir /
 							(m_scriptedInput.capturePrefix + "_" + std::to_string(renderedFrameIx) + ".png");

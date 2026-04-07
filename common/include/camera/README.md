@@ -464,6 +464,84 @@ Track normalization rules:
 
 That makes the same authored sequence usable by any future consumer that understands the shared camera API, even if its runtime expansion path differs from `61_UI`.
 
+### `CCameraScriptedRuntime.hpp`
+
+Shared expanded scripted-runtime payloads for consumers that want a frame-by-frame execution path.
+
+Provides:
+
+- `CCameraScriptedInputEvent`
+- `CCameraScriptedInputCheck`
+- `CCameraScriptedTimeline`
+- `CCameraScriptedFrameEvents`
+- reusable scripted-timeline finalization helpers
+- reusable event/check append helpers
+- reusable per-frame event dequeue/bucketing
+
+This sits one layer below the compact authored sequence:
+
+- `CCameraSequenceScript` remains the authored source of truth
+- `CCameraScriptedRuntime` is only the normalized expanded runtime contract
+- consumers such as `61_UI` can adapt that contract to their own concrete event loop without redefining event/check structs locally
+
+### `CCameraScriptedRuntimePersistence.hpp`
+
+Reusable JSON parser and compatibility layer for low-level scripted runtime payloads.
+
+Provides:
+
+- `CCameraScriptedControlOverrides`
+- `CCameraScriptedInputParseResult`
+- shared parsing of legacy low-level runtime JSON:
+  - `events`
+  - `checks`
+  - `capture_frames`
+  - top-level scripted debug and control overrides
+- compatibility parsing for legacy key names such as `KEY_KEY_W`
+- optional handoff into `CCameraSequenceScript` when the same file contains compact `segments`
+
+This keeps old scripted-runtime assets reusable without leaving parser logic inside `61_UI`.
+It also means other future consumers can accept the same low-level payloads or progressively migrate them
+to compact camera-sequence scripts without changing the shared parsing contract.
+
+### `CCameraSequenceScriptedBuilder.hpp`
+
+Reusable authored-sequence to scripted-runtime builder helpers.
+
+Provides:
+
+- `CCameraSequenceScriptedSegmentBuildInfo`
+- reusable conversion from one compiled sequence segment into:
+  - scripted `Action` events
+  - scripted `Goal` events
+  - scripted tracked-target transforms
+  - baseline/continuity/follow-lock checks
+  - capture frame milestones
+
+This sits between `CCameraSequenceScript.hpp` and `CCameraScriptedRuntime.hpp`:
+
+- `CCameraSequenceScript` owns authored compact segment semantics
+- `CCameraSequenceScriptedBuilder` expands compiled segments into shared runtime payloads
+- `61_UI` only resolves camera/planar targets and feeds those shared payloads into its local loop
+
+### `CCameraScriptedCheckRunner.hpp`
+
+Reusable scripted-check runtime state and per-frame evaluation helpers.
+
+Provides:
+
+- `CCameraScriptedCheckRuntimeState`
+- `CCameraScriptedCheckContext`
+- `CCameraScriptedCheckLogEntry`
+- `CCameraScriptedCheckFrameResult`
+- reusable baseline, near, delta, step, and follow-lock evaluation for one frame
+
+This sits above `CCameraScriptedRuntime.hpp`:
+
+- `CCameraScriptedRuntime` only normalizes authored expanded payloads
+- `CCameraScriptedCheckRunner` evaluates those payloads against live camera state
+- consumers can keep only their logging and runtime-object lookup glue locally
+
 ### `CCameraPersistence.hpp`
 
 Reusable JSON and file persistence helpers for preset collections and keyframe tracks.

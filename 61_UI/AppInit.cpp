@@ -361,6 +361,18 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return false;
 				};
 
+				auto buildFollowVisualMetricsForCamera = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
+					const SCameraFollowConfig& followConfig) -> SCameraFollowVisualMetrics
+				{
+					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
+					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
+					return nbl::hlsl::buildFollowVisualMetrics(
+						camera,
+						trackedTarget,
+						&followConfig,
+						hasViewProjMatrix ? &viewProjMatrix : nullptr);
+				};
+
 				auto buildAndValidateFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
 					const SCameraFollowConfig& followConfig, const char* label, nbl::hlsl::SCameraFollowApplyValidationResult& outResult) -> bool
 				{
@@ -378,6 +390,202 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					{
 						return fail(std::string("Follow smoke contract failed for ") + label + ". " + regressionError);
 					}
+					return true;
+				};
+
+				auto verifyFollowVisualMetrics = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
+					const SCameraFollowConfig& followConfig, const char* label) -> bool
+				{
+					const auto metrics = buildFollowVisualMetricsForCamera(camera, trackedTarget, followConfig);
+					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
+					const bool expectsProjectedMetrics = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
+					if (!metrics.active)
+						return fail(std::string("Follow visual metrics smoke was inactive for ") + label + ".");
+					if (nbl::hlsl::cameraFollowModeLocksViewToTarget(followConfig.mode) && !metrics.lockValid)
+						return fail(std::string("Follow visual metrics smoke was missing lock metrics for ") + label + ".");
+					if (expectsProjectedMetrics && !metrics.projectedValid)
+						return fail(std::string("Follow visual metrics smoke was missing projected metrics for ") + label + ".");
+					if (metrics.projectedValid && metrics.projectedNdcRadius > 0.03f)
+						return fail(std::string("Follow visual metrics smoke had projected center error for ") + label + ".");
+					return true;
+				};
+
+				auto verifyScriptedRuntimeFrameBatch = [&]() -> bool
+				{
+					CCameraScriptedTimeline timeline = {};
+					nbl::hlsl::appendScriptedActionEvent(timeline, 3u, CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar, 4);
+					{
+						CCameraGoal goal = {};
+						goal.position = float64_t3(1.0, 2.0, 3.0);
+						nbl::hlsl::appendScriptedGoalEvent(timeline, 3u, goal, true);
+					}
+					nbl::hlsl::appendScriptedSegmentLabelEvent(timeline, 3u, "segment-three");
+					{
+						float64_t4x4 transform = float64_t4x4(1.0);
+						transform[3] = glm::dvec4(7.0, 8.0, 9.0, 1.0);
+						nbl::hlsl::appendScriptedTrackedTargetTransformEvent(timeline, 4u, transform);
+					}
+
+					size_t nextEventIndex = 0u;
+					CCameraScriptedFrameEvents batch;
+					nbl::hlsl::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 3u, batch);
+					if (nextEventIndex != 3u || batch.actions.size() != 1u || batch.goals.size() != 1u ||
+						batch.segmentLabels.size() != 1u || !batch.mouse.empty() || !batch.keyboard.empty())
+					{
+						return fail("Scripted runtime frame batch smoke failed for frame 3.");
+					}
+					if (batch.actions.front().kind != CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar ||
+						batch.actions.front().value != 4 || batch.segmentLabels.front() != "segment-three")
+					{
+						return fail("Scripted runtime frame batch payload smoke failed for frame 3.");
+					}
+
+					nbl::hlsl::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, 4u, batch);
+					if (nextEventIndex != timeline.events.size() || batch.trackedTargetTransforms.size() != 1u ||
+						!batch.actions.empty() || !batch.goals.empty())
+					{
+						return fail("Scripted runtime frame batch smoke failed for frame 4.");
+					}
+					const auto trackedTargetPosition = float64_t3(batch.trackedTargetTransforms.front().transform[3]);
+					if (!nearlyEqual3(trackedTargetPosition, float64_t3(7.0, 8.0, 9.0), 1e-9))
+						return fail("Scripted runtime tracked-target payload smoke failed.");
+
+					return true;
+				};
+
+				auto verifyScriptedRuntimeParser = [&]() -> bool
+				{
+					nbl_json script = {
+						{ "enabled", true },
+						{ "capture_prefix", "parser_smoke" },
+						{ "camera_controls", {
+							{ "keyboard_scale", 2.0f },
+							{ "rotation_scale", 0.5f }
+						} },
+						{ "events", nbl_json::array({
+							{
+								{ "frame", 2u },
+								{ "type", "action" },
+								{ "action", "set_active_planar" },
+								{ "value", 3 }
+							},
+							{
+								{ "frame", 2u },
+								{ "type", "keyboard" },
+								{ "key", "KEY_KEY_W" },
+								{ "action", "pressed" },
+								{ "capture", true }
+							}
+						}) },
+						{ "checks", nbl_json::array({
+							{
+								{ "frame", 2u },
+								{ "kind", "baseline" }
+							},
+							{
+								{ "frame", 3u },
+								{ "kind", "gimbal_step" },
+								{ "min_pos_delta", 0.01f },
+								{ "max_pos_delta", 1.0f }
+							}
+						}) }
+					};
+
+					CCameraScriptedInputParseResult parsed;
+					std::string parseError;
+					if (!nbl::hlsl::deserializeCameraScriptedInput(script, parsed, &parseError))
+						return fail("Scripted runtime parser smoke failed to parse low-level runtime payload. " + parseError);
+					if (!parsed.enabled || parsed.capturePrefix != "parser_smoke" || !parsed.cameraControls.hasKeyboardScale || !parsed.cameraControls.hasRotationScale)
+						return fail("Scripted runtime parser smoke lost top-level metadata.");
+					if (parsed.timeline.events.size() != 2u || parsed.timeline.checks.size() != 2u || parsed.timeline.captureFrames.size() != 1u)
+						return fail("Scripted runtime parser smoke produced wrong payload counts.");
+					if (parsed.timeline.captureFrames.front() != 2u)
+						return fail("Scripted runtime parser smoke produced wrong capture frame.");
+
+					size_t nextEventIndex = 0u;
+					CCameraScriptedFrameEvents batch;
+					nbl::hlsl::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, 2u, batch);
+					if (batch.actions.size() != 1u || batch.keyboard.size() != 1u || batch.actions.front().value != 3)
+						return fail("Scripted runtime parser smoke produced wrong frame-two batch.");
+					if (parsed.timeline.checks.front().kind != CCameraScriptedInputCheck::Kind::Baseline ||
+						parsed.timeline.checks.back().kind != CCameraScriptedInputCheck::Kind::GimbalStep)
+					{
+						return fail("Scripted runtime parser smoke produced wrong check kinds.");
+					}
+
+					return true;
+				};
+
+				auto verifyScriptedCheckRunner = [&]() -> bool
+				{
+					auto orbitCamera = core::make_smart_refctd_ptr<COrbitCamera>(float64_t3(0.0, 1.5, -6.0), float64_t3(0.0, 0.0, 0.0));
+					CTrackedTarget trackedTarget(
+						float64_t3(2.0, 0.5, -1.5),
+						glm::angleAxis(glm::radians(35.0), float64_t3(0.0, 1.0, 0.0)));
+
+					CCameraScriptedTimeline timeline = {};
+					nbl::hlsl::appendScriptedBaselineCheck(timeline, 1u);
+					nbl::hlsl::appendScriptedGimbalStepCheck(timeline, 2u, true, 2.0f, 0.005f, true, 45.0f, 0.05f);
+					nbl::hlsl::appendScriptedFollowTargetLockCheck(timeline, 3u, 0.1f, 0.03f);
+
+					CCameraScriptedCheckRuntimeState state = {};
+					{
+						const auto frameResult = evaluateScriptedChecksForFrame(
+							timeline.checks,
+							state,
+							{
+								.frame = 1u,
+								.camera = orbitCamera.get()
+							});
+						if (frameResult.hadFailures || state.nextCheckIndex != 1u || !state.baselineValid || !state.stepValid)
+							return fail("Scripted check runner baseline smoke failed.");
+					}
+
+					{
+						CVirtualGimbalEvent stepEvent = {};
+						stepEvent.type = CVirtualGimbalEvent::MoveRight;
+						stepEvent.magnitude = 12.0;
+						if (!orbitCamera->manipulate({ &stepEvent, 1u }))
+							return fail("Scripted check runner smoke failed to manipulate the camera for step validation.");
+
+						const auto frameResult = evaluateScriptedChecksForFrame(
+							timeline.checks,
+							state,
+							{
+								.frame = 2u,
+								.camera = orbitCamera.get()
+							});
+						if (frameResult.hadFailures || state.nextCheckIndex != 2u)
+						{
+							const auto details = !frameResult.logs.empty() ? frameResult.logs.front().text : std::string("missing log details");
+							return fail(std::string("Scripted check runner step smoke failed. ") + details);
+						}
+					}
+
+					SCameraFollowConfig followConfig = {};
+					followConfig.enabled = true;
+					followConfig.mode = ECameraFollowMode::OrbitTarget;
+					if (!nbl::hlsl::applyFollowToCamera(m_cameraGoalSolver, orbitCamera.get(), trackedTarget, followConfig).succeeded())
+						return fail("Scripted check runner smoke failed to apply follow before follow-lock validation.");
+
+					{
+						const auto frameResult = evaluateScriptedChecksForFrame(
+							timeline.checks,
+							state,
+							{
+								.frame = 3u,
+								.camera = orbitCamera.get(),
+								.trackedTarget = &trackedTarget,
+								.followConfig = &followConfig,
+								.goalSolver = &m_cameraGoalSolver
+							});
+						if (frameResult.hadFailures || state.nextCheckIndex != timeline.checks.size())
+						{
+							const auto details = !frameResult.logs.empty() ? frameResult.logs.front().text : std::string("missing log details");
+							return fail(std::string("Scripted check runner follow-lock smoke failed. ") + details);
+						}
+					}
+
 					return true;
 				};
 
@@ -485,6 +693,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					return true;
 				};
+
+				if (!verifyScriptedRuntimeFrameBatch())
+					return false;
+				if (!verifyScriptedRuntimeParser())
+					return false;
+				if (!verifyScriptedCheckRunner())
+					return false;
 
 				auto collectKeyboardVirtualEvents = [&](CGimbalInputBinder& inputBinder, const ui::E_KEY_CODE keyCode) -> std::vector<CVirtualGimbalEvent>
 				{
@@ -898,6 +1113,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						nbl::hlsl::SCameraFollowApplyValidationResult followResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit follow", followResult))
 							return false;
+						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit follow"))
+							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "orbit follow"))
 							return false;
 
@@ -911,6 +1128,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						nbl::hlsl::SCameraFollowApplyValidationResult worldOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow", worldOffsetResult))
+							return false;
+						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow"))
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
@@ -943,6 +1162,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						nbl::hlsl::SCameraFollowApplyValidationResult defaultFollowResult = {};
 						if (!buildAndValidateFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, label.c_str(), defaultFollowResult))
 							return false;
+						if (!verifyFollowVisualMetrics(defaultFollowCamera, trackedTarget, followConfig, label.c_str()))
+							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, label.c_str()))
 							return false;
 
@@ -961,6 +1182,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						nbl::hlsl::SCameraFollowApplyValidationResult lookAtResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free look-at follow", lookAtResult))
 							return false;
+						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free look-at follow"))
+							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "free look-at follow"))
 							return false;
 
@@ -974,6 +1197,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						nbl::hlsl::SCameraFollowApplyValidationResult keepWorldResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow", keepWorldResult))
+							return false;
+						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow"))
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::hlsl::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
@@ -994,6 +1219,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						nbl::hlsl::SCameraFollowApplyValidationResult localOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(chaseCamera, trackedTarget, followConfig, "chase local-offset follow", localOffsetResult))
+							return false;
+						if (!verifyFollowVisualMetrics(chaseCamera, trackedTarget, followConfig, "chase local-offset follow"))
 							return false;
 						if (!verifyFollowTargetMarkerAlignment(trackedTarget, "chase local-offset follow"))
 							return false;
@@ -1347,6 +1574,69 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Sequence compile smoke failed to sample normalized tracked-target track.");
 					if (length(poseAtOne.position - float64_t3(7.0, 8.0, 9.0)) > 1e-9)
 						return fail("Sequence compile smoke did not keep the last authored target pose for duplicate keyframe time.");
+
+					CCameraScriptedTimeline scriptedTimeline;
+					std::string runtimeBuildError;
+					if (!nbl::hlsl::appendCompiledSequenceSegmentToScriptedTimeline(
+						scriptedTimeline,
+						11u,
+						compiledSegment,
+						{
+							.planarIx = 5u,
+							.availableWindowCount = 2u,
+							.useWindow = true,
+							.includeFollowTargetLock = true
+						},
+						&runtimeBuildError))
+					{
+						return fail("Sequence runtime builder smoke failed to append a compiled segment. " + runtimeBuildError);
+					}
+					nbl::hlsl::finalizeScriptedTimeline(scriptedTimeline);
+
+					if (scriptedTimeline.captureFrames.size() != 3u ||
+						scriptedTimeline.captureFrames[0] != 11ull ||
+						scriptedTimeline.captureFrames[1] != 15ull ||
+						scriptedTimeline.captureFrames[2] != 18ull)
+					{
+						return fail("Sequence runtime builder smoke produced wrong capture frames.");
+					}
+
+					size_t baselineChecks = 0u;
+					size_t stepChecks = 0u;
+					size_t followChecks = 0u;
+					for (const auto& check : scriptedTimeline.checks)
+					{
+						switch (check.kind)
+						{
+							case CCameraScriptedInputCheck::Kind::Baseline:
+								++baselineChecks;
+								break;
+							case CCameraScriptedInputCheck::Kind::GimbalStep:
+								++stepChecks;
+								break;
+							case CCameraScriptedInputCheck::Kind::FollowTargetLock:
+								++followChecks;
+								break;
+							default:
+								break;
+						}
+					}
+					if (baselineChecks != 1u || stepChecks != 7u || followChecks != 7u)
+						return fail("Sequence runtime builder smoke produced wrong scripted check counts.");
+
+					size_t runtimeNextEventIndex = 0u;
+					CCameraScriptedFrameEvents runtimeBatch;
+					nbl::hlsl::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, 11u, runtimeBatch);
+					if (runtimeBatch.actions.size() != 10u || runtimeBatch.goals.size() != 1u ||
+						runtimeBatch.trackedTargetTransforms.size() != 1u || runtimeBatch.segmentLabels.size() != 1u)
+					{
+						return fail("Sequence runtime builder smoke produced wrong first-frame batch.");
+					}
+					if (runtimeBatch.actions.front().kind != CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow ||
+						runtimeBatch.segmentLabels.front() != "sequence_compile_smoke")
+					{
+						return fail("Sequence runtime builder smoke lost first-frame scripted payload.");
+					}
 				}
 
 				if (hasOrbitPreset && orbitCamera)
@@ -1624,22 +1914,18 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				bool scriptedInputParseFailed = false;
 				std::string scriptedInputParseError;
 
+				auto resetScriptedInputRuntimeState = [&]() -> void
+				{
+					m_scriptedInput.nextEventIndex = 0;
+					m_scriptedInput.checkRuntime = {};
+					m_scriptedInput.nextCaptureIndex = 0;
+					m_scriptedInput.failed = false;
+					m_scriptedInput.summaryReported = false;
+				};
+
 				auto finalizeScriptedInput = [&]() -> void
 				{
-					std::sort(m_scriptedInput.events.begin(), m_scriptedInput.events.end(),
-						[](const ScriptedInputEvent& a, const ScriptedInputEvent& b) { return a.frame < b.frame; });
-					std::sort(m_scriptedInput.checks.begin(), m_scriptedInput.checks.end(),
-						[](const ScriptedInputCheck& a, const ScriptedInputCheck& b) { return a.frame < b.frame; });
-					if (!m_scriptedInput.captureFrames.empty())
-					{
-						std::sort(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end());
-						m_scriptedInput.captureFrames.erase(std::unique(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end()), m_scriptedInput.captureFrames.end());
-					}
-					if (m_disableScreenshotsCli)
-					{
-						m_scriptedInput.captureFrames.clear();
-						m_scriptedInput.nextCaptureIndex = 0;
-					}
+					nbl::hlsl::finalizeScriptedTimeline(m_scriptedInput.timeline, m_disableScreenshotsCli);
 				};
 
 				auto parseScriptedInput = [&](const nbl_json& script) -> void
@@ -1647,16 +1933,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					pendingScriptedSequence.reset();
 					scriptedInputParseFailed = false;
 					scriptedInputParseError.clear();
-					m_scriptedInput.events.clear();
-					m_scriptedInput.checks.clear();
-					m_scriptedInput.captureFrames.clear();
-					m_scriptedInput.nextEventIndex = 0;
-					m_scriptedInput.nextCheckIndex = 0;
-					m_scriptedInput.nextCaptureIndex = 0;
-					m_scriptedInput.failed = false;
-					m_scriptedInput.summaryReported = false;
-					m_scriptedInput.baselineValid = false;
-					m_scriptedInput.stepValid = false;
+					m_scriptedInput.timeline.clear();
+					resetScriptedInputRuntimeState();
 					m_scriptedInput.exclusive = false;
 					m_scriptedInput.hardFail = false;
 					m_scriptedInput.visualDebug = false;
@@ -1671,23 +1949,20 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					m_scriptedInput.capturePrefix = "script";
 					m_scriptedInput.captureOutputDir = localOutputCWD;
 
-					if (script.contains("enabled"))
-						m_scriptedInput.enabled = script["enabled"].get<bool>();
-					else
-						m_scriptedInput.enabled = true;
+					CCameraScriptedInputParseResult parsed;
+					if (!nbl::hlsl::deserializeCameraScriptedInput(script, parsed, &scriptedInputParseError))
+					{
+						scriptedInputParseFailed = true;
+						return;
+					}
 
-					if (script.contains("log"))
-						m_scriptedInput.log = script["log"].get<bool>() || m_scriptedInput.log;
-
-					if (script.contains("hard_fail"))
-						m_scriptedInput.hardFail = script["hard_fail"].get<bool>();
-
-					if (script.contains("visual_debug"))
-						m_scriptedInput.visualDebug = script["visual_debug"].get<bool>();
-					if (script.contains("visual_debug_target_fps"))
-						m_scriptedInput.visualTargetFps = script["visual_debug_target_fps"].get<float>();
-					if (script.contains("visual_debug_hold_seconds"))
-						m_scriptedInput.visualCameraHoldSeconds = script["visual_debug_hold_seconds"].get<float>();
+					m_scriptedInput.enabled = parsed.enabled;
+					if (parsed.hasLog)
+						m_scriptedInput.log = parsed.log || m_scriptedInput.log;
+					m_scriptedInput.hardFail = parsed.hardFail;
+					m_scriptedInput.visualDebug = parsed.visualDebug;
+					m_scriptedInput.visualTargetFps = parsed.visualTargetFps;
+					m_scriptedInput.visualCameraHoldSeconds = parsed.visualCameraHoldSeconds;
 					if (m_scriptVisualDebugCli)
 						m_scriptedInput.visualDebug = true;
 					if (m_scriptedInput.visualDebug)
@@ -1698,447 +1973,31 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							m_scriptedInput.visualCameraHoldSeconds = 3.f;
 					}
 
-					if (script.contains("enableActiveCameraMovement"))
-						enableActiveCameraMovement = script["enableActiveCameraMovement"].get<bool>();
+					if (parsed.hasEnableActiveCameraMovement)
+						enableActiveCameraMovement = parsed.enableActiveCameraMovement;
 					else if (m_scriptedInput.enabled)
 						enableActiveCameraMovement = true;
 
-					if (script.contains("exclusive_input"))
-						m_scriptedInput.exclusive = script["exclusive_input"].get<bool>() || m_scriptedInput.exclusive;
-					if (script.contains("exclusive"))
-						m_scriptedInput.exclusive = script["exclusive"].get<bool>() || m_scriptedInput.exclusive;
+					m_scriptedInput.exclusive = parsed.exclusive;
+					m_scriptedInput.capturePrefix = parsed.capturePrefix.empty() ? "script" : parsed.capturePrefix;
 
-					if (script.contains("capture_prefix"))
-						m_scriptedInput.capturePrefix = script["capture_prefix"].get<std::string>();
-					if (m_scriptedInput.capturePrefix.empty())
-						m_scriptedInput.capturePrefix = "script";
-					if (script.contains("capture_frames"))
-						for (const auto& frame : script["capture_frames"])
-							m_scriptedInput.captureFrames.emplace_back(frame.get<uint64_t>());
+					if (parsed.cameraControls.hasKeyboardScale)
+						m_cameraControls.keyboardScale = parsed.cameraControls.keyboardScale;
+					if (parsed.cameraControls.hasMouseMoveScale)
+						m_cameraControls.mouseMoveScale = parsed.cameraControls.mouseMoveScale;
+					if (parsed.cameraControls.hasMouseScrollScale)
+						m_cameraControls.mouseScrollScale = parsed.cameraControls.mouseScrollScale;
+					if (parsed.cameraControls.hasTranslationScale)
+						m_cameraControls.translationScale = parsed.cameraControls.translationScale;
+					if (parsed.cameraControls.hasRotationScale)
+						m_cameraControls.rotationScale = parsed.cameraControls.rotationScale;
 
-					if (script.contains("camera_controls"))
-					{
-						const auto& controls = script["camera_controls"];
-						if (controls.contains("keyboard_scale"))
-							m_cameraControls.keyboardScale = controls["keyboard_scale"].get<float>();
-						if (controls.contains("mouse_move_scale"))
-							m_cameraControls.mouseMoveScale = controls["mouse_move_scale"].get<float>();
-						if (controls.contains("mouse_scroll_scale"))
-							m_cameraControls.mouseScrollScale = controls["mouse_scroll_scale"].get<float>();
-						if (controls.contains("translation_scale"))
-							m_cameraControls.translationScale = controls["translation_scale"].get<float>();
-						if (controls.contains("rotation_scale"))
-							m_cameraControls.rotationScale = controls["rotation_scale"].get<float>();
-					}
+					for (const auto& warning : parsed.warnings)
+						m_logger->log("%s", ILogger::ELL_WARNING, warning.c_str());
 
-					if (script.contains("segments"))
-					{
-						CCameraSequenceScript sequence;
-						std::string sequenceError;
-						if (!deserializeCameraSequenceScript(script, sequence, &sequenceError))
-						{
-							scriptedInputParseFailed = true;
-							scriptedInputParseError = std::move(sequenceError);
-						}
-						else
-						{
-							pendingScriptedSequence = std::move(sequence);
-						}
-					}
-
-					if (script.contains("events"))
-						for (const auto& ev : script["events"])
-						{
-						if (!ev.contains("frame") || !ev.contains("type"))
-						{
-							m_logger->log("Scripted input event missing \"frame\" or \"type\".", ILogger::ELL_WARNING);
-							continue;
-						}
-
-						const auto frame = ev["frame"].get<uint64_t>();
-						const auto type = ev["type"].get<std::string>();
-						const bool captureFrame = ev.value("capture", false);
-
-						if (type == "keyboard")
-						{
-							if (!ev.contains("key") || !ev.contains("action"))
-							{
-								m_logger->log("Scripted keyboard event missing \"key\" or \"action\".", ILogger::ELL_WARNING);
-								continue;
-							}
-
-							const auto keyStr = ev["key"].get<std::string>();
-							const auto actionStr = ev["action"].get<std::string>();
-							const auto key = ui::stringToKeyCode(keyStr);
-							if (key == ui::EKC_NONE)
-							{
-								m_logger->log("Scripted keyboard event has invalid key \"%s\".", ILogger::ELL_WARNING, keyStr.c_str());
-								continue;
-							}
-
-							ui::SKeyboardEvent::E_KEY_ACTION action = ui::SKeyboardEvent::ECA_UNITIALIZED;
-							if (actionStr == "pressed" || actionStr == "press")
-								action = ui::SKeyboardEvent::ECA_PRESSED;
-							else if (actionStr == "released" || actionStr == "release")
-								action = ui::SKeyboardEvent::ECA_RELEASED;
-
-							if (action == ui::SKeyboardEvent::ECA_UNITIALIZED)
-							{
-								m_logger->log("Scripted keyboard event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
-								continue;
-							}
-
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Keyboard;
-							entry.keyboard.key = key;
-							entry.keyboard.action = action;
-							m_scriptedInput.events.emplace_back(entry);
-							if (captureFrame)
-								m_scriptedInput.captureFrames.emplace_back(frame);
-						}
-						else if (type == "mouse")
-						{
-							if (!ev.contains("kind"))
-							{
-								m_logger->log("Scripted mouse event missing \"kind\".", ILogger::ELL_WARNING);
-								continue;
-							}
-
-							const auto kind = ev["kind"].get<std::string>();
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Mouse;
-
-							if (kind == "move")
-							{
-								entry.mouse.type = ui::SMouseEvent::EET_MOVEMENT;
-								entry.mouse.dx = ev.value("dx", 0);
-								entry.mouse.dy = ev.value("dy", 0);
-							}
-							else if (kind == "scroll")
-							{
-								entry.mouse.type = ui::SMouseEvent::EET_SCROLL;
-								entry.mouse.v = ev.value("v", 0);
-								entry.mouse.h = ev.value("h", 0);
-							}
-							else if (kind == "click")
-							{
-								if (!ev.contains("button") || !ev.contains("action"))
-								{
-									m_logger->log("Scripted click event missing \"button\" or \"action\".", ILogger::ELL_WARNING);
-									continue;
-								}
-
-								const auto buttonStr = ev["button"].get<std::string>();
-								const auto actionStr = ev["action"].get<std::string>();
-
-								ui::E_MOUSE_BUTTON button = ui::EMB_LEFT_BUTTON;
-								if (buttonStr == "LEFT_BUTTON") button = ui::EMB_LEFT_BUTTON;
-								else if (buttonStr == "RIGHT_BUTTON") button = ui::EMB_RIGHT_BUTTON;
-								else if (buttonStr == "MIDDLE_BUTTON") button = ui::EMB_MIDDLE_BUTTON;
-								else if (buttonStr == "BUTTON_4") button = ui::EMB_BUTTON_4;
-								else if (buttonStr == "BUTTON_5") button = ui::EMB_BUTTON_5;
-								else
-								{
-									m_logger->log("Scripted click event has invalid button \"%s\".", ILogger::ELL_WARNING, buttonStr.c_str());
-									continue;
-								}
-
-								ui::SMouseEvent::SClickEvent::E_ACTION action = ui::SMouseEvent::SClickEvent::EA_UNITIALIZED;
-								if (actionStr == "pressed" || actionStr == "press")
-									action = ui::SMouseEvent::SClickEvent::EA_PRESSED;
-								else if (actionStr == "released" || actionStr == "release")
-									action = ui::SMouseEvent::SClickEvent::EA_RELEASED;
-
-								if (action == ui::SMouseEvent::SClickEvent::EA_UNITIALIZED)
-								{
-									m_logger->log("Scripted click event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
-									continue;
-								}
-
-								entry.mouse.type = ui::SMouseEvent::EET_CLICK;
-								entry.mouse.button = button;
-								entry.mouse.action = action;
-								entry.mouse.x = ev.value("x", 0);
-								entry.mouse.y = ev.value("y", 0);
-							}
-							else
-							{
-								m_logger->log("Scripted mouse event has invalid kind \"%s\".", ILogger::ELL_WARNING, kind.c_str());
-								continue;
-							}
-
-							m_scriptedInput.events.emplace_back(entry);
-							if (captureFrame)
-								m_scriptedInput.captureFrames.emplace_back(frame);
-						}
-						else if (type == "imguizmo")
-						{
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Imguizmo;
-
-							if (ev.contains("delta_trs"))
-							{
-								const auto arr = ev["delta_trs"].get<std::array<float, 16>>();
-								float m16[16];
-								for (size_t i = 0u; i < 16u; ++i)
-									m16[i] = arr[i];
-								entry.imguizmo = *reinterpret_cast<float32_t4x4*>(m16);
-							}
-							else
-							{
-								const auto t = ev.contains("translation") ? ev["translation"].get<std::array<float, 3>>() : std::array<float, 3>{0.f, 0.f, 0.f};
-								const auto r = ev.contains("rotation_deg") ? ev["rotation_deg"].get<std::array<float, 3>>() : std::array<float, 3>{0.f, 0.f, 0.f};
-								const auto s = ev.contains("scale") ? ev["scale"].get<std::array<float, 3>>() : std::array<float, 3>{1.f, 1.f, 1.f};
-
-								float m16[16];
-								float tr[3] = { t[0], t[1], t[2] };
-								float rot[3] = { r[0], r[1], r[2] };
-								float sc[3] = { s[0], s[1], s[2] };
-
-								ImGuizmo::RecomposeMatrixFromComponents(tr, rot, sc, m16);
-								entry.imguizmo = *reinterpret_cast<float32_t4x4*>(m16);
-							}
-
-							m_scriptedInput.events.emplace_back(entry);
-							if (captureFrame)
-								m_scriptedInput.captureFrames.emplace_back(frame);
-						}
-						else if (type == "action")
-						{
-							if (!ev.contains("action"))
-							{
-								m_logger->log("Scripted action event missing \"action\".", ILogger::ELL_WARNING);
-								continue;
-							}
-
-							const auto actionStr = ev["action"].get<std::string>();
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Action;
-
-							auto getValueInt = [&]() -> int32_t
-							{
-								if (ev.contains("value"))
-									return ev["value"].get<int32_t>();
-								if (ev.contains("index"))
-									return ev["index"].get<int32_t>();
-								return 0;
-							};
-
-							if (actionStr == "set_active_render_window")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow;
-								entry.action.value = getValueInt();
-							}
-							else if (actionStr == "set_active_planar")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetActivePlanar;
-								entry.action.value = getValueInt();
-							}
-							else if (actionStr == "set_projection_type")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetProjectionType;
-								if (ev.contains("value") && ev["value"].is_string())
-								{
-									const auto valueStr = ev["value"].get<std::string>();
-									if (valueStr == "perspective")
-										entry.action.value = static_cast<int32_t>(IPlanarProjection::CProjection::Perspective);
-									else if (valueStr == "orthographic")
-										entry.action.value = static_cast<int32_t>(IPlanarProjection::CProjection::Orthographic);
-									else
-									{
-										m_logger->log("Scripted action projection type has invalid value \"%s\".", ILogger::ELL_WARNING, valueStr.c_str());
-										continue;
-									}
-								}
-								else
-								{
-									entry.action.value = getValueInt();
-								}
-							}
-							else if (actionStr == "set_projection_index")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetProjectionIndex;
-								entry.action.value = getValueInt();
-							}
-							else if (actionStr == "set_use_window")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetUseWindow;
-								entry.action.value = ev.value("value", false) ? 1 : 0;
-							}
-							else if (actionStr == "set_left_handed")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::SetLeftHanded;
-								entry.action.value = ev.value("value", false) ? 1 : 0;
-							}
-							else if (actionStr == "reset_active_camera")
-							{
-								entry.action.kind = ScriptedInputEvent::ActionData::Kind::ResetActiveCamera;
-								entry.action.value = 1;
-							}
-							else
-							{
-								m_logger->log("Scripted action event has invalid action \"%s\".", ILogger::ELL_WARNING, actionStr.c_str());
-								continue;
-							}
-
-							m_scriptedInput.events.emplace_back(entry);
-							if (captureFrame)
-								m_scriptedInput.captureFrames.emplace_back(frame);
-						}
-						else
-						{
-							m_logger->log("Scripted input event has invalid type \"%s\".", ILogger::ELL_WARNING, type.c_str());
-						}
-						}
-
-					if (script.contains("checks"))
-					{
-						for (const auto& chk : script["checks"])
-						{
-							if (!chk.contains("frame") || !chk.contains("kind"))
-							{
-								m_logger->log("Scripted check missing \"frame\" or \"kind\".", ILogger::ELL_WARNING);
-								continue;
-							}
-
-							const auto frame = chk["frame"].get<uint64_t>();
-							const auto kind = chk["kind"].get<std::string>();
-
-							ScriptedInputCheck entry;
-							entry.frame = frame;
-
-							if (kind == "baseline")
-							{
-								entry.kind = ScriptedInputCheck::Kind::Baseline;
-							}
-							else if (kind == "imguizmo_virtual")
-							{
-								entry.kind = ScriptedInputCheck::Kind::ImguizmoVirtual;
-								entry.tolerance = chk.value("tolerance", entry.tolerance);
-
-								if (!chk.contains("events"))
-								{
-									m_logger->log("Imguizmo virtual check missing \"events\".", ILogger::ELL_WARNING);
-									continue;
-								}
-
-								for (const auto& ev : chk["events"])
-								{
-									if (!ev.contains("type") || !ev.contains("magnitude"))
-									{
-										m_logger->log("Imguizmo virtual check event missing \"type\" or \"magnitude\".", ILogger::ELL_WARNING);
-										continue;
-									}
-
-									const auto typeStr = ev["type"].get<std::string>();
-									const auto type = CVirtualGimbalEvent::stringToVirtualEvent(typeStr);
-									if (type == CVirtualGimbalEvent::None)
-									{
-										m_logger->log("Imguizmo virtual check event has invalid type \"%s\".", ILogger::ELL_WARNING, typeStr.c_str());
-										continue;
-									}
-
-									ScriptedInputCheck::ExpectedVirtualEvent expected;
-									expected.type = type;
-									expected.magnitude = ev["magnitude"].get<double>();
-									entry.expectedVirtualEvents.emplace_back(expected);
-								}
-							}
-							else if (kind == "gimbal_near")
-							{
-								entry.kind = ScriptedInputCheck::Kind::GimbalNear;
-								entry.posTolerance = chk.value("pos_tolerance", entry.posTolerance);
-								entry.eulerToleranceDeg = chk.value("euler_tolerance_deg", entry.eulerToleranceDeg);
-
-								if (chk.contains("position"))
-								{
-									const auto pos = chk["position"].get<std::array<float, 3>>();
-									entry.expectedPos = float32_t3(pos[0], pos[1], pos[2]);
-									entry.hasExpectedPos = true;
-								}
-								if (chk.contains("euler_deg"))
-								{
-									const auto euler = chk["euler_deg"].get<std::array<float, 3>>();
-									entry.expectedEulerDeg = float32_t3(euler[0], euler[1], euler[2]);
-									entry.hasExpectedEuler = true;
-								}
-							}
-							else if (kind == "gimbal_delta")
-							{
-								entry.kind = ScriptedInputCheck::Kind::GimbalDelta;
-								entry.posTolerance = chk.value("pos_tolerance", entry.posTolerance);
-								entry.eulerToleranceDeg = chk.value("euler_tolerance_deg", entry.eulerToleranceDeg);
-							}
-							else if (kind == "gimbal_step")
-							{
-								entry.kind = ScriptedInputCheck::Kind::GimbalStep;
-
-								if (chk.contains("min_pos_delta"))
-								{
-									entry.minPosDelta = chk["min_pos_delta"].get<float>();
-									entry.hasPosDeltaConstraint = true;
-								}
-								if (chk.contains("max_pos_delta"))
-								{
-									entry.posTolerance = chk["max_pos_delta"].get<float>();
-									entry.hasPosDeltaConstraint = true;
-								}
-								else if (chk.contains("pos_tolerance"))
-								{
-									entry.posTolerance = chk["pos_tolerance"].get<float>();
-									entry.hasPosDeltaConstraint = true;
-								}
-
-								if (chk.contains("min_euler_delta_deg"))
-								{
-									entry.minEulerDeltaDeg = chk["min_euler_delta_deg"].get<float>();
-									entry.hasEulerDeltaConstraint = true;
-								}
-								if (chk.contains("max_euler_delta_deg"))
-								{
-									entry.eulerToleranceDeg = chk["max_euler_delta_deg"].get<float>();
-									entry.hasEulerDeltaConstraint = true;
-								}
-								else if (chk.contains("euler_tolerance_deg"))
-								{
-									entry.eulerToleranceDeg = chk["euler_tolerance_deg"].get<float>();
-									entry.hasEulerDeltaConstraint = true;
-								}
-
-								if (!entry.hasPosDeltaConstraint && !entry.hasEulerDeltaConstraint)
-								{
-									m_logger->log("gimbal_step check requires at least one delta constraint.", ILogger::ELL_WARNING);
-									continue;
-								}
-							}
-							else
-							{
-								m_logger->log("Scripted check has invalid kind \"%s\".", ILogger::ELL_WARNING, kind.c_str());
-								continue;
-							}
-
-							m_scriptedInput.checks.emplace_back(entry);
-						}
-					}
-
-					std::sort(m_scriptedInput.events.begin(), m_scriptedInput.events.end(),
-						[](const ScriptedInputEvent& a, const ScriptedInputEvent& b) { return a.frame < b.frame; });
-					std::sort(m_scriptedInput.checks.begin(), m_scriptedInput.checks.end(),
-						[](const ScriptedInputCheck& a, const ScriptedInputCheck& b) { return a.frame < b.frame; });
-					if (!m_scriptedInput.captureFrames.empty())
-					{
-						std::sort(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end());
-						m_scriptedInput.captureFrames.erase(std::unique(m_scriptedInput.captureFrames.begin(), m_scriptedInput.captureFrames.end()), m_scriptedInput.captureFrames.end());
-					}
-					if (m_disableScreenshotsCli)
-					{
-						m_scriptedInput.captureFrames.clear();
-						m_scriptedInput.nextCaptureIndex = 0;
-					}
+					pendingScriptedSequence = std::move(parsed.sequence);
+					m_scriptedInput.timeline = std::move(parsed.timeline);
+					finalizeScriptedInput();
 				};
 
 				if (program.is_used("--script"))
@@ -2439,85 +2298,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					auto expandCameraSequenceScript = [&](const CCameraSequenceScript& sequence) -> bool
 					{
-						m_scriptedInput.events.clear();
-						m_scriptedInput.checks.clear();
-						m_scriptedInput.captureFrames.clear();
-						m_scriptedInput.nextEventIndex = 0;
-						m_scriptedInput.nextCheckIndex = 0;
-						m_scriptedInput.nextCaptureIndex = 0;
-						m_scriptedInput.failed = false;
-						m_scriptedInput.summaryReported = false;
-						m_scriptedInput.baselineValid = false;
-						m_scriptedInput.stepValid = false;
-
-						auto pushAction = [&](const uint64_t frame, const ScriptedInputEvent::ActionData::Kind kind, const int32_t value) -> void
-						{
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Action;
-							entry.action.kind = kind;
-							entry.action.value = value;
-							m_scriptedInput.events.emplace_back(std::move(entry));
-						};
-
-						auto pushGoal = [&](const uint64_t frame, const CCameraGoal& goal) -> void
-						{
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::Goal;
-							entry.goal.goal = goal;
-							entry.goal.requireExact = true;
-							m_scriptedInput.events.emplace_back(std::move(entry));
-						};
-
-						auto pushTrackedTargetTransform = [&](const uint64_t frame, const CCameraSequenceTrackedTargetPose& pose) -> void
-						{
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::TrackedTargetTransform;
-							ICamera::CGimbal gimbal({ .position = pose.position, .orientation = pose.orientation });
-							entry.trackedTargetTransform.transform = gimbal.operator()<float64_t4x4>();
-							m_scriptedInput.events.emplace_back(std::move(entry));
-						};
-
-						auto pushSegmentLabel = [&](const uint64_t frame, std::string label) -> void
-						{
-							ScriptedInputEvent entry;
-							entry.frame = frame;
-							entry.type = ScriptedInputEvent::Type::SegmentLabel;
-							entry.segmentLabel.label = std::move(label);
-							m_scriptedInput.events.emplace_back(std::move(entry));
-						};
-
-						auto pushStepCheck = [&](const uint64_t frame, const CCameraSequenceContinuitySettings& continuity) -> void
-						{
-							ScriptedInputCheck entry;
-							entry.frame = frame;
-							entry.kind = ScriptedInputCheck::Kind::GimbalStep;
-							if (continuity.hasPosDeltaConstraint)
-							{
-								entry.hasPosDeltaConstraint = true;
-								entry.minPosDelta = continuity.minPosDelta;
-								entry.posTolerance = continuity.maxPosDelta;
-							}
-							if (continuity.hasEulerDeltaConstraint)
-							{
-								entry.hasEulerDeltaConstraint = true;
-								entry.minEulerDeltaDeg = continuity.minEulerDeltaDeg;
-								entry.eulerToleranceDeg = continuity.maxEulerDeltaDeg;
-							}
-							m_scriptedInput.checks.emplace_back(std::move(entry));
-						};
-
-						auto pushFollowTargetLockCheck = [&](const uint64_t frame, const float toleranceDeg = 1.0f, const float screenToleranceNdc = 0.03f) -> void
-						{
-							ScriptedInputCheck entry;
-							entry.frame = frame;
-							entry.kind = ScriptedInputCheck::Kind::FollowTargetLock;
-							entry.eulerToleranceDeg = toleranceDeg;
-							entry.posTolerance = screenToleranceNdc;
-							m_scriptedInput.checks.emplace_back(std::move(entry));
-						};
+						CCameraScriptedTimeline timeline;
+						resetScriptedInputRuntimeState();
 
 						auto resolvePlanarIx = [&](const CCameraSequenceSegment& segment) -> std::optional<uint32_t>
 						{
@@ -2541,7 +2323,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						};
 
 						const bool useWindow = nbl::hlsl::sequenceScriptUsesMultiplePresentations(sequence);
-						pushAction(0u, ScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
+						nbl::hlsl::appendScriptedActionEvent(timeline, 0u, CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow, useWindow ? 1 : 0);
 
 						const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
 							.position = getDefaultFollowTargetPosition(),
@@ -2558,8 +2340,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 									segment.name.c_str(), kindLabel.c_str(), segment.cameraIdentifier.c_str());
 								return false;
 							}
-
-							pushSegmentLabel(frameCursor, segment.name);
 							const bool useTrackedTargetFollow = nbl::hlsl::sequenceSegmentUsesTrackedTargetTrack(segment) &&
 								planarIx.value() < m_planarFollowConfigs.size() &&
 								m_planarFollowConfigs[planarIx.value()].enabled &&
@@ -2585,71 +2365,29 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 									ILogger::ELL_WARNING, segment.name.c_str(), compiledSegment.presentations.size(), windowBindings.size());
 							}
 
-							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
-							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
-							if (!compiledSegment.presentations.empty())
+							std::string buildError;
+							if (!nbl::hlsl::appendCompiledSequenceSegmentToScriptedTimeline(
+								timeline,
+								frameCursor,
+								compiledSegment,
+								{
+									.planarIx = planarIx.value(),
+									.availableWindowCount = windowBindings.size(),
+									.useWindow = useWindow,
+									.includeFollowTargetLock = useTrackedTargetFollow
+								},
+								&buildError))
 							{
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(compiledSegment.presentations[0].projection));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, compiledSegment.presentations[0].leftHanded ? 1 : 0);
-							}
-							if (compiledSegment.resetCamera)
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::ResetActiveCamera, 1);
-
-							for (size_t windowIx = 1u; windowIx < std::min(compiledSegment.presentations.size(), windowBindings.size()); ++windowIx)
-							{
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, static_cast<int32_t>(windowIx));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActivePlanar, static_cast<int32_t>(planarIx.value()));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetProjectionType, static_cast<int32_t>(compiledSegment.presentations[windowIx].projection));
-								pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetLeftHanded, compiledSegment.presentations[windowIx].leftHanded ? 1 : 0);
-							}
-							pushAction(frameCursor, ScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow, 0);
-
-							std::vector<nbl::hlsl::CCameraSequenceCompiledFramePolicy> framePolicies;
-							if (!nbl::hlsl::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, useTrackedTargetFollow))
-							{
-								logFail("Sequence segment \"%s\" failed to build compiled frame policies.", segment.name.c_str());
+								logFail("Sequence segment \"%s\" failed to build scripted runtime data: %s",
+									segment.name.c_str(), buildError.c_str());
 								return false;
-							}
-
-							for (const auto& policy : framePolicies)
-							{
-								CCameraPreset preset;
-								if (!tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
-								{
-									logFail("Sequence segment \"%s\" failed to sample track at t=%f.", segment.name.c_str(), policy.sampleTime);
-									return false;
-								}
-								pushGoal(frameCursor + policy.frameOffset, makeGoalFromPreset(preset));
-								if (compiledSegment.usesTrackedTargetTrack())
-								{
-									CCameraSequenceTrackedTargetPose trackedTargetPose;
-									if (!nbl::hlsl::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
-									{
-										logFail("Sequence segment \"%s\" failed to sample tracked-target track at t=%f.", segment.name.c_str(), policy.sampleTime);
-										return false;
-									}
-									pushTrackedTargetTransform(frameCursor + policy.frameOffset, trackedTargetPose);
-								}
-
-								if (policy.baseline)
-								{
-									ScriptedInputCheck baseline;
-									baseline.frame = frameCursor + policy.frameOffset;
-									baseline.kind = ScriptedInputCheck::Kind::Baseline;
-									m_scriptedInput.checks.emplace_back(std::move(baseline));
-								}
-								if (policy.continuityStep)
-									pushStepCheck(frameCursor + policy.frameOffset, compiledSegment.continuity);
-								if (policy.followTargetLock)
-									pushFollowTargetLockCheck(frameCursor + policy.frameOffset);
-								if (policy.capture)
-									m_scriptedInput.captureFrames.emplace_back(frameCursor + policy.frameOffset);
 							}
 
 							frameCursor += compiledSegment.durationFrames;
 						}
 
-						finalizeScriptedInput();
+						nbl::hlsl::finalizeScriptedTimeline(timeline, m_disableScreenshotsCli);
+						m_scriptedInput.timeline = std::move(timeline);
 						return true;
 					};
 

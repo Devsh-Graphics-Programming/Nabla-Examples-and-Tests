@@ -110,7 +110,16 @@ FAIL means missing movement, out-of-range movement, invalid state, or missing re
 Goal: verify smooth frame-to-frame behavior (no visible teleport-like jumps).
 
 The continuity asset is now a compact authored camera-sequence spec, not a committed frame dump.
-`61_UI` first compiles that shared camera-domain description into normalized sampled segments and shared frame-policy schedules, and only then expands it into its own runtime scripted checks.
+
+`61_UI` also consumes shared scripted runtime helpers:
+
+- `CCameraScriptedRuntime.hpp` for expanded per-frame payload types
+- `CCameraScriptedRuntimePersistence.hpp` for low-level scripted JSON parsing and backward compatibility
+- `CCameraSequenceScriptedBuilder.hpp` for compact-sequence to scripted-runtime expansion
+- `CCameraScriptedCheckRunner.hpp` for baseline/step/follow-lock check evaluation
+
+The example keeps only the runtime-object lookup and logging glue locally.
+`61_UI` first compiles that shared camera-domain description into normalized sampled segments and shared frame-policy schedules, then feeds the shared scripted-runtime contract before adapting it to the local example loop.
 
 Per authored segment:
 
