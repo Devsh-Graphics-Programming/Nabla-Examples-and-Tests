@@ -247,16 +247,6 @@ static smart_refctd_ptr<IGPUFramebuffer> createSceneFramebuffer(ILogicalDevice* 
 	return device->createFramebuffer(std::move(params));
 }
 
-/*
-	Renders scene texture to an offline
-	framebuffer which color attachment
-	is then sampled into a imgui window.
-
-	Written with Nabla, it's UI extension
-	and got integrated with ImGuizmo to 
-	handle scene's object translations.
-*/
-
 class App final : public examples::SimpleWindowedApplication
 {
 	using base_t = examples::SimpleWindowedApplication;

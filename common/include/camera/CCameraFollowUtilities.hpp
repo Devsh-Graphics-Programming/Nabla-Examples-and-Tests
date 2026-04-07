@@ -25,8 +25,8 @@ public:
     using gimbal_t = ICamera::CGimbal;
 
     CTrackedTarget(
-        const float64_t3& position = float64_t3(0.0),
-        const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>(),
+        const hlsl::float64_t3& position = hlsl::float64_t3(0.0),
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>(),
         std::string identifier = "Follow Target")
         : m_identifier(std::move(identifier)),
         m_gimbal({ .position = position, .orientation = orientation })
@@ -38,7 +38,7 @@ public:
     inline const gimbal_t& getGimbal() const { return m_gimbal; }
     inline gimbal_t& getGimbal() { return m_gimbal; }
 
-    inline void setPose(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation)
+    inline void setPose(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
     {
         m_gimbal.begin();
         m_gimbal.setPosition(position);
@@ -47,25 +47,25 @@ public:
         m_gimbal.updateView();
     }
 
-    inline void setPosition(const float64_t3& position)
+    inline void setPosition(const hlsl::float64_t3& position)
     {
         setPose(position, m_gimbal.getOrientation());
     }
 
-    inline void setOrientation(const camera_quaternion_t<float64_t>& orientation)
+    inline void setOrientation(const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
     {
         setPose(m_gimbal.getPosition(), orientation);
     }
 
-    inline bool trySetFromTransform(const float64_t4x4& transform)
+    inline bool trySetFromTransform(const hlsl::float64_t4x4& transform)
     {
-        const auto right = normalize(float64_t3(transform[0]));
-        const auto up = normalize(float64_t3(transform[1]));
-        const auto forward = normalize(float64_t3(transform[2]));
-        if (!isOrthoBase(right, up, forward))
+        const auto right = hlsl::normalize(hlsl::float64_t3(transform[0]));
+        const auto up = hlsl::normalize(hlsl::float64_t3(transform[1]));
+        const auto forward = hlsl::normalize(hlsl::float64_t3(transform[2]));
+        if (!hlsl::isOrthoBase(right, up, forward))
             return false;
 
-        setPose(float64_t3(transform[3]), makeQuaternionFromBasis(right, up, forward));
+        setPose(hlsl::float64_t3(transform[3]), hlsl::makeQuaternionFromBasis(right, up, forward));
         return true;
     }
 
@@ -101,8 +101,8 @@ struct SCameraFollowConfig
 {
     bool enabled = false;
     ECameraFollowMode mode = ECameraFollowMode::OrbitTarget;
-    float64_t3 worldOffset = float64_t3(0.0);
-    float64_t3 localOffset = float64_t3(0.0);
+    hlsl::float64_t3 worldOffset = hlsl::float64_t3(0.0);
+    hlsl::float64_t3 localOffset = hlsl::float64_t3(0.0);
 };
 
 inline constexpr bool cameraFollowModeLocksViewToTarget(const ECameraFollowMode mode)
@@ -157,59 +157,59 @@ inline constexpr bool cameraFollowModeUsesCapturedOffset(const ECameraFollowMode
     return cameraFollowModeUsesWorldOffset(mode) || cameraFollowModeUsesLocalOffset(mode);
 }
 
-inline float64_t3 transformFollowLocalOffset(const ICamera::CGimbal& gimbal, const float64_t3& localOffset)
+inline hlsl::float64_t3 transformFollowLocalOffset(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& localOffset)
 {
     return gimbal.getXAxis() * localOffset.x +
         gimbal.getYAxis() * localOffset.y +
         gimbal.getZAxis() * localOffset.z;
 }
 
-inline float64_t3 projectFollowWorldOffsetToLocal(const ICamera::CGimbal& gimbal, const float64_t3& worldOffset)
+inline hlsl::float64_t3 projectFollowWorldOffsetToLocal(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& worldOffset)
 {
-    return float64_t3(
+    return hlsl::float64_t3(
         hlsl::dot(worldOffset, gimbal.getXAxis()),
         hlsl::dot(worldOffset, gimbal.getYAxis()),
         hlsl::dot(worldOffset, gimbal.getZAxis()));
 }
 
 inline bool buildFollowLookAtOrientation(
-    const float64_t3& position,
-    const float64_t3& targetPosition,
-    const float64_t3& preferredUp,
-    camera_quaternion_t<float64_t>& outOrientation)
+    const hlsl::float64_t3& position,
+    const hlsl::float64_t3& targetPosition,
+    const hlsl::float64_t3& preferredUp,
+    hlsl::camera_quaternion_t<hlsl::float64_t>& outOrientation)
 {
     const auto toTarget = targetPosition - position;
-    const double toTargetLength = length(toTarget);
+    const double toTargetLength = hlsl::length(toTarget);
     if (!std::isfinite(toTargetLength) || toTargetLength <= 1e-9)
         return false;
 
     const auto forward = toTarget / toTargetLength;
     auto up = preferredUp;
-    if (!isFiniteVec3(up) || length(up) <= 1e-9)
-        up = float64_t3(0.0, 0.0, 1.0);
+    if (!isFiniteVec3(up) || hlsl::length(up) <= 1e-9)
+        up = hlsl::float64_t3(0.0, 0.0, 1.0);
     else
-        up = normalize(up);
+        up = hlsl::normalize(up);
 
-    auto right = cross(up, forward);
-    if (!isFiniteVec3(right) || length(right) <= 1e-9)
+    auto right = hlsl::cross(up, forward);
+    if (!isFiniteVec3(right) || hlsl::length(right) <= 1e-9)
     {
-        const auto fallbackUp = std::abs(forward.z) < 0.99 ? float64_t3(0.0, 0.0, 1.0) : float64_t3(0.0, 1.0, 0.0);
-        right = cross(fallbackUp, forward);
-        if (!isFiniteVec3(right) || length(right) <= 1e-9)
+        const auto fallbackUp = std::abs(forward.z) < 0.99 ? hlsl::float64_t3(0.0, 0.0, 1.0) : hlsl::float64_t3(0.0, 1.0, 0.0);
+        right = hlsl::cross(fallbackUp, forward);
+        if (!isFiniteVec3(right) || hlsl::length(right) <= 1e-9)
             return false;
     }
-    right = normalize(right);
-    up = normalize(cross(forward, right));
-    if (!isOrthoBase(right, up, forward))
+    right = hlsl::normalize(right);
+    up = hlsl::normalize(hlsl::cross(forward, right));
+    if (!hlsl::isOrthoBase(right, up, forward))
         return false;
 
-    outOrientation = makeQuaternionFromBasis(right, up, forward);
+    outOrientation = hlsl::makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
 inline bool applyFollowSphericalPose(
     CCameraGoal& goal,
-    const float64_t3& targetPosition,
+    const hlsl::float64_t3& targetPosition,
     const double orbitU,
     const double orbitV,
     const float distance)
@@ -218,18 +218,18 @@ inline bool applyFollowSphericalPose(
         return false;
 
     const float clampedDistance = std::clamp(distance, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
-    const float64_t3 spherePosition(
+    const hlsl::float64_t3 spherePosition(
         std::cos(orbitV) * std::cos(orbitU) * static_cast<double>(clampedDistance),
         std::cos(orbitV) * std::sin(orbitU) * static_cast<double>(clampedDistance),
         std::sin(orbitV) * static_cast<double>(clampedDistance));
 
-    const auto forward = normalize(-spherePosition);
-    const auto up = normalize(float64_t3(
+    const auto forward = hlsl::normalize(-spherePosition);
+    const auto up = hlsl::normalize(hlsl::float64_t3(
         -std::sin(orbitV) * std::cos(orbitU),
         -std::sin(orbitV) * std::sin(orbitU),
         std::cos(orbitV)));
-    const auto right = normalize(cross(up, forward));
-    if (!isOrthoBase(right, up, forward))
+    const auto right = hlsl::normalize(hlsl::cross(up, forward));
+    if (!hlsl::isOrthoBase(right, up, forward))
         return false;
 
     goal.hasTargetPosition = true;
@@ -241,14 +241,14 @@ inline bool applyFollowSphericalPose(
     goal.orbitV = orbitV;
     goal.orbitDistance = clampedDistance;
     goal.position = targetPosition + spherePosition;
-    goal.orientation = makeQuaternionFromBasis(right, up, forward);
+    goal.orientation = hlsl::makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
-inline bool buildFollowSphericalGoalFromPose(CCameraGoal& goal, const float64_t3& targetPosition, const float64_t3& position)
+inline bool buildFollowSphericalGoalFromPose(CCameraGoal& goal, const hlsl::float64_t3& targetPosition, const hlsl::float64_t3& position)
 {
     const auto offset = position - targetPosition;
-    const double distance = length(offset);
+    const double distance = hlsl::length(offset);
     if (!std::isfinite(distance) || distance <= 1e-9)
         return false;
 
@@ -283,16 +283,16 @@ inline bool tryComputeFollowTargetLockMetrics(
     double* outDistance = nullptr)
 {
     const auto toTarget = trackedTarget.getGimbal().getPosition() - cameraGimbal.getPosition();
-    const auto targetDistance = length(toTarget);
+    const auto targetDistance = hlsl::length(toTarget);
     if (!std::isfinite(targetDistance) || targetDistance <= 1e-9)
         return false;
 
-    const auto forward = normalize(cameraGimbal.getZAxis());
-    if (!isFiniteVec3(forward) || length(forward) <= 1e-9)
+    const auto forward = hlsl::normalize(cameraGimbal.getZAxis());
+    if (!isFiniteVec3(forward) || hlsl::length(forward) <= 1e-9)
         return false;
 
     const auto targetDir = toTarget / targetDistance;
-    const auto dotForward = std::clamp(dot(forward, targetDir), -1.0, 1.0);
+    const auto dotForward = std::clamp(hlsl::dot(forward, targetDir), -1.0, 1.0);
     outAngleDeg = static_cast<float>(hlsl::degrees(std::acos(dotForward)));
     if (!std::isfinite(outAngleDeg))
         return false;

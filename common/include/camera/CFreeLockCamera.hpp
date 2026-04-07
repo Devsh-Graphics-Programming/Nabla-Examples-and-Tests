@@ -15,7 +15,7 @@ class CFreeCamera final : public ICamera
 public:
     using base_t = ICamera;
 
-    CFreeCamera(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>())
+    CFreeCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
     ~CFreeCamera() = default;
 
@@ -24,7 +24,7 @@ public:
         return m_gimbal;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
@@ -39,12 +39,12 @@ public:
 
         m_gimbal.begin();
         {
-            const auto pitch = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[0])), impulse.dVirtualRotation.x);
-            const auto yaw = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[1])), impulse.dVirtualRotation.y);
-            const auto roll = makeQuaternionFromAxisAngle(normalize(float64_t3(reference.frame[2])), impulse.dVirtualRotation.z);
+            const auto pitch = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[0])), impulse.dVirtualRotation.x);
+            const auto yaw = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[1])), impulse.dVirtualRotation.y);
+            const auto roll = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[2])), impulse.dVirtualRotation.z);
 
-            m_gimbal.setOrientation(normalizeQuaternion(yaw * pitch * roll * reference.orientation));
-            m_gimbal.setPosition(float64_t3(reference.frame[3]) + rotateVectorByQuaternion(reference.orientation, float64_t3(impulse.dVirtualTranslate)));
+            m_gimbal.setOrientation(hlsl::normalizeQuaternion(yaw * pitch * roll * reference.orientation));
+            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 

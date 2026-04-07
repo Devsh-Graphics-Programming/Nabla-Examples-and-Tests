@@ -14,7 +14,7 @@ class CDollyZoomCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    CDollyZoomCamera(const float64_t3& position, const float64_t3& target, float baseFov = 40.0f)
+    CDollyZoomCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, float baseFov = 40.0f)
         : base_t(position, target), m_baseFov(baseFov), m_referenceDistance(m_distance)
     {
         applyPose();
@@ -38,7 +38,7 @@ public:
         return static_cast<float>(std::clamp(fovDeg, 10.0, 150.0));
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;

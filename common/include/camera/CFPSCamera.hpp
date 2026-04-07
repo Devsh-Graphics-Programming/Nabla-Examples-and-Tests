@@ -19,7 +19,7 @@ public:
     static inline constexpr float HalfPi = 1.57079632679489661923f;
     static inline constexpr float RadToDeg = 57.2957795130823208768f;
 
-    CFPSCamera(const float64_t3& position, const camera_quaternion_t<float64_t>& orientation = makeIdentityQuaternion<float64_t>())
+    CFPSCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
     {
         m_gimbal.begin();
@@ -30,7 +30,7 @@ public:
             const float gForwardZ = static_cast<float>(gForward.z);
             const float gPitch = std::atan2(std::hypot(gForwardX, gForwardZ), gForwardY) - HalfPi;
             const float gYaw = std::atan2(gForwardX, gForwardZ);
-            m_gimbal.setOrientation(makeQuaternionFromEulerRadians(float64_t3(gPitch, gYaw, 0.0f)));
+            m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadians(hlsl::float64_t3(gPitch, gYaw, 0.0f)));
         }
         m_gimbal.end();
     }
@@ -41,7 +41,7 @@ public:
         return m_gimbal;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
@@ -86,8 +86,8 @@ public:
             const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * getRotationSpeedScale(), MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * getRotationSpeedScale();
 
             if (validateReference())
-                m_gimbal.setOrientation(makeQuaternionFromEulerRadians(float64_t3(newPitch, newYaw, 0.0f)));
-            m_gimbal.setPosition(float64_t3(reference.frame[3]) + rotateVectorByQuaternion(reference.orientation, float64_t3(impulse.dVirtualTranslate)));
+                m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadians(hlsl::float64_t3(newPitch, newYaw, 0.0f)));
+            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 

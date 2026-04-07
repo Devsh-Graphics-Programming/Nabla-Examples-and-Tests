@@ -393,7 +393,7 @@ private:
 
     struct SSphericalGoal
     {
-        float64_t3 target = float64_t3(0.0);
+        hlsl::float64_t3 target = hlsl::float64_t3(0.0);
         double u = 0.0;
         double v = 0.0;
         float distance = 0.f;
@@ -421,18 +421,18 @@ private:
         return rotationScale == 0.0 ? 1.0 : rotationScale;
     }
 
-    inline std::pair<double, double> computePitchYawFromOrientation(const camera_quaternion_t<float64_t>& orientation) const
+    inline std::pair<double, double> computePitchYawFromOrientation(const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation) const
     {
-        const auto mat = getQuaternionBasisMatrix(orientation);
-        const auto forward = float64_t3(mat[2][0], mat[2][1], mat[2][2]);
+        const auto mat = hlsl::getQuaternionBasisMatrix(orientation);
+        const auto forward = hlsl::float64_t3(mat[2][0], mat[2][1], mat[2][2]);
         const double pitch = std::atan2(std::sqrt(forward.x * forward.x + forward.z * forward.z), forward.y) - HalfPi;
         const double yaw = std::atan2(forward.x, forward.z);
         return { pitch, yaw };
     }
 
-    inline float64_t3 extractYawPitchRollYXZ(const camera_quaternion_t<float64_t>& delta) const
+    inline hlsl::float64_t3 extractYawPitchRollYXZ(const hlsl::camera_quaternion_t<hlsl::float64_t>& delta) const
     {
-        const auto m = getMatrix3x3As4x4(getQuaternionBasisMatrix(delta));
+        const auto m = hlsl::getMatrix3x3As4x4(hlsl::getQuaternionBasisMatrix(delta));
         const double yaw = std::atan2(static_cast<double>(m[2][0]), static_cast<double>(m[2][2]));
         const double c2 = std::sqrt(static_cast<double>(m[0][1] * m[0][1] + m[1][1] * m[1][1]));
         const double pitch = std::atan2(-static_cast<double>(m[2][1]), c2);
@@ -441,7 +441,7 @@ private:
         const double roll = std::atan2(
             s1 * static_cast<double>(m[1][2]) - c1 * static_cast<double>(m[1][0]),
             c1 * static_cast<double>(m[0][0]) - s1 * static_cast<double>(m[0][2]));
-        return float64_t3(pitch, yaw, roll);
+        return hlsl::float64_t3(pitch, yaw, roll);
     }
 
     inline bool computePoseMismatch(ICamera* camera, const CCameraGoal& target, double& outPositionDelta, double& outRotationDeltaDeg) const
@@ -453,15 +453,15 @@ private:
 
         const auto& gimbal = camera->getGimbal();
         const auto currentPos = gimbal.getPosition();
-        const auto currentOrientation = normalizeQuaternion(gimbal.getOrientation());
-        const auto targetOrientation = normalizeQuaternion(target.orientation);
+        const auto currentOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
+        const auto targetOrientation = hlsl::normalizeQuaternion(target.orientation);
 
         const double dx = static_cast<double>(currentPos.x - target.position.x);
         const double dy = static_cast<double>(currentPos.y - target.position.y);
         const double dz = static_cast<double>(currentPos.z - target.position.z);
         outPositionDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        outRotationDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, targetOrientation);
+        outRotationDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, targetOrientation);
         return std::isfinite(outPositionDelta) && std::isfinite(outRotationDeltaDeg);
     }
 
@@ -492,8 +492,8 @@ private:
             return true;
         }
 
-        auto targetFrame = getMatrix3x3As4x4(getQuaternionBasisMatrix(target.orientation));
-        targetFrame[3] = float64_t4(target.position, 1.0);
+        auto targetFrame = hlsl::getMatrix3x3As4x4(hlsl::getQuaternionBasisMatrix(target.orientation));
+        targetFrame[3] = hlsl::float64_t4(target.position, 1.0);
 
         camera->manipulate({}, &targetFrame);
 
@@ -507,11 +507,11 @@ private:
         return true;
     }
 
-    inline bool computeOrbitStateFromPositionTarget(const float64_t3& position, const float64_t3& target,
+    inline bool computeOrbitStateFromPositionTarget(const hlsl::float64_t3& position, const hlsl::float64_t3& target,
         double& outU, double& outV, float& outDistance, float minDistance, float maxDistance) const
     {
         const auto localSpherePosition = position - target;
-        const double dist = length(localSpherePosition);
+        const double dist = hlsl::length(localSpherePosition);
         if (!std::isfinite(dist))
             return false;
 
@@ -557,8 +557,8 @@ private:
     inline bool buildOrbitTranslateEvents(ICamera* camera, const ICamera::SphericalTargetState& sphericalState, const SSphericalGoal& goal, std::vector<CVirtualGimbalEvent>& out) const
     {
         const double moveDenom = getMoveMagnitudeDenominator(camera);
-        appendSignedEvent(out, wrapAngleRad(goal.v - sphericalState.v) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-        appendSignedEvent(out, wrapAngleRad(goal.u - sphericalState.u) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendSignedEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendSignedEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
         appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
         return !out.empty();
     }
@@ -569,9 +569,9 @@ private:
     {
         const double rotationDenom = getRotationMagnitudeDenominator(camera);
         if (allowYaw)
-            appendSignedEvent(out, wrapAngleRad(goal.u - sphericalState.u) / rotationDenom, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+            appendSignedEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u) / rotationDenom, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
         if (allowPitch)
-            appendSignedEvent(out, wrapAngleRad(goal.v - sphericalState.v) / rotationDenom, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+            appendSignedEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v) / rotationDenom, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
         if (distancePositive != CVirtualGimbalEvent::None && distanceNegative != CVirtualGimbalEvent::None)
             appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, distancePositive, distanceNegative);
         return !out.empty();
@@ -596,7 +596,7 @@ private:
         const double moveDenom = getMoveMagnitudeDenominator(camera);
         appendSignedEvent(out, (desiredRadius - currentRadius) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
         appendSignedEvent(out, (desiredHeight - currentHeight) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-        appendSignedEvent(out, wrapAngleRad(desiredAngle - currentAngle) / moveDenom, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+        appendSignedEvent(out, hlsl::wrapAngleRad(desiredAngle - currentAngle) / moveDenom, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
         return !out.empty();
     }
 
@@ -649,7 +649,7 @@ private:
         const auto forward = gimbal.getZAxis();
 
         const auto deltaWorld = target.position - currentPos;
-        const float64_t3 localDelta(
+        const hlsl::float64_t3 localDelta(
             hlsl::dot(deltaWorld, right),
             hlsl::dot(deltaWorld, up),
             hlsl::dot(deltaWorld, forward));
@@ -668,8 +668,8 @@ private:
                 const double rotScale = camera->getRotationSpeedScale();
                 const double invScale = rotScale == 0.0 ? 1.0 : (1.0 / rotScale);
 
-                const double deltaPitch = wrapAngleRad(tgtPitch - curPitch) * invScale;
-                const double deltaYaw = wrapAngleRad(tgtYaw - curYaw) * invScale;
+                const double deltaPitch = hlsl::wrapAngleRad(tgtPitch - curPitch) * invScale;
+                const double deltaYaw = hlsl::wrapAngleRad(tgtYaw - curYaw) * invScale;
 
                 appendSignedEvent(out, deltaPitch, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
                 appendSignedEvent(out, deltaYaw, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
@@ -677,7 +677,7 @@ private:
 
             case ICamera::CameraKind::Free:
             {
-                const auto deltaQuat = inverseQuaternion(gimbal.getOrientation()) * normalizeQuaternion(target.orientation);
+                const auto deltaQuat = hlsl::inverseQuaternion(gimbal.getOrientation()) * hlsl::normalizeQuaternion(target.orientation);
                 const auto angles = extractYawPitchRollYXZ(deltaQuat);
 
                 appendSignedEvent(out, angles.x, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);

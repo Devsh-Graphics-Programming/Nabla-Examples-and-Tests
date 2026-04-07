@@ -70,7 +70,7 @@ public:
 
     virtual void project(const projection_vector_t& vecToProjectionSpace, projection_vector_t& output) const override
     {
-        auto direction = normalize(vecToProjectionSpace);
+        auto direction = hlsl::normalize(vecToProjectionSpace);
 
         // Cube-face projection is not implemented yet.
     }

@@ -14,7 +14,7 @@ class CPathCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    CPathCamera(const float64_t3& position, const float64_t3& target)
+    CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
         const auto offset = position - target;
@@ -29,7 +29,7 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
@@ -105,7 +105,7 @@ private:
     {
         const double x = std::cos(m_pathAngle) * m_pathRadius;
         const double z = std::sin(m_pathAngle) * m_pathRadius;
-        const float64_t3 position = m_targetPosition + float64_t3(x, m_pathHeight, z);
+        const hlsl::float64_t3 position = m_targetPosition + hlsl::float64_t3(x, m_pathHeight, z);
         initFromPosition(position);
         return applyPose();
     }

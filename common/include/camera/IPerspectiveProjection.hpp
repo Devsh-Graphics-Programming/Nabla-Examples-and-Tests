@@ -36,7 +36,7 @@ public:
 
         inline void setQuadTransform(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport)
         {
-            auto concatenated = mul(getMatrix3x4As4x4(pretransform), viewport);
+            auto concatenated = hlsl::mul(hlsl::getMatrix3x4As4x4(pretransform), viewport);
             base_t::setProjectionMatrix(concatenated);
 
             m_pretransform = pretransform;

@@ -20,13 +20,13 @@ namespace nbl::core
 */
 struct CCameraGoal
 {
-    float64_t3 position = float64_t3(0.0);
-    camera_quaternion_t<float64_t> orientation = makeIdentityQuaternion<float64_t>();
+    hlsl::float64_t3 position = hlsl::float64_t3(0.0);
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
     uint32_t sourceCapabilities = ICamera::None;
     uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
     bool hasTargetPosition = false;
-    float64_t3 targetPosition = float64_t3(0.0);
+    hlsl::float64_t3 targetPosition = hlsl::float64_t3(0.0);
     bool hasDistance = false;
     float distance = 0.f;
     bool hasOrbitState = false;
@@ -68,11 +68,11 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
     if (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height))
         return false;
 
-    const float64_t3 offset(
+    const hlsl::float64_t3 offset(
         std::cos(goal.pathState.angle) * goal.pathState.radius,
         goal.pathState.height,
         std::sin(goal.pathState.angle) * goal.pathState.radius);
-    const double distance = length(offset);
+    const double distance = hlsl::length(offset);
     if (!std::isfinite(distance) || distance <= 1e-9)
         return false;
 
@@ -84,7 +84,7 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
     goal.orbitU = std::atan2(local.y, local.x);
     goal.orbitV = std::asin(std::clamp(local.z, -1.0, 1.0));
 
-    const float64_t3 spherePosition(
+    const hlsl::float64_t3 spherePosition(
         std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
         std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
         std::sin(goal.orbitV) * static_cast<double>(appliedDistance));
@@ -95,13 +95,13 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
     goal.hasOrbitState = true;
     goal.orbitDistance = appliedDistance;
 
-    const auto forward = normalize(-spherePosition);
-    const float64_t3 up = normalize(float64_t3(
+    const auto forward = hlsl::normalize(-spherePosition);
+    const hlsl::float64_t3 up = hlsl::normalize(hlsl::float64_t3(
         -std::sin(goal.orbitV) * std::cos(goal.orbitU),
         -std::sin(goal.orbitV) * std::sin(goal.orbitU),
         std::cos(goal.orbitV)));
-    const float64_t3 right = normalize(cross(up, forward));
-    goal.orientation = makeQuaternionFromBasis(right, up, forward);
+    const hlsl::float64_t3 right = hlsl::normalize(hlsl::cross(up, forward));
+    goal.orientation = hlsl::makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -127,7 +127,7 @@ inline bool nearlyEqualVec3(const VecA& a, const VecB& b, const double epsilon)
 
 inline bool isGoalFinite(const CCameraGoal& goal)
 {
-    if (!isFiniteVec3(goal.position) || !isFiniteQuaternion(goal.orientation))
+    if (!isFiniteVec3(goal.position) || !hlsl::isFiniteQuaternion(goal.orientation))
         return false;
     if (goal.hasTargetPosition && !isFiniteVec3(goal.targetPosition))
         return false;
@@ -156,16 +156,16 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
         return std::abs(d - Pi);
     };
 
-    const auto currentOrientation = normalizeQuaternion(actual.orientation);
-    const auto expectedOrientation = normalizeQuaternion(expected.orientation);
-    if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !isFiniteQuaternion(currentOrientation) || !isFiniteQuaternion(expectedOrientation))
+    const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
+    const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
+    if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !hlsl::isFiniteQuaternion(currentOrientation) || !hlsl::isFiniteQuaternion(expectedOrientation))
         return false;
 
     const double dx = static_cast<double>(actual.position.x - expected.position.x);
     const double dy = static_cast<double>(actual.position.y - expected.position.y);
     const double dz = static_cast<double>(actual.position.z - expected.position.z);
     const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const double rotDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
+    const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
         return false;
 
@@ -217,13 +217,13 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
 inline std::string describeGoalMismatch(const CCameraGoal& actual, const CCameraGoal& expected)
 {
     std::ostringstream oss;
-    const auto currentOrientation = normalizeQuaternion(actual.orientation);
-    const auto expectedOrientation = normalizeQuaternion(expected.orientation);
+    const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
+    const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
     const double dx = static_cast<double>(actual.position.x - expected.position.x);
     const double dy = static_cast<double>(actual.position.y - expected.position.y);
     const double dz = static_cast<double>(actual.position.z - expected.position.z);
     const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const double rotDeltaDeg = getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
+    const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     oss << "pos_delta=" << posDelta
         << " rot_delta_deg=" << rotDeltaDeg
         << " current_pos=(" << actual.position.x << "," << actual.position.y << "," << actual.position.z << ")"
@@ -271,7 +271,7 @@ inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double
 {
     CCameraGoal blended;
     blended.position = a.position + (b.position - a.position) * alpha;
-    blended.orientation = slerpQuaternion(a.orientation, b.orientation, static_cast<float64_t>(alpha));
+    blended.orientation = hlsl::slerpQuaternion(a.orientation, b.orientation, static_cast<hlsl::float64_t>(alpha));
     blended.sourceKind = (a.sourceKind == b.sourceKind) ? a.sourceKind : ICamera::CameraKind::Unknown;
     blended.sourceCapabilities = a.sourceCapabilities & b.sourceCapabilities;
     blended.sourceGoalStateMask = a.sourceGoalStateMask | b.sourceGoalStateMask;

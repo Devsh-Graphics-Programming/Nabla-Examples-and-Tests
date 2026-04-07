@@ -11,7 +11,7 @@ class IProjection
 {
 public:
     //! underlying type for all vectors we project or un-project (inverse), projections *may* transform vectors in less dimensions
-    using projection_vector_t = float64_t4;
+    using projection_vector_t = hlsl::float64_t4;
 
     enum class ProjectionType
     {

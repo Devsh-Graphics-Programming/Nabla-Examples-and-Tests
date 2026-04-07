@@ -32,7 +32,7 @@ struct SCameraConstraintSettings
 };
 
 //! Apply an authored world-space reference frame through the shared camera runtime entry point.
-inline bool applyReferenceFrameToCamera(ICamera* camera, const float64_t4x4& referenceFrame)
+inline bool applyReferenceFrameToCamera(ICamera* camera, const hlsl::float64_t4x4& referenceFrame)
 {
     if (!camera)
         return false;
@@ -69,7 +69,7 @@ inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::v
     if (!camera)
         return;
 
-    float64_t3 worldDelta = float64_t3(0.0);
+    hlsl::float64_t3 worldDelta = hlsl::float64_t3(0.0);
     std::vector<CVirtualGimbalEvent> filtered;
     filtered.reserve(events.size());
 
@@ -102,7 +102,7 @@ inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::v
     const auto up = gimbal.getYAxis();
     const auto forward = gimbal.getZAxis();
 
-    const float64_t3 localDelta = float64_t3(
+    const hlsl::float64_t3 localDelta = hlsl::float64_t3(
         hlsl::dot(worldDelta, right),
         hlsl::dot(worldDelta, up),
         hlsl::dot(worldDelta, forward)
@@ -152,7 +152,7 @@ inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* cam
 
     const auto& gimbal = camera->getGimbal();
     const auto pos = gimbal.getPosition();
-    const auto eulerDeg = getQuaternionEulerDegrees(gimbal.getOrientation());
+    const auto eulerDeg = hlsl::getQuaternionEulerDegrees(gimbal.getOrientation());
 
     auto clamped = eulerDeg;
     if (constraints.clampPitch)
@@ -167,7 +167,7 @@ inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* cam
 
     CCameraPreset preset;
     preset.goal.position = pos;
-    preset.goal.orientation = makeQuaternionFromEulerDegrees(clamped);
+    preset.goal.orientation = hlsl::makeQuaternionFromEulerDegrees(clamped);
     return applyPreset(solver, camera, preset);
 }
 

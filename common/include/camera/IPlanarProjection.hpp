@@ -77,9 +77,9 @@ public:
                     const auto& fov = m_parameters.m_planar.perspective.fov;
 
                     if (leftHanded)
-                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovLH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovLH<hlsl::float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                     else
-                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovRH<float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixPerspectiveFovRH<hlsl::float64_t>(hlsl::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
                 } break;
 
                 case Orthographic:
@@ -88,9 +88,9 @@ public:
                     const auto viewHeight = orthoW * core::reciprocal(aspectRatio);
 
                     if (leftHanded)
-                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoLH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoLH<hlsl::float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
                     else
-                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoRH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                        base_t::setProjectionMatrix(hlsl::buildProjectionMatrixOrthoRH<hlsl::float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
                 } break;
             }
         }

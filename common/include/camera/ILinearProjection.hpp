@@ -24,10 +24,10 @@ public:
     using model_matrix_t = typename decltype(m_camera)::pointee::CGimbal::model_matrix_t;
 
     //! underlying type for linear concatenated matrix
-    using concatenated_matrix_t = float64_t4x4;
+    using concatenated_matrix_t = hlsl::float64_t4x4;
 
     //! underlying type for linear inverse of concatenated matrix
-    using inv_concatenated_matrix_t = std::optional<float64_t4x4>;
+    using inv_concatenated_matrix_t = std::optional<hlsl::float64_t4x4>;
 
     struct CProjection : public IProjection
     {
@@ -50,7 +50,7 @@ public:
 
         virtual void project(const projection_vector_t& vecToProjectionSpace, projection_vector_t& output) const override
         {
-            output = mul(m_projectionMatrix, vecToProjectionSpace);
+            output = hlsl::mul(m_projectionMatrix, vecToProjectionSpace);
         }
 
         virtual bool unproject(const projection_vector_t& vecFromProjectionSpace, projection_vector_t& output) const override
@@ -58,7 +58,7 @@ public:
             if (m_isProjectionSingular)
                 return false;
 
-            output = mul(m_invProjectionMatrix.value(), vecFromProjectionSpace);
+            output = hlsl::mul(m_invProjectionMatrix.value(), vecFromProjectionSpace);
 
             return true;
         }
@@ -81,7 +81,7 @@ public:
             else
             {
                 m_isProjectionLeftHanded = det < 0.0;
-                m_invProjectionMatrix = inverse(m_projectionMatrix);
+                m_invProjectionMatrix = hlsl::inverse(m_projectionMatrix);
             }
         }
 
@@ -119,7 +119,7 @@ public:
     inline concatenated_matrix_t getMV(const model_matrix_t& model) const
     {
         const auto& v = m_camera->getGimbal().getViewMatrix();
-        return mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
+        return hlsl::mul(hlsl::getMatrix3x4As4x4(v), hlsl::getMatrix3x4As4x4(model));
     }
 
     /**
@@ -132,8 +132,8 @@ public:
     {
         const auto& v = m_camera->getGimbal().getViewMatrix();
         const auto& p = projection.getProjectionMatrix();
-        auto mv = mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
-        return mul(p, mv);
+        auto mv = hlsl::mul(hlsl::getMatrix3x4As4x4(v), hlsl::getMatrix3x4As4x4(model));
+        return hlsl::mul(p, mv);
     }
 
     /**
@@ -145,7 +145,7 @@ public:
     inline concatenated_matrix_t getMVP(const CProjection& projection, const concatenated_matrix_t& mv) const
     {
         const auto& p = projection.getProjectionMatrix();
-        return mul(p, mv);
+        return hlsl::mul(p, mv);
     }
 
     /**
@@ -156,8 +156,8 @@ public:
     inline inv_concatenated_matrix_t getMVInverse(const model_matrix_t& model) const
     {
         const auto mv = getMV(model);
-        if (auto det = determinant(mv); det)
-            return inverse(mv);
+        if (auto det = hlsl::determinant(mv); det)
+            return hlsl::inverse(mv);
         return std::nullopt;
     }
 
@@ -170,8 +170,8 @@ public:
     inline inv_concatenated_matrix_t getMVPInverse(const CProjection& projection, const model_matrix_t& model) const
     {
         const auto mvp = getMVP(projection, model);
-        if (auto det = determinant(mvp); det)
-            return inverse(mvp);
+        if (auto det = hlsl::determinant(mvp); det)
+            return hlsl::inverse(mvp);
         return std::nullopt;
     }
 };

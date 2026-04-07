@@ -14,7 +14,7 @@ class CChaseCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    CChaseCamera(const float64_t3& position, const float64_t3& target)
+    CChaseCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
         m_v = std::clamp(m_v, MinPitch, MaxPitch);
@@ -24,7 +24,7 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
@@ -39,20 +39,20 @@ public:
 
         const auto basis = computeBasis(m_u, m_v, m_distance);
 
-        float64_t3 planarForward = float64_t3(basis.forward.x, 0.0, basis.forward.z);
-        float64_t3 planarRight = float64_t3(basis.right.x, 0.0, basis.right.z);
+        hlsl::float64_t3 planarForward = hlsl::float64_t3(basis.forward.x, 0.0, basis.forward.z);
+        hlsl::float64_t3 planarRight = hlsl::float64_t3(basis.right.x, 0.0, basis.right.z);
 
-        const double forwardLen = length(planarForward);
+        const double forwardLen = hlsl::length(planarForward);
         if (forwardLen > 0.0)
             planarForward /= forwardLen;
         else
-            planarForward = float64_t3(0.0, 0.0, 1.0);
+            planarForward = hlsl::float64_t3(0.0, 0.0, 1.0);
 
-        const double rightLen = length(planarRight);
+        const double rightLen = hlsl::length(planarRight);
         if (rightLen > 0.0)
             planarRight /= rightLen;
         else
-            planarRight = float64_t3(1.0, 0.0, 0.0);
+            planarRight = hlsl::float64_t3(1.0, 0.0, 0.0);
 
         m_targetPosition += (planarRight * impulse.dVirtualTranslate.x + planarForward * impulse.dVirtualTranslate.z) * moveScalar;
         m_distance = std::clamp<float>(m_distance + static_cast<float>(impulse.dVirtualTranslate.y * translateScalar), MinDistance, MaxDistance);

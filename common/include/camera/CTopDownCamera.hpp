@@ -14,7 +14,7 @@ class CTopDownCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    CTopDownCamera(const float64_t3& position, const float64_t3& target)
+    CTopDownCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
         m_v = TopDownPitch;
@@ -24,7 +24,7 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;

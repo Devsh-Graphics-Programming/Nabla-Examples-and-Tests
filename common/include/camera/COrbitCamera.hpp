@@ -13,17 +13,17 @@ class COrbitCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    COrbitCamera(const float64_t3& position, const float64_t3& target)
+    COrbitCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        m_distance = std::clamp<float>(length(m_targetPosition - position), MinDistance, MaxDistance);
+        m_distance = std::clamp<float>(hlsl::length(m_targetPosition - position), MinDistance, MaxDistance);
         applyPose();
     }
     ~COrbitCamera() = default;
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
         double deltaU = impulse.dVirtualTranslate.y, deltaV = impulse.dVirtualTranslate.x, deltaDistance = impulse.dVirtualTranslate.z;

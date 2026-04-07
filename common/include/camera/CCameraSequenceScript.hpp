@@ -66,13 +66,13 @@ struct CCameraSequenceContinuitySettings
 struct CCameraSequenceGoalDelta
 {
     bool hasPositionOffset = false;
-    float64_t3 positionOffset = float64_t3(0.0);
+    hlsl::float64_t3 positionOffset = hlsl::float64_t3(0.0);
 
     bool hasRotationEulerDegOffset = false;
-    float32_t3 rotationEulerDegOffset = float32_t3(0.f);
+    hlsl::float32_t3 rotationEulerDegOffset = hlsl::float32_t3(0.f);
 
     bool hasTargetOffset = false;
-    float64_t3 targetOffset = float64_t3(0.0);
+    hlsl::float64_t3 targetOffset = hlsl::float64_t3(0.0);
 
     bool hasOrbitUDeltaDeg = false;
     double orbitUDeltaDeg = 0.0;
@@ -113,18 +113,18 @@ struct CCameraSequenceKeyframe
 //! Concrete tracked-target pose sampled from a shared authored sequence.
 struct CCameraSequenceTrackedTargetPose
 {
-    float64_t3 position = float64_t3(0.0);
-    camera_quaternion_t<float64_t> orientation = makeIdentityQuaternion<float64_t>();
+    hlsl::float64_t3 position = hlsl::float64_t3(0.0);
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
 };
 
 //! Relative tracked-target adjustment authored against an initial tracked-target pose.
 struct CCameraSequenceTrackedTargetDelta
 {
     bool hasPositionOffset = false;
-    float64_t3 positionOffset = float64_t3(0.0);
+    hlsl::float64_t3 positionOffset = hlsl::float64_t3(0.0);
 
     bool hasRotationEulerDegOffset = false;
-    float32_t3 rotationEulerDegOffset = float32_t3(0.f);
+    hlsl::float32_t3 rotationEulerDegOffset = hlsl::float32_t3(0.f);
 };
 
 //! One authored tracked-target keyframe inside a reusable camera-sequence segment.
@@ -133,9 +133,9 @@ struct CCameraSequenceTrackedTargetKeyframe
 {
     float time = 0.f;
     bool hasAbsolutePosition = false;
-    float64_t3 absolutePosition = float64_t3(0.0);
+    hlsl::float64_t3 absolutePosition = hlsl::float64_t3(0.0);
     bool hasAbsoluteRotationEulerDeg = false;
-    float32_t3 absoluteRotationEulerDeg = float32_t3(0.f);
+    hlsl::float32_t3 absoluteRotationEulerDeg = hlsl::float32_t3(0.f);
     bool hasDelta = false;
     CCameraSequenceTrackedTargetDelta delta = {};
 };
@@ -302,7 +302,7 @@ inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
         return false;
 
     const float appliedDistance = std::clamp(goal.orbitDistance, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
-    const float64_t3 spherePosition(
+    const hlsl::float64_t3 spherePosition(
         std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
         std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
         std::sin(goal.orbitV) * static_cast<double>(appliedDistance));
@@ -311,13 +311,13 @@ inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
     goal.distance = appliedDistance;
     goal.orbitDistance = appliedDistance;
 
-    const auto forward = normalize(-spherePosition);
-    const float64_t3 up = normalize(float64_t3(
+    const auto forward = hlsl::normalize(-spherePosition);
+    const hlsl::float64_t3 up = hlsl::normalize(hlsl::float64_t3(
         -std::sin(goal.orbitV) * std::cos(goal.orbitU),
         -std::sin(goal.orbitV) * std::sin(goal.orbitU),
         std::cos(goal.orbitV)));
-    const float64_t3 right = normalize(cross(up, forward));
-    goal.orientation = makeQuaternionFromBasis(right, up, forward);
+    const hlsl::float64_t3 right = hlsl::normalize(hlsl::cross(up, forward));
+    goal.orientation = hlsl::makeQuaternionFromBasis(right, up, forward);
     return true;
 }
 
@@ -356,7 +356,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
 
     if (delta.hasRotationEulerDegOffset)
     {
-        goal.orientation = normalizeQuaternion(goal.orientation * makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(delta.rotationEulerDegOffset)));
+        goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
     }
 
     if (delta.hasTargetOffset)
@@ -379,7 +379,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             return false;
         }
         if (delta.hasOrbitUDeltaDeg)
-            goal.orbitU = wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
+            goal.orbitU = hlsl::wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
         if (delta.hasOrbitVDeltaDeg)
             goal.orbitV = std::clamp(goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg), -1.55334303427, 1.55334303427);
         if (delta.hasOrbitDistanceDelta)
@@ -395,7 +395,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             return false;
         }
         if (delta.hasPathAngleDeltaDeg)
-            goal.pathState.angle = wrapAngleRad(goal.pathState.angle + hlsl::radians(delta.pathAngleDeltaDeg));
+            goal.pathState.angle = hlsl::wrapAngleRad(goal.pathState.angle + hlsl::radians(delta.pathAngleDeltaDeg));
         if (delta.hasPathRadiusDelta)
             goal.pathState.radius += delta.pathRadiusDelta;
         if (delta.hasPathHeightDelta)
@@ -485,14 +485,14 @@ inline bool buildSequenceTrackedTargetPoseFromReference(
     if (authored.hasAbsolutePosition)
         outPose.position = authored.absolutePosition;
     if (authored.hasAbsoluteRotationEulerDeg)
-        outPose.orientation = makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(authored.absoluteRotationEulerDeg));
+        outPose.orientation = hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(authored.absoluteRotationEulerDeg));
 
     if (authored.hasDelta)
     {
         if (authored.delta.hasPositionOffset)
             outPose.position += authored.delta.positionOffset;
         if (authored.delta.hasRotationEulerDegOffset)
-            outPose.orientation = normalizeQuaternion(outPose.orientation * makeQuaternionFromEulerDegrees(getCastedVector<float64_t>(authored.delta.rotationEulerDegOffset)));
+            outPose.orientation = hlsl::normalizeQuaternion(outPose.orientation * hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(authored.delta.rotationEulerDegOffset)));
     }
 
     if (!isSequenceTrackedTargetPoseFinite(outPose))
@@ -573,7 +573,7 @@ inline bool tryBuildSequenceTrackedTargetPoseAtTime(
         const auto span = std::max(1e-6f, rhs.time - lhs.time);
         const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
         outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
-        outPose.orientation = slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<float64_t>(alpha));
+        outPose.orientation = hlsl::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));
         return true;
     }
 

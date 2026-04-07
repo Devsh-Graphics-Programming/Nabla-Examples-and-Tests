@@ -6,63 +6,21 @@
 
 namespace nbl::core
 {
-    using hlsl::camera_matrix_t;
-    using hlsl::camera_quaternion_t;
-    using hlsl::camera_vector_t;
-    using hlsl::composeTransformMatrix;
-    using hlsl::cross;
-    using hlsl::degrees;
-    using hlsl::dot;
-    using hlsl::float32_t;
-    using hlsl::float32_t3;
-    using hlsl::float32_t4;
-    using hlsl::float32_t4x4;
-    using hlsl::float64_t;
-    using hlsl::float64_t3;
-    using hlsl::float64_t4;
-    using hlsl::float64_t3x4;
-    using hlsl::float64_t4x4;
-    using hlsl::getCastedMatrix;
-    using hlsl::getCastedVector;
-    using hlsl::getMatrix3x3As4x4;
-    using hlsl::getMatrix3x4As4x4;
-    using hlsl::getQuaternionAngularDistanceDegrees;
-    using hlsl::getQuaternionBasisMatrix;
-    using hlsl::getQuaternionEulerDegrees;
-    using hlsl::getQuaternionEulerRadians;
-    using hlsl::inverseQuaternion;
-    using hlsl::isFiniteQuaternion;
-    using hlsl::isOrthoBase;
-    using hlsl::length;
-    using hlsl::makeIdentityQuaternion;
-    using hlsl::makeQuaternionFromAxisAngle;
-    using hlsl::makeQuaternionFromBasis;
-    using hlsl::makeQuaternionFromComponents;
-    using hlsl::makeQuaternionFromEulerDegrees;
-    using hlsl::makeQuaternionFromEulerRadians;
-    using hlsl::mul;
-    using hlsl::normalize;
-    using hlsl::normalizeQuaternion;
-    using hlsl::radians;
-    using hlsl::rotateVectorByQuaternion;
-    using hlsl::slerpQuaternion;
-    using hlsl::wrapAngleRad;
-
     struct CReferenceTransform
     {
-        float64_t4x4 frame;
-        camera_quaternion_t<float64_t> orientation = makeIdentityQuaternion<float64_t>();
+        hlsl::float64_t4x4 frame;
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
     };
 
     template<typename T>
-    requires is_any_of_v<T, float32_t, float64_t>
+    requires is_any_of_v<T, hlsl::float32_t, hlsl::float64_t>
     class IGimbal
     {
     public:
         using precision_t = T;
-        using quaternion_t = camera_quaternion_t<precision_t>;
+        using quaternion_t = hlsl::camera_quaternion_t<precision_t>;
         template<uint32_t N>
-        using vector_t = camera_vector_t<precision_t, N>;
+        using vector_t = hlsl::camera_vector_t<precision_t, N>;
         //! underlying type for world matrix (TRS)
         using model_matrix_t = hlsl::matrix<precision_t, 3, 4>;
 
@@ -169,7 +127,7 @@ namespace nbl::core
         struct SCreationParameters
         {
             vector_t<3u> position;
-            quaternion_t orientation = makeIdentityQuaternion<precision_t>();
+            quaternion_t orientation = hlsl::makeIdentityQuaternion<precision_t>();
         };
 
         IGimbal(const IGimbal&) = default;
@@ -211,14 +169,14 @@ namespace nbl::core
             if (m_orientation.data != orientation.data)
                 m_counter++;
 
-            m_orientation = normalizeQuaternion(orientation);
+            m_orientation = hlsl::normalizeQuaternion(orientation);
             updateOrthonormalOrientationBase();
         }
 
         inline void transform(const CReferenceTransform& reference, const VirtualImpulse& impulse)
         {
-            setOrientation(reference.orientation * makeQuaternionFromEulerRadians(impulse.dVirtualRotation));
-            setPosition(mul(float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
+            setOrientation(reference.orientation * hlsl::makeQuaternionFromEulerRadians(impulse.dVirtualRotation));
+            setPosition(hlsl::mul(hlsl::float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
         }
 
         inline void rotate(const vector_t<3u>& axis, float dRadians)
@@ -228,8 +186,8 @@ namespace nbl::core
             if(dRadians)
                 m_counter++;
 
-            const auto dRotation = makeQuaternionFromAxisAngle(axis, static_cast<precision_t>(dRadians));
-            m_orientation = normalizeQuaternion(dRotation * m_orientation);
+            const auto dRotation = hlsl::makeQuaternionFromAxisAngle(axis, static_cast<precision_t>(dRadians));
+            m_orientation = hlsl::normalizeQuaternion(dRotation * m_orientation);
             updateOrthonormalOrientationBase();
         }
 
@@ -287,19 +245,19 @@ namespace nbl::core
             {
                 return
                 {
-                    camera_vector_t<precision_t, 4>(rotation[0] * scale.x, position.x),
-                    camera_vector_t<precision_t, 4>(rotation[1] * scale.y, position.y),
-                    camera_vector_t<precision_t, 4>(rotation[2] * scale.z, position.z)
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[0] * scale.x, position.x),
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[1] * scale.y, position.y),
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[2] * scale.z, position.z)
                 };
             }
             else
             {
                 return
                 {
-                    camera_vector_t<precision_t, 4>(rotation[0] * scale.x, T(0)),
-                    camera_vector_t<precision_t, 4>(rotation[1] * scale.y, T(0)),
-                    camera_vector_t<precision_t, 4>(rotation[2] * scale.z, T(0)),
-                    camera_vector_t<precision_t, 4>(position, T(1))
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[0] * scale.x, T(0)),
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[1] * scale.y, T(0)),
+                    hlsl::camera_vector_t<precision_t, 4>(rotation[2] * scale.z, T(0)),
+                    hlsl::camera_vector_t<precision_t, 4>(position, T(1))
                 };
             }
         }
@@ -328,7 +286,7 @@ namespace nbl::core
         //! Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
 
-        bool extractReferenceTransform(CReferenceTransform* out, const float64_t4x4* referenceFrame = nullptr)
+        bool extractReferenceTransform(CReferenceTransform* out, const hlsl::float64_t4x4* referenceFrame = nullptr)
         {
             if (not out)
                 return false;
@@ -336,16 +294,16 @@ namespace nbl::core
             if (referenceFrame)
             {
                 out->frame = *referenceFrame;
-                if (not isOrthoBase(float64_t3(out->frame[0]), float64_t3(out->frame[1]), float64_t3(out->frame[2])))
+                if (not hlsl::isOrthoBase(hlsl::float64_t3(out->frame[0]), hlsl::float64_t3(out->frame[1]), hlsl::float64_t3(out->frame[2])))
                     return false;
             }
             else
             {
-                out->frame = getMatrix3x3As4x4(getOrthonornalMatrix());
-                out->frame[3] = float64_t4(getPosition(), 1);
+                out->frame = hlsl::getMatrix3x3As4x4(getOrthonornalMatrix());
+                out->frame[3] = hlsl::float64_t4(getPosition(), 1);
             }
 
-            out->orientation = makeQuaternionFromBasis(float64_t3(out->frame[0]), float64_t3(out->frame[1]), float64_t3(out->frame[2]));
+            out->orientation = hlsl::makeQuaternionFromBasis(hlsl::float64_t3(out->frame[0]), hlsl::float64_t3(out->frame[1]), hlsl::float64_t3(out->frame[2]));
 
             return true;
         }
@@ -353,7 +311,7 @@ namespace nbl::core
     private:
         inline void updateOrthonormalOrientationBase()
         {
-            m_orthonormal = getQuaternionBasisMatrix(m_orientation);
+            m_orthonormal = hlsl::getQuaternionBasisMatrix(m_orientation);
         }
 
         //! Position of a gimbal in world space

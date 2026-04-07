@@ -19,9 +19,9 @@ class CSphericalTargetCamera : public ICamera
 public:
     using base_t = ICamera;
 
-    CSphericalTargetCamera(const float64_t3& position, const float64_t3& target)
+    CSphericalTargetCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(), m_targetPosition(target), m_distance(1.0f),
-          m_gimbal({ .position = position, .orientation = makeIdentityQuaternion<float64_t>() })
+          m_gimbal({ .position = position, .orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>() })
     {
         initFromPosition(position);
     }
@@ -38,14 +38,14 @@ public:
         return ok;
     }
 
-    inline void target(const float64_t3& p)
+    inline void target(const hlsl::float64_t3& p)
     {
         if (m_targetPosition == p)
             return;
         m_targetPosition = p;
         applyPose();
     }
-    inline float64_t3 getTarget() const { return m_targetPosition; }
+    inline hlsl::float64_t3 getTarget() const { return m_targetPosition; }
 
     inline float getDistance() const { return m_distance; }
     inline double getU() const { return m_u; }
@@ -70,7 +70,7 @@ public:
         return true;
     }
 
-    virtual bool trySetSphericalTarget(const float64_t3& targetPosition) override
+    virtual bool trySetSphericalTarget(const hlsl::float64_t3& targetPosition) override
     {
         target(targetPosition);
         return true;
@@ -84,15 +84,15 @@ public:
 protected:
     struct SphericalBasis
     {
-        float64_t3 localSpherePosition;
-        float64_t3 right;
-        float64_t3 up;
-        float64_t3 forward;
+        hlsl::float64_t3 localSpherePosition;
+        hlsl::float64_t3 right;
+        hlsl::float64_t3 up;
+        hlsl::float64_t3 forward;
     };
 
-    inline float64_t3 S(double su, double sv) const
+    inline hlsl::float64_t3 S(double su, double sv) const
     {
-        return float64_t3
+        return hlsl::float64_t3
         {
             std::cos(sv) * std::cos(su),
             std::cos(sv) * std::sin(su),
@@ -100,9 +100,9 @@ protected:
         };
     }
 
-    inline float64_t3 Sdv(double su, double sv) const
+    inline hlsl::float64_t3 Sdv(double su, double sv) const
     {
-        return float64_t3
+        return hlsl::float64_t3
         {
             -std::sin(sv) * std::cos(su),
             -std::sin(sv) * std::sin(su),
@@ -113,17 +113,17 @@ protected:
     inline SphericalBasis computeBasis(double su, double sv, float distance) const
     {
         const auto localSpherePosition = S(su, sv) * static_cast<double>(distance);
-        const auto forward = normalize(-localSpherePosition);
-        const auto up = normalize(Sdv(su, sv));
-        const auto right = normalize(cross(up, forward));
+        const auto forward = hlsl::normalize(-localSpherePosition);
+        const auto up = hlsl::normalize(Sdv(su, sv));
+        const auto right = hlsl::normalize(hlsl::cross(up, forward));
 
         return { localSpherePosition, right, up, forward };
     }
 
-    inline void initFromPosition(const float64_t3& position)
+    inline void initFromPosition(const hlsl::float64_t3& position)
     {
         const auto offset = position - m_targetPosition;
-        const double dist = length(offset);
+        const double dist = hlsl::length(offset);
         const double safeDist = std::isfinite(dist) && dist > 0.0 ? dist : static_cast<double>(MinDistance);
         m_distance = std::clamp<float>(static_cast<float>(safeDist), MinDistance, MaxDistance);
         const auto local = offset / static_cast<double>(m_distance);
@@ -135,7 +135,7 @@ protected:
     {
         const auto basis = computeBasis(m_u, m_v, m_distance);
         const auto newPosition = basis.localSpherePosition + m_targetPosition;
-        const auto newOrientation = makeQuaternionFromBasis(basis.right, basis.up, basis.forward);
+        const auto newOrientation = hlsl::makeQuaternionFromBasis(basis.right, basis.up, basis.forward);
 
         m_gimbal.begin();
         {
@@ -151,7 +151,7 @@ protected:
         return manipulated;
     }
 
-    float64_t3 m_targetPosition;
+    hlsl::float64_t3 m_targetPosition;
     float m_distance;
     typename base_t::CGimbal m_gimbal;
     double m_u = {};

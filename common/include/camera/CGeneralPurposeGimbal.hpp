@@ -5,7 +5,7 @@
 
 namespace nbl::core
 {
-    template<typename T = float64_t>
+    template<typename T = hlsl::float64_t>
     class CGeneralPurposeGimbal : public IGimbal<T>
     {
     public:

@@ -66,7 +66,7 @@ public:
 
     struct SphericalTargetState
     {
-        float64_t3 target = float64_t3(0.0);
+        hlsl::float64_t3 target = hlsl::float64_t3(0.0);
         float distance = 0.f;
         double u = 0.0;
         double v = 0.0;
@@ -88,10 +88,10 @@ public:
     };
 
     //! Gimbal that models the camera pose and cached view matrix in world space.
-    class CGimbal : public IGimbal<float64_t>
+    class CGimbal : public IGimbal<hlsl::float64_t>
     {
     public:
-        using base_t = IGimbal<float64_t>;
+        using base_t = IGimbal<hlsl::float64_t>;
 
         CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) { updateView(); }
         ~CGimbal() = default;
@@ -100,19 +100,19 @@ public:
         {            
             const auto& gRight = base_t::getXAxis(), gUp = base_t::getYAxis(), gForward = base_t::getZAxis();
 
-            assert(isOrthoBase(gRight, gUp, gForward));
+            assert(hlsl::isOrthoBase(gRight, gUp, gForward));
 
             const auto& position = base_t::getPosition();
 
-            m_viewMatrix[0u] = float64_t4(gRight, -hlsl::dot(gRight, position));
-            m_viewMatrix[1u] = float64_t4(gUp, -hlsl::dot(gUp, position));
-            m_viewMatrix[2u] = float64_t4(gForward, -hlsl::dot(gForward, position));
+            m_viewMatrix[0u] = hlsl::float64_t4(gRight, -hlsl::dot(gRight, position));
+            m_viewMatrix[1u] = hlsl::float64_t4(gUp, -hlsl::dot(gUp, position));
+            m_viewMatrix[2u] = hlsl::float64_t4(gForward, -hlsl::dot(gForward, position));
         }
 
-        inline const float64_t3x4& getViewMatrix() const { return m_viewMatrix; }
+        inline const hlsl::float64_t3x4& getViewMatrix() const { return m_viewMatrix; }
 
     private:
-        float64_t3x4 m_viewMatrix;
+        hlsl::float64_t3x4 m_viewMatrix;
     };
 
     class SScopedMotionScaleOverride
@@ -159,13 +159,13 @@ public:
 	virtual const CGimbal& getGimbal() = 0u;
 
     // Camera core contract: consume virtual events only. Raw input binding and absolute goal solving live outside ICamera.
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr) = 0;
-    inline bool manipulateWithMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame, const double moveScale, const double rotationScale)
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) = 0;
+    inline bool manipulateWithMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame, const double moveScale, const double rotationScale)
     {
         auto scopedOverride = overrideMotionScales(moveScale, rotationScale);
         return manipulate(virtualEvents, referenceFrame);
     }
-    inline bool manipulateWithUnitMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4* referenceFrame = nullptr)
+    inline bool manipulateWithUnitMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr)
     {
         return manipulateWithMotionScales(virtualEvents, referenceFrame, 1.0, 1.0);
     }
@@ -201,7 +201,7 @@ public:
         return false;
     }
 
-    virtual bool trySetSphericalTarget(const float64_t3& target)
+    virtual bool trySetSphericalTarget(const hlsl::float64_t3& target)
     {
         return false;
     }
