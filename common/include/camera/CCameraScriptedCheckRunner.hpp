@@ -477,7 +477,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                core::SCameraFollowRegressionResult regression = {};
+                SCameraFollowRegressionResult regression = {};
                 std::string regressionError;
                 core::CCameraGoal expectedFollowGoal = {};
                 const bool ok = core::tryBuildFollowGoal(
@@ -486,7 +486,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         *context.trackedTarget,
                         *context.followConfig,
                         expectedFollowGoal) &&
-                    core::validateFollowTargetContract(
+                    validateFollowTargetContract(
                         context.camera,
                         *context.trackedTarget,
                         *context.followConfig,

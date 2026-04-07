@@ -158,7 +158,7 @@ using nbl::core::SCameraPresetApplySummary;
 using nbl::core::SCameraGoalApplyAnalysis;
 using nbl::core::SCameraCaptureAnalysis;
 using nbl::core::SCameraFollowConfig;
-using nbl::core::SCameraFollowVisualMetrics;
+using nbl::system::SCameraFollowVisualMetrics;
 using nbl::ui::SCameraGoalApplyPresentation;
 using nbl::ui::SCameraGoalApplyPresentationBadges;
 using nbl::ui::SCameraCapturePresentation;

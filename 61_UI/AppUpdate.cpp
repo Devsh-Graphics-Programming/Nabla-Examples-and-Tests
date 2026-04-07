@@ -553,7 +553,7 @@ void App::update()
 							m_planarProjections[planarIx]->getCamera() : nullptr;
 						float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 						const float32_t4x4* viewProjMatrixPtr = tryBuildFollowViewProjForPlanar(planarIx, viewProjMatrix) ? &viewProjMatrix : nullptr;
-						followMetrics = nbl::core::buildFollowVisualMetrics(
+						followMetrics = nbl::system::buildFollowVisualMetrics(
 							activeCamera,
 							m_followTarget,
 							&m_planarFollowConfigs[planarIx],

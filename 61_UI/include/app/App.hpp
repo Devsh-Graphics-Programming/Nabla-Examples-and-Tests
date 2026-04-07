@@ -916,7 +916,7 @@ class App final : public examples::SimpleWindowedApplication
 			float ndcX = 0.0f;
 			float ndcY = 0.0f;
 			float ndcRadius = 0.0f;
-			if (!nbl::core::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
+			if (!nbl::system::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
 				return;
 
 			auto* drawList = ImGui::GetWindowDrawList();

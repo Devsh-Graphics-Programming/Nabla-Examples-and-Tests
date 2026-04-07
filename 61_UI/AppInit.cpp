@@ -369,7 +369,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					return nbl::core::buildFollowVisualMetrics(
+					return nbl::system::buildFollowVisualMetrics(
 						camera,
 						trackedTarget,
 						&followConfig,
@@ -377,12 +377,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				};
 
 				auto buildAndValidateFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
-					const SCameraFollowConfig& followConfig, const char* label, nbl::core::SCameraFollowApplyValidationResult& outResult) -> bool
+					const SCameraFollowConfig& followConfig, const char* label, nbl::system::SCameraFollowApplyValidationResult& outResult) -> bool
 				{
 					std::string regressionError;
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					if (!nbl::core::buildApplyAndValidateFollowTargetContract(
+					if (!nbl::system::buildApplyAndValidateFollowTargetContract(
 						m_cameraGoalSolver,
 						camera,
 						trackedTarget,
@@ -652,11 +652,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				auto verifyFollowTargetContract = [&](ICamera* camera, const CTrackedTarget& trackedTarget,
 					const SCameraFollowConfig& followConfig, const CCameraGoal& followGoal, const char* label) -> bool
 				{
-					nbl::core::SCameraFollowRegressionResult regression = {};
+					nbl::system::SCameraFollowRegressionResult regression = {};
 					std::string regressionError;
 					float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
 					const bool hasViewProjMatrix = tryBuildFollowViewProjForCamera(camera, viewProjMatrix);
-					if (!nbl::core::validateFollowTargetContract(
+					if (!nbl::system::validateFollowTargetContract(
 						camera,
 						trackedTarget,
 						followConfig,
@@ -1170,7 +1170,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::OrbitTarget;
 
-						nbl::core::SCameraFollowApplyValidationResult followResult = {};
+						nbl::system::SCameraFollowApplyValidationResult followResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit follow", followResult))
 							return false;
 						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit follow"))
@@ -1186,7 +1186,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(4.0, -1.5, 2.0);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::core::SCameraFollowApplyValidationResult worldOffsetResult = {};
+						nbl::system::SCameraFollowApplyValidationResult worldOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow", worldOffsetResult))
 							return false;
 						if (!verifyFollowVisualMetrics(orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow"))
@@ -1219,7 +1219,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::core::SCameraFollowApplyValidationResult defaultFollowResult = {};
+						nbl::system::SCameraFollowApplyValidationResult defaultFollowResult = {};
 						if (!buildAndValidateFollowTargetContract(defaultFollowCamera, trackedTarget, followConfig, label.c_str(), defaultFollowResult))
 							return false;
 						if (!verifyFollowVisualMetrics(defaultFollowCamera, trackedTarget, followConfig, label.c_str()))
@@ -1239,7 +1239,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.enabled = true;
 						followConfig.mode = ECameraFollowMode::LookAtTarget;
 
-						nbl::core::SCameraFollowApplyValidationResult lookAtResult = {};
+						nbl::system::SCameraFollowApplyValidationResult lookAtResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free look-at follow", lookAtResult))
 							return false;
 						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free look-at follow"))
@@ -1255,7 +1255,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followConfig.worldOffset = float64_t3(5.0, -2.0, 1.5);
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::core::SCameraFollowApplyValidationResult keepWorldResult = {};
+						nbl::system::SCameraFollowApplyValidationResult keepWorldResult = {};
 						if (!buildAndValidateFollowTargetContract(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow", keepWorldResult))
 							return false;
 						if (!verifyFollowVisualMetrics(freeCamera, trackedTarget, followConfig, "free keep-world-offset follow"))
@@ -1277,7 +1277,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 						trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
-						nbl::core::SCameraFollowApplyValidationResult localOffsetResult = {};
+						nbl::system::SCameraFollowApplyValidationResult localOffsetResult = {};
 						if (!buildAndValidateFollowTargetContract(chaseCamera, trackedTarget, followConfig, "chase local-offset follow", localOffsetResult))
 							return false;
 						if (!verifyFollowVisualMetrics(chaseCamera, trackedTarget, followConfig, "chase local-offset follow"))

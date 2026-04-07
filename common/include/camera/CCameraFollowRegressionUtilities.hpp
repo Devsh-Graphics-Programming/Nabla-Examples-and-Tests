@@ -9,7 +9,7 @@
 
 #include "CCameraFollowUtilities.hpp"
 
-namespace nbl::core
+namespace nbl::system
 {
 
 /**
@@ -33,7 +33,7 @@ struct SCameraFollowRegressionResult
     float projectedNdcY = 0.0f;
     float projectedNdcRadius = 0.0f;
     bool hasSphericalState = false;
-    float64_t3 sphericalTarget = float64_t3(0.0);
+    hlsl::float64_t3 sphericalTarget = hlsl::float64_t3(0.0);
     float sphericalDistance = 0.0f;
 };
 
@@ -41,7 +41,7 @@ struct SCameraFollowRegressionResult
 struct SCameraFollowVisualMetrics
 {
     bool active = false;
-    ECameraFollowMode mode = ECameraFollowMode::Disabled;
+    core::ECameraFollowMode mode = core::ECameraFollowMode::Disabled;
     bool lockValid = false;
     float lockAngleDeg = 0.0f;
     float targetDistance = 0.0f;
@@ -57,22 +57,22 @@ struct SCameraFollowVisualMetrics
 struct SCameraFollowApplyValidationResult
 {
     bool hasGoal = false;
-    CCameraGoal goal = {};
-    CCameraGoalSolver::SApplyResult applyResult = {};
+    core::CCameraGoal goal = {};
+    core::CCameraGoalSolver::SApplyResult applyResult = {};
     bool hasCapturedGoal = false;
-    CCameraGoal capturedGoal = {};
+    core::CCameraGoal capturedGoal = {};
     SCameraFollowRegressionResult regression = {};
 };
 
 inline bool tryComputeProjectedFollowTargetMetrics(
-    const float32_t4x4& viewProjMatrix,
-    const CTrackedTarget& trackedTarget,
+    const hlsl::float32_t4x4& viewProjMatrix,
+    const core::CTrackedTarget& trackedTarget,
     float& outNdcX,
     float& outNdcY,
     float* outNdcRadius = nullptr)
 {
-    const auto target = getCastedVector<float32_t>(trackedTarget.getGimbal().getPosition());
-    const auto clip = mul(viewProjMatrix, float32_t4(target.x, target.y, target.z, 1.0f));
+    const auto target = hlsl::getCastedVector<hlsl::float32_t>(trackedTarget.getGimbal().getPosition());
+    const auto clip = hlsl::mul(viewProjMatrix, hlsl::float32_t4(target.x, target.y, target.z, 1.0f));
     if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
         return false;
 
@@ -93,8 +93,8 @@ inline bool tryComputeProjectedFollowTargetMetrics(
 }
 
 inline bool validateProjectedFollowTargetContract(
-    const float32_t4x4& viewProjMatrix,
-    const CTrackedTarget& trackedTarget,
+    const hlsl::float32_t4x4& viewProjMatrix,
+    const core::CTrackedTarget& trackedTarget,
     float& outNdcRadius,
     std::string* error = nullptr,
     const float ndcRadiusTolerance = 0.03f)
@@ -122,21 +122,21 @@ inline bool validateProjectedFollowTargetContract(
 }
 
 inline SCameraFollowVisualMetrics buildFollowVisualMetrics(
-    ICamera* camera,
-    const CTrackedTarget& trackedTarget,
-    const SCameraFollowConfig* followConfig,
-    const float32_t4x4* viewProjMatrix = nullptr)
+    core::ICamera* camera,
+    const core::CTrackedTarget& trackedTarget,
+    const core::SCameraFollowConfig* followConfig,
+    const hlsl::float32_t4x4* viewProjMatrix = nullptr)
 {
     SCameraFollowVisualMetrics out = {};
-    if (!camera || !followConfig || !followConfig->enabled || followConfig->mode == ECameraFollowMode::Disabled)
+    if (!camera || !followConfig || !followConfig->enabled || followConfig->mode == core::ECameraFollowMode::Disabled)
         return out;
 
     out.active = true;
     out.mode = followConfig->mode;
 
     double targetDistance = 0.0;
-    out.lockValid = cameraFollowModeLocksViewToTarget(followConfig->mode) &&
-        tryComputeFollowTargetLockMetrics(camera->getGimbal(), trackedTarget, out.lockAngleDeg, &targetDistance);
+    out.lockValid = core::cameraFollowModeLocksViewToTarget(followConfig->mode) &&
+        core::tryComputeFollowTargetLockMetrics(camera->getGimbal(), trackedTarget, out.lockAngleDeg, &targetDistance);
     if (out.lockValid)
         out.targetDistance = static_cast<float>(targetDistance);
 
@@ -154,16 +154,16 @@ inline SCameraFollowVisualMetrics buildFollowVisualMetrics(
 }
 
 inline bool validateFollowTargetContract(
-    ICamera* camera,
-    const CTrackedTarget& trackedTarget,
-    const SCameraFollowConfig& followConfig,
-    const CCameraGoal& followGoal,
+    core::ICamera* camera,
+    const core::CTrackedTarget& trackedTarget,
+    const core::SCameraFollowConfig& followConfig,
+    const core::CCameraGoal& followGoal,
     SCameraFollowRegressionResult& out,
     std::string* error = nullptr,
     const float lockAngleToleranceDeg = 0.1f,
     const double distanceTolerance = 1e-6,
     const double targetTolerance = 1e-9,
-    const float32_t4x4* viewProjMatrix = nullptr,
+    const hlsl::float32_t4x4* viewProjMatrix = nullptr,
     const float projectedNdcTolerance = 0.03f)
 {
     out = {};
@@ -174,9 +174,9 @@ inline bool validateFollowTargetContract(
         return false;
     }
 
-    if (cameraFollowModeLocksViewToTarget(followConfig.mode))
+    if (core::cameraFollowModeLocksViewToTarget(followConfig.mode))
     {
-        out.hasLockMetrics = tryComputeFollowTargetLockMetrics(camera->getGimbal(), trackedTarget, out.lockAngleDeg, &out.targetDistance);
+        out.hasLockMetrics = core::tryComputeFollowTargetLockMetrics(camera->getGimbal(), trackedTarget, out.lockAngleDeg, &out.targetDistance);
         if (!out.hasLockMetrics)
         {
             if (error)
@@ -184,7 +184,7 @@ inline bool validateFollowTargetContract(
             return false;
         }
 
-        const auto expectedTargetDistance = length(trackedTarget.getGimbal().getPosition() - camera->getGimbal().getPosition());
+        const auto expectedTargetDistance = hlsl::length(trackedTarget.getGimbal().getPosition() - camera->getGimbal().getPosition());
         if (!std::isfinite(expectedTargetDistance) || std::abs(expectedTargetDistance - out.targetDistance) > distanceTolerance)
         {
             if (error)
@@ -229,9 +229,9 @@ inline bool validateFollowTargetContract(
         }
     }
 
-    if (camera->supportsGoalState(ICamera::GoalStateSphericalTarget))
+    if (camera->supportsGoalState(core::ICamera::GoalStateSphericalTarget))
     {
-        ICamera::SphericalTargetState state;
+        core::ICamera::SphericalTargetState state;
         if (!camera->tryGetSphericalTargetState(state))
         {
             if (error)
@@ -245,7 +245,7 @@ inline bool validateFollowTargetContract(
 
         const auto trackedTargetPosition = trackedTarget.getGimbal().getPosition();
         const auto targetDelta = state.target - trackedTargetPosition;
-        const auto targetDeltaLen = length(targetDelta);
+        const auto targetDeltaLen = hlsl::length(targetDelta);
         if (!std::isfinite(targetDeltaLen) || targetDeltaLen > targetTolerance)
         {
             if (error)
@@ -253,7 +253,7 @@ inline bool validateFollowTargetContract(
             return false;
         }
 
-        const auto actualDistance = length(camera->getGimbal().getPosition() - trackedTargetPosition);
+        const auto actualDistance = hlsl::length(camera->getGimbal().getPosition() - trackedTargetPosition);
         const auto expectedDistance = followGoal.hasOrbitState ? static_cast<double>(followGoal.orbitDistance) :
             (followGoal.hasDistance ? static_cast<double>(followGoal.distance) : actualDistance);
         if (!std::isfinite(actualDistance) || !std::isfinite(expectedDistance) ||
@@ -275,13 +275,13 @@ inline bool validateFollowTargetContract(
 }
 
 inline bool buildApplyAndValidateFollowTargetContract(
-    const CCameraGoalSolver& solver,
-    ICamera* camera,
-    const CTrackedTarget& trackedTarget,
-    const SCameraFollowConfig& followConfig,
+    const core::CCameraGoalSolver& solver,
+    core::ICamera* camera,
+    const core::CTrackedTarget& trackedTarget,
+    const core::SCameraFollowConfig& followConfig,
     SCameraFollowApplyValidationResult& out,
     std::string* error = nullptr,
-    const float32_t4x4* viewProjMatrix = nullptr,
+    const hlsl::float32_t4x4* viewProjMatrix = nullptr,
     const float lockAngleToleranceDeg = 0.1f,
     const double distanceTolerance = 1e-6,
     const double targetTolerance = 1e-9,
@@ -292,7 +292,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
 {
     out = {};
 
-    if (!tryBuildFollowGoal(solver, camera, trackedTarget, followConfig, out.goal))
+    if (!core::tryBuildFollowGoal(solver, camera, trackedTarget, followConfig, out.goal))
     {
         if (error)
             *error = "failed to build follow goal";
@@ -300,7 +300,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
     }
     out.hasGoal = true;
 
-    out.applyResult = applyFollowToCamera(solver, camera, trackedTarget, followConfig);
+    out.applyResult = core::applyFollowToCamera(solver, camera, trackedTarget, followConfig);
     if (!out.applyResult.succeeded())
     {
         if (error)
@@ -318,10 +318,10 @@ inline bool buildApplyAndValidateFollowTargetContract(
 
     out.hasCapturedGoal = true;
     out.capturedGoal = capture.goal;
-    if (!compareGoals(out.capturedGoal, out.goal, posTolerance, rotToleranceDeg, scalarTolerance))
+    if (!core::compareGoals(out.capturedGoal, out.goal, posTolerance, rotToleranceDeg, scalarTolerance))
     {
         if (error)
-            *error = std::string("follow goal mismatch. ") + describeGoalMismatch(out.capturedGoal, out.goal);
+            *error = std::string("follow goal mismatch. ") + core::describeGoalMismatch(out.capturedGoal, out.goal);
         return false;
     }
 
@@ -344,6 +344,6 @@ inline bool buildApplyAndValidateFollowTargetContract(
     return true;
 }
 
-} // namespace nbl::core
+} // namespace nbl::system
 
 #endif // _C_CAMERA_FOLLOW_REGRESSION_UTILITIES_HPP_

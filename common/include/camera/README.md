@@ -48,7 +48,7 @@ The stack is split across existing Nabla namespaces:
 - `nbl::ui`
   binding layouts, input processors, binders, default input mappings, and user-facing presentation/text helpers
 - `nbl::system`
-  persistence, scripted runtime payloads, scripted parsing, and scripted check execution
+  persistence, scripted runtime payloads, scripted parsing, scripted check execution, and follow-contract validation helpers
 
 ## Why virtual events and not absolute setters
 
@@ -268,7 +268,6 @@ It covers:
 ### 7. Follow
 
 - [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
 
 Follow is deliberately not part of `ICamera`.
 
@@ -290,6 +289,7 @@ It only knows about:
 - [`CCameraScriptedRuntimePersistence.hpp`](CCameraScriptedRuntimePersistence.hpp)
 - [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
 - [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
 
 This is the reusable scripting and CI half.
 
