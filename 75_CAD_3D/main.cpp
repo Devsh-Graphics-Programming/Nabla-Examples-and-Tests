@@ -16,6 +16,7 @@ using namespace video;
 
 #include "nbl/builtin/hlsl/math/linalg/transform.hlsl"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
+#include "DTMMeshes.h"
 
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
@@ -1059,31 +1060,9 @@ protected:
 		);
 		drawResourcesFiller.reset();
 
-		core::vector<TriangleMeshVertex> vertices = {
-			{ float64_t3(0.0, 100.0, 0.0) },
-			{ float64_t3(-200.0, 10.0, -200.0) },
-			{ float64_t3(200.0, 10.0, -100.0) },
-			{ float64_t3(0.0, 100.0, 0.0) },
-			{ float64_t3(200.0, 10.0, -100.0) },
-			{ float64_t3(200.0, -20.0, 200.0) },
-			{ float64_t3(0.0, 100.0, 0.0) },
-			{ float64_t3(200.0, -20.0, 200.0) },
-			{ float64_t3(-200.0, 10.0, 200.0) },
-			{ float64_t3(0.0, 100.0, 0.0) },
-			{ float64_t3(-200.0, 10.0, 200.0) },
-			{ float64_t3(-200.0, 10.0, -200.0) },
-		};
-
-		core::vector<uint32_t> indices = {
-			0, 1, 2,
-			3, 4, 5,
-			6, 7, 8,
-			9, 10, 11
-		};
-
 		CTriangleMesh mesh;
-		mesh.setVertices(core::vector<TriangleMeshVertex>(vertices));
-		mesh.setIndices(std::move(indices));
+		mesh.setVertices(core::vector<TriangleMeshVertex>(DTMMainMeshVertices));
+		mesh.setIndices(core::vector<uint32_t>(DTMMainMeshIndices));
 
 		DTMSettingsInfo dtmInfo{};
 
@@ -1133,14 +1112,6 @@ protected:
 			}
 		}
 
-		// pyramid A
-		drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
-
-		// pyramid B
-		float64_t3 offset = { 500.0f, 0.0f, 0.0f };
-		for (auto& vertex : vertices)
-			vertex.pos += offset;
-		mesh.setVertices(std::move(vertices));
 		drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 	}
 

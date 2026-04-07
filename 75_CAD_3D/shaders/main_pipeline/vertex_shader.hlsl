@@ -26,6 +26,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         float32_t3 triangleEdge0 = vertex1 - vertex0;
         float32_t3 triangleEdge1 = vertex2 - vertex0;
 
+        // TODO: Whether to use cross(e0, e1) or cross(e1, e0) depends on the triangle winding (CCW vs CW).
         outV.setNormal(normalize(cross(triangleEdge1, triangleEdge0)));
     }
 

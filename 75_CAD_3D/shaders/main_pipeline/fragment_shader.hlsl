@@ -10,7 +10,7 @@ static const float32_t3 SunlightDirection = float32_t3(0.7071f, -0.7071f, 0.0f);
 float4 fragMain(PSInput input) : SV_Target
 {
 	static const float AmbientLightIntensity = 0.1f;
-	const float diffuseLightIntensity = max(dot(-SunlightDirection, input.getNormal()), 0.0f);
+	const float diffuseLightIntensity = max(dot(-SunlightDirection, normalize(input.getNormal())), 0.0f);
 
 	const MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
 	const DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
