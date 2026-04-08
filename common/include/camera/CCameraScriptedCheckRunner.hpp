@@ -30,13 +30,16 @@ namespace nbl::system
 */
 struct CCameraScriptedCheckRuntimeState
 {
+    struct SPoseReference
+    {
+        bool valid = false;
+        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+    };
+
     size_t nextCheckIndex = 0u;
-    bool baselineValid = false;
-    hlsl::float32_t3 baselinePos = hlsl::float32_t3(0.f);
-    hlsl::float32_t3 baselineEulerDeg = hlsl::float32_t3(0.f);
-    bool stepValid = false;
-    hlsl::float32_t3 stepPos = hlsl::float32_t3(0.f);
-    hlsl::float32_t3 stepEulerDeg = hlsl::float32_t3(0.f);
+    SPoseReference baseline = {};
+    SPoseReference step = {};
 };
 
 //! Shared per-frame evaluation context for authored scripted checks.
@@ -68,12 +71,32 @@ struct CCameraScriptedCheckFrameResult
 
 inline void scriptedCheckSetStepReference(
     CCameraScriptedCheckRuntimeState& state,
-    const hlsl::float32_t3& pos,
-    const hlsl::float32_t3& eulerDeg)
+    const hlsl::float64_t3& position,
+    const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
 {
-    state.stepValid = true;
-    state.stepPos = pos;
-    state.stepEulerDeg = eulerDeg;
+    state.step.valid = true;
+    state.step.position = position;
+    state.step.orientation = hlsl::normalizeQuaternion(orientation);
+}
+
+inline void scriptedCheckSetBaselineReference(
+    CCameraScriptedCheckRuntimeState& state,
+    const hlsl::float64_t3& position,
+    const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
+{
+    state.baseline.valid = true;
+    state.baseline.position = position;
+    state.baseline.orientation = hlsl::normalizeQuaternion(orientation);
+    scriptedCheckSetStepReference(state, position, orientation);
+}
+
+inline float scriptedCheckComputeRotationDeltaDegrees(
+    const hlsl::camera_quaternion_t<hlsl::float64_t>& currentOrientation,
+    const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation)
+{
+    return static_cast<float>(hlsl::getQuaternionAngularDistanceDegrees(
+        hlsl::normalizeQuaternion(currentOrientation),
+        hlsl::normalizeQuaternion(referenceOrientation)));
 }
 
 template<typename Fn>
@@ -123,9 +146,10 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
 
         const auto& gimbal = context.camera->getGimbal();
         const auto pos = gimbal.getPosition();
-        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getQuaternionEulerDegrees(gimbal.getOrientation()));
+        const auto orientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
+        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getQuaternionEulerDegrees(orientation));
 
-        if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteVec3(eulerDeg))
+        if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteQuaternion(orientation) || !hlsl::isFiniteVec3(eulerDeg))
         {
             appendScriptedCheckLog(
                 result,
@@ -142,10 +166,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
         {
             case CCameraScriptedInputCheck::Kind::Baseline:
             {
-                state.baselineValid = true;
-                state.baselinePos = pos;
-                state.baselineEulerDeg = eulerDeg;
-                scriptedCheckSetStepReference(state, pos, eulerDeg);
+                scriptedCheckSetBaselineReference(state, pos, orientation);
                 appendScriptedCheckLog(
                     result,
                     false,
@@ -237,12 +258,10 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 }
                 if (check.hasExpectedEuler)
                 {
-                    const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, check.expectedEulerDeg);
-                    const auto dx = deltaEulerDeg.x;
-                    const auto dy = deltaEulerDeg.y;
-                    const auto dz = deltaEulerDeg.z;
-                    const auto maxAngle = std::max(dx, std::max(dy, dz));
-                    if (maxAngle > check.eulerToleranceDeg)
+                    const auto expectedOrientation = hlsl::makeQuaternionFromEulerDegrees(
+                        hlsl::getCastedVector<hlsl::float64_t>(check.expectedEulerDeg));
+                    const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, expectedOrientation);
+                    if (rotationDeltaDeg > check.eulerToleranceDeg)
                     {
                         ok = false;
                         appendScriptedCheckLog(
@@ -252,7 +271,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             {
                                 oss << std::fixed << std::setprecision(6);
                                 oss << "[script][fail] gimbal_near frame=" << context.frame
-                                    << " euler_diff=" << maxAngle
+                                    << " rot_delta_deg=" << rotationDeltaDeg
                                     << " tol=" << check.eulerToleranceDeg;
                             }));
                     }
@@ -272,7 +291,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
             }
             case CCameraScriptedInputCheck::Kind::GimbalDelta:
             {
-                if (!state.baselineValid)
+                if (!state.baseline.valid)
                 {
                     appendScriptedCheckLog(
                         result,
@@ -284,15 +303,11 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(state.baselinePos);
+                const hlsl::float64_t3 diff = pos - state.baseline.position;
                 const double dpos = hlsl::length(diff);
-                const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, state.baselineEulerDeg);
-                const auto dx = deltaEulerDeg.x;
-                const auto dy = deltaEulerDeg.y;
-                const auto dz = deltaEulerDeg.z;
-                const auto dmax = std::max(dx, std::max(dy, dz));
+                const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, state.baseline.orientation);
 
-                if (dpos > check.posTolerance || dmax > check.eulerToleranceDeg)
+                if (dpos > check.posTolerance || rotationDeltaDeg > check.eulerToleranceDeg)
                 {
                     appendScriptedCheckLog(
                         result,
@@ -303,7 +318,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             oss << "[script][fail] gimbal_delta frame=" << context.frame
                                 << " pos_diff=" << dpos
                                 << " tol=" << check.posTolerance
-                                << " euler_diff=" << dmax
+                                << " rot_delta_deg=" << rotationDeltaDeg
                                 << " tol=" << check.eulerToleranceDeg;
                         }));
                 }
@@ -317,18 +332,18 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][pass] gimbal_delta frame=" << context.frame
                                 << " pos_diff=" << dpos
-                                << " euler_diff=" << dmax;
+                                << " rot_delta_deg=" << rotationDeltaDeg;
                         }));
                 }
                 break;
             }
             case CCameraScriptedInputCheck::Kind::GimbalStep:
             {
-                if (!state.stepValid)
+                if (!state.step.valid)
                 {
-                    if (state.baselineValid)
+                    if (state.baseline.valid)
                     {
-                        scriptedCheckSetStepReference(state, state.baselinePos, state.baselineEulerDeg);
+                        scriptedCheckSetStepReference(state, state.baseline.position, state.baseline.orientation);
                     }
                     else
                     {
@@ -339,19 +354,15 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             {
                                 oss << "[script][fail] gimbal_step frame=" << context.frame << " missing step reference";
                             }));
-                        scriptedCheckSetStepReference(state, pos, eulerDeg);
+                        scriptedCheckSetStepReference(state, pos, orientation);
                         ++state.nextCheckIndex;
                         continue;
                     }
                 }
 
-                const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(state.stepPos);
+                const hlsl::float64_t3 diff = pos - state.step.position;
                 const double dpos = hlsl::length(diff);
-                const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, state.stepEulerDeg);
-                const auto dx = deltaEulerDeg.x;
-                const auto dy = deltaEulerDeg.y;
-                const auto dz = deltaEulerDeg.z;
-                const auto dmax = std::max(dx, std::max(dy, dz));
+                const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, state.step.orientation);
 
                 bool ok = true;
                 bool requiresProgress = false;
@@ -380,7 +391,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 }
                 if (check.hasEulerDeltaConstraint)
                 {
-                    if (dmax > check.eulerToleranceDeg)
+                    if (rotationDeltaDeg > check.eulerToleranceDeg)
                     {
                         ok = false;
                         appendScriptedCheckLog(
@@ -390,14 +401,14 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             {
                                 oss << std::fixed << std::setprecision(6);
                                 oss << "[script][fail] gimbal_step frame=" << context.frame
-                                    << " euler_delta=" << dmax
+                                    << " rot_delta_deg=" << rotationDeltaDeg
                                     << " max=" << check.eulerToleranceDeg;
                             }));
                     }
                     if (check.minEulerDeltaDeg > 0.0f)
                     {
                         requiresProgress = true;
-                        hasProgress = hasProgress || dmax >= check.minEulerDeltaDeg;
+                        hasProgress = hasProgress || rotationDeltaDeg >= check.minEulerDeltaDeg;
                     }
                 }
                 if (requiresProgress && !hasProgress)
@@ -411,7 +422,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][fail] gimbal_step frame=" << context.frame
                                 << " missing progress pos_delta=" << dpos
-                                << " euler_delta=" << dmax;
+                                << " rot_delta_deg=" << rotationDeltaDeg;
                         }));
                 }
 
@@ -425,10 +436,10 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][pass] gimbal_step frame=" << context.frame
                                 << " pos_delta=" << dpos
-                                << " euler_delta=" << dmax;
+                                << " rot_delta_deg=" << rotationDeltaDeg;
                         }));
                 }
-                scriptedCheckSetStepReference(state, pos, eulerDeg);
+                scriptedCheckSetStepReference(state, pos, orientation);
                 break;
             }
             case CCameraScriptedInputCheck::Kind::FollowTargetLock:

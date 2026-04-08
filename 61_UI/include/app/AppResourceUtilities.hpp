@@ -108,6 +108,59 @@ inline path resolveInputPath(const path& localInputCWD, path pathValue)
     return pathValue;
 }
 
+inline bool loadTextFromMountedResourceOrResolvedPath(
+    ISystem& system,
+    const path& localInputCWD,
+    const path& pathValue,
+    std::string& outText,
+    path* outLoadedPath = nullptr)
+{
+    if (loadFileText(system, pathValue, outText))
+    {
+        if (outLoadedPath)
+            *outLoadedPath = pathValue;
+        return true;
+    }
+
+    const auto resolvedPath = resolveInputPath(localInputCWD, pathValue);
+    if (resolvedPath == pathValue)
+        return false;
+
+    if (!loadFileText(system, resolvedPath, outText))
+        return false;
+
+    if (outLoadedPath)
+        *outLoadedPath = resolvedPath;
+    return true;
+}
+
+inline bool loadJsonFromMountedResourceOrResolvedPath(
+    ISystem& system,
+    const path& localInputCWD,
+    const path& pathValue,
+    camera_json_t& outJson,
+    path* outLoadedPath = nullptr,
+    std::string* error = nullptr)
+{
+    if (loadJsonFromPath(system, pathValue, outJson, error))
+    {
+        if (outLoadedPath)
+            *outLoadedPath = pathValue;
+        return true;
+    }
+
+    const auto resolvedPath = resolveInputPath(localInputCWD, pathValue);
+    if (resolvedPath == pathValue)
+        return false;
+
+    if (!loadJsonFromPath(system, resolvedPath, outJson, error))
+        return false;
+
+    if (outLoadedPath)
+        *outLoadedPath = resolvedPath;
+    return true;
+}
+
 inline bool parseSpaceEnvBlobBytes(
     std::span<const uint8_t> blobBytes,
     SSpaceEnvBlobHeader& outHeader,
@@ -171,6 +224,36 @@ inline bool loadFirstSpaceEnvBlobFromRoots(
         if (loadSpaceEnvBlob(system, root / SCameraAppResourcePaths::SpaceEnvBlobCandidate, outHeader, outPayload))
             return true;
     }
+    return false;
+}
+
+inline bool loadPreferredSpaceEnvBlob(
+    ISystem& system,
+    const path& localInputCWD,
+    SSpaceEnvBlobHeader& outHeader,
+    std::vector<uint8_t>& outPayload,
+    path* outLoadedPath = nullptr)
+{
+    const path mountedPath = path(SCameraAppResourcePaths::AppResourcesWorkingDirectory) / path(SCameraAppResourcePaths::SpaceEnvBlobCandidate);
+    if (loadSpaceEnvBlob(system, mountedPath, outHeader, outPayload))
+    {
+        if (outLoadedPath)
+            *outLoadedPath = mountedPath;
+        return true;
+    }
+
+    const auto searchRoots = makeSpaceEnvSearchRoots(localInputCWD);
+    for (const auto& root : searchRoots)
+    {
+        const auto candidate = root / path(SCameraAppResourcePaths::SpaceEnvBlobCandidate);
+        if (!loadSpaceEnvBlob(system, candidate, outHeader, outPayload))
+            continue;
+
+        if (outLoadedPath)
+            *outLoadedPath = candidate;
+        return true;
+    }
+
     return false;
 }
 

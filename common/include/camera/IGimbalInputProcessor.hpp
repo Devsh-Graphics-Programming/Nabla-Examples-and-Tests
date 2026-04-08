@@ -281,34 +281,25 @@ public:
             {
                 const auto& deltaWorldTRS = ev;
 
-                struct
-                {
-                    hlsl::float32_t3 dTranslation, dRotation, dScale;
-                } world;
-
-                if (!hlsl::decomposeTransformMatrix(deltaWorldTRS, world.dTranslation, world.dRotation, world.dScale))
+                hlsl::SRigidTransformComponents<hlsl::float32_t> world = {};
+                if (!hlsl::tryExtractRigidTransformComponents(deltaWorldTRS, world))
                     continue;
 
                 // Delta translation impulse
-                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[0], std::abs(world.dTranslation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[1], std::abs(world.dTranslation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[2], std::abs(world.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.translation[0], std::abs(world.translation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.translation[1], std::abs(world.translation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.translation[2], std::abs(world.translation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                const hlsl::float32_t3 dRotationRad =
-                {
-                    hlsl::radians(world.dRotation[0]),
-                    hlsl::radians(world.dRotation[1]),
-                    hlsl::radians(world.dRotation[2])
-                };
+                const auto dRotationRad = hlsl::getQuaternionEulerRadians(world.orientation);
                 requestMagnitudeUpdateWithScalar(0.f, dRotationRad[0], std::abs(dRotationRad[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
                 requestMagnitudeUpdateWithScalar(0.f, dRotationRad[1], std::abs(dRotationRad[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
                 requestMagnitudeUpdateWithScalar(0.f, dRotationRad[2], std::abs(dRotationRad[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
 
                 // Delta scale impulse
-                requestMagnitudeUpdateWithScalar(1.f, world.dScale[0], std::abs(world.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, world.dScale[1], std::abs(world.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, world.dScale[2], std::abs(world.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.scale[0], std::abs(world.scale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.scale[1], std::abs(world.scale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.scale[2], std::abs(world.scale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
             }
 
             postprocess(m_imguizmoVirtualEventMap, output, count);

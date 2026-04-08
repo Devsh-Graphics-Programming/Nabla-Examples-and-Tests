@@ -1,6 +1,8 @@
 #ifndef _NBL_C_CAMERA_INPUT_BINDING_UTILITIES_HPP_
 #define _NBL_C_CAMERA_INPUT_BINDING_UTILITIES_HPP_
 
+#include <array>
+
 #include "ICamera.hpp"
 #include "IGimbalBindingLayout.hpp"
 
@@ -18,96 +20,112 @@ struct SCameraInputBindingPreset
 namespace impl
 {
 
-inline IGimbalBindingLayout::keyboard_to_virtual_events_t makeKeyboardPreset(
-    std::initializer_list<std::pair<IGimbalBindingLayout::encode_keyboard_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
+struct SKeyboardPresetSpec
 {
+    std::array<core::CVirtualGimbalEvent::VirtualEventType, 4u> wasd = {
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None
+    };
+    std::array<core::CVirtualGimbalEvent::VirtualEventType, 2u> qe = {
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None
+    };
+    std::array<core::CVirtualGimbalEvent::VirtualEventType, 4u> ijkl = {
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None
+    };
+};
+
+struct SMousePresetSpec
+{
+    std::array<core::CVirtualGimbalEvent::VirtualEventType, 4u> relative = {
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None
+    };
+    std::array<core::CVirtualGimbalEvent::VirtualEventType, 2u> scroll = {
+        core::CVirtualGimbalEvent::None,
+        core::CVirtualGimbalEvent::None
+    };
+};
+
+template<typename Map, typename Codes, typename Events>
+inline void appendBindingSpec(Map& preset, const Codes& codes, const Events& events)
+{
+    for (size_t i = 0u; i < codes.size() && i < events.size(); ++i)
+    {
+        const auto event = events[i];
+        if (event == core::CVirtualGimbalEvent::None)
+            continue;
+        preset.emplace(codes[i], IGimbalBindingLayout::CHashInfo(event));
+    }
+}
+
+inline IGimbalBindingLayout::keyboard_to_virtual_events_t buildKeyboardPreset(const SKeyboardPresetSpec& spec)
+{
+    static constexpr std::array KeyboardWasdCodes = {
+        ui::E_KEY_CODE::EKC_W,
+        ui::E_KEY_CODE::EKC_S,
+        ui::E_KEY_CODE::EKC_A,
+        ui::E_KEY_CODE::EKC_D
+    };
+    static constexpr std::array KeyboardQeCodes = {
+        ui::E_KEY_CODE::EKC_Q,
+        ui::E_KEY_CODE::EKC_E
+    };
+    static constexpr std::array KeyboardIjklCodes = {
+        ui::E_KEY_CODE::EKC_I,
+        ui::E_KEY_CODE::EKC_K,
+        ui::E_KEY_CODE::EKC_J,
+        ui::E_KEY_CODE::EKC_L
+    };
+
     IGimbalBindingLayout::keyboard_to_virtual_events_t preset;
-    for (const auto& [code, event] : bindings)
-        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
+    appendBindingSpec(preset, KeyboardWasdCodes, spec.wasd);
+    appendBindingSpec(preset, KeyboardQeCodes, spec.qe);
+    appendBindingSpec(preset, KeyboardIjklCodes, spec.ijkl);
     return preset;
 }
 
-inline IGimbalBindingLayout::mouse_to_virtual_events_t makeMousePreset(
-    std::initializer_list<std::pair<IGimbalBindingLayout::encode_mouse_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
+inline IGimbalBindingLayout::mouse_to_virtual_events_t buildMousePreset(const SMousePresetSpec& spec)
 {
+    static constexpr std::array RelativeMouseCodes = {
+        ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X,
+        ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X,
+        ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y,
+        ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y
+    };
+    static constexpr std::array PositiveScrollCodes = {
+        ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL,
+        ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL
+    };
+    static constexpr std::array NegativeScrollCodes = {
+        ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL,
+        ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL
+    };
+
     IGimbalBindingLayout::mouse_to_virtual_events_t preset;
-    for (const auto& [code, event] : bindings)
-        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
+    appendBindingSpec(preset, RelativeMouseCodes, spec.relative);
+    if (spec.scroll[0] != core::CVirtualGimbalEvent::None)
+    {
+        appendBindingSpec(
+            preset,
+            PositiveScrollCodes,
+            std::array<core::CVirtualGimbalEvent::VirtualEventType, 2u>{ spec.scroll[0], spec.scroll[0] });
+    }
+    if (spec.scroll[1] != core::CVirtualGimbalEvent::None)
+    {
+        appendBindingSpec(
+            preset,
+            NegativeScrollCodes,
+            std::array<core::CVirtualGimbalEvent::VirtualEventType, 2u>{ spec.scroll[1], spec.scroll[1] });
+    }
     return preset;
-}
-
-inline IGimbalBindingLayout::keyboard_to_virtual_events_t extendKeyboardPreset(
-    IGimbalBindingLayout::keyboard_to_virtual_events_t preset,
-    std::initializer_list<std::pair<IGimbalBindingLayout::encode_keyboard_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
-{
-    for (const auto& [code, event] : bindings)
-        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
-    return preset;
-}
-
-inline IGimbalBindingLayout::mouse_to_virtual_events_t extendMousePreset(
-    IGimbalBindingLayout::mouse_to_virtual_events_t preset,
-    std::initializer_list<std::pair<IGimbalBindingLayout::encode_mouse_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
-{
-    for (const auto& [code, event] : bindings)
-        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
-    return preset;
-}
-
-inline IGimbalBindingLayout::keyboard_to_virtual_events_t makeWasdKeyboardPreset(
-    const core::CVirtualGimbalEvent::VirtualEventType w,
-    const core::CVirtualGimbalEvent::VirtualEventType s,
-    const core::CVirtualGimbalEvent::VirtualEventType a,
-    const core::CVirtualGimbalEvent::VirtualEventType d)
-{
-    return makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, w },
-        { ui::E_KEY_CODE::EKC_S, s },
-        { ui::E_KEY_CODE::EKC_A, a },
-        { ui::E_KEY_CODE::EKC_D, d }
-    });
-}
-
-inline IGimbalBindingLayout::keyboard_to_virtual_events_t appendIjklLookKeyboardPreset(
-    IGimbalBindingLayout::keyboard_to_virtual_events_t preset,
-    const core::CVirtualGimbalEvent::VirtualEventType i,
-    const core::CVirtualGimbalEvent::VirtualEventType k,
-    const core::CVirtualGimbalEvent::VirtualEventType j,
-    const core::CVirtualGimbalEvent::VirtualEventType l)
-{
-    return extendKeyboardPreset(std::move(preset), {
-        { ui::E_KEY_CODE::EKC_I, i },
-        { ui::E_KEY_CODE::EKC_K, k },
-        { ui::E_KEY_CODE::EKC_J, j },
-        { ui::E_KEY_CODE::EKC_L, l }
-    });
-}
-
-inline IGimbalBindingLayout::mouse_to_virtual_events_t makeRelativeMousePreset(
-    const core::CVirtualGimbalEvent::VirtualEventType positiveX,
-    const core::CVirtualGimbalEvent::VirtualEventType negativeX,
-    const core::CVirtualGimbalEvent::VirtualEventType positiveY,
-    const core::CVirtualGimbalEvent::VirtualEventType negativeY)
-{
-    return makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, positiveX },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, negativeX },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, positiveY },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, negativeY }
-    });
-}
-
-inline IGimbalBindingLayout::mouse_to_virtual_events_t appendSymmetricScrollPreset(
-    IGimbalBindingLayout::mouse_to_virtual_events_t preset,
-    const core::CVirtualGimbalEvent::VirtualEventType positive,
-    const core::CVirtualGimbalEvent::VirtualEventType negative)
-{
-    return extendMousePreset(std::move(preset), {
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, positive },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, positive },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, negative },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, negative }
-    });
 }
 
 inline IGimbalBindingLayout::imguizmo_to_virtual_events_t makeImguizmoPreset(const uint32_t allowedVirtualEvents)
@@ -136,298 +154,269 @@ inline const IGimbalBindingLayout::mouse_to_virtual_events_t& emptyMousePreset()
     return preset;
 }
 
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& fpsKeyboardPreset()
+inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& keyboardPresetForKind(const core::ICamera::CameraKind kind)
 {
-    static const auto preset = appendIjklLookKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveForward,
-            core::CVirtualGimbalEvent::MoveBackward,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
-        core::CVirtualGimbalEvent::TiltDown,
-        core::CVirtualGimbalEvent::TiltUp,
-        core::CVirtualGimbalEvent::PanLeft,
-        core::CVirtualGimbalEvent::PanRight);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& freeKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(fpsKeyboardPreset(), {
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::RollLeft },
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::RollRight }
-    });
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& orbitKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
+    switch (kind)
+    {
+        case core::ICamera::CameraKind::FPS:
         {
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward }
-        });
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& arcballKeyboardPreset()
-{
-    static const auto preset = appendIjklLookKeyboardPreset(
-        extendKeyboardPreset(
-            makeWasdKeyboardPreset(
-                core::CVirtualGimbalEvent::MoveForward,
-                core::CVirtualGimbalEvent::MoveBackward,
-                core::CVirtualGimbalEvent::MoveLeft,
-                core::CVirtualGimbalEvent::MoveRight),
-            {
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveUp },
-            }),
-        core::CVirtualGimbalEvent::TiltDown,
-        core::CVirtualGimbalEvent::TiltUp,
-        core::CVirtualGimbalEvent::PanLeft,
-        core::CVirtualGimbalEvent::PanRight);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& turntableKeyboardPreset()
-{
-    static const auto preset = appendIjklLookKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveForward,
-            core::CVirtualGimbalEvent::MoveBackward,
-            core::CVirtualGimbalEvent::PanLeft,
-            core::CVirtualGimbalEvent::PanRight),
-        core::CVirtualGimbalEvent::TiltDown,
-        core::CVirtualGimbalEvent::TiltUp,
-        core::CVirtualGimbalEvent::PanLeft,
-        core::CVirtualGimbalEvent::PanRight);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& topDownKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .ijkl = {
+                    core::CVirtualGimbalEvent::TiltDown,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Free:
         {
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight }
-        });
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& isometricKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::RollLeft,
+                    core::CVirtualGimbalEvent::RollRight
+                },
+                .ijkl = {
+                    core::CVirtualGimbalEvent::TiltDown,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Orbit:
         {
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward }
-        });
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& chaseKeyboardPreset()
-{
-    return arcballKeyboardPreset();
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& dollyKeyboardPreset()
-{
-    return arcballKeyboardPreset();
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& dollyZoomKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveForward
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Arcball:
+        case core::ICamera::CameraKind::Chase:
+        case core::ICamera::CameraKind::Dolly:
         {
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward }
-        });
-    return preset;
-}
-
-inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& pathKeyboardPreset()
-{
-    static const auto preset = extendKeyboardPreset(
-        makeWasdKeyboardPreset(
-            core::CVirtualGimbalEvent::MoveForward,
-            core::CVirtualGimbalEvent::MoveBackward,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveRight),
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::MoveDown,
+                    core::CVirtualGimbalEvent::MoveUp
+                },
+                .ijkl = {
+                    core::CVirtualGimbalEvent::TiltDown,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Turntable:
         {
-        { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveUp }
-        });
-    return preset;
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                },
+                .ijkl = {
+                    core::CVirtualGimbalEvent::TiltDown,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::TopDown:
+        {
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveForward
+                },
+                .ijkl = {
+                    core::CVirtualGimbalEvent::None,
+                    core::CVirtualGimbalEvent::None,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::PanRight
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Isometric:
+        case core::ICamera::CameraKind::DollyZoom:
+        {
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveForward
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Path:
+        {
+            static const auto preset = buildKeyboardPreset({
+                .wasd = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveRight
+                },
+                .qe = {
+                    core::CVirtualGimbalEvent::MoveDown,
+                    core::CVirtualGimbalEvent::MoveUp
+                }
+            });
+            return preset;
+        }
+        default:
+            return emptyKeyboardPreset();
+    }
 }
 
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& fpsMousePreset()
+inline const IGimbalBindingLayout::mouse_to_virtual_events_t& mousePresetForKind(const core::ICamera::CameraKind kind)
 {
-    static const auto preset = makeRelativeMousePreset(
-        core::CVirtualGimbalEvent::PanRight,
-        core::CVirtualGimbalEvent::PanLeft,
-        core::CVirtualGimbalEvent::TiltUp,
-        core::CVirtualGimbalEvent::TiltDown);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& freeMousePreset()
-{
-    return fpsMousePreset();
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& orbitMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::MoveRight,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown),
-        core::CVirtualGimbalEvent::MoveForward,
-        core::CVirtualGimbalEvent::MoveBackward);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& arcballMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::PanRight,
-            core::CVirtualGimbalEvent::PanLeft,
-            core::CVirtualGimbalEvent::TiltUp,
-            core::CVirtualGimbalEvent::TiltDown),
-        core::CVirtualGimbalEvent::MoveForward,
-        core::CVirtualGimbalEvent::MoveBackward);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& turntableMousePreset()
-{
-    return arcballMousePreset();
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& topDownMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::PanRight,
-            core::CVirtualGimbalEvent::PanLeft,
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown),
-        core::CVirtualGimbalEvent::MoveForward,
-        core::CVirtualGimbalEvent::MoveBackward);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& isometricMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::MoveRight,
-            core::CVirtualGimbalEvent::MoveLeft,
-            core::CVirtualGimbalEvent::MoveUp,
-            core::CVirtualGimbalEvent::MoveDown),
-        core::CVirtualGimbalEvent::MoveForward,
-        core::CVirtualGimbalEvent::MoveBackward);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& chaseMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::PanRight,
-            core::CVirtualGimbalEvent::PanLeft,
-            core::CVirtualGimbalEvent::TiltUp,
-            core::CVirtualGimbalEvent::TiltDown),
-        core::CVirtualGimbalEvent::MoveUp,
-        core::CVirtualGimbalEvent::MoveDown);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& dollyMousePreset()
-{
-    static const auto preset = appendSymmetricScrollPreset(
-        makeRelativeMousePreset(
-            core::CVirtualGimbalEvent::PanRight,
-            core::CVirtualGimbalEvent::PanLeft,
-            core::CVirtualGimbalEvent::TiltUp,
-            core::CVirtualGimbalEvent::TiltDown),
-        core::CVirtualGimbalEvent::MoveForward,
-        core::CVirtualGimbalEvent::MoveBackward);
-    return preset;
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& dollyZoomMousePreset()
-{
-    return isometricMousePreset();
-}
-
-inline const IGimbalBindingLayout::mouse_to_virtual_events_t& pathMousePreset()
-{
-    return isometricMousePreset();
+    switch (kind)
+    {
+        case core::ICamera::CameraKind::FPS:
+        case core::ICamera::CameraKind::Free:
+        {
+            static const auto preset = buildMousePreset({
+                .relative = {
+                    core::CVirtualGimbalEvent::PanRight,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::TiltDown
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Orbit:
+        case core::ICamera::CameraKind::Isometric:
+        case core::ICamera::CameraKind::DollyZoom:
+        case core::ICamera::CameraKind::Path:
+        {
+            static const auto preset = buildMousePreset({
+                .relative = {
+                    core::CVirtualGimbalEvent::MoveRight,
+                    core::CVirtualGimbalEvent::MoveLeft,
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown
+                },
+                .scroll = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Arcball:
+        case core::ICamera::CameraKind::Turntable:
+        case core::ICamera::CameraKind::Dolly:
+        {
+            static const auto preset = buildMousePreset({
+                .relative = {
+                    core::CVirtualGimbalEvent::PanRight,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::TiltDown
+                },
+                .scroll = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::TopDown:
+        {
+            static const auto preset = buildMousePreset({
+                .relative = {
+                    core::CVirtualGimbalEvent::PanRight,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown
+                },
+                .scroll = {
+                    core::CVirtualGimbalEvent::MoveForward,
+                    core::CVirtualGimbalEvent::MoveBackward
+                }
+            });
+            return preset;
+        }
+        case core::ICamera::CameraKind::Chase:
+        {
+            static const auto preset = buildMousePreset({
+                .relative = {
+                    core::CVirtualGimbalEvent::PanRight,
+                    core::CVirtualGimbalEvent::PanLeft,
+                    core::CVirtualGimbalEvent::TiltUp,
+                    core::CVirtualGimbalEvent::TiltDown
+                },
+                .scroll = {
+                    core::CVirtualGimbalEvent::MoveUp,
+                    core::CVirtualGimbalEvent::MoveDown
+                }
+            });
+            return preset;
+        }
+        default:
+            return emptyMousePreset();
+    }
 }
 
 } // namespace impl
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& getDefaultCameraKeyboardMappingPreset(const core::ICamera& camera)
 {
-    switch (camera.getKind())
-    {
-        case core::ICamera::CameraKind::FPS: return impl::fpsKeyboardPreset();
-        case core::ICamera::CameraKind::Free: return impl::freeKeyboardPreset();
-        case core::ICamera::CameraKind::Orbit: return impl::orbitKeyboardPreset();
-        case core::ICamera::CameraKind::Arcball: return impl::arcballKeyboardPreset();
-        case core::ICamera::CameraKind::Turntable: return impl::turntableKeyboardPreset();
-        case core::ICamera::CameraKind::TopDown: return impl::topDownKeyboardPreset();
-        case core::ICamera::CameraKind::Isometric: return impl::isometricKeyboardPreset();
-        case core::ICamera::CameraKind::Chase: return impl::chaseKeyboardPreset();
-        case core::ICamera::CameraKind::Dolly: return impl::dollyKeyboardPreset();
-        case core::ICamera::CameraKind::DollyZoom: return impl::dollyZoomKeyboardPreset();
-        case core::ICamera::CameraKind::Path: return impl::pathKeyboardPreset();
-        default: return impl::emptyKeyboardPreset();
-    }
+    return impl::keyboardPresetForKind(camera.getKind());
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& getDefaultCameraMouseMappingPreset(const core::ICamera& camera)
 {
-    switch (camera.getKind())
-    {
-        case core::ICamera::CameraKind::FPS: return impl::fpsMousePreset();
-        case core::ICamera::CameraKind::Free: return impl::freeMousePreset();
-        case core::ICamera::CameraKind::Orbit: return impl::orbitMousePreset();
-        case core::ICamera::CameraKind::Arcball: return impl::arcballMousePreset();
-        case core::ICamera::CameraKind::Turntable: return impl::turntableMousePreset();
-        case core::ICamera::CameraKind::TopDown: return impl::topDownMousePreset();
-        case core::ICamera::CameraKind::Isometric: return impl::isometricMousePreset();
-        case core::ICamera::CameraKind::Chase: return impl::chaseMousePreset();
-        case core::ICamera::CameraKind::Dolly: return impl::dollyMousePreset();
-        case core::ICamera::CameraKind::DollyZoom: return impl::dollyZoomMousePreset();
-        case core::ICamera::CameraKind::Path: return impl::pathMousePreset();
-        default: return impl::emptyMousePreset();
-    }
+    return impl::mousePresetForKind(camera.getKind());
 }
 
 inline IGimbalBindingLayout::imguizmo_to_virtual_events_t buildDefaultCameraImguizmoMappingPreset(const core::ICamera& camera)

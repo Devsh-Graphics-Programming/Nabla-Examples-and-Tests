@@ -91,26 +91,28 @@ void App::TransformEditorContents()
 			if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
 
-			float32_t3 matrixTranslation, matrixRotation, matrixScale;
+			hlsl::SRigidTransformComponents<hlsl::float32_t> transformState = {};
+			float32_t3 matrixRotation = float32_t3(0.0f);
 			imguizmoModel.outDeltaTRS = hlsl::float32_t4x4(1.0f);
 
-			if (!hlsl::decomposeTransformMatrix(imguizmoModel.outTRS, matrixTranslation, matrixRotation, matrixScale))
+			if (!hlsl::tryExtractRigidTransformComponents(imguizmoModel.outTRS, transformState))
 			{
-				matrixTranslation = float32_t3(imguizmoModel.outTRS[3].x, imguizmoModel.outTRS[3].y, imguizmoModel.outTRS[3].z);
-				matrixRotation = float32_t3(0.0f);
-				matrixScale = float32_t3(1.0f);
+				transformState.translation = float32_t3(imguizmoModel.outTRS[3].x, imguizmoModel.outTRS[3].y, imguizmoModel.outTRS[3].z);
+				transformState.orientation = hlsl::makeIdentityQuaternion<hlsl::float32_t>();
+				transformState.scale = float32_t3(1.0f);
 			}
+			matrixRotation = hlsl::getQuaternionEulerDegrees(transformState.orientation);
 			{
 				ImGuiInputTextFlags flags = 0;
 
-				ImGui::InputFloat3("Tr", &matrixTranslation[0], "%.3f", flags);
+				ImGui::InputFloat3("Tr", &transformState.translation[0], "%.3f", flags);
 				ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f", flags);
-				ImGui::InputFloat3("Sc", &matrixScale[0], "%.3f", flags);
+				ImGui::InputFloat3("Sc", &transformState.scale[0], "%.3f", flags);
 			}
 			imguizmoModel.outTRS = hlsl::composeTransformMatrix(
-				matrixTranslation,
+				transformState.translation,
 				hlsl::makeQuaternionFromEulerDegrees(matrixRotation),
-				matrixScale);
+				transformState.scale);
 			m16TRSmatrix = &imguizmoModel.outTRS[0][0];
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)

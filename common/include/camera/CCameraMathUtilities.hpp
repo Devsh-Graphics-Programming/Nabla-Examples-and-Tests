@@ -59,6 +59,22 @@ template<typename T>
 using camera_quaternion_t = math::quaternion<T>;
 
 template<typename T>
+inline camera_quaternion_t<T> makeIdentityQuaternion();
+
+template<typename T>
+struct SRigidTransformComponents
+{
+    camera_vector_t<T, 3> translation = camera_vector_t<T, 3>(T(0));
+    camera_quaternion_t<T> orientation = camera_quaternion_t<T>::create();
+    camera_vector_t<T, 3> scale = camera_vector_t<T, 3>(T(1));
+};
+
+template<typename T>
+inline bool tryExtractRigidTransformComponents(
+    const camera_matrix_t<T, 4, 4>& transform,
+    SRigidTransformComponents<T>& outComponents);
+
+template<typename T>
 inline camera_quaternion_t<T> makeIdentityQuaternion()
 {
     return camera_quaternion_t<T>::create();
@@ -408,29 +424,13 @@ inline bool tryExtractRigidPoseFromTransform(
     camera_vector_t<T, 3>& outTranslation,
     camera_quaternion_t<T>& outOrientation)
 {
-    outTranslation = camera_vector_t<T, 3>(transform[3].x, transform[3].y, transform[3].z);
-
-    auto right = camera_vector_t<T, 3>(transform[0].x, transform[0].y, transform[0].z);
-    auto up = camera_vector_t<T, 3>(transform[1].x, transform[1].y, transform[1].z);
-    auto forward = camera_vector_t<T, 3>(transform[2].x, transform[2].y, transform[2].z);
-
-    const T rightLen = length(right);
-    const T upLen = length(up);
-    const T forwardLen = length(forward);
-    constexpr T Epsilon = std::numeric_limits<T>::epsilon();
-    if (!isFiniteScalar(rightLen) || !isFiniteScalar(upLen) || !isFiniteScalar(forwardLen))
-        return false;
-    if (rightLen <= Epsilon || upLen <= Epsilon || forwardLen <= Epsilon)
+    SRigidTransformComponents<T> components;
+    if (!tryExtractRigidTransformComponents(transform, components))
         return false;
 
-    right /= rightLen;
-    up /= upLen;
-    forward /= forwardLen;
-    if (!isOrthoBase(right, up, forward))
-        return false;
-
-    outOrientation = makeQuaternionFromBasis(right, up, forward);
-    return isFiniteQuaternion(outOrientation);
+    outTranslation = components.translation;
+    outOrientation = components.orientation;
+    return true;
 }
 
 template<typename T>
@@ -655,6 +655,12 @@ inline camera_vector_t<T, 3> getWrappedEulerDistanceDegrees(
 }
 
 template<typename T>
+inline T getMaxVectorComponent(const camera_vector_t<T, 3>& value)
+{
+    return std::max(value.x, std::max(value.y, value.z));
+}
+
+template<typename T>
 inline camera_matrix_t<T, 4, 4> composeTransformMatrix(
     const camera_vector_t<T, 3>& translation,
     const camera_quaternion_t<T>& orientation,
@@ -670,36 +676,64 @@ inline camera_matrix_t<T, 4, 4> composeTransformMatrix(
 }
 
 template<typename T>
+inline bool tryExtractRigidTransformComponents(
+    const camera_matrix_t<T, 4, 4>& transform,
+    SRigidTransformComponents<T>& outComponents)
+{
+    outComponents.translation = camera_vector_t<T, 3>(transform[3].x, transform[3].y, transform[3].z);
+
+    auto right = camera_vector_t<T, 3>(transform[0].x, transform[0].y, transform[0].z);
+    auto up = camera_vector_t<T, 3>(transform[1].x, transform[1].y, transform[1].z);
+    auto forward = camera_vector_t<T, 3>(transform[2].x, transform[2].y, transform[2].z);
+
+    outComponents.scale = camera_vector_t<T, 3>(length(right), length(up), length(forward));
+
+    if (!isFiniteVec3(outComponents.translation) || !isFiniteVec3(outComponents.scale))
+        return false;
+
+    constexpr T Epsilon = std::numeric_limits<T>::epsilon();
+    if (outComponents.scale.x <= Epsilon || outComponents.scale.y <= Epsilon || outComponents.scale.z <= Epsilon)
+        return false;
+
+    right /= outComponents.scale.x;
+    up /= outComponents.scale.y;
+    forward /= outComponents.scale.z;
+    if (!isOrthoBase(right, up, forward))
+        return false;
+
+    outComponents.orientation = makeQuaternionFromBasis(right, up, forward);
+    return isFiniteQuaternion(outComponents.orientation);
+}
+
+template<typename T>
+inline bool tryBuildRigidFrameFromTransform(
+    const camera_matrix_t<T, 4, 4>& transform,
+    camera_matrix_t<T, 4, 4>& outFrame,
+    camera_quaternion_t<T>& outOrientation)
+{
+    SRigidTransformComponents<T> components;
+    if (!tryExtractRigidTransformComponents(transform, components))
+        return false;
+
+    outOrientation = components.orientation;
+    outFrame = composeTransformMatrix(components.translation, components.orientation);
+    return true;
+}
+
+template<typename T>
 inline bool decomposeTransformMatrix(
     const camera_matrix_t<T, 4, 4>& transform,
     camera_vector_t<T, 3>& outTranslation,
     camera_vector_t<T, 3>& outRotationEulerDegrees,
     camera_vector_t<T, 3>& outScale)
 {
-    outTranslation = camera_vector_t<T, 3>(transform[3].x, transform[3].y, transform[3].z);
-
-    auto right = camera_vector_t<T, 3>(transform[0].x, transform[0].y, transform[0].z);
-    auto up = camera_vector_t<T, 3>(transform[1].x, transform[1].y, transform[1].z);
-    auto forward = camera_vector_t<T, 3>(transform[2].x, transform[2].y, transform[2].z);
-
-    outScale = camera_vector_t<T, 3>(length(right), length(up), length(forward));
-
-    if (!std::isfinite(outScale.x) || !std::isfinite(outScale.y) || !std::isfinite(outScale.z))
+    SRigidTransformComponents<T> components;
+    if (!tryExtractRigidTransformComponents(transform, components))
         return false;
 
-    constexpr T Epsilon = std::numeric_limits<T>::epsilon();
-    if (outScale.x <= Epsilon || outScale.y <= Epsilon || outScale.z <= Epsilon)
-        return false;
-
-    right /= outScale.x;
-    up /= outScale.y;
-    forward /= outScale.z;
-
-    const auto orientation = makeQuaternionFromBasis(right, up, forward);
-    if (!isFiniteQuaternion(orientation))
-        return false;
-
-    outRotationEulerDegrees = getQuaternionEulerDegrees(orientation);
+    outTranslation = components.translation;
+    outScale = components.scale;
+    outRotationEulerDegrees = getQuaternionEulerDegrees(components.orientation);
     return std::isfinite(outRotationEulerDegrees.x) &&
         std::isfinite(outRotationEulerDegrees.y) &&
         std::isfinite(outRotationEulerDegrees.z);

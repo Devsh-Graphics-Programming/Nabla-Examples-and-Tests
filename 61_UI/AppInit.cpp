@@ -76,22 +76,22 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				if (!asset_base_t::onAppInitialized(std::move(system)))
 					return fail("Failed to initialize mounted resources for headless camera smoke.");
 
-				auto configPath = [&]() -> std::filesystem::path
-				{
-					if (program.is_used("--file"))
-					{
-						std::filesystem::path path = program.get<std::string>("--file");
-						if (path.is_relative())
-							path = localInputCWD / path;
-						return path.lexically_normal();
-					}
-					return std::filesystem::path(nbl::system::SCameraAppResourcePaths::DefaultCameraConfigRelativePath);
-				}();
-
 				camera_json_t j;
 				std::string jsonError;
-				if (!nbl::system::loadJsonFromPath(*m_system, configPath, j, &jsonError))
+				if (program.is_used("--file"))
+				{
+					const auto configPath = std::filesystem::path(program.get<std::string>("--file"));
+					if (!nbl::system::loadJsonFromMountedResourceOrResolvedPath(*m_system, localInputCWD, configPath, j, nullptr, &jsonError))
+						return fail(jsonError);
+				}
+				else if (!nbl::system::loadJsonFromPath(
+						*m_system,
+						std::filesystem::path(nbl::system::SCameraAppResourcePaths::DefaultCameraConfigRelativePath),
+						j,
+						&jsonError))
+				{
 					return fail(jsonError);
+				}
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
 				if (!nbl::system::tryLoadCameraCollectionFromJson(j, jsonError, cameras))
@@ -327,7 +327,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 								.frame = 1u,
 								.camera = orbitCamera.get()
 							});
-						if (frameResult.hadFailures || state.nextCheckIndex != 1u || !state.baselineValid || !state.stepValid)
+						if (frameResult.hadFailures || state.nextCheckIndex != 1u || !state.baseline.valid || !state.step.valid)
 						{
 							const auto& gimbal = orbitCamera->getGimbal();
 							const auto pos = gimbal.getPosition();
@@ -335,11 +335,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							const auto basis = gimbal.getOrthonornalMatrix();
 							const auto eulerDeg = getQuaternionEulerDegrees(gimbal.getOrientation());
 							std::ostringstream oss;
-							oss << std::fixed << std::setprecision(6)
-								<< "Scripted check runner baseline smoke failed."
-								<< " nextCheckIndex=" << state.nextCheckIndex
-								<< " baselineValid=" << state.baselineValid
-								<< " stepValid=" << state.stepValid
+								oss << std::fixed << std::setprecision(6)
+									<< "Scripted check runner baseline smoke failed."
+									<< " nextCheckIndex=" << state.nextCheckIndex
+									<< " baselineValid=" << state.baseline.valid
+									<< " stepValid=" << state.step.valid
 								<< " pos=(" << pos.x << ", " << pos.y << ", " << pos.z << ")"
 								<< " quat=(" << orientation.data.x << ", " << orientation.data.y << ", " << orientation.data.z << ", " << orientation.data.w << ")"
 								<< " basis_x=(" << basis[0].x << ", " << basis[0].y << ", " << basis[0].z << ")"
@@ -1678,19 +1678,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				std::string jsonError;
 				std::filesystem::path resolvedCameraJsonFile;
 				const bool hasUserConfig = cameraJsonFile.has_value();
-				if (hasUserConfig)
+				if (hasUserConfig && nbl::system::loadJsonFromMountedResourceOrResolvedPath(*m_system, localInputCWD, cameraJsonFile.value(), j, &resolvedCameraJsonFile, &jsonError))
 				{
-					resolvedCameraJsonFile = nbl::system::resolveInputPath(localInputCWD, cameraJsonFile.value());
-				}
-
-				if (hasUserConfig && nbl::system::loadJsonFromPath(*m_system, resolvedCameraJsonFile, j, &jsonError))
-				{
-					// Loaded from explicit user path.
+					// Loaded from mounted resources alias or explicit filesystem override.
 				}
 				else
 				{
 					if (hasUserConfig)
-						m_logger->log("Cannot open input \"%s\" json file (%s). Switching to default config.", ILogger::ELL_WARNING, resolvedCameraJsonFile.string().c_str(), jsonError.c_str());
+						m_logger->log("Cannot open input \"%s\" json file (%s). Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.value().string().c_str(), jsonError.c_str());
 					else
 						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_INFO);
 
@@ -1783,9 +1778,17 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (program.is_used("--script"))
 				{
-					nbl::system::path scriptPath = nbl::system::resolveInputPath(localInputCWD, program.get<std::string>("--script"));
+					nbl::system::path scriptPath = program.get<std::string>("--script");
+					std::string scriptedInputText;
+					if (!nbl::system::loadTextFromMountedResourceOrResolvedPath(*m_system, localInputCWD, scriptPath, scriptedInputText, &scriptPath))
+					{
+						logFail("Camera sequence script parse failed: Cannot open scripted input file.");
+						return false;
+					}
+
+					std::stringstream scriptedInputStream(scriptedInputText);
 					nbl::system::CCameraScriptedInputParseResult parsed;
-					if (!nbl::system::loadCameraScriptedInputFromFile(scriptPath, parsed, &scriptedInputParseError))
+					if (!nbl::system::readCameraScriptedInput(scriptedInputStream, parsed, &scriptedInputParseError))
 					{
 						logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
 						return false;
@@ -2477,8 +2480,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				{
 					nbl::system::SSpaceEnvBlobHeader envBlobHeader = {};
 					std::vector<uint8_t> envBlobPayload;
-					const auto spaceEnvSearchRoots = nbl::system::makeSpaceEnvSearchRoots(localInputCWD);
-					nbl::system::loadFirstSpaceEnvBlobFromRoots(*m_system, spaceEnvSearchRoots, envBlobHeader, envBlobPayload);
+					nbl::system::loadPreferredSpaceEnvBlob(*m_system, localInputCWD, envBlobHeader, envBlobPayload);
 					if (envBlobPayload.empty())
 						return logFail("Failed to load space environment blob from available assets.");
 
