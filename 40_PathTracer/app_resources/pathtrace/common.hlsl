@@ -133,7 +133,7 @@ struct SAOVThroughputs
 
     inline SAOVThroughputs operator-(const SAOVThroughputs factor)
     {
-        SAOVThroughputs retval;
+        SAOVThroughputs retval = this;
         retval.albedo -= factor.albedo;
         retval.transparency -= factor.transparency;
         return retval;
@@ -141,14 +141,14 @@ struct SAOVThroughputs
 
     inline SAOVThroughputs operator*(const float16_t factor)
     {
-        SAOVThroughputs retval;
+        SAOVThroughputs retval = this;
         retval.albedo *= factor;
         retval.transparency *= factor;
         return retval;
     }
     inline SAOVThroughputs operator*(const SAOVThroughputs factor)
     {
-        SAOVThroughputs retval;
+        SAOVThroughputs retval = this;
         retval.albedo *= factor.albedo;
         retval.transparency *= factor.transparency;
         return retval;
@@ -156,14 +156,14 @@ struct SAOVThroughputs
 
     inline SAOVThroughputs operator/(const float16_t factor)
     {
-        SAOVThroughputs retval;
+        SAOVThroughputs retval = this;
         retval.albedo /= factor;
         retval.transparency /= factor;
         return retval;
     }
     inline SAOVThroughputs operator/(const SAOVThroughputs factor)
     {
-        SAOVThroughputs retval;
+        SAOVThroughputs retval = this;
         retval.albedo /= factor.albedo;
         retval.transparency /= factor.transparency;
         return retval;

@@ -226,7 +226,6 @@ void raygen()
                 aovContrib.albedo = float16_t3(1,1,1);
                 aovContrib.normal = float16_t3(shadingNormal);
                 // obtain full next
-                printf("%d depth %f %f %f %f\n",aovThroughput.albedo[0],aovThroughput.albedo[1],aovThroughput.albedo[2],aovThroughput.transparency);
                 nextThroughput = aovThroughput * nextThroughput;
                 // already premultiplied by next throughput complement
                 aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
