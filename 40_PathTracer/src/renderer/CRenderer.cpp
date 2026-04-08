@@ -475,15 +475,21 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				auto memRsc = core::make_smart_refctd_ptr<CVectorBacked>(hitHandles.size()+missHandles.size()+callableHandles.size()+1);
 				{
 					core::LinearAddressAllocatorST<uint32_t> allocator(nullptr,0,0,limits.shaderGroupBaseAlignment,0x7fff0000u);
-					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles)->SBufferRange<const IGPUBuffer>
+					// Without SER, the arrays for Miss and Closest Hit cannot be null, unless you can guarantee a Ray will never hit geometry or miss
+					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles, const size_t minCount=1)->SBufferRange<const IGPUBuffer>
 					{
-						SBufferRange<const IGPUBuffer> range = {.size=handles.size()*handleSizeAligned};
+						SBufferRange<const IGPUBuffer> range = {.size=hlsl::max(handles.size(),minCount)*handleSizeAligned};
 						range.offset = allocator.alloc_addr(range.size,limits.shaderGroupBaseAlignment);
 						memRsc->storage.resize(core::alignUp(allocator.get_allocated_size(),limits.shaderGroupBaseAlignment));
 						uint8_t* out = memRsc->storage.data()+range.offset;
 						for (const auto& handle : handles)
 						{
 							memcpy(out,&handle,HandleSize);
+							out += handleSizeAligned;
+						}
+						for (auto i=minCount; i<handles.size(); i++)
+						{
+							memset(out,0,HandleSize);
 							out += handleSizeAligned;
 						}
 						return range;
@@ -496,7 +502,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 					// also de-dup stuff that has the same hash (array of hitgroups) so two instances can happily point at the same material
 					sbt.hit.range = copyShaderHandles(pipeline->getHitHandles());
 					// TODO: material compiler will give us callables and we need to turn those into materials
-					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles());
+					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles(),0);
 					// TODO: futhermore different rays (NEE vs BxDF) should use different SBTs using big offsets so it becomes a really funny mess 
 					sbt.miss.stride = sbt.hit.stride = sbt.callable.stride = handleSizeAligned;
 				}

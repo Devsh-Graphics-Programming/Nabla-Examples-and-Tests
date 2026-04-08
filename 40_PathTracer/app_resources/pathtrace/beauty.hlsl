@@ -88,11 +88,14 @@ struct[raypayload] SAnyHitRetval
 // Because SER based on Material ID will probably greatly benefit us, the shading needs to happen in Raygen Shader or ClosestHit executed directly by Raygen
 // Lets examine what happens in the 3 options of Shading with SER Hit Objects:
 // 1. Fused hitObjectTraceReorderExecuteEXT -> shading in Closest Hit
-//      Miss and Closest hit still called immediately, Shading happens in both of them, only need payload to store anyhit + random number state (depth and optionally the seed), but `SClosestHitRetval` gets passed to a shading function
+//      Miss and Closest hit still called immediately, Shading happens in both of them, only need payload to store anyhit + random number state (depth and optionally the seed)
+//      but `SClosestHitRetval` gets passed to a shading function. Use NO_NULL_MISS_SHADERS definitely, and NO_NULL_CLOSEST_HIT_SHADERS if there's no blackhole materials.
 // 2. hitObjectTraceRayEXT && Shading in Closest Hit with hitObjectExecuteShaderEXT
-//      Only Anyhit payload needed, separate `SClosestHitRetval` payload is made in raygen and passed to the hitObjectExecuteShaderEXT, miss shader is not used
+//      Only Anyhit payload needed, separate `SClosestHitRetval` payload is made in raygen and passed to the hitObjectExecuteShaderEXT, miss shader is not used.
+//      Can use NO_NULL_CLOSEST_HIT and NO_NULL_MISS_SHADERS and then never invoke an invalid ClosestHit
 // 3. hitObjectTraceRayEXT && Shading in Raygen
-//      Only Anyhit payload needed, separate `SClosestHitRetval` is made and passed to traceRay, no closest hit shaders at all
+//      Only Anyhit payload needed, separate `SClosestHitRetval` is made and passed to traceRay, no closest hit shaders at all.
+//      Should use NO_NULL_CLOSEST_HIT and NO_NULL_MISS_SHADERS 
 struct SClosestHitRetval
 {
     float32_t3 hitPos;
@@ -146,6 +149,8 @@ void raygen()
     const float16_t newSamplesOverTotal = float16_t(float32_t(samplesThisFrame)*samplingInfo.rcpNewSampleCount);
     const float16_t rcpSamplesThisFrame = float16_t(1)/float16_t(samplesThisFrame);
 
+//    printf("%f %f %f",samplingInfo.rcpNewSampleCount,samplingInfo.newSampleCount,samplingInfo.firstSample);
+
     float16_t transparency = 0.f;
     SArbitraryOutputValues aovs;
     aovs.clear();
@@ -180,7 +185,7 @@ void raygen()
             missed = payload.hasMissed();
             if (missed)
             {
-                const SEnvSample _sample = sampleEnv(rayDir);
+                const SEnvSample _sample = sampleEnv(ray.direction);
                 color = _sample.color;
                 aovs = aovs + _sample.aov * rcpSamplesThisFrame;
                 transparency += rcpSamplesThisFrame;
@@ -216,12 +221,12 @@ void raygen()
 
                 // TODO: get AoVs from material and emission
                 SAOVThroughputs nextThroughput;
-                nextThroughput.albedo = float16_t3(0,0,0);
-                nextThroughput.transparency = 0.f;
+                nextThroughput.clear(0.f);
                 SArbitraryOutputValues aovContrib;
                 aovContrib.albedo = float16_t3(1,1,1);
                 aovContrib.normal = float16_t3(shadingNormal);
                 // obtain full next
+                printf("%d depth %f %f %f %f\n",aovThroughput.albedo[0],aovThroughput.albedo[1],aovThroughput.albedo[2],aovThroughput.transparency);
                 nextThroughput = aovThroughput * nextThroughput;
                 // already premultiplied by next throughput complement
                 aovs = aovs + aovContrib * (aovThroughput - nextThroughput);

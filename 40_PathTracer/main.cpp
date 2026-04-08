@@ -259,7 +259,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
-							{.mode=CSession::RenderMode::Debug},&sensor
+							{.mode=CSession::RenderMode::Beauty},&sensor
 						})
 					);
 			}

@@ -68,9 +68,11 @@ bool CBasicRWMCResolver::resolve(video::IGPUCommandBuffer* cb, video::IGPUBuffer
 		// TODO: pipeline barrier from raytracing pipeline to first resolve pass
 	}
 
+	// TODO: uimplemented yet
+
 	// compute passes
 
-	return false; // TODO: uimplemented yet
+	return true;
 }
 
 }
