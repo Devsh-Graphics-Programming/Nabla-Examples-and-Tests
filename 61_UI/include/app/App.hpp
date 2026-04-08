@@ -11,7 +11,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
-#include <fstream>
 #include <limits>
 #include <string>
 #include <thread>
@@ -27,12 +26,6 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
-#if __has_include("nbl/this_example/builtin/CArchive.h")
-#include "nbl/this_example/builtin/CArchive.h"
-#endif
-#if __has_include("nbl/this_example/builtin/build/CArchive.h")
-#include "nbl/this_example/builtin/build/CArchive.h"
-#endif
 
 class CUIEventCallback : public nbl::video::ISmoothResizeSurface::ICallback
 {
@@ -247,9 +240,10 @@ static smart_refctd_ptr<IGPUFramebuffer> createSceneFramebuffer(ILogicalDevice* 
 	return device->createFramebuffer(std::move(params));
 }
 
-class App final : public examples::SimpleWindowedApplication
+class App final : public examples::SimpleWindowedApplication, public examples::BuiltinResourcesApplication
 {
 	using base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = examples::BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -860,331 +854,7 @@ class App final : public examples::SimpleWindowedApplication
 				orthoBinding.boundProjectionIx = orthoBinding.lastBoundOrthoPresetProjectionIx.value();
 		}
 
-		inline bool projectWorldPointToViewport(
-			const float32_t4x4& viewProjMatrix,
-			const float32_t3& worldPoint,
-			const ImVec2& viewportPos,
-			const ImVec2& viewportSize,
-			ImVec2& outScreen) const
-		{
-			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
-				return false;
-
-			const auto clip = mul(viewProjMatrix, float32_t4(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f));
-			if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
-				return false;
-
-			const float absW = std::abs(clip.w);
-			if (absW < 1e-5f)
-				return false;
-
-			const float invW = 1.0f / clip.w;
-			const float ndcX = clip.x * invW;
-			const float ndcY = clip.y * invW;
-			const float ndcZ = clip.z * invW;
-
-			if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ))
-				return false;
-			if (std::abs(ndcX) > 100.0f || std::abs(ndcY) > 100.0f || std::abs(ndcZ) > 100.0f)
-				return false;
-
-			outScreen.x = viewportPos.x + (ndcX * 0.5f + 0.5f) * viewportSize.x;
-			outScreen.y = viewportPos.y + (-ndcY * 0.5f + 0.5f) * viewportSize.y;
-			return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
-		}
-
-		inline void drawFollowTargetViewportOverlay(
-			const float32_t4x4& viewProjMatrix,
-			const ImVec2& viewportPos,
-			const ImVec2& viewportSize) const
-		{
-			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug && m_scriptedInput.visualFollowActive))
-				return;
-			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
-				return;
-
-			float ndcX = 0.0f;
-			float ndcY = 0.0f;
-			float ndcRadius = 0.0f;
-			if (!nbl::system::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, m_followTarget, ndcX, ndcY, &ndcRadius))
-				return;
-
-			auto* drawList = ImGui::GetWindowDrawList();
-			if (!drawList)
-				return;
-
-			const ImVec2 center(
-				viewportPos.x + viewportSize.x * 0.5f,
-				viewportPos.y + viewportSize.y * 0.5f);
-			const ImVec2 target(
-				viewportPos.x + (ndcX * 0.5f + 0.5f) * viewportSize.x,
-				viewportPos.y + (-ndcY * 0.5f + 0.5f) * viewportSize.y);
-
-			const bool centered = ndcRadius <= 0.03f;
-			const ImU32 centerColor = IM_COL32(255, 170, 72, 235);
-			const ImU32 targetColor = centered ? IM_COL32(64, 255, 164, 245) : IM_COL32(90, 220, 255, 245);
-			const ImU32 targetFillColor = centered ? IM_COL32(24, 120, 76, 120) : IM_COL32(20, 92, 124, 120);
-			const ImU32 lineColor = centered ? IM_COL32(96, 255, 186, 200) : IM_COL32(120, 220, 255, 200);
-			const float centerRadius = 16.0f;
-			const float targetRadius = centered ? 18.0f : 14.0f;
-
-			drawList->AddCircle(center, centerRadius, centerColor, 32, 2.5f);
-			drawList->AddLine(ImVec2(center.x - 22.0f, center.y), ImVec2(center.x + 22.0f, center.y), centerColor, 2.0f);
-			drawList->AddLine(ImVec2(center.x, center.y - 22.0f), ImVec2(center.x, center.y + 22.0f), centerColor, 2.0f);
-
-			drawList->AddLine(center, target, lineColor, 2.0f);
-			drawList->AddCircleFilled(target, targetRadius, targetFillColor, 24);
-			drawList->AddCircle(target, targetRadius, targetColor, 32, 2.5f);
-			drawList->AddLine(ImVec2(target.x - 14.0f, target.y), ImVec2(target.x + 14.0f, target.y), targetColor, 2.0f);
-			drawList->AddLine(ImVec2(target.x, target.y - 14.0f), ImVec2(target.x, target.y + 14.0f), targetColor, 2.0f);
-
-			drawList->AddText(ImVec2(target.x + 16.0f, target.y - 28.0f), targetColor, "FOLLOW TARGET");
-		}
-
-		inline void drawWorldReferenceOverlay(
-			const ImVec2& viewportPos,
-			const ImVec2& viewportSize,
-			const float32_t4x4& viewMatrix,
-			const float32_t4x4& projectionMatrix,
-			bool leftHandedProjection,
-			float nearPlane,
-			float farPlane)
-		{
-			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
-				return;
-			if (viewportSize.x <= 1.0f || viewportSize.y <= 1.0f)
-				return;
-
-			auto* drawList = ImGui::GetWindowDrawList();
-			if (!drawList)
-				return;
-
-			const float safeNear = std::max(nearPlane, 0.001f);
-			const float safeFar = std::max(farPlane, safeNear + 0.001f);
-			const auto depthOfViewPoint = [&](const float32_t4& viewPoint) -> float
-			{
-				return leftHandedProjection ? viewPoint.z : -viewPoint.z;
-			};
-			const auto ndcToViewport = [&](const ImVec2& ndc) -> ImVec2
-			{
-				return ImVec2(
-					viewportPos.x + (ndc.x * 0.5f + 0.5f) * viewportSize.x,
-					viewportPos.y + (-ndc.y * 0.5f + 0.5f) * viewportSize.y);
-			};
-			const auto clipSegmentByDepthRange = [&](float32_t4& viewA, float32_t4& viewB) -> bool
-			{
-				const float32_t4 a0 = viewA;
-				const float32_t4 b0 = viewB;
-				const float32_t4 delta = b0 - a0;
-				const float depthA = depthOfViewPoint(a0);
-				const float depthB = depthOfViewPoint(b0);
-
-				float tEnter = 0.0f;
-				float tExit = 1.0f;
-				const auto clipByConstraint = [&](float fa, float fb) -> bool
-				{
-					if (fa < 0.0f && fb < 0.0f)
-						return false;
-					if (fa >= 0.0f && fb >= 0.0f)
-						return true;
-
-					const float denom = fa - fb;
-					if (std::abs(denom) < 1e-6f)
-						return false;
-					const float t = std::clamp(fa / denom, 0.0f, 1.0f);
-
-					if (fa < 0.0f)
-						tEnter = std::max(tEnter, t);
-					else
-						tExit = std::min(tExit, t);
-
-					return tEnter <= tExit;
-				};
-
-				if (!clipByConstraint(depthA - safeNear, depthB - safeNear))
-					return false;
-				if (!clipByConstraint(safeFar - depthA, safeFar - depthB))
-					return false;
-
-				viewA = a0 + delta * tEnter;
-				viewB = a0 + delta * tExit;
-				return true;
-			};
-			const auto projectViewPointToNdc = [&](const float32_t4& viewPoint, ImVec2& outNdc) -> bool
-			{
-				const auto clip = mul(projectionMatrix, viewPoint);
-				if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
-					return false;
-
-				const float absW = std::abs(clip.w);
-				if (absW < 1e-6f)
-					return false;
-
-				const float invW = 1.0f / clip.w;
-				const float ndcX = clip.x * invW;
-				const float ndcY = clip.y * invW;
-				const float ndcZ = clip.z * invW;
-				if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ))
-					return false;
-				if (std::abs(ndcX) > 1e4f || std::abs(ndcY) > 1e4f || std::abs(ndcZ) > 1e4f)
-					return false;
-
-				outNdc = ImVec2(ndcX, ndcY);
-				return true;
-			};
-			const auto clipNdcSegmentToViewport = [&](ImVec2& ndcA, ImVec2& ndcB) -> bool
-			{
-				float tEnter = 0.0f;
-				float tExit = 1.0f;
-				const float dx = ndcB.x - ndcA.x;
-				const float dy = ndcB.y - ndcA.y;
-				const auto clipTest = [&](float p, float q) -> bool
-				{
-					if (std::abs(p) < 1e-6f)
-						return q >= 0.0f;
-
-					const float r = q / p;
-					if (p < 0.0f)
-					{
-						if (r > tExit)
-							return false;
-						tEnter = std::max(tEnter, r);
-					}
-					else
-					{
-						if (r < tEnter)
-							return false;
-						tExit = std::min(tExit, r);
-					}
-					return tEnter <= tExit;
-				};
-
-				if (!clipTest(-dx, ndcA.x + 1.0f))
-					return false;
-				if (!clipTest(dx, 1.0f - ndcA.x))
-					return false;
-				if (!clipTest(-dy, ndcA.y + 1.0f))
-					return false;
-				if (!clipTest(dy, 1.0f - ndcA.y))
-					return false;
-
-				const ImVec2 a0 = ndcA;
-				ndcA = ImVec2(a0.x + dx * tEnter, a0.y + dy * tEnter);
-				ndcB = ImVec2(a0.x + dx * tExit, a0.y + dy * tExit);
-				return true;
-			};
-			const auto projectWorldPointToViewportClipped = [&](const float32_t3& worldPoint, ImVec2& outScreen) -> bool
-			{
-				const auto viewPoint = mul(viewMatrix, float32_t4(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f));
-				if (!std::isfinite(viewPoint.x) || !std::isfinite(viewPoint.y) || !std::isfinite(viewPoint.z) || !std::isfinite(viewPoint.w))
-					return false;
-
-				const float depth = depthOfViewPoint(viewPoint);
-				if (depth < safeNear || depth > safeFar)
-					return false;
-
-				ImVec2 ndcPoint = {};
-				if (!projectViewPointToNdc(viewPoint, ndcPoint))
-					return false;
-				if (ndcPoint.x < -1.0f || ndcPoint.x > 1.0f || ndcPoint.y < -1.0f || ndcPoint.y > 1.0f)
-					return false;
-
-				outScreen = ndcToViewport(ndcPoint);
-				return std::isfinite(outScreen.x) && std::isfinite(outScreen.y);
-			};
-
-			const auto drawProjectedSegment = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
-			{
-				float32_t4 viewA = mul(viewMatrix, float32_t4(aWorld.x, aWorld.y, aWorld.z, 1.0f));
-				float32_t4 viewB = mul(viewMatrix, float32_t4(bWorld.x, bWorld.y, bWorld.z, 1.0f));
-				if (!std::isfinite(viewA.x) || !std::isfinite(viewA.y) || !std::isfinite(viewA.z) || !std::isfinite(viewA.w) ||
-					!std::isfinite(viewB.x) || !std::isfinite(viewB.y) || !std::isfinite(viewB.z) || !std::isfinite(viewB.w))
-					return;
-				if (!clipSegmentByDepthRange(viewA, viewB))
-					return;
-
-				ImVec2 ndcA = {};
-				ImVec2 ndcB = {};
-				if (!projectViewPointToNdc(viewA, ndcA))
-					return;
-				if (!projectViewPointToNdc(viewB, ndcB))
-					return;
-				if (!clipNdcSegmentToViewport(ndcA, ndcB))
-					return;
-
-				const ImVec2 screenA = ndcToViewport(ndcA);
-				const ImVec2 screenB = ndcToViewport(ndcB);
-				drawList->AddLine(screenA, screenB, color, thickness);
-			};
-
-			auto drawWorldLine = [&](const float32_t3& aWorld, const float32_t3& bWorld, ImU32 color, float thickness) -> void
-			{
-				drawProjectedSegment(aWorld, bWorld, color, thickness);
-			};
-
-			const float32_t3 origin = float32_t3(0.0f);
-			ImVec2 originScreen = {};
-			if (!projectWorldPointToViewportClipped(origin, originScreen))
-				return;
-
-			constexpr float axisLength = 5.0f;
-			const float32_t3 xPos = float32_t3(axisLength, 0.0f, 0.0f);
-			const float32_t3 yPos = float32_t3(0.0f, axisLength, 0.0f);
-			const float32_t3 zPos = float32_t3(0.0f, 0.0f, axisLength);
-			const float32_t3 xNeg = float32_t3(-axisLength * 0.4f, 0.0f, 0.0f);
-			const float32_t3 yNeg = float32_t3(0.0f, -axisLength * 0.3f, 0.0f);
-			const float32_t3 zNeg = float32_t3(0.0f, 0.0f, -axisLength * 0.4f);
-
-			drawWorldLine(origin, xPos, IM_COL32(244, 92, 92, 245), 2.8f);
-			drawWorldLine(origin, yPos, IM_COL32(124, 236, 132, 245), 2.8f);
-			drawWorldLine(origin, zPos, IM_COL32(106, 166, 255, 245), 2.8f);
-			drawWorldLine(origin, xNeg, IM_COL32(128, 74, 74, 170), 1.4f);
-			drawWorldLine(origin, yNeg, IM_COL32(74, 128, 78, 170), 1.4f);
-			drawWorldLine(origin, zNeg, IM_COL32(70, 88, 124, 170), 1.4f);
-
-			const auto drawAxisArrowHead = [&](const float32_t3& tipWorld, const float32_t3& tailWorld, ImU32 color) -> void
-			{
-				ImVec2 tipScreen = {};
-				ImVec2 tailScreen = {};
-				if (!projectWorldPointToViewportClipped(tipWorld, tipScreen) || !projectWorldPointToViewportClipped(tailWorld, tailScreen))
-					return;
-
-				const ImVec2 dir = ImVec2(tipScreen.x - tailScreen.x, tipScreen.y - tailScreen.y);
-				const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-				if (len < 1e-3f)
-					return;
-
-				const ImVec2 n = ImVec2(dir.x / len, dir.y / len);
-				const ImVec2 ortho = ImVec2(-n.y, n.x);
-				const float headLength = 9.0f;
-				const float headHalfWidth = 4.5f;
-
-				const ImVec2 base = ImVec2(tipScreen.x - n.x * headLength, tipScreen.y - n.y * headLength);
-				const ImVec2 left = ImVec2(base.x + ortho.x * headHalfWidth, base.y + ortho.y * headHalfWidth);
-				const ImVec2 right = ImVec2(base.x - ortho.x * headHalfWidth, base.y - ortho.y * headHalfWidth);
-				drawList->AddTriangleFilled(tipScreen, left, right, color);
-			};
-
-			drawAxisArrowHead(xPos, float32_t3(axisLength - 0.55f, 0.0f, 0.0f), IM_COL32(255, 162, 162, 255));
-			drawAxisArrowHead(yPos, float32_t3(0.0f, axisLength - 0.55f, 0.0f), IM_COL32(186, 255, 192, 255));
-			drawAxisArrowHead(zPos, float32_t3(0.0f, 0.0f, axisLength - 0.55f), IM_COL32(178, 216, 255, 255));
-
-			auto drawAxisLabel = [&](const char* label, const float32_t3& worldPoint, ImU32 color) -> void
-			{
-				ImVec2 screenPos = {};
-				if (!projectWorldPointToViewportClipped(worldPoint, screenPos))
-					return;
-				drawList->AddText(ImVec2(screenPos.x + 4.0f, screenPos.y + 3.0f), color, label);
-			};
-
-			drawList->AddCircleFilled(originScreen, 4.0f, IM_COL32(240, 248, 255, 220), 16);
-
-			drawAxisLabel("X", xPos, IM_COL32(255, 152, 152, 255));
-			drawAxisLabel("Y", yPos, IM_COL32(172, 255, 178, 255));
-			drawAxisLabel("Z", zPos, IM_COL32(172, 210, 255, 255));
-		}
-
-			inline void drawScriptVisualDebugOverlay(const ImVec2& displaySize)
+		inline void drawScriptVisualDebugOverlay(const ImVec2& displaySize)
 			{
 			if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
 				return;
@@ -1217,114 +887,33 @@ class App final : public examples::SimpleWindowedApplication
 			const uint64_t holdFrames = static_cast<uint64_t>(std::round(std::max(0.f, m_scriptedInput.visualCameraHoldSeconds) * fps));
 			const uint64_t progressFrames = holdFrames ? std::min(elapsedFrames, holdFrames) : elapsedFrames;
 
-				const auto cameraLabel = getCameraTypeLabel(camera);
-				const auto cameraHint = getCameraTypeDescription(camera);
-				std::string lineTop = "SCRIPT VISUAL DEBUG";
-				std::string lineMid = "Camera " + std::to_string(binding.activePlanarIx + 1u) + "/" + std::to_string(m_planarProjections.size()) + "  " + std::string(cameraLabel);
+			nbl::ui::SCameraScriptVisualDebugStatus debugStatus = {};
+			debugStatus.cameraLabel = getCameraTypeLabel(camera);
+			debugStatus.cameraHint = getCameraTypeDescription(camera);
+			debugStatus.cameraIndex = binding.activePlanarIx;
+			debugStatus.cameraCount = static_cast<uint32_t>(m_planarProjections.size());
+			debugStatus.planarIndex = binding.activePlanarIx;
+			debugStatus.hasHoldFrames = holdFrames > 0u;
+			debugStatus.progressFrames = progressFrames;
+			debugStatus.holdFrames = holdFrames;
+			debugStatus.targetFps = fps;
+			debugStatus.absoluteFrame = m_realFrameIx;
+			debugStatus.segmentLabel = m_scriptedInput.visualSegmentLabel;
+			debugStatus.followActive = m_scriptedInput.visualFollowActive;
+			debugStatus.followModeDescription = nbl::ui::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode);
+			debugStatus.followLockValid = m_scriptedInput.visualFollowLockValid;
+			debugStatus.followLockAngleDeg = m_scriptedInput.visualFollowLockAngleDeg;
+			debugStatus.followTargetDistance = m_scriptedInput.visualFollowTargetDistance;
+			debugStatus.followTargetCenterNdcRadius = m_scriptedInput.visualFollowTargetCenterNdcRadius;
 
-				char lineBottomBuffer[256] = {};
-				if (holdFrames)
+			float dynamicFov = 0.0f;
+			if (camera && camera->tryGetDynamicPerspectiveFov(dynamicFov))
 			{
-				const double elapsedSeconds = static_cast<double>(progressFrames) / static_cast<double>(fps);
-				const double holdSeconds = static_cast<double>(holdFrames) / static_cast<double>(fps);
-				std::snprintf(
-					lineBottomBuffer,
-					sizeof(lineBottomBuffer),
-					"Planar %u  Segment %.1f/%.1f s  Frame %llu/%llu",
-					binding.activePlanarIx,
-					elapsedSeconds,
-					holdSeconds,
-					static_cast<unsigned long long>(progressFrames),
-					static_cast<unsigned long long>(holdFrames));
+				debugStatus.hasDynamicFov = true;
+				debugStatus.dynamicFovDeg = dynamicFov;
 			}
-			else
-			{
-				std::snprintf(
-					lineBottomBuffer,
-					sizeof(lineBottomBuffer),
-					"Planar %u  Frame %llu",
-					binding.activePlanarIx,
-					static_cast<unsigned long long>(m_realFrameIx));
-				}
-				std::string lineBottom(lineBottomBuffer);
-				if (!m_scriptedInput.visualSegmentLabel.empty())
-					lineBottom += "  |  " + m_scriptedInput.visualSegmentLabel;
-				std::string lineHint = std::string(cameraHint);
-				float dynamicFov = 0.0f;
-				if (camera && camera->tryGetDynamicPerspectiveFov(dynamicFov))
-				{
-					char fovBuffer[96] = {};
-					std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", dynamicFov);
-					lineHint += fovBuffer;
-				}
-				if (m_scriptedInput.visualFollowActive)
-				{
-					lineHint += "  |  " + std::string(nbl::ui::getCameraFollowModeDescription(m_scriptedInput.visualFollowMode));
-					if (m_scriptedInput.visualFollowLockValid)
-					{
-						char followBuffer[192] = {};
-						std::snprintf(
-							followBuffer,
-							sizeof(followBuffer),
-							"  |  lock %.2f deg  |  target %.2f  |  center err %.3f",
-							m_scriptedInput.visualFollowLockAngleDeg,
-							m_scriptedInput.visualFollowTargetDistance,
-							m_scriptedInput.visualFollowTargetCenterNdcRadius);
-						lineHint += followBuffer;
-					}
-					else
-					{
-						lineHint += "  |  lock n/a  |  target n/a  |  center err n/a";
-					}
-				}
-				else
-				{
-					lineHint += "  |  Follow off";
-				}
 
-				const float topSize = 50.f;
-				const float midSize = 38.f;
-				const float bottomSize = 28.f;
-				const float hintSize = 24.f;
-				const float marginTop = 18.f;
-				const float padX = 24.f;
-				const float padY = 16.f;
-				const float gap = 6.f;
-
-			ImFont* font = ImGui::GetFont();
-			if (!font)
-				return;
-
-				const float textWrap = std::numeric_limits<float>::max();
-				const ImVec2 topTextSize = font->CalcTextSizeA(topSize, textWrap, 0.0f, lineTop.c_str());
-				const ImVec2 midTextSize = font->CalcTextSizeA(midSize, textWrap, 0.0f, lineMid.c_str());
-				const ImVec2 bottomTextSize = font->CalcTextSizeA(bottomSize, textWrap, 0.0f, lineBottom.c_str());
-				const ImVec2 hintTextSize = font->CalcTextSizeA(hintSize, textWrap, 0.0f, lineHint.c_str());
-				const float panelWidth = std::max(std::max(topTextSize.x, midTextSize.x), std::max(bottomTextSize.x, hintTextSize.x)) + padX * 2.0f;
-				const float panelHeight = topTextSize.y + midTextSize.y + bottomTextSize.y + hintTextSize.y + gap * 3.0f + padY * 2.0f;
-				const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, marginTop);
-				const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
-
-			auto* drawList = ImGui::GetForegroundDrawList();
-			if (!drawList)
-				return;
-
-			drawList->AddRectFilled(panelMin, panelMax, IM_COL32(6, 8, 12, 232), 14.0f);
-			drawList->AddRect(panelMin, panelMax, IM_COL32(255, 166, 64, 255), 14.0f, 0, 2.5f);
-
-				const float topX = panelMin.x + (panelWidth - topTextSize.x) * 0.5f;
-				const float midX = panelMin.x + (panelWidth - midTextSize.x) * 0.5f;
-				const float bottomX = panelMin.x + (panelWidth - bottomTextSize.x) * 0.5f;
-				const float hintX = panelMin.x + (panelWidth - hintTextSize.x) * 0.5f;
-				const float topY = panelMin.y + padY;
-				const float midY = topY + topTextSize.y + gap;
-				const float bottomY = midY + midTextSize.y + gap;
-				const float hintY = bottomY + bottomTextSize.y + gap;
-
-				drawList->AddText(font, topSize, ImVec2(topX, topY), IM_COL32(255, 206, 120, 255), lineTop.c_str());
-				drawList->AddText(font, midSize, ImVec2(midX, midY), IM_COL32(255, 244, 224, 255), lineMid.c_str());
-				drawList->AddText(font, bottomSize, ImVec2(bottomX, bottomY), IM_COL32(202, 222, 255, 255), lineBottom.c_str());
-				drawList->AddText(font, hintSize, ImVec2(hintX, hintY), IM_COL32(170, 204, 255, 255), lineHint.c_str());
+			nbl::ui::drawScriptVisualDebugOverlay(displaySize, nbl::ui::buildScriptVisualDebugOverlayData(debugStatus));
 			}
 
 		inline bool tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
@@ -1533,6 +1122,9 @@ class App final : public examples::SimpleWindowedApplication
 		bool loadKeyframesFromFile(const nbl::system::path& path);
 
 		void imguiListen();
+		void drawWindowedViewportWindows(ImGuiIO& io, SImResourceInfo& info);
+		void drawFullscreenViewportWindow(ImGuiIO& io, SImResourceInfo& info);
+		void refreshViewportBindingMatrices();
 
 		inline bool shouldCaptureOSCursor()
 		{
@@ -1614,103 +1206,6 @@ class App final : public examples::SimpleWindowedApplication
 			m_uiVirtualEventsThisFrame = 0u;
 		}
 
-		inline void DrawBadge(const char* label, const ImVec4& bg, const ImVec4& fg)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, bg);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
-			ImGui::PushStyleColor(ImGuiCol_Text, fg);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 2.0f));
-			ImGui::Button(label);
-			ImGui::PopStyleVar();
-			ImGui::PopStyleColor(4);
-		}
-
-		inline void DrawKeyHint(const char* label, const ImVec4& bg, const ImVec4& fg)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, bg);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
-			ImGui::PushStyleColor(ImGuiCol_Text, fg);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
-			ImGui::SmallButton(label);
-			ImGui::PopStyleVar();
-			ImGui::PopStyleColor(4);
-		}
-
-		inline void DrawHoverHint(const char* text)
-		{
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-			{
-				ImGui::BeginTooltip();
-				ImGui::TextUnformatted(text);
-				ImGui::EndTooltip();
-			}
-		}
-
-		inline void DrawDot(const ImVec4& color)
-		{
-			ImVec2 p = ImGui::GetCursorScreenPos();
-			const float radius = 3.5f;
-			ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + radius, p.y + radius + 1.0f), radius, ImGui::ColorConvertFloat4ToU32(color));
-			ImGui::Dummy(ImVec2(radius * 2.0f + 2.0f, radius * 2.0f));
-			ImGui::SameLine(0, 6.0f);
-		}
-
-		inline void DrawSectionHeader(const char* id, const char* label, const ImVec4& accent)
-		{
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.14f, 0.18f, 0.22f, 0.52f));
-			if (ImGui::BeginChild(id, ImVec2(0, 20), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
-			{
-				ImVec2 p = ImGui::GetWindowPos();
-				ImVec2 s = ImGui::GetWindowSize();
-				ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 2.0f, p.y + s.y), ImGui::ColorConvertFloat4ToU32(accent), 4.0f);
-				ImGui::SetCursorPosX(8.0f);
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextColored(accent, "%s", label);
-			}
-			ImGui::EndChild();
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar();
-			ImGui::Spacing();
-		}
-
-		inline float CalcCardHeight(int rows) const
-		{
-			return ImGui::GetFrameHeightWithSpacing() * (static_cast<float>(rows) + 1.0f) + 10.0f;
-		}
-
-		inline bool BeginCard(const char* id, float height, const ImVec4& top, const ImVec4& bottom, const ImVec4& border)
-		{
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
-			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
-			const bool open = ImGui::BeginChild(id, ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-			ImVec2 p = ImGui::GetWindowPos();
-			ImVec2 s = ImGui::GetWindowSize();
-			const ImU32 colTop = ImGui::ColorConvertFloat4ToU32(top);
-			const ImU32 colBottom = ImGui::ColorConvertFloat4ToU32(bottom);
-			ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
-				p,
-				ImVec2(p.x + s.x, p.y + s.y),
-				colTop,
-				colTop,
-				colBottom,
-				colBottom
-			);
-			ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + s.x, p.y + s.y), ImGui::ColorConvertFloat4ToU32(border), 6.0f);
-			return open;
-		}
-
-		inline void EndCard()
-		{
-			ImGui::EndChild();
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar(2);
-		}
-
-
 		void DrawControlPanel();
 
 		void TransformEditorContents();
@@ -1764,8 +1259,6 @@ class App final : public examples::SimpleWindowedApplication
 		std::array<smart_refctd_ptr<IGPUImage>, MaxFramesInFlight> m_tripleBuffers;
 		// Resources derived from the images
 		std::array<core::smart_refctd_ptr<IGPUFramebuffer>, MaxFramesInFlight> m_framebuffers = {};
-		// We will use it to get some asset stuff like geometry creator
-		smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
 		// Input system for capturing system events
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		// Handles mouse events
@@ -1807,53 +1300,7 @@ class App final : public examples::SimpleWindowedApplication
 
 		bool resetCursorToCenter = true;
 
-		struct windowControlBinding
-		{
-			nbl::core::smart_refctd_ptr<IGPUFramebuffer> sceneFramebuffer;
-			nbl::core::smart_refctd_ptr<IGPUImageView> sceneColorView;
-			nbl::core::smart_refctd_ptr<IGPUImageView> sceneDepthView;
-			float32_t3x4 viewMatrix = float32_t3x4(1.f);
-			float32_t4x4 projectionMatrix = float32_t4x4(1.f);
-			float32_t4x4 viewProjMatrix = float32_t4x4(1.f);
-
-			uint32_t activePlanarIx = 0u;
-			bool allowGizmoAxesToFlip = false;
-			bool enableDebugGridDraw = true;
-			bool isOrthographicProjection = false;
-			float aspectRatio = 16.f / 9.f;
-			bool leftHandedProjection = true;
-			CGimbalInputBinder inputBinding;
-
-			std::optional<uint32_t> boundProjectionIx = std::nullopt, lastBoundPerspectivePresetProjectionIx = std::nullopt, lastBoundOrthoPresetProjectionIx = std::nullopt;
-			std::optional<uint32_t> inputBindingProjectionIx = std::nullopt;
-			uint32_t inputBindingPlanarIx = std::numeric_limits<uint32_t>::max();
-
-			inline void pickDefaultProjections(const planar_projections_range_t& projections)
-			{
-				auto init = [&](std::optional<uint32_t>& presetix, IPlanarProjection::CProjection::ProjectionType requestedType) -> void
-				{
-					for (uint32_t i = 0u; i < projections.size(); ++i)
-					{
-						const auto& params = projections[i].getParameters();
-						if (params.m_type == requestedType)
-						{
-							presetix = i;
-							break;
-						}
-					}
-
-					assert(presetix.has_value());
-				};
-
-				init(lastBoundPerspectivePresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Perspective);
-				init(lastBoundOrthoPresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Orthographic);
-				boundProjectionIx = lastBoundPerspectivePresetProjectionIx.value();
-				inputBindingProjectionIx = std::nullopt;
-				inputBindingPlanarIx = std::numeric_limits<uint32_t>::max();
-			}
-		};
-
-		inline void syncWindowInputBinding(windowControlBinding& binding)
+		inline void syncWindowInputBinding(SWindowControlBinding& binding)
 		{
 			if (!binding.boundProjectionIx.has_value())
 				return;
@@ -1877,7 +1324,7 @@ class App final : public examples::SimpleWindowedApplication
 			binding.inputBindingProjectionIx = projectionIx;
 		}
 
-		inline void syncWindowInputBindingToProjection(windowControlBinding& binding)
+		inline void syncWindowInputBindingToProjection(SWindowControlBinding& binding)
 		{
 			if (!binding.boundProjectionIx.has_value())
 				return;
@@ -1935,7 +1382,7 @@ class App final : public examples::SimpleWindowedApplication
 		};
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
-		std::array<windowControlBinding, MaxSceneFBOs> windowBindings;
+		std::array<SWindowControlBinding, MaxSceneFBOs> windowBindings;
 		uint32_t activeRenderWindowIx = 0u;
 
 		// UI font atlas + viewport FBO color attachment textures

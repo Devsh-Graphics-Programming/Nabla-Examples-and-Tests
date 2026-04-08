@@ -25,17 +25,15 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
-        double deltaU = impulse.dVirtualTranslate.y, deltaV = impulse.dVirtualTranslate.x, deltaDistance = impulse.dVirtualTranslate.z;
-
-        constexpr auto orbitMotionScalar = 0.01;
-        deltaU *= orbitMotionScalar * getMoveSpeedScale();
-        deltaV *= orbitMotionScalar * getMoveSpeedScale();
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const double deltaU = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        const double deltaV = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
+        const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
         m_u += deltaU;
         m_v += deltaV;
    
-        m_distance = std::clamp<float>(m_distance += deltaDistance * orbitMotionScalar, MinDistance, MaxDistance);
+        m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         return applyPose();
     }

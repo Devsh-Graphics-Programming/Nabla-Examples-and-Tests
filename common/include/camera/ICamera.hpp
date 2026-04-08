@@ -25,12 +25,19 @@ class ICamera : virtual public core::IReferenceCounted
 public:
     static inline constexpr float SphericalMinDistance = 0.1f;
     static inline constexpr float SphericalMaxDistance = 10000.f;
+    static inline constexpr double VirtualTranslationStep = 0.01;
+    static inline constexpr double DefaultMoveSpeedScale = VirtualTranslationStep;
+    static inline constexpr double DefaultRotationSpeedScale = 0.003;
+    static inline constexpr double ScalarTolerance = 1e-6;
+    static inline constexpr double TinyScalarEpsilon = 1e-9;
+    static inline constexpr double DefaultPositionTolerance = 2.0 * ScalarTolerance;
+    static inline constexpr double DefaultAngularToleranceDeg = 0.1;
 
     struct SMotionConfig
     {
         //! Camera-local scales applied by implementations to virtual motion magnitude.
-        double moveSpeedScale = 0.01;
-        double rotationSpeedScale = 0.003;
+        double moveSpeedScale = DefaultMoveSpeedScale;
+        double rotationSpeedScale = DefaultRotationSpeedScale;
     };
 
     enum class CameraKind : uint8_t
@@ -255,6 +262,26 @@ public:
     inline double getMoveSpeedScale() const { return m_motionConfig.moveSpeedScale; }
     inline double getRotationSpeedScale() const { return m_motionConfig.rotationSpeedScale; }
     inline const SMotionConfig& getMotionConfig() const { return m_motionConfig; }
+    inline double getScaledVirtualTranslationMagnitude() const
+    {
+        return VirtualTranslationStep * getMoveSpeedScale();
+    }
+    inline double getUnscaledVirtualTranslationMagnitude() const
+    {
+        return VirtualTranslationStep;
+    }
+    inline double scaleVirtualTranslation(const double magnitude) const
+    {
+        return magnitude * getScaledVirtualTranslationMagnitude();
+    }
+    inline double scaleUnscaledVirtualTranslation(const double magnitude) const
+    {
+        return magnitude * getUnscaledVirtualTranslationMagnitude();
+    }
+    inline double scaleVirtualRotation(const double magnitude) const
+    {
+        return magnitude * getRotationSpeedScale();
+    }
     inline SScopedMotionScaleOverride overrideMotionScales(const double moveScale, const double rotationScale)
     {
         return SScopedMotionScaleOverride(this, moveScale, rotationScale);

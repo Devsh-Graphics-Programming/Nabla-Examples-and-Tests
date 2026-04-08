@@ -290,7 +290,7 @@ inline void normalizeCaptureFractions(std::vector<float>& fractions)
 
     std::sort(fractions.begin(), fractions.end());
     fractions.erase(std::unique(fractions.begin(), fractions.end(),
-        [](const float lhs, const float rhs) { return std::abs(lhs - rhs) <= 1e-6f; }),
+        [](const float lhs, const float rhs) { return std::abs(lhs - rhs) <= static_cast<float>(ICamera::ScalarTolerance); }),
         fractions.end());
 }
 
@@ -301,23 +301,24 @@ inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
     if (!std::isfinite(goal.orbitU) || !std::isfinite(goal.orbitV) || !std::isfinite(goal.orbitDistance))
         return false;
 
-    const float appliedDistance = std::clamp(goal.orbitDistance, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance);
-    const hlsl::float64_t3 spherePosition(
-        std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
-        std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
-        std::sin(goal.orbitV) * static_cast<double>(appliedDistance));
-    goal.position = goal.targetPosition + spherePosition;
-    goal.hasDistance = true;
-    goal.distance = appliedDistance;
-    goal.orbitDistance = appliedDistance;
+    hlsl::float64_t appliedDistance = 0.0;
+    if (!hlsl::tryBuildSphericalPoseFromOrbit(
+        goal.targetPosition,
+        goal.orbitU,
+        goal.orbitV,
+        static_cast<hlsl::float64_t>(goal.orbitDistance),
+        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
+        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
+        goal.position,
+        goal.orientation,
+        &appliedDistance))
+    {
+        return false;
+    }
 
-    const auto forward = hlsl::normalize(-spherePosition);
-    const hlsl::float64_t3 up = hlsl::normalize(hlsl::float64_t3(
-        -std::sin(goal.orbitV) * std::cos(goal.orbitU),
-        -std::sin(goal.orbitV) * std::sin(goal.orbitU),
-        std::cos(goal.orbitV)));
-    const hlsl::float64_t3 right = hlsl::normalize(hlsl::cross(up, forward));
-    goal.orientation = hlsl::makeQuaternionFromBasis(right, up, forward);
+    goal.hasDistance = true;
+    goal.distance = static_cast<float>(appliedDistance);
+    goal.orbitDistance = static_cast<float>(appliedDistance);
     return true;
 }
 
@@ -381,7 +382,10 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
         if (delta.hasOrbitUDeltaDeg)
             goal.orbitU = hlsl::wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
         if (delta.hasOrbitVDeltaDeg)
-            goal.orbitV = std::clamp(goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg), -1.55334303427, 1.55334303427);
+        {
+            constexpr double OrbitPitchLimit = hlsl::numbers::pi<double> * (89.0 / 180.0);
+            goal.orbitV = std::clamp(goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg), -OrbitPitchLimit, OrbitPitchLimit);
+        }
         if (delta.hasOrbitDistanceDelta)
             goal.orbitDistance += delta.orbitDistanceDelta;
     }
@@ -467,7 +471,7 @@ inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, cons
 
 inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
 {
-    return isFiniteVec3(pose.position) &&
+    return hlsl::isFiniteVec3(pose.position) &&
         std::isfinite(pose.orientation.data.x) &&
         std::isfinite(pose.orientation.data.y) &&
         std::isfinite(pose.orientation.data.z) &&
@@ -535,7 +539,7 @@ inline bool buildSequenceTrackedTargetTrackFromReference(
     normalized.reserve(outTrack.keyframes.size());
     for (const auto& keyframe : outTrack.keyframes)
     {
-        if (!normalized.empty() && std::abs(normalized.back().time - keyframe.time) <= 1e-6f)
+        if (!normalized.empty() && std::abs(normalized.back().time - keyframe.time) <= static_cast<float>(ICamera::ScalarTolerance))
             normalized.back() = keyframe;
         else
             normalized.emplace_back(keyframe);
@@ -570,7 +574,7 @@ inline bool tryBuildSequenceTrackedTargetPoseAtTime(
         if (time > rhs.time)
             continue;
 
-        const auto span = std::max(1e-6f, rhs.time - lhs.time);
+        const auto span = std::max(static_cast<float>(ICamera::ScalarTolerance), rhs.time - lhs.time);
         const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
         outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
         outPose.orientation = hlsl::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));

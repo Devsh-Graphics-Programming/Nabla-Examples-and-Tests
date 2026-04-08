@@ -29,43 +29,14 @@ bool App::loadKeyframesFromFile(const nbl::system::path& path)
 
 void App::DrawControlPanel()
 {
+			const nbl::ui::SCameraControlPanelStyle panelStyle = {};
 			const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-			const float panelWidth = std::clamp(displaySize.x * 0.19f, 200.0f, displaySize.x * 0.25f);
-			const float panelHeight = std::clamp(displaySize.y * 0.34f, 200.0f, displaySize.y * 0.50f);
-			const ImVec2 panelSize = { panelWidth, panelHeight };
+			const ImVec2 panelSize = nbl::ui::calcControlPanelWindowSize(displaySize, panelStyle);
 			const ImVec2 panelPos = { 0.0f, 0.0f };
 			ImGui::SetNextWindowPos(panelPos, ImGuiCond_Always);
 			ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
 
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(5.0f, 4.0f));
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 2.0f));
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 3.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 4.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(3.0f, 2.0f));
-
-			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.06f, 0.08f, 0.0f));
-			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.12f, 0.16f, 0.44f));
-			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.64f, 0.72f, 0.84f, 0.55f));
-			ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.16f, 0.19f, 0.24f, 0.54f));
-			ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.26f, 0.32f, 0.40f, 0.64f));
-			ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.30f, 0.36f, 0.45f, 0.70f));
-			ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.14f, 0.18f, 0.24f, 0.60f));
-			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.24f, 0.30f, 0.40f, 0.70f));
-			ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.28f, 0.36f, 0.46f, 0.78f));
-			ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.14f, 0.18f, 0.24f, 0.60f));
-			ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.24f, 0.30f, 0.40f, 0.70f));
-			ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(0.20f, 0.26f, 0.36f, 0.78f));
-			ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImVec4(0.12f, 0.14f, 0.18f, 0.50f));
-			ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImVec4(0.16f, 0.18f, 0.22f, 0.50f));
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.99f, 1.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.82f, 0.86f, 0.90f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.54f, 0.60f, 0.70f, 0.80f));
-			ImGui::PushStyleColor(ImGuiCol_SeparatorHovered, ImVec4(0.68f, 0.76f, 0.88f, 0.90f));
-			ImGui::PushStyleColor(ImGuiCol_SeparatorActive, ImVec4(0.82f, 0.90f, 1.0f, 0.96f));
+			nbl::ui::pushControlPanelWindowStyle(panelStyle);
 
 			ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
 			ImGui::SetNextWindowBgAlpha(0.0f);
@@ -73,28 +44,25 @@ void App::DrawControlPanel()
 				ImGui::SetNextWindowFocus();
 			ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
 
-			const ImVec4 accent = ImVec4(0.60f, 0.82f, 1.0f, 1.0f);
-			const ImVec4 good = ImVec4(0.45f, 0.90f, 0.60f, 1.0f);
-			const ImVec4 bad = ImVec4(1.0f, 0.50f, 0.45f, 1.0f);
-			const ImVec4 warn = ImVec4(0.95f, 0.80f, 0.45f, 1.0f);
-			const ImVec4 muted = ImVec4(0.92f, 0.93f, 0.95f, 1.0f);
-			const ImVec4 badgeText = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
-			const ImVec4 keyBg = ImVec4(0.20f, 0.22f, 0.25f, 1.0f);
-			const ImVec4 keyFg = ImVec4(0.92f, 0.94f, 0.96f, 1.0f);
-			const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX;
-			const ImVec4 panelBg = ImVec4(0.03f, 0.04f, 0.05f, 0.50f);
-			const ImVec4 panelEdge = ImVec4(0.62f, 0.70f, 0.84f, 0.60f);
-			const ImVec4 panelStripe = ImVec4(0.28f, 0.56f, 0.90f, 0.70f);
-			const ImVec4 panelShadow = ImVec4(0.0f, 0.0f, 0.0f, 0.12f);
+			const ImVec4 accent = panelStyle.AccentColor;
+			const ImVec4 good = panelStyle.GoodColor;
+			const ImVec4 bad = panelStyle.BadColor;
+			const ImVec4 warn = panelStyle.WarnColor;
+			const ImVec4 muted = panelStyle.MutedColor;
+			const ImVec4 badgeText = panelStyle.BadgeTextColor;
+			const ImVec4 keyBg = panelStyle.KeyBackgroundColor;
+			const ImVec4 keyFg = panelStyle.KeyTextColor;
+			const ImGuiTableFlags tableFlags = panelStyle.SummaryTableFlags;
+			const ImVec4 inactiveBadge = panelStyle.InactiveBadgeColor;
+			const ImVec4 cardTop = panelStyle.CardTopColor;
+			const ImVec4 cardBottom = panelStyle.CardBottomColor;
+			const ImVec4 cardBorder = panelStyle.CardBorderColor;
 
 			{
 				const ImVec2 panelPos = ImGui::GetWindowPos();
 				const ImVec2 panelSize = ImGui::GetWindowSize();
-				auto* drawList = ImGui::GetWindowDrawList();
-				drawList->AddRectFilled(ImVec2(panelPos.x + 2.0f, panelPos.y + 3.0f), ImVec2(panelPos.x + panelSize.x + 4.0f, panelPos.y + panelSize.y + 5.0f), ImGui::ColorConvertFloat4ToU32(panelShadow), 8.0f);
-				drawList->AddRectFilled(panelPos, ImVec2(panelPos.x + panelSize.x, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelBg), 6.0f);
-				drawList->AddRect(panelPos, ImVec2(panelPos.x + panelSize.x, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelEdge), 6.0f);
-				drawList->AddRectFilled(panelPos, ImVec2(panelPos.x + 4.0f, panelPos.y + panelSize.y), ImGui::ColorConvertFloat4ToU32(panelStripe), 6.0f);
+				if (auto* drawList = ImGui::GetWindowDrawList(); drawList)
+					nbl::ui::drawControlPanelWindowBackdrop(*drawList, panelPos, panelSize, panelStyle);
 			}
 
 			auto row = [&](const char* label, auto&& drawValue)
@@ -106,143 +74,69 @@ void App::DrawControlPanel()
 				drawValue();
 			};
 
-			auto metricMax = [&](const std::array<float, UiMetricSamples>& values, float minValue) -> float
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, panelStyle.CardChildRounding);
+			if (ImGui::BeginChild("PanelHeader", ImVec2(0.0f, panelStyle.HeaderWindowHeight), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 			{
-				float maxValue = minValue;
-				for (const float v : values)
-					maxValue = std::max(maxValue, v);
-				return maxValue;
-			};
-
-			auto miniStat = [&](const char* id, const char* label, const ImVec4& color, const std::array<float, UiMetricSamples>& series, float minValue, auto&& drawValue)
-			{
-				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.14f, 0.16f, 0.19f, 0.75f));
-				ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
-				if (ImGui::BeginChild(id, ImVec2(0, 56), true, ImGuiWindowFlags_NoScrollbar))
-				{
-					ImGui::TextDisabled("%s", label);
-					ImGui::SetWindowFontScale(1.05f);
-					drawValue();
-					ImGui::SetWindowFontScale(1.0f);
-					ImGui::PushStyleColor(ImGuiCol_PlotLines, color);
-					const float maxValue = metricMax(series, minValue);
-					ImGui::PlotLines("##plot", series.data(), static_cast<int>(UiMetricSamples), static_cast<int>(m_uiMetricIndex), nullptr, 0.0f, maxValue, ImVec2(0, 24));
-					ImGui::PopStyleColor();
-				}
-				ImGui::EndChild();
-				ImGui::PopStyleVar();
-				ImGui::PopStyleColor();
-			};
-
-			auto calcPillWidth = [&](const char* label, const ImVec2& pad)
-			{
-				return ImGui::CalcTextSize(label).x + pad.x * 2.0f;
-			};
-
-			auto drawTogglePill = [&](const char* label, bool& value, const ImVec4& onCol, const ImVec4& offCol, const ImVec2& pad)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Button, value ? onCol : offCol);
-				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, value ? onCol : offCol);
-				ImGui::PushStyleColor(ImGuiCol_ButtonActive, value ? onCol : offCol);
-				ImGui::PushStyleColor(ImGuiCol_Text, badgeText);
-				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, pad);
-				if (ImGui::Button(label))
-					value = !value;
-				ImGui::PopStyleVar();
-				ImGui::PopStyleColor(4);
-			};
-
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
-			if (ImGui::BeginChild("PanelHeader", ImVec2(0, 64), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
-			{
-				ImGui::Dummy(ImVec2(0.0f, 1.0f));
-				ImGui::SetWindowFontScale(1.08f);
+				ImGui::Dummy(ImVec2(0.0f, panelStyle.HeaderDummyY));
+				ImGui::SetWindowFontScale(panelStyle.HeaderTitleFontScale);
 				ImGui::TextColored(accent, "Control Panel");
 				ImGui::SetWindowFontScale(1.0f);
 				{
-					const ImVec2 badgePad = ImVec2(6.0f, 2.0f);
 					const float gap = ImGui::GetStyle().ItemSpacing.x;
-					const char* badgeWindow = useWindow ? "WINDOW" : "FULL";
-					const char* badgeMove = enableActiveCameraMovement ? "MOVE ON" : "MOVE OFF";
-					const char* badgeScript = m_scriptedInput.enabled ? (m_scriptedInput.exclusive ? "SCRIPT EXCL" : "SCRIPT") : "SCRIPT OFF";
-					const float badgeRowWidth = calcPillWidth(badgeWindow, badgePad)
-						+ gap + calcPillWidth(badgeMove, badgePad)
-						+ gap + calcPillWidth(badgeScript, badgePad)
-						+ (m_ciMode ? (gap + calcPillWidth("CI", badgePad)) : 0.0f);
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - badgeRowWidth) * 0.5f));
-
-					DrawBadge(badgeWindow, accent, badgeText);
-					ImGui::SameLine(0.0f, gap);
-					DrawBadge(badgeMove, enableActiveCameraMovement ? good : bad, badgeText);
-					ImGui::SameLine(0.0f, gap);
-					DrawBadge(badgeScript, m_scriptedInput.enabled ? accent : ImVec4(0.35f, 0.36f, 0.38f, 1.0f), badgeText);
-					if (m_ciMode)
-					{
-						ImGui::SameLine(0.0f, gap);
-						DrawBadge("CI", warn, badgeText);
-					}
+					std::array<nbl::ui::SCameraControlPanelBadgeData, 4> headerBadges = {{
+						{ useWindow ? "WINDOW" : "FULL", accent },
+						{ enableActiveCameraMovement ? "MOVE ON" : "MOVE OFF", enableActiveCameraMovement ? good : bad },
+						{ m_scriptedInput.enabled ? (m_scriptedInput.exclusive ? "SCRIPT EXCL" : "SCRIPT") : "SCRIPT OFF", m_scriptedInput.enabled ? accent : inactiveBadge },
+						{ "CI", warn }
+					}};
+					const size_t headerBadgeCount = m_ciMode ? headerBadges.size() : headerBadges.size() - 1u;
+					nbl::ui::drawBadgeRow(std::span<const nbl::ui::SCameraControlPanelBadgeData>(headerBadges.data(), headerBadgeCount), badgeText, gap, panelStyle);
 				}
 
-				ImGui::Dummy(ImVec2(0.0f, 2.0f));
+				ImGui::Dummy(ImVec2(0.0f, panelStyle.HeaderGapSmall));
 				{
-					const ImVec2 keyPad = ImVec2(4.0f, 1.0f);
 					const float gap = ImGui::GetStyle().ItemSpacing.x;
 					const float groupGap = gap * 2.0f;
-					const float moveWidth = ImGui::CalcTextSize("Move").x + gap
-						+ calcPillWidth("W", keyPad) + gap
-						+ calcPillWidth("A", keyPad) + gap
-						+ calcPillWidth("S", keyPad) + gap
-						+ calcPillWidth("D", keyPad);
-					const float lookWidth = ImGui::CalcTextSize("Look").x + gap + calcPillWidth("RMB", keyPad);
-					const float zoomWidth = ImGui::CalcTextSize("Zoom").x + gap + calcPillWidth("MW", keyPad);
-					const float rowWidth = moveWidth + groupGap + lookWidth + groupGap + zoomWidth;
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f));
-
-					ImGui::TextDisabled("Move");
-					ImGui::SameLine();
-					DrawKeyHint("W", keyBg, keyFg);
-					ImGui::SameLine();
-					DrawKeyHint("A", keyBg, keyFg);
-					ImGui::SameLine();
-					DrawKeyHint("S", keyBg, keyFg);
-					ImGui::SameLine();
-					DrawKeyHint("D", keyBg, keyFg);
-
-					ImGui::SameLine(0.0f, groupGap);
-					ImGui::TextDisabled("Look");
-					ImGui::SameLine();
-					DrawKeyHint("RMB", keyBg, keyFg);
-
-					ImGui::SameLine(0.0f, groupGap);
-					ImGui::TextDisabled("Zoom");
-					ImGui::SameLine();
-					DrawKeyHint("MW", keyBg, keyFg);
+					static constexpr std::array<const char*, 4u> MoveKeys = { "W", "A", "S", "D" };
+					static constexpr std::array<const char*, 1u> LookKeys = { "RMB" };
+					static constexpr std::array<const char*, 1u> ZoomKeys = { "MW" };
+					const std::array<nbl::ui::SCameraControlPanelKeyHintGroup, 3u> keyHintGroups = {{
+						{ "Move", MoveKeys },
+						{ "Look", LookKeys },
+						{ "Zoom", ZoomKeys }
+					}};
+					nbl::ui::drawKeyHintGroupRow(keyHintGroups, gap, groupGap, keyBg, keyFg, panelStyle);
 				}
 
-				ImGui::Dummy(ImVec2(0.0f, 2.0f));
+				ImGui::Dummy(ImVec2(0.0f, panelStyle.HeaderGapSmall));
 				if (ImGui::BeginTable("HeaderMetrics", 3, ImGuiTableFlags_SizingStretchProp))
 				{
 					const float frameMs = std::max(0.0f, m_uiLastFrameMs);
 					const float fps = frameMs > 0.0f ? (1000.0f / frameMs) : 0.0f;
+					const std::array<nbl::ui::SCameraControlPanelMiniStatSpec, 3u> miniStats = {{
+						{ "FrameStat", "Frame", accent, panelStyle.DefaultFrameMetricMin },
+						{ "InputStat", "Input", accent, panelStyle.DefaultEventMetricMin },
+						{ "VirtualStat", "Virtual", accent, panelStyle.DefaultEventMetricMin }
+					}};
 
 					ImGui::TableNextRow();
 					ImGui::TableSetColumnIndex(0);
-					miniStat("FrameStat", "Frame", accent, m_uiFrameMs, 16.0f, [&]
+					nbl::ui::drawMiniStat(miniStats[0], m_uiFrameMs, m_uiMetricIndex, [&]
 					{
 						ImGui::TextColored(accent, "%.1f ms  %.0f fps", frameMs, fps);
-					});
+					}, panelStyle);
 
 					ImGui::TableSetColumnIndex(1);
-					miniStat("InputStat", "Input", accent, m_uiInputCounts, 4.0f, [&]
+					nbl::ui::drawMiniStat(miniStats[1], m_uiInputCounts, m_uiMetricIndex, [&]
 					{
 						ImGui::TextColored(accent, "%u ev", m_uiLastInputEvents);
-					});
+					}, panelStyle);
 
 					ImGui::TableSetColumnIndex(2);
-					miniStat("VirtualStat", "Virtual", accent, m_uiVirtualCounts, 4.0f, [&]
+					nbl::ui::drawMiniStat(miniStats[2], m_uiVirtualCounts, m_uiMetricIndex, [&]
 					{
 						ImGui::TextColored(accent, "%u ev", m_uiLastVirtualEvents);
-					});
+					}, panelStyle);
 					ImGui::EndTable();
 				}
 			}
@@ -254,18 +148,23 @@ void App::DrawControlPanel()
 			{
 				const ImVec2 togglePad = ImVec2(6.0f, 2.0f);
 				const float gap = ImGui::GetStyle().ItemSpacing.x;
-				const float rowWidth = calcPillWidth("WINDOW", togglePad)
-					+ gap + calcPillWidth("STATUS", togglePad)
-					+ gap + calcPillWidth("EVENT LOG", togglePad);
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f));
-				drawTogglePill("WINDOW", useWindow, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
-				DrawHoverHint("Toggle split render windows");
+				const std::array<const char*, 3u> toggleLabels = { "WINDOW", "STATUS", "EVENT LOG" };
+				float rowWidth = 0.0f;
+				for (size_t i = 0; i < toggleLabels.size(); ++i)
+				{
+					if (i > 0u)
+						rowWidth += gap;
+					rowWidth += nbl::ui::calcPillWidth(toggleLabels[i], togglePad);
+				}
+				nbl::ui::centerControlPanelRow(rowWidth);
+				nbl::ui::drawTogglePill("WINDOW", useWindow, accent, inactiveBadge, badgeText, togglePad);
+				nbl::ui::drawHoverHint("Toggle split render windows");
 				ImGui::SameLine(0.0f, gap);
-				drawTogglePill("STATUS", m_showHud, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
-				DrawHoverHint("Show system and camera status panel");
+				nbl::ui::drawTogglePill("STATUS", m_showHud, accent, inactiveBadge, badgeText, togglePad);
+				nbl::ui::drawHoverHint("Show system and camera status panel");
 				ImGui::SameLine(0.0f, gap);
-				drawTogglePill("EVENT LOG", m_showEventLog, accent, ImVec4(0.35f, 0.36f, 0.38f, 1.0f), togglePad);
-				DrawHoverHint("Show virtual event log");
+				nbl::ui::drawTogglePill("EVENT LOG", m_showEventLog, accent, inactiveBadge, badgeText, togglePad);
+				nbl::ui::drawHoverHint("Show virtual event log");
 			}
 
 			ImGui::Separator();
@@ -278,26 +177,22 @@ void App::DrawControlPanel()
 					if (ImGui::BeginChild("StatusPanel", ImVec2(0, 0), true))
 					{
 						ImGui::PushItemWidth(-1.0f);
-						const ImVec4 cardTop = ImVec4(0.20f, 0.22f, 0.26f, 0.98f);
-						const ImVec4 cardBottom = ImVec4(0.12f, 0.13f, 0.15f, 0.98f);
-						const ImVec4 cardBorder = ImVec4(0.45f, 0.48f, 0.54f, 1.0f);
-
-						DrawSectionHeader("SessionHeader", "Session", accent);
-						if (BeginCard("SessionCard", CalcCardHeight(3), cardTop, cardBottom, cardBorder))
+						nbl::ui::drawSectionHeader("SessionHeader", "Session", accent, panelStyle);
+						if (nbl::ui::beginCard("SessionCard", nbl::ui::calcCameraControlPanelCardHeight(3, panelStyle), cardTop, cardBottom, cardBorder, panelStyle))
 						{
 							if (ImGui::BeginTable("SessionTable", 2, tableFlags))
 							{
-								ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+								ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, panelStyle.SummaryLabelColumnWidth);
 								ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-								row("Mode", [&] { DrawDot(accent); ImGui::TextColored(accent, "%s", useWindow ? "Window" : "Fullscreen"); });
-								row("Active window", [&] { DrawDot(accent); ImGui::TextColored(accent, "%u", activeRenderWindowIx); });
-								row("Movement", [&] { const ImVec4 c = enableActiveCameraMovement ? good : bad; DrawDot(c); ImGui::TextColored(c, "%s", enableActiveCameraMovement ? "Enabled" : "Disabled"); });
+								row("Mode", [&] { nbl::ui::drawDot(accent, panelStyle); ImGui::TextColored(accent, "%s", useWindow ? "Window" : "Fullscreen"); });
+								row("Active window", [&] { nbl::ui::drawDot(accent, panelStyle); ImGui::TextColored(accent, "%u", activeRenderWindowIx); });
+								row("Movement", [&] { const ImVec4 c = enableActiveCameraMovement ? good : bad; nbl::ui::drawDot(c, panelStyle); ImGui::TextColored(c, "%s", enableActiveCameraMovement ? "Enabled" : "Disabled"); });
 								ImGui::EndTable();
 							}
 						}
-						EndCard();
+						nbl::ui::endCard();
 
-						DrawSectionHeader("CameraHeader", "Camera", accent);
+						nbl::ui::drawSectionHeader("CameraHeader", "Camera", accent, panelStyle);
 
 						auto* activeCamera = getActiveCamera();
 						if (activeCamera)
@@ -306,30 +201,30 @@ void App::DrawControlPanel()
 							const auto pos = gimbal.getPosition();
 							const auto euler = getQuaternionEulerDegrees(gimbal.getOrientation());
 
-							if (BeginCard("CameraCard", CalcCardHeight(5), cardTop, cardBottom, cardBorder))
+							if (nbl::ui::beginCard("CameraCard", nbl::ui::calcCameraControlPanelCardHeight(5, panelStyle), cardTop, cardBottom, cardBorder, panelStyle))
 							{
 								if (ImGui::BeginTable("CameraTable", 2, tableFlags))
 								{
-									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, panelStyle.SummaryLabelColumnWidth);
 									ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-									row("Name", [&] { DrawDot(accent); ImGui::TextColored(muted, "%s", activeCamera->getIdentifier().data()); });
-									row("Position", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f %.2f %.2f", pos.x, pos.y, pos.z); });
-									row("Euler", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f %.1f %.1f", euler.x, euler.y, euler.z); });
-									row("Move scale", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.4f", activeCamera->getMoveSpeedScale()); });
-									row("Rotate scale", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.4f", activeCamera->getRotationSpeedScale()); });
+									row("Name", [&] { nbl::ui::drawDot(accent, panelStyle); ImGui::TextColored(muted, "%s", activeCamera->getIdentifier().data()); });
+									row("Position", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.2f %.2f %.2f", pos.x, pos.y, pos.z); });
+									row("Euler", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.1f %.1f %.1f", euler.x, euler.y, euler.z); });
+									row("Move scale", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.4f", activeCamera->getMoveSpeedScale()); });
+									row("Rotate scale", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.4f", activeCamera->getRotationSpeedScale()); });
 									ImGui::EndTable();
 								}
 							}
-							EndCard();
+							nbl::ui::endCard();
 						}
 						else
 						{
-							if (BeginCard("CameraCard", CalcCardHeight(2), cardTop, cardBottom, cardBorder))
+							if (nbl::ui::beginCard("CameraCard", nbl::ui::calcCameraControlPanelCardHeight(2, panelStyle), cardTop, cardBottom, cardBorder, panelStyle))
 								ImGui::TextDisabled("No active camera");
-							EndCard();
+							nbl::ui::endCard();
 						}
 
-						DrawSectionHeader("ProjectionHeader", "Projection", accent);
+						nbl::ui::drawSectionHeader("ProjectionHeader", "Projection", accent, panelStyle);
 
 						auto& binding = windowBindings[activeRenderWindowIx];
 						auto& planar = m_planarProjections[binding.activePlanarIx];
@@ -337,29 +232,29 @@ void App::DrawControlPanel()
 						{
 							auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 							const auto& params = projection.getParameters();
-							if (BeginCard("ProjectionCard", CalcCardHeight(4), cardTop, cardBottom, cardBorder))
+							if (nbl::ui::beginCard("ProjectionCard", nbl::ui::calcCameraControlPanelCardHeight(4, panelStyle), cardTop, cardBottom, cardBorder, panelStyle))
 							{
 								if (ImGui::BeginTable("ProjectionTable", 2, tableFlags))
 								{
-									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+									ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, panelStyle.SummaryLabelColumnWidth);
 									ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-									row("Type", [&] { DrawDot(accent); ImGui::TextColored(muted, "%s", params.m_type == IPlanarProjection::CProjection::Perspective ? "Perspective" : "Orthographic"); });
-									row("zNear", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f", params.m_zNear); });
-									row("zFar", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.2f", params.m_zFar); });
+									row("Type", [&] { nbl::ui::drawDot(accent, panelStyle); ImGui::TextColored(muted, "%s", params.m_type == IPlanarProjection::CProjection::Perspective ? "Perspective" : "Orthographic"); });
+									row("zNear", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.2f", params.m_zNear); });
+									row("zFar", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.2f", params.m_zFar); });
 									if (params.m_type == IPlanarProjection::CProjection::Perspective)
-										row("Fov", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f", params.m_planar.perspective.fov); });
+										row("Fov", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.1f", params.m_planar.perspective.fov); });
 									else
-										row("Ortho width", [&] { DrawDot(muted); ImGui::TextColored(muted, "%.1f", params.m_planar.orthographic.orthoWidth); });
+										row("Ortho width", [&] { nbl::ui::drawDot(muted, panelStyle); ImGui::TextColored(muted, "%.1f", params.m_planar.orthographic.orthoWidth); });
 									ImGui::EndTable();
 								}
 							}
-							EndCard();
+							nbl::ui::endCard();
 						}
 						else
 						{
-							if (BeginCard("ProjectionCard", CalcCardHeight(2), cardTop, cardBottom, cardBorder))
+							if (nbl::ui::beginCard("ProjectionCard", nbl::ui::calcCameraControlPanelCardHeight(2, panelStyle), cardTop, cardBottom, cardBorder, panelStyle))
 								ImGui::TextDisabled("No projection bound");
-							EndCard();
+							nbl::ui::endCard();
 						}
 						ImGui::PopItemWidth();
 					}
@@ -377,9 +272,9 @@ void App::DrawControlPanel()
 						auto& active = windowBindings[activeRenderWindowIx];
 						const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
 
-						DrawSectionHeader("PlanarSelectHeader", "Planar Selection", accent);
+						nbl::ui::drawSectionHeader("PlanarSelectHeader", "Planar Selection", accent, panelStyle);
 						ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
-						DrawHoverHint("Window that receives input and camera switching");
+						nbl::ui::drawHoverHint("Window that receives input and camera switching");
 						{
 							const size_t planarsCount = m_planarProjections.size();
 							assert(planarsCount);
@@ -398,7 +293,7 @@ void App::DrawControlPanel()
 								active.activePlanarIx = static_cast<uint32_t>(currentPlanarIx);
 								active.pickDefaultProjections(m_planarProjections[active.activePlanarIx]->getPlanarProjections());
 							}
-							DrawHoverHint("Select which camera the window renders");
+							nbl::ui::drawHoverHint("Select which camera the window renders");
 						}
 
 						assert(active.boundProjectionIx.has_value());
@@ -409,7 +304,7 @@ void App::DrawControlPanel()
 						auto& planarBound = m_planarProjections[active.activePlanarIx];
 						assert(planarBound);
 
-						DrawSectionHeader("ProjectionParamsHeader", "Projection Parameters", accent);
+						nbl::ui::drawSectionHeader("ProjectionParamsHeader", "Projection Parameters", accent, panelStyle);
 
 						auto selectedProjectionType = planarBound->getPlanarProjections()[active.boundProjectionIx.value()].getParameters().m_type;
 						{
@@ -427,7 +322,7 @@ void App::DrawControlPanel()
 									default: active.boundProjectionIx = std::nullopt; assert(false); break;
 								}
 							}
-							DrawHoverHint("Switch projection type for this planar");
+							nbl::ui::drawHoverHint("Switch projection type for this planar");
 						}
 
 						auto getPresetName = [&](auto ix) -> std::string
@@ -475,7 +370,7 @@ void App::DrawControlPanel()
 						}
 						if (updateBoundVirtualMaps)
 							syncWindowInputBinding(active);
-						DrawHoverHint("Switch preset projection for this planar");
+						nbl::ui::drawHoverHint("Switch preset projection for this planar");
 
 						auto* const boundCamera = planarBound->getCamera();
 						auto& boundProjection = planarBound->getPlanarProjections()[active.boundProjectionIx.value()];
@@ -485,11 +380,11 @@ void App::DrawControlPanel()
 
 						if (useWindow)
 							ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
-						DrawHoverHint("Allow ImGuizmo axes to flip based on view");
+						nbl::ui::drawHoverHint("Allow ImGuizmo axes to flip based on view");
 
 						if(useWindow)
 							ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
-						DrawHoverHint("Toggle debug grid in the render window");
+						nbl::ui::drawHoverHint("Toggle debug grid in the render window");
 
 						if (ImGui::RadioButton("LH", active.leftHandedProjection))
 							active.leftHandedProjection = true;
@@ -498,40 +393,40 @@ void App::DrawControlPanel()
 
 						if (ImGui::RadioButton("RH", not active.leftHandedProjection))
 							active.leftHandedProjection = false;
-						DrawHoverHint("Toggle left or right handed projection");
+						nbl::ui::drawHoverHint("Toggle left or right handed projection");
 
 						updateParameters.m_zNear = std::clamp(updateParameters.m_zNear, 0.1f, 100.f);
 						updateParameters.m_zFar = std::clamp(updateParameters.m_zFar, 110.f, 10000.f);
 
 						ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
-						DrawHoverHint("Near clip plane");
+						nbl::ui::drawHoverHint("Near clip plane");
 						ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-						DrawHoverHint("Far clip plane");
+						nbl::ui::drawHoverHint("Far clip plane");
 
 						switch (selectedProjectionType)
 						{
 							case IPlanarProjection::CProjection::Perspective:
 							{
 								ImGui::SliderFloat("Fov", &updateParameters.m_planar.perspective.fov, 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-								DrawHoverHint("Perspective field of view");
+								nbl::ui::drawHoverHint("Perspective field of view");
 								boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
 							} break;
 
 							case IPlanarProjection::CProjection::Orthographic:
 							{
 								ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 30.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-								DrawHoverHint("Orthographic width");
+								nbl::ui::drawHoverHint("Orthographic width");
 								boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
 							} break;
 
 							default: break;
 						}
 
-						DrawSectionHeader("CursorHeader", "Cursor Behaviour", accent);
+						nbl::ui::drawSectionHeader("CursorHeader", "Cursor Behaviour", accent, panelStyle);
 						if (ImGui::TreeNodeEx("Cursor Behaviour"))
 						{
 							ImGui::Checkbox("Capture OS cursor in move mode", &captureCursorInMoveMode);
-							DrawHoverHint("When disabled the app never warps or clamps system cursor");
+							nbl::ui::drawHoverHint("When disabled the app never warps or clamps system cursor");
 							if (captureCursorInMoveMode)
 							{
 								if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
@@ -553,7 +448,7 @@ void App::DrawControlPanel()
 
 						ImGui::Separator();
 
-						DrawSectionHeader("BoundCameraHeader", "Bound Camera", accent);
+						nbl::ui::drawSectionHeader("BoundCameraHeader", "Bound Camera", accent, panelStyle);
 						const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
 						if (ImGui::TreeNodeEx("Bound Camera", flags))
 						{
@@ -568,11 +463,11 @@ void App::DrawControlPanel()
 								float rotationSpeed = boundCamera->getRotationSpeedScale();
 
 								ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-								DrawHoverHint("Scale translation speed for this camera");
+								nbl::ui::drawHoverHint("Scale translation speed for this camera");
 
 								if (boundCamera->getAllowedVirtualEvents() & CVirtualGimbalEvent::Rotate)
 									ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-								DrawHoverHint("Scale rotation speed for this camera");
+								nbl::ui::drawHoverHint("Scale rotation speed for this camera");
 
 								boundCamera->setMotionScales(moveSpeed, rotationSpeed);
 
@@ -580,7 +475,7 @@ void App::DrawControlPanel()
 								{
 									float distance = sphericalState.distance;
 									ImGui::SliderFloat("Distance", &distance, sphericalState.minDistance, sphericalState.maxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
-									DrawHoverHint("Current orbit distance");
+									nbl::ui::drawHoverHint("Current orbit distance");
 									boundCamera->trySetSphericalDistance(distance);
 								}
 							}
@@ -621,52 +516,52 @@ void App::DrawControlPanel()
 					if (ImGui::BeginChild("CameraPanel", ImVec2(0, 0), true))
 					{
 						ImGui::PushItemWidth(-1.0f);
-						DrawSectionHeader("CameraInputHeader", "Input", accent);
+						nbl::ui::drawSectionHeader("CameraInputHeader", "Input", accent, panelStyle);
 						ImGui::Checkbox("Mirror input to all cameras", &m_cameraControls.mirrorInput);
-						DrawHoverHint("Apply keyboard and mouse input to every camera");
+						nbl::ui::drawHoverHint("Apply keyboard and mouse input to every camera");
 						ImGui::Checkbox("World translate", &m_cameraControls.worldTranslate);
-						DrawHoverHint("Translate in world space instead of camera space");
+						nbl::ui::drawHoverHint("Translate in world space instead of camera space");
 						ImGui::SliderFloat("Keyboard scale", &m_cameraControls.keyboardScale, 0.01f, 10.f, "%.2f");
-						DrawHoverHint("Scale keyboard movement magnitudes");
+						nbl::ui::drawHoverHint("Scale keyboard movement magnitudes");
 						ImGui::SliderFloat("Mouse move scale", &m_cameraControls.mouseMoveScale, 0.01f, 10.f, "%.2f");
-						DrawHoverHint("Scale mouse move magnitudes");
+						nbl::ui::drawHoverHint("Scale mouse move magnitudes");
 						ImGui::SliderFloat("Mouse scroll scale", &m_cameraControls.mouseScrollScale, 0.01f, 10.f, "%.2f");
-						DrawHoverHint("Scale mouse wheel magnitudes");
+						nbl::ui::drawHoverHint("Scale mouse wheel magnitudes");
 						ImGui::SliderFloat("Translate scale", &m_cameraControls.translationScale, 0.01f, 10.f, "%.2f");
-						DrawHoverHint("Overall translation scale for virtual events");
+						nbl::ui::drawHoverHint("Overall translation scale for virtual events");
 						ImGui::SliderFloat("Rotate scale", &m_cameraControls.rotationScale, 0.01f, 10.f, "%.2f");
-						DrawHoverHint("Overall rotation scale for virtual events");
+						nbl::ui::drawHoverHint("Overall rotation scale for virtual events");
 
-						DrawSectionHeader("CameraConstraintsHeader", "Constraints", accent);
+						nbl::ui::drawSectionHeader("CameraConstraintsHeader", "Constraints", accent, panelStyle);
 						ImGui::Checkbox("Enable constraints", &m_cameraConstraints.enabled);
-						DrawHoverHint("Enable or disable all camera constraints");
+						nbl::ui::drawHoverHint("Enable or disable all camera constraints");
 						ImGui::Checkbox("Clamp distance", &m_cameraConstraints.clampDistance);
-						DrawHoverHint("Clamp orbit distance to min/max");
+						nbl::ui::drawHoverHint("Clamp orbit distance to min/max");
 						ImGui::SliderFloat("Min distance", &m_cameraConstraints.minDistance, 0.01f, 1000.f, "%.3f", ImGuiSliderFlags_Logarithmic);
-						DrawHoverHint("Minimum orbit distance");
+						nbl::ui::drawHoverHint("Minimum orbit distance");
 						ImGui::SliderFloat("Max distance", &m_cameraConstraints.maxDistance, 0.01f, 10000.f, "%.3f", ImGuiSliderFlags_Logarithmic);
-						DrawHoverHint("Maximum orbit distance");
+						nbl::ui::drawHoverHint("Maximum orbit distance");
 						ImGui::Separator();
 						ImGui::Checkbox("Clamp pitch", &m_cameraConstraints.clampPitch);
-						DrawHoverHint("Clamp pitch angle");
+						nbl::ui::drawHoverHint("Clamp pitch angle");
 						ImGui::SliderFloat("Pitch min", &m_cameraConstraints.pitchMinDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Minimum pitch in degrees");
+						nbl::ui::drawHoverHint("Minimum pitch in degrees");
 						ImGui::SliderFloat("Pitch max", &m_cameraConstraints.pitchMaxDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Maximum pitch in degrees");
+						nbl::ui::drawHoverHint("Maximum pitch in degrees");
 						ImGui::Checkbox("Clamp yaw", &m_cameraConstraints.clampYaw);
-						DrawHoverHint("Clamp yaw angle");
+						nbl::ui::drawHoverHint("Clamp yaw angle");
 						ImGui::SliderFloat("Yaw min", &m_cameraConstraints.yawMinDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Minimum yaw in degrees");
+						nbl::ui::drawHoverHint("Minimum yaw in degrees");
 						ImGui::SliderFloat("Yaw max", &m_cameraConstraints.yawMaxDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Maximum yaw in degrees");
+						nbl::ui::drawHoverHint("Maximum yaw in degrees");
 						ImGui::Checkbox("Clamp roll", &m_cameraConstraints.clampRoll);
-						DrawHoverHint("Clamp roll angle");
+						nbl::ui::drawHoverHint("Clamp roll angle");
 						ImGui::SliderFloat("Roll min", &m_cameraConstraints.rollMinDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Minimum roll in degrees");
+						nbl::ui::drawHoverHint("Minimum roll in degrees");
 						ImGui::SliderFloat("Roll max", &m_cameraConstraints.rollMaxDeg, -180.f, 180.f, "%.1f");
-						DrawHoverHint("Maximum roll in degrees");
+						nbl::ui::drawHoverHint("Maximum roll in degrees");
 
-						DrawSectionHeader("OrbitHeader", "Orbit Target", accent);
+						nbl::ui::drawSectionHeader("OrbitHeader", "Orbit Target", accent, panelStyle);
 
 						auto* activeCamera = getActiveCamera();
 						ICamera::SphericalTargetState orbitState;
@@ -682,18 +577,18 @@ void App::DrawControlPanel()
 								const auto targetPos = hlsl::transpose(getMatrix3x4As4x4(m_model))[3];
 								activeCamera->trySetSphericalTarget(float64_t3(targetPos.x, targetPos.y, targetPos.z));
 							}
-							DrawHoverHint("Set orbit target to the model position");
+							nbl::ui::drawHoverHint("Set orbit target to the model position");
 							ImGui::SameLine();
 							if (ImGui::Button("Target origin"))
 								activeCamera->trySetSphericalTarget(float64_t3(0.0));
-							DrawHoverHint("Set orbit target to world origin");
+							nbl::ui::drawHoverHint("Set orbit target to world origin");
 						}
 						if (!hasOrbitTarget)
 						{
 							ImGui::TextDisabled("Active camera is not orbit.");
 						}
 
-						DrawSectionHeader("FollowHeader", "Follow Target", accent);
+						nbl::ui::drawSectionHeader("FollowHeader", "Follow Target", accent, panelStyle);
 						auto* activeFollowConfig = getActiveFollowConfig();
 						if (activeFollowConfig)
 						{
@@ -701,7 +596,7 @@ void App::DrawControlPanel()
 							const bool prevFollowEnabled = followConfig.enabled;
 							const auto prevFollowMode = followConfig.mode;
 							ImGui::Checkbox("Enable follow", &followConfig.enabled);
-							DrawHoverHint("Apply tracked-target follow to the active planar camera");
+							nbl::ui::drawHoverHint("Apply tracked-target follow to the active planar camera");
 
 							const char* followModeLabels[] = {
 								getCameraFollowModeLabel(ECameraFollowMode::Disabled),
@@ -724,23 +619,23 @@ void App::DrawControlPanel()
 								m_followTarget.setPosition(getCastedVector<float64_t>(trackedTarget));
 
 							ImGui::Checkbox("Show target marker", &m_followTargetVisible);
-							DrawHoverHint("Render the tracked target marker in the scene");
+							nbl::ui::drawHoverHint("Render the tracked target marker in the scene");
 
 							if (ImGui::Button("Reset target"))
 								resetFollowTargetToDefault();
-							DrawHoverHint("Reset tracked target gimbal to the default world-space follow pose");
+							nbl::ui::drawHoverHint("Reset tracked target gimbal to the default world-space follow pose");
 							ImGui::SameLine();
 							if (ImGui::Button("Snap to model"))
 								snapFollowTargetToModel();
-							DrawHoverHint("Optionally snap tracked target gimbal to the model transform");
+							nbl::ui::drawHoverHint("Optionally snap tracked target gimbal to the model transform");
 							ImGui::SameLine();
 							if (ImGui::Button("Target origin"))
 								m_followTarget.setPose(float64_t3(0.0), makeIdentityQuaternion<float64_t>());
-							DrawHoverHint("Reset tracked target to identity at world origin");
+							nbl::ui::drawHoverHint("Reset tracked target to identity at world origin");
 							ImGui::SameLine();
 							if (ImGui::Button("Capture current offset"))
 								captureFollowOffsetsForPlanar(getActivePlanarIx());
-							DrawHoverHint("Store current camera-to-target relation into the active follow config");
+							nbl::ui::drawHoverHint("Store current camera-to-target relation into the active follow config");
 
 							if (cameraFollowModeUsesWorldOffset(followConfig.mode))
 							{
@@ -772,7 +667,7 @@ void App::DrawControlPanel()
 					if (ImGui::BeginChild("PresetsPanel", ImVec2(0, 0), true))
 					{
 						ImGui::PushItemWidth(-1.0f);
-						DrawSectionHeader("PresetsHeader", "Presets", accent);
+						nbl::ui::drawSectionHeader("PresetsHeader", "Presets", accent, panelStyle);
 						ImGui::InputText("Preset name", m_presetName, IM_ARRAYSIZE(m_presetName));
 						auto* activeCamera = getActiveCamera();
 						const auto presetCaptureUi = analyzeCameraCaptureForUi(activeCamera);
@@ -789,7 +684,7 @@ void App::DrawControlPanel()
 						}
 						if (!presetCaptureUi.canCapture)
 							ImGui::EndDisabled();
-						DrawHoverHint(presetCaptureUi.canCapture ?
+						nbl::ui::drawHoverHint(presetCaptureUi.canCapture ?
 							"Store current camera as a preset" :
 							"Preset capture is blocked because there is no active camera or the current goal state is invalid");
 						ImGui::SameLine();
@@ -798,7 +693,7 @@ void App::DrawControlPanel()
 							m_presets.clear();
 							m_selectedPresetIx = -1;
 						}
-						DrawHoverHint("Remove all presets");
+						nbl::ui::drawHoverHint("Remove all presets");
 						ImGui::TextDisabled("Capture");
 						ImGui::SameLine();
 						ImGui::TextColored(presetCaptureUi.canCapture ? good : bad, "%s", presetCaptureUi.policyLabel.c_str());
@@ -813,7 +708,7 @@ void App::DrawControlPanel()
 							int presetFilterIx = static_cast<int>(m_presetFilterMode);
 							if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
 								m_presetFilterMode = static_cast<PresetFilterMode>(presetFilterIx);
-							DrawHoverHint("Filter presets for the active camera using exact or best-effort compatibility");
+							nbl::ui::drawHoverHint("Filter presets for the active camera using exact or best-effort compatibility");
 
 							std::vector<int> filteredPresetIndices;
 							filteredPresetIndices.reserve(m_presets.size());
@@ -873,23 +768,23 @@ void App::DrawControlPanel()
 									ImGui::TextColored(compatibilityColor, "%s", presetUi.compatibilityLabel.c_str());
 
 									if (presetUi.badges.exact)
-										DrawBadge("EXACT", good, badgeText);
+										nbl::ui::drawBadge("EXACT", good, badgeText, panelStyle);
 									else if (presetUi.badges.bestEffort)
-										DrawBadge("BEST-EFFORT", warn, badgeText);
+										nbl::ui::drawBadge("BEST-EFFORT", warn, badgeText, panelStyle);
 									if (presetUi.badges.dropsState)
 									{
 										ImGui::SameLine();
-										DrawBadge("DROPS STATE", warn, badgeText);
+										nbl::ui::drawBadge("DROPS STATE", warn, badgeText, panelStyle);
 									}
 									else if (presetUi.badges.sharedStateOnly)
 									{
 										ImGui::SameLine();
-										DrawBadge("SHARED STATE", accent, badgeText);
+										nbl::ui::drawBadge("SHARED STATE", accent, badgeText, panelStyle);
 									}
 									if (presetUi.badges.blocked)
 									{
 										ImGui::SameLine();
-										DrawBadge("BLOCKED", bad, badgeText);
+										nbl::ui::drawBadge("BLOCKED", bad, badgeText, panelStyle);
 									}
 
 									if (!presetUi.canApply)
@@ -898,7 +793,7 @@ void App::DrawControlPanel()
 										applyPresetFromUi(activeCamera, preset);
 									if (!presetUi.canApply)
 										ImGui::EndDisabled();
-									DrawHoverHint(presetUi.canApply ?
+									nbl::ui::drawHoverHint(presetUi.canApply ?
 										"Apply selected preset to the active camera" :
 										"Apply is blocked because there is no active camera or the preset goal is invalid");
 									ImGui::SameLine();
@@ -907,7 +802,7 @@ void App::DrawControlPanel()
 										m_presets.erase(m_presets.begin() + m_selectedPresetIx);
 										m_selectedPresetIx = -1;
 									}
-									DrawHoverHint("Remove selected preset");
+									nbl::ui::drawHoverHint("Remove selected preset");
 								}
 							}
 						}
@@ -918,21 +813,21 @@ void App::DrawControlPanel()
 							ImGui::TextColored(resultColor, "%s", m_manualPresetApplyBanner.summary.c_str());
 						}
 
-						DrawSectionHeader("PresetsStorageHeader", "Storage", accent);
+						nbl::ui::drawSectionHeader("PresetsStorageHeader", "Storage", accent, panelStyle);
 						ImGui::InputText("Preset file", m_presetPath, IM_ARRAYSIZE(m_presetPath));
 						if (ImGui::Button("Save presets"))
 						{
 							if (!savePresetsToFile(nbl::system::path(m_presetPath)))
 								m_logger->log("Failed to save presets to \"%s\".", ILogger::ELL_ERROR, m_presetPath);
 						}
-						DrawHoverHint("Save presets to JSON file");
+						nbl::ui::drawHoverHint("Save presets to JSON file");
 						ImGui::SameLine();
 						if (ImGui::Button("Load presets"))
 						{
 							if (!loadPresetsFromFile(nbl::system::path(m_presetPath)))
 								m_logger->log("Failed to load presets from \"%s\".", ILogger::ELL_ERROR, m_presetPath);
 						}
-						DrawHoverHint("Load presets from JSON file");
+						nbl::ui::drawHoverHint("Load presets from JSON file");
 						ImGui::PopItemWidth();
 					}
 					ImGui::EndChild();
@@ -947,26 +842,26 @@ void App::DrawControlPanel()
 					{
 						ImGui::PushItemWidth(-1.0f);
 						auto* activeCamera = getActiveCamera();
-						DrawSectionHeader("PlaybackHeader", "Playback", accent);
+						nbl::ui::drawSectionHeader("PlaybackHeader", "Playback", accent, panelStyle);
 						ImGui::Checkbox("Loop", &m_playback.loop);
-						DrawHoverHint("Loop playback when it reaches the end");
+						nbl::ui::drawHoverHint("Loop playback when it reaches the end");
 						ImGui::Checkbox("Override input", &m_playback.overrideInput);
-						DrawHoverHint("Ignore manual input during playback");
+						nbl::ui::drawHoverHint("Ignore manual input during playback");
 						ImGui::Checkbox("Affect all cameras", &m_playbackAffectsAll);
-						DrawHoverHint("Apply playback to all cameras");
+						nbl::ui::drawHoverHint("Apply playback to all cameras");
 						ImGui::SliderFloat("Speed", &m_playback.speed, 0.1f, 4.f, "%.2f");
-						DrawHoverHint("Playback speed multiplier");
+						nbl::ui::drawHoverHint("Playback speed multiplier");
 
 						if (ImGui::Button(m_playback.playing ? "Pause" : "Play"))
 							m_playback.playing = !m_playback.playing;
-						DrawHoverHint("Start or pause playback");
+						nbl::ui::drawHoverHint("Start or pause playback");
 						ImGui::SameLine();
 						if (ImGui::Button("Stop"))
 						{
 							nbl::core::resetPlaybackCursor(m_playback);
 							applyPlaybackAtTime(m_playback.time);
 						}
-						DrawHoverHint("Stop playback and reset time");
+						nbl::ui::drawHoverHint("Stop playback and reset time");
 
 						if (!m_keyframeTrack.keyframes.empty())
 						{
@@ -992,13 +887,13 @@ void App::DrawControlPanel()
 							}
 						}
 
-						DrawSectionHeader("KeyframesHeader", "Keyframes", accent);
+						nbl::ui::drawSectionHeader("KeyframesHeader", "Keyframes", accent, panelStyle);
 						ImGui::InputFloat("New keyframe time", &m_newKeyframeTime, 0.1f, 1.f, "%.3f");
-						DrawHoverHint("Time value for new keyframe");
+						nbl::ui::drawHoverHint("Time value for new keyframe");
 						ImGui::SameLine();
 						if (ImGui::Button("Use playback time"))
 							m_newKeyframeTime = m_playback.time;
-						DrawHoverHint("Set new keyframe time from current playback position");
+						nbl::ui::drawHoverHint("Set new keyframe time from current playback position");
 						const auto keyframeCaptureUi = analyzeCameraCaptureForUi(activeCamera);
 						if (!keyframeCaptureUi.canCapture)
 							ImGui::BeginDisabled();
@@ -1017,7 +912,7 @@ void App::DrawControlPanel()
 						}
 						if (!keyframeCaptureUi.canCapture)
 							ImGui::EndDisabled();
-						DrawHoverHint(keyframeCaptureUi.canCapture ?
+						nbl::ui::drawHoverHint(keyframeCaptureUi.canCapture ?
 							"Add keyframe from current camera" :
 							"Keyframe capture is blocked because there is no active camera or the current goal state is invalid");
 						ImGui::TextDisabled("Capture");
@@ -1030,7 +925,7 @@ void App::DrawControlPanel()
 							nbl::core::resetPlaybackCursor(m_playback);
 							clearApplyStatusBanner(m_playbackApplyBanner);
 						}
-						DrawHoverHint("Remove all keyframes");
+						nbl::ui::drawHoverHint("Remove all keyframes");
 
 						if (!m_keyframeTrack.keyframes.empty())
 						{
@@ -1060,7 +955,7 @@ void App::DrawControlPanel()
 									selectKeyframeNearestTime(selectedTime);
 									clampPlaybackTimeToKeyframes();
 								}
-								DrawHoverHint("Edit selected keyframe time");
+								nbl::ui::drawHoverHint("Edit selected keyframe time");
 
 								ImGui::TextDisabled("Keyframe source");
 								ImGui::SameLine();
@@ -1076,23 +971,23 @@ void App::DrawControlPanel()
 								ImGui::TextColored(compatibilityColor, "%s", keyframeUi.compatibilityLabel.c_str());
 
 								if (keyframeUi.badges.exact)
-									DrawBadge("EXACT", good, badgeText);
+									nbl::ui::drawBadge("EXACT", good, badgeText, panelStyle);
 								else if (keyframeUi.badges.bestEffort)
-									DrawBadge("BEST-EFFORT", warn, badgeText);
+									nbl::ui::drawBadge("BEST-EFFORT", warn, badgeText, panelStyle);
 								if (keyframeUi.badges.dropsState)
 								{
 									ImGui::SameLine();
-									DrawBadge("DROPS STATE", warn, badgeText);
+									nbl::ui::drawBadge("DROPS STATE", warn, badgeText, panelStyle);
 								}
 								else if (keyframeUi.badges.sharedStateOnly)
 								{
 									ImGui::SameLine();
-									DrawBadge("SHARED STATE", accent, badgeText);
+									nbl::ui::drawBadge("SHARED STATE", accent, badgeText, panelStyle);
 								}
 								if (keyframeUi.badges.blocked)
 								{
 									ImGui::SameLine();
-									DrawBadge("BLOCKED", bad, badgeText);
+									nbl::ui::drawBadge("BLOCKED", bad, badgeText, panelStyle);
 								}
 
 								if (!keyframeUi.canApply)
@@ -1101,7 +996,7 @@ void App::DrawControlPanel()
 									applyPresetFromUi(activeCamera, selectedKeyframe->preset);
 								if (!keyframeUi.canApply)
 									ImGui::EndDisabled();
-								DrawHoverHint(keyframeUi.canApply ?
+								nbl::ui::drawHoverHint(keyframeUi.canApply ?
 									"Apply selected keyframe to the active camera" :
 									"Apply is blocked because there is no active camera or the keyframe goal is invalid");
 								ImGui::SameLine();
@@ -1111,7 +1006,7 @@ void App::DrawControlPanel()
 									replaceSelectedKeyframeFromCamera(activeCamera);
 								if (!keyframeCaptureUi.canCapture)
 									ImGui::EndDisabled();
-								DrawHoverHint(keyframeCaptureUi.canCapture ?
+								nbl::ui::drawHoverHint(keyframeCaptureUi.canCapture ?
 									"Overwrite selected keyframe from the current active camera" :
 									"Replace is blocked because there is no active camera or the current goal state is invalid");
 								ImGui::SameLine();
@@ -1120,7 +1015,7 @@ void App::DrawControlPanel()
 									m_playback.time = selectedKeyframe->time;
 									applyPlaybackAtTime(m_playback.time);
 								}
-								DrawHoverHint("Set playback time to selected keyframe and preview it");
+								nbl::ui::drawHoverHint("Set playback time to selected keyframe and preview it");
 								ImGui::SameLine();
 								if (ImGui::Button("Remove selected"))
 								{
@@ -1130,24 +1025,24 @@ void App::DrawControlPanel()
 									if (m_keyframeTrack.keyframes.empty())
 										clearApplyStatusBanner(m_playbackApplyBanner);
 								}
-								DrawHoverHint("Remove selected keyframe");
+								nbl::ui::drawHoverHint("Remove selected keyframe");
 							}
 
-							DrawSectionHeader("KeyframesStorageHeader", "Keyframe Storage", accent);
+							nbl::ui::drawSectionHeader("KeyframesStorageHeader", "Keyframe Storage", accent, panelStyle);
 							ImGui::InputText("Keyframe file", m_keyframePath, IM_ARRAYSIZE(m_keyframePath));
 							if (ImGui::Button("Save keyframes"))
 							{
 								if (!saveKeyframesToFile(nbl::system::path(m_keyframePath)))
 									m_logger->log("Failed to save keyframes to \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
 							}
-							DrawHoverHint("Save keyframes to JSON file");
+							nbl::ui::drawHoverHint("Save keyframes to JSON file");
 							ImGui::SameLine();
 							if (ImGui::Button("Load keyframes"))
 							{
 								if (!loadKeyframesFromFile(nbl::system::path(m_keyframePath)))
 									m_logger->log("Failed to load keyframes from \"%s\".", ILogger::ELL_ERROR, m_keyframePath);
 							}
-							DrawHoverHint("Load keyframes from JSON file");
+							nbl::ui::drawHoverHint("Load keyframes from JSON file");
 						}
 						ImGui::PopItemWidth();
 					}
@@ -1161,7 +1056,7 @@ void App::DrawControlPanel()
 					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
 					if (ImGui::BeginChild("GizmoPanel", ImVec2(0, 0), true))
 					{
-						DrawSectionHeader("GizmoHeader", "Gizmo", accent);
+						nbl::ui::drawSectionHeader("GizmoHeader", "Gizmo", accent, panelStyle);
 						TransformEditorContents();
 					}
 					ImGui::EndChild();
@@ -1174,7 +1069,7 @@ void App::DrawControlPanel()
 					ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
 					if (ImGui::BeginChild("LogPanel", ImVec2(0, 0), true))
 					{
-						DrawSectionHeader("LogHeader", "Virtual Events", accent);
+						nbl::ui::drawSectionHeader("LogHeader", "Virtual Events", accent, panelStyle);
 						ImGui::Checkbox("Auto-scroll", &m_logAutoScroll);
 						ImGui::SameLine();
 						ImGui::Checkbox("Wrap", &m_logWrap);
@@ -1210,8 +1105,7 @@ void App::DrawControlPanel()
 			}
 
 			ImGui::End();
-			ImGui::PopStyleColor(19);
-			ImGui::PopStyleVar(9);
+			nbl::ui::popControlPanelWindowStyle();
 
 }
 

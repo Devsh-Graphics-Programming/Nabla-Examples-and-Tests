@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "CCameraGoal.hpp"
+#include "CCameraFollowRegressionUtilities.hpp"
 #include "CVirtualGimbalEvent.hpp"
 #include "nbl/ui/KeyCodes.h"
 
@@ -292,8 +293,8 @@ inline void appendScriptedGimbalStepCheck(
 inline void appendScriptedFollowTargetLockCheck(
     CCameraScriptedTimeline& timeline,
     const uint64_t frame,
-    const float toleranceDeg = 1.0f,
-    const float screenToleranceNdc = 0.03f)
+    const float toleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg),
+    const float screenToleranceNdc = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance)
 {
     CCameraScriptedInputCheck entry;
     entry.frame = frame;

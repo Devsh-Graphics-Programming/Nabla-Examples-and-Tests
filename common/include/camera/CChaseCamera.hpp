@@ -29,33 +29,23 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = impulse.dVirtualRotation.y * getRotationSpeedScale();
-        const double deltaPitch = impulse.dVirtualRotation.x * getRotationSpeedScale();
-
-        constexpr double translateScalar = 0.01;
-        const double moveScalar = translateScalar * getMoveSpeedScale();
+        const double deltaYaw = scaleVirtualRotation(impulse.dVirtualRotation.y);
+        const double deltaPitch = scaleVirtualRotation(impulse.dVirtualRotation.x);
 
         const auto basis = computeBasis(m_u, m_v, m_distance);
 
-        hlsl::float64_t3 planarForward = hlsl::float64_t3(basis.forward.x, 0.0, basis.forward.z);
-        hlsl::float64_t3 planarRight = hlsl::float64_t3(basis.right.x, 0.0, basis.right.z);
+        const auto planarForward = hlsl::safeNormalizeVec3(
+            hlsl::float64_t3(basis.forward.x, 0.0, basis.forward.z),
+            hlsl::float64_t3(0.0, 0.0, 1.0));
+        const auto planarRight = hlsl::safeNormalizeVec3(
+            hlsl::float64_t3(basis.right.x, 0.0, basis.right.z),
+            hlsl::float64_t3(1.0, 0.0, 0.0));
 
-        const double forwardLen = hlsl::length(planarForward);
-        if (forwardLen > 0.0)
-            planarForward /= forwardLen;
-        else
-            planarForward = hlsl::float64_t3(0.0, 0.0, 1.0);
-
-        const double rightLen = hlsl::length(planarRight);
-        if (rightLen > 0.0)
-            planarRight /= rightLen;
-        else
-            planarRight = hlsl::float64_t3(1.0, 0.0, 0.0);
-
-        m_targetPosition += (planarRight * impulse.dVirtualTranslate.x + planarForward * impulse.dVirtualTranslate.z) * moveScalar;
-        m_distance = std::clamp<float>(m_distance + static_cast<float>(impulse.dVirtualTranslate.y * translateScalar), MinDistance, MaxDistance);
+        m_targetPosition += planarRight * scaleVirtualTranslation(impulse.dVirtualTranslate.x) +
+            planarForward * scaleVirtualTranslation(impulse.dVirtualTranslate.z);
+        m_distance = std::clamp<float>(m_distance + static_cast<float>(scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.y)), MinDistance, MaxDistance);
 
         m_u += deltaYaw;
         m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
@@ -69,8 +59,8 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = 1.2217304763960306;
-    static inline constexpr double MinPitch = -1.0471975511965976;
+    static inline constexpr double MaxPitch = hlsl::numbers::pi<double> * (70.0 / 180.0);
+    static inline constexpr double MinPitch = -hlsl::numbers::pi<double> / 3.0;
 };
 
 }

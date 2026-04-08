@@ -46,24 +46,9 @@ void App::TransformEditorContents()
 
 				if (ImGui::IsItemHovered())
 				{
-					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-					ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-					ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
-
-					ImVec2 mousePos = ImGui::GetMousePos();
-					ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
-
-					ImGui::Begin("HoverOverlay", nullptr,
-						ImGuiWindowFlags_NoDecoration |
-						ImGuiWindowFlags_AlwaysAutoResize |
-						ImGuiWindowFlags_NoSavedSettings);
-
+					nbl::ui::beginHoverInfoOverlay("HoverOverlay", ImGui::GetMousePos());
 					ImGui::Text("Right-click and drag on the gizmo to manipulate the object.");
-
-					ImGui::End();
-
-					ImGui::PopStyleVar();
-					ImGui::PopStyleColor(2);
+					nbl::ui::endHoverInfoOverlay();
 				}
 			}
 

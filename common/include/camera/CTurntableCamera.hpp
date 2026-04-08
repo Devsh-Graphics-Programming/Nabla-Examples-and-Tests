@@ -33,13 +33,11 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = impulse.dVirtualRotation.y * getRotationSpeedScale();
-        const double deltaPitch = impulse.dVirtualRotation.x * getRotationSpeedScale();
-
-        constexpr double translateScalar = 0.01;
-        const double deltaDistance = impulse.dVirtualTranslate.z * translateScalar;
+        const double deltaYaw = scaleVirtualRotation(impulse.dVirtualRotation.y);
+        const double deltaPitch = scaleVirtualRotation(impulse.dVirtualRotation.x);
+        const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
         m_u += deltaYaw;
         m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
@@ -58,7 +56,7 @@ public:
 private:
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = 1.5533430342749532;
+    static inline constexpr double MaxPitch = hlsl::numbers::pi<double> * (89.0 / 180.0);
     static inline constexpr double MinPitch = -MaxPitch;
 };
 

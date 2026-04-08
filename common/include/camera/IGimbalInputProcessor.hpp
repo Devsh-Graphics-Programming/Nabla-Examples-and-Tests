@@ -15,6 +15,8 @@ namespace nbl::ui
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:
+    static inline constexpr double MaxFrameDeltaMs = 200.0;
+
     using CGimbalBindingLayoutStorage::CGimbalBindingLayoutStorage;
 
     IGimbalInputProcessor() = default;
@@ -33,7 +35,6 @@ public:
     {
         m_nextPresentationTimeStamp = nextPresentationTimeStamp;
         const auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - m_lastVirtualUpTimeStamp).count();
-        constexpr double MaxFrameDeltaMs = 200.0;
         if (deltaMs < 0)
             m_frameDeltaTime = 0.0;
         else if (static_cast<double>(deltaMs) > MaxFrameDeltaMs)

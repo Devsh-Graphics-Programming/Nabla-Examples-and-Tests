@@ -44,11 +44,6 @@ inline double lerpWrappedAngleRad(double a, double b, double alpha)
     return a + hlsl::wrapAngleRad(b - a) * alpha;
 }
 
-inline bool nearlyEqualGoalScalar(double a, double b, double eps = 1e-6)
-{
-    return std::abs(a - b) <= eps;
-}
-
 inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target)
 {
     uint32_t mask = ICamera::GoalStateNone;
@@ -68,40 +63,28 @@ inline bool applyCanonicalPathGoal(CCameraGoal& goal)
     if (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height))
         return false;
 
-    const hlsl::float64_t3 offset(
-        std::cos(goal.pathState.angle) * goal.pathState.radius,
+    hlsl::float64_t appliedOrbitDistance = 0.0;
+    if (!hlsl::tryBuildPathPoseFromState(
+        goal.targetPosition,
+        goal.pathState.angle,
+        goal.pathState.radius,
         goal.pathState.height,
-        std::sin(goal.pathState.angle) * goal.pathState.radius);
-    const double distance = hlsl::length(offset);
-    if (!std::isfinite(distance) || distance <= 1e-9)
+        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
+        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
+        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
+        goal.position,
+        goal.orientation,
+        &appliedOrbitDistance,
+        &goal.orbitU,
+        &goal.orbitV))
+    {
         return false;
+    }
 
-    const float appliedDistance = std::clamp(
-        static_cast<float>(distance),
-        ICamera::SphericalMinDistance,
-        ICamera::SphericalMaxDistance);
-    const auto local = offset / static_cast<double>(appliedDistance);
-    goal.orbitU = std::atan2(local.y, local.x);
-    goal.orbitV = std::asin(std::clamp(local.z, -1.0, 1.0));
-
-    const hlsl::float64_t3 spherePosition(
-        std::cos(goal.orbitV) * std::cos(goal.orbitU) * static_cast<double>(appliedDistance),
-        std::cos(goal.orbitV) * std::sin(goal.orbitU) * static_cast<double>(appliedDistance),
-        std::sin(goal.orbitV) * static_cast<double>(appliedDistance));
-
-    goal.position = goal.targetPosition + spherePosition;
     goal.hasDistance = true;
-    goal.distance = appliedDistance;
+    goal.distance = static_cast<float>(appliedOrbitDistance);
     goal.hasOrbitState = true;
-    goal.orbitDistance = appliedDistance;
-
-    const auto forward = hlsl::normalize(-spherePosition);
-    const hlsl::float64_t3 up = hlsl::normalize(hlsl::float64_t3(
-        -std::sin(goal.orbitV) * std::cos(goal.orbitU),
-        -std::sin(goal.orbitV) * std::sin(goal.orbitU),
-        std::cos(goal.orbitV)));
-    const hlsl::float64_t3 right = hlsl::normalize(hlsl::cross(up, forward));
-    goal.orientation = hlsl::makeQuaternionFromBasis(right, up, forward);
+    goal.orbitDistance = static_cast<float>(appliedOrbitDistance);
     return true;
 }
 
@@ -111,25 +94,11 @@ inline CCameraGoal canonicalizeGoal(CCameraGoal goal)
     return goal;
 }
 
-template<typename Vec>
-inline bool isFiniteVec3(const Vec& v)
-{
-    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-}
-
-template<typename VecA, typename VecB>
-inline bool nearlyEqualVec3(const VecA& a, const VecB& b, const double epsilon)
-{
-    return std::abs(static_cast<double>(a.x - b.x)) <= epsilon &&
-        std::abs(static_cast<double>(a.y - b.y)) <= epsilon &&
-        std::abs(static_cast<double>(a.z - b.z)) <= epsilon;
-}
-
 inline bool isGoalFinite(const CCameraGoal& goal)
 {
-    if (!isFiniteVec3(goal.position) || !hlsl::isFiniteQuaternion(goal.orientation))
+    if (!hlsl::isFiniteVec3(goal.position) || !hlsl::isFiniteQuaternion(goal.orientation))
         return false;
-    if (goal.hasTargetPosition && !isFiniteVec3(goal.targetPosition))
+    if (goal.hasTargetPosition && !hlsl::isFiniteVec3(goal.targetPosition))
         return false;
     if (goal.hasDistance && !std::isfinite(goal.distance))
         return false;
@@ -146,68 +115,55 @@ inline bool isGoalFinite(const CCameraGoal& goal)
 inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     const double posEps, const double rotEpsDeg, const double scalarEps)
 {
-    auto angleDiffRad = [](double a, double b) -> double
-    {
-        constexpr double Pi = 3.14159265358979323846;
-        constexpr double TwoPi = 6.28318530717958647692;
-        double d = std::fmod(a - b + Pi, TwoPi);
-        if (d < 0.0)
-            d += TwoPi;
-        return std::abs(d - Pi);
-    };
-
     const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
     const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
-    if (!isFiniteVec3(actual.position) || !isFiniteVec3(expected.position) || !hlsl::isFiniteQuaternion(currentOrientation) || !hlsl::isFiniteQuaternion(expectedOrientation))
+    if (!hlsl::isFiniteVec3(actual.position) || !hlsl::isFiniteVec3(expected.position) || !hlsl::isFiniteQuaternion(currentOrientation) || !hlsl::isFiniteQuaternion(expectedOrientation))
         return false;
 
-    const double dx = static_cast<double>(actual.position.x - expected.position.x);
-    const double dy = static_cast<double>(actual.position.y - expected.position.y);
-    const double dz = static_cast<double>(actual.position.z - expected.position.z);
-    const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double posDelta = hlsl::length(actual.position - expected.position);
     const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
         return false;
 
     if (expected.hasTargetPosition)
     {
-        if (!actual.hasTargetPosition || !nearlyEqualVec3(actual.targetPosition, expected.targetPosition, scalarEps))
+        if (!actual.hasTargetPosition || !hlsl::nearlyEqualVec3(actual.targetPosition, expected.targetPosition, scalarEps))
             return false;
     }
     if (expected.hasDistance)
     {
-        if (!actual.hasDistance || std::abs(static_cast<double>(actual.distance - expected.distance)) > scalarEps)
+        if (!actual.hasDistance || !hlsl::nearlyEqualScalar(static_cast<double>(actual.distance), static_cast<double>(expected.distance), scalarEps))
             return false;
     }
     if (expected.hasOrbitState)
     {
         if (!actual.hasOrbitState)
             return false;
-        if (angleDiffRad(expected.orbitU, actual.orbitU) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.orbitU, actual.orbitU)) > rotEpsDeg)
             return false;
-        if (angleDiffRad(expected.orbitV, actual.orbitV) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.orbitV, actual.orbitV)) > rotEpsDeg)
             return false;
-        if (std::abs(static_cast<double>(actual.orbitDistance - expected.orbitDistance)) > scalarEps)
+        if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.orbitDistance), static_cast<double>(expected.orbitDistance), scalarEps))
             return false;
     }
     if (expected.hasPathState)
     {
         if (!actual.hasPathState)
             return false;
-        if (std::abs(hlsl::wrapAngleRad(expected.pathState.angle - actual.pathState.angle)) > rotEpsDeg * (3.14159265358979323846 / 180.0))
+        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.pathState.angle, actual.pathState.angle)) > rotEpsDeg)
             return false;
-        if (std::abs(actual.pathState.radius - expected.pathState.radius) > scalarEps)
+        if (!hlsl::nearlyEqualScalar(actual.pathState.radius, expected.pathState.radius, scalarEps))
             return false;
-        if (std::abs(actual.pathState.height - expected.pathState.height) > scalarEps)
+        if (!hlsl::nearlyEqualScalar(actual.pathState.height, expected.pathState.height, scalarEps))
             return false;
     }
     if (expected.hasDynamicPerspectiveState)
     {
         if (!actual.hasDynamicPerspectiveState)
             return false;
-        if (std::abs(static_cast<double>(actual.dynamicPerspectiveState.baseFov - expected.dynamicPerspectiveState.baseFov)) > scalarEps)
+        if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.baseFov), static_cast<double>(expected.dynamicPerspectiveState.baseFov), scalarEps))
             return false;
-        if (std::abs(static_cast<double>(actual.dynamicPerspectiveState.referenceDistance - expected.dynamicPerspectiveState.referenceDistance)) > scalarEps)
+        if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.referenceDistance), static_cast<double>(expected.dynamicPerspectiveState.referenceDistance), scalarEps))
             return false;
     }
 
@@ -219,10 +175,7 @@ inline std::string describeGoalMismatch(const CCameraGoal& actual, const CCamera
     std::ostringstream oss;
     const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
     const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
-    const double dx = static_cast<double>(actual.position.x - expected.position.x);
-    const double dy = static_cast<double>(actual.position.y - expected.position.y);
-    const double dz = static_cast<double>(actual.position.z - expected.position.z);
-    const double posDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double posDelta = hlsl::length(actual.position - expected.position);
     const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
     oss << "pos_delta=" << posDelta
         << " rot_delta_deg=" << rotDeltaDeg

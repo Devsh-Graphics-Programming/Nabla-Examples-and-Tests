@@ -51,6 +51,28 @@ struct SCameraFollowVisualMetrics
     float projectedNdcRadius = 0.0f;
 };
 
+//! Shared tolerances for follow target lock, writeback, and projected-center checks.
+struct SCameraFollowRegressionThresholds
+{
+    static inline constexpr float DefaultClipWEpsilon = 1e-5f;
+    static inline constexpr float DefaultProjectedNdcTolerance = 0.03f;
+    static inline constexpr float DefaultLockAngleToleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg);
+    static inline constexpr double DefaultDistanceTolerance = core::ICamera::ScalarTolerance;
+    static inline constexpr double DefaultTargetTolerance = core::ICamera::TinyScalarEpsilon;
+    static inline constexpr double DefaultPositionTolerance = core::ICamera::DefaultPositionTolerance;
+    static inline constexpr double DefaultRotationToleranceDeg = core::ICamera::DefaultAngularToleranceDeg;
+    static inline constexpr double DefaultScalarTolerance = core::ICamera::ScalarTolerance;
+
+    float clipWEpsilon = DefaultClipWEpsilon;
+    float projectedNdcTolerance = DefaultProjectedNdcTolerance;
+    float lockAngleToleranceDeg = DefaultLockAngleToleranceDeg;
+    double distanceTolerance = DefaultDistanceTolerance;
+    double targetTolerance = DefaultTargetTolerance;
+    double positionTolerance = DefaultPositionTolerance;
+    double rotationToleranceDeg = DefaultRotationToleranceDeg;
+    double scalarTolerance = DefaultScalarTolerance;
+};
+
 //! Bundled reusable follow regression flow.
 //! The helper builds a follow goal, applies it, verifies the resulting camera state,
 //! and then checks the lock/writeback follow contract.
@@ -69,7 +91,8 @@ inline bool tryComputeProjectedFollowTargetMetrics(
     const core::CTrackedTarget& trackedTarget,
     float& outNdcX,
     float& outNdcY,
-    float* outNdcRadius = nullptr)
+    float* outNdcRadius = nullptr,
+    const float clipWEpsilon = SCameraFollowRegressionThresholds::DefaultClipWEpsilon)
 {
     const auto target = hlsl::getCastedVector<hlsl::float32_t>(trackedTarget.getGimbal().getPosition());
     const auto clip = hlsl::mul(viewProjMatrix, hlsl::float32_t4(target.x, target.y, target.z, 1.0f));
@@ -77,7 +100,7 @@ inline bool tryComputeProjectedFollowTargetMetrics(
         return false;
 
     const auto absW = std::abs(clip.w);
-    if (absW < 1e-5f)
+    if (absW < clipWEpsilon)
         return false;
 
     const float invW = 1.0f / clip.w;
@@ -87,7 +110,7 @@ inline bool tryComputeProjectedFollowTargetMetrics(
         return false;
 
     if (outNdcRadius)
-        *outNdcRadius = std::sqrt(outNdcX * outNdcX + outNdcY * outNdcY);
+        *outNdcRadius = hlsl::length(hlsl::float32_t2(outNdcX, outNdcY));
 
     return true;
 }
@@ -97,18 +120,18 @@ inline bool validateProjectedFollowTargetContract(
     const core::CTrackedTarget& trackedTarget,
     float& outNdcRadius,
     std::string* error = nullptr,
-    const float ndcRadiusTolerance = 0.03f)
+    const SCameraFollowRegressionThresholds& thresholds = {})
 {
     float ndcX = 0.0f;
     float ndcY = 0.0f;
-    if (!tryComputeProjectedFollowTargetMetrics(viewProjMatrix, trackedTarget, ndcX, ndcY, &outNdcRadius))
+    if (!tryComputeProjectedFollowTargetMetrics(viewProjMatrix, trackedTarget, ndcX, ndcY, &outNdcRadius, thresholds.clipWEpsilon))
     {
         if (error)
             *error = "failed to project follow target";
         return false;
     }
 
-    if (outNdcRadius > ndcRadiusTolerance)
+    if (outNdcRadius > thresholds.projectedNdcTolerance)
     {
         if (error)
         {
@@ -160,11 +183,8 @@ inline bool validateFollowTargetContract(
     const core::CCameraGoal& followGoal,
     SCameraFollowRegressionResult& out,
     std::string* error = nullptr,
-    const float lockAngleToleranceDeg = 0.1f,
-    const double distanceTolerance = 1e-6,
-    const double targetTolerance = 1e-9,
     const hlsl::float32_t4x4* viewProjMatrix = nullptr,
-    const float projectedNdcTolerance = 0.03f)
+    const SCameraFollowRegressionThresholds& thresholds = {})
 {
     out = {};
     if (!camera)
@@ -185,7 +205,7 @@ inline bool validateFollowTargetContract(
         }
 
         const auto expectedTargetDistance = hlsl::length(trackedTarget.getGimbal().getPosition() - camera->getGimbal().getPosition());
-        if (!std::isfinite(expectedTargetDistance) || std::abs(expectedTargetDistance - out.targetDistance) > distanceTolerance)
+        if (!std::isfinite(expectedTargetDistance) || std::abs(expectedTargetDistance - out.targetDistance) > thresholds.distanceTolerance)
         {
             if (error)
             {
@@ -195,7 +215,7 @@ inline bool validateFollowTargetContract(
             return false;
         }
 
-        if (out.lockAngleDeg > lockAngleToleranceDeg)
+        if (out.lockAngleDeg > thresholds.lockAngleToleranceDeg)
         {
             if (error)
                 *error = "lock angle mismatch angle_deg=" + std::to_string(out.lockAngleDeg);
@@ -209,7 +229,8 @@ inline bool validateFollowTargetContract(
                 trackedTarget,
                 out.projectedNdcX,
                 out.projectedNdcY,
-                &out.projectedNdcRadius);
+                &out.projectedNdcRadius,
+                thresholds.clipWEpsilon);
             if (!out.hasProjectedMetrics)
             {
                 if (error)
@@ -217,7 +238,7 @@ inline bool validateFollowTargetContract(
                 return false;
             }
 
-            if (out.projectedNdcRadius > projectedNdcTolerance)
+            if (out.projectedNdcRadius > thresholds.projectedNdcTolerance)
             {
                 if (error)
                 {
@@ -246,7 +267,7 @@ inline bool validateFollowTargetContract(
         const auto trackedTargetPosition = trackedTarget.getGimbal().getPosition();
         const auto targetDelta = state.target - trackedTargetPosition;
         const auto targetDeltaLen = hlsl::length(targetDelta);
-        if (!std::isfinite(targetDeltaLen) || targetDeltaLen > targetTolerance)
+        if (!std::isfinite(targetDeltaLen) || targetDeltaLen > thresholds.targetTolerance)
         {
             if (error)
                 *error = "spherical target writeback mismatch";
@@ -257,8 +278,8 @@ inline bool validateFollowTargetContract(
         const auto expectedDistance = followGoal.hasOrbitState ? static_cast<double>(followGoal.orbitDistance) :
             (followGoal.hasDistance ? static_cast<double>(followGoal.distance) : actualDistance);
         if (!std::isfinite(actualDistance) || !std::isfinite(expectedDistance) ||
-            std::abs(actualDistance - expectedDistance) > distanceTolerance ||
-            std::abs(static_cast<double>(state.distance) - expectedDistance) > distanceTolerance)
+            std::abs(actualDistance - expectedDistance) > thresholds.distanceTolerance ||
+            std::abs(static_cast<double>(state.distance) - expectedDistance) > thresholds.distanceTolerance)
         {
             if (error)
             {
@@ -282,13 +303,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
     SCameraFollowApplyValidationResult& out,
     std::string* error = nullptr,
     const hlsl::float32_t4x4* viewProjMatrix = nullptr,
-    const float lockAngleToleranceDeg = 0.1f,
-    const double distanceTolerance = 1e-6,
-    const double targetTolerance = 1e-9,
-    const float projectedNdcTolerance = 0.03f,
-    const double posTolerance = 1e-6,
-    const double rotToleranceDeg = 0.1,
-    const double scalarTolerance = 1e-6)
+    const SCameraFollowRegressionThresholds& thresholds = {})
 {
     out = {};
 
@@ -318,7 +333,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
 
     out.hasCapturedGoal = true;
     out.capturedGoal = capture.goal;
-    if (!core::compareGoals(out.capturedGoal, out.goal, posTolerance, rotToleranceDeg, scalarTolerance))
+    if (!core::compareGoals(out.capturedGoal, out.goal, thresholds.positionTolerance, thresholds.rotationToleranceDeg, thresholds.scalarTolerance))
     {
         if (error)
             *error = std::string("follow goal mismatch. ") + core::describeGoalMismatch(out.capturedGoal, out.goal);
@@ -332,11 +347,8 @@ inline bool buildApplyAndValidateFollowTargetContract(
         out.goal,
         out.regression,
         error,
-        lockAngleToleranceDeg,
-        distanceTolerance,
-        targetTolerance,
         viewProjMatrix,
-        projectedNdcTolerance))
+        thresholds))
     {
         return false;
     }

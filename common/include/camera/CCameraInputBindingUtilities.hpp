@@ -36,6 +36,80 @@ inline IGimbalBindingLayout::mouse_to_virtual_events_t makeMousePreset(
     return preset;
 }
 
+inline IGimbalBindingLayout::keyboard_to_virtual_events_t extendKeyboardPreset(
+    IGimbalBindingLayout::keyboard_to_virtual_events_t preset,
+    std::initializer_list<std::pair<IGimbalBindingLayout::encode_keyboard_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
+{
+    for (const auto& [code, event] : bindings)
+        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
+    return preset;
+}
+
+inline IGimbalBindingLayout::mouse_to_virtual_events_t extendMousePreset(
+    IGimbalBindingLayout::mouse_to_virtual_events_t preset,
+    std::initializer_list<std::pair<IGimbalBindingLayout::encode_mouse_code_t, core::CVirtualGimbalEvent::VirtualEventType>> bindings)
+{
+    for (const auto& [code, event] : bindings)
+        preset.emplace(code, IGimbalBindingLayout::CHashInfo(event));
+    return preset;
+}
+
+inline IGimbalBindingLayout::keyboard_to_virtual_events_t makeWasdKeyboardPreset(
+    const core::CVirtualGimbalEvent::VirtualEventType w,
+    const core::CVirtualGimbalEvent::VirtualEventType s,
+    const core::CVirtualGimbalEvent::VirtualEventType a,
+    const core::CVirtualGimbalEvent::VirtualEventType d)
+{
+    return makeKeyboardPreset({
+        { ui::E_KEY_CODE::EKC_W, w },
+        { ui::E_KEY_CODE::EKC_S, s },
+        { ui::E_KEY_CODE::EKC_A, a },
+        { ui::E_KEY_CODE::EKC_D, d }
+    });
+}
+
+inline IGimbalBindingLayout::keyboard_to_virtual_events_t appendIjklLookKeyboardPreset(
+    IGimbalBindingLayout::keyboard_to_virtual_events_t preset,
+    const core::CVirtualGimbalEvent::VirtualEventType i,
+    const core::CVirtualGimbalEvent::VirtualEventType k,
+    const core::CVirtualGimbalEvent::VirtualEventType j,
+    const core::CVirtualGimbalEvent::VirtualEventType l)
+{
+    return extendKeyboardPreset(std::move(preset), {
+        { ui::E_KEY_CODE::EKC_I, i },
+        { ui::E_KEY_CODE::EKC_K, k },
+        { ui::E_KEY_CODE::EKC_J, j },
+        { ui::E_KEY_CODE::EKC_L, l }
+    });
+}
+
+inline IGimbalBindingLayout::mouse_to_virtual_events_t makeRelativeMousePreset(
+    const core::CVirtualGimbalEvent::VirtualEventType positiveX,
+    const core::CVirtualGimbalEvent::VirtualEventType negativeX,
+    const core::CVirtualGimbalEvent::VirtualEventType positiveY,
+    const core::CVirtualGimbalEvent::VirtualEventType negativeY)
+{
+    return makeMousePreset({
+        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, positiveX },
+        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, negativeX },
+        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, positiveY },
+        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, negativeY }
+    });
+}
+
+inline IGimbalBindingLayout::mouse_to_virtual_events_t appendSymmetricScrollPreset(
+    IGimbalBindingLayout::mouse_to_virtual_events_t preset,
+    const core::CVirtualGimbalEvent::VirtualEventType positive,
+    const core::CVirtualGimbalEvent::VirtualEventType negative)
+{
+    return extendMousePreset(std::move(preset), {
+        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, positive },
+        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, positive },
+        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, negative },
+        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, negative }
+    });
+}
+
 inline IGimbalBindingLayout::imguizmo_to_virtual_events_t makeImguizmoPreset(const uint32_t allowedVirtualEvents)
 {
     IGimbalBindingLayout::imguizmo_to_virtual_events_t preset;
@@ -64,30 +138,22 @@ inline const IGimbalBindingLayout::mouse_to_virtual_events_t& emptyMousePreset()
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& fpsKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
-        { ui::E_KEY_CODE::EKC_I, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_KEY_CODE::EKC_K, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight }
-    });
+    static const auto preset = appendIjklLookKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveForward,
+            core::CVirtualGimbalEvent::MoveBackward,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        core::CVirtualGimbalEvent::TiltDown,
+        core::CVirtualGimbalEvent::TiltUp,
+        core::CVirtualGimbalEvent::PanLeft,
+        core::CVirtualGimbalEvent::PanRight);
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& freeKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
-        { ui::E_KEY_CODE::EKC_I, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_KEY_CODE::EKC_K, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight },
+    static const auto preset = extendKeyboardPreset(fpsKeyboardPreset(), {
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::RollLeft },
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::RollRight }
     });
@@ -96,74 +162,83 @@ inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& freeKeyboardPre
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& orbitKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = extendKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        {
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward }
-    });
+        });
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& arcballKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = appendIjklLookKeyboardPreset(
+        extendKeyboardPreset(
+            makeWasdKeyboardPreset(
+                core::CVirtualGimbalEvent::MoveForward,
+                core::CVirtualGimbalEvent::MoveBackward,
+                core::CVirtualGimbalEvent::MoveLeft,
+                core::CVirtualGimbalEvent::MoveRight),
+            {
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveDown },
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_KEY_CODE::EKC_I, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_KEY_CODE::EKC_K, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight }
-    });
+            }),
+        core::CVirtualGimbalEvent::TiltDown,
+        core::CVirtualGimbalEvent::TiltUp,
+        core::CVirtualGimbalEvent::PanLeft,
+        core::CVirtualGimbalEvent::PanRight);
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& turntableKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_KEY_CODE::EKC_I, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_KEY_CODE::EKC_K, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight }
-    });
+    static const auto preset = appendIjklLookKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveForward,
+            core::CVirtualGimbalEvent::MoveBackward,
+            core::CVirtualGimbalEvent::PanLeft,
+            core::CVirtualGimbalEvent::PanRight),
+        core::CVirtualGimbalEvent::TiltDown,
+        core::CVirtualGimbalEvent::TiltUp,
+        core::CVirtualGimbalEvent::PanLeft,
+        core::CVirtualGimbalEvent::PanRight);
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& topDownKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = extendKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        {
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward },
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
         { ui::E_KEY_CODE::EKC_J, core::CVirtualGimbalEvent::PanLeft },
         { ui::E_KEY_CODE::EKC_L, core::CVirtualGimbalEvent::PanRight }
-    });
+        });
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& isometricKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = extendKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        {
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward },
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward }
-    });
+        });
     return preset;
 }
 
@@ -179,38 +254,41 @@ inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& dollyKeyboardPr
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& dollyZoomKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = extendKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        {
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveForward },
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveBackward }
-    });
+        });
     return preset;
 }
 
 inline const IGimbalBindingLayout::keyboard_to_virtual_events_t& pathKeyboardPreset()
 {
-    static const auto preset = makeKeyboardPreset({
-        { ui::E_KEY_CODE::EKC_W, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_KEY_CODE::EKC_S, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_KEY_CODE::EKC_A, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_KEY_CODE::EKC_D, core::CVirtualGimbalEvent::MoveRight },
+    static const auto preset = extendKeyboardPreset(
+        makeWasdKeyboardPreset(
+            core::CVirtualGimbalEvent::MoveForward,
+            core::CVirtualGimbalEvent::MoveBackward,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveRight),
+        {
         { ui::E_KEY_CODE::EKC_Q, core::CVirtualGimbalEvent::MoveDown },
         { ui::E_KEY_CODE::EKC_E, core::CVirtualGimbalEvent::MoveUp }
-    });
+        });
     return preset;
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& fpsMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltDown }
-    });
+    static const auto preset = makeRelativeMousePreset(
+        core::CVirtualGimbalEvent::PanRight,
+        core::CVirtualGimbalEvent::PanLeft,
+        core::CVirtualGimbalEvent::TiltUp,
+        core::CVirtualGimbalEvent::TiltDown);
     return preset;
 }
 
@@ -221,31 +299,27 @@ inline const IGimbalBindingLayout::mouse_to_virtual_events_t& freeMousePreset()
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& orbitMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::MoveRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::MoveRight,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown),
+        core::CVirtualGimbalEvent::MoveForward,
+        core::CVirtualGimbalEvent::MoveBackward);
     return preset;
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& arcballMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::PanRight,
+            core::CVirtualGimbalEvent::PanLeft,
+            core::CVirtualGimbalEvent::TiltUp,
+            core::CVirtualGimbalEvent::TiltDown),
+        core::CVirtualGimbalEvent::MoveForward,
+        core::CVirtualGimbalEvent::MoveBackward);
     return preset;
 }
 
@@ -256,61 +330,53 @@ inline const IGimbalBindingLayout::mouse_to_virtual_events_t& turntableMousePres
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& topDownMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::PanRight,
+            core::CVirtualGimbalEvent::PanLeft,
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown),
+        core::CVirtualGimbalEvent::MoveForward,
+        core::CVirtualGimbalEvent::MoveBackward);
     return preset;
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& isometricMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::MoveRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::MoveLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::MoveRight,
+            core::CVirtualGimbalEvent::MoveLeft,
+            core::CVirtualGimbalEvent::MoveUp,
+            core::CVirtualGimbalEvent::MoveDown),
+        core::CVirtualGimbalEvent::MoveForward,
+        core::CVirtualGimbalEvent::MoveBackward);
     return preset;
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& chaseMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveUp },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveDown },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveDown }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::PanRight,
+            core::CVirtualGimbalEvent::PanLeft,
+            core::CVirtualGimbalEvent::TiltUp,
+            core::CVirtualGimbalEvent::TiltDown),
+        core::CVirtualGimbalEvent::MoveUp,
+        core::CVirtualGimbalEvent::MoveDown);
     return preset;
 }
 
 inline const IGimbalBindingLayout::mouse_to_virtual_events_t& dollyMousePreset()
 {
-    static const auto preset = makeMousePreset({
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanRight },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, core::CVirtualGimbalEvent::PanLeft },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltUp },
-        { ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, core::CVirtualGimbalEvent::TiltDown },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_POSITIVE_SCROLL, core::CVirtualGimbalEvent::MoveForward },
-        { ui::E_MOUSE_CODE::EMC_VERTICAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward },
-        { ui::E_MOUSE_CODE::EMC_HORIZONTAL_NEGATIVE_SCROLL, core::CVirtualGimbalEvent::MoveBackward }
-    });
+    static const auto preset = appendSymmetricScrollPreset(
+        makeRelativeMousePreset(
+            core::CVirtualGimbalEvent::PanRight,
+            core::CVirtualGimbalEvent::PanLeft,
+            core::CVirtualGimbalEvent::TiltUp,
+            core::CVirtualGimbalEvent::TiltDown),
+        core::CVirtualGimbalEvent::MoveForward,
+        core::CVirtualGimbalEvent::MoveBackward);
     return preset;
 }
 

@@ -6,6 +6,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "nbl/builtin/hlsl/numbers.hlsl"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 namespace nbl::hlsl
@@ -15,13 +16,37 @@ namespace nbl::hlsl
 template<typename T>
 inline T wrapAngleRad(T angle)
 {
-    constexpr T Pi = static_cast<T>(3.141592653589793238462643383279502884L);
+    constexpr T Pi = numbers::pi<T>;
     constexpr T TwoPi = Pi * static_cast<T>(2);
 
     angle = std::fmod(angle + Pi, TwoPi);
     if (angle < static_cast<T>(0))
         angle += TwoPi;
     return angle - Pi;
+}
+
+template<typename T>
+inline T getWrappedAngleDistanceRadians(const T a, const T b)
+{
+    return std::abs(wrapAngleRad(a - b));
+}
+
+template<typename T>
+inline T getWrappedAngleDistanceDegrees(const T a, const T b)
+{
+    constexpr T HalfTurn = static_cast<T>(180);
+    constexpr T FullTurn = static_cast<T>(360);
+
+    T angle = std::fmod(a - b + HalfTurn, FullTurn);
+    if (angle < static_cast<T>(0))
+        angle += FullTurn;
+    return std::abs(angle - HalfTurn);
+}
+
+template<typename T>
+inline bool isFiniteScalar(const T value)
+{
+    return std::isfinite(value);
 }
 
 template<typename T, uint32_t N>
@@ -143,7 +168,7 @@ inline camera_quaternion_t<T> makeQuaternionFromBasis(
         camera_quaternion_t<T> output = makeIdentityQuaternion<T>();
         if (trace > T(0))
         {
-            const T scale = std::sqrt(trace + T(1));
+            const T scale = hlsl::sqrt(trace + T(1));
             const T invScale = T(0.5) / scale;
             output.data.x = (m[2][1] - m[1][2]) * invScale;
             output.data.y = (m[0][2] - m[2][0]) * invScale;
@@ -152,7 +177,7 @@ inline camera_quaternion_t<T> makeQuaternionFromBasis(
         }
         else if (m00 >= m11 && m00 >= m22)
         {
-            const T scale = std::sqrt(T(1) + m00 - m11 - m22);
+            const T scale = hlsl::sqrt(T(1) + m00 - m11 - m22);
             const T invScale = T(0.5) / scale;
             output.data.x = scale * T(0.5);
             output.data.y = (m[0][1] + m[1][0]) * invScale;
@@ -161,7 +186,7 @@ inline camera_quaternion_t<T> makeQuaternionFromBasis(
         }
         else if (m11 >= m22)
         {
-            const T scale = std::sqrt(T(1) + m11 - m00 - m22);
+            const T scale = hlsl::sqrt(T(1) + m11 - m00 - m22);
             const T invScale = T(0.5) / scale;
             output.data.x = (m[0][1] + m[1][0]) * invScale;
             output.data.y = scale * T(0.5);
@@ -170,7 +195,7 @@ inline camera_quaternion_t<T> makeQuaternionFromBasis(
         }
         else
         {
-            const T scale = std::sqrt(T(1) + m22 - m00 - m11);
+            const T scale = hlsl::sqrt(T(1) + m22 - m00 - m11);
             const T invScale = T(0.5) / scale;
             output.data.x = (m[2][0] + m[0][2]) * invScale;
             output.data.y = (m[1][2] + m[2][1]) * invScale;
@@ -226,6 +251,295 @@ inline camera_quaternion_t<T> makeQuaternionFromBasis(
 }
 
 template<typename T>
+inline bool isFiniteVec3(const camera_vector_t<T, 3>& value)
+{
+    return isFiniteScalar(value.x) && isFiniteScalar(value.y) && isFiniteScalar(value.z);
+}
+
+template<typename T>
+inline bool nearlyEqualScalar(const T a, const T b, const T epsilon)
+{
+    return std::abs(a - b) <= epsilon;
+}
+
+template<typename VecA, typename VecB, typename T>
+inline bool nearlyEqualVec3(const VecA& a, const VecB& b, const T epsilon)
+{
+    const camera_vector_t<T, 3> delta(
+        static_cast<T>(a.x - b.x),
+        static_cast<T>(a.y - b.y),
+        static_cast<T>(a.z - b.z));
+    return length(delta) <= epsilon;
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> safeNormalizeVec3(const camera_vector_t<T, 3>& value, const camera_vector_t<T, 3>& fallback)
+{
+    const auto len = length(value);
+    if (!isFiniteScalar(len) || len <= std::numeric_limits<T>::epsilon())
+        return fallback;
+    return value / len;
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> makeSphericalOffsetFromOrbit(const T orbitU, const T orbitV, const T distance)
+{
+    return camera_vector_t<T, 3>(
+        hlsl::cos(orbitV) * hlsl::cos(orbitU) * distance,
+        hlsl::cos(orbitV) * hlsl::sin(orbitU) * distance,
+        hlsl::sin(orbitV) * distance);
+}
+
+template<typename T>
+inline T getPlanarRadiusXZ(const camera_vector_t<T, 3>& offset)
+{
+    return length(camera_vector_t<T, 2>(offset.x, offset.z));
+}
+
+template<typename T>
+inline T getPathDistance(const T radius, const T height)
+{
+    return length(camera_vector_t<T, 2>(radius, height));
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> makePathOffsetFromState(const T angle, const T radius, const T height)
+{
+    return camera_vector_t<T, 3>(hlsl::cos(angle) * radius, height, hlsl::sin(angle) * radius);
+}
+
+template<typename T>
+inline bool sanitizePathState(T& angle, T& radius, T& height, const T minRadius)
+{
+    if (!isFiniteScalar(angle) || !isFiniteScalar(radius) || !isFiniteScalar(height))
+        return false;
+
+    radius = std::max(minRadius, radius);
+    return isFiniteScalar(radius);
+}
+
+template<typename T>
+inline bool tryScalePathStateDistance(
+    const T desiredDistance,
+    const T minRadius,
+    T& radius,
+    T& height,
+    T* outAppliedDistance = nullptr)
+{
+    if (!isFiniteScalar(desiredDistance) || !isFiniteScalar(radius) || !isFiniteScalar(height))
+        return false;
+
+    const T currentDistance = getPathDistance(radius, height);
+    constexpr T Epsilon = std::numeric_limits<T>::epsilon();
+    if (currentDistance > Epsilon)
+    {
+        const T scale = desiredDistance / currentDistance;
+        radius = std::max(minRadius, radius * scale);
+        height *= scale;
+    }
+    else
+    {
+        radius = std::max(minRadius, desiredDistance);
+        height = T(0);
+    }
+
+    if (outAppliedDistance)
+        *outAppliedDistance = getPathDistance(radius, height);
+    return isFiniteScalar(radius) && isFiniteScalar(height);
+}
+
+template<typename T>
+inline bool tryBuildPathStateFromPosition(
+    const camera_vector_t<T, 3>& targetPosition,
+    const camera_vector_t<T, 3>& position,
+    const T minRadius,
+    T& outAngle,
+    T& outRadius,
+    T& outHeight)
+{
+    const auto offset = position - targetPosition;
+    const auto radius = getPlanarRadiusXZ(offset);
+    if (!isFiniteScalar(radius) || !isFiniteScalar(offset.y))
+        return false;
+
+    outAngle = hlsl::atan2(offset.z, offset.x);
+    outRadius = std::max(minRadius, radius);
+    outHeight = offset.y;
+    return isFiniteScalar(outAngle) && isFiniteScalar(outRadius) && isFiniteScalar(outHeight);
+}
+
+template<typename T>
+inline bool tryBuildLookAtOrientation(
+    const camera_vector_t<T, 3>& position,
+    const camera_vector_t<T, 3>& targetPosition,
+    const camera_vector_t<T, 3>& preferredUp,
+    camera_quaternion_t<T>& outOrientation)
+{
+    const auto toTarget = targetPosition - position;
+    const auto toTargetLength = length(toTarget);
+    if (!isFiniteScalar(toTargetLength) || toTargetLength <= std::numeric_limits<T>::epsilon())
+        return false;
+
+    const auto forward = toTarget / toTargetLength;
+    auto up = safeNormalizeVec3(preferredUp, camera_vector_t<T, 3>(T(0), T(0), T(1)));
+    auto right = cross(up, forward);
+    if (!isFiniteVec3(right) || length(right) <= std::numeric_limits<T>::epsilon())
+    {
+        const auto fallbackUp = std::abs(forward.z) < T(0.99) ?
+            camera_vector_t<T, 3>(T(0), T(0), T(1)) :
+            camera_vector_t<T, 3>(T(0), T(1), T(0));
+        right = cross(fallbackUp, forward);
+        if (!isFiniteVec3(right) || length(right) <= std::numeric_limits<T>::epsilon())
+            return false;
+    }
+
+    right = normalize(right);
+    up = normalize(cross(forward, right));
+    if (!isOrthoBase(right, up, forward))
+        return false;
+
+    outOrientation = makeQuaternionFromBasis(right, up, forward);
+    return true;
+}
+
+template<typename T>
+inline bool tryExtractRigidPoseFromTransform(
+    const camera_matrix_t<T, 4, 4>& transform,
+    camera_vector_t<T, 3>& outTranslation,
+    camera_quaternion_t<T>& outOrientation)
+{
+    outTranslation = camera_vector_t<T, 3>(transform[3].x, transform[3].y, transform[3].z);
+
+    auto right = camera_vector_t<T, 3>(transform[0].x, transform[0].y, transform[0].z);
+    auto up = camera_vector_t<T, 3>(transform[1].x, transform[1].y, transform[1].z);
+    auto forward = camera_vector_t<T, 3>(transform[2].x, transform[2].y, transform[2].z);
+
+    const T rightLen = length(right);
+    const T upLen = length(up);
+    const T forwardLen = length(forward);
+    constexpr T Epsilon = std::numeric_limits<T>::epsilon();
+    if (!isFiniteScalar(rightLen) || !isFiniteScalar(upLen) || !isFiniteScalar(forwardLen))
+        return false;
+    if (rightLen <= Epsilon || upLen <= Epsilon || forwardLen <= Epsilon)
+        return false;
+
+    right /= rightLen;
+    up /= upLen;
+    forward /= forwardLen;
+    if (!isOrthoBase(right, up, forward))
+        return false;
+
+    outOrientation = makeQuaternionFromBasis(right, up, forward);
+    return isFiniteQuaternion(outOrientation);
+}
+
+template<typename T>
+inline bool tryBuildSphericalPoseFromOrbit(
+    const camera_vector_t<T, 3>& targetPosition,
+    const T orbitU,
+    const T orbitV,
+    const T distance,
+    const T minDistance,
+    const T maxDistance,
+    camera_vector_t<T, 3>& outPosition,
+    camera_quaternion_t<T>& outOrientation,
+    T* outAppliedDistance = nullptr)
+{
+    if (!isFiniteScalar(orbitU) || !isFiniteScalar(orbitV) || !isFiniteScalar(distance))
+        return false;
+
+    const T appliedDistance = std::clamp(distance, minDistance, maxDistance);
+    const auto spherePosition = makeSphericalOffsetFromOrbit(orbitU, orbitV, appliedDistance);
+    const auto forward = safeNormalizeVec3(-spherePosition, camera_vector_t<T, 3>(T(0), T(0), T(1)));
+    auto up = safeNormalizeVec3(
+        camera_vector_t<T, 3>(
+            -hlsl::sin(orbitV) * hlsl::cos(orbitU),
+            -hlsl::sin(orbitV) * hlsl::sin(orbitU),
+            hlsl::cos(orbitV)),
+        camera_vector_t<T, 3>(T(0), T(0), T(1)));
+    auto right = safeNormalizeVec3(cross(up, forward), camera_vector_t<T, 3>(T(1), T(0), T(0)));
+    up = safeNormalizeVec3(cross(forward, right), up);
+    right = safeNormalizeVec3(cross(up, forward), right);
+    if (!isOrthoBase(right, up, forward))
+        return false;
+
+    outPosition = targetPosition + spherePosition;
+    outOrientation = makeQuaternionFromBasis(right, up, forward);
+    if (outAppliedDistance)
+        *outAppliedDistance = appliedDistance;
+    return true;
+}
+
+template<typename T>
+inline bool tryBuildOrbitFromPosition(
+    const camera_vector_t<T, 3>& targetPosition,
+    const camera_vector_t<T, 3>& position,
+    const T minDistance,
+    const T maxDistance,
+    T& outOrbitU,
+    T& outOrbitV,
+    T& outDistance)
+{
+    const auto offset = position - targetPosition;
+    const auto distance = length(offset);
+    if (!isFiniteScalar(distance) || distance <= std::numeric_limits<T>::epsilon())
+        return false;
+
+    outDistance = std::clamp(distance, minDistance, maxDistance);
+    const auto local = offset / outDistance;
+    outOrbitU = hlsl::atan2(local.y, local.x);
+    outOrbitV = hlsl::asin(std::clamp(local.z, T(-1), T(1)));
+    return isFiniteScalar(outOrbitU) && isFiniteScalar(outOrbitV) && isFiniteScalar(outDistance);
+}
+
+template<typename T>
+inline camera_vector_t<T, 2> getPitchYawFromForwardVector(const camera_vector_t<T, 3>& forward)
+{
+    const T planarLength = length(camera_vector_t<T, 2>(forward.x, forward.z));
+    return camera_vector_t<T, 2>(
+        hlsl::atan2(planarLength, forward.y) - numbers::pi<T> * T(0.5),
+        hlsl::atan2(forward.x, forward.z));
+}
+
+template<typename T>
+inline bool tryBuildPathPoseFromState(
+    const camera_vector_t<T, 3>& targetPosition,
+    const T pathAngle,
+    const T pathRadius,
+    const T pathHeight,
+    const T minRadius,
+    const T minDistance,
+    const T maxDistance,
+    camera_vector_t<T, 3>& outPosition,
+    camera_quaternion_t<T>& outOrientation,
+    T* outAppliedDistance = nullptr,
+    T* outOrbitU = nullptr,
+    T* outOrbitV = nullptr)
+{
+    if (!isFiniteScalar(pathAngle) || !isFiniteScalar(pathRadius) || !isFiniteScalar(pathHeight))
+        return false;
+
+    const T appliedRadius = std::max(minRadius, pathRadius);
+    const auto offset = makePathOffsetFromState(pathAngle, appliedRadius, pathHeight);
+
+    T orbitU = T(0);
+    T orbitV = T(0);
+    T distance = T(0);
+    if (!tryBuildOrbitFromPosition(targetPosition, targetPosition + offset, minDistance, maxDistance, orbitU, orbitV, distance))
+        return false;
+    if (!tryBuildSphericalPoseFromOrbit(targetPosition, orbitU, orbitV, distance, minDistance, maxDistance, outPosition, outOrientation, &distance))
+        return false;
+
+    if (outAppliedDistance)
+        *outAppliedDistance = distance;
+    if (outOrbitU)
+        *outOrbitU = orbitU;
+    if (outOrbitV)
+        *outOrbitV = orbitV;
+    return true;
+}
+
+template<typename T>
 inline camera_vector_t<T, 3> rotateVectorByQuaternion(const camera_quaternion_t<T>& orientation, const camera_vector_t<T, 3>& vectorToRotate)
 {
     return normalizeQuaternion(orientation).transformVector(vectorToRotate, true);
@@ -240,14 +554,14 @@ inline camera_vector_t<T, 3> getQuaternionEulerRadians(const camera_quaternion_t
     const T z = q.data.z;
     const T w = q.data.w;
 
-    const T pitch = std::atan2(
+    const T pitch = hlsl::atan2(
         T(2) * (y * z + w * x),
         w * w - x * x - y * y + z * z);
-    const T yaw = std::asin(std::clamp(
+    const T yaw = hlsl::asin(std::clamp(
         T(-2) * (x * z - w * y),
         T(-1),
         T(1)));
-    const T roll = std::atan2(
+    const T roll = hlsl::atan2(
         T(2) * (x * y + w * z),
         w * w + x * x - y * y - z * z);
 
@@ -273,7 +587,7 @@ inline T getQuaternionAngularDistanceRadians(const camera_quaternion_t<T>& lhs, 
         static_cast<T>(std::abs(dot(lhsNormalized.data, rhsNormalized.data))),
         T(0),
         T(1));
-    return T(2) * std::acos(orientationDot);
+    return T(2) * hlsl::acos(orientationDot);
 }
 
 template<typename T>
@@ -302,6 +616,42 @@ inline camera_matrix_t<T, 3, 3> getQuaternionBasisMatrix(const camera_quaternion
         q.transformVector(camera_vector_t<T, 3>(T(1), T(0), T(0)), true),
         q.transformVector(camera_vector_t<T, 3>(T(0), T(1), T(0)), true),
         q.transformVector(camera_vector_t<T, 3>(T(0), T(0), T(1)), true));
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> getQuaternionEulerRadiansYXZ(const camera_quaternion_t<T>& orientation)
+{
+    const auto basis = getQuaternionBasisMatrix(orientation);
+    const T yaw = hlsl::atan2(basis[2][0], basis[2][2]);
+    const T c2 = hlsl::length(camera_vector_t<T, 2>(basis[0][1], basis[1][1]));
+    const T pitch = hlsl::atan2(-basis[2][1], c2);
+    const T s1 = hlsl::sin(yaw);
+    const T c1 = hlsl::cos(yaw);
+    const T roll = hlsl::atan2(
+        s1 * basis[1][2] - c1 * basis[1][0],
+        c1 * basis[0][0] - s1 * basis[0][2]);
+    return camera_vector_t<T, 3>(pitch, yaw, roll);
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> getQuaternionEulerDegreesYXZ(const camera_quaternion_t<T>& orientation)
+{
+    const auto eulerRadians = getQuaternionEulerRadiansYXZ(orientation);
+    return camera_vector_t<T, 3>(
+        degrees(eulerRadians.x),
+        degrees(eulerRadians.y),
+        degrees(eulerRadians.z));
+}
+
+template<typename T>
+inline camera_vector_t<T, 3> getWrappedEulerDistanceDegrees(
+    const camera_vector_t<T, 3>& a,
+    const camera_vector_t<T, 3>& b)
+{
+    return camera_vector_t<T, 3>(
+        getWrappedAngleDistanceDegrees(a.x, b.x),
+        getWrappedAngleDistanceDegrees(a.y, b.y),
+        getWrappedAngleDistanceDegrees(a.z, b.z));
 }
 
 template<typename T>

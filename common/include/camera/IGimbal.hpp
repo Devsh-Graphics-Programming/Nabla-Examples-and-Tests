@@ -296,14 +296,20 @@ namespace nbl::core
                 out->frame = *referenceFrame;
                 if (not hlsl::isOrthoBase(hlsl::float64_t3(out->frame[0]), hlsl::float64_t3(out->frame[1]), hlsl::float64_t3(out->frame[2])))
                     return false;
+                out->orientation = hlsl::makeQuaternionFromBasis(
+                    hlsl::float64_t3(out->frame[0]),
+                    hlsl::float64_t3(out->frame[1]),
+                    hlsl::float64_t3(out->frame[2]));
             }
             else
             {
                 out->frame = hlsl::getMatrix3x3As4x4(getOrthonornalMatrix());
                 out->frame[3] = hlsl::float64_t4(getPosition(), 1);
+                out->orientation = hlsl::makeQuaternionFromBasis(
+                    hlsl::float64_t3(out->frame[0]),
+                    hlsl::float64_t3(out->frame[1]),
+                    hlsl::float64_t3(out->frame[2]));
             }
-
-            out->orientation = hlsl::makeQuaternionFromBasis(hlsl::float64_t3(out->frame[0]), hlsl::float64_t3(out->frame[1]), hlsl::float64_t3(out->frame[2]));
 
             return true;
         }

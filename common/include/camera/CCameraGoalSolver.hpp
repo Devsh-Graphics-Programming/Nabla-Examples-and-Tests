@@ -271,7 +271,7 @@ public:
                     else
                     {
                         absoluteChanged = absoluteChanged || afterState.distance != beforeDistance;
-                        exact = exact && std::abs(static_cast<double>(afterState.distance - desiredDistance)) <= 1e-6;
+                        exact = exact && std::abs(static_cast<double>(afterState.distance - desiredDistance)) <= ICamera::ScalarTolerance;
                     }
                 }
             }
@@ -300,12 +300,12 @@ public:
                 }
                 else
                 {
-                    const bool pathChanged = !nearlyEqualGoalScalar(beforeState.angle, afterState.angle) ||
-                        !nearlyEqualGoalScalar(beforeState.radius, afterState.radius) ||
-                        !nearlyEqualGoalScalar(beforeState.height, afterState.height);
-                    const bool pathExact = nearlyEqualGoalScalar(afterState.angle, canonicalTarget.pathState.angle) &&
-                        nearlyEqualGoalScalar(afterState.radius, canonicalTarget.pathState.radius) &&
-                        nearlyEqualGoalScalar(afterState.height, canonicalTarget.pathState.height);
+                    const bool pathChanged = !hlsl::nearlyEqualScalar(beforeState.angle, afterState.angle, static_cast<double>(ICamera::ScalarTolerance)) ||
+                        !hlsl::nearlyEqualScalar(beforeState.radius, afterState.radius, static_cast<double>(ICamera::ScalarTolerance)) ||
+                        !hlsl::nearlyEqualScalar(beforeState.height, afterState.height, static_cast<double>(ICamera::ScalarTolerance));
+                    const bool pathExact = hlsl::nearlyEqualScalar(afterState.angle, canonicalTarget.pathState.angle, static_cast<double>(ICamera::ScalarTolerance)) &&
+                        hlsl::nearlyEqualScalar(afterState.radius, canonicalTarget.pathState.radius, static_cast<double>(ICamera::ScalarTolerance)) &&
+                        hlsl::nearlyEqualScalar(afterState.height, canonicalTarget.pathState.height, static_cast<double>(ICamera::ScalarTolerance));
 
                     absoluteChanged = absoluteChanged || pathChanged;
                     exact = exact && pathExact;
@@ -336,10 +336,10 @@ public:
                 }
                 else
                 {
-                    const bool dynamicChanged = !nearlyEqualGoalScalar(beforeState.baseFov, afterState.baseFov) ||
-                        !nearlyEqualGoalScalar(beforeState.referenceDistance, afterState.referenceDistance);
-                    const bool dynamicExact = nearlyEqualGoalScalar(afterState.baseFov, canonicalTarget.dynamicPerspectiveState.baseFov) &&
-                        nearlyEqualGoalScalar(afterState.referenceDistance, canonicalTarget.dynamicPerspectiveState.referenceDistance);
+                    const bool dynamicChanged = !hlsl::nearlyEqualScalar(beforeState.baseFov, afterState.baseFov, static_cast<float>(ICamera::ScalarTolerance)) ||
+                        !hlsl::nearlyEqualScalar(beforeState.referenceDistance, afterState.referenceDistance, static_cast<float>(ICamera::ScalarTolerance));
+                    const bool dynamicExact = hlsl::nearlyEqualScalar(afterState.baseFov, canonicalTarget.dynamicPerspectiveState.baseFov, static_cast<float>(ICamera::ScalarTolerance)) &&
+                        hlsl::nearlyEqualScalar(afterState.referenceDistance, canonicalTarget.dynamicPerspectiveState.referenceDistance, static_cast<float>(ICamera::ScalarTolerance));
 
                     absoluteChanged = absoluteChanged || dynamicChanged;
                     exact = exact && dynamicExact;
@@ -388,9 +388,6 @@ public:
     }
 
 private:
-    static constexpr double Pi = 3.14159265358979323846;
-    static constexpr double HalfPi = 0.5 * Pi;
-
     struct SSphericalGoal
     {
         hlsl::float64_t3 target = hlsl::float64_t3(0.0);
@@ -402,17 +399,33 @@ private:
     inline void appendSignedEvent(std::vector<CVirtualGimbalEvent>& events, double value,
         CVirtualGimbalEvent::VirtualEventType positive, CVirtualGimbalEvent::VirtualEventType negative) const
     {
-        if (value == 0.0)
+        if (!std::isfinite(value) || std::abs(value) <= ICamera::TinyScalarEpsilon)
             return;
         auto& ev = events.emplace_back();
         ev.type = (value > 0.0) ? positive : negative;
         ev.magnitude = std::abs(value);
     }
 
+    inline void appendScalarDeltaEvent(std::vector<CVirtualGimbalEvent>& events, const double delta, const double denominator,
+        const double tolerance, CVirtualGimbalEvent::VirtualEventType positive, CVirtualGimbalEvent::VirtualEventType negative) const
+    {
+        if (!std::isfinite(delta) || std::abs(delta) <= tolerance)
+            return;
+        appendSignedEvent(events, delta / denominator, positive, negative);
+    }
+
+    inline void appendAngularDeltaEvent(std::vector<CVirtualGimbalEvent>& events, const double deltaRadians, const double denominator,
+        const double toleranceDeg, CVirtualGimbalEvent::VirtualEventType positive, CVirtualGimbalEvent::VirtualEventType negative) const
+    {
+        if (!std::isfinite(deltaRadians) || std::abs(hlsl::degrees(deltaRadians)) <= toleranceDeg)
+            return;
+        appendSignedEvent(events, deltaRadians / denominator, positive, negative);
+    }
+
     inline double getMoveMagnitudeDenominator(const ICamera* camera) const
     {
         const double moveScale = camera->getMoveSpeedScale();
-        return 0.01 * (moveScale == 0.0 ? 1.0 : moveScale);
+        return ICamera::VirtualTranslationStep * (moveScale == 0.0 ? 1.0 : moveScale);
     }
 
     inline double getRotationMagnitudeDenominator(const ICamera* camera) const
@@ -424,24 +437,13 @@ private:
     inline std::pair<double, double> computePitchYawFromOrientation(const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation) const
     {
         const auto mat = hlsl::getQuaternionBasisMatrix(orientation);
-        const auto forward = hlsl::float64_t3(mat[2][0], mat[2][1], mat[2][2]);
-        const double pitch = std::atan2(std::sqrt(forward.x * forward.x + forward.z * forward.z), forward.y) - HalfPi;
-        const double yaw = std::atan2(forward.x, forward.z);
-        return { pitch, yaw };
+        const auto pitchYaw = hlsl::getPitchYawFromForwardVector(hlsl::float64_t3(mat[2][0], mat[2][1], mat[2][2]));
+        return { pitchYaw.x, pitchYaw.y };
     }
 
     inline hlsl::float64_t3 extractYawPitchRollYXZ(const hlsl::camera_quaternion_t<hlsl::float64_t>& delta) const
     {
-        const auto m = hlsl::getMatrix3x3As4x4(hlsl::getQuaternionBasisMatrix(delta));
-        const double yaw = std::atan2(static_cast<double>(m[2][0]), static_cast<double>(m[2][2]));
-        const double c2 = std::sqrt(static_cast<double>(m[0][1] * m[0][1] + m[1][1] * m[1][1]));
-        const double pitch = std::atan2(-static_cast<double>(m[2][1]), c2);
-        const double s1 = std::sin(yaw);
-        const double c1 = std::cos(yaw);
-        const double roll = std::atan2(
-            s1 * static_cast<double>(m[1][2]) - c1 * static_cast<double>(m[1][0]),
-            c1 * static_cast<double>(m[0][0]) - s1 * static_cast<double>(m[0][2]));
-        return hlsl::float64_t3(pitch, yaw, roll);
+        return hlsl::getQuaternionEulerRadiansYXZ(delta);
     }
 
     inline bool computePoseMismatch(ICamera* camera, const CCameraGoal& target, double& outPositionDelta, double& outRotationDeltaDeg) const
@@ -456,10 +458,7 @@ private:
         const auto currentOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
         const auto targetOrientation = hlsl::normalizeQuaternion(target.orientation);
 
-        const double dx = static_cast<double>(currentPos.x - target.position.x);
-        const double dy = static_cast<double>(currentPos.y - target.position.y);
-        const double dz = static_cast<double>(currentPos.z - target.position.z);
-        outPositionDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+        outPositionDelta = hlsl::length(currentPos - target.position);
 
         outRotationDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, targetOrientation);
         return std::isfinite(outPositionDelta) && std::isfinite(outRotationDeltaDeg);
@@ -486,7 +485,7 @@ private:
         if (!computePoseMismatch(camera, target, beforePosDelta, beforeRotDeltaDeg))
             return false;
 
-        if (beforePosDelta <= 1e-6 && beforeRotDeltaDeg <= 0.1)
+        if (beforePosDelta <= ICamera::DefaultPositionTolerance && beforeRotDeltaDeg <= ICamera::DefaultAngularToleranceDeg)
         {
             outExact = true;
             return true;
@@ -502,29 +501,29 @@ private:
         if (!computePoseMismatch(camera, target, afterPosDelta, afterRotDeltaDeg))
             return false;
 
-        outChanged = (std::abs(afterPosDelta - beforePosDelta) > 1e-9) || (std::abs(afterRotDeltaDeg - beforeRotDeltaDeg) > 1e-9);
-        outExact = afterPosDelta <= 1e-6 && afterRotDeltaDeg <= 0.1;
+        outChanged = (std::abs(afterPosDelta - beforePosDelta) > ICamera::TinyScalarEpsilon) ||
+            (std::abs(afterRotDeltaDeg - beforeRotDeltaDeg) > ICamera::TinyScalarEpsilon);
+        outExact = afterPosDelta <= ICamera::DefaultPositionTolerance && afterRotDeltaDeg <= ICamera::DefaultAngularToleranceDeg;
         return true;
     }
 
     inline bool computeOrbitStateFromPositionTarget(const hlsl::float64_t3& position, const hlsl::float64_t3& target,
         double& outU, double& outV, float& outDistance, float minDistance, float maxDistance) const
     {
-        const auto localSpherePosition = position - target;
-        const double dist = hlsl::length(localSpherePosition);
-        if (!std::isfinite(dist))
-            return false;
-
-        const double clamped = std::clamp(dist, static_cast<double>(minDistance), static_cast<double>(maxDistance));
-        outDistance = static_cast<float>(clamped);
-
-        if (clamped > 0.0)
+        hlsl::float64_t clampedDistance = static_cast<hlsl::float64_t>(outDistance);
+        if (!hlsl::tryBuildOrbitFromPosition(
+                target,
+                position,
+                static_cast<hlsl::float64_t>(minDistance),
+                static_cast<hlsl::float64_t>(maxDistance),
+                outU,
+                outV,
+                clampedDistance))
         {
-            const auto localUnit = localSpherePosition / clamped;
-            outU = std::atan2(localUnit.y, localUnit.x);
-            outV = std::asin(localUnit.z);
+            return false;
         }
 
+        outDistance = static_cast<float>(clampedDistance);
         return true;
     }
 
@@ -557,9 +556,9 @@ private:
     inline bool buildOrbitTranslateEvents(ICamera* camera, const ICamera::SphericalTargetState& sphericalState, const SSphericalGoal& goal, std::vector<CVirtualGimbalEvent>& out) const
     {
         const double moveDenom = getMoveMagnitudeDenominator(camera);
-        appendSignedEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-        appendSignedEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-        appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+        appendAngularDeltaEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v), moveDenom, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendAngularDeltaEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u), moveDenom, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendScalarDeltaEvent(out, static_cast<double>(goal.distance - sphericalState.distance), ICamera::VirtualTranslationStep, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
         return !out.empty();
     }
 
@@ -569,11 +568,11 @@ private:
     {
         const double rotationDenom = getRotationMagnitudeDenominator(camera);
         if (allowYaw)
-            appendSignedEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u) / rotationDenom, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+            appendAngularDeltaEvent(out, hlsl::wrapAngleRad(goal.u - sphericalState.u), rotationDenom, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
         if (allowPitch)
-            appendSignedEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v) / rotationDenom, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+            appendAngularDeltaEvent(out, hlsl::wrapAngleRad(goal.v - sphericalState.v), rotationDenom, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
         if (distancePositive != CVirtualGimbalEvent::None && distanceNegative != CVirtualGimbalEvent::None)
-            appendSignedEvent(out, static_cast<double>(goal.distance - sphericalState.distance) / 0.01, distancePositive, distanceNegative);
+            appendScalarDeltaEvent(out, static_cast<double>(goal.distance - sphericalState.distance), ICamera::VirtualTranslationStep, ICamera::ScalarTolerance, distancePositive, distanceNegative);
         return !out.empty();
     }
 
@@ -583,20 +582,23 @@ private:
             return false;
 
         const auto effectiveTarget = target.hasTargetPosition ? target.targetPosition : sphericalState.target;
-        const auto currentOffset = camera->getGimbal().getPosition() - effectiveTarget;
-        const auto desiredOffset = target.position - effectiveTarget;
+        double currentAngle = 0.0;
+        double desiredAngle = 0.0;
+        double currentRadius = 0.0;
+        double desiredRadius = 0.0;
+        double currentHeight = 0.0;
+        double desiredHeight = 0.0;
+        constexpr double MinPathRadius = static_cast<double>(ICamera::SphericalMinDistance);
 
-        const double currentAngle = std::atan2(currentOffset.z, currentOffset.x);
-        const double desiredAngle = std::atan2(desiredOffset.z, desiredOffset.x);
-        const double currentRadius = std::sqrt(currentOffset.x * currentOffset.x + currentOffset.z * currentOffset.z);
-        const double desiredRadius = std::sqrt(desiredOffset.x * desiredOffset.x + desiredOffset.z * desiredOffset.z);
-        const double currentHeight = currentOffset.y;
-        const double desiredHeight = desiredOffset.y;
+        if (!hlsl::tryBuildPathStateFromPosition(effectiveTarget, camera->getGimbal().getPosition(), MinPathRadius, currentAngle, currentRadius, currentHeight))
+            return false;
+        if (!hlsl::tryBuildPathStateFromPosition(effectiveTarget, target.position, MinPathRadius, desiredAngle, desiredRadius, desiredHeight))
+            return false;
 
         const double moveDenom = getMoveMagnitudeDenominator(camera);
-        appendSignedEvent(out, (desiredRadius - currentRadius) / moveDenom, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-        appendSignedEvent(out, (desiredHeight - currentHeight) / moveDenom, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-        appendSignedEvent(out, hlsl::wrapAngleRad(desiredAngle - currentAngle) / moveDenom, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+        appendScalarDeltaEvent(out, desiredRadius - currentRadius, moveDenom, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendScalarDeltaEvent(out, desiredHeight - currentHeight, moveDenom, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendAngularDeltaEvent(out, hlsl::wrapAngleRad(desiredAngle - currentAngle), moveDenom, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
         return !out.empty();
     }
 
@@ -654,9 +656,9 @@ private:
             hlsl::dot(deltaWorld, up),
             hlsl::dot(deltaWorld, forward));
 
-        appendSignedEvent(out, localDelta.x, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-        appendSignedEvent(out, localDelta.y, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-        appendSignedEvent(out, localDelta.z, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+        appendScalarDeltaEvent(out, localDelta.x, 1.0, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
+        appendScalarDeltaEvent(out, localDelta.y, 1.0, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
+        appendScalarDeltaEvent(out, localDelta.z, 1.0, ICamera::ScalarTolerance, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
 
         switch (camera->getKind())
         {
@@ -671,8 +673,8 @@ private:
                 const double deltaPitch = hlsl::wrapAngleRad(tgtPitch - curPitch) * invScale;
                 const double deltaYaw = hlsl::wrapAngleRad(tgtYaw - curYaw) * invScale;
 
-                appendSignedEvent(out, deltaPitch, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
-                appendSignedEvent(out, deltaYaw, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+                appendAngularDeltaEvent(out, deltaPitch, 1.0, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+                appendAngularDeltaEvent(out, deltaYaw, 1.0, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
             } break;
 
             case ICamera::CameraKind::Free:
@@ -680,9 +682,9 @@ private:
                 const auto deltaQuat = hlsl::inverseQuaternion(gimbal.getOrientation()) * hlsl::normalizeQuaternion(target.orientation);
                 const auto angles = extractYawPitchRollYXZ(deltaQuat);
 
-                appendSignedEvent(out, angles.x, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
-                appendSignedEvent(out, angles.y, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
-                appendSignedEvent(out, angles.z, CVirtualGimbalEvent::RollRight, CVirtualGimbalEvent::RollLeft);
+                appendAngularDeltaEvent(out, angles.x, 1.0, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown);
+                appendAngularDeltaEvent(out, angles.y, 1.0, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft);
+                appendAngularDeltaEvent(out, angles.z, 1.0, ICamera::DefaultAngularToleranceDeg, CVirtualGimbalEvent::RollRight, CVirtualGimbalEvent::RollLeft);
             } break;
 
             default:

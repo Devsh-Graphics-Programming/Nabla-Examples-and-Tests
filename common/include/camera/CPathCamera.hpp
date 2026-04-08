@@ -2,8 +2,6 @@
 #define _C_PATH_CAMERA_HPP_
 
 #include <algorithm>
-#include <cmath>
-
 #include "CSphericalTargetCamera.hpp"
 
 namespace nbl::core
@@ -17,12 +15,20 @@ public:
     CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        const auto offset = position - target;
-        m_pathRadius = std::sqrt(offset.x * offset.x + offset.z * offset.z);
-        if (m_pathRadius < MinPathRadius)
-            m_pathRadius = MinPathRadius;
-        m_pathHeight = offset.y;
-        m_pathAngle = std::atan2(offset.z, offset.x);
+        if (!hlsl::tryBuildPathStateFromPosition(
+                target,
+                position,
+                MinPathRadius,
+                m_pathState.angle,
+                m_pathState.radius,
+                m_pathState.height))
+        {
+            m_pathState = {
+                .angle = 0.0,
+                .radius = MinPathRadius,
+                .height = 0.0
+            };
+        }
         updateFromPath();
     }
     ~CPathCamera() = default;
@@ -34,14 +40,13 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        constexpr double translateScalar = 0.01;
-        const double moveScalar = translateScalar * getMoveSpeedScale();
-
-        m_pathAngle += impulse.dVirtualTranslate.z * moveScalar;
-        m_pathRadius = std::max(MinPathRadius, m_pathRadius + impulse.dVirtualTranslate.x * moveScalar);
-        m_pathHeight += impulse.dVirtualTranslate.y * moveScalar;
+        m_pathState.angle += scaleVirtualTranslation(impulse.dVirtualTranslate.z);
+        m_pathState.radius += scaleVirtualTranslation(impulse.dVirtualTranslate.x);
+        m_pathState.height += scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        if (!hlsl::sanitizePathState(m_pathState.angle, m_pathState.radius, m_pathState.height, MinPathRadius))
+            return false;
 
         return updateFromPath();
     }
@@ -51,20 +56,20 @@ public:
     virtual uint32_t getGoalStateMask() const override { return base_t::getGoalStateMask() | base_t::GoalStatePath; }
     virtual bool tryGetPathState(PathState& out) const override
     {
-        out.angle = m_pathAngle;
-        out.radius = m_pathRadius;
-        out.height = m_pathHeight;
+        out = m_pathState;
         return true;
     }
     virtual bool trySetPathState(const PathState& state) override
     {
-        if (!std::isfinite(state.angle) || !std::isfinite(state.radius) || !std::isfinite(state.height))
+        auto sanitized = state;
+        if (!hlsl::sanitizePathState(sanitized.angle, sanitized.radius, sanitized.height, MinPathRadius))
             return false;
 
-        m_pathAngle = state.angle;
-        m_pathRadius = std::max(MinPathRadius, state.radius);
-        m_pathHeight = state.height;
-        const bool exact = std::abs(m_pathRadius - state.radius) <= 1e-9;
+        const bool exact = hlsl::nearlyEqualScalar(
+            static_cast<hlsl::float64_t>(sanitized.radius),
+            static_cast<hlsl::float64_t>(state.radius),
+            static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon));
+        m_pathState = sanitized;
         updateFromPath();
         return exact;
     }
@@ -73,41 +78,66 @@ public:
         const auto clamped = std::clamp<float>(distance, MinDistance, MaxDistance);
         const bool inRange = clamped == distance;
 
-        const double currentDistance = std::sqrt(m_pathRadius * m_pathRadius + m_pathHeight * m_pathHeight);
-        if (currentDistance > 1e-9)
-        {
-            const double scale = static_cast<double>(clamped) / currentDistance;
-            m_pathRadius = std::max(MinPathRadius, m_pathRadius * scale);
-            m_pathHeight *= scale;
-        }
-        else
-        {
-            m_pathRadius = std::max(MinPathRadius, static_cast<double>(clamped));
-            m_pathHeight = 0.0;
-        }
+        if (!hlsl::tryScalePathStateDistance(
+                static_cast<double>(clamped),
+                MinPathRadius,
+                m_pathState.radius,
+                m_pathState.height))
+            return false;
 
         updateFromPath();
 
-        const double appliedDistance = std::sqrt(m_pathRadius * m_pathRadius + m_pathHeight * m_pathHeight);
-        return inRange && std::abs(appliedDistance - static_cast<double>(clamped)) <= 1e-6;
+        const double appliedDistance = hlsl::getPathDistance(m_pathState.radius, m_pathState.height);
+        return inRange && std::abs(appliedDistance - static_cast<double>(clamped)) <= ICamera::ScalarTolerance;
     }
     virtual std::string_view getIdentifier() const override { return "Path Camera"; }
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
-    static inline constexpr double MinPathRadius = 0.1;
+    static inline constexpr double MinPathRadius = ICamera::SphericalMinDistance;
 
-    double m_pathAngle = 0.0;
-    double m_pathRadius = 1.0;
-    double m_pathHeight = 0.0;
+    PathState m_pathState = { .angle = 0.0, .radius = 1.0, .height = 0.0 };
 
     bool updateFromPath()
     {
-        const double x = std::cos(m_pathAngle) * m_pathRadius;
-        const double z = std::sin(m_pathAngle) * m_pathRadius;
-        const hlsl::float64_t3 position = m_targetPosition + hlsl::float64_t3(x, m_pathHeight, z);
-        initFromPosition(position);
-        return applyPose();
+        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(m_distance);
+        double orbitU = m_u;
+        double orbitV = m_v;
+        if (!hlsl::tryBuildPathPoseFromState(
+                m_targetPosition,
+                m_pathState.angle,
+                m_pathState.radius,
+                m_pathState.height,
+                MinPathRadius,
+                static_cast<hlsl::float64_t>(MinDistance),
+                static_cast<hlsl::float64_t>(MaxDistance),
+                position,
+                orientation,
+                &appliedDistance,
+                &orbitU,
+                &orbitV))
+        {
+            return false;
+        }
+
+        m_distance = static_cast<float>(appliedDistance);
+        m_u = orbitU;
+        m_v = orbitV;
+
+        m_gimbal.begin();
+        {
+            m_gimbal.setPosition(position);
+            m_gimbal.setOrientation(orientation);
+        }
+        m_gimbal.end();
+
+        const bool manipulated = bool(m_gimbal.getManipulationCounter());
+        if (manipulated)
+            m_gimbal.updateView();
+
+        return manipulated;
     }
 };
 

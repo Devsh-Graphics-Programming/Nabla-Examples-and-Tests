@@ -2,8 +2,6 @@
 #define _C_SPHERICAL_TARGET_CAMERA_HPP_
 
 #include <algorithm>
-#include <cmath>
-
 #include "ICamera.hpp"
 
 namespace nbl::core
@@ -84,58 +82,81 @@ public:
 protected:
     struct SphericalBasis
     {
-        hlsl::float64_t3 localSpherePosition;
-        hlsl::float64_t3 right;
-        hlsl::float64_t3 up;
-        hlsl::float64_t3 forward;
+        hlsl::float64_t3 localSpherePosition = hlsl::float64_t3(0.0);
+        hlsl::float64_t3 right = hlsl::float64_t3(1.0, 0.0, 0.0);
+        hlsl::float64_t3 up = hlsl::float64_t3(0.0, 0.0, 1.0);
+        hlsl::float64_t3 forward = hlsl::float64_t3(0.0, 1.0, 0.0);
     };
 
-    inline hlsl::float64_t3 S(double su, double sv) const
+    inline SphericalBasis computeBasis(double orbitU, double orbitV, float distance) const
     {
-        return hlsl::float64_t3
+        SphericalBasis basis;
+        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+        if (!hlsl::tryBuildSphericalPoseFromOrbit(
+                m_targetPosition,
+                orbitU,
+                orbitV,
+                static_cast<hlsl::float64_t>(distance),
+                static_cast<hlsl::float64_t>(MinDistance),
+                static_cast<hlsl::float64_t>(MaxDistance),
+                position,
+                orientation))
         {
-            std::cos(sv) * std::cos(su),
-            std::cos(sv) * std::sin(su),
-            std::sin(sv)
-        };
-    }
+            return basis;
+        }
 
-    inline hlsl::float64_t3 Sdv(double su, double sv) const
-    {
-        return hlsl::float64_t3
-        {
-            -std::sin(sv) * std::cos(su),
-            -std::sin(sv) * std::sin(su),
-            std::cos(sv)
-        };
-    }
-
-    inline SphericalBasis computeBasis(double su, double sv, float distance) const
-    {
-        const auto localSpherePosition = S(su, sv) * static_cast<double>(distance);
-        const auto forward = hlsl::normalize(-localSpherePosition);
-        const auto up = hlsl::normalize(Sdv(su, sv));
-        const auto right = hlsl::normalize(hlsl::cross(up, forward));
-
-        return { localSpherePosition, right, up, forward };
+        basis.localSpherePosition = position - m_targetPosition;
+        basis.right = orientation.transformVector(hlsl::float64_t3(1.0, 0.0, 0.0), true);
+        basis.up = orientation.transformVector(hlsl::float64_t3(0.0, 1.0, 0.0), true);
+        basis.forward = orientation.transformVector(hlsl::float64_t3(0.0, 0.0, 1.0), true);
+        return basis;
     }
 
     inline void initFromPosition(const hlsl::float64_t3& position)
     {
-        const auto offset = position - m_targetPosition;
-        const double dist = hlsl::length(offset);
-        const double safeDist = std::isfinite(dist) && dist > 0.0 ? dist : static_cast<double>(MinDistance);
-        m_distance = std::clamp<float>(static_cast<float>(safeDist), MinDistance, MaxDistance);
-        const auto local = offset / static_cast<double>(m_distance);
-        m_u = std::atan2(local.y, local.x);
-        m_v = std::asin(std::clamp(local.z, -1.0, 1.0));
+        double orbitU = 0.0;
+        double orbitV = 0.0;
+        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(MinDistance);
+        if (!hlsl::tryBuildOrbitFromPosition(
+                m_targetPosition,
+                position,
+                static_cast<hlsl::float64_t>(MinDistance),
+                static_cast<hlsl::float64_t>(MaxDistance),
+                orbitU,
+                orbitV,
+                appliedDistance))
+        {
+            m_distance = MinDistance;
+            m_u = 0.0;
+            m_v = 0.0;
+            return;
+        }
+
+        m_distance = static_cast<float>(appliedDistance);
+        m_u = orbitU;
+        m_v = orbitV;
     }
 
     inline bool applyPose()
     {
-        const auto basis = computeBasis(m_u, m_v, m_distance);
-        const auto newPosition = basis.localSpherePosition + m_targetPosition;
-        const auto newOrientation = hlsl::makeQuaternionFromBasis(basis.right, basis.up, basis.forward);
+        hlsl::float64_t3 newPosition = hlsl::float64_t3(0.0);
+        hlsl::camera_quaternion_t<hlsl::float64_t> newOrientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(m_distance);
+        if (!hlsl::tryBuildSphericalPoseFromOrbit(
+                m_targetPosition,
+                m_u,
+                m_v,
+                static_cast<hlsl::float64_t>(m_distance),
+                static_cast<hlsl::float64_t>(MinDistance),
+                static_cast<hlsl::float64_t>(MaxDistance),
+                newPosition,
+                newOrientation,
+                &appliedDistance))
+        {
+            return false;
+        }
+        m_distance = static_cast<float>(appliedDistance);
 
         m_gimbal.begin();
         {

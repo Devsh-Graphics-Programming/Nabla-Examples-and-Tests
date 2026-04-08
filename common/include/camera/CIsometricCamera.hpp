@@ -30,13 +30,11 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        constexpr double translateScalar = 0.01;
-        const double panScalar = translateScalar * getMoveSpeedScale();
-        const double deltaPanX = impulse.dVirtualTranslate.x * panScalar;
-        const double deltaPanY = impulse.dVirtualTranslate.y * panScalar;
-        const double deltaDistance = impulse.dVirtualTranslate.z * translateScalar;
+        const double deltaPanX = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
+        const double deltaPanY = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
         m_u = IsoYaw;
         m_v = IsoPitch;
@@ -55,8 +53,8 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
-    static inline constexpr double IsoYaw = 0.7853981633974483;
-    static inline constexpr double IsoPitch = 0.6154797086703873;
+    static inline constexpr double IsoYaw = hlsl::numbers::pi<double> * 0.25;
+    static inline constexpr double IsoPitch = hlsl::numbers::pi<double> * (35.264389682754654 / 180.0);
 };
 
 }

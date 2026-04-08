@@ -44,7 +44,7 @@ void App::workLoopBody()
 				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				willSubmit &= cmdbuf->beginDebugMarker("UIApp Frame");
 
-				auto renderScene = [&](windowControlBinding& binding, const uint32_t bindingIx)
+				auto renderScene = [&](SWindowControlBinding& binding, const uint32_t bindingIx)
 				{
 					if (!binding.sceneFramebuffer)
 						return;
@@ -331,7 +331,7 @@ void App::workLoopBody()
 				const uint64_t renderedFrameIx = m_realFrameIx - 1u;
 				auto captureScreenshot = [&](const nbl::system::path& outPath, const char* tag) -> void
 				{
-					if (!m_device || !m_assetManager || !m_surface)
+					if (!m_device || !m_assetMgr || !m_surface)
 						return;
 
 					m_logger->log("%s screenshot capture start (frame %llu).", ILogger::ELL_INFO, tag, static_cast<unsigned long long>(renderedFrameIx));
@@ -372,7 +372,7 @@ void App::workLoopBody()
 						getGraphicsQueue(),
 						nullptr,
 						frameView.get(),
-						m_assetManager.get(),
+						m_assetMgr.get(),
 						outPath,
 						asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
 						asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT);

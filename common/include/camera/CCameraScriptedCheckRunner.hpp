@@ -66,19 +66,6 @@ struct CCameraScriptedCheckFrameResult
     bool hadFailures = false;
 };
 
-inline float scriptedCheckAngleDiffDeg(const float a, const float b)
-{
-    float d = std::fmod(a - b + 180.0f, 360.0f);
-    if (d < 0.0f)
-        d += 360.0f;
-    return std::abs(d - 180.0f);
-}
-
-inline bool scriptedCheckFinite3(const hlsl::float32_t3& v)
-{
-    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-}
-
 inline void scriptedCheckSetStepReference(
     CCameraScriptedCheckRuntimeState& state,
     const hlsl::float32_t3& pos,
@@ -138,7 +125,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
         const auto pos = gimbal.getPosition();
         const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getQuaternionEulerDegrees(gimbal.getOrientation()));
 
-        if (!scriptedCheckFinite3(pos) || !scriptedCheckFinite3(eulerDeg))
+        if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteVec3(eulerDeg))
         {
             appendScriptedCheckLog(
                 result,
@@ -231,8 +218,8 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 bool ok = true;
                 if (check.hasExpectedPos)
                 {
-                    const auto diff = hlsl::float32_t3(pos.x - check.expectedPos.x, pos.y - check.expectedPos.y, pos.z - check.expectedPos.z);
-                    const auto distance = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+                    const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(check.expectedPos);
+                    const double distance = hlsl::length(diff);
                     if (distance > check.posTolerance)
                     {
                         ok = false;
@@ -250,9 +237,10 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 }
                 if (check.hasExpectedEuler)
                 {
-                    const auto dx = scriptedCheckAngleDiffDeg(eulerDeg.x, check.expectedEulerDeg.x);
-                    const auto dy = scriptedCheckAngleDiffDeg(eulerDeg.y, check.expectedEulerDeg.y);
-                    const auto dz = scriptedCheckAngleDiffDeg(eulerDeg.z, check.expectedEulerDeg.z);
+                    const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, check.expectedEulerDeg);
+                    const auto dx = deltaEulerDeg.x;
+                    const auto dy = deltaEulerDeg.y;
+                    const auto dz = deltaEulerDeg.z;
                     const auto maxAngle = std::max(dx, std::max(dy, dz));
                     if (maxAngle > check.eulerToleranceDeg)
                     {
@@ -296,11 +284,12 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                const auto diff = hlsl::float32_t3(pos.x - state.baselinePos.x, pos.y - state.baselinePos.y, pos.z - state.baselinePos.z);
-                const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-                const auto dx = scriptedCheckAngleDiffDeg(eulerDeg.x, state.baselineEulerDeg.x);
-                const auto dy = scriptedCheckAngleDiffDeg(eulerDeg.y, state.baselineEulerDeg.y);
-                const auto dz = scriptedCheckAngleDiffDeg(eulerDeg.z, state.baselineEulerDeg.z);
+                const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(state.baselinePos);
+                const double dpos = hlsl::length(diff);
+                const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, state.baselineEulerDeg);
+                const auto dx = deltaEulerDeg.x;
+                const auto dy = deltaEulerDeg.y;
+                const auto dz = deltaEulerDeg.z;
                 const auto dmax = std::max(dx, std::max(dy, dz));
 
                 if (dpos > check.posTolerance || dmax > check.eulerToleranceDeg)
@@ -356,11 +345,12 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     }
                 }
 
-                const auto diff = hlsl::float32_t3(pos.x - state.stepPos.x, pos.y - state.stepPos.y, pos.z - state.stepPos.z);
-                const auto dpos = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-                const auto dx = scriptedCheckAngleDiffDeg(eulerDeg.x, state.stepEulerDeg.x);
-                const auto dy = scriptedCheckAngleDiffDeg(eulerDeg.y, state.stepEulerDeg.y);
-                const auto dz = scriptedCheckAngleDiffDeg(eulerDeg.z, state.stepEulerDeg.z);
+                const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(state.stepPos);
+                const double dpos = hlsl::length(diff);
+                const auto deltaEulerDeg = hlsl::getWrappedEulerDistanceDegrees(eulerDeg, state.stepEulerDeg);
+                const auto dx = deltaEulerDeg.x;
+                const auto dy = deltaEulerDeg.y;
+                const auto dz = deltaEulerDeg.z;
                 const auto dmax = std::max(dx, std::max(dy, dz));
 
                 bool ok = true;
@@ -480,6 +470,9 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 SCameraFollowRegressionResult regression = {};
                 std::string regressionError;
                 core::CCameraGoal expectedFollowGoal = {};
+                SCameraFollowRegressionThresholds thresholds = {};
+                thresholds.lockAngleToleranceDeg = check.eulerToleranceDeg;
+                thresholds.projectedNdcTolerance = check.posTolerance;
                 const bool ok = core::tryBuildFollowGoal(
                         *context.goalSolver,
                         context.camera,
@@ -493,11 +486,8 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         expectedFollowGoal,
                         regression,
                         &regressionError,
-                        check.eulerToleranceDeg,
-                        1e-6,
-                        1e-9,
                         context.followViewProjMatrix,
-                        check.posTolerance);
+                        thresholds);
 
                 if (!ok)
                 {

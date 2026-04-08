@@ -4,162 +4,24 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <span>
+#include <string_view>
 #include <vector>
 
+#include "app/AppCameraConfigUtilities.hpp"
+#include "app/AppResourceUtilities.hpp"
 #include "camera/CCameraPersistence.hpp"
 #include "camera/CCameraScriptedRuntimePersistence.hpp"
-#include "nlohmann/json.hpp"
+#include "camera/CCameraSmokeRegressionUtilities.hpp"
 
 namespace
 {
-	using camera_json_t = nlohmann::json;
+	using camera_json_t = nbl::system::camera_json_t;
 
-	struct SpaceEnvBlobHeader final
-	{
-		uint32_t magic = 0u;
-		uint32_t width = 0u;
-		uint32_t height = 0u;
-		uint32_t format = 0u;
-		uint64_t payloadSize = 0ull;
-	};
-
-	constexpr uint32_t SpaceEnvBlobMagic = 0x31425645u; // "EVB1"
-	constexpr uint32_t SpaceEnvBlobFormatRgba16Sfloat = 2u;
-
-	bool loadSpaceEnvBlob(const std::filesystem::path& blobPath, SpaceEnvBlobHeader& outHeader, std::vector<uint8_t>& outPayload)
-	{
-		std::ifstream in(blobPath, std::ios::binary);
-		if (!in.is_open())
-			return false;
-
-		in.read(reinterpret_cast<char*>(&outHeader), sizeof(outHeader));
-		if (in.gcount() != sizeof(outHeader))
-			return false;
-
-		if (outHeader.magic != SpaceEnvBlobMagic || outHeader.format != SpaceEnvBlobFormatRgba16Sfloat)
-			return false;
-		if (outHeader.width == 0u || outHeader.height == 0u)
-			return false;
-		if (outHeader.payloadSize != static_cast<uint64_t>(outHeader.width) * outHeader.height * 8ull)
-			return false;
-		if (outHeader.payloadSize > static_cast<uint64_t>(std::numeric_limits<size_t>::max()))
-			return false;
-
-		outPayload.resize(static_cast<size_t>(outHeader.payloadSize));
-		in.read(reinterpret_cast<char*>(outPayload.data()), static_cast<std::streamsize>(outPayload.size()));
-		return in.gcount() == static_cast<std::streamsize>(outPayload.size());
-	}
-
-	constexpr float CameraDefaultMoveScale = 0.01f;
-	constexpr float CameraDefaultRotateScale = 0.003f;
-	constexpr float CameraOrbitMoveScale = 0.5f;
-
-	void initializeCameraRigConfig(nbl::core::ICamera& camera, const double moveScale, const double rotationScale)
-	{
-		camera.setMotionScales(moveScale, rotationScale);
-	}
-
-	bool createCameraFromJson(const camera_json_t& jCamera, std::string& error, smart_refctd_ptr<nbl::core::ICamera>& outCamera)
-	{
-		if (!jCamera.contains("type"))
-		{
-			error = "Camera entry missing \"type\".";
-			return false;
-		}
-
-		if (!jCamera.contains("position"))
-		{
-			error = "Camera entry missing \"position\".";
-			return false;
-		}
-
-		const std::string type = jCamera["type"].get<std::string>();
-		const bool withOrientation = jCamera.contains("orientation");
-		const bool withTarget = jCamera.contains("target");
-
-		auto position = [&]()
-		{
-			const auto jret = jCamera["position"].get<std::array<float, 3>>();
-			return float64_t3(jret[0], jret[1], jret[2]);
-		}();
-
-		auto getOrientation = [&]()
-		{
-			const auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-			return makeQuaternionFromComponents<float64_t>(jret[0], jret[1], jret[2], jret[3]);
-		};
-
-		auto getTarget = [&]()
-		{
-			const auto jret = jCamera["target"].get<std::array<float, 3>>();
-			return float64_t3(jret[0], jret[1], jret[2]);
-		};
-
-		auto finalize = [&](auto&& camera, const double moveScale, const double rotationScale)
-		{
-			initializeCameraRigConfig(*camera, moveScale, rotationScale);
-			outCamera = std::move(camera);
-			return true;
-		};
-
-		if (type == "FPS")
-		{
-			if (!withOrientation)
-			{
-				error = "FPS camera requires \"orientation\".";
-				return false;
-			}
-			return finalize(make_smart_refctd_ptr<nbl::core::CFPSCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
-		}
-
-		if (type == "Free")
-		{
-			if (!withOrientation)
-			{
-				error = "Free camera requires \"orientation\".";
-				return false;
-			}
-			return finalize(make_smart_refctd_ptr<nbl::core::CFreeCamera>(position, getOrientation()), CameraDefaultMoveScale, CameraDefaultRotateScale);
-		}
-
-		if (!withTarget)
-		{
-			error = "Camera type \"" + type + "\" requires \"target\".";
-			return false;
-		}
-
-		if (type == "Orbit")
-			return finalize(make_smart_refctd_ptr<COrbitCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Arcball")
-			return finalize(make_smart_refctd_ptr<CArcballCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Turntable")
-			return finalize(make_smart_refctd_ptr<CTurntableCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "TopDown")
-			return finalize(make_smart_refctd_ptr<CTopDownCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Isometric")
-			return finalize(make_smart_refctd_ptr<CIsometricCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Chase")
-			return finalize(make_smart_refctd_ptr<CChaseCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Dolly")
-			return finalize(make_smart_refctd_ptr<CDollyCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "Path")
-			return finalize(make_smart_refctd_ptr<CPathCamera>(position, getTarget()), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		if (type == "DollyZoom")
-		{
-			float baseFov = 40.0f;
-			if (jCamera.contains("baseFov"))
-				baseFov = jCamera["baseFov"].get<float>();
-			return finalize(make_smart_refctd_ptr<CDollyZoomCamera>(position, getTarget(), baseFov), CameraOrbitMoveScale, CameraDefaultRotateScale);
-		}
-
-		error = "Unsupported camera type \"" + type + "\".";
-		return false;
-	}
+	constexpr double CameraTinyScalarEpsilon = nbl::system::SCameraSmokeComparisonThresholds::TinyScalarEpsilon;
+	constexpr nbl::system::SCameraFollowRegressionThresholds CameraFollowRegressionThresholds = {};
 }
 
 bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
@@ -211,6 +73,9 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					return false;
 				};
 
+				if (!asset_base_t::onAppInitialized(std::move(system)))
+					return fail("Failed to initialize mounted resources for headless camera smoke.");
+
 				auto configPath = [&]() -> std::filesystem::path
 				{
 					if (program.is_used("--file"))
@@ -220,109 +85,26 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							path = localInputCWD / path;
 						return path.lexically_normal();
 					}
-					return (localInputCWD / "app_resources" / "cameras.json").lexically_normal();
+					return std::filesystem::path(nbl::system::SCameraAppResourcePaths::DefaultCameraConfigRelativePath);
 				}();
 
 				camera_json_t j;
-				{
-					std::ifstream file(configPath);
-					if (!file.is_open())
-						return fail("Cannot open config \"" + configPath.string() + "\".");
-
-					try
-					{
-						file >> j;
-					}
-					catch (const std::exception& e)
-					{
-						return fail("JSON parse error: " + std::string(e.what()));
-					}
-				}
-
-				if (!j.contains("cameras") || !j["cameras"].is_array())
-					return fail("Missing \"cameras\" array in config.");
+				std::string jsonError;
+				if (!nbl::system::loadJsonFromPath(*m_system, configPath, j, &jsonError))
+					return fail(jsonError);
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
-				cameras.reserve(j["cameras"].size());
-				for (const auto& jCamera : j["cameras"])
-				{
-					smart_refctd_ptr<ICamera> camera;
-					std::string error;
-					if (!createCameraFromJson(jCamera, error, camera))
-						return fail(error);
-					cameras.emplace_back(std::move(camera));
-				}
+				if (!nbl::system::tryLoadCameraCollectionFromJson(j, jsonError, cameras))
+					return fail(jsonError);
 
-				if (cameras.empty())
-					return fail("No cameras defined.");
-
-				auto angleDiffDeg = [](double a, double b) -> double
+				auto comparePresetToCameraDefault = [&](ICamera* camera, const CameraPreset& preset) -> bool
 				{
-					double d = std::fmod(a - b + 180.0, 360.0);
-					if (d < 0.0)
-						d += 360.0;
-					return std::abs(d - 180.0);
+					return nbl::system::comparePresetToCameraStateWithDefaultThresholds(m_cameraGoalSolver, camera, preset);
 				};
 
-				auto isFinite3 = [](const auto& v) -> bool
+				auto comparePresetToCameraStrict = [&](ICamera* camera, const CameraPreset& preset) -> bool
 				{
-					return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-				};
-
-				auto nearlyEqual3 = [](const auto& a, const auto& b, const double epsilon) -> bool
-				{
-					return std::abs(static_cast<double>(a.x - b.x)) <= epsilon &&
-						std::abs(static_cast<double>(a.y - b.y)) <= epsilon &&
-						std::abs(static_cast<double>(a.z - b.z)) <= epsilon;
-				};
-
-				auto computeDelta = [&](ICamera* camera, const float64_t3& beforePos, const float32_t3& beforeEulerDeg, double& outPosDelta, double& outRotDeltaDeg) -> bool
-				{
-					if (!camera)
-						return false;
-					const auto& gimbal = camera->getGimbal();
-					const auto afterPos = gimbal.getPosition();
-					const auto afterEuler = getCastedVector<float32_t>(getQuaternionEulerDegrees(gimbal.getOrientation()));
-					if (!isFinite3(afterPos) || !isFinite3(afterEuler))
-						return false;
-
-					const double dx = static_cast<double>(afterPos.x - beforePos.x);
-					const double dy = static_cast<double>(afterPos.y - beforePos.y);
-					const double dz = static_cast<double>(afterPos.z - beforePos.z);
-					outPosDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
-					outRotDeltaDeg = std::max({
-						angleDiffDeg(afterEuler.x, beforeEulerDeg.x),
-						angleDiffDeg(afterEuler.y, beforeEulerDeg.y),
-						angleDiffDeg(afterEuler.z, beforeEulerDeg.z)
-					});
-					return true;
-				};
-
-				auto manipulateAndMeasure = [&](ICamera* camera, const std::vector<CVirtualGimbalEvent>& events, double& outPosDelta, double& outRotDeltaDeg) -> bool
-				{
-					outPosDelta = 0.0;
-					outRotDeltaDeg = 0.0;
-					if (!camera || events.empty())
-						return false;
-
-					const auto& beforeGimbal = camera->getGimbal();
-					const float64_t3 beforePos = beforeGimbal.getPosition();
-					const float32_t3 beforeEulerDeg = getCastedVector<float32_t>(getQuaternionEulerDegrees(beforeGimbal.getOrientation()));
-					if (!isFinite3(beforePos) || !isFinite3(beforeEulerDeg))
-						return false;
-
-					if (!camera->manipulate({ events.data(), events.size() }))
-						return false;
-
-					if (!computeDelta(camera, beforePos, beforeEulerDeg, outPosDelta, outRotDeltaDeg))
-						return false;
-
-					return outPosDelta > 1e-9 || outRotDeltaDeg > 1e-9;
-				};
-
-				auto comparePresetToCamera = [&](ICamera* camera, const CameraPreset& preset, const double posEps, const double rotEpsDeg, const double scalarEps) -> bool
-				{
-					return nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, preset, posEps, rotEpsDeg, scalarEps);
+					return nbl::system::comparePresetToCameraStateWithStrictThresholds(m_cameraGoalSolver, camera, preset);
 				};
 
 				auto describePresetMismatch = [&](ICamera* camera, const CameraPreset& preset) -> std::string
@@ -408,7 +190,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail(std::string("Follow visual metrics smoke was missing lock metrics for ") + label + ".");
 					if (expectsProjectedMetrics && !metrics.projectedValid)
 						return fail(std::string("Follow visual metrics smoke was missing projected metrics for ") + label + ".");
-					if (metrics.projectedValid && metrics.projectedNdcRadius > 0.03f)
+					if (metrics.projectedValid && metrics.projectedNdcRadius > CameraFollowRegressionThresholds.projectedNdcTolerance)
 						return fail(std::string("Follow visual metrics smoke had projected center error for ") + label + ".");
 					return true;
 				};
@@ -450,7 +232,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Scripted runtime frame batch smoke failed for frame 4.");
 					}
 					const auto trackedTargetPosition = float64_t3(batch.trackedTargetTransforms.front().transform[3]);
-					if (!nearlyEqual3(trackedTargetPosition, float64_t3(7.0, 8.0, 9.0), 1e-9))
+					if (!hlsl::nearlyEqualVec3(trackedTargetPosition, float64_t3(7.0, 8.0, 9.0), CameraTinyScalarEpsilon))
 						return fail("Scripted runtime tracked-target payload smoke failed.");
 
 					return true;
@@ -530,7 +312,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CCameraScriptedTimeline timeline = {};
 					nbl::system::appendScriptedBaselineCheck(timeline, 1u);
 					nbl::system::appendScriptedGimbalStepCheck(timeline, 2u, true, 2.0f, 0.005f, true, 45.0f, 0.05f);
-					nbl::system::appendScriptedFollowTargetLockCheck(timeline, 3u, 0.1f, 0.03f);
+					nbl::system::appendScriptedFollowTargetLockCheck(
+						timeline,
+						3u,
+						CameraFollowRegressionThresholds.lockAngleToleranceDeg,
+						CameraFollowRegressionThresholds.projectedNdcTolerance);
 
 					CCameraScriptedCheckRuntimeState state = {};
 					{
@@ -663,11 +449,8 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						followGoal,
 						regression,
 						&regressionError,
-						0.1f,
-						1e-6,
-						1e-9,
 						hasViewProjMatrix ? &viewProjMatrix : nullptr,
-						0.03f))
+						CameraFollowRegressionThresholds))
 					{
 						return fail(std::string("Follow smoke contract failed for ") + label + ". " + regressionError);
 					}
@@ -682,7 +465,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					const auto markerPosition = getCastedVector<float64_t>(float32_t3(markerTransform[3]));
 					const auto positionDelta = markerPosition - trackedTarget.getGimbal().getPosition();
 					const auto errorLength = length(positionDelta);
-					if (!std::isfinite(errorLength) || errorLength > 1e-9)
+					if (!std::isfinite(errorLength) || errorLength > CameraTinyScalarEpsilon)
 					{
 						return fail(std::string("Follow target marker alignment smoke failed for ") + label + ".");
 					}
@@ -739,13 +522,13 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							". " + describeApplyResult(recapturedApply));
 					}
 
-					if (!comparePresetToCamera(camera, reachedEditedPreset, 5e-6, 0.1, 5e-6))
+					if (!nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, reachedEditedPreset, 5e-6, nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg, 5e-6))
 						return fail(std::string("Follow recapture smoke mismatch for ") + label + ". " + describePresetMismatch(camera, reachedEditedPreset));
 					if (!verifyFollowTargetContract(camera, trackedTarget, followConfig, recapturedGoal, label))
 						return false;
 
 					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, baselinePreset);
-					if (!restoreResult.succeeded() || !comparePresetToCamera(camera, baselinePreset, 1e-6, 0.1, 1e-6))
+					if (!restoreResult.succeeded() || !comparePresetToCameraStrict(camera, baselinePreset))
 					{
 						return fail(std::string("Follow recapture smoke failed to restore baseline for ") + label +
 							". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(camera, baselinePreset));
@@ -886,7 +669,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Preset target apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult));
 
 						ICamera::SphericalTargetState shiftedState;
-						if (!camera->tryGetSphericalTargetState(shiftedState) || !nearlyEqual3(shiftedState.target, shiftedPreset.goal.targetPosition, 1e-9))
+						if (!camera->tryGetSphericalTargetState(shiftedState) || !hlsl::nearlyEqualVec3(shiftedState.target, shiftedPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target writeback smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
 						const auto restoredResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
@@ -894,10 +677,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return fail("Preset restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult));
 
 						ICamera::SphericalTargetState restoredState;
-						if (!camera->tryGetSphericalTargetState(restoredState) || !nearlyEqual3(restoredState.target, initialPreset.goal.targetPosition, 1e-9))
+						if (!camera->tryGetSphericalTargetState(restoredState) || !hlsl::nearlyEqualVec3(restoredState.target, initialPreset.goal.targetPosition, 1e-9))
 							return fail("Preset target restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-						if (!comparePresetToCamera(camera, initialPreset, 1e-6, 1e-4, 1e-9))
+						if (!comparePresetToCameraDefault(camera, initialPreset))
 							return fail("Preset restore mismatch smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 					}
 
@@ -916,11 +699,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							std::max(0.1f, initialPreset.goal.dynamicPerspectiveState.referenceDistance + 1.25f);
 
 						const auto shiftedResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, shiftedPreset);
-						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !comparePresetToCamera(camera, shiftedPreset, 1e-6, 0.1, 1e-6))
+						if (!shiftedResult.succeeded() || !shiftedResult.changed() || !comparePresetToCameraStrict(camera, shiftedPreset))
 							return fail("Preset dynamic perspective apply smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(shiftedResult) + " " + describePresetMismatch(camera, shiftedPreset));
 
 						const auto restoredResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
-						if (!restoredResult.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-6, 0.1, 1e-6))
+						if (!restoredResult.succeeded() || !comparePresetToCameraStrict(camera, initialPreset))
 							return fail("Preset dynamic perspective restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describeApplyResult(restoredResult) + " " + describePresetMismatch(camera, initialPreset));
 					}
 
@@ -960,35 +743,33 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (directEvents.empty())
 						return fail("No allowed virtual events for camera \"" + std::string(camera->getIdentifier()) + "\".");
 
-					double directPosDelta = 0.0;
-					double directRotDelta = 0.0;
-					if (!manipulateAndMeasure(camera, directEvents, directPosDelta, directRotDelta))
+					nbl::system::SCameraManipulationDelta directDelta = {};
+					if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { directEvents.data(), directEvents.size() }, directDelta, CameraTinyScalarEpsilon))
 						return fail("Direct manipulate smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					{
 						const auto modifiedPreset = nbl::core::capturePreset(m_cameraGoalSolver, camera, "smoke-direct");
 						const auto restoreInitial = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
-						if (!restoreInitial.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
+						if (!restoreInitial.succeeded() || !nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, initialPreset, 1e-3, nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg, 1e-4))
 							return fail("Preset restore from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 
 						const auto applyModified = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, modifiedPreset);
-						if (!applyModified.succeeded() || !applyModified.changed() || !comparePresetToCamera(camera, modifiedPreset, 1e-3, 0.1, 1e-4))
+						if (!applyModified.succeeded() || !applyModified.changed() || !nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, modifiedPreset, 1e-3, nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg, 1e-4))
 							return fail("Preset apply from direct smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, modifiedPreset));
 
 						const auto restoreAgain = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, initialPreset);
-						if (!restoreAgain.succeeded() || !comparePresetToCamera(camera, initialPreset, 1e-3, 0.1, 1e-4))
+						if (!restoreAgain.succeeded() || !nbl::core::comparePresetToCameraState(m_cameraGoalSolver, camera, initialPreset, 1e-3, nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg, 1e-4))
 							return fail("Preset final restore smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\". " + describePresetMismatch(camera, initialPreset));
 					}
 
 					bool keyboardOk = false;
-					double keyboardPosDelta = 0.0;
-					double keyboardRotDelta = 0.0;
+					nbl::system::SCameraManipulationDelta keyboardDelta = {};
 					for (const auto key : keyboardCandidates)
 					{
 						applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 						auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 						if (keyboardEvents.empty())
 							continue;
-						if (manipulateAndMeasure(camera, keyboardEvents, keyboardPosDelta, keyboardRotDelta))
+						if (nbl::system::tryManipulateCameraAndMeasureDelta(camera, { keyboardEvents.data(), keyboardEvents.size() }, keyboardDelta, CameraTinyScalarEpsilon))
 						{
 							keyboardOk = true;
 							break;
@@ -1009,8 +790,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						mousePreset.find(ui::EMC_HORIZONTAL_POSITIVE_SCROLL) != mousePreset.end() ||
 						mousePreset.find(ui::EMC_HORIZONTAL_NEGATIVE_SCROLL) != mousePreset.end();
 
-					double mouseMovePosDelta = 0.0;
-					double mouseMoveRotDelta = 0.0;
+					nbl::system::SCameraManipulationDelta mouseMoveDelta = {};
 					if (hasMoveMapping)
 					{
 						SMouseEvent moveEv(std::chrono::microseconds(16667));
@@ -1030,12 +810,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 						if (mouseMoveEvents.empty())
 							return fail("Mouse move virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
-						if (!manipulateAndMeasure(camera, mouseMoveEvents, mouseMovePosDelta, mouseMoveRotDelta))
+						if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { mouseMoveEvents.data(), mouseMoveEvents.size() }, mouseMoveDelta, CameraTinyScalarEpsilon))
 							return fail("Mouse move binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					}
 
-					double mouseScrollPosDelta = 0.0;
-					double mouseScrollRotDelta = 0.0;
+					nbl::system::SCameraManipulationDelta mouseScrollDelta = {};
 					if (hasScrollMapping)
 					{
 						SMouseEvent scrollEv(std::chrono::microseconds(16667));
@@ -1050,19 +829,19 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 						if (mouseScrollEvents.empty())
 							return fail("Mouse scroll virtual events missing for camera \"" + std::string(camera->getIdentifier()) + "\".");
-						if (!manipulateAndMeasure(camera, mouseScrollEvents, mouseScrollPosDelta, mouseScrollRotDelta))
+						if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { mouseScrollEvents.data(), mouseScrollEvents.size() }, mouseScrollDelta, CameraTinyScalarEpsilon))
 							return fail("Mouse scroll binding smoke failed for camera \"" + std::string(camera->getIdentifier()) + "\".");
 					}
 
 					std::cout << "[headless-camera-smoke][pass] " << camera->getIdentifier()
-						<< " direct_pos_delta=" << directPosDelta
-						<< " direct_rot_delta_deg=" << directRotDelta
-						<< " kb_pos_delta=" << keyboardPosDelta
-						<< " kb_rot_delta_deg=" << keyboardRotDelta
-						<< " mouse_move_pos_delta=" << mouseMovePosDelta
-						<< " mouse_move_rot_delta_deg=" << mouseMoveRotDelta
-						<< " mouse_scroll_pos_delta=" << mouseScrollPosDelta
-						<< " mouse_scroll_rot_delta_deg=" << mouseScrollRotDelta
+						<< " direct_pos_delta=" << directDelta.position
+						<< " direct_rot_delta_deg=" << directDelta.rotationDeg
+						<< " kb_pos_delta=" << keyboardDelta.position
+						<< " kb_rot_delta_deg=" << keyboardDelta.rotationDeg
+						<< " mouse_move_pos_delta=" << mouseMoveDelta.position
+						<< " mouse_move_rot_delta_deg=" << mouseMoveDelta.rotationDeg
+						<< " mouse_scroll_pos_delta=" << mouseScrollDelta.position
+						<< " mouse_scroll_rot_delta_deg=" << mouseScrollDelta.rotationDeg
 						<< std::endl;
 				}
 
@@ -1112,7 +891,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail(std::string("Cross-kind preset smoke failed for ") + label + ". " + describeApplyResult(applyResult));
 
 					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
-					if (!restoreResult.succeeded() || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+					if (!restoreResult.succeeded() || !comparePresetToCameraStrict(targetCamera, baselinePreset))
 						return fail(std::string("Cross-kind preset restore smoke failed for ") + label + ". " + describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
 
 					return true;
@@ -1132,14 +911,14 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					const auto baselinePreset = nbl::core::capturePreset(m_cameraGoalSolver, targetCamera, std::string(label) + "-baseline");
 					const auto applyResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, sourcePreset);
-					if (!applyResult.succeeded() || !applyResult.exact || !comparePresetToCamera(targetCamera, sourcePreset, 1e-6, 0.1, 1e-6))
+					if (!applyResult.succeeded() || !applyResult.exact || !comparePresetToCameraStrict(targetCamera, sourcePreset))
 					{
 						return fail(std::string("Exact cross-kind preset smoke failed for ") + label + ". " +
 							describeApplyResult(applyResult) + " " + describePresetMismatch(targetCamera, sourcePreset));
 					}
 
 					const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, targetCamera, baselinePreset);
-					if (!restoreResult.succeeded() || !restoreResult.exact || !comparePresetToCamera(targetCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+					if (!restoreResult.succeeded() || !restoreResult.exact || !comparePresetToCameraStrict(targetCamera, baselinePreset))
 					{
 						return fail(std::string("Exact cross-kind preset restore smoke failed for ") + label + ". " +
 							describeApplyResult(restoreResult) + " " + describePresetMismatch(targetCamera, baselinePreset));
@@ -1179,7 +958,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
-						if (!restoreResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreResult.succeeded() || !comparePresetToCameraStrict(orbitCamera, baselinePreset))
 							return fail("Orbit follow smoke failed to restore the baseline preset.");
 
 						followConfig.mode = ECameraFollowMode::KeepWorldOffset;
@@ -1193,7 +972,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, baselinePreset);
-						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(orbitCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCameraStrict(orbitCamera, baselinePreset))
 							return fail("Orbit keep-world-offset smoke failed to restore the baseline preset.");
 					}
 
@@ -1228,7 +1007,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, defaultFollowCamera, baselinePreset);
-						if (!restoreResult.succeeded() || !comparePresetToCamera(defaultFollowCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreResult.succeeded() || !comparePresetToCameraStrict(defaultFollowCamera, baselinePreset))
 							return fail("Default follow smoke failed to restore the baseline preset for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".");
 					}
 
@@ -1248,7 +1027,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
-						if (!restoreResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreResult.succeeded() || !comparePresetToCameraStrict(freeCamera, baselinePreset))
 							return fail("Free follow smoke failed to restore the baseline preset.");
 
 						followConfig.mode = ECameraFollowMode::KeepWorldOffset;
@@ -1262,7 +1041,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreWorldOffsetResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, baselinePreset);
-						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCamera(freeCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreWorldOffsetResult.succeeded() || !comparePresetToCameraStrict(freeCamera, baselinePreset))
 							return fail("Free keep-world-offset smoke failed to restore the baseline preset.");
 					}
 
@@ -1286,7 +1065,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 							return false;
 
 						const auto restoreResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, chaseCamera, baselinePreset);
-						if (!restoreResult.succeeded() || !comparePresetToCamera(chaseCamera, baselinePreset, 1e-6, 0.1, 1e-6))
+						if (!restoreResult.succeeded() || !comparePresetToCameraStrict(chaseCamera, baselinePreset))
 							return fail("Chase follow smoke failed to restore the baseline preset.");
 					}
 
@@ -1446,7 +1225,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CCameraKeyframeTrack loadedTrack;
 					if (!nbl::system::readKeyframeTrack(keyframeBuffer, loadedTrack))
 						return fail("Keyframe persistence smoke failed to deserialize track.");
-					if (!nbl::core::compareKeyframeTrackContent(sourceTrack, loadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+					if (!nbl::system::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, loadedTrack))
 						return fail("Keyframe persistence smoke changed stream track content.");
 
 					struct TempFileCleanup final
@@ -1486,7 +1265,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CCameraKeyframeTrack fileLoadedTrack;
 					if (!nbl::system::loadKeyframeTrackFromFile(keyframeFile, fileLoadedTrack))
 						return fail("Keyframe persistence smoke failed to load track file.");
-					if (!nbl::core::compareKeyframeTrackContent(sourceTrack, fileLoadedTrack, 1e-6, 1e-6, 0.1, 1e-6))
+					if (!nbl::system::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, fileLoadedTrack))
 						return fail("Keyframe persistence smoke changed file track content.");
 				}
 
@@ -1743,7 +1522,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					CameraPreset orientedPreset = initialFreePreset;
 					orientedPreset.goal.orientation = makeQuaternionFromEulerDegrees(float64_t3(0.0, 90.0, 0.0));
 					const auto orientResult = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, orientedPreset);
-					if (!orientResult.succeeded() || !comparePresetToCamera(freeCamera, orientedPreset, 1e-6, 0.1, 1e-6))
+					if (!orientResult.succeeded() || !comparePresetToCameraStrict(freeCamera, orientedPreset))
 						return fail("Camera manipulation utilities smoke failed to orient Free camera before translation remap.");
 
 					std::vector<CVirtualGimbalEvent> worldTranslationEvents(3u);
@@ -1764,7 +1543,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					const auto remappedPosition = freeCamera->getGimbal().getPosition();
 					const auto positionDelta = remappedPosition - orientedPreset.goal.position;
 					const float64_t3 expectedWorldDelta(1.25, 0.5, 2.0);
-					if (!nearlyEqual3(positionDelta, expectedWorldDelta, 1e-6))
+					if (!hlsl::nearlyEqualVec3(positionDelta, expectedWorldDelta, 1e-6))
 						return fail("Camera manipulation utilities smoke changed world-space translation semantics.");
 
 					CameraPreset pitchPreset = initialFreePreset;
@@ -1786,7 +1565,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 						return fail("Camera manipulation utilities smoke produced wrong clamped Free camera pitch.");
 
 					const auto restoreFree = nbl::core::applyPresetDetailed(m_cameraGoalSolver, freeCamera, initialFreePreset);
-					if (!restoreFree.succeeded() || !comparePresetToCamera(freeCamera, initialFreePreset, 1e-6, 0.1, 1e-6))
+					if (!restoreFree.succeeded() || !comparePresetToCameraStrict(freeCamera, initialFreePreset))
 						return fail("Camera manipulation utilities smoke failed to restore Free camera baseline.");
 				}
 
@@ -1814,7 +1593,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					}
 
 					const auto restoreOrbit = nbl::core::applyPresetDetailed(m_cameraGoalSolver, orbitCamera, initialOrbitPreset);
-					if (!restoreOrbit.succeeded() || !comparePresetToCamera(orbitCamera, initialOrbitPreset, 1e-6, 0.1, 1e-6))
+					if (!restoreOrbit.succeeded() || !comparePresetToCameraStrict(orbitCamera, initialOrbitPreset))
 						return fail("Camera manipulation utilities smoke failed to restore Orbit baseline.");
 				}
 
@@ -1878,84 +1657,45 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 			m_logFormatter = core::make_smart_refctd_ptr<CUILogFormatter>();
 
-			// Remember to call the base class initialization!
-			if (!base_t::onAppInitialized(std::move(system)))
+			if (!base_t::onAppInitialized(smart_refctd_ptr(system)))
+				return false;
+			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
 			{
-				smart_refctd_ptr<nbl::system::IFileArchive> examplesHeaderArch, examplesSourceArch, examplesBuildArch, thisExampleArch, thisExampleBuildArch;
-#ifdef NBL_EMBED_BUILTIN_RESOURCES
-				examplesHeaderArch = core::make_smart_refctd_ptr<nbl::builtin::examples::include::CArchive>(smart_refctd_ptr(m_logger));
-				examplesSourceArch = core::make_smart_refctd_ptr<nbl::builtin::examples::src::CArchive>(smart_refctd_ptr(m_logger));
-				examplesBuildArch = core::make_smart_refctd_ptr<nbl::builtin::examples::build::CArchive>(smart_refctd_ptr(m_logger));
-
-	#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
-				thisExampleArch = make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
-	#endif
-
-	#ifdef _NBL_THIS_EXAMPLE_BUILTIN_BUILD_C_ARCHIVE_H_
-				thisExampleBuildArch = make_smart_refctd_ptr<nbl::this_example::builtin::build::CArchive>(smart_refctd_ptr(m_logger));
-	#endif
-#else
-				examplesHeaderArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
-				examplesSourceArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples", smart_refctd_ptr(m_logger), m_system.get());
-				examplesBuildArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
-				thisExampleArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
-	#ifdef NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-				thisExampleBuildArch = make_smart_refctd_ptr<nbl::system::CMountDirectoryArchive>(NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
-	#endif
-#endif
-				m_system->mount(std::move(examplesHeaderArch),"nbl/examples");
-				m_system->mount(std::move(examplesSourceArch),"nbl/examples");
-				m_system->mount(std::move(examplesBuildArch),"nbl/examples");
-				if (thisExampleArch)
-					m_system->mount(std::move(thisExampleArch),"app_resources");
-				if (thisExampleBuildArch)
-					m_system->mount(std::move(thisExampleBuildArch),"app_resources");
-			}
-
-			{
-				const std::optional<std::string> cameraJsonFile = program.is_used("--file") ? program.get<std::string>("--file") : std::optional<std::string>(std::nullopt);
+				const std::optional<std::filesystem::path> cameraJsonFile = program.is_used("--file") ? std::optional<std::filesystem::path>(program.get<std::string>("--file")) : std::optional<std::filesystem::path>(std::nullopt);
 
 				camera_json_t j;
 				auto loadDefaultConfig = [&]() -> bool
 				{
-#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
-					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
-					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
-					if (!pFile)
-						return logFail("Could not open builtin cameras.json!");
-
-					string config;
-					IFile::success_t result;
-					config.resize(pFile->getSize());
-					pFile->read(result, config.data(), 0, pFile->getSize());
-					j = camera_json_t::parse(config);
+					const auto configPath = std::filesystem::path(nbl::system::SCameraAppResourcePaths::DefaultCameraConfigRelativePath);
+					std::string jsonError;
+					if (!nbl::system::loadJsonFromPath(*m_system, configPath, j, &jsonError))
+						return logFail("%s", jsonError.c_str());
 					return true;
-#else
-					const auto fallbackPath = localInputCWD / "app_resources" / "cameras.json";
-					std::ifstream fallbackFile(fallbackPath);
-					if (!fallbackFile.is_open())
-						return logFail("Cannot open default config \"%s\".", fallbackPath.string().c_str());
-					fallbackFile >> j;
-					return true;
-#endif
 				};
 
-				auto file = cameraJsonFile.has_value() ? std::ifstream(cameraJsonFile.value()) : std::ifstream();
-				if (!file.is_open())
+				std::string jsonError;
+				std::filesystem::path resolvedCameraJsonFile;
+				const bool hasUserConfig = cameraJsonFile.has_value();
+				if (hasUserConfig)
 				{
-					if (cameraJsonFile.has_value())
-						m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.value().c_str());
+					resolvedCameraJsonFile = nbl::system::resolveInputPath(localInputCWD, cameraJsonFile.value());
+				}
+
+				if (hasUserConfig && nbl::system::loadJsonFromPath(*m_system, resolvedCameraJsonFile, j, &jsonError))
+				{
+					// Loaded from explicit user path.
+				}
+				else
+				{
+					if (hasUserConfig)
+						m_logger->log("Cannot open input \"%s\" json file (%s). Switching to default config.", ILogger::ELL_WARNING, resolvedCameraJsonFile.string().c_str(), jsonError.c_str());
 					else
 						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_INFO);
 
 					if (!loadDefaultConfig())
 						return false;
-				}
-				else
-				{
-					file >> j;
 				}
 
 				std::optional<CCameraSequenceScript> pendingScriptedSequence;
@@ -2043,9 +1783,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 				if (program.is_used("--script"))
 				{
-					nbl::system::path scriptPath = program.get<std::string>("--script");
-					if (scriptPath.is_relative())
-						scriptPath = localInputCWD / scriptPath;
+					nbl::system::path scriptPath = nbl::system::resolveInputPath(localInputCWD, program.get<std::string>("--script"));
 					nbl::system::CCameraScriptedInputParseResult parsed;
 					if (!nbl::system::loadCameraScriptedInputFromFile(scriptPath, parsed, &scriptedInputParseError))
 					{
@@ -2071,30 +1809,11 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				}
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
-				for (const auto& jCamera : j["cameras"])
+				std::string cameraConfigError;
+				if (!nbl::system::tryLoadCameraCollectionFromJson(j, cameraConfigError, cameras))
 				{
-					if (jCamera.contains("type"))
-					{
-						if (!jCamera.contains("position"))
-						{
-							logFail("Expected \"position\" keyword for camera definition!");
-							return false;
-						}
-
-						smart_refctd_ptr<ICamera> camera;
-						std::string error;
-						if (!createCameraFromJson(jCamera, error, camera))
-						{
-							logFail("%s", error.c_str());
-							return false;
-						}
-						cameras.emplace_back(std::move(camera));
-					}
-					else
-					{
-						logFail("Expected \"type\" keyword for camera definition!");
-						return false;
-					}
+					logFail("%s", cameraConfigError.c_str());
+					return false;
 				}
 
 				std::vector<IPlanarProjection::CProjection> projections;
@@ -2457,9 +2176,6 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				}
 			}
 
-			// Create asset manager
-			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
-
 			// First create the resources that don't depend on a swapchain
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -2601,112 +2317,21 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 			// UI
 			{
 				{
-					constexpr std::array<size_t, 5> ImGuiStreamingBufferSizes = {
-						32ull * 1024ull * 1024ull,
-						16ull * 1024ull * 1024ull,
-						8ull * 1024ull * 1024ull,
-						4ull * 1024ull * 1024ull,
-						2ull * 1024ull * 1024ull
-					};
-					auto createImGuiStreamingBuffer = [&](size_t size) -> smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t>
-					{
-						constexpr uint32_t minStreamingBufferAllocationSize = 128u;
-						constexpr uint32_t maxStreamingBufferAllocationAlignment = 4096u;
-
-						auto getRequiredAccessFlags = [&](const bitflag<IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS>& properties)
-						{
-							bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags(IDeviceMemoryAllocation::EMCAF_NO_MAPPING_ACCESS);
-
-							if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_READABLE_BIT))
-								flags |= IDeviceMemoryAllocation::EMCAF_READ;
-							if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_WRITABLE_BIT))
-								flags |= IDeviceMemoryAllocation::EMCAF_WRITE;
-
-							return flags;
-						};
-
-						IGPUBuffer::SCreationParams mdiCreationParams = {};
-						mdiCreationParams.usage = nbl::ext::imgui::UI::SCachedCreationParams::RequiredUsageFlags;
-						mdiCreationParams.size = size;
-
-						auto buffer = m_utils->getLogicalDevice()->createBuffer(std::move(mdiCreationParams));
-						if (!buffer)
-						{
-							m_logger->log("Failed to create ImGui streaming buffer object for size=%zu.", ILogger::ELL_WARNING, size);
-							return nullptr;
-						}
-
-						buffer->setObjectDebugName("ImGui MDI Upstream Buffer");
-
-						auto memoryReqs = buffer->getMemoryReqs();
-						const auto upStreamingBits = m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-						const auto reqMemoryTypeBits = memoryReqs.memoryTypeBits;
-						memoryReqs.memoryTypeBits &= upStreamingBits;
-						if (!memoryReqs.memoryTypeBits)
-						{
-							m_logger->log("No compatible up-streaming memory type for ImGui buffer size=%zu reqBits=0x%08x upBits=0x%08x.", ILogger::ELL_WARNING, size, reqMemoryTypeBits, upStreamingBits);
-							return nullptr;
-						}
-
-						auto allocation = m_utils->getLogicalDevice()->allocate(memoryReqs, buffer.get(), nbl::ext::imgui::UI::SCachedCreationParams::RequiredAllocateFlags);
-						if (!allocation.isValid())
-						{
-							m_logger->log("Failed to allocate ImGui streaming buffer memory for size=%zu reqBits=0x%08x upBits=0x%08x filteredBits=0x%08x sizeReq=%llu.", ILogger::ELL_WARNING, size, reqMemoryTypeBits, upStreamingBits, memoryReqs.memoryTypeBits, memoryReqs.size);
-							return nullptr;
-						}
-
-						auto memory = allocation.memory;
-
-						if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
-						{
-							m_logger->log("Could not map ImGui streaming buffer memory for size=%zu.", ILogger::ELL_WARNING, size);
-							return nullptr;
-						}
-
-						return make_smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t>(
-							SBufferRange<IGPUBuffer>{0ull, mdiCreationParams.size, std::move(buffer)},
-							maxStreamingBufferAllocationAlignment,
-							minStreamingBufferAllocationSize);
-					};
-
-					smart_refctd_ptr<nbl::ext::imgui::UI::SCachedCreationParams::streaming_buffer_t> imguiStreamingBuffer = nullptr;
-					for (const auto candidateSize : ImGuiStreamingBufferSizes)
-					{
-						imguiStreamingBuffer = createImGuiStreamingBuffer(candidateSize);
-						if (imguiStreamingBuffer)
-							break;
-					}
-					if (!imguiStreamingBuffer)
-						return logFail("Failed to create ImGui streaming buffer.");
-
 					nbl::ext::imgui::UI::SCreationParameters params;
 					params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
 					params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
-					params.assetManager = m_assetManager;
+					params.assetManager = m_assetMgr;
 					params.pipelineCache = nullptr;
 					params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, TotalUISampleTexturesAmount);
 					params.renderpass = smart_refctd_ptr<IGPURenderpass>(m_renderpass);
-					params.streamingBuffer = std::move(imguiStreamingBuffer);
 					params.subpassIx = 0u;
 					params.transfer = getTransferUpQueue();
 					params.utilities = m_utils;
 
-					auto loadPrecompiledShader = [&](const std::string_view key) -> smart_refctd_ptr<IShader>
-					{
-						IAssetLoader::SAssetLoadParams loadParams = {};
-						loadParams.logger = m_logger.get();
-						loadParams.workingDirectory = "app_resources";
-						auto bundle = m_assetManager->getAsset(key.data(), loadParams);
-						const auto& contents = bundle.getContents();
-						if (contents.empty())
-							return nullptr;
-						return IAsset::castDown<IShader>(contents[0]);
-					};
-
 					const auto vertexKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_vertex">(m_device.get());
 					const auto fragmentKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_fragment">(m_device.get());
-					auto vertexShader = loadPrecompiledShader(vertexKey.data());
-					auto fragmentShader = loadPrecompiledShader(fragmentKey.data());
+					auto vertexShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), vertexKey);
+					auto fragmentShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), fragmentKey);
 					if (!vertexShader || !fragmentShader)
 						return logFail("Failed to load precompiled ImGui shaders.");
 
@@ -2850,30 +2475,10 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				}
 
 				{
-					constexpr std::string_view SpaceEnvBlobCandidates[] = {
-						"rich_blue_nebulae_1_8k.rgba16f.envblob"
-					};
-
-					SpaceEnvBlobHeader envBlobHeader = {};
+					nbl::system::SSpaceEnvBlobHeader envBlobHeader = {};
 					std::vector<uint8_t> envBlobPayload;
-					const std::array<path, 3u> SpaceEnvSearchRoots = {
-						(localInputCWD / ".." / "media" / "envmap").lexically_normal(),
-						(localInputCWD / ".." / "media").lexically_normal(),
-						localInputCWD / "app_resources"
-					};
-					for (const auto candidate : SpaceEnvBlobCandidates)
-					{
-						for (const auto& root : SpaceEnvSearchRoots)
-						{
-							const auto candidatePath = root / candidate;
-							if (loadSpaceEnvBlob(candidatePath, envBlobHeader, envBlobPayload))
-							{
-								break;
-							}
-						}
-						if (!envBlobPayload.empty())
-							break;
-					}
+					const auto spaceEnvSearchRoots = nbl::system::makeSpaceEnvSearchRoots(localInputCWD);
+					nbl::system::loadFirstSpaceEnvBlobFromRoots(*m_system, spaceEnvSearchRoots, envBlobHeader, envBlobPayload);
 					if (envBlobPayload.empty())
 						return logFail("Failed to load space environment blob from available assets.");
 
@@ -3050,23 +2655,12 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 					if (!pipelineLayout)
 						return logFail("Failed to create space environment pipeline layout.");
 
-					auto loadPrecompiledShader = [&](const std::string_view key) -> smart_refctd_ptr<IShader>
-					{
-						IAssetLoader::SAssetLoadParams loadParams = {};
-						loadParams.logger = m_logger.get();
-						loadParams.workingDirectory = "app_resources";
-						auto bundle = m_assetManager->getAsset(key.data(), loadParams);
-						const auto& contents = bundle.getContents();
-						if (contents.empty())
-							return nullptr;
-						return IAsset::castDown<IShader>(contents[0]);
-					};
 					const auto spaceFragKey = nbl::this_example::builtin::build::get_spirv_key<"sky_env_fragment">(m_device.get());
-					auto fragmentShader = loadPrecompiledShader(spaceFragKey.data());
+					auto fragmentShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), spaceFragKey);
 					if (!fragmentShader)
 						return logFail("Failed to load space environment fragment shader.");
 
-					nbl::ext::FullScreenTriangle::ProtoPipeline fsTriProto(m_assetManager.get(), m_device.get(), m_logger.get());
+					nbl::ext::FullScreenTriangle::ProtoPipeline fsTriProto(m_assetMgr.get(), m_device.get(), m_logger.get());
 					if (!fsTriProto)
 						return logFail("Failed to create FullScreenTriangle prototype pipeline.");
 
@@ -3104,7 +2698,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 				const auto& geometries = m_scene->getInitParams().geometries;
 				if (geometries.empty())
 					return logFail("No geometries found for scene!");
-				m_renderer = CSimpleDebugRenderer::create(m_assetManager.get(), m_sceneRenderpass.get(), 0, { &geometries.front().get(), geometries.size() });
+				m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), m_sceneRenderpass.get(), 0, { &geometries.front().get(), geometries.size() });
 				if (!m_renderer)
 					return logFail("Failed to create debug renderer!");
 				{
@@ -3116,7 +2710,7 @@ bool App::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
 					ext::frustum::CDrawFrustum::SCreationParameters frustumParams = {};
 					frustumParams.transfer = getTransferUpQueue();
-					frustumParams.assetManager = m_assetManager;
+					frustumParams.assetManager = m_assetMgr;
 					frustumParams.drawMode = ext::frustum::CDrawFrustum::DrawMode::DM_SINGLE;
 					frustumParams.singlePipelineLayout = ext::frustum::CDrawFrustum::createPipelineLayoutFromPCRange(m_device.get(), singlePcRange);
 					frustumParams.renderpass = core::smart_refctd_ptr(m_sceneRenderpass);

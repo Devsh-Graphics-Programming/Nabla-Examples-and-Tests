@@ -14,7 +14,7 @@ class CDollyZoomCamera final : public CSphericalTargetCamera
 public:
     using base_t = CSphericalTargetCamera;
 
-    CDollyZoomCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, float baseFov = 40.0f)
+    CDollyZoomCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, float baseFov = DefaultBaseFovDeg)
         : base_t(position, target), m_baseFov(baseFov), m_referenceDistance(m_distance)
     {
         applyPose();
@@ -35,7 +35,7 @@ public:
         const double ratio = static_cast<double>(m_referenceDistance) / std::max<double>(static_cast<double>(m_distance), static_cast<double>(MinDistance));
         const double fov = 2.0 * std::atan(base * ratio);
         const double fovDeg = hlsl::degrees(fov);
-        return static_cast<float>(std::clamp(fovDeg, 10.0, 150.0));
+        return static_cast<float>(std::clamp(fovDeg, static_cast<double>(MinDynamicFovDeg), static_cast<double>(MaxDynamicFovDeg)));
     }
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
@@ -43,18 +43,14 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
-        double deltaU = impulse.dVirtualTranslate.y;
-        double deltaV = impulse.dVirtualTranslate.x;
-        double deltaDistance = impulse.dVirtualTranslate.z;
-
-        constexpr auto scalar = 0.01;
-        deltaU *= scalar * getMoveSpeedScale();
-        deltaV *= scalar * getMoveSpeedScale();
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const double deltaU = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        const double deltaV = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
+        const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
         m_u += deltaU;
         m_v += deltaV;
-        m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance * scalar), MinDistance, MaxDistance);
+        m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         return applyPose();
     }
@@ -86,8 +82,11 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
+    static inline constexpr float DefaultBaseFovDeg = 40.0f;
+    static inline constexpr float MinDynamicFovDeg = 10.0f;
+    static inline constexpr float MaxDynamicFovDeg = 150.0f;
 
-    float m_baseFov = 40.0f;
+    float m_baseFov = DefaultBaseFovDeg;
     float m_referenceDistance = 1.0f;
 };
 
