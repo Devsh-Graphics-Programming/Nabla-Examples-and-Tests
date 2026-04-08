@@ -1,7 +1,22 @@
 #include "common.hlsl"
 
-[[vk::push_constant]] SBeautyPushConstants pc;
+#include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
 
+struct CCascades
+{
+    using layer_type = float16_t3;
+    using sample_count_type = uint16_t;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t CascadeCount = 3; // TODO: refactor
+
+    void clear(const uint32_t cascadeIx)
+    {
+        // NOOP and shouldn't get used
+    }
+
+};
+
+
+[[vk::push_constant]] SBeautyPushConstants pc;
 
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
@@ -303,20 +318,23 @@ void raygen()
             }
         }
         // color output
-    //    Accumulator<gRWMCCascades> beautyAcc;
-    //    beautyAcc.accumulate(launchID.xy,launchID.z,float32_t3(accumulation.color),samplingInfo.rcpNewSampleCount);
+//        rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting).addSample(accumulation.color,samplingInfo.newSampleCount);
     }
+    const bool keepAccumulating = samplingInfo.firstSample;
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
-    albedoAcc.accumulate(launchID.xy,launchID.z,aovs.albedo,newSamplesOverTotal);
+    albedoAcc.accumulate(launchID.xy,launchID.z,aovs.albedo,newSamplesOverTotal,keepAccumulating);
     // normal
     Accumulator<ImageAccessor_gNormal> normalAcc;
-    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(hlsl::normalize(aovs.normal)),newSamplesOverTotal);
+    normalAcc.accumulate(launchID.xy,launchID.z,correctSNorm10WhenStoringToUnorm(hlsl::normalize(aovs.normal)),newSamplesOverTotal,keepAccumulating);
     // TODO: motion
-    // mask
-    Accumulator<ImageAccessor_gMask> maskAcc;
-    vector<float16_t,1> opacity = float16_t(1)-transparency;
-    maskAcc.accumulate(launchID.xy,launchID.z,opacity,newSamplesOverTotal);
+    // mask (TODO: do a separate pipeline for this with removed transparency calculations)
+    if (gSensor.hideEnvironment)
+    {
+        Accumulator<ImageAccessor_gMask> maskAcc;
+        vector<float16_t,1> opacity = float16_t(1)-transparency;
+        maskAcc.accumulate(launchID.xy,launchID.z,opacity,newSamplesOverTotal,keepAccumulating);
+    }
 }
 
 

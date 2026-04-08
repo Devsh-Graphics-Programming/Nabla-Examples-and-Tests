@@ -40,12 +40,13 @@ void raygen()
     gRWMCCascades[launchID] = uint32_t2(payload.instanceID,payload.primitiveID);
     // can also shove some stuff in `gBeauty`, `gMotion` and `gMask`
 
+    const bool keepAccumulating = samplingInfo.firstSample;
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
-    albedoAcc.accumulate(launchID.xy,launchID.z,float32_t3(payload.aov.albedo),samplingInfo.rcpNewSampleCount);
+    albedoAcc.accumulate(launchID.xy,launchID.z,float32_t3(payload.aov.albedo),samplingInfo.rcpNewSampleCount,keepAccumulating);
     // normal
     Accumulator<ImageAccessor_gNormal> normalAcc;
-    normalAcc.accumulate(launchID.xy,launchID.z,float32_t3(correctSNorm10WhenStoringToUnorm(payload.aov.normal)),samplingInfo.rcpNewSampleCount);
+    normalAcc.accumulate(launchID.xy,launchID.z,float32_t3(correctSNorm10WhenStoringToUnorm(payload.aov.normal)),samplingInfo.rcpNewSampleCount,keepAccumulating);
 }
 
 [shader("closesthit")]

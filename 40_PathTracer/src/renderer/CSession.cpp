@@ -277,7 +277,7 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 			before.back().barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 		}
 		enqueueBarrier(immutables.sampleCount);
-		enqueueBarrier(immutables.beauty);
+		enqueueBarrier(immutables.beauty); // TODO: who will clear this? Resolver or denoiser?
 		enqueueBarrier(immutables.rwmcCascades);
 		enqueueBarrier(immutables.albedo);
 		enqueueBarrier(immutables.normal);

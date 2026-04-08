@@ -28,11 +28,11 @@ struct Accumulator
 
 	// TODO: some check that `T` is same integral type and sign
 	template<typename T, int ComponentOverride NBL_FUNC_REQUIRES(ComponentOverride<=LoadStoreImageAccessor::Components)
-	void accumulate(const vector<uint16_t,Dimension> coord, const uint16_t layer, const vector<T,ComponentOverride> data, const T rcpNewSampleCount)
+	void accumulate(const vector<uint16_t,Dimension> coord, const uint16_t layer, const vector<T,ComponentOverride> data, const T rcpNewSampleCount, const bool keepAccumulating)
 	{
 		coded_type val;
 
-		if (rcpNewSampleCount<1.f)
+		if (keepAccumulating)
 		{
 			composed.get(val,coord,layer);
 			NBL_UNROLL for (uint16_t i=0; i<ComponentOverride; i++)
@@ -85,8 +85,9 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 	}
 	//
 	retval.newSampleCount = retval.firstSample+newSamplesThisPixel;
-	gSampleCount[coord] = retval.newSampleCount;
-	// handle overflow
+    if (newSamplesThisPixel!=0 || dontClear==0) // whether this pays off depends on ratio of pixels with 0 spp in a dispatch
+    	gSampleCount[coord] = retval.newSampleCount;
+	// handle overflow properly
 	retval.rcpNewSampleCount = hlsl::select(retval.newSampleCount>retval.firstSample,1.f/float32_t(retval.newSampleCount),0.f);
 	return retval;
 }
