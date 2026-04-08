@@ -19,6 +19,74 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/bit.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
+// Function implemented in workgroup2::FFTIndexingUtils is meant to be fast based on the observation that reordering can still be performed fast in the case of
+// a single prime factor. However, we need to test that the implemented fast version matches the real ordering
+template<uint32_t Radix2ElementsPerInvocationLog2, uint32_t WorkgroupSizeLog2, uint32_t ExtraPrimeFactor>
+void DIFOrderTester()
+{
+	using IndexingUtils = nbl::hlsl::workgroup2::FFTIndexingUtils<Radix2ElementsPerInvocationLog2, WorkgroupSizeLog2, ExtraPrimeFactor>;
+	using IndexingUtilsHelper = typename IndexingUtils::helper_t;
+	const uint32_t FFTSize = IndexingUtils::FFTSize;
+	const uint32_t Radix2FFTSizeLog2 = IndexingUtils::Radix2FFTSizeLog2;
+	const uint32_t Radix2FFTSize = IndexingUtils::Radix2FFTSize;
+
+	// Check fast div correctness
+	{
+		bool correct = true;
+		for (auto idx = 0u; idx < FFTSize; idx++)
+		{
+			if (idx / ExtraPrimeFactor != IndexingUtilsHelper::fastDiv(idx)) correct = false;
+		}
+		std::cout << "Fast div test " << (correct ? "passed\n" : "did not pass\n");
+	}
+
+	// Check whether the forward ordering is computed properly
+	{
+		bool correct = true;
+		for (auto idx = 0u; idx < FFTSize; idx++)
+		{
+			uint32_t fastIdx = IndexingUtilsHelper::mapLaneToFreq(idx);
+			if constexpr (ExtraPrimeFactor == 1)
+			{
+				if (fastIdx != nbl::hlsl::bitReverseAs<uint32_t>(idx, Radix2FFTSizeLog2)) correct = false;
+			}
+			else
+			{
+				uint32_t index = idx;
+				std::vector<uint32_t> digits;
+				for (auto i = 0u; i < Radix2FFTSizeLog2; i++)
+				{
+					digits.push_back(index & 1);
+					index >>= 1;
+				}
+				digits.push_back(index);
+				// Reconstruct mapping
+				uint32_t correctIdx = 0;
+				uint32_t multiplier = ExtraPrimeFactor * Radix2FFTSize;
+				for (auto i = 0u; i < Radix2FFTSizeLog2; i++)
+				{
+					multiplier >>= 1;
+					correctIdx += multiplier * digits[i];
+				}
+				multiplier /= ExtraPrimeFactor;
+				correctIdx += multiplier * digits[Radix2FFTSizeLog2];
+				if (fastIdx != correctIdx)
+					correct = false;
+			}
+		}
+		std::cout << "Forward test " << (correct ? "passed\n" : "did not pass\n");
+	}
+
+	// Check whether the inverse actually computes the inverse
+	{
+		bool correct = true;
+		for (auto idx = 0; idx < FFTSize; idx++)
+		{
+			if (idx != IndexingUtilsHelper::mapFreqToLane(IndexingUtilsHelper::mapLaneToFreq(idx))) correct = false;
+		}
+		std::cout << "Inverse test " << (correct ? "passed\n" : "did not pass\n");
+	}
+}
 
 // Simple showcase of how to run FFT on a 1D array
 class FFT_Test final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
@@ -158,6 +226,9 @@ public:
 		// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
 		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
 
+		// Run DIF Ordering test
+		DIFOrderTester<Radix2ElementsPerInvocationLog2, WorkgroupSizeLog2, ExtraPrimeFactor>();
+
 		// Generate our data in-place on the allocated staging buffer. Packing is interleaved in this example!
 		{
 			auto* const inputPtr = reinterpret_cast<scalar_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
@@ -166,27 +237,25 @@ public:
 			{
 				//Random array
 
-				//scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				#define DIVIDE
 
-				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
-				
-				
-				scalar_t x = j > 0 ? 0.f : 1.f;
-				scalar_t y = 0;
-				
-				
+				//FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
+
+
+				//scalar_t x = j > 0 ? 0.f : 1.f, y = 0;
+					
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				
-				/*
-				scalar_t x = 1.f;
-				scalar_t y = 0.f;
-				*/
+
+
+				//scalar_t x = 1.f, y = 0.f;
 
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
 			}
 			std::cout << "\nEnd array CPU\n";
+			
 			// Always remember to flush!
 			if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
 			{
@@ -285,9 +354,17 @@ public:
 
 				std::cout << "Begin array GPU\n";
 				scalar_t* const data = reinterpret_cast<scalar_t*>(const_cast<void*>(bufSrc));
-				for (auto i = 0u; i < complexElementCount; i++) {
-					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
+				#ifdef DIVIDE
+				for (auto j = 0; j < complexElementCount; j++)
+				{
+					std::cout << "(" << data[2 * j] / complexElementCount << ", " << data[2 * j + 1] / complexElementCount << "), ";
 				}
+				#else
+				for (auto j = 0; j < complexElementCount; j++)
+				{
+					std::cout << "(" << data[2 * j] << ", " << data[2 * j + 1] << "), ";
+				}
+				#endif			
 
 				std::cout << "\nEnd array GPU\n";
 			},
