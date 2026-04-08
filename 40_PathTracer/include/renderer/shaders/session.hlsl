@@ -94,28 +94,8 @@ struct SensorDSBindingCounts
 //
 [[vk::binding(SensorDSBindings::AsSampledImages,SessionDSIndex)]] Texture2DArray<float32_t4> gSensorTextures[SensorDSBindingCounts::AsSampledImages];
 
-// RWMC cascades need special treatment
-struct RMWCCascadeAccumulator
-{
-	void accumulate(const uint16_t2 coord, const uint16_t layer, const float16_t3 data, const uint16_t newSampleCount)
-	{
-//		coded_type val;
-
-//		if (rcpNewSampleCount<1.f)
-//		{
-//			composed.get(val,coord,layer);
-//			NBL_UNROLL for (uint16_t i=0; i<ComponentOverride; i++)
-//				val[i] += (data[i] - val[i]) * rcpNewSampleCount;
-//		}
-//		else // clear path
-//		NBL_UNROLL for (uint16_t i=0; i<LoadStoreImageAccessor::Components; i++)
-//			val[i] = hlsl::select(i<ComponentOverride,data[i],T(0));
-
-//		gRWMCCascades[uint16_t3(coord,layer+cascade*uint16_t(spirv::LaunchSizeKHR.z))] = ;
-	}
-};
-
-// for our generic accumulators
+// For our generic accumulators
+// RWMC cascades and Beauty need special treatment
 DEFINE_TEXTURE_ACCESSOR(gAlbedo);
 DEFINE_TEXTURE_ACCESSOR(gNormal);
 DEFINE_TEXTURE_ACCESSOR(gMotion);

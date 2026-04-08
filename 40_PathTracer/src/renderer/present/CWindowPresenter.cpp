@@ -237,7 +237,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		winMgr->show(window);
 
 	m_pushConstants.layer = 0; // TODO: cubemaps and RWMC debug
-	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::Normal);
+	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::RWMCCascades);
 
 	auto acquireResult = m_construction.surface->acquireNextImage();
 	*p_currentImageAcquire = {.semaphore=acquireResult.semaphore,.value=acquireResult.acquireCount};

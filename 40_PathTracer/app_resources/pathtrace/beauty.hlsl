@@ -1,22 +1,67 @@
 #include "common.hlsl"
 
+[[vk::push_constant]] SBeautyPushConstants pc;
+
+
 #include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
 
 struct CCascades
 {
     using layer_type = float16_t3;
     using sample_count_type = uint16_t;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t CascadeCount = 3; // TODO: refactor
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t CascadeCount = 1; // TODO: refactor
+    //
+    bool actuallyClear;
 
-    void clear(const uint32_t cascadeIx)
+    inline uint16_t3 __getCoord(const uint16_t cascadeIx)
     {
-        // NOOP and shouldn't get used
+        uint16_t3 coord = spirv::LaunchIdKHR;
+        coord.z = coord.z*uint16_t(6)+cascadeIx;
+        return coord;
     }
 
+    inline void clear(const uint16_t cascadeIx)
+    {
+//        if (actuallyClear)
+//            gRWMCCascades[__getCoord(cascadeIx)] = uint32_t2(0,0);
+    }
+
+    using weight_t = typename rwmc::SSplattingParameters::scalar_t;
+    inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
+    {
+        const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
+        uint16_t3 coord = __getCoord(lowerCascadeIndex);
+        __splatToLayer(coord,_sample*lowerCascadeLevelWeight,sampleCount,reciprocalSampleCount);
+        if (higherCascadeLevelWeight>weight_t(0))
+        {
+            vk::BufferPointer<uint32_t>(0x0ull).Get() = 0xdeadbeefu;
+            coord.z++;
+            __splatToLayer(coord,_sample*higherCascadeLevelWeight,sampleCount,reciprocalSampleCount);
+        }
+    }
+
+    inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
+    {
+        const bool doPrint = all(uint16_t3(0,0,0)==coord);
+        uint16_t4 data = uint16_t4(0,0,0,0);
+        if (sampleCount>1)
+            data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
+        if (doPrint)
+            printf("Old Mem %d %d %d %d\n",data.x,data.y,data.z,data.w);
+        layer_type value = bit_cast<layer_type>(data.xyz);
+        if (doPrint)
+            printf("Old Val %f %f %f\n",value.x,value.y,value.z);
+        const sample_count_type oldSampleCount = data.w;
+        value += (weightedSample - value*weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
+        if (doPrint)
+            printf("New Val %f %f %f\n",value.x,value.y,value.z);
+        data = uint16_t4(bit_cast<uint16_t3>(value),sampleCount);
+        if (doPrint)
+            printf("New Mem %d %d %d %d\n",data.x,data.y,data.z,data.w);
+        gRWMCCascades[coord] = bit_cast<uint32_t2>(data);
+    }
 };
 
-
-[[vk::push_constant]] SBeautyPushConstants pc;
 
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
@@ -149,12 +194,10 @@ void raygen()
     const float16_t newSamplesOverTotal = float16_t(float32_t(samplesThisFrame)*samplingInfo.rcpNewSampleCount);
     const float16_t rcpSamplesThisFrame = float16_t(1)/float16_t(samplesThisFrame);
 
-//    printf("%f %f %f",samplingInfo.rcpNewSampleCount,samplingInfo.newSampleCount,samplingInfo.firstSample);
-
     float16_t transparency = 0.f;
     SArbitraryOutputValues aovs;
     aovs.clear();
-    [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=samplingInfo.newSampleCount; sampleIndex++)
+    [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=samplingInfo.newSampleCount; )
     {
         // For RWMC to work, every sample must be splatted individually
         accum_t color;
@@ -321,8 +364,11 @@ void raygen()
                 }
             }
         }
-        // color output
-//        rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting).addSample(accumulation.color,samplingInfo.newSampleCount);
+        color = float16_t3(0.f,0.7f,0.1f);
+        // color output, don't precompute `rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting)` and keep it as live state, it will spill anyway
+        rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting);
+        colorAcc.accumulation.actuallyClear = sampleIndex==0;
+        colorAcc.addSample(++sampleIndex,color);
     }
     const bool keepAccumulating = samplingInfo.firstSample;
     // albedo

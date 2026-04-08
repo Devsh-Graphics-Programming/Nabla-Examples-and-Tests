@@ -163,9 +163,8 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		immutables.sampleCount = createScreenSizedImage("Current Sample Count",E_FORMAT::EF_R16_UINT);
 		auto sampleCountView = immutables.sampleCount.views[E_FORMAT::EF_R16_UINT];
 		addImageWrite(SensorDSBindings::SampleCount,sampleCountView);
-		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1);
-		auto rwmcCascadesView = immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT];
-		addImageWrite(SensorDSBindings::RWMCCascades,rwmcCascadesView);
+		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R16G16B16A16_SFLOAT));
+		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
 		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
 		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
 		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
@@ -191,7 +190,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			using index_e = SensorDSBindings::SampledImageIndex;
 			viewInfos[uint8_t(index_e::ScrambleKey)].desc = scrambleKeyView;
 			viewInfos[uint8_t(index_e::SampleCount)].desc = sampleCountView;
-			viewInfos[uint8_t(index_e::RWMCCascades)].desc = rwmcCascadesView;
+			viewInfos[uint8_t(index_e::RWMCCascades)].desc = immutables.rwmcCascades.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
 			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32];
 			viewInfos[uint8_t(index_e::Albedo)].desc = albedoView;
 			viewInfos[uint8_t(index_e::Normal)].desc = normalView;
@@ -223,6 +222,8 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			return false;
 		}
 	}
+
+	// TODO: transition image layouts instead of barriering in Reset
 
 	if (!immutables || !reset(m_params.initDynamics,info))
 	{
