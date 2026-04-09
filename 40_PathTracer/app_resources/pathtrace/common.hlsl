@@ -474,11 +474,18 @@ struct SEnvSample
     accum_t color;
     SArbitraryOutputValues aov;
 };
+// tmp stuff
+const static float32_t sunConeHalfAngleCos = 0.99999;
+const static float32_t3 sunDir = normalize(float32_t3(1,1,1));
+//
 SEnvSample sampleEnv(const float32_t3 raydir)
 {
     SEnvSample retval;
     // TODO: sample the envmap texture
     retval.color = float16_t3(0.5f,0.5f,1.f);
+    const accum_t sunColor = accum_t(1000, 1000, 1000);
+    if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
+        retval.color = sunColor;
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
     retval.aov.albedo = hlsl::min(retval.color,float16_t3(1,1,1));
     retval.aov.normal = -hlsl::normalize(float16_t3(raydir));

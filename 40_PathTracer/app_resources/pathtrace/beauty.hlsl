@@ -89,9 +89,9 @@ struct CCascades
 struct[raypayload] SAnyHitRetval
 {
     // before sending the ray by the caller
-    inline void init()
+    inline void init(float32_t tMax = hlsl::numeric_limits<float32_t>::max)
     {
-        rayT = hlsl::numeric_limits<float32_t>::max;
+        rayT = tMax;
     }
     // call in AnyHit instead of AcceptHit
     inline void acceptHit(const float16_t _transparency)
@@ -166,6 +166,7 @@ enum E_SBT_OFFSETS : uint16_t
 
 // TODO: do a function with MIS to do envmap lighting
 
+
 [shader("raygeneration")]
 void raygen()
 {
@@ -197,6 +198,14 @@ void raygen()
         spectral_t color;
 
         const uint16_t PrimaryRayRandTripletsUsed = 2;
+
+        using namespace nbl::hlsl::bxdf;
+        using namespace nbl::hlsl::material_compiler3::backends::default_upt;
+        using bxdf_config_t = BxDFConfig;
+        using ray_dir_info_t = bxdf_config_t::ray_dir_info_type;
+        using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
+        using light_sample_t = bxdf_config_t::sample_type;
+        using quotient_pdf_type = bxdf_config_t::quotient_pdf_type;
         // trace primary ray
         float32_t3 rayOrigin,rayDir;
         //
@@ -297,35 +306,58 @@ void raygen()
                 const uint16_t sequenceProtoDim = (depth-uint16_t(1))*RandDimTriplesPerDepth+PrimaryRayRandTripletsUsed;
                 float32_t3 randVec = randgen(sequenceProtoDim,sampleIndex);
 
+                // TODO: start at 0 or numeric_limits::min?
+                const float32_t tMin = 0.f;
+
                 // perform NEE
-                float32_t neeProb = 0.f;
-                if (neeProb)
+                const float32_t neeProb = 1.f;
+                if (true) // whether to perform NEE at all for this material
                 {
-                    if (true) // whether to perform NEE at all for this material
+                    float32_t3 randNEE = randgen(sequenceProtoDim+uint16_t(1),sampleIndex);
+                    // choose regular lights or envmap
+
+                    // TODO: SER point, top bits are NEE kind (none, regular light, envmap, then use bits of NEE random number and current position)
+
+                    // perform the NEE sampling
+                    float32_t3 L;//light_sample_t L;
+                    float32_t pdf;
+                    float32_t tMax;
                     {
-                        // choose regular lights or envmap
+                        const float32_t cosTheta = hlsl::mix(1.0f, sunConeHalfAngleCos, randNEE.x);
+                        const float32_t cosTheta2 = cosTheta * cosTheta;
+                        const float32_t sinTheta = hlsl::sqrt(1.0 - cosTheta2);
 
-                        // TODO: SER point, top bits are NEE kind (none, regular light, envmap, then use bits of NEE random number and current position)
+                        L = sunDir * cosTheta;
 
-                        // perform the NEE sampling
+                        float32_t phi = 2.0 * numbers::pi<float32_t> *randNEE.y;
+                        float32_t3 X, Y;
+                        math::frisvad<float32_t3>(sunDir, X, Y);
 
-                        // compute BxDF eval value, another layer of culling
+                        L += (X * hlsl::cos(phi) + Y * hlsl::sin(phi)) * sinTheta;
 
-                        // trace shadow rays only for contributing samples
+                        pdf = 1.0 / (2.0 * numbers::pi<float32_t> * (1.0 - sunConeHalfAngleCos));
+                        tMax = hlsl::numeric_limits<float16_t>::max;
+                    }
 
-                        // TODO: another possible SER point before casting shadow rays
+                    // compute BxDF eval value, another layer of culling
+
+                    // trace shadow rays only for contributing samples
+                    {
+                       // TODO: another possible SER point before casting shadow rays
+                        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
+                        payload.init(tMax);
+                        // TODO: change to ESBTO_NEE when ready
+                        spirv::traceRayKHR(gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,rayOrigin,tMin,L,tMax,payload);
+
+                        if (miss)
+                        {
+                            // apply everything
+                        }
                     }
                 }
                 
                 // TODO: perform shading
                 {
-                    using namespace nbl::hlsl::bxdf;
-                    using namespace nbl::hlsl::material_compiler3::backends::default_upt;
-                    using bxdf_config_t = BxDFConfig;
-                    using ray_dir_info_t = bxdf_config_t::ray_dir_info_type;
-                    using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
-                    using light_sample_t = bxdf_config_t::sample_type;
-                    using quotient_pdf_type = bxdf_config_t::quotient_pdf_type;
 
                     ray_dir_info_t tmpV;
                     tmpV.direction = -rayDir;
@@ -369,8 +401,6 @@ void raygen()
                         // TODO: when doing anyhit opacity pass `randVec.z` into the payload
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] BeautyPayload payload;
                         payload.markAsMissed();
-                        // TODO: start at 0 or numeric_limits::min?
-                        const float32_t tMin = 0.f;
                         spirv::traceRayKHR(gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,ESBTO_PATH,rayOrigin,tMin,rayDir,hlsl::numeric_limits<float16_t>::max,payload);
                         if (payload.hasMissed())
                         {
