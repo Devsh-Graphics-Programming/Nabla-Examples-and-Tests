@@ -46,8 +46,6 @@ public:
     inline hlsl::float64_t3 getTarget() const { return m_targetPosition; }
 
     inline float getDistance() const { return m_distance; }
-    inline double getU() const { return m_orbitUv.x; }
-    inline double getV() const { return m_orbitUv.y; }
     inline const hlsl::float64_t2& getOrbitUv() const { return m_orbitUv; }
 
     static inline constexpr float MinDistance = base_t::SphericalMinDistance;

@@ -125,8 +125,7 @@ struct CCameraTargetRelativeUtilities final
                 position,
                 static_cast<hlsl::float64_t>(minDistance),
                 static_cast<hlsl::float64_t>(maxDistance),
-                outState.orbitUv.x,
-                outState.orbitUv.y,
+                outState.orbitUv,
                 appliedDistance))
         {
             return false;
@@ -145,8 +144,7 @@ struct CCameraTargetRelativeUtilities final
         outPose = {};
         return hlsl::CCameraMathUtilities::tryBuildSphericalPoseFromOrbit(
             state.target,
-            state.orbitUv.x,
-            state.orbitUv.y,
+            state.orbitUv,
             static_cast<hlsl::float64_t>(state.distance),
             static_cast<hlsl::float64_t>(minDistance),
             static_cast<hlsl::float64_t>(maxDistance),

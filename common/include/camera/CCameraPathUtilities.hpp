@@ -225,8 +225,7 @@ struct CCameraPathUtilities final
             outPose.position,
             outPose.orientation,
             &outPose.appliedDistance,
-            &outPose.orbitUv.x,
-            &outPose.orbitUv.y);
+            &outPose.orbitUv);
     }
 
     static inline bool tryBuildPathPoseFromState(

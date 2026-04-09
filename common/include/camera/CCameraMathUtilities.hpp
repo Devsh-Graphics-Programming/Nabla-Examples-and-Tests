@@ -416,12 +416,12 @@ struct CCameraMathUtilities final
     }
 
     template<typename T>
-    static inline camera_vector_t<T, 3> makeSphericalOffsetFromOrbit(const T orbitU, const T orbitV, const T distance)
+    static inline camera_vector_t<T, 3> makeSphericalOffsetFromOrbit(const camera_vector_t<T, 2>& orbitUv, const T distance)
     {
         return camera_vector_t<T, 3>(
-            hlsl::cos(orbitV) * hlsl::cos(orbitU) * distance,
-            hlsl::cos(orbitV) * hlsl::sin(orbitU) * distance,
-            hlsl::sin(orbitV) * distance);
+            hlsl::cos(orbitUv.y) * hlsl::cos(orbitUv.x) * distance,
+            hlsl::cos(orbitUv.y) * hlsl::sin(orbitUv.x) * distance,
+            hlsl::sin(orbitUv.y) * distance);
     }
 
     template<typename T>
@@ -545,8 +545,7 @@ struct CCameraMathUtilities final
     template<typename T>
     static inline bool tryBuildSphericalPoseFromOrbit(
         const camera_vector_t<T, 3>& targetPosition,
-        const T orbitU,
-        const T orbitV,
+        const camera_vector_t<T, 2>& orbitUv,
         const T distance,
         const T minDistance,
         const T maxDistance,
@@ -554,18 +553,18 @@ struct CCameraMathUtilities final
         camera_quaternion_t<T>& outOrientation,
         T* outAppliedDistance = nullptr)
     {
-        if (!isFiniteScalar(orbitU) ||
-            !isFiniteScalar(orbitV) ||
+        if (!isFiniteScalar(orbitUv.x) ||
+            !isFiniteScalar(orbitUv.y) ||
             !isFiniteScalar(distance))
             return false;
 
         const T appliedDistance = std::clamp(distance, minDistance, maxDistance);
-        const auto spherePosition = makeSphericalOffsetFromOrbit(orbitU, orbitV, appliedDistance);
+        const auto spherePosition = makeSphericalOffsetFromOrbit(orbitUv, appliedDistance);
         const auto upHint = safeNormalizeVec3(
             camera_vector_t<T, 3>(
-                -hlsl::sin(orbitV) * hlsl::cos(orbitU),
-                -hlsl::sin(orbitV) * hlsl::sin(orbitU),
-                hlsl::cos(orbitV)),
+                -hlsl::sin(orbitUv.y) * hlsl::cos(orbitUv.x),
+                -hlsl::sin(orbitUv.y) * hlsl::sin(orbitUv.x),
+                hlsl::cos(orbitUv.y)),
             getCameraWorldForward<T>());
         camera_vector_t<T, 3> right = camera_vector_t<T, 3>(T(0));
         camera_vector_t<T, 3> up = camera_vector_t<T, 3>(T(0));
@@ -586,8 +585,7 @@ struct CCameraMathUtilities final
         const camera_vector_t<T, 3>& position,
         const T minDistance,
         const T maxDistance,
-        T& outOrbitU,
-        T& outOrbitV,
+        camera_vector_t<T, 2>& outOrbitUv,
         T& outDistance)
     {
         const auto offset = position - targetPosition;
@@ -597,10 +595,11 @@ struct CCameraMathUtilities final
 
         outDistance = std::clamp(distance, minDistance, maxDistance);
         const auto local = offset / outDistance;
-        outOrbitU = hlsl::atan2(local.y, local.x);
-        outOrbitV = hlsl::asin(std::clamp(local.z, T(-1), T(1)));
-        return isFiniteScalar(outOrbitU) &&
-            isFiniteScalar(outOrbitV) &&
+        outOrbitUv = camera_vector_t<T, 2>(
+            hlsl::atan2(local.y, local.x),
+            hlsl::asin(std::clamp(local.z, T(-1), T(1))));
+        return isFiniteScalar(outOrbitUv.x) &&
+            isFiniteScalar(outOrbitUv.y) &&
             isFiniteScalar(outDistance);
     }
 
@@ -632,8 +631,7 @@ struct CCameraMathUtilities final
         camera_vector_t<T, 3>& outPosition,
         camera_quaternion_t<T>& outOrientation,
         T* outAppliedDistance = nullptr,
-        T* outOrbitU = nullptr,
-        T* outOrbitV = nullptr)
+        camera_vector_t<T, 2>* outOrbitUv = nullptr)
     {
         if (!isFiniteScalar(pathAngle) ||
             !isFiniteScalar(pathRadius) ||
@@ -643,20 +641,17 @@ struct CCameraMathUtilities final
         const T appliedRadius = std::max(minRadius, pathRadius);
         const auto offset = makePathOffsetFromState(pathAngle, appliedRadius, pathHeight);
 
-        T orbitU = T(0);
-        T orbitV = T(0);
+        camera_vector_t<T, 2> orbitUv = camera_vector_t<T, 2>(T(0));
         T distance = T(0);
-        if (!tryBuildOrbitFromPosition(targetPosition, targetPosition + offset, minDistance, maxDistance, orbitU, orbitV, distance))
+        if (!tryBuildOrbitFromPosition(targetPosition, targetPosition + offset, minDistance, maxDistance, orbitUv, distance))
             return false;
-        if (!tryBuildSphericalPoseFromOrbit(targetPosition, orbitU, orbitV, distance, minDistance, maxDistance, outPosition, outOrientation, &distance))
+        if (!tryBuildSphericalPoseFromOrbit(targetPosition, orbitUv, distance, minDistance, maxDistance, outPosition, outOrientation, &distance))
             return false;
 
         if (outAppliedDistance)
             *outAppliedDistance = distance;
-        if (outOrbitU)
-            *outOrbitU = orbitU;
-        if (outOrbitV)
-            *outOrbitV = orbitV;
+        if (outOrbitUv)
+            *outOrbitUv = orbitUv;
         return true;
     }
 
