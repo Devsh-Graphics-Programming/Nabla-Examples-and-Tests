@@ -9,20 +9,20 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
 {
     auto& presetAuthoring = m_presetAuthoring;
 
-    if (!nbl::ui::beginControlPanelTabChild("PresetsPanel", panelStyle))
+    if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("PresetsPanel", panelStyle))
     {
-        nbl::ui::endControlPanelTabChild();
+        nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
         return;
     }
 
     ImGui::PushItemWidth(-1.0f);
-    nbl::ui::drawSectionHeader("PresetsHeader", "Presets", panelStyle.AccentColor, panelStyle);
-    nbl::ui::inputTextString("Preset name", presetAuthoring.presetName);
+    nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("PresetsHeader", "Presets", panelStyle.AccentColor, panelStyle);
+    nbl::ui::CCameraControlPanelUiUtilities::inputTextString("Preset name", presetAuthoring.presetName);
     auto* activeCamera = getActiveCamera();
     const auto presetCaptureUi = analyzeCameraCaptureForUi(activeCamera);
     if (!presetCaptureUi.canCapture)
         ImGui::BeginDisabled();
-    if (nbl::ui::drawActionButtonWithHint("Add preset", presetCaptureUi.canCapture ? "Store current camera as a preset" : "Preset capture is blocked because there is no active camera or the current goal state is invalid"))
+    if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Add preset", presetCaptureUi.canCapture ? "Store current camera as a preset" : "Preset capture is blocked because there is no active camera or the current goal state is invalid"))
     {
         CameraPreset preset;
         if (nbl::core::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, activeCamera, presetAuthoring.presetName, preset))
@@ -34,12 +34,12 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
     if (!presetCaptureUi.canCapture)
         ImGui::EndDisabled();
     ImGui::SameLine();
-    if (nbl::ui::drawActionButtonWithHint("Clear presets", "Remove all presets"))
+    if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Clear presets", "Remove all presets"))
     {
         presetAuthoring.presets.clear();
         presetAuthoring.selectedPresetIx = -1;
     }
-    nbl::ui::drawPolicyStatus({
+    nbl::ui::CCameraControlPanelUiUtilities::drawPolicyStatus({
         .label = "Capture",
         .value = presetCaptureUi.policyLabel,
         .active = presetCaptureUi.canCapture
@@ -55,7 +55,7 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
         int presetFilterIx = static_cast<int>(presetAuthoring.filterMode);
         if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))
             presetAuthoring.filterMode = static_cast<PresetFilterMode>(presetFilterIx);
-        nbl::ui::drawHoverHint("Filter presets for the active camera using exact or best-effort compatibility");
+        nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Filter presets for the active camera using exact or best-effort compatibility");
 
         std::vector<int> filteredPresetIndices;
         filteredPresetIndices.reserve(presetAuthoring.presets.size());
@@ -112,12 +112,12 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
 
                 if (!presetUi.canApply)
                     ImGui::BeginDisabled();
-                if (nbl::ui::drawActionButtonWithHint("Apply preset", presetUi.canApply ? "Apply selected preset to the active camera" : "Apply is blocked because there is no active camera or the preset goal is invalid"))
+                if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Apply preset", presetUi.canApply ? "Apply selected preset to the active camera" : "Apply is blocked because there is no active camera or the preset goal is invalid"))
                     applyPresetFromUi(activeCamera, preset);
                 if (!presetUi.canApply)
                     ImGui::EndDisabled();
                 ImGui::SameLine();
-                if (nbl::ui::drawActionButtonWithHint("Remove preset", "Remove selected preset"))
+                if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Remove preset", "Remove selected preset"))
                 {
                     presetAuthoring.presets.erase(presetAuthoring.presets.begin() + presetAuthoring.selectedPresetIx);
                     presetAuthoring.selectedPresetIx = -1;
@@ -132,20 +132,20 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
         presetAuthoring.applyBanner.approximate,
         panelStyle);
 
-    nbl::ui::drawSectionHeader("PresetsStorageHeader", "Storage", panelStyle.AccentColor, panelStyle);
-    nbl::ui::inputTextString("Preset file", presetAuthoring.presetPath);
-    if (nbl::ui::drawActionButtonWithHint("Save presets", "Save presets to JSON file"))
+    nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("PresetsStorageHeader", "Storage", panelStyle.AccentColor, panelStyle);
+    nbl::ui::CCameraControlPanelUiUtilities::inputTextString("Preset file", presetAuthoring.presetPath);
+    if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Save presets", "Save presets to JSON file"))
     {
         if (!savePresetsToFile(nbl::system::path(presetAuthoring.presetPath)))
             m_logger->log("Failed to save presets to \"%s\".", ILogger::ELL_ERROR, presetAuthoring.presetPath.c_str());
     }
     ImGui::SameLine();
-    if (nbl::ui::drawActionButtonWithHint("Load presets", "Load presets from JSON file"))
+    if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Load presets", "Load presets from JSON file"))
     {
         if (!loadPresetsFromFile(nbl::system::path(presetAuthoring.presetPath)))
             m_logger->log("Failed to load presets from \"%s\".", ILogger::ELL_ERROR, presetAuthoring.presetPath.c_str());
     }
 
     ImGui::PopItemWidth();
-    nbl::ui::endControlPanelTabChild();
+    nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }

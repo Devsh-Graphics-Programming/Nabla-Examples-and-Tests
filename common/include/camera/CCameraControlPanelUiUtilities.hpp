@@ -188,390 +188,391 @@ struct SCameraControlPanelToggleLabels final
     static inline constexpr std::array<const char*, 3u> Labels = { "WINDOW", "STATUS", "EVENT LOG" };
 };
 
-template<typename DrawValueFn>
-inline void drawSummaryRow(const char* label, DrawValueFn&& drawValue)
+struct CCameraControlPanelUiUtilities final
 {
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::TextUnformatted(label);
-    ImGui::TableSetColumnIndex(1);
-    drawValue();
-}
-
-inline void drawDot(const ImVec4& color, const SCameraControlPanelStyle& style);
-
-inline void drawStatusLine(const SCameraControlPanelStatusLineSpec& spec, const SCameraControlPanelStyle& style = {})
-{
-    drawSummaryRow(spec.label, [&]()
+    template<typename DrawValueFn>
+    static inline void drawSummaryRow(const char* label, DrawValueFn&& drawValue)
     {
-        drawDot(spec.dotColor, style);
-        ImGui::TextColored(spec.valueColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
-    });
-}
-
-inline void drawPolicyStatus(const SCameraControlPanelPolicyStatusSpec& spec, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::TextDisabled("%s", spec.label);
-    ImGui::SameLine();
-    ImGui::TextColored(spec.active ? style.GoodColor : style.BadColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
-}
-
-inline ImVec2 calcControlPanelWindowSize(const ImVec2& displaySize, const SCameraControlPanelStyle& style = {})
-{
-    return ImVec2(
-        std::clamp(displaySize.x * style.WindowWidthRatio, style.WindowMinWidth, displaySize.x * style.WindowMaxWidthRatio),
-        std::clamp(displaySize.y * style.WindowHeightRatio, style.WindowMinHeight, displaySize.y * style.WindowMaxHeightRatio));
-}
-
-inline float calcFramesPerSecond(const float frameMs, const SCameraControlPanelStyle& style = {})
-{
-    return frameMs > 0.0f ? (style.MillisecondsPerSecond / frameMs) : 0.0f;
-}
-
-inline float calcPillWidth(const char* label, const ImVec2& padding)
-{
-    return ImGui::CalcTextSize(label).x + padding.x * 2.0f;
-}
-
-inline void centerControlPanelRow(const float contentWidth)
-{
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - contentWidth) * 0.5f));
-}
-
-inline void pushControlPanelWindowStyle(const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.WindowPadding);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, style.FramePadding);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, style.ItemSpacing);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, style.WindowRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, style.FrameRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, style.TabRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, style.ScrollbarRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.WindowBorderSize);
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, style.CellPadding);
-
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, style.WindowBgColor);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, style.ChildBgColor);
-    ImGui::PushStyleColor(ImGuiCol_Border, style.BorderColor);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, style.FrameBgColor);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, style.FrameBgHoveredColor);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, style.FrameBgActiveColor);
-    ImGui::PushStyleColor(ImGuiCol_Header, style.HeaderColor);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, style.HeaderHoveredColor);
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, style.HeaderActiveColor);
-    ImGui::PushStyleColor(ImGuiCol_Tab, style.TabColor);
-    ImGui::PushStyleColor(ImGuiCol_TabHovered, style.TabHoveredColor);
-    ImGui::PushStyleColor(ImGuiCol_TabActive, style.TabActiveColor);
-    ImGui::PushStyleColor(ImGuiCol_TableRowBg, style.TableRowBgColor);
-    ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, style.TableRowAltBgColor);
-    ImGui::PushStyleColor(ImGuiCol_Text, style.TextColor);
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, style.TextDisabledColor);
-    ImGui::PushStyleColor(ImGuiCol_Separator, style.SeparatorColor);
-    ImGui::PushStyleColor(ImGuiCol_SeparatorHovered, style.SeparatorHoveredColor);
-    ImGui::PushStyleColor(ImGuiCol_SeparatorActive, style.SeparatorActiveColor);
-}
-
-inline void popControlPanelWindowStyle()
-{
-    ImGui::PopStyleColor(19);
-    ImGui::PopStyleVar(9);
-}
-
-inline bool inputTextString(
-    const char* label,
-    std::string& value,
-    ImGuiInputTextFlags flags = 0)
-{
-    return ImGui::InputText(label, &value, flags);
-}
-
-inline void drawControlPanelWindowBackdrop(ImDrawList& drawList, const ImVec2& panelPos, const ImVec2& panelSize, const SCameraControlPanelStyle& style = {})
-{
-    const ImVec2 panelMax(panelPos.x + panelSize.x, panelPos.y + panelSize.y);
-    drawList.AddRectFilled(
-        ImVec2(panelPos.x + style.PanelShadowOffsetX, panelPos.y + style.PanelShadowOffsetY),
-        ImVec2(panelPos.x + panelSize.x + style.PanelShadowExtentX, panelPos.y + panelSize.y + style.PanelShadowExtentY),
-        ImGui::ColorConvertFloat4ToU32(style.PanelShadowColor),
-        style.PanelShadowRounding);
-    drawList.AddRectFilled(panelPos, panelMax, ImGui::ColorConvertFloat4ToU32(style.PanelBackgroundColor), style.PanelRounding);
-    drawList.AddRect(panelPos, panelMax, ImGui::ColorConvertFloat4ToU32(style.PanelEdgeColor), style.PanelRounding);
-    drawList.AddRectFilled(
-        panelPos,
-        ImVec2(panelPos.x + style.PanelStripeWidth, panelPos.y + panelSize.y),
-        ImGui::ColorConvertFloat4ToU32(style.PanelStripeColor),
-        style.PanelRounding);
-}
-
-inline float calcCameraControlPanelCardHeight(const int rows, const SCameraControlPanelStyle& style = {})
-{
-    return ImGui::GetFrameHeightWithSpacing() * (static_cast<float>(rows) + style.CardExtraRows) + style.CardHeightPadding;
-}
-
-inline void drawBadge(const char* label, const ImVec4& bg, const ImVec4& fg, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleColor(ImGuiCol_Button, bg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
-    ImGui::PushStyleColor(ImGuiCol_Text, fg);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.BadgeFramePaddingX, style.BadgeFramePaddingY));
-    ImGui::Button(label);
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(4);
-}
-
-inline float calcBadgeRowWidth(
-    const std::span<const SCameraControlPanelBadgeData> badges,
-    const float gap,
-    const ImVec2& badgePadding)
-{
-    float width = 0.0f;
-    for (size_t i = 0; i < badges.size(); ++i)
-    {
-        if (i > 0u)
-            width += gap;
-        width += calcPillWidth(badges[i].label, badgePadding);
-    }
-    return width;
-}
-
-inline void drawBadgeRow(
-    const std::span<const SCameraControlPanelBadgeData> badges,
-    const ImVec4& textColor,
-    const float gap,
-    const SCameraControlPanelStyle& style = {})
-{
-    if (badges.empty())
-        return;
-
-    centerControlPanelRow(calcBadgeRowWidth(badges, gap, style.BadgePadding));
-    for (size_t i = 0; i < badges.size(); ++i)
-    {
-        if (i > 0u)
-            ImGui::SameLine(0.0f, gap);
-        drawBadge(badges[i].label, badges[i].background, textColor, style);
-    }
-}
-
-inline void drawKeyHint(const char* label, const ImVec4& bg, const ImVec4& fg, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleColor(ImGuiCol_Button, bg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
-    ImGui::PushStyleColor(ImGuiCol_Text, fg);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.KeyHintFramePaddingX, style.KeyHintFramePaddingY));
-    ImGui::SmallButton(label);
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(4);
-}
-
-inline float calcKeyHintGroupWidth(
-    const SCameraControlPanelKeyHintGroup& group,
-    const float gap,
-    const ImVec2& keyPadding)
-{
-    float width = ImGui::CalcTextSize(group.label).x;
-    for (const char* key : group.keys)
-        width += gap + calcPillWidth(key, keyPadding);
-    return width;
-}
-
-inline void drawKeyHintGroup(
-    const SCameraControlPanelKeyHintGroup& group,
-    const float gap,
-    const ImVec4& keyBackground,
-    const ImVec4& keyText,
-    const SCameraControlPanelStyle& style = {})
-{
-    ImGui::TextDisabled("%s", group.label);
-    for (const char* key : group.keys)
-    {
-        ImGui::SameLine(0.0f, gap);
-        drawKeyHint(key, keyBackground, keyText, style);
-    }
-}
-
-inline void drawKeyHintGroupRow(
-    const std::span<const SCameraControlPanelKeyHintGroup> groups,
-    const float gap,
-    const float groupGap,
-    const ImVec4& keyBackground,
-    const ImVec4& keyText,
-    const SCameraControlPanelStyle& style = {})
-{
-    float rowWidth = 0.0f;
-    for (size_t i = 0; i < groups.size(); ++i)
-    {
-        if (i > 0u)
-            rowWidth += groupGap;
-        rowWidth += calcKeyHintGroupWidth(groups[i], gap, style.KeyHintPadding);
-    }
-
-    centerControlPanelRow(rowWidth);
-    for (size_t i = 0; i < groups.size(); ++i)
-    {
-        if (i > 0u)
-            ImGui::SameLine(0.0f, groupGap);
-        drawKeyHintGroup(groups[i], gap, keyBackground, keyText, style);
-    }
-}
-
-inline void drawTogglePill(
-    const char* label,
-    bool& value,
-    const ImVec4& onColor,
-    const ImVec4& offColor,
-    const ImVec4& textColor,
-    const ImVec2& padding)
-{
-    ImGui::PushStyleColor(ImGuiCol_Button, value ? onColor : offColor);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, value ? onColor : offColor);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, value ? onColor : offColor);
-    ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
-    if (ImGui::Button(label))
-        value = !value;
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(4);
-}
-
-template<size_t SampleCount, typename DrawValueFn>
-inline void drawMiniStat(
-    const SCameraControlPanelMiniStatSpec& stat,
-    const std::array<float, SampleCount>& series,
-    const size_t metricIndex,
-    DrawValueFn&& drawValue,
-    const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, style.MiniStatChildBackgroundColor);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.MiniStatChildRounding);
-    if (ImGui::BeginChild(stat.id, ImVec2(0.0f, style.MiniStatHeight), true, ImGuiWindowFlags_NoScrollbar))
-    {
-        ImGui::TextDisabled("%s", stat.label);
-        ImGui::SetWindowFontScale(style.HeaderMetricFontScale);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted(label);
+        ImGui::TableSetColumnIndex(1);
         drawValue();
-        ImGui::SetWindowFontScale(1.0f);
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, stat.color);
-        float maxValue = stat.minValue;
-        for (const float value : series)
-            maxValue = std::max(maxValue, value);
-        ImGui::PlotLines("##plot", series.data(), static_cast<int>(SampleCount), static_cast<int>(metricIndex), nullptr, 0.0f, maxValue, ImVec2(0.0f, style.MiniStatPlotHeight));
+    }
+
+    static inline void drawDot(const ImVec4& color, const SCameraControlPanelStyle& style = {})
+    {
+        const ImVec2 cursor = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddCircleFilled(
+            ImVec2(cursor.x + style.DotRadius, cursor.y + style.DotRadius + style.DotYOffset),
+            style.DotRadius,
+            ImGui::ColorConvertFloat4ToU32(color));
+        ImGui::Dummy(ImVec2(style.DotRadius * 2.0f + style.SectionHeaderWidth, style.DotRadius * 2.0f));
+        ImGui::SameLine(0.0f, style.DotSpacing);
+    }
+
+    static inline void drawStatusLine(const SCameraControlPanelStatusLineSpec& spec, const SCameraControlPanelStyle& style = {})
+    {
+        drawSummaryRow(spec.label, [&]()
+        {
+            drawDot(spec.dotColor, style);
+            ImGui::TextColored(spec.valueColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
+        });
+    }
+
+    static inline void drawPolicyStatus(const SCameraControlPanelPolicyStatusSpec& spec, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::TextDisabled("%s", spec.label);
+        ImGui::SameLine();
+        ImGui::TextColored(spec.active ? style.GoodColor : style.BadColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
+    }
+
+    static inline ImVec2 calcControlPanelWindowSize(const ImVec2& displaySize, const SCameraControlPanelStyle& style = {})
+    {
+        return ImVec2(
+            std::clamp(displaySize.x * style.WindowWidthRatio, style.WindowMinWidth, displaySize.x * style.WindowMaxWidthRatio),
+            std::clamp(displaySize.y * style.WindowHeightRatio, style.WindowMinHeight, displaySize.y * style.WindowMaxHeightRatio));
+    }
+
+    static inline float calcFramesPerSecond(const float frameMs, const SCameraControlPanelStyle& style = {})
+    {
+        return frameMs > 0.0f ? (style.MillisecondsPerSecond / frameMs) : 0.0f;
+    }
+
+    static inline float calcPillWidth(const char* label, const ImVec2& padding)
+    {
+        return ImGui::CalcTextSize(label).x + padding.x * 2.0f;
+    }
+
+    static inline void centerControlPanelRow(const float contentWidth)
+    {
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - contentWidth) * 0.5f));
+    }
+
+    static inline void pushControlPanelWindowStyle(const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.WindowPadding);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, style.FramePadding);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, style.ItemSpacing);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, style.WindowRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, style.FrameRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, style.TabRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, style.ScrollbarRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.WindowBorderSize);
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, style.CellPadding);
+
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, style.WindowBgColor);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, style.ChildBgColor);
+        ImGui::PushStyleColor(ImGuiCol_Border, style.BorderColor);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, style.FrameBgColor);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, style.FrameBgHoveredColor);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, style.FrameBgActiveColor);
+        ImGui::PushStyleColor(ImGuiCol_Header, style.HeaderColor);
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, style.HeaderHoveredColor);
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, style.HeaderActiveColor);
+        ImGui::PushStyleColor(ImGuiCol_Tab, style.TabColor);
+        ImGui::PushStyleColor(ImGuiCol_TabHovered, style.TabHoveredColor);
+        ImGui::PushStyleColor(ImGuiCol_TabActive, style.TabActiveColor);
+        ImGui::PushStyleColor(ImGuiCol_TableRowBg, style.TableRowBgColor);
+        ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, style.TableRowAltBgColor);
+        ImGui::PushStyleColor(ImGuiCol_Text, style.TextColor);
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled, style.TextDisabledColor);
+        ImGui::PushStyleColor(ImGuiCol_Separator, style.SeparatorColor);
+        ImGui::PushStyleColor(ImGuiCol_SeparatorHovered, style.SeparatorHoveredColor);
+        ImGui::PushStyleColor(ImGuiCol_SeparatorActive, style.SeparatorActiveColor);
+    }
+
+    static inline void popControlPanelWindowStyle()
+    {
+        ImGui::PopStyleColor(19);
+        ImGui::PopStyleVar(9);
+    }
+
+    static inline bool inputTextString(
+        const char* label,
+        std::string& value,
+        ImGuiInputTextFlags flags = 0)
+    {
+        return ImGui::InputText(label, &value, flags);
+    }
+
+    static inline void drawControlPanelWindowBackdrop(ImDrawList& drawList, const ImVec2& panelPos, const ImVec2& panelSize, const SCameraControlPanelStyle& style = {})
+    {
+        const ImVec2 panelMax(panelPos.x + panelSize.x, panelPos.y + panelSize.y);
+        drawList.AddRectFilled(
+            ImVec2(panelPos.x + style.PanelShadowOffsetX, panelPos.y + style.PanelShadowOffsetY),
+            ImVec2(panelPos.x + panelSize.x + style.PanelShadowExtentX, panelPos.y + panelSize.y + style.PanelShadowExtentY),
+            ImGui::ColorConvertFloat4ToU32(style.PanelShadowColor),
+            style.PanelShadowRounding);
+        drawList.AddRectFilled(panelPos, panelMax, ImGui::ColorConvertFloat4ToU32(style.PanelBackgroundColor), style.PanelRounding);
+        drawList.AddRect(panelPos, panelMax, ImGui::ColorConvertFloat4ToU32(style.PanelEdgeColor), style.PanelRounding);
+        drawList.AddRectFilled(
+            panelPos,
+            ImVec2(panelPos.x + style.PanelStripeWidth, panelPos.y + panelSize.y),
+            ImGui::ColorConvertFloat4ToU32(style.PanelStripeColor),
+            style.PanelRounding);
+    }
+
+    static inline float calcCameraControlPanelCardHeight(const int rows, const SCameraControlPanelStyle& style = {})
+    {
+        return ImGui::GetFrameHeightWithSpacing() * (static_cast<float>(rows) + style.CardExtraRows) + style.CardHeightPadding;
+    }
+
+    static inline void drawBadge(const char* label, const ImVec4& bg, const ImVec4& fg, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, bg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
+        ImGui::PushStyleColor(ImGuiCol_Text, fg);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.BadgeFramePaddingX, style.BadgeFramePaddingY));
+        ImGui::Button(label);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
+    }
+
+    static inline float calcBadgeRowWidth(
+        const std::span<const SCameraControlPanelBadgeData> badges,
+        const float gap,
+        const ImVec2& badgePadding)
+    {
+        float width = 0.0f;
+        for (size_t i = 0; i < badges.size(); ++i)
+        {
+            if (i > 0u)
+                width += gap;
+            width += calcPillWidth(badges[i].label, badgePadding);
+        }
+        return width;
+    }
+
+    static inline void drawBadgeRow(
+        const std::span<const SCameraControlPanelBadgeData> badges,
+        const ImVec4& textColor,
+        const float gap,
+        const SCameraControlPanelStyle& style = {})
+    {
+        if (badges.empty())
+            return;
+
+        centerControlPanelRow(calcBadgeRowWidth(badges, gap, style.BadgePadding));
+        for (size_t i = 0; i < badges.size(); ++i)
+        {
+            if (i > 0u)
+                ImGui::SameLine(0.0f, gap);
+            drawBadge(badges[i].label, badges[i].background, textColor, style);
+        }
+    }
+
+    static inline void drawKeyHint(const char* label, const ImVec4& bg, const ImVec4& fg, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, bg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
+        ImGui::PushStyleColor(ImGuiCol_Text, fg);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.KeyHintFramePaddingX, style.KeyHintFramePaddingY));
+        ImGui::SmallButton(label);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
+    }
+
+    static inline float calcKeyHintGroupWidth(
+        const SCameraControlPanelKeyHintGroup& group,
+        const float gap,
+        const ImVec2& keyPadding)
+    {
+        float width = ImGui::CalcTextSize(group.label).x;
+        for (const char* key : group.keys)
+            width += gap + calcPillWidth(key, keyPadding);
+        return width;
+    }
+
+    static inline void drawKeyHintGroup(
+        const SCameraControlPanelKeyHintGroup& group,
+        const float gap,
+        const ImVec4& keyBackground,
+        const ImVec4& keyText,
+        const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::TextDisabled("%s", group.label);
+        for (const char* key : group.keys)
+        {
+            ImGui::SameLine(0.0f, gap);
+            drawKeyHint(key, keyBackground, keyText, style);
+        }
+    }
+
+    static inline void drawKeyHintGroupRow(
+        const std::span<const SCameraControlPanelKeyHintGroup> groups,
+        const float gap,
+        const float groupGap,
+        const ImVec4& keyBackground,
+        const ImVec4& keyText,
+        const SCameraControlPanelStyle& style = {})
+    {
+        float rowWidth = 0.0f;
+        for (size_t i = 0; i < groups.size(); ++i)
+        {
+            if (i > 0u)
+                rowWidth += groupGap;
+            rowWidth += calcKeyHintGroupWidth(groups[i], gap, style.KeyHintPadding);
+        }
+
+        centerControlPanelRow(rowWidth);
+        for (size_t i = 0; i < groups.size(); ++i)
+        {
+            if (i > 0u)
+                ImGui::SameLine(0.0f, groupGap);
+            drawKeyHintGroup(groups[i], gap, keyBackground, keyText, style);
+        }
+    }
+
+    static inline void drawTogglePill(
+        const char* label,
+        bool& value,
+        const ImVec4& onColor,
+        const ImVec4& offColor,
+        const ImVec4& textColor,
+        const ImVec2& padding)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, value ? onColor : offColor);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, value ? onColor : offColor);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, value ? onColor : offColor);
+        ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
+        if (ImGui::Button(label))
+            value = !value;
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(4);
+    }
+
+    template<size_t SampleCount, typename DrawValueFn>
+    static inline void drawMiniStat(
+        const SCameraControlPanelMiniStatSpec& stat,
+        const std::array<float, SampleCount>& series,
+        const size_t metricIndex,
+        DrawValueFn&& drawValue,
+        const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, style.MiniStatChildBackgroundColor);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.MiniStatChildRounding);
+        if (ImGui::BeginChild(stat.id, ImVec2(0.0f, style.MiniStatHeight), true, ImGuiWindowFlags_NoScrollbar))
+        {
+            ImGui::TextDisabled("%s", stat.label);
+            ImGui::SetWindowFontScale(style.HeaderMetricFontScale);
+            drawValue();
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, stat.color);
+            float maxValue = stat.minValue;
+            for (const float value : series)
+                maxValue = std::max(maxValue, value);
+            ImGui::PlotLines("##plot", series.data(), static_cast<int>(SampleCount), static_cast<int>(metricIndex), nullptr, 0.0f, maxValue, ImVec2(0.0f, style.MiniStatPlotHeight));
+            ImGui::PopStyleColor();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
         ImGui::PopStyleColor();
     }
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-}
 
-inline void drawHoverHint(const char* text)
-{
-    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-        return;
-    ImGui::BeginTooltip();
-    ImGui::TextUnformatted(text);
-    ImGui::EndTooltip();
-}
-
-inline bool drawCheckboxWithHint(const SCameraControlPanelCheckboxSpec& spec)
-{
-    if (!spec.value)
-        return false;
-
-    const bool changed = ImGui::Checkbox(spec.label, spec.value);
-    if (spec.hint && spec.hint[0] != '\0')
-        drawHoverHint(spec.hint);
-    return changed;
-}
-
-inline bool drawSliderFloatWithHint(const SCameraControlPanelSliderSpec& spec)
-{
-    if (!spec.value)
-        return false;
-
-    const bool changed = ImGui::SliderFloat(spec.label, spec.value, spec.minValue, spec.maxValue, spec.format, spec.flags);
-    if (spec.hint && spec.hint[0] != '\0')
-        drawHoverHint(spec.hint);
-    return changed;
-}
-
-inline bool drawActionButtonWithHint(const char* label, const char* hint)
-{
-    const bool pressed = ImGui::Button(label);
-    if (hint && hint[0] != '\0')
-        drawHoverHint(hint);
-    return pressed;
-}
-
-inline bool beginControlPanelTabChild(const char* id, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.TabChildRounding);
-    return ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), true);
-}
-
-inline void endControlPanelTabChild()
-{
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-}
-
-inline void drawDot(const ImVec4& color, const SCameraControlPanelStyle& style = {})
-{
-    const ImVec2 cursor = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddCircleFilled(
-        ImVec2(cursor.x + style.DotRadius, cursor.y + style.DotRadius + style.DotYOffset),
-        style.DotRadius,
-        ImGui::ColorConvertFloat4ToU32(color));
-    ImGui::Dummy(ImVec2(style.DotRadius * 2.0f + style.SectionHeaderWidth, style.DotRadius * 2.0f));
-    ImGui::SameLine(0.0f, style.DotSpacing);
-}
-
-inline void drawSectionHeader(const char* id, const char* label, const ImVec4& accent, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.SectionChildRounding);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, style.SectionChildBackgroundColor);
-    if (ImGui::BeginChild(id, ImVec2(0.0f, style.SectionHeaderHeight), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+    static inline void drawHoverHint(const char* text)
     {
+        if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            return;
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(text);
+        ImGui::EndTooltip();
+    }
+
+    static inline bool drawCheckboxWithHint(const SCameraControlPanelCheckboxSpec& spec)
+    {
+        if (!spec.value)
+            return false;
+
+        const bool changed = ImGui::Checkbox(spec.label, spec.value);
+        if (spec.hint && spec.hint[0] != '\0')
+            drawHoverHint(spec.hint);
+        return changed;
+    }
+
+    static inline bool drawSliderFloatWithHint(const SCameraControlPanelSliderSpec& spec)
+    {
+        if (!spec.value)
+            return false;
+
+        const bool changed = ImGui::SliderFloat(spec.label, spec.value, spec.minValue, spec.maxValue, spec.format, spec.flags);
+        if (spec.hint && spec.hint[0] != '\0')
+            drawHoverHint(spec.hint);
+        return changed;
+    }
+
+    static inline bool drawActionButtonWithHint(const char* label, const char* hint)
+    {
+        const bool pressed = ImGui::Button(label);
+        if (hint && hint[0] != '\0')
+            drawHoverHint(hint);
+        return pressed;
+    }
+
+    static inline bool beginControlPanelTabChild(const char* id, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.TabChildRounding);
+        return ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), true);
+    }
+
+    static inline void endControlPanelTabChild()
+    {
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    }
+
+    static inline void drawSectionHeader(const char* id, const char* label, const ImVec4& accent, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.SectionChildRounding);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, style.SectionChildBackgroundColor);
+        if (ImGui::BeginChild(id, ImVec2(0.0f, style.SectionHeaderHeight), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+        {
+            const ImVec2 pos = ImGui::GetWindowPos();
+            const ImVec2 size = ImGui::GetWindowSize();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                pos,
+                ImVec2(pos.x + style.SectionHeaderWidth, pos.y + size.y),
+                ImGui::ColorConvertFloat4ToU32(accent),
+                style.SectionChildRounding);
+            ImGui::SetCursorPosX(style.SectionHeaderTextOffsetX);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(accent, "%s", label);
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+        ImGui::Spacing();
+    }
+
+    static inline bool beginCard(const char* id, const float height, const ImVec4& top, const ImVec4& bottom, const ImVec4& border, const SCameraControlPanelStyle& style = {})
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.CardChildRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.CardWindowPadding);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        const bool open = ImGui::BeginChild(id, ImVec2(0.0f, height), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         const ImVec2 pos = ImGui::GetWindowPos();
         const ImVec2 size = ImGui::GetWindowSize();
-        ImGui::GetWindowDrawList()->AddRectFilled(
+        ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
             pos,
-            ImVec2(pos.x + style.SectionHeaderWidth, pos.y + size.y),
-            ImGui::ColorConvertFloat4ToU32(accent),
-            style.SectionChildRounding);
-        ImGui::SetCursorPosX(style.SectionHeaderTextOffsetX);
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(accent, "%s", label);
+            ImVec2(pos.x + size.x, pos.y + size.y),
+            ImGui::ColorConvertFloat4ToU32(top),
+            ImGui::ColorConvertFloat4ToU32(top),
+            ImGui::ColorConvertFloat4ToU32(bottom),
+            ImGui::ColorConvertFloat4ToU32(bottom));
+        ImGui::GetWindowDrawList()->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), ImGui::ColorConvertFloat4ToU32(border), style.CardChildRounding);
+        return open;
     }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
-    ImGui::Spacing();
-}
 
-inline bool beginCard(const char* id, const float height, const ImVec4& top, const ImVec4& bottom, const ImVec4& border, const SCameraControlPanelStyle& style = {})
-{
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.CardChildRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.CardWindowPadding);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    const bool open = ImGui::BeginChild(id, ImVec2(0.0f, height), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    const ImVec2 pos = ImGui::GetWindowPos();
-    const ImVec2 size = ImGui::GetWindowSize();
-    ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
-        pos,
-        ImVec2(pos.x + size.x, pos.y + size.y),
-        ImGui::ColorConvertFloat4ToU32(top),
-        ImGui::ColorConvertFloat4ToU32(top),
-        ImGui::ColorConvertFloat4ToU32(bottom),
-        ImGui::ColorConvertFloat4ToU32(bottom));
-    ImGui::GetWindowDrawList()->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), ImGui::ColorConvertFloat4ToU32(border), style.CardChildRounding);
-    return open;
-}
-
-inline void endCard()
-{
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
-}
+    static inline void endCard()
+    {
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+};
 
 } // namespace nbl::ui
 

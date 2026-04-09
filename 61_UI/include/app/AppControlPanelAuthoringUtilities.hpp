@@ -27,28 +27,28 @@ inline void drawGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& 
 {
     if (presentation.badges.exact)
     {
-        drawBadge("EXACT", panelStyle.GoodColor, panelStyle.BadgeTextColor, panelStyle);
+        CCameraControlPanelUiUtilities::drawBadge("EXACT", panelStyle.GoodColor, panelStyle.BadgeTextColor, panelStyle);
     }
     else if (presentation.badges.bestEffort)
     {
-        drawBadge("BEST-EFFORT", panelStyle.WarnColor, panelStyle.BadgeTextColor, panelStyle);
+        CCameraControlPanelUiUtilities::drawBadge("BEST-EFFORT", panelStyle.WarnColor, panelStyle.BadgeTextColor, panelStyle);
     }
 
     if (presentation.badges.dropsState)
     {
         ImGui::SameLine();
-        drawBadge("DROPS STATE", panelStyle.WarnColor, panelStyle.BadgeTextColor, panelStyle);
+        CCameraControlPanelUiUtilities::drawBadge("DROPS STATE", panelStyle.WarnColor, panelStyle.BadgeTextColor, panelStyle);
     }
     else if (presentation.badges.sharedStateOnly)
     {
         ImGui::SameLine();
-        drawBadge("SHARED STATE", panelStyle.AccentColor, panelStyle.BadgeTextColor, panelStyle);
+        CCameraControlPanelUiUtilities::drawBadge("SHARED STATE", panelStyle.AccentColor, panelStyle.BadgeTextColor, panelStyle);
     }
 
     if (presentation.badges.blocked)
     {
         ImGui::SameLine();
-        drawBadge("BLOCKED", panelStyle.BadColor, panelStyle.BadgeTextColor, panelStyle);
+        CCameraControlPanelUiUtilities::drawBadge("BLOCKED", panelStyle.BadColor, panelStyle.BadgeTextColor, panelStyle);
     }
 }
 

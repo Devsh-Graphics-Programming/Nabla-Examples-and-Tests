@@ -95,112 +95,113 @@ struct SCameraScriptVisualDebugOverlayStyle final
     ImU32 hintColor = HintColor;
 };
 
-//! Draw the scripted visual debug HUD on the foreground draw list.
-inline void drawScriptVisualDebugOverlay(
-    const ImVec2& displaySize,
-    const SCameraScriptVisualDebugOverlayData& data,
-    const SCameraScriptVisualDebugOverlayStyle& style = {})
+struct CCameraScriptVisualDebugOverlayUtilities final
 {
-    if (!data.valid())
-        return;
-
-    ImFont* font = ImGui::GetFont();
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
-    if (!font || !drawList)
-        return;
-
-    const float textWrap = std::numeric_limits<float>::max();
-    const ImVec2 titleSize = font->CalcTextSizeA(style.titleSize, textWrap, 0.0f, data.title.c_str());
-    const ImVec2 headlineSize = font->CalcTextSizeA(style.headlineSize, textWrap, 0.0f, data.headline.c_str());
-    const ImVec2 progressSize = font->CalcTextSizeA(style.progressSize, textWrap, 0.0f, data.progressLine.c_str());
-    const ImVec2 hintSize = font->CalcTextSizeA(style.hintSize, textWrap, 0.0f, data.hintLine.c_str());
-    const float panelWidth = std::max(std::max(titleSize.x, headlineSize.x), std::max(progressSize.x, hintSize.x)) + style.paddingX * 2.0f;
-    const float panelHeight = titleSize.y + headlineSize.y + progressSize.y + hintSize.y + style.lineGap * 3.0f + style.paddingY * 2.0f;
-    const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, style.marginTop);
-    const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
-
-    drawList->AddRectFilled(panelMin, panelMax, style.backgroundColor, style.cornerRounding);
-    drawList->AddRect(panelMin, panelMax, style.borderColor, style.cornerRounding, 0, style.borderThickness);
-
-    const float titleX = panelMin.x + (panelWidth - titleSize.x) * 0.5f;
-    const float headlineX = panelMin.x + (panelWidth - headlineSize.x) * 0.5f;
-    const float progressX = panelMin.x + (panelWidth - progressSize.x) * 0.5f;
-    const float hintX = panelMin.x + (panelWidth - hintSize.x) * 0.5f;
-    const float titleY = panelMin.y + style.paddingY;
-    const float headlineY = titleY + titleSize.y + style.lineGap;
-    const float progressY = headlineY + headlineSize.y + style.lineGap;
-    const float hintY = progressY + progressSize.y + style.lineGap;
-
-    drawList->AddText(font, style.titleSize, ImVec2(titleX, titleY), style.titleColor, data.title.c_str());
-    drawList->AddText(font, style.headlineSize, ImVec2(headlineX, headlineY), style.headlineColor, data.headline.c_str());
-    drawList->AddText(font, style.progressSize, ImVec2(progressX, progressY), style.progressColor, data.progressLine.c_str());
-    drawList->AddText(font, style.hintSize, ImVec2(hintX, hintY), style.hintColor, data.hintLine.c_str());
-}
-
-inline std::string formatFixedScalar(const float value, const int precision)
-{
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(precision) << value;
-    return oss.str();
-}
-
-inline std::string buildScriptVisualDebugProgressLine(const SCameraScriptVisualDebugStatus& status)
-{
-    if (status.hasHoldFrames)
+    static inline void drawScriptVisualDebugOverlay(
+        const ImVec2& displaySize,
+        const SCameraScriptVisualDebugOverlayData& data,
+        const SCameraScriptVisualDebugOverlayStyle& style = {})
     {
-        const float safeFps = std::max(status.targetFps, 1.0f);
-        const double elapsedSeconds = static_cast<double>(status.progressFrames) / static_cast<double>(safeFps);
-        const double holdSeconds = static_cast<double>(status.holdFrames) / static_cast<double>(safeFps);
+        if (!data.valid())
+            return;
 
+        ImFont* font = ImGui::GetFont();
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        if (!font || !drawList)
+            return;
+
+        const float textWrap = std::numeric_limits<float>::max();
+        const ImVec2 titleSize = font->CalcTextSizeA(style.titleSize, textWrap, 0.0f, data.title.c_str());
+        const ImVec2 headlineSize = font->CalcTextSizeA(style.headlineSize, textWrap, 0.0f, data.headline.c_str());
+        const ImVec2 progressSize = font->CalcTextSizeA(style.progressSize, textWrap, 0.0f, data.progressLine.c_str());
+        const ImVec2 hintSize = font->CalcTextSizeA(style.hintSize, textWrap, 0.0f, data.hintLine.c_str());
+        const float panelWidth = std::max(std::max(titleSize.x, headlineSize.x), std::max(progressSize.x, hintSize.x)) + style.paddingX * 2.0f;
+        const float panelHeight = titleSize.y + headlineSize.y + progressSize.y + hintSize.y + style.lineGap * 3.0f + style.paddingY * 2.0f;
+        const ImVec2 panelMin((displaySize.x - panelWidth) * 0.5f, style.marginTop);
+        const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
+
+        drawList->AddRectFilled(panelMin, panelMax, style.backgroundColor, style.cornerRounding);
+        drawList->AddRect(panelMin, panelMax, style.borderColor, style.cornerRounding, 0, style.borderThickness);
+
+        const float titleX = panelMin.x + (panelWidth - titleSize.x) * 0.5f;
+        const float headlineX = panelMin.x + (panelWidth - headlineSize.x) * 0.5f;
+        const float progressX = panelMin.x + (panelWidth - progressSize.x) * 0.5f;
+        const float hintX = panelMin.x + (panelWidth - hintSize.x) * 0.5f;
+        const float titleY = panelMin.y + style.paddingY;
+        const float headlineY = titleY + titleSize.y + style.lineGap;
+        const float progressY = headlineY + headlineSize.y + style.lineGap;
+        const float hintY = progressY + progressSize.y + style.lineGap;
+
+        drawList->AddText(font, style.titleSize, ImVec2(titleX, titleY), style.titleColor, data.title.c_str());
+        drawList->AddText(font, style.headlineSize, ImVec2(headlineX, headlineY), style.headlineColor, data.headline.c_str());
+        drawList->AddText(font, style.progressSize, ImVec2(progressX, progressY), style.progressColor, data.progressLine.c_str());
+        drawList->AddText(font, style.hintSize, ImVec2(hintX, hintY), style.hintColor, data.hintLine.c_str());
+    }
+
+    static inline std::string formatFixedScalar(const float value, const int precision)
+    {
         std::ostringstream oss;
-        oss << "Planar " << status.planarIndex
-            << "  Segment " << std::fixed << std::setprecision(1)
-            << elapsedSeconds << "/" << holdSeconds
-            << " s  Frame " << status.progressFrames << "/" << status.holdFrames;
+        oss << std::fixed << std::setprecision(precision) << value;
         return oss.str();
     }
 
-    std::ostringstream oss;
-    oss << "Planar " << status.planarIndex << "  Frame " << status.absoluteFrame;
-    return oss.str();
-}
-
-//! Build the display strings for one scripted visual debug HUD snapshot.
-inline SCameraScriptVisualDebugOverlayData buildScriptVisualDebugOverlayData(const SCameraScriptVisualDebugStatus& status)
-{
-    SCameraScriptVisualDebugOverlayData out = {};
-    out.title = std::string(status.title);
-    out.headline = "Camera " + std::to_string(status.cameraIndex + 1u) + "/" + std::to_string(status.cameraCount) + "  " + std::string(status.cameraLabel);
-    out.progressLine = buildScriptVisualDebugProgressLine(status);
-    if (!status.segmentLabel.empty())
-        out.progressLine += "  |  " + std::string(status.segmentLabel);
-
-    out.hintLine = std::string(status.cameraHint);
-    if (status.hasDynamicFov)
-        out.hintLine += "  |  Dynamic FOV " + formatFixedScalar(status.dynamicFovDeg, 2) + " deg";
-
-    if (status.followActive)
+    static inline std::string buildScriptVisualDebugProgressLine(const SCameraScriptVisualDebugStatus& status)
     {
-        out.hintLine += "  |  " + std::string(status.followModeDescription);
-        if (status.followLockValid)
+        if (status.hasHoldFrames)
         {
-            out.hintLine +=
-                "  |  lock " + formatFixedScalar(status.followLockAngleDeg, 2) +
-                " deg  |  target " + formatFixedScalar(status.followTargetDistance, 2) +
-                "  |  center err " + formatFixedScalar(status.followTargetCenterNdcRadius, 3);
+            const float safeFps = std::max(status.targetFps, 1.0f);
+            const double elapsedSeconds = static_cast<double>(status.progressFrames) / static_cast<double>(safeFps);
+            const double holdSeconds = static_cast<double>(status.holdFrames) / static_cast<double>(safeFps);
+
+            std::ostringstream oss;
+            oss << "Planar " << status.planarIndex
+                << "  Segment " << std::fixed << std::setprecision(1)
+                << elapsedSeconds << "/" << holdSeconds
+                << " s  Frame " << status.progressFrames << "/" << status.holdFrames;
+            return oss.str();
+        }
+
+        std::ostringstream oss;
+        oss << "Planar " << status.planarIndex << "  Frame " << status.absoluteFrame;
+        return oss.str();
+    }
+
+    static inline SCameraScriptVisualDebugOverlayData buildScriptVisualDebugOverlayData(const SCameraScriptVisualDebugStatus& status)
+    {
+        SCameraScriptVisualDebugOverlayData out = {};
+        out.title = std::string(status.title);
+        out.headline = "Camera " + std::to_string(status.cameraIndex + 1u) + "/" + std::to_string(status.cameraCount) + "  " + std::string(status.cameraLabel);
+        out.progressLine = buildScriptVisualDebugProgressLine(status);
+        if (!status.segmentLabel.empty())
+            out.progressLine += "  |  " + std::string(status.segmentLabel);
+
+        out.hintLine = std::string(status.cameraHint);
+        if (status.hasDynamicFov)
+            out.hintLine += "  |  Dynamic FOV " + formatFixedScalar(status.dynamicFovDeg, 2) + " deg";
+
+        if (status.followActive)
+        {
+            out.hintLine += "  |  " + std::string(status.followModeDescription);
+            if (status.followLockValid)
+            {
+                out.hintLine +=
+                    "  |  lock " + formatFixedScalar(status.followLockAngleDeg, 2) +
+                    " deg  |  target " + formatFixedScalar(status.followTargetDistance, 2) +
+                    "  |  center err " + formatFixedScalar(status.followTargetCenterNdcRadius, 3);
+            }
+            else
+            {
+                out.hintLine += "  |  lock n/a  |  target n/a  |  center err n/a";
+            }
         }
         else
         {
-            out.hintLine += "  |  lock n/a  |  target n/a  |  center err n/a";
+            out.hintLine += "  |  Follow off";
         }
-    }
-    else
-    {
-        out.hintLine += "  |  Follow off";
-    }
 
-    return out;
-}
+        return out;
+    }
+};
 
 } // namespace nbl::ui
 

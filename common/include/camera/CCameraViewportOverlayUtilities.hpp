@@ -163,146 +163,148 @@ struct SCameraViewportSplitOverlayStyle final
     ImU32 dividerLineColor = DividerLineColor;
 };
 
-inline void pushViewportWindowStyle(const SCameraViewportWindowStyle& style = {})
+struct CCameraViewportOverlayUtilities final
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, style.windowRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.windowBorderSize);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.windowPadding);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, style.windowBackgroundColor);
-}
-
-inline void popViewportWindowStyle()
-{
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
-}
-
-inline void drawViewportInfoOverlay(
-    ImDrawList& drawList,
-    const SViewportOverlayRect& viewportRect,
-    const SCameraViewportInfoOverlayData& data,
-    const SCameraViewportInfoOverlayStyle& style = {})
-{
-    if (!viewportRect.valid() || !data.valid())
-        return;
-
-    const ImVec2 headlineSize = ImGui::CalcTextSize(data.headline.c_str());
-    const ImVec2 descriptionSize = ImGui::CalcTextSize(data.description.c_str());
-    const ImVec2 detailSize = ImGui::CalcTextSize(data.detail.c_str());
-    const float width = std::max(std::max(headlineSize.x, descriptionSize.x), detailSize.x);
-    const float height = headlineSize.y + descriptionSize.y + detailSize.y + style.lineGap * 2.0f + style.padding.y * 2.0f;
-    ImVec2 overlayPos(
-        viewportRect.position.x + viewportRect.size.x - width - style.padding.x * 2.0f - style.margin,
-        viewportRect.position.y + style.margin);
-    overlayPos.x = std::max(overlayPos.x, viewportRect.position.x + style.margin);
-    const ImVec2 overlayMax(overlayPos.x + width + style.padding.x * 2.0f, overlayPos.y + height);
-
-    drawList.AddRectFilled(overlayPos, overlayMax, style.backgroundColor, style.cornerRounding);
-    drawList.AddRect(overlayPos, overlayMax, style.borderColor, style.cornerRounding);
-    drawList.AddText(ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y), style.headlineColor, data.headline.c_str());
-    drawList.AddText(
-        ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + style.lineGap),
-        style.descriptionColor,
-        data.description.c_str());
-    drawList.AddText(
-        ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + descriptionSize.y + style.lineGap * 2.0f),
-        style.detailColor,
-        data.detail.c_str());
-}
-
-inline void beginHoverInfoOverlay(const char* name, const ImVec2& mousePos, const SCameraHoverInfoOverlayStyle& style = {})
-{
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, style.windowBackgroundColor);
-    ImGui::PushStyleColor(ImGuiCol_Border, style.borderColor);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.borderSize);
-    ImGui::SetNextWindowPos(ImVec2(mousePos.x + style.mouseOffset.x, mousePos.y + style.mouseOffset.y), ImGuiCond_Always);
-    ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
-}
-
-inline void endHoverInfoOverlay()
-{
-    ImGui::End();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(2);
-}
-
-inline void drawViewportSplitOverlay(
-    ImDrawList& drawList,
-    const ImVec2& displaySize,
-    const float splitY,
-    const float gap,
-    const SCameraViewportSplitOverlayStyle& style = {})
-{
-    if (gap >= style.minimumGapFill)
+    static inline void pushViewportWindowStyle(const SCameraViewportWindowStyle& style = {})
     {
-        drawList.AddRectFilled(
-            ImVec2(0.0f, splitY),
-            ImVec2(displaySize.x, splitY + gap),
-            style.gapFillColor);
-        return;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, style.windowRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.windowBorderSize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.windowPadding);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, style.windowBackgroundColor);
     }
 
-    drawList.AddLine(
-        ImVec2(0.0f, splitY),
-        ImVec2(displaySize.x, splitY),
-        style.dividerLineColor,
-        style.dividerLineThickness);
-}
+    static inline void popViewportWindowStyle()
+    {
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+    }
 
-//! Draw one follow-target overlay in the active viewport using projected tracked-target metrics.
-inline void drawFollowTargetViewportOverlay(
-    ImDrawList& drawList,
-    const system::SCameraProjectionContext& projectionContext,
-    const core::CTrackedTarget& trackedTarget,
-    const SViewportOverlayRect& viewportRect,
-    const SCameraFollowTargetViewportOverlayStyle& style = {})
-{
-    if (!viewportRect.valid())
-        return;
+    static inline void drawViewportInfoOverlay(
+        ImDrawList& drawList,
+        const SViewportOverlayRect& viewportRect,
+        const SCameraViewportInfoOverlayData& data,
+        const SCameraViewportInfoOverlayStyle& style = {})
+    {
+        if (!viewportRect.valid() || !data.valid())
+            return;
 
-    system::SCameraProjectedTargetMetrics projectedTarget = {};
-    if (!system::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
-        return;
+        const ImVec2 headlineSize = ImGui::CalcTextSize(data.headline.c_str());
+        const ImVec2 descriptionSize = ImGui::CalcTextSize(data.description.c_str());
+        const ImVec2 detailSize = ImGui::CalcTextSize(data.detail.c_str());
+        const float width = std::max(std::max(headlineSize.x, descriptionSize.x), detailSize.x);
+        const float height = headlineSize.y + descriptionSize.y + detailSize.y + style.lineGap * 2.0f + style.padding.y * 2.0f;
+        ImVec2 overlayPos(
+            viewportRect.position.x + viewportRect.size.x - width - style.padding.x * 2.0f - style.margin,
+            viewportRect.position.y + style.margin);
+        overlayPos.x = std::max(overlayPos.x, viewportRect.position.x + style.margin);
+        const ImVec2 overlayMax(overlayPos.x + width + style.padding.x * 2.0f, overlayPos.y + height);
 
-    const bool centered = projectedTarget.radius <= style.centeredNdcRadius;
-    const ImVec2 center = viewportRect.getCenter();
-    const ImVec2 target = viewportRect.ndcToScreen(ImVec2(projectedTarget.ndc.x, projectedTarget.ndc.y));
-    const float targetRadius = centered ? style.centeredTargetRadius : style.defaultTargetRadius;
-    const ImU32 targetColor = centered ? style.centeredTargetColor : style.defaultTargetColor;
-    const ImU32 targetFillColor = centered ? style.centeredTargetFillColor : style.defaultTargetFillColor;
-    const ImU32 linkColor = centered ? style.centeredLinkColor : style.defaultLinkColor;
+        drawList.AddRectFilled(overlayPos, overlayMax, style.backgroundColor, style.cornerRounding);
+        drawList.AddRect(overlayPos, overlayMax, style.borderColor, style.cornerRounding);
+        drawList.AddText(ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y), style.headlineColor, data.headline.c_str());
+        drawList.AddText(
+            ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + style.lineGap),
+            style.descriptionColor,
+            data.description.c_str());
+        drawList.AddText(
+            ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + descriptionSize.y + style.lineGap * 2.0f),
+            style.detailColor,
+            data.detail.c_str());
+    }
 
-    drawList.AddCircle(center, style.centerRadius, style.centerColor, style.circleSegments, style.centerCircleThickness);
-    drawList.AddLine(
-        ImVec2(center.x - style.centerCrossHalfExtent, center.y),
-        ImVec2(center.x + style.centerCrossHalfExtent, center.y),
-        style.centerColor,
-        style.centerLineThickness);
-    drawList.AddLine(
-        ImVec2(center.x, center.y - style.centerCrossHalfExtent),
-        ImVec2(center.x, center.y + style.centerCrossHalfExtent),
-        style.centerColor,
-        style.centerLineThickness);
+    static inline void beginHoverInfoOverlay(const char* name, const ImVec2& mousePos, const SCameraHoverInfoOverlayStyle& style = {})
+    {
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, style.windowBackgroundColor);
+        ImGui::PushStyleColor(ImGuiCol_Border, style.borderColor);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, style.borderSize);
+        ImGui::SetNextWindowPos(ImVec2(mousePos.x + style.mouseOffset.x, mousePos.y + style.mouseOffset.y), ImGuiCond_Always);
+        ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+    }
 
-    drawList.AddLine(center, target, linkColor, style.linkLineThickness);
-    drawList.AddCircleFilled(target, targetRadius, targetFillColor, style.filledCircleSegments);
-    drawList.AddCircle(target, targetRadius, targetColor, style.circleSegments, style.centerCircleThickness);
-    drawList.AddLine(
-        ImVec2(target.x - style.targetCrossHalfExtent, target.y),
-        ImVec2(target.x + style.targetCrossHalfExtent, target.y),
-        targetColor,
-        style.centerLineThickness);
-    drawList.AddLine(
-        ImVec2(target.x, target.y - style.targetCrossHalfExtent),
-        ImVec2(target.x, target.y + style.targetCrossHalfExtent),
-        targetColor,
-        style.centerLineThickness);
+    static inline void endHoverInfoOverlay()
+    {
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(2);
+    }
 
-    drawList.AddText(
-        ImVec2(target.x + style.labelOffsetX, target.y + style.labelOffsetY),
-        targetColor,
-        "FOLLOW TARGET");
-}
+    static inline void drawViewportSplitOverlay(
+        ImDrawList& drawList,
+        const ImVec2& displaySize,
+        const float splitY,
+        const float gap,
+        const SCameraViewportSplitOverlayStyle& style = {})
+    {
+        if (gap >= style.minimumGapFill)
+        {
+            drawList.AddRectFilled(
+                ImVec2(0.0f, splitY),
+                ImVec2(displaySize.x, splitY + gap),
+                style.gapFillColor);
+            return;
+        }
+
+        drawList.AddLine(
+            ImVec2(0.0f, splitY),
+            ImVec2(displaySize.x, splitY),
+            style.dividerLineColor,
+            style.dividerLineThickness);
+    }
+
+    static inline void drawFollowTargetViewportOverlay(
+        ImDrawList& drawList,
+        const system::SCameraProjectionContext& projectionContext,
+        const core::CTrackedTarget& trackedTarget,
+        const SViewportOverlayRect& viewportRect,
+        const SCameraFollowTargetViewportOverlayStyle& style = {})
+    {
+        if (!viewportRect.valid())
+            return;
+
+        system::SCameraProjectedTargetMetrics projectedTarget = {};
+        if (!system::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
+            return;
+
+        const bool centered = projectedTarget.radius <= style.centeredNdcRadius;
+        const ImVec2 center = viewportRect.getCenter();
+        const ImVec2 target = viewportRect.ndcToScreen(ImVec2(projectedTarget.ndc.x, projectedTarget.ndc.y));
+        const float targetRadius = centered ? style.centeredTargetRadius : style.defaultTargetRadius;
+        const ImU32 targetColor = centered ? style.centeredTargetColor : style.defaultTargetColor;
+        const ImU32 targetFillColor = centered ? style.centeredTargetFillColor : style.defaultTargetFillColor;
+        const ImU32 linkColor = centered ? style.centeredLinkColor : style.defaultLinkColor;
+
+        drawList.AddCircle(center, style.centerRadius, style.centerColor, style.circleSegments, style.centerCircleThickness);
+        drawList.AddLine(
+            ImVec2(center.x - style.centerCrossHalfExtent, center.y),
+            ImVec2(center.x + style.centerCrossHalfExtent, center.y),
+            style.centerColor,
+            style.centerLineThickness);
+        drawList.AddLine(
+            ImVec2(center.x, center.y - style.centerCrossHalfExtent),
+            ImVec2(center.x, center.y + style.centerCrossHalfExtent),
+            style.centerColor,
+            style.centerLineThickness);
+
+        drawList.AddLine(center, target, linkColor, style.linkLineThickness);
+        drawList.AddCircleFilled(target, targetRadius, targetFillColor, style.filledCircleSegments);
+        drawList.AddCircle(target, targetRadius, targetColor, style.circleSegments, style.centerCircleThickness);
+        drawList.AddLine(
+            ImVec2(target.x - style.targetCrossHalfExtent, target.y),
+            ImVec2(target.x + style.targetCrossHalfExtent, target.y),
+            targetColor,
+            style.centerLineThickness);
+        drawList.AddLine(
+            ImVec2(target.x, target.y - style.targetCrossHalfExtent),
+            ImVec2(target.x, target.y + style.targetCrossHalfExtent),
+            targetColor,
+            style.centerLineThickness);
+
+        drawList.AddText(
+            ImVec2(target.x + style.labelOffsetX, target.y + style.labelOffsetY),
+            targetColor,
+            "FOLLOW TARGET");
+    }
+};
 
 } // namespace nbl::ui
 

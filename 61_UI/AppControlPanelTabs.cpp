@@ -53,7 +53,7 @@ inline float calcControlPanelToggleRowWidth(
 	{
 		if (toggleIx > 0u)
 			rowWidth += gap;
-		rowWidth += nbl::ui::calcPillWidth(toggles[toggleIx].label, panelStyle.TogglePadding);
+		rowWidth += nbl::ui::CCameraControlPanelUiUtilities::calcPillWidth(toggles[toggleIx].label, panelStyle.TogglePadding);
 	}
 	return rowWidth;
 }
@@ -78,7 +78,7 @@ void App::drawControlPanelHeader(const nbl::ui::SCameraControlPanelStyle& panelS
 			{ "CI", panelStyle.WarnColor }
 		}};
 		const size_t headerBadgeCount = m_cliRuntime.ciMode ? headerBadges.size() : headerBadges.size() - 1u;
-		nbl::ui::drawBadgeRow(std::span<const nbl::ui::SCameraControlPanelBadgeData>(headerBadges.data(), headerBadgeCount), panelStyle.BadgeTextColor, gap, panelStyle);
+		nbl::ui::CCameraControlPanelUiUtilities::drawBadgeRow(std::span<const nbl::ui::SCameraControlPanelBadgeData>(headerBadges.data(), headerBadgeCount), panelStyle.BadgeTextColor, gap, panelStyle);
 
 		ImGui::Dummy(ImVec2(0.0f, panelStyle.HeaderGapSmall));
 		const std::array<nbl::ui::SCameraControlPanelKeyHintGroup, 3u> keyHintGroups = {{
@@ -86,13 +86,13 @@ void App::drawControlPanelHeader(const nbl::ui::SCameraControlPanelStyle& panelS
 			{ "Look", nbl::ui::SCameraControlPanelHeaderHints::LookKeys },
 			{ "Zoom", nbl::ui::SCameraControlPanelHeaderHints::ZoomKeys }
 		}};
-		nbl::ui::drawKeyHintGroupRow(keyHintGroups, gap, gap * 2.0f, panelStyle.KeyBackgroundColor, panelStyle.KeyTextColor, panelStyle);
+		nbl::ui::CCameraControlPanelUiUtilities::drawKeyHintGroupRow(keyHintGroups, gap, gap * 2.0f, panelStyle.KeyBackgroundColor, panelStyle.KeyTextColor, panelStyle);
 
 		ImGui::Dummy(ImVec2(0.0f, panelStyle.HeaderGapSmall));
 		if (ImGui::BeginTable("HeaderMetrics", 3, ImGuiTableFlags_SizingStretchProp))
 		{
 			const float frameMs = std::max(0.0f, m_uiMetrics.lastFrameMs);
-			const float fps = nbl::ui::calcFramesPerSecond(frameMs, panelStyle);
+			const float fps = nbl::ui::CCameraControlPanelUiUtilities::calcFramesPerSecond(frameMs, panelStyle);
 			const std::array<nbl::ui::SCameraControlPanelMiniStatSpec, 3u> miniStats = {{
 				{ "FrameStat", "Frame", panelStyle.AccentColor, panelStyle.DefaultFrameMetricMin },
 				{ "InputStat", "Input", panelStyle.AccentColor, panelStyle.DefaultEventMetricMin },
@@ -101,19 +101,19 @@ void App::drawControlPanelHeader(const nbl::ui::SCameraControlPanelStyle& panelS
 
 			ImGui::TableNextRow();
 			ImGui::TableSetColumnIndex(0);
-			nbl::ui::drawMiniStat(miniStats[0], m_uiMetrics.frameMs, m_uiMetrics.sampleIndex, [&]
+			nbl::ui::CCameraControlPanelUiUtilities::drawMiniStat(miniStats[0], m_uiMetrics.frameMs, m_uiMetrics.sampleIndex, [&]
 			{
 				ImGui::TextColored(panelStyle.AccentColor, "%.1f ms  %.0f fps", frameMs, fps);
 			}, panelStyle);
 
 			ImGui::TableSetColumnIndex(1);
-			nbl::ui::drawMiniStat(miniStats[1], m_uiMetrics.inputCounts, m_uiMetrics.sampleIndex, [&]
+			nbl::ui::CCameraControlPanelUiUtilities::drawMiniStat(miniStats[1], m_uiMetrics.inputCounts, m_uiMetrics.sampleIndex, [&]
 			{
 				ImGui::TextColored(panelStyle.AccentColor, "%u ev", m_uiMetrics.lastInputEvents);
 			}, panelStyle);
 
 			ImGui::TableSetColumnIndex(2);
-			nbl::ui::drawMiniStat(miniStats[2], m_uiMetrics.virtualCounts, m_uiMetrics.sampleIndex, [&]
+			nbl::ui::CCameraControlPanelUiUtilities::drawMiniStat(miniStats[2], m_uiMetrics.virtualCounts, m_uiMetrics.sampleIndex, [&]
 			{
 				ImGui::TextColored(panelStyle.AccentColor, "%u ev", m_uiMetrics.lastVirtualEvents);
 			}, panelStyle);
@@ -142,21 +142,21 @@ void App::drawControlPanelToggles(const nbl::ui::SCameraControlPanelStyle& panel
 	};
 
 	const float rowWidth = calcControlPanelToggleRowWidth(ControlPanelToggles, panelStyle, gap);
-	nbl::ui::centerControlPanelRow(rowWidth);
+	nbl::ui::CCameraControlPanelUiUtilities::centerControlPanelRow(rowWidth);
 	for (size_t toggleIx = 0u; toggleIx < ControlPanelToggles.size(); ++toggleIx)
 	{
 		if (toggleIx > 0u)
 			ImGui::SameLine(0.0f, gap);
 
 		const auto& toggle = ControlPanelToggles[toggleIx];
-		nbl::ui::drawTogglePill(
+		nbl::ui::CCameraControlPanelUiUtilities::drawTogglePill(
 			toggle.label,
 			getToggleValue(toggle.binding),
 			panelStyle.AccentColor,
 			panelStyle.InactiveBadgeColor,
 			panelStyle.BadgeTextColor,
 			panelStyle.TogglePadding);
-		nbl::ui::drawHoverHint(toggle.hint);
+		nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint(toggle.hint);
 	}
 }
 

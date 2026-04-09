@@ -41,9 +41,9 @@ void App::TransformEditorContents()
 
 	if (ImGui::IsItemHovered())
 	{
-		nbl::ui::beginHoverInfoOverlay("HoverOverlay", ImGui::GetMousePos());
+		nbl::ui::CCameraViewportOverlayUtilities::beginHoverInfoOverlay("HoverOverlay", ImGui::GetMousePos());
 		ImGui::Text("Right-click and drag on the gizmo to manipulate the object.");
-		nbl::ui::endHoverInfoOverlay();
+		nbl::ui::CCameraViewportOverlayUtilities::endHoverInfoOverlay();
 	}
 
 	ImGui::Separator();

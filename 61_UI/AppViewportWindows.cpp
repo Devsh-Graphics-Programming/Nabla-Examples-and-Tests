@@ -25,7 +25,7 @@ void App::drawWindowedViewportWindow(uint32_t windowIx, ImGuiCond windowCond, bo
 	ImGui::SetNextWindowSize({ rw.iSize.x, rw.iSize.y }, windowCond);
 	ImGui::SetNextWindowSizeConstraints(SCameraAppViewportDefaults::MinWindowSize, SCameraAppViewportDefaults::MaxWindowSize);
 
-	nbl::ui::pushViewportWindowStyle();
+	nbl::ui::CCameraViewportOverlayUtilities::pushViewportWindowStyle();
 	const std::string ident = "Render Window \"" + std::to_string(windowIx) + "\"";
 
 	ImGui::Begin(ident.data(), nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -41,7 +41,7 @@ void App::drawWindowedViewportWindow(uint32_t windowIx, ImGuiCond windowCond, bo
 	if (!viewportValid)
 	{
 		ImGui::End();
-		nbl::ui::popViewportWindowStyle();
+		nbl::ui::CCameraViewportOverlayUtilities::popViewportWindowStyle();
 		return;
 	}
 	const auto& viewportState = viewportRuntime.viewportState;
@@ -68,7 +68,7 @@ void App::drawWindowedViewportWindow(uint32_t windowIx, ImGuiCond windowCond, bo
 		drawViewportManipulationGizmos(windowIx, binding, viewportState, gizmoIx);
 
 	ImGui::End();
-	nbl::ui::popViewportWindowStyle();
+	nbl::ui::CCameraViewportOverlayUtilities::popViewportWindowStyle();
 }
 
 void App::drawViewportWindowOverlay(
@@ -83,7 +83,7 @@ void App::drawViewportWindowOverlay(
 	overlayData.headline = "Planar " + std::to_string(binding.activePlanarIx) + " | " + projLabel + " | W" + std::to_string(windowIx);
     overlayData.description = std::string(CCameraTextUtilities::getCameraTypeLabel(viewportState.camera)) + ": " + std::string(CCameraTextUtilities::getCameraTypeDescription(viewportState.camera));
 	overlayData.detail = "Frustum: active camera (hidden in owner view)";
-	nbl::ui::drawViewportInfoOverlay(drawList, viewportRect, overlayData);
+	nbl::ui::CCameraViewportOverlayUtilities::drawViewportInfoOverlay(drawList, viewportRect, overlayData);
 }
 
 void App::updateActiveRenderWindowFromViewport(uint32_t windowIx, bool windowHovered, bool windowFocused)
@@ -106,7 +106,7 @@ void App::drawViewportSplitOverlayWindow(const ImVec2& displaySize)
 	ImGui::SetNextWindowSize(displaySize, ImGuiCond_Always);
 	ImGui::Begin("SplitOverlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus);
 	if (auto* drawList = ImGui::GetWindowDrawList(); drawList)
-		nbl::ui::drawViewportSplitOverlay(*drawList, displaySize, splitY, gap);
+		nbl::ui::CCameraViewportOverlayUtilities::drawViewportSplitOverlay(*drawList, displaySize, splitY, gap);
 	ImGui::End();
 }
 

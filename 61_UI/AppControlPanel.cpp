@@ -34,12 +34,12 @@ void App::DrawControlPanel()
 {
 	const nbl::ui::SCameraControlPanelStyle panelStyle = {};
 	const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-	const ImVec2 panelSize = nbl::ui::calcControlPanelWindowSize(displaySize, panelStyle);
+	const ImVec2 panelSize = nbl::ui::CCameraControlPanelUiUtilities::calcControlPanelWindowSize(displaySize, panelStyle);
 	const ImVec2 panelPos = { 0.0f, 0.0f };
 	ImGui::SetNextWindowPos(panelPos, ImGuiCond_Always);
 	ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
 
-	nbl::ui::pushControlPanelWindowStyle(panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::pushControlPanelWindowStyle(panelStyle);
 	ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
 	ImGui::SetNextWindowBgAlpha(0.0f);
 	if (m_cliRuntime.ciMode)
@@ -47,7 +47,7 @@ void App::DrawControlPanel()
 	ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
 
 	if (auto* drawList = ImGui::GetWindowDrawList(); drawList)
-		nbl::ui::drawControlPanelWindowBackdrop(*drawList, ImGui::GetWindowPos(), ImGui::GetWindowSize(), panelStyle);
+		nbl::ui::CCameraControlPanelUiUtilities::drawControlPanelWindowBackdrop(*drawList, ImGui::GetWindowPos(), ImGui::GetWindowSize(), panelStyle);
 
 	drawControlPanelHeader(panelStyle);
 	ImGui::Spacing();
@@ -56,6 +56,6 @@ void App::DrawControlPanel()
 	drawControlPanelTabs(panelStyle);
 
 	ImGui::End();
-	nbl::ui::popControlPanelWindowStyle();
+	nbl::ui::CCameraControlPanelUiUtilities::popControlPanelWindowStyle();
 }
 

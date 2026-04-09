@@ -3,9 +3,9 @@
 
 void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle& panelStyle)
 {
-	if (!nbl::ui::beginControlPanelTabChild("ProjectionPanel", panelStyle))
+	if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("ProjectionPanel", panelStyle))
 	{
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
 
@@ -15,13 +15,13 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	{
 		ImGui::TextDisabled("No active viewport.");
 		ImGui::PopItemWidth();
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
 
-	nbl::ui::drawSectionHeader("PlanarSelectHeader", "Planar Selection", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("PlanarSelectHeader", "Planar Selection", panelStyle.AccentColor, panelStyle);
 	ImGui::Text("Active Render Window: %s", runtime.activeRenderWindowIxString.c_str());
-	nbl::ui::drawHoverHint("Window that receives input and camera switching");
+	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Window that receives input and camera switching");
 
 	auto refreshRuntime = [&]() -> bool
 	{
@@ -33,20 +33,20 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	if (!nbl::ui::drawProjectionPlanarSelector(getPlanarProjectionSpan(), runtime, refreshRuntime))
 	{
 		ImGui::PopItemWidth();
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
-	nbl::ui::drawHoverHint("Select which camera the window renders");
+	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Select which camera the window renders");
 
 	assert(binding.boundProjectionIx.has_value());
 	assert(binding.lastBoundPerspectivePresetProjectionIx.has_value());
 	assert(binding.lastBoundOrthoPresetProjectionIx.has_value());
 
-	nbl::ui::drawSectionHeader("ProjectionParamsHeader", "Projection Parameters", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("ProjectionParamsHeader", "Projection Parameters", panelStyle.AccentColor, panelStyle);
 	if (!nbl::ui::drawProjectionTypeSelector(getPlanarProjectionSpan(), runtime, refreshRuntime))
 	{
 		ImGui::PopItemWidth();
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
 
@@ -54,13 +54,13 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	const bool updateBoundVirtualMaps = nbl::ui::drawProjectionPresetSelector(getPlanarProjectionSpan(), runtime, selectedProjectionType);
 	if (updateBoundVirtualMaps)
 		syncWindowInputBinding(binding);
-	nbl::ui::drawHoverHint("Switch preset projection for this planar");
+	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Switch preset projection for this planar");
 
 	auto& boundProjection = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()];
 	assert(!boundProjection.isProjectionSingular());
 	nbl::ui::drawProjectionParameterControls(binding, boundProjection, m_viewports.useWindow);
 
-	nbl::ui::drawSectionHeader("CursorHeader", "Cursor Behaviour", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("CursorHeader", "Cursor Behaviour", panelStyle.AccentColor, panelStyle);
 	nbl::ui::drawCursorBehaviourControls(m_viewports.captureCursorInMoveMode, m_viewports.resetCursorToCenter);
 
 	ImGui::TextColored(
@@ -69,7 +69,7 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 		m_viewports.enableActiveCameraMovement ? "Enabled" : "Disabled");
 	ImGui::Separator();
 
-	nbl::ui::drawSectionHeader("BoundCameraHeader", "Bound Camera", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("BoundCameraHeader", "Bound Camera", panelStyle.AccentColor, panelStyle);
 	nbl::ui::drawBoundCameraSection(
 		runtime,
 		binding.activePlanarIx,
@@ -81,5 +81,5 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 		[this](SWindowControlBinding& windowBinding) { syncWindowInputBindingToProjection(windowBinding); });
 
 	ImGui::PopItemWidth();
-	nbl::ui::endControlPanelTabChild();
+	nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }

@@ -81,7 +81,7 @@ void App::drawViewportManipulationGizmos(
 void App::drawManipulableObjectHoverOverlay(const SManipulableObjectContext& objectContext) const
 {
 	const ImVec2 mousePos = ImGui::GetIO().MousePos;
-	nbl::ui::beginHoverInfoOverlay("InfoOverlay", mousePos);
+	nbl::ui::CCameraViewportOverlayUtilities::beginHoverInfoOverlay("InfoOverlay", mousePos);
 
 	ImGui::Text("Identifier: %s", objectContext.label.c_str());
 	ImGui::Text("Object Ix: %u", objectContext.objectIx);
@@ -100,5 +100,5 @@ void App::drawManipulableObjectHoverOverlay(const SManipulableObjectContext& obj
 		ImGui::TextDisabled("Enabled follow cameras update on the next frame");
 	}
 
-	nbl::ui::endHoverInfoOverlay();
+	nbl::ui::CCameraViewportOverlayUtilities::endHoverInfoOverlay();
 }

@@ -5,20 +5,20 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 	using checkbox_spec_t = nbl::ui::SCameraControlPanelCheckboxSpec;
 	using slider_spec_t = nbl::ui::SCameraControlPanelSliderSpec;
 
-	if (!nbl::ui::beginControlPanelTabChild("CameraPanel", panelStyle))
+	if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("CameraPanel", panelStyle))
 	{
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
 
 	ImGui::PushItemWidth(-1.0f);
-	nbl::ui::drawSectionHeader("CameraInputHeader", "Input", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("CameraInputHeader", "Input", panelStyle.AccentColor, panelStyle);
 	for (const auto& spec : {
 		checkbox_spec_t{ .label = "Mirror input to all cameras", .value = &m_cameraControls.mirrorInput, .hint = "Apply keyboard and mouse input to every camera" },
 		checkbox_spec_t{ .label = "World translate", .value = &m_cameraControls.worldTranslate, .hint = "Translate in world space instead of camera space" }
 	})
 	{
-		nbl::ui::drawCheckboxWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint(spec);
 	}
 	for (const auto& spec : {
 		slider_spec_t{ .label = "Keyboard scale", .value = &m_cameraControls.keyboardScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale keyboard movement magnitudes" },
@@ -28,23 +28,23 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		slider_spec_t{ .label = "Rotate scale", .value = &m_cameraControls.rotationScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Overall rotation scale for virtual events" }
 	})
 	{
-		nbl::ui::drawSliderFloatWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);
 	}
 
-	nbl::ui::drawSectionHeader("CameraConstraintsHeader", "Constraints", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("CameraConstraintsHeader", "Constraints", panelStyle.AccentColor, panelStyle);
 	for (const auto& spec : {
 		checkbox_spec_t{ .label = "Enable constraints", .value = &m_cameraConstraints.enabled, .hint = "Enable or disable all camera constraints" },
 		checkbox_spec_t{ .label = "Clamp distance", .value = &m_cameraConstraints.clampDistance, .hint = "Clamp orbit distance to min/max" }
 	})
 	{
-		nbl::ui::drawCheckboxWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint(spec);
 	}
 	for (const auto& spec : {
 		slider_spec_t{ .label = "Min distance", .value = &m_cameraConstraints.minDistance, .minValue = SCameraAppControlPanelRangeDefaults::ConstraintDistanceMin, .maxValue = SCameraAppControlPanelRangeDefaults::ConstraintMinDistanceMax, .format = "%.3f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Minimum orbit distance" },
 		slider_spec_t{ .label = "Max distance", .value = &m_cameraConstraints.maxDistance, .minValue = SCameraAppControlPanelRangeDefaults::ConstraintDistanceMin, .maxValue = SCameraAppControlPanelRangeDefaults::ConstraintMaxDistanceMax, .format = "%.3f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Maximum orbit distance" }
 	})
 	{
-		nbl::ui::drawSliderFloatWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);
 	}
 	ImGui::Separator();
 	for (const auto& spec : {
@@ -53,7 +53,7 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		checkbox_spec_t{ .label = "Clamp roll", .value = &m_cameraConstraints.clampRoll, .hint = "Clamp roll angle" }
 	})
 	{
-		nbl::ui::drawCheckboxWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint(spec);
 	}
 	for (const auto& spec : {
 		slider_spec_t{ .label = "Pitch min", .value = &m_cameraConstraints.pitchMinDeg, .minValue = SCameraAppControlPanelRangeDefaults::ConstraintAngleMinDeg, .maxValue = SCameraAppControlPanelRangeDefaults::ConstraintAngleMaxDeg, .format = "%.1f", .hint = "Minimum pitch in degrees" },
@@ -64,10 +64,10 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		slider_spec_t{ .label = "Roll max", .value = &m_cameraConstraints.rollMaxDeg, .minValue = SCameraAppControlPanelRangeDefaults::ConstraintAngleMinDeg, .maxValue = SCameraAppControlPanelRangeDefaults::ConstraintAngleMaxDeg, .format = "%.1f", .hint = "Maximum roll in degrees" }
 	})
 	{
-		nbl::ui::drawSliderFloatWithHint(spec);
+		nbl::ui::CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);
 	}
 
-	nbl::ui::drawSectionHeader("OrbitHeader", "Orbit Target", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("OrbitHeader", "Orbit Target", panelStyle.AccentColor, panelStyle);
 	auto* activeCamera = getActiveCamera();
 	ICamera::SphericalTargetState orbitState;
 	const bool hasOrbitTarget = activeCamera && activeCamera->tryGetSphericalTargetState(orbitState);
@@ -77,13 +77,13 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		if (ImGui::InputFloat3("Target", &target[0]))
 			activeCamera->trySetSphericalTarget(getCastedVector<float64_t>(target));
 
-		if (nbl::ui::drawActionButtonWithHint("Target model", "Set orbit target to the model position"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Target model", "Set orbit target to the model position"))
 		{
 			const auto targetPos = hlsl::transpose(getMatrix3x4As4x4(m_sceneInteraction.model))[3];
 			activeCamera->trySetSphericalTarget(float64_t3(targetPos.x, targetPos.y, targetPos.z));
 		}
 		ImGui::SameLine();
-		if (nbl::ui::drawActionButtonWithHint("Target origin", "Set orbit target to world origin"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Target origin", "Set orbit target to world origin"))
 			activeCamera->trySetSphericalTarget(float64_t3(0.0));
 	}
 	else
@@ -91,13 +91,13 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		ImGui::TextDisabled("Active camera is not orbit.");
 	}
 
-	nbl::ui::drawSectionHeader("FollowHeader", "Follow Target", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("FollowHeader", "Follow Target", panelStyle.AccentColor, panelStyle);
 	if (auto* activeFollowConfig = getActiveFollowConfig())
 	{
 		auto& followConfig = *activeFollowConfig;
 		const bool prevFollowEnabled = followConfig.enabled;
 		const auto prevFollowMode = followConfig.mode;
-		nbl::ui::drawCheckboxWithHint({ .label = "Enable follow", .value = &followConfig.enabled, .hint = "Apply tracked-target follow to the active planar camera" });
+		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Enable follow", .value = &followConfig.enabled, .hint = "Apply tracked-target follow to the active planar camera" });
 
 		const char* followModeLabels[] = {
             CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::Disabled),
@@ -120,18 +120,18 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		if (ImGui::InputFloat3("Tracked target", &trackedTarget[0]))
 			m_sceneInteraction.followTarget.setPosition(getCastedVector<float64_t>(trackedTarget));
 
-		nbl::ui::drawCheckboxWithHint({ .label = "Show target marker", .value = &m_sceneInteraction.followTargetVisible, .hint = "Render the tracked target marker in the scene" });
+		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Show target marker", .value = &m_sceneInteraction.followTargetVisible, .hint = "Render the tracked target marker in the scene" });
 
-		if (nbl::ui::drawActionButtonWithHint("Reset target", "Reset tracked target gimbal to the default world-space follow pose"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Reset target", "Reset tracked target gimbal to the default world-space follow pose"))
 			resetFollowTargetToDefault();
 		ImGui::SameLine();
-		if (nbl::ui::drawActionButtonWithHint("Snap to model", "Optionally snap tracked target gimbal to the model transform"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Snap to model", "Optionally snap tracked target gimbal to the model transform"))
 			snapFollowTargetToModel();
 		ImGui::SameLine();
-		if (nbl::ui::drawActionButtonWithHint("Target origin", "Reset tracked target to identity at world origin"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Target origin", "Reset tracked target to identity at world origin"))
 			m_sceneInteraction.followTarget.setPose(float64_t3(0.0), CCameraMathUtilities::makeIdentityQuaternion<float64_t>());
 		ImGui::SameLine();
-		if (nbl::ui::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
+		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 
 		if (CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode))
@@ -153,5 +153,5 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 	}
 
 	ImGui::PopItemWidth();
-	nbl::ui::endControlPanelTabChild();
+	nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }

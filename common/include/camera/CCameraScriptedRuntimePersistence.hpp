@@ -54,10 +54,13 @@ struct CCameraScriptedInputParseResult
     std::vector<std::string> warnings;
 };
 
-inline void appendScriptedInputParseWarning(CCameraScriptedInputParseResult& out, std::string warning)
+struct CCameraScriptedRuntimePersistenceUtilities final
 {
-    out.warnings.emplace_back(std::move(warning));
-}
+    static inline void appendScriptedInputParseWarning(CCameraScriptedInputParseResult& out, std::string warning)
+    {
+        out.warnings.emplace_back(std::move(warning));
+    }
+};
 
 //! Parse one low-level scripted runtime payload from an existing stream.
 bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& out, std::string* error = nullptr);

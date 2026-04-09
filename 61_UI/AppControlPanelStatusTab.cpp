@@ -4,15 +4,15 @@
 
 void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& panelStyle)
 {
-	if (!nbl::ui::beginControlPanelTabChild("StatusPanel", panelStyle))
+	if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("StatusPanel", panelStyle))
 	{
-		nbl::ui::endControlPanelTabChild();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 		return;
 	}
 
 	ImGui::PushItemWidth(-1.0f);
-	nbl::ui::drawSectionHeader("SessionHeader", "Session", panelStyle.AccentColor, panelStyle);
-	if (nbl::ui::beginCard("SessionCard", nbl::ui::calcCameraControlPanelCardHeight(3, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("SessionHeader", "Session", panelStyle.AccentColor, panelStyle);
+	if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("SessionCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(3, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 	{
 		if (ImGui::BeginTable("SessionTable", 2, panelStyle.SummaryTableFlags))
 		{
@@ -25,20 +25,20 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 				{ .label = "Movement", .value = m_viewports.enableActiveCameraMovement ? "Enabled" : "Disabled", .dotColor = m_viewports.enableActiveCameraMovement ? panelStyle.GoodColor : panelStyle.BadColor, .valueColor = m_viewports.enableActiveCameraMovement ? panelStyle.GoodColor : panelStyle.BadColor }
 			}};
 			for (const auto& row : sessionRows)
-				nbl::ui::drawStatusLine(row, panelStyle);
+				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine(row, panelStyle);
 			ImGui::EndTable();
 		}
 	}
-	nbl::ui::endCard();
+	nbl::ui::CCameraControlPanelUiUtilities::endCard();
 
-	nbl::ui::drawSectionHeader("CameraHeader", "Camera", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("CameraHeader", "Camera", panelStyle.AccentColor, panelStyle);
 	if (auto* activeCamera = getActiveCamera())
 	{
 		const auto& gimbal = activeCamera->getGimbal();
 		const auto pos = gimbal.getPosition();
 		const auto euler = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 
-		if (nbl::ui::beginCard("CameraCard", nbl::ui::calcCameraControlPanelCardHeight(5, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("CameraCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(5, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 		{
 			if (ImGui::BeginTable("CameraTable", 2, panelStyle.SummaryTableFlags))
 			{
@@ -56,26 +56,26 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 					{ .label = "Rotate scale", .value = rotateScaleText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }
 				}};
 				for (const auto& row : cameraRows)
-					nbl::ui::drawStatusLine(row, panelStyle);
+					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine(row, panelStyle);
 				ImGui::EndTable();
 			}
 		}
-		nbl::ui::endCard();
+		nbl::ui::CCameraControlPanelUiUtilities::endCard();
 	}
-	else if (nbl::ui::beginCard("CameraCard", nbl::ui::calcCameraControlPanelCardHeight(2, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+	else if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("CameraCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(2, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 	{
 		ImGui::TextDisabled("No active camera");
-		nbl::ui::endCard();
+		nbl::ui::CCameraControlPanelUiUtilities::endCard();
 	}
 
-	nbl::ui::drawSectionHeader("ProjectionHeader", "Projection", panelStyle.AccentColor, panelStyle);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("ProjectionHeader", "Projection", panelStyle.AccentColor, panelStyle);
 	auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
 	auto& planar = m_planarProjections[binding.activePlanarIx];
 	if (planar && binding.boundProjectionIx.has_value())
 	{
 		auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 		const auto& params = projection.getParameters();
-		if (nbl::ui::beginCard("ProjectionCard", nbl::ui::calcCameraControlPanelCardHeight(4, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("ProjectionCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(4, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 		{
 			if (ImGui::BeginTable("ProjectionTable", 2, panelStyle.SummaryTableFlags))
 			{
@@ -84,30 +84,30 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 				const auto zNearText = std::format("{:.2f}", params.m_zNear);
 				const auto zFarText = std::format("{:.2f}", params.m_zFar);
 				const auto typeText = params.m_type == IPlanarProjection::CProjection::Perspective ? "Perspective" : "Orthographic";
-				nbl::ui::drawStatusLine({ .label = "Type", .value = typeText, .dotColor = panelStyle.AccentColor, .valueColor = panelStyle.MutedColor }, panelStyle);
-				nbl::ui::drawStatusLine({ .label = "zNear", .value = zNearText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
-				nbl::ui::drawStatusLine({ .label = "zFar", .value = zFarText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
+				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Type", .value = typeText, .dotColor = panelStyle.AccentColor, .valueColor = panelStyle.MutedColor }, panelStyle);
+				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "zNear", .value = zNearText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
+				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "zFar", .value = zFarText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				if (params.m_type == IPlanarProjection::CProjection::Perspective)
 				{
 					const auto fovText = std::format("{:.1f}", params.m_planar.perspective.fov);
-					nbl::ui::drawStatusLine({ .label = "Fov", .value = fovText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
+					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Fov", .value = fovText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				}
 				else
 				{
 					const auto orthoWidthText = std::format("{:.1f}", params.m_planar.orthographic.orthoWidth);
-					nbl::ui::drawStatusLine({ .label = "Ortho width", .value = orthoWidthText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
+					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Ortho width", .value = orthoWidthText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				}
 				ImGui::EndTable();
 			}
 		}
-		nbl::ui::endCard();
+		nbl::ui::CCameraControlPanelUiUtilities::endCard();
 	}
-	else if (nbl::ui::beginCard("ProjectionCard", nbl::ui::calcCameraControlPanelCardHeight(2, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+	else if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("ProjectionCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(2, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 	{
 		ImGui::TextDisabled("No projection bound");
-		nbl::ui::endCard();
+		nbl::ui::CCameraControlPanelUiUtilities::endCard();
 	}
 
 	ImGui::PopItemWidth();
-	nbl::ui::endControlPanelTabChild();
+	nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }

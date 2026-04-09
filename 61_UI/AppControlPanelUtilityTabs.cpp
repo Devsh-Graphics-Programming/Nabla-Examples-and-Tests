@@ -2,28 +2,28 @@
 
 void App::drawControlPanelGizmoTab(const nbl::ui::SCameraControlPanelStyle& panelStyle)
 {
-    if (!nbl::ui::beginControlPanelTabChild("GizmoPanel", panelStyle))
+    if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("GizmoPanel", panelStyle))
     {
-        nbl::ui::endControlPanelTabChild();
+        nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
         return;
     }
 
-    nbl::ui::drawSectionHeader("GizmoHeader", "Gizmo", panelStyle.AccentColor, panelStyle);
+    nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("GizmoHeader", "Gizmo", panelStyle.AccentColor, panelStyle);
     TransformEditorContents();
-    nbl::ui::endControlPanelTabChild();
+    nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }
 
 void App::drawControlPanelLogTab(const nbl::ui::SCameraControlPanelStyle& panelStyle)
 {
     auto& eventLog = m_eventLog;
 
-    if (!nbl::ui::beginControlPanelTabChild("LogPanel", panelStyle))
+    if (!nbl::ui::CCameraControlPanelUiUtilities::beginControlPanelTabChild("LogPanel", panelStyle))
     {
-        nbl::ui::endControlPanelTabChild();
+        nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
         return;
     }
 
-    nbl::ui::drawSectionHeader("LogHeader", "Virtual Events", panelStyle.AccentColor, panelStyle);
+    nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("LogHeader", "Virtual Events", panelStyle.AccentColor, panelStyle);
     ImGui::Checkbox("Auto-scroll", &eventLog.autoScroll);
     ImGui::SameLine();
     ImGui::Checkbox("Wrap", &eventLog.wrap);
@@ -48,5 +48,5 @@ void App::drawControlPanelLogTab(const nbl::ui::SCameraControlPanelStyle& panelS
             ImGui::SetScrollHereY(1.0f);
     }
     ImGui::EndChild();
-    nbl::ui::endControlPanelTabChild();
+    nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
 }

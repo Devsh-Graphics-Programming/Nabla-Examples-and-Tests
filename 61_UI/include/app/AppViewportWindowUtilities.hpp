@@ -69,7 +69,7 @@ inline void drawFollowTargetOverlayIfActive(
 	if (!(scriptedInput.enabled && scriptedInput.visualDebug && scriptedInput.visualFollow.active))
 		return;
 
-	drawFollowTargetViewportOverlay(
+	CCameraViewportOverlayUtilities::drawFollowTargetViewportOverlay(
 		*drawList,
 		{
 			.viewMatrix = viewportState.viewMatrix,

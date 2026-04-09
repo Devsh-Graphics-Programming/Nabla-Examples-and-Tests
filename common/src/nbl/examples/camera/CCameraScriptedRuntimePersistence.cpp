@@ -667,7 +667,7 @@ void parseScriptedKeyboardEventJson(const json_t& event, const uint64_t frame, c
 {
     if (!event.contains("key") || !event.contains("action"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted keyboard event missing \"key\" or \"action\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted keyboard event missing \"key\" or \"action\".");
         return;
     }
 
@@ -676,14 +676,14 @@ void parseScriptedKeyboardEventJson(const json_t& event, const uint64_t frame, c
     const auto key = parseScriptedKeyCode(keyText);
     if (key == nbl::ui::EKC_NONE)
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted keyboard event has invalid key \"" + keyText + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted keyboard event has invalid key \"" + keyText + "\".");
         return;
     }
 
     const auto action = parseScriptedKeyboardAction(actionText);
     if (!action.has_value())
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted keyboard event has invalid action \"" + actionText + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted keyboard event has invalid action \"" + actionText + "\".");
         return;
     }
 
@@ -700,7 +700,7 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
 {
     if (!event.contains("kind"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted mouse event missing \"kind\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted mouse event missing \"kind\".");
         return;
     }
 
@@ -725,7 +725,7 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
     {
         if (!event.contains("button") || !event.contains("action"))
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Scripted click event missing \"button\" or \"action\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted click event missing \"button\" or \"action\".");
             return;
         }
 
@@ -734,14 +734,14 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
         const auto button = parseScriptedMouseButton(buttonText);
         if (!button.has_value())
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Scripted click event has invalid button \"" + buttonText + "\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted click event has invalid button \"" + buttonText + "\".");
             return;
         }
 
         const auto action = parseScriptedMouseClickAction(actionText);
         if (!action.has_value())
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Scripted click event has invalid action \"" + actionText + "\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted click event has invalid action \"" + actionText + "\".");
             return;
         }
 
@@ -753,7 +753,7 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
     }
     else
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted mouse event has invalid kind \"" + kind + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted mouse event has invalid kind \"" + kind + "\".");
         return;
     }
 
@@ -804,7 +804,7 @@ bool parseScriptedProjectionActionValue(const json_t& event, nbl::system::CCamer
             action.value = static_cast<int32_t>(nbl::core::IPlanarProjection::CProjection::Orthographic);
         else
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Scripted action projection type has invalid value \"" + valueText + "\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted action projection type has invalid value \"" + valueText + "\".");
             return false;
         }
     }
@@ -820,7 +820,7 @@ void parseScriptedActionEventJson(const json_t& event, const uint64_t frame, con
 {
     if (!event.contains("action"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted action event missing \"action\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted action event missing \"action\".");
         return;
     }
 
@@ -867,7 +867,7 @@ void parseScriptedActionEventJson(const json_t& event, const uint64_t frame, con
     }
     else
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted action event has invalid action \"" + actionText + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted action event has invalid action \"" + actionText + "\".");
         return;
     }
 
@@ -879,7 +879,7 @@ void parseScriptedInputEventJson(const json_t& event, nbl::system::CCameraScript
 {
     if (!event.contains("frame") || !event.contains("type"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted input event missing \"frame\" or \"type\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted input event missing \"frame\" or \"type\".");
         return;
     }
 
@@ -896,7 +896,7 @@ void parseScriptedInputEventJson(const json_t& event, nbl::system::CCameraScript
     else if (type == "action")
         parseScriptedActionEventJson(event, frame, captureFrame, out);
     else
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted input event has invalid type \"" + type + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted input event has invalid type \"" + type + "\".");
 }
 
 void parseScriptedInputEventsJson(const json_t& script, nbl::system::CCameraScriptedInputParseResult& out)
@@ -915,7 +915,7 @@ bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::system::CCa
 
     if (!check.contains("events"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Imguizmo virtual check missing \"events\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check missing \"events\".");
         return false;
     }
 
@@ -923,7 +923,7 @@ bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::system::CCa
     {
         if (!expectedEvent.contains("type") || !expectedEvent.contains("magnitude"))
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Imguizmo virtual check event missing \"type\" or \"magnitude\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event missing \"type\" or \"magnitude\".");
             continue;
         }
 
@@ -931,7 +931,7 @@ bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::system::CCa
         const auto type = nbl::core::CVirtualGimbalEvent::stringToVirtualEvent(typeText);
         if (type == nbl::core::CVirtualGimbalEvent::None)
         {
-            nbl::system::appendScriptedInputParseWarning(out, "Imguizmo virtual check event has invalid type \"" + typeText + "\".");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event has invalid type \"" + typeText + "\".");
             continue;
         }
 
@@ -948,7 +948,7 @@ bool parseScriptedCheckJson(const json_t& check, nbl::system::CCameraScriptedInp
 {
     if (!check.contains("frame") || !check.contains("kind"))
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted check missing \"frame\" or \"kind\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted check missing \"frame\" or \"kind\".");
         return false;
     }
 
@@ -1028,13 +1028,13 @@ bool parseScriptedCheckJson(const json_t& check, nbl::system::CCameraScriptedInp
 
         if (!entry.hasPosDeltaConstraint && !entry.hasEulerDeltaConstraint)
         {
-            nbl::system::appendScriptedInputParseWarning(out, "gimbal_step check requires at least one delta constraint.");
+            nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "gimbal_step check requires at least one delta constraint.");
             return false;
         }
     }
     else
     {
-        nbl::system::appendScriptedInputParseWarning(out, "Scripted check has invalid kind \"" + kind + "\".");
+        nbl::system::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted check has invalid kind \"" + kind + "\".");
         return false;
     }
 

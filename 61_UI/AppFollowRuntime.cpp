@@ -261,5 +261,5 @@ void App::drawScriptVisualDebugOverlay(const ImVec2& displaySize)
 		m_realFrameIx,
 		m_scriptedInput);
 
-	nbl::ui::drawScriptVisualDebugOverlay(displaySize, nbl::ui::buildScriptVisualDebugOverlayData(debugStatus));
+	nbl::ui::CCameraScriptVisualDebugOverlayUtilities::drawScriptVisualDebugOverlay(displaySize, nbl::ui::CCameraScriptVisualDebugOverlayUtilities::buildScriptVisualDebugOverlayData(debugStatus));
 }

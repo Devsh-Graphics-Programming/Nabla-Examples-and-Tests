@@ -118,7 +118,7 @@ inline bool drawProjectionTypeSelector(
             return false;
     }
 
-    drawHoverHint("Switch projection type for this planar");
+    CCameraControlPanelUiUtilities::drawHoverHint("Switch projection type for this planar");
     return true;
 }
 
@@ -129,7 +129,7 @@ inline void drawProjectionHandednessControls(SWindowControlBinding& binding)
     ImGui::SameLine();
     if (ImGui::RadioButton("RH", !binding.leftHandedProjection))
         binding.leftHandedProjection = false;
-    drawHoverHint("Toggle left or right handed projection");
+    CCameraControlPanelUiUtilities::drawHoverHint("Toggle left or right handed projection");
 }
 
 inline void drawProjectionParameterControls(
@@ -139,9 +139,9 @@ inline void drawProjectionParameterControls(
 {
     auto updateParameters = boundProjection.getParameters();
     if (useWindow)
-        drawCheckboxWithHint({ .label = "Allow axes to flip##allowAxesToFlip", .value = &binding.allowGizmoAxesToFlip, .hint = "Allow ImGuizmo axes to flip based on view" });
+        CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Allow axes to flip##allowAxesToFlip", .value = &binding.allowGizmoAxesToFlip, .hint = "Allow ImGuizmo axes to flip based on view" });
     if (useWindow)
-        drawCheckboxWithHint({ .label = "Draw debug grid##drawDebugGrid", .value = &binding.enableDebugGridDraw, .hint = "Toggle debug grid in the render window" });
+        CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Draw debug grid##drawDebugGrid", .value = &binding.enableDebugGridDraw, .hint = "Toggle debug grid in the render window" });
 
     drawProjectionHandednessControls(binding);
 
@@ -158,13 +158,13 @@ inline void drawProjectionParameterControls(
         camera_panel_slider_spec_t{ .label = "zFar", .value = &updateParameters.m_zFar, .minValue = SCameraAppProjectionUiDefaults::FarPlaneMin, .maxValue = SCameraAppProjectionUiDefaults::FarPlaneMax, .format = "%.1f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Far clip plane" }
     })
     {
-        drawSliderFloatWithHint(spec);
+        CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);
     }
 
     switch (boundProjection.getParameters().m_type)
     {
         case IPlanarProjection::CProjection::Perspective:
-            drawSliderFloatWithHint({
+            CCameraControlPanelUiUtilities::drawSliderFloatWithHint({
                 .label = "Fov",
                 .value = &updateParameters.m_planar.perspective.fov,
                 .minValue = SCameraAppProjectionUiDefaults::PerspectiveFovMinDeg,
@@ -176,7 +176,7 @@ inline void drawProjectionParameterControls(
             boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
             break;
         case IPlanarProjection::CProjection::Orthographic:
-            drawSliderFloatWithHint({
+            CCameraControlPanelUiUtilities::drawSliderFloatWithHint({
                 .label = "Ortho width",
                 .value = &updateParameters.m_planar.orthographic.orthoWidth,
                 .minValue = SCameraAppProjectionUiDefaults::OrthoWidthMin,
@@ -197,7 +197,7 @@ inline void drawCursorBehaviourControls(bool& captureCursorInMoveMode, bool& res
     if (!ImGui::TreeNodeEx("Cursor Behaviour"))
         return;
 
-    drawCheckboxWithHint({ .label = "Capture OS cursor in move mode", .value = &captureCursorInMoveMode, .hint = "When disabled the app never warps or clamps system cursor" });
+    CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Capture OS cursor in move mode", .value = &captureCursorInMoveMode, .hint = "When disabled the app never warps or clamps system cursor" });
     if (captureCursorInMoveMode)
     {
         if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
@@ -224,7 +224,7 @@ inline void drawBoundCameraMotionControls(ICamera& camera)
         SCameraAppControlPanelRangeDefaults::MotionScaleMax,
         "%.4f",
         ImGuiSliderFlags_Logarithmic);
-    drawHoverHint("Scale translation speed for this camera");
+    CCameraControlPanelUiUtilities::drawHoverHint("Scale translation speed for this camera");
     if (camera.getAllowedVirtualEvents() & CVirtualGimbalEvent::Rotate)
     {
         ImGui::SliderFloat(
@@ -235,7 +235,7 @@ inline void drawBoundCameraMotionControls(ICamera& camera)
             "%.4f",
             ImGuiSliderFlags_Logarithmic);
     }
-    drawHoverHint("Scale rotation speed for this camera");
+    CCameraControlPanelUiUtilities::drawHoverHint("Scale rotation speed for this camera");
     camera.setMotionScales(moveSpeed, rotationSpeed);
 }
 
@@ -270,7 +270,7 @@ inline void drawBoundCameraSection(
             sphericalState.maxDistance,
             "%.4f",
             ImGuiSliderFlags_Logarithmic);
-        drawHoverHint("Current orbit distance");
+        CCameraControlPanelUiUtilities::drawHoverHint("Current orbit distance");
         camera.trySetSphericalDistance(distance);
     }
 
