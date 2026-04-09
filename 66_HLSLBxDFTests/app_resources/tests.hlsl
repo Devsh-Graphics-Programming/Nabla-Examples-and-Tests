@@ -116,13 +116,25 @@ struct TestJacobian : TestBxDF<BxDF>
             return res;
 
         if (sampledLi.pdf() < 0.f)    // pdf should not be negative
+        {
+#ifndef __HLSL_VERSION
+            if (verbose)
+                base_t::errMsg += std::format("pdf={}", sampledLi.pdf());
+#endif
             return BTR_ERROR_NEGATIVE_VAL;
+        }
 
         if (sampledLi.pdf() < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
         if (checkLt<float32_t3>(Li.value(), hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
+        {
+#ifndef __HLSL_VERSION
+            if (verbose)
+                base_t::errMsg += std::format("eval=[{},{},{}]  quotient=[{},{},{}]", Li.value().x, Li.value().y, Li.value().z, sampledLi.quotient().x, sampledLi.quotient().y, sampledLi.quotient().z);
+#endif
             return BTR_ERROR_NEGATIVE_VAL;
+        }
 
         if (!checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))) // importance sampler's job to prevent inf
             return BTR_ERROR_QUOTIENT_INF;

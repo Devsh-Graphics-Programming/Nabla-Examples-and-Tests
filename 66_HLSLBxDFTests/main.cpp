@@ -165,7 +165,7 @@ private:
                     logger->log("seed %u: %s skipping test due to invalid NdotV/NdotL config", ILogger::ELL_INFO, failedFor.rc.halfSeed, failedFor.name.c_str());
                 break;
             case BTR_ERROR_NEGATIVE_VAL:
-                logger->log("seed %u: %s pdf/quotient/eval < 0", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
+                logger->log("seed %u: %s pdf/quotient/eval < 0    %s", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
                 break;
             case BTR_ERROR_GENERATED_SAMPLE_NAN_PDF:
                 logger->log("seed %u: %s generated sample has pdf = NaN", ILogger::ELL_ERROR, failedFor.rc.halfSeed, failedFor.name.c_str());
@@ -232,6 +232,7 @@ private:
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>>>), initparams);
 
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);

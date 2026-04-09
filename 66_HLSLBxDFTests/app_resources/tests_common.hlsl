@@ -91,6 +91,8 @@ struct SBxDFTestResources
         retval.T = rot.transformVector(tangent);
         retval.B = rot.transformVector(bitangent);
 
+        retval.N2 = retval.N;
+
         retval.alpha.x = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
         retval.alpha.y = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
         retval.eta = ConvertToFloat01<uint32_t3>::__call(retval.rng_vec<3>()) * hlsl::promote<float32_t3>(1.5) + hlsl::promote<float32_t3>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
@@ -117,6 +119,7 @@ struct SBxDFTestResources
     float32_t3 N;
     float32_t3 T;
     float32_t3 B;
+    float32_t3 N2;  // set as shading/geometric normal for microfacet normal wrapper bxdf
 
     float32_t3 u;
     float32_t2 alpha;
@@ -318,6 +321,22 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
         base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BRDF";
+#endif
+    }
+};
+
+template<>
+struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>>>
+{
+    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        bxdf::reflection::SLambertian<iso_config_t> child_brdf;
+        base_t::bxdf.nested_brdf = child_brdf;
+        base_t::bxdf.shadingNormal = _rc.N2;
+#ifndef __HLSL_VERSION
+        base_t::name = "Microfacet-based normals BRDF (lambertian)";
 #endif
     }
 };
