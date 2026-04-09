@@ -791,7 +791,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			{
 				SBeautyPushConstants pc = {.sensorDynamics=sessionResources.currentSensorState};
 				// TODOs
-				pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later hlsl::transpose(hlsl::colorspace::scRGBtoXYZ)[1];
+				pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later LumaConversionCoeffs
 				pc.__16BitData.maxSppPerDispatch = 3;
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;

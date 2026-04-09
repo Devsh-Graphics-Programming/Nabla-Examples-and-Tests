@@ -65,6 +65,6 @@ void closestHit(inout DebugPayload payload, in BuiltInTriangleIntersectionAttrib
 void miss(inout DebugPayload payload)
 {
     const SEnvSample _sample = sampleEnv(spirv::WorldRayDirectionKHR);
-    _sample.color;
+    //_sample.color;
     payload.aov = _sample.aov;
 }

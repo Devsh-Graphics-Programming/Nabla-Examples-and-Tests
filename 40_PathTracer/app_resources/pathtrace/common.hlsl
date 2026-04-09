@@ -4,6 +4,168 @@
 
 #include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
 
+// TODO: move to material compiler
+#include "nbl/builtin/hlsl/bxdf/common.hlsl"
+#include "nbl/builtin/hlsl/bxdf/reflection/oren_nayar.hlsl"
+namespace nbl
+{
+namespace hlsl
+{
+namespace material_compiler3
+{
+namespace backends
+{
+namespace default_upt // unidirectional path tracing
+{
+NBL_CONSTEXPR_STATIC_INLINE float32_t3 LumaConversionCoeffs = hlsl::transpose(hlsl::colorspace::scRGBtoXYZ)[1];
+
+template<class SpectralType NBL_PRIMARY_REQUIRES(concepts::FloatingPointLikeVectorial<SpectralType>)
+struct SIsotropicInteraction
+{
+    using this_t = SIsotropicInteraction<SpectralType>;
+    using spectral_type = SpectralType;
+    // TODO: experiment with float16
+    using ray_dir_info_type = bxdf::ray_dir_info::SBasic<float32_t>;
+    using scalar_type = typename ray_dir_info_type::scalar_type;
+    using vector3_type = typename ray_dir_info_type::vector3_type;
+
+
+    // WARNING: Changed since GLSL, now arguments need to be normalized!
+    static this_t create(NBL_CONST_REF_ARG(ray_dir_info_type) normalizedV, const vector3_type normalizedN)
+    {
+        this_t retval;
+        retval.V = normalizedV;
+        retval.N = normalizedN;
+        retval.NdotV = hlsl::dot<vector3_type>(retval.N,retval.V.getDirection());
+        retval.NdotV2 = retval.NdotV * retval.NdotV;
+        retval.luminosityContributionHint = spectral_type(LumaConversionCoeffs);
+
+        return retval;
+    }
+    static this_t create(NBL_CONST_REF_ARG(ray_dir_info_type) normalizedV, const vector3_type normalizedN, const spectral_type throughputSoFar)
+    {
+        this_t retval = create(normalizedV,normalizedN);
+        retval.luminosityContributionHint *= throughputSoFar;
+        retval.luminosityContributionHint /= math::lpNorm<spectral_type,1>(retval.luminosityContributionHint);
+        return retval;
+    }
+
+    ray_dir_info_type getV() NBL_CONST_MEMBER_FUNC { return V; }
+    vector3_type getN() NBL_CONST_MEMBER_FUNC { return N; }
+    scalar_type getNdotV(bxdf::BxDFClampMode _clamp = bxdf::BxDFClampMode::BCM_NONE) NBL_CONST_MEMBER_FUNC
+    {
+        return bxdf::conditionalAbsOrMax<scalar_type>(NdotV,_clamp);
+    }
+    scalar_type getNdotV2() NBL_CONST_MEMBER_FUNC { return NdotV2; }
+
+    bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return bxdf::PathOrigin::PO_SENSOR; }
+    spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return luminosityContributionHint; }
+
+    ray_dir_info_type V;
+    vector3_type N;
+    scalar_type NdotV;
+    spectral_type luminosityContributionHint;
+    // TODO: experiment, precompute vs not
+    scalar_type NdotV2;
+};
+
+
+template<class IsotropicInteraction NBL_PRIMARY_REQUIRES(bxdf::surface_interactions::Isotropic<IsotropicInteraction>)
+struct SAnisotropicInteraction
+{
+    using this_t = SAnisotropicInteraction<IsotropicInteraction>;
+    using isotropic_interaction_type = IsotropicInteraction;
+    using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
+    using scalar_type = typename ray_dir_info_type::scalar_type;
+    using vector3_type = typename ray_dir_info_type::vector3_type;
+    using matrix3x3_type = matrix<scalar_type,3,3>;
+    using spectral_type = typename isotropic_interaction_type::spectral_type;
+
+    // WARNING: Changed since GLSL, now arguments need to be normalized!
+    static this_t create(NBL_CONST_REF_ARG(isotropic_interaction_type) isotropic, const vector3_type normalizedT, const vector3_type normalizedB)
+    {
+        this_t retval;
+        retval.isotropic = isotropic;
+
+        retval.T = normalizedT;
+        retval.B = normalizedB;
+
+        retval.TdotV = hlsl::dot<vector3_type>(retval.isotropic.getV().getDirection(), retval.T);
+        retval.BdotV = hlsl::dot<vector3_type>(retval.isotropic.getV().getDirection(), retval.B);
+
+        return retval;
+    }
+    static this_t create(NBL_CONST_REF_ARG(isotropic_interaction_type) isotropic, const vector3_type normalizedT)
+    {
+        return create(isotropic, normalizedT, cross(isotropic.getN(), normalizedT));
+    }
+    static this_t create(NBL_CONST_REF_ARG(isotropic_interaction_type) isotropic)
+    {
+        vector3_type T, B;
+        math::frisvad<vector3_type>(isotropic.getN(), T, B);
+        return create(isotropic, nbl::hlsl::normalize<vector3_type>(T), nbl::hlsl::normalize<vector3_type>(B));
+    }
+
+    static this_t create(NBL_CONST_REF_ARG(ray_dir_info_type) normalizedV, const vector3_type normalizedN)
+    {
+        isotropic_interaction_type isotropic = isotropic_interaction_type::create(normalizedV, normalizedN);
+        return create(isotropic);
+    }
+
+    ray_dir_info_type getV() NBL_CONST_MEMBER_FUNC { return isotropic.getV(); }
+    vector3_type getN() NBL_CONST_MEMBER_FUNC { return isotropic.getN(); }
+    scalar_type getNdotV(bxdf::BxDFClampMode _clamp = bxdf::BxDFClampMode::BCM_NONE) NBL_CONST_MEMBER_FUNC { return isotropic.getNdotV(_clamp); }
+    scalar_type getNdotV2() NBL_CONST_MEMBER_FUNC { return isotropic.getNdotV2(); }
+    bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return isotropic.getPathOrigin(); }
+    spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return isotropic.getLuminosityContributionHint(); }
+    bool isMaterialBSDF() NBL_CONST_MEMBER_FUNC { return isotropic.isMaterialBSDF(); }
+    isotropic_interaction_type getIsotropic() NBL_CONST_MEMBER_FUNC { return isotropic; }
+
+    vector3_type getT() NBL_CONST_MEMBER_FUNC { return T; }
+    vector3_type getB() NBL_CONST_MEMBER_FUNC { return B; }
+    scalar_type getTdotV() NBL_CONST_MEMBER_FUNC { return TdotV; }
+    scalar_type getTdotV2() NBL_CONST_MEMBER_FUNC { const scalar_type t = getTdotV(); return t*t; }
+    scalar_type getBdotV() NBL_CONST_MEMBER_FUNC { return BdotV; }
+    scalar_type getBdotV2() NBL_CONST_MEMBER_FUNC { const scalar_type t = getBdotV(); return t*t; }
+
+    vector3_type getTangentSpaceV() NBL_CONST_MEMBER_FUNC { return vector3_type(TdotV, BdotV, isotropic.getNdotV()); }
+    matrix3x3_type getToTangentSpace() NBL_CONST_MEMBER_FUNC { return matrix3x3_type(T, B, isotropic.getN()); }
+    matrix3x3_type getFromTangentSpace() NBL_CONST_MEMBER_FUNC { return nbl::hlsl::transpose<matrix3x3_type>(matrix3x3_type(T, B, isotropic.getN())); }
+
+    isotropic_interaction_type isotropic;
+    vector3_type T;
+    vector3_type B;
+    scalar_type TdotV;
+    scalar_type BdotV;
+};
+
+struct BxDFConfig
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool IsAnisotropic = false;
+
+    // TODO: experiment with float16_t
+    using spectral_type = float32_t3;
+    using isotropic_interaction_type = SIsotropicInteraction<spectral_type>;
+    
+    using scalar_type = typename isotropic_interaction_type::scalar_type;
+    using vector2_type = vector<scalar_type,2>;
+    using vector3_type = typename isotropic_interaction_type::vector3_type;
+    using anisotropic_interaction_type = SAnisotropicInteraction<isotropic_interaction_type>;
+    // TODO: experiment with spectral_type's scalar type
+    using monochrome_type = vector<scalar_type,1>;
+
+    using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
+    using sample_type = bxdf::SLightSample<ray_dir_info_type>;
+
+    // TODO: change to conform to PR 1001 later
+    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
+};
+}
+}
+}
+}
+}
+
 
 namespace nbl
 {
@@ -57,7 +219,8 @@ template<typename T, int N>
 vector<T,N> correctSNorm10WhenStoringToUnorm(const vector<T,N> input)
 {
 	using vec_t = vector<T,N>;
-	return hlsl::mix(input*T(0.499512)+hlsl::promote<vec_t,T>(0.999022),input*T(0.499512),hlsl::promote<vec_t,T>(0.f)<input);
+    const T factor = _static_cast<T>(0.499512);
+	return hlsl::mix(input*factor+hlsl::promote<vec_t>(_static_cast<T>(0.999022)),input*factor,hlsl::promote<vec_t>(_static_cast<T>(0))<input);
 }
 
 using scramble_state_t = hlsl::Xoroshiro64Star;
@@ -75,7 +238,7 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 {
 	SPixelSamplingInfo retval;
 	// 
-	retval.firstSample = uint16_t(gSampleCount[coord])*dontClear;
+	retval.firstSample = _static_cast<uint16_t>(gSampleCount[coord])*dontClear;
 	// setup randgen
 	{
 		retval.randgen.pSampleBuffer = gScene.init.pSampleSequence;
@@ -102,15 +265,16 @@ struct SRay
 		using namespace nbl::hlsl::math::linalg;
 
         // stochastic reconstruction filter
-		const float16_t stddev = float16_t(1.2);
+		const float16_t stddev = _static_cast<float16_t>(1.2);
         const float32_t3 adjNDC = float32_t3(path_tracing::GaussianFilter<float16_t>::create(stddev,stddev).sample(xi)*pixelSizeNDC+ndc,-1.f);
         // unproject
-        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC), -1.0));
+        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC), -1.0)); 
         const float32_t3 origin = -float32_t3(direction.xy/direction.z,sensor.nearClip);
 		// rotate with camera
 		SRay retval;
 		retval.origin = promoted_mul(sensor.invView,origin);
 		retval.tMin = sensor.nearClip;
+        // normalization is extremely important for tMax to have correct units and also so rest of BxDF code can assume normalized V=-dir
 		retval.direction = hlsl::normalize(hlsl::mul(truncate<3,3,3,4>(sensor.invView),direction));
 		retval.tMax = sensor.tMax;
 		return retval;
@@ -189,8 +353,6 @@ struct SAOVThroughputs
 
 using spectral_t = float32_t3;
 
-// TODO: use the CIE stuff
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float16_t3 LumaConversionCoeffs = float16_t3(0.39,0.5,0.11);
 
 struct SArbitraryOutputValues
 {
@@ -220,7 +382,7 @@ struct SArbitraryOutputValues
     {
         SArbitraryOutputValues retval;
         retval.albedo = albedo*throughput.albedo;
-        retval.normal = normal*hlsl::dot(throughput.albedo,LumaConversionCoeffs);
+        retval.normal = normal*hlsl::dot(throughput.albedo,_static_cast<float16_t3>(hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs));
         return retval;
     }
 
