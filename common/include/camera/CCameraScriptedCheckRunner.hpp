@@ -31,11 +31,9 @@ namespace nbl::system
 */
 struct CCameraScriptedCheckRuntimeState
 {
-    struct SPoseReference
+    struct SPoseReference final : core::SCameraRigPose
     {
         bool valid = false;
-        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     };
 
     size_t nextCheckIndex = 0u;

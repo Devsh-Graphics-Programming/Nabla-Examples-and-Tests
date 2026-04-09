@@ -110,10 +110,8 @@ struct CCameraSequenceKeyframe
 };
 
 //! Concrete tracked-target pose sampled from a shared authored sequence.
-struct CCameraSequenceTrackedTargetPose
+struct CCameraSequenceTrackedTargetPose final : SCameraRigPose
 {
-    hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
 };
 
 //! Relative tracked-target adjustment authored against an initial tracked-target pose.

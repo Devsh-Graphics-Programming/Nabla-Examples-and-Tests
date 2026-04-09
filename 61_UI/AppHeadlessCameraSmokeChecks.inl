@@ -413,10 +413,9 @@
 			return false;
 		}
 
-		const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
-			.position = SCameraAppSceneDefaults::DefaultFollowTargetPosition,
-			.orientation = SCameraAppSceneDefaults::DefaultFollowTargetOrientation
-		};
+		CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {};
+		referenceTrackedTargetPose.position = SCameraAppSceneDefaults::DefaultFollowTargetPosition;
+		referenceTrackedTargetPose.orientation = SCameraAppSceneDefaults::DefaultFollowTargetOrientation;
 
 		nbl::core::CCameraSequenceCompiledSegment compiledSegment;
 		std::string compileError;

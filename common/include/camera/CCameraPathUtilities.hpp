@@ -19,15 +19,11 @@ struct SCameraPathPose final : SCameraRigPose
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
 };
 
-struct SCameraPathDelta final
+struct SCameraPathDelta final : ICamera::PathState
 {
-    double radius = 0.0;
-    double height = 0.0;
-    double angle = 0.0;
-
     inline hlsl::float64_t3 asVector() const
     {
-        return hlsl::float64_t3(radius, height, angle);
+        return ICamera::PathState::asVector();
     }
 
     inline hlsl::float64_t3 translationVector() const
@@ -37,11 +33,11 @@ struct SCameraPathDelta final
 
     static inline SCameraPathDelta fromVector(const hlsl::float64_t3& value)
     {
-        return {
-            .radius = value.x,
-            .height = value.y,
-            .angle = value.z
-        };
+        SCameraPathDelta delta = {};
+        delta.angle = value.z;
+        delta.radius = value.x;
+        delta.height = value.y;
+        return delta;
     }
 };
 

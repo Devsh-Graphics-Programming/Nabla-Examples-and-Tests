@@ -159,10 +159,9 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow,
 		useWindowMode ? 1 : 0);
 
-	const CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {
-		.position = getDefaultFollowTargetPosition(),
-		.orientation = getDefaultFollowTargetOrientation()
-	};
+	CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {};
+	referenceTrackedTargetPose.position = getDefaultFollowTargetPosition();
+	referenceTrackedTargetPose.orientation = getDefaultFollowTargetOrientation();
 
 	uint64_t frameCursor = 0u;
 	for (const auto& segment : sequence.segments)
