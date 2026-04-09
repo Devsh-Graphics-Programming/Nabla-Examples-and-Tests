@@ -22,11 +22,11 @@ struct CCascades
 
     inline void clear(const uint16_t cascadeIx)
     {
-//        if (actuallyClear)
-//            gRWMCCascades[__getCoord(cascadeIx)] = uint32_t2(0,0);
+        if (actuallyClear)
+            gRWMCCascades[__getCoord(cascadeIx)] = uint32_t2(0,0);
     }
 
-    using weight_t = typename rwmc::SSplattingParameters::scalar_t;
+    using weight_t = float16_t;// typename rwmc::SSplattingParameters::scalar_t;
     inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
     {
         const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
@@ -42,7 +42,7 @@ struct CCascades
 
     inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
     {
-        const bool doPrint = all(uint16_t3(0,0,0)==coord);
+        const bool doPrint = false;// all(uint16_t3(0, 0, 0) == coord);
         uint16_t4 data = uint16_t4(0,0,0,0);
         if (sampleCount>1)
             data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
@@ -188,11 +188,12 @@ void raygen()
     const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
 
     const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
-
+    
     // Take n samples per frame
     // TODO: establish min/max - adaptive sampling
     uint16_t samplesThisFrame = unpacked16BitPC.maxSppPerDispatch;
     SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,samplesThisFrame,uint16_t(pc.sensorDynamics.keepAccumulating));
+    const bool doPrint = all(uint16_t3(0,0,0)==launchID);
     // took 64k-1 spp
     if (samplingInfo.rcpNewSampleCount==0.f)
         return;
@@ -203,10 +204,22 @@ void raygen()
     float16_t transparency = 0.f;
     SArbitraryOutputValues aovs;
     aovs.clear();
-    [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=samplingInfo.newSampleCount; )
+    if (doPrint)
     {
+        printf("Outisde First %d Last %d \n", samplingInfo.firstSample, samplingInfo.newSampleCount);
+    }
+    // some weird DXC and SPIR-V Tools Bug, lets try to move stuff out to temporaries and only use those
+    decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
+    const uint16_t endSample = samplingInfo.newSampleCount;
+    const bool keepAccumulating = samplingInfo.firstSample;
+    [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=endSample; )
+    {
+        if (doPrint)
+        {
+            printf("Sample %d Limit %d \n", sampleIndex, endSample);
+        }
         // For RWMC to work, every sample must be splatted individually
-        accum_t color;
+        spectral_t color;
 
         const uint32_t PrimaryRayRandTripletsUsed = 2;
         // trace primary ray
@@ -216,7 +229,7 @@ void raygen()
         SClosestHitRetval closestInfo;
         {
             // fetch random variable from memory
-            const float32_t3 randVec = samplingInfo.randgen(0u,sampleIndex);
+            const float32_t3 randVec = randgen(0u,sampleIndex);
             // TODO: motion blur and lens DOF triplet
             
             // get our NDC coordinates and ray
@@ -253,7 +266,7 @@ void raygen()
             MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
             const uint16_t lastPathDepth = gSensor.lastPathDepth;
             //
-            color = accum_t(0,0,0);
+            color = spectral_t(0,0,0);
             spectral_t throughput = spectral_t(1,1,1);
             float32_t otherTechniqueHeuristic = 0.f;
             SAOVThroughputs aovThroughput;
@@ -294,7 +307,7 @@ void raygen()
                         // apply emissive weight
                     }
                     // add emissive to the contribution
-                    color += emission*float16_t3(throughput);
+                    color += emission*throughput;
                 }
 
                 // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
@@ -303,7 +316,7 @@ void raygen()
                 
                 // get next random number, compensate for the triplets ray generation used
                 const uint16_t sequenceProtoDim = (depth-1)*RandDimTriplesPerDepth+PrimaryRayRandTripletsUsed;
-                float32_t3 randVec = samplingInfo.randgen(sequenceProtoDim,sampleIndex);
+                float32_t3 randVec = randgen(sequenceProtoDim,sampleIndex);
 
                 // perform NEE
                 float32_t neeProb = 0.f;
@@ -371,12 +384,22 @@ void raygen()
             }
         }
         color = float16_t3(0.f,0.7f,0.1f);
+        
+        if (doPrint)
+        {
+            printf("Sample %d Limit %d \n", sampleIndex, endSample);
+        }
+
         // color output, don't precompute `rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting)` and keep it as live state, it will spill anyway
         rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting);
-        colorAcc.accumulation.actuallyClear = sampleIndex==0;
-        colorAcc.addSample(++sampleIndex,color);
+        // can't use `++sampleIndex` or `sampleIndex++` in conjuction, DXC bug
+        colorAcc.accumulation.actuallyClear = (sampleIndex++)==0;
+        colorAcc.addSample(sampleIndex,accum_t(color));
+        if (doPrint)
+        {
+            printf("Sample %d Limit %d \n", sampleIndex, endSample);
+        }
     }
-    const bool keepAccumulating = samplingInfo.firstSample;
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
     albedoAcc.accumulate(launchID.xy,launchID.z,aovs.albedo,newSamplesOverTotal,keepAccumulating);
