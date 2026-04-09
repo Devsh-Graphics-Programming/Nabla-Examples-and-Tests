@@ -55,7 +55,7 @@ json_t serializeGoalJson(const nbl::core::CCameraGoal& goal)
 
 json_t serializePresetJson(const nbl::core::CCameraPreset& preset)
 {
-    auto json = serializeGoalJson(nbl::core::makeGoalFromPreset(preset));
+    auto json = serializeGoalJson(nbl::core::CCameraPresetUtilities::makeGoalFromPreset(preset));
     json["name"] = preset.name;
     json["identifier"] = preset.identifier;
     return json;

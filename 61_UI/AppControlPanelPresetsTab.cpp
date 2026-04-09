@@ -25,7 +25,7 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
     if (nbl::ui::drawActionButtonWithHint("Add preset", presetCaptureUi.canCapture ? "Store current camera as a preset" : "Preset capture is blocked because there is no active camera or the current goal state is invalid"))
     {
         CameraPreset preset;
-        if (nbl::core::tryCapturePreset(m_cameraGoalSolver, activeCamera, presetAuthoring.presetName, preset))
+        if (nbl::core::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, activeCamera, presetAuthoring.presetName, preset))
         {
             presetAuthoring.presets.emplace_back(std::move(preset));
             presetAuthoring.selectedPresetIx = static_cast<int>(presetAuthoring.presets.size()) - 1;
@@ -48,9 +48,9 @@ void App::drawControlPanelPresetsTab(const nbl::ui::SCameraControlPanelStyle& pa
     if (!presetAuthoring.presets.empty())
     {
         const char* presetFilterLabels[] = {
-            nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
-            nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
-            nbl::ui::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
+            nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(PresetFilterMode::All),
+            nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(PresetFilterMode::Exact),
+            nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(PresetFilterMode::BestEffort)
         };
         int presetFilterIx = static_cast<int>(presetAuthoring.filterMode);
         if (ImGui::Combo("Visibility", &presetFilterIx, presetFilterLabels, IM_ARRAYSIZE(presetFilterLabels)))

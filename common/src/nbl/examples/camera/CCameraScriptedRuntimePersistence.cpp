@@ -1138,7 +1138,7 @@ bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& 
     parseScriptedInputEventsJson(script, out);
     parseScriptedChecksJson(script, out);
 
-    finalizeScriptedTimeline(out.timeline);
+    CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(out.timeline);
     return true;
 }
 

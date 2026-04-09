@@ -10,7 +10,7 @@ namespace nbl::core
 /**
 * Common base for cameras orbiting or tracking a target with spherical coordinates.
 *
-* The shared state is target position, distance, and orbit angles `u/v`.
+* The shared state is target position, distance, and orbit angles stored in `orbitUv`.
 */
 class CSphericalTargetCamera : public ICamera
 {
@@ -46,8 +46,9 @@ public:
     inline hlsl::float64_t3 getTarget() const { return m_targetPosition; }
 
     inline float getDistance() const { return m_distance; }
-    inline double getU() const { return m_u; }
-    inline double getV() const { return m_v; }
+    inline double getU() const { return m_orbitUv.x; }
+    inline double getV() const { return m_orbitUv.y; }
+    inline const hlsl::float64_t2& getOrbitUv() const { return m_orbitUv; }
 
     static inline constexpr float MinDistance = base_t::SphericalMinDistance;
     static inline constexpr float MaxDistance = base_t::SphericalMaxDistance;
@@ -61,7 +62,7 @@ public:
     {
         out.target = m_targetPosition;
         out.distance = m_distance;
-        out.orbitUv = hlsl::float64_t2(m_u, m_v);
+        out.orbitUv = m_orbitUv;
         out.minDistance = MinDistance;
         out.maxDistance = MaxDistance;
         return true;
@@ -81,12 +82,12 @@ public:
 protected:
     using SphericalBasis = SCameraTargetRelativeBasis;
 
-    inline SphericalBasis computeBasis(double orbitU, double orbitV, float distance) const
+    inline SphericalBasis computeBasis(const hlsl::float64_t2& orbitUv, float distance) const
     {
         SphericalBasis basis;
         const SCameraTargetRelativeState state = {
             .target = m_targetPosition,
-            .orbitUv = hlsl::float64_t2(orbitU, orbitV),
+            .orbitUv = orbitUv,
             .distance = distance
         };
         if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativeBasis(state, MinDistance, MaxDistance, basis))
@@ -100,14 +101,12 @@ protected:
         if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativeStateFromPosition(m_targetPosition, position, MinDistance, MaxDistance, state))
         {
             m_distance = MinDistance;
-            m_u = 0.0;
-            m_v = 0.0;
+            m_orbitUv = hlsl::float64_t2(0.0);
             return;
         }
 
         m_distance = state.distance;
-        m_u = state.orbitUv.x;
-        m_v = state.orbitUv.y;
+        m_orbitUv = state.orbitUv;
     }
 
     inline void applyPlanarTargetTranslation(const hlsl::float64_t3& deltaTranslation, const SphericalBasis& basis)
@@ -126,7 +125,7 @@ protected:
     {
         const SCameraTargetRelativeState state = {
             .target = m_targetPosition,
-            .orbitUv = hlsl::float64_t2(m_u, m_v),
+            .orbitUv = m_orbitUv,
             .distance = m_distance
         };
         SCameraTargetRelativePose pose = {};
@@ -151,8 +150,7 @@ protected:
     hlsl::float64_t3 m_targetPosition;
     float m_distance;
     typename base_t::CGimbal m_gimbal;
-    double m_u = {};
-    double m_v = {};
+    hlsl::float64_t2 m_orbitUv = hlsl::float64_t2(0.0);
 };
 
 }

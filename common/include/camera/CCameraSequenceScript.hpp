@@ -304,14 +304,14 @@ struct CCameraSequenceScriptUtilities final
                 outPreset.identifier = reference.identifier;
             if (outPreset.name.empty())
                 outPreset.name = reference.name;
-            return CCameraGoalUtilities::isGoalFinite(makeGoalFromPreset(outPreset));
+            return CCameraGoalUtilities::isGoalFinite(CCameraPresetUtilities::makeGoalFromPreset(outPreset));
         }
 
         outPreset = reference;
         if (!authored.hasDelta)
             return true;
 
-        auto goal = makeGoalFromPreset(reference);
+        auto goal = CCameraPresetUtilities::makeGoalFromPreset(reference);
         const auto& delta = authored.delta;
 
         const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
@@ -423,7 +423,7 @@ struct CCameraSequenceScriptUtilities final
             return false;
         }
 
-        assignGoalToPreset(outPreset, goal);
+        CCameraPresetUtilities::assignGoalToPreset(outPreset, goal);
         return true;
     }
 

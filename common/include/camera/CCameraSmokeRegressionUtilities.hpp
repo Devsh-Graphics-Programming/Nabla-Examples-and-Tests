@@ -80,7 +80,7 @@ public:
         core::ICamera* camera,
         const core::CCameraPreset& preset)
     {
-        return core::comparePresetToCameraState(
+        return core::CCameraPresetFlowUtilities::comparePresetToCameraState(
             solver,
             camera,
             preset,
@@ -94,7 +94,7 @@ public:
         core::ICamera* camera,
         const core::CCameraPreset& preset)
     {
-        return core::comparePresetToCameraState(
+        return core::CCameraPresetFlowUtilities::comparePresetToCameraState(
             solver,
             camera,
             preset,

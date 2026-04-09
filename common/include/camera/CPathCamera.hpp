@@ -96,8 +96,7 @@ private:
         }
 
         m_distance = canonicalPathState.targetRelative.distance;
-        m_u = canonicalPathState.targetRelative.orbitUv.x;
-        m_v = canonicalPathState.targetRelative.orbitUv.y;
+        m_orbitUv = canonicalPathState.targetRelative.orbitUv;
 
         m_gimbal.begin();
         {

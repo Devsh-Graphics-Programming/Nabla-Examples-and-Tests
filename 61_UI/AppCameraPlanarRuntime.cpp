@@ -58,7 +58,7 @@ bool tryCaptureInitialPlanarPresets(
         }
 
         core::CCameraPreset preset = {};
-        if (!core::tryCapturePreset(captureAnalysis, camera, presetName, preset))
+        if (!core::CCameraPresetFlowUtilities::tryCapturePreset(captureAnalysis, camera, presetName, preset))
         {
             outError =
                 "Failed to build initial planar preset " + std::to_string(planarIx) +

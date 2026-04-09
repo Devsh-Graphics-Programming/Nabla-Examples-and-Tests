@@ -89,7 +89,7 @@ inline void deserializePresetJson(const Json& entry, core::CCameraPreset& preset
 
     core::CCameraGoal goal = {};
     deserializeGoalJson(entry, goal);
-    core::assignGoalToPreset(preset, goal);
+    core::CCameraPresetUtilities::assignGoalToPreset(preset, goal);
 }
 
 } // namespace nbl::system

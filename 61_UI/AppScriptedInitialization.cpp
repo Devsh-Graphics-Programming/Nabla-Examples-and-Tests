@@ -15,7 +15,7 @@ void App::resetScriptedInputRuntimeState()
 
 void App::finalizeScriptedInputRuntimeState()
 {
-	nbl::system::finalizeScriptedTimeline(m_scriptedInput.timeline, m_cliRuntime.disableScreenshotsCli);
+	nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(m_scriptedInput.timeline, m_cliRuntime.disableScreenshotsCli);
 }
 
 void App::applyParsedScriptedInput(
@@ -153,7 +153,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 	resetScriptedInputRuntimeState();
 
 	const bool useWindowMode = nbl::core::CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence);
-	nbl::system::appendScriptedActionEvent(
+	nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedActionEvent(
 		timeline,
 		0u,
 		CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow,
@@ -208,7 +208,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		}
 
 		std::string buildError;
-		if (!nbl::system::appendCompiledSequenceSegmentToScriptedTimeline(
+		if (!nbl::system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
 				timeline,
 				frameCursor,
 				compiledSegment,
@@ -229,7 +229,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		frameCursor += compiledSegment.durationFrames;
 	}
 
-	nbl::system::finalizeScriptedTimeline(timeline, m_cliRuntime.disableScreenshotsCli);
+	nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline, m_cliRuntime.disableScreenshotsCli);
 	m_scriptedInput.timeline = std::move(timeline);
 	return true;
 }

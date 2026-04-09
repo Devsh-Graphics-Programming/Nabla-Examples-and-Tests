@@ -29,8 +29,7 @@ public:
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
-        m_u += deltaTranslation.y;
-        m_v += deltaTranslation.x;
+        m_orbitUv += hlsl::float64_t2(deltaTranslation.y, deltaTranslation.x);
    
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 

@@ -11,12 +11,12 @@ bool App::tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
 
 App::PresetUiAnalysis App::analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 {
-	return nbl::ui::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
+	return nbl::ui::CCameraPresentationUtilities::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
 }
 
 App::CaptureUiAnalysis App::analyzeCameraCaptureForUi(ICamera* camera) const
 {
-	return nbl::ui::analyzeCapturePresentation(m_cameraGoalSolver, camera);
+	return nbl::ui::CCameraPresentationUtilities::analyzeCapturePresentation(m_cameraGoalSolver, camera);
 }
 
 CCameraGoalSolver::SCompatibilityResult App::analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
@@ -31,7 +31,7 @@ bool App::presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
 
 CCameraGoalSolver::SApplyResult App::applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 {
-	const auto result = nbl::core::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
+	const auto result = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
 	if (result.succeeded())
 		refreshFollowOffsetConfigsForCamera(camera);
 
@@ -118,7 +118,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 	if (!playbackAuthoring.affectsAll)
 	{
 		ICamera* activeCamera = getActiveCamera();
-		summary = nbl::core::applyPresetToCameraRange(
+		summary = nbl::core::CCameraPresetFlowUtilities::applyPresetToCameraRange(
 			m_cameraGoalSolver,
 			std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u),
 			preset);
@@ -144,7 +144,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 			cameras.push_back(camera);
 	}
 
-	summary = nbl::core::applyPresetToCameraRange(
+	summary = nbl::core::CCameraPresetFlowUtilities::applyPresetToCameraRange(
 		m_cameraGoalSolver,
 		std::span<ICamera* const>(cameras.data(), cameras.size()),
 		preset);
@@ -209,7 +209,7 @@ bool App::replaceSelectedKeyframeFromCamera(ICamera* camera)
 
 	CameraPreset updatedPreset;
 	const auto keyframeName = selected->preset.name.empty() ? std::string("Keyframe") : selected->preset.name;
-	if (!nbl::core::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
+	if (!nbl::core::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
 		return false;
 
 	return nbl::core::CCameraKeyframeTrackUtilities::replaceSelectedKeyframePreset(m_playbackAuthoring.keyframeTrack, std::move(updatedPreset));

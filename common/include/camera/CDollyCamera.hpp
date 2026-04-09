@@ -17,7 +17,7 @@ public:
     CDollyCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        m_v = std::clamp(m_v, MinPitch, MaxPitch);
+        m_orbitUv.y = std::clamp(m_orbitUv.y, MinPitch, MaxPitch);
         applyPose();
     }
     ~CDollyCamera() = default;
@@ -34,12 +34,12 @@ public:
         const auto deltaRotation = scaleVirtualRotation(impulse.dVirtualRotation);
 
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
-        const auto basis = computeBasis(m_u, m_v, m_distance);
+        const auto basis = computeBasis(m_orbitUv, m_distance);
         const auto delta = hlsl::transformLocalVectorToWorldBasis(deltaTranslation, basis.right, basis.up, basis.forward);
 
         m_targetPosition += delta;
-        m_u += deltaRotation.y;
-        m_v = std::clamp(m_v + deltaRotation.x, MinPitch, MaxPitch);
+        m_orbitUv.x += deltaRotation.y;
+        m_orbitUv.y = std::clamp(m_orbitUv.y + deltaRotation.x, MinPitch, MaxPitch);
 
         return applyPose();
     }

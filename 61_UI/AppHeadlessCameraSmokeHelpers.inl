@@ -401,7 +401,7 @@ namespace
 		ICamera* const camera,
 		const CameraPreset& preset)
 	{
-		return std::string(prefix) + " " + nbl::core::describePresetCameraMismatch(goalSolver, camera, preset);
+		return std::string(prefix) + " " + nbl::core::CCameraPresetFlowUtilities::describePresetCameraMismatch(goalSolver, camera, preset);
 	}
 
 	inline bool applyPresetAndValidate(
@@ -414,7 +414,7 @@ namespace
 		const std::string_view failurePrefix,
 		std::string& outError)
 	{
-		const auto applyResult = nbl::core::applyPresetDetailed(goalSolver, camera, preset);
+		const auto applyResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(goalSolver, camera, preset);
 		if (!applyResult.succeeded() ||
 			(requireChanged && !applyResult.changed()) ||
 			(requireExact && !applyResult.exact))
@@ -439,13 +439,13 @@ namespace
 		const std::string_view failurePrefix,
 		std::string& outError)
 	{
-		const auto restoreResult = nbl::core::applyPresetDetailed(goalSolver, camera, preset);
+		const auto restoreResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(goalSolver, camera, preset);
 		if (restoreResult.succeeded() && nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset))
 			return true;
 
         outError = std::string(failurePrefix) + ". " + CCameraTextUtilities::describeApplyResult(restoreResult);
 		if (camera)
-			outError += " " + nbl::core::describePresetCameraMismatch(goalSolver, camera, preset);
+			outError += " " + nbl::core::CCameraPresetFlowUtilities::describePresetCameraMismatch(goalSolver, camera, preset);
 		return false;
 	}
 
@@ -606,7 +606,7 @@ namespace
             CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 
 			const std::string cameraIdentifier(camera->getIdentifier());
-			const auto initialPreset = nbl::core::capturePreset(goalSolver, camera, "smoke-initial");
+			const auto initialPreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, "smoke-initial");
             const auto initialCompatibility = nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(goalSolver, camera, initialPreset).compatibility;
 			if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
 			{
@@ -617,7 +617,7 @@ namespace
 
 			storeInitialPresetForKind(camera->getKind(), initialPreset, initialPresets);
 
-			if (!nbl::core::applyPreset(goalSolver, camera, initialPreset))
+			if (!nbl::core::CCameraPresetFlowUtilities::applyPreset(goalSolver, camera, initialPreset))
 			{
 				outError = "Preset no-op smoke failed for camera \"" + cameraIdentifier + "\".";
 				return false;
@@ -737,7 +737,7 @@ namespace
 			}
 
 			{
-				const auto modifiedPreset = nbl::core::capturePreset(goalSolver, camera, "smoke-direct");
+				const auto modifiedPreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, "smoke-direct");
 				if (!applyPresetAndValidate(
 						goalSolver,
 						camera,
@@ -886,8 +886,8 @@ namespace
 			return false;
 		}
 
-		const auto baselinePreset = nbl::core::capturePreset(goalSolver, targetCamera, std::string(label) + "-baseline");
-		const auto applyResult = nbl::core::applyPresetDetailed(goalSolver, targetCamera, sourcePreset);
+		const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, targetCamera, std::string(label) + "-baseline");
+		const auto applyResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(goalSolver, targetCamera, sourcePreset);
 		if (!applyResult.succeeded() || !applyResult.approximate() || !applyResult.hasIssue(expectedIssue))
 		{
             outError = std::string("Cross-kind preset smoke failed for ") + label + ". " + CCameraTextUtilities::describeApplyResult(applyResult);
@@ -923,7 +923,7 @@ namespace
 			return false;
 		}
 
-		const auto baselinePreset = nbl::core::capturePreset(goalSolver, targetCamera, std::string(label) + "-baseline");
+		const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, targetCamera, std::string(label) + "-baseline");
 		if (!applyPresetAndValidate(
 				goalSolver,
 				targetCamera,
@@ -1069,7 +1069,7 @@ namespace
 		if (!camera)
 			return true;
 
-		const auto baselinePreset = nbl::core::capturePreset(goalSolver, camera, std::string(label) + " baseline");
+		const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, std::string(label) + " baseline");
 		SCameraFollowConfig followConfig = {};
 		followConfig.enabled = true;
 		followConfig.mode = ECameraFollowMode::KeepLocalOffset;
@@ -1087,7 +1087,7 @@ namespace
 			return false;
 		}
 
-		auto editedPreset = nbl::core::capturePreset(goalSolver, camera, std::string(label) + " edited");
+		auto editedPreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, std::string(label) + " edited");
 		if (!editedPreset.goal.hasOrbitState)
 		{
 			outError = std::string("Follow recapture smoke missing orbit state for ") + std::string(label) + ".";
@@ -1107,7 +1107,7 @@ namespace
 			return false;
 		}
 
-		const auto editedApply = nbl::core::applyPresetDetailed(goalSolver, camera, editedPreset);
+		const auto editedApply = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(goalSolver, camera, editedPreset);
 		if (!editedApply.succeeded() || !editedApply.changed())
 		{
 			outError = std::string("Follow recapture smoke failed to apply edited preset for ") + std::string(label) +
@@ -1115,7 +1115,7 @@ namespace
 			return false;
 		}
 
-		const auto reachedEditedPreset = nbl::core::capturePreset(goalSolver, camera, std::string(label) + " reached");
+		const auto reachedEditedPreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, std::string(label) + " reached");
 
 		if (!nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(goalSolver, camera, trackedTarget, followConfig))
 		{
@@ -1141,7 +1141,7 @@ namespace
 		if (!nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, reachedEditedPreset))
 		{
 			outError = std::string("Follow recapture smoke mismatch for ") + std::string(label) + ". " +
-				nbl::core::describePresetCameraMismatch(goalSolver, camera, reachedEditedPreset);
+				nbl::core::CCameraPresetFlowUtilities::describePresetCameraMismatch(goalSolver, camera, reachedEditedPreset);
 			return false;
 		}
 
@@ -1159,7 +1159,7 @@ namespace
 	inline bool verifyScriptedRuntimeFrameBatch(std::string* const outError)
 	{
 		CCameraScriptedTimeline timeline = {};
-		nbl::system::appendScriptedActionEvent(
+		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedActionEvent(
 			timeline,
 			SCameraSmokeRuntimeDefaults::ActionFrame,
 			CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar,
@@ -1167,21 +1167,21 @@ namespace
 		{
 			CCameraGoal goal = {};
 			goal.position = SCameraSmokeRuntimeDefaults::GoalPosition;
-			nbl::system::appendScriptedGoalEvent(timeline, SCameraSmokeRuntimeDefaults::ActionFrame, goal, true);
+			nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedGoalEvent(timeline, SCameraSmokeRuntimeDefaults::ActionFrame, goal, true);
 		}
-		nbl::system::appendScriptedSegmentLabelEvent(
+		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedSegmentLabelEvent(
 			timeline,
 			SCameraSmokeRuntimeDefaults::ActionFrame,
 			std::string(SCameraSmokeRuntimeDefaults::SegmentLabel));
 		{
 			float64_t4x4 transform = float64_t4x4(1.0);
 			transform[3] = float64_t4(SCameraSmokeRuntimeDefaults::TrackedTargetPosition, 1.0);
-			nbl::system::appendScriptedTrackedTargetTransformEvent(timeline, SCameraSmokeRuntimeDefaults::FollowFrame, transform);
+			nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(timeline, SCameraSmokeRuntimeDefaults::FollowFrame, transform);
 		}
 
 		size_t nextEventIndex = 0u;
 		CCameraScriptedFrameEvents batch;
-		nbl::system::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::ActionFrame, batch);
+		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::ActionFrame, batch);
 		if (nextEventIndex != 3u || batch.actions.size() != 1u || batch.goals.size() != 1u ||
 			batch.segmentLabels.size() != 1u || !batch.mouse.empty() || !batch.keyboard.empty())
 		{
@@ -1198,7 +1198,7 @@ namespace
 			return false;
 		}
 
-		nbl::system::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::FollowFrame, batch);
+		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::FollowFrame, batch);
 		if (nextEventIndex != timeline.events.size() || batch.trackedTargetTransforms.size() != 1u ||
 			!batch.actions.empty() || !batch.goals.empty())
 		{
@@ -1252,7 +1252,7 @@ namespace
 
 		size_t nextEventIndex = 0u;
 		CCameraScriptedFrameEvents batch;
-		nbl::system::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, SCameraSmokeRuntimeParserDefaults::EventFrame, batch);
+		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, SCameraSmokeRuntimeParserDefaults::EventFrame, batch);
 		if (batch.actions.size() != 1u ||
 			batch.keyboard.size() != 1u ||
 			batch.actions.front().value != SCameraSmokeRuntimeParserDefaults::ActivePlanarValue)
@@ -1282,8 +1282,8 @@ namespace
 			SCameraSmokeScriptedCheckDefaults::InitialTrackedTargetOrientation);
 
 		CCameraScriptedTimeline timeline = {};
-		nbl::system::appendScriptedBaselineCheck(timeline, SCameraSmokeScriptedCheckDefaults::BaselineFrame);
-		nbl::system::appendScriptedGimbalStepCheck(
+		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedBaselineCheck(timeline, SCameraSmokeScriptedCheckDefaults::BaselineFrame);
+		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedGimbalStepCheck(
 			timeline,
 			SCameraSmokeScriptedCheckDefaults::StepFrame,
 			true,
@@ -1292,7 +1292,7 @@ namespace
 			true,
 			SCameraSmokeScriptedCheckDefaults::AngularToleranceDeg,
 			SCameraSmokeScriptedCheckDefaults::MinAngularDeltaDeg);
-		nbl::system::appendScriptedFollowTargetLockCheck(
+		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedFollowTargetLockCheck(
 			timeline,
 			SCameraSmokeScriptedCheckDefaults::FollowLockFrame,
 			CameraFollowRegressionThresholds.lockAngleToleranceDeg,
@@ -1300,7 +1300,7 @@ namespace
 
 		CCameraScriptedCheckRuntimeState state = {};
 		{
-			const auto frameResult = evaluateScriptedChecksForFrame(
+			const auto frameResult = nbl::system::CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
 				timeline.checks,
 				state,
 				{
@@ -1345,7 +1345,7 @@ namespace
 				return false;
 			}
 
-			const auto frameResult = evaluateScriptedChecksForFrame(
+			const auto frameResult = nbl::system::CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
 				timeline.checks,
 				state,
 				{
@@ -1373,7 +1373,7 @@ namespace
 		}
 
 		{
-			const auto frameResult = evaluateScriptedChecksForFrame(
+			const auto frameResult = nbl::system::CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
 				timeline.checks,
 				state,
 				{

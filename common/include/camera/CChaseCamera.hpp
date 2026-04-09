@@ -17,7 +17,7 @@ public:
     CChaseCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        m_v = std::clamp(m_v, MinPitch, MaxPitch);
+        m_orbitUv.y = std::clamp(m_orbitUv.y, MinPitch, MaxPitch);
         applyPose();
     }
     ~CChaseCamera() = default;
@@ -35,7 +35,7 @@ public:
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const auto deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.y);
 
-        const auto basis = computeBasis(m_u, m_v, m_distance);
+        const auto basis = computeBasis(m_orbitUv, m_distance);
 
         const auto planarForward = hlsl::safeNormalizeVec3(
             hlsl::float64_t3(basis.forward.x, 0.0, basis.forward.z),
@@ -47,8 +47,8 @@ public:
         m_targetPosition += planarRight * deltaTranslation.x + planarForward * deltaTranslation.z;
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
-        m_u += deltaRotation.y;
-        m_v = std::clamp(m_v + deltaRotation.x, MinPitch, MaxPitch);
+        m_orbitUv.x += deltaRotation.y;
+        m_orbitUv.y = std::clamp(m_orbitUv.y + deltaRotation.x, MinPitch, MaxPitch);
 
         return applyPose();
     }

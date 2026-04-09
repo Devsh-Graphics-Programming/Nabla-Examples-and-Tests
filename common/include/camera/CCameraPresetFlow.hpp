@@ -39,103 +39,111 @@ struct SCameraPresetApplySummary
     }
 };
 
-//! Compare the current camera state against a preset using the shared goal representation.
-inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset,
-    const double posEps, const double rotEpsDeg, const double scalarEps)
+struct CCameraPresetFlowUtilities final
 {
-    const auto capture = solver.captureDetailed(camera);
-    if (!capture.canUseGoal())
-        return false;
-
-    return CCameraGoalUtilities::compareGoals(capture.goal, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
-}
-
-//! Explain the first visible mismatch between a camera state and a preset.
-inline std::string describePresetCameraMismatch(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
-{
-    const auto capture = solver.captureDetailed(camera);
-    if (!capture.hasCamera)
-        return "camera=null";
-    if (!capture.captured)
-        return "goal_state=unavailable";
-    if (!capture.finiteGoal)
-        return "goal_state=invalid";
-
-    return CCameraGoalUtilities::describeGoalMismatch(capture.goal, makeGoalFromPreset(preset));
-}
-
-//! Build a preset from an already analyzed capture result.
-inline bool tryCapturePreset(const SCameraCaptureAnalysis& captureAnalysis, ICamera* camera, std::string_view name, CCameraPreset& preset)
-{
-    preset = {};
-    preset.name = std::string(name);
-    if (!captureAnalysis.canCapture || !camera)
-        return false;
-
-    preset.identifier = std::string(camera->getIdentifier());
-    assignGoalToPreset(preset, captureAnalysis.goal);
-    return true;
-}
-
-//! Capture a preset directly from a camera through the shared goal solver.
-inline bool tryCapturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name, CCameraPreset& preset)
-{
-    return tryCapturePreset(CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera), camera, name, preset);
-}
-
-//! Value-returning convenience wrapper around `tryCapturePreset`.
-inline CCameraPreset capturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name)
-{
-    CCameraPreset preset;
-    tryCapturePreset(solver, camera, name, preset);
-    return preset;
-}
-
-//! Apply a preset through the shared goal solver and preserve detailed apply diagnostics.
-inline CCameraGoalSolver::SApplyResult applyPresetDetailed(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
-{
-    if (!camera)
-        return {};
-
-    return solver.applyDetailed(camera, makeGoalFromPreset(preset));
-}
-
-//! Bool-returning convenience wrapper around `applyPresetDetailed`.
-inline bool applyPreset(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
-{
-    return applyPresetDetailed(solver, camera, preset).succeeded();
-}
-
-//! Fold one detailed apply result into an aggregate preset-apply summary.
-inline void accumulatePresetApplySummary(SCameraPresetApplySummary& summary, const CCameraGoalSolver::SApplyResult& result)
-{
-    ++summary.targetCount;
-    if (result.succeeded())
+    //! Compare the current camera state against a preset using the shared goal representation.
+    static inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset,
+        const double posEps, const double rotEpsDeg, const double scalarEps)
     {
-        ++summary.successCount;
-        if (result.approximate())
-            ++summary.approximateCount;
-    }
-    else
-    {
-        ++summary.failureCount;
-    }
-}
+        const auto capture = solver.captureDetailed(camera);
+        if (!capture.canUseGoal())
+            return false;
 
-//! Apply one preset to a camera range and collect a typed aggregate summary.
-inline SCameraPresetApplySummary applyPresetToCameraRange(const CCameraGoalSolver& solver, std::span<ICamera* const> cameras, const CCameraPreset& preset)
-{
-    SCameraPresetApplySummary summary;
-    for (auto* camera : cameras)
+        return CCameraGoalUtilities::compareGoals(
+            capture.goal,
+            CCameraPresetUtilities::makeGoalFromPreset(preset),
+            posEps,
+            rotEpsDeg,
+            scalarEps);
+    }
+
+    //! Explain the first visible mismatch between a camera state and a preset.
+    static inline std::string describePresetCameraMismatch(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
+    {
+        const auto capture = solver.captureDetailed(camera);
+        if (!capture.hasCamera)
+            return "camera=null";
+        if (!capture.captured)
+            return "goal_state=unavailable";
+        if (!capture.finiteGoal)
+            return "goal_state=invalid";
+
+        return CCameraGoalUtilities::describeGoalMismatch(capture.goal, CCameraPresetUtilities::makeGoalFromPreset(preset));
+    }
+
+    //! Build a preset from an already analyzed capture result.
+    static inline bool tryCapturePreset(const SCameraCaptureAnalysis& captureAnalysis, ICamera* camera, std::string_view name, CCameraPreset& preset)
+    {
+        preset = {};
+        preset.name = std::string(name);
+        if (!captureAnalysis.canCapture || !camera)
+            return false;
+
+        preset.identifier = std::string(camera->getIdentifier());
+        CCameraPresetUtilities::assignGoalToPreset(preset, captureAnalysis.goal);
+        return true;
+    }
+
+    //! Capture a preset directly from a camera through the shared goal solver.
+    static inline bool tryCapturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name, CCameraPreset& preset)
+    {
+        return tryCapturePreset(CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera), camera, name, preset);
+    }
+
+    //! Value-returning convenience wrapper around `tryCapturePreset`.
+    static inline CCameraPreset capturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name)
+    {
+        CCameraPreset preset;
+        tryCapturePreset(solver, camera, name, preset);
+        return preset;
+    }
+
+    //! Apply a preset through the shared goal solver and preserve detailed apply diagnostics.
+    static inline CCameraGoalSolver::SApplyResult applyPresetDetailed(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
     {
         if (!camera)
-            continue;
+            return {};
 
-        accumulatePresetApplySummary(summary, applyPresetDetailed(solver, camera, preset));
+        return solver.applyDetailed(camera, CCameraPresetUtilities::makeGoalFromPreset(preset));
     }
 
-    return summary;
-}
+    //! Bool-returning convenience wrapper around `applyPresetDetailed`.
+    static inline bool applyPreset(const CCameraGoalSolver& solver, ICamera* camera, const CCameraPreset& preset)
+    {
+        return applyPresetDetailed(solver, camera, preset).succeeded();
+    }
+
+    //! Fold one detailed apply result into an aggregate preset-apply summary.
+    static inline void accumulatePresetApplySummary(SCameraPresetApplySummary& summary, const CCameraGoalSolver::SApplyResult& result)
+    {
+        ++summary.targetCount;
+        if (result.succeeded())
+        {
+            ++summary.successCount;
+            if (result.approximate())
+                ++summary.approximateCount;
+        }
+        else
+        {
+            ++summary.failureCount;
+        }
+    }
+
+    //! Apply one preset to a camera range and collect a typed aggregate summary.
+    static inline SCameraPresetApplySummary applyPresetToCameraRange(const CCameraGoalSolver& solver, std::span<ICamera* const> cameras, const CCameraPreset& preset)
+    {
+        SCameraPresetApplySummary summary;
+        for (auto* camera : cameras)
+        {
+            if (!camera)
+                continue;
+
+            accumulatePresetApplySummary(summary, applyPresetDetailed(solver, camera, preset));
+        }
+
+        return summary;
+    }
+};
 
 } // namespace nbl::core
 

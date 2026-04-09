@@ -146,7 +146,7 @@ public:
         CCameraPreset preset;
         preset.goal.position = pos;
         preset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(clamped);
-        return applyPreset(solver, camera, preset);
+        return CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
     }
 };
 

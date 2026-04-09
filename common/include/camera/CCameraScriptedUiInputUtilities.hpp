@@ -10,77 +10,80 @@
 namespace nbl::ui
 {
 
-inline SKeyboardEvent makeScriptedKeyboardEvent(
-    const std::chrono::microseconds timestamp,
-    IWindow* const window,
-    const system::CCameraScriptedInputEvent::KeyboardData& authoredKeyboard)
+struct CCameraScriptedUiInputUtilities final
 {
-    SKeyboardEvent event(timestamp);
-    event.keyCode = authoredKeyboard.key;
-    event.action =
-        authoredKeyboard.action == system::CCameraScriptedInputEvent::KeyboardData::Action::Pressed ?
-        SKeyboardEvent::ECA_PRESSED :
-        SKeyboardEvent::ECA_RELEASED;
-    event.window = window;
-    return event;
-}
-
-inline bool tryBuildScriptedMouseEvent(
-    const std::chrono::microseconds timestamp,
-    IWindow* const window,
-    const system::CCameraScriptedInputEvent::MouseData& authoredMouse,
-    SMouseEvent& outEvent)
-{
-    outEvent = SMouseEvent(timestamp);
-    outEvent.window = window;
-
-    switch (authoredMouse.type)
+    static inline SKeyboardEvent makeScriptedKeyboardEvent(
+        const std::chrono::microseconds timestamp,
+        IWindow* const window,
+        const system::CCameraScriptedInputEvent::KeyboardData& authoredKeyboard)
     {
-        case system::CCameraScriptedInputEvent::MouseData::Type::Click:
-            outEvent.type = SMouseEvent::EET_CLICK;
-            outEvent.clickEvent.mouseButton = authoredMouse.button;
-            outEvent.clickEvent.action =
-                authoredMouse.action == system::CCameraScriptedInputEvent::MouseData::ClickAction::Pressed ?
-                SMouseEvent::SClickEvent::EA_PRESSED :
-                SMouseEvent::SClickEvent::EA_RELEASED;
-            outEvent.clickEvent.clickPosX = authoredMouse.x;
-            outEvent.clickEvent.clickPosY = authoredMouse.y;
-            return true;
-        case system::CCameraScriptedInputEvent::MouseData::Type::Scroll:
-            outEvent.type = SMouseEvent::EET_SCROLL;
-            outEvent.scrollEvent.verticalScroll = authoredMouse.v;
-            outEvent.scrollEvent.horizontalScroll = authoredMouse.h;
-            return true;
-        case system::CCameraScriptedInputEvent::MouseData::Type::Movement:
-            outEvent.type = SMouseEvent::EET_MOVEMENT;
-            outEvent.movementEvent.relativeMovementX = authoredMouse.dx;
-            outEvent.movementEvent.relativeMovementY = authoredMouse.dy;
-            return true;
-        default:
-            return false;
+        SKeyboardEvent event(timestamp);
+        event.keyCode = authoredKeyboard.key;
+        event.action =
+            authoredKeyboard.action == system::CCameraScriptedInputEvent::KeyboardData::Action::Pressed ?
+            SKeyboardEvent::ECA_PRESSED :
+            SKeyboardEvent::ECA_RELEASED;
+        event.window = window;
+        return event;
     }
-}
 
-inline void appendScriptedUiInputEvents(
-    const std::chrono::microseconds timestamp,
-    IWindow* const window,
-    const std::vector<system::CCameraScriptedInputEvent::KeyboardData>& authoredKeyboard,
-    const std::vector<system::CCameraScriptedInputEvent::MouseData>& authoredMouse,
-    std::vector<SKeyboardEvent>& outKeyboard,
-    std::vector<SMouseEvent>& outMouse)
-{
-    outKeyboard.reserve(outKeyboard.size() + authoredKeyboard.size());
-    for (const auto& keyboardEvent : authoredKeyboard)
-        outKeyboard.emplace_back(makeScriptedKeyboardEvent(timestamp, window, keyboardEvent));
-
-    outMouse.reserve(outMouse.size() + authoredMouse.size());
-    for (const auto& mouseEvent : authoredMouse)
+    static inline bool tryBuildScriptedMouseEvent(
+        const std::chrono::microseconds timestamp,
+        IWindow* const window,
+        const system::CCameraScriptedInputEvent::MouseData& authoredMouse,
+        SMouseEvent& outEvent)
     {
-        SMouseEvent builtEvent(timestamp);
-        if (tryBuildScriptedMouseEvent(timestamp, window, mouseEvent, builtEvent))
-            outMouse.emplace_back(builtEvent);
+        outEvent = SMouseEvent(timestamp);
+        outEvent.window = window;
+
+        switch (authoredMouse.type)
+        {
+            case system::CCameraScriptedInputEvent::MouseData::Type::Click:
+                outEvent.type = SMouseEvent::EET_CLICK;
+                outEvent.clickEvent.mouseButton = authoredMouse.button;
+                outEvent.clickEvent.action =
+                    authoredMouse.action == system::CCameraScriptedInputEvent::MouseData::ClickAction::Pressed ?
+                    SMouseEvent::SClickEvent::EA_PRESSED :
+                    SMouseEvent::SClickEvent::EA_RELEASED;
+                outEvent.clickEvent.clickPosX = authoredMouse.x;
+                outEvent.clickEvent.clickPosY = authoredMouse.y;
+                return true;
+            case system::CCameraScriptedInputEvent::MouseData::Type::Scroll:
+                outEvent.type = SMouseEvent::EET_SCROLL;
+                outEvent.scrollEvent.verticalScroll = authoredMouse.v;
+                outEvent.scrollEvent.horizontalScroll = authoredMouse.h;
+                return true;
+            case system::CCameraScriptedInputEvent::MouseData::Type::Movement:
+                outEvent.type = SMouseEvent::EET_MOVEMENT;
+                outEvent.movementEvent.relativeMovementX = authoredMouse.dx;
+                outEvent.movementEvent.relativeMovementY = authoredMouse.dy;
+                return true;
+            default:
+                return false;
+        }
     }
-}
+
+    static inline void appendScriptedUiInputEvents(
+        const std::chrono::microseconds timestamp,
+        IWindow* const window,
+        const std::vector<system::CCameraScriptedInputEvent::KeyboardData>& authoredKeyboard,
+        const std::vector<system::CCameraScriptedInputEvent::MouseData>& authoredMouse,
+        std::vector<SKeyboardEvent>& outKeyboard,
+        std::vector<SMouseEvent>& outMouse)
+    {
+        outKeyboard.reserve(outKeyboard.size() + authoredKeyboard.size());
+        for (const auto& keyboardEvent : authoredKeyboard)
+            outKeyboard.emplace_back(makeScriptedKeyboardEvent(timestamp, window, keyboardEvent));
+
+        outMouse.reserve(outMouse.size() + authoredMouse.size());
+        for (const auto& mouseEvent : authoredMouse)
+        {
+            SMouseEvent builtEvent(timestamp);
+            if (tryBuildScriptedMouseEvent(timestamp, window, mouseEvent, builtEvent))
+                outMouse.emplace_back(builtEvent);
+        }
+    }
+};
 
 } // namespace nbl::ui
 

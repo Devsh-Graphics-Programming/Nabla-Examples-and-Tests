@@ -70,107 +70,109 @@ struct CCameraScriptedCheckFrameResult
     bool hadFailures = false;
 };
 
-inline void scriptedCheckSetStepReference(
-    CCameraScriptedCheckRuntimeState& state,
-    const hlsl::float64_t3& position,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
+struct CCameraScriptedCheckRunnerUtilities final
 {
-    state.step.valid = true;
-    state.step.position = position;
-    state.step.orientation = hlsl::normalizeQuaternion(orientation);
-}
-
-inline void scriptedCheckSetBaselineReference(
-    CCameraScriptedCheckRuntimeState& state,
-    const hlsl::float64_t3& position,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
-{
-    state.baseline.valid = true;
-    state.baseline.position = position;
-    state.baseline.orientation = hlsl::normalizeQuaternion(orientation);
-    scriptedCheckSetStepReference(state, position, orientation);
-}
-
-inline bool scriptedCheckComputePoseDelta(
-    const hlsl::float64_t3& currentPosition,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& currentOrientation,
-    const hlsl::float64_t3& referencePosition,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation,
-    hlsl::SCameraPoseDelta<hlsl::float64_t>& outDelta)
-{
-    return hlsl::tryComputePoseDelta(
-        currentPosition,
-        currentOrientation,
-        referencePosition,
-        referenceOrientation,
-        outDelta);
-}
-
-template<typename Fn>
-inline std::string buildScriptedCheckMessage(Fn&& formatter)
-{
-    std::ostringstream oss;
-    formatter(oss);
-    return oss.str();
-}
-
-inline void appendScriptedCheckLog(
-    CCameraScriptedCheckFrameResult& result,
-    const bool failure,
-    std::string&& text)
-{
-    result.logs.push_back({
-        .failure = failure,
-        .text = std::move(text)
-    });
-    result.hadFailures = result.hadFailures || failure;
-}
-
-//! Evaluate all authored scripted checks scheduled for the current frame.
-inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
-    const std::vector<CCameraScriptedInputCheck>& checks,
-    CCameraScriptedCheckRuntimeState& state,
-    const CCameraScriptedCheckContext& context)
-{
-    CCameraScriptedCheckFrameResult result = {};
-
-    while (state.nextCheckIndex < checks.size() && checks[state.nextCheckIndex].frame == context.frame)
+    static inline void scriptedCheckSetStepReference(
+        CCameraScriptedCheckRuntimeState& state,
+        const hlsl::float64_t3& position,
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
     {
-        const auto& check = checks[state.nextCheckIndex];
+        state.step.valid = true;
+        state.step.position = position;
+        state.step.orientation = hlsl::normalizeQuaternion(orientation);
+    }
 
-        if (!context.camera)
+    static inline void scriptedCheckSetBaselineReference(
+        CCameraScriptedCheckRuntimeState& state,
+        const hlsl::float64_t3& position,
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation)
+    {
+        state.baseline.valid = true;
+        state.baseline.position = position;
+        state.baseline.orientation = hlsl::normalizeQuaternion(orientation);
+        scriptedCheckSetStepReference(state, position, orientation);
+    }
+
+    static inline bool scriptedCheckComputePoseDelta(
+        const hlsl::float64_t3& currentPosition,
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& currentOrientation,
+        const hlsl::float64_t3& referencePosition,
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation,
+        hlsl::SCameraPoseDelta<hlsl::float64_t>& outDelta)
+    {
+        return hlsl::tryComputePoseDelta(
+            currentPosition,
+            currentOrientation,
+            referencePosition,
+            referenceOrientation,
+            outDelta);
+    }
+
+    template<typename Fn>
+    static inline std::string buildScriptedCheckMessage(Fn&& formatter)
+    {
+        std::ostringstream oss;
+        formatter(oss);
+        return oss.str();
+    }
+
+    static inline void appendScriptedCheckLog(
+        CCameraScriptedCheckFrameResult& result,
+        const bool failure,
+        std::string&& text)
+    {
+        result.logs.push_back({
+            .failure = failure,
+            .text = std::move(text)
+        });
+        result.hadFailures = result.hadFailures || failure;
+    }
+
+    //! Evaluate all authored scripted checks scheduled for the current frame.
+    static inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
+        const std::vector<CCameraScriptedInputCheck>& checks,
+        CCameraScriptedCheckRuntimeState& state,
+        const CCameraScriptedCheckContext& context)
+    {
+        CCameraScriptedCheckFrameResult result = {};
+
+        while (state.nextCheckIndex < checks.size() && checks[state.nextCheckIndex].frame == context.frame)
         {
-            appendScriptedCheckLog(
-                result,
-                true,
-                buildScriptedCheckMessage([&](std::ostringstream& oss)
-                {
-                    oss << "[script][fail] check frame=" << context.frame << " no active camera";
-                }));
-            ++state.nextCheckIndex;
-            continue;
-        }
+            const auto& check = checks[state.nextCheckIndex];
 
-        const auto& gimbal = context.camera->getGimbal();
-        const auto pos = gimbal.getPosition();
-        const auto orientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getCameraOrientationEulerDegrees(orientation));
+            if (!context.camera)
+            {
+                appendScriptedCheckLog(
+                    result,
+                    true,
+                    buildScriptedCheckMessage([&](std::ostringstream& oss)
+                    {
+                        oss << "[script][fail] check frame=" << context.frame << " no active camera";
+                    }));
+                ++state.nextCheckIndex;
+                continue;
+            }
 
-        if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteQuaternion(orientation) || !hlsl::isFiniteVec3(eulerDeg))
-        {
-            appendScriptedCheckLog(
-                result,
-                true,
-                buildScriptedCheckMessage([&](std::ostringstream& oss)
-                {
-                    oss << "[script][fail] check frame=" << context.frame << " non-finite gimbal state";
-                }));
-            ++state.nextCheckIndex;
-            continue;
-        }
+            const auto& gimbal = context.camera->getGimbal();
+            const auto pos = gimbal.getPosition();
+            const auto orientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
+            const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getCameraOrientationEulerDegrees(orientation));
 
-        switch (check.kind)
-        {
+            if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteQuaternion(orientation) || !hlsl::isFiniteVec3(eulerDeg))
+            {
+                appendScriptedCheckLog(
+                    result,
+                    true,
+                    buildScriptedCheckMessage([&](std::ostringstream& oss)
+                    {
+                        oss << "[script][fail] check frame=" << context.frame << " non-finite gimbal state";
+                    }));
+                ++state.nextCheckIndex;
+                continue;
+            }
+
+            switch (check.kind)
+            {
             case CCameraScriptedInputCheck::Kind::Baseline:
             {
                 scriptedCheckSetBaselineReference(state, pos, orientation);
@@ -555,11 +557,12 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
             }
         }
 
-        ++state.nextCheckIndex;
-    }
+            ++state.nextCheckIndex;
+        }
 
-    return result;
-}
+        return result;
+    }
+};
 
 } // namespace nbl::system
 

@@ -487,9 +487,9 @@ auto capture = solver.captureDetailed(camera.get());
 if (capture.canUseGoal())
 {
     CCameraPreset preset;
-    assignGoalToPreset(preset, capture.goal);
+    CCameraPresetUtilities::assignGoalToPreset(preset, capture.goal);
 
-    auto apply = applyPresetDetailed(solver, camera.get(), preset);
+    auto apply = CCameraPresetFlowUtilities::applyPresetDetailed(solver, camera.get(), preset);
     if (!apply.succeeded())
     {
         // report exact vs best-effort or unsupported state
@@ -518,16 +518,16 @@ CCameraSequenceScript script = ...;
 CCameraSequenceCompiledSegment segment = ...;
 
 CCameraScriptedTimeline timeline;
-appendCompiledSequenceSegmentToScriptedTimeline(
+CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
     timeline,
     baseFrame,
     segment,
     buildInfo);
 
-finalizeScriptedTimeline(timeline);
+CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline);
 
 CCameraScriptedCheckRuntimeState state = {};
-auto frameResult = evaluateScriptedChecksForFrame(
+auto frameResult = CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
     timeline.checks,
     state,
     context);

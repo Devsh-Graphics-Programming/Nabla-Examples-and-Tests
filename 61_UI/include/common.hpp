@@ -205,6 +205,6 @@ using nbl::hlsl::camera_quaternion_t;
 using nbl::hlsl::makeIdentityQuaternion;
 using nbl::hlsl::normalizeQuaternion;
 using nbl::core::CCameraFollowUtilities;
-using nbl::core::syncDynamicPerspectiveProjection;
+using nbl::core::CCameraProjectionUtilities;
 
 #endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_

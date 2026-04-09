@@ -44,7 +44,7 @@ void App::runActiveFrameScriptedChecks(const SScriptedFrameInputState& scriptedF
 	SActiveScriptedCameraContext runtimeContext = {};
 	const bool hasRuntimeContext = tryBuildActiveScriptedCameraContext(runtimeContext);
 
-	const auto checkResult = nbl::system::evaluateScriptedChecksForFrame(
+	const auto checkResult = nbl::system::CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
 		m_scriptedInput.timeline.checks,
 		m_scriptedInput.checkRuntime,
 		{

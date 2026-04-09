@@ -17,7 +17,7 @@ public:
     CTopDownCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        m_v = TopDownPitch;
+        m_orbitUv.y = TopDownPitch;
         applyPose();
     }
     ~CTopDownCamera() = default;
@@ -35,11 +35,11 @@ public:
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
-        m_u += deltaRotation.y;
-        m_v = TopDownPitch;
+        m_orbitUv.x += deltaRotation.y;
+        m_orbitUv.y = TopDownPitch;
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
-        const auto basis = computeBasis(m_u, m_v, m_distance);
+        const auto basis = computeBasis(m_orbitUv, m_distance);
         applyPlanarTargetTranslation(deltaTranslation, basis);
 
         return applyPose();

@@ -61,63 +61,64 @@ struct SCameraCapturePresentation final : core::SCameraCaptureAnalysis
     std::string policyLabel;
 };
 
-inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation);
-
-//! Shared user-facing label for the exactness filter selector.
-inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPresentationFilter mode)
+struct CCameraPresentationUtilities final
 {
-    switch (mode)
+    //! Shared user-facing label for the exactness filter selector.
+    static inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPresentationFilter mode)
     {
-        case EPresetApplyPresentationFilter::All:
-            return "All";
-        case EPresetApplyPresentationFilter::Exact:
-            return "Exact";
-        case EPresetApplyPresentationFilter::BestEffort:
-            return "Best-effort";
-        default:
-            return "All";
+        switch (mode)
+        {
+            case EPresetApplyPresentationFilter::All:
+                return "All";
+            case EPresetApplyPresentationFilter::Exact:
+                return "Exact";
+            case EPresetApplyPresentationFilter::BestEffort:
+                return "Best-effort";
+            default:
+                return "All";
+        }
     }
-}
 
-//! Build presentation text for one analyzed goal-apply result.
-inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
-{
-    SCameraGoalApplyPresentation presentation;
-    static_cast<core::SCameraGoalApplyAnalysis&>(presentation) = analysis;
-    presentation.badges = collectGoalApplyPresentationBadges(presentation);
-    presentation.sourceKindLabel = std::string(CCameraTextUtilities::getCameraTypeLabel(presentation.goal.sourceKind));
-    presentation.goalStateLabel = CCameraTextUtilities::describeGoalStateMask(presentation.goal.sourceGoalStateMask);
-    presentation.compatibilityLabel = CCameraTextUtilities::describeGoalApplyCompatibility(analysis, targetCamera);
-    presentation.policyLabel = CCameraTextUtilities::describeGoalApplyPolicy(analysis);
-    return presentation;
-}
+    //! Build reusable badge flags for one preset/keyframe compatibility answer.
+    static inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation)
+    {
+        SCameraGoalApplyPresentationBadges badges;
+        badges.exact = presentation.exact();
+        badges.bestEffort = presentation.hasCamera && !presentation.exact();
+        badges.dropsState = presentation.dropsGoalState();
+        badges.sharedStateOnly = presentation.usesSharedStateOnly();
+        badges.blocked = !presentation.canApply;
+        return badges;
+    }
 
-//! Analyze one preset against one camera and return reusable presentation data.
-inline SCameraGoalApplyPresentation analyzePresetPresentation(const core::CCameraGoalSolver& solver, const core::ICamera* camera, const core::CCameraPreset& preset)
-{
-    return makeGoalApplyPresentation(core::CCameraGoalAnalysisUtilities::analyzePresetApply(solver, camera, preset), camera);
-}
+    //! Build presentation text for one analyzed goal-apply result.
+    static inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
+    {
+        SCameraGoalApplyPresentation presentation;
+        static_cast<core::SCameraGoalApplyAnalysis&>(presentation) = analysis;
+        presentation.badges = collectGoalApplyPresentationBadges(presentation);
+        presentation.sourceKindLabel = std::string(CCameraTextUtilities::getCameraTypeLabel(presentation.goal.sourceKind));
+        presentation.goalStateLabel = CCameraTextUtilities::describeGoalStateMask(presentation.goal.sourceGoalStateMask);
+        presentation.compatibilityLabel = CCameraTextUtilities::describeGoalApplyCompatibility(analysis, targetCamera);
+        presentation.policyLabel = CCameraTextUtilities::describeGoalApplyPolicy(analysis);
+        return presentation;
+    }
 
-//! Build reusable badge flags for one preset/keyframe compatibility answer.
-inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation)
-{
-    SCameraGoalApplyPresentationBadges badges;
-    badges.exact = presentation.exact();
-    badges.bestEffort = presentation.hasCamera && !presentation.exact();
-    badges.dropsState = presentation.dropsGoalState();
-    badges.sharedStateOnly = presentation.usesSharedStateOnly();
-    badges.blocked = !presentation.canApply;
-    return badges;
-}
+    //! Analyze one preset against one camera and return reusable presentation data.
+    static inline SCameraGoalApplyPresentation analyzePresetPresentation(const core::CCameraGoalSolver& solver, const core::ICamera* camera, const core::CCameraPreset& preset)
+    {
+        return makeGoalApplyPresentation(core::CCameraGoalAnalysisUtilities::analyzePresetApply(solver, camera, preset), camera);
+    }
 
-//! Analyze one camera capture path and return reusable presentation data.
-inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCameraGoalSolver& solver, core::ICamera* camera)
-{
-    SCameraCapturePresentation presentation;
-    static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera);
-    presentation.policyLabel = CCameraTextUtilities::describeCameraCapturePolicy(presentation, camera);
-    return presentation;
-}
+    //! Analyze one camera capture path and return reusable presentation data.
+    static inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCameraGoalSolver& solver, core::ICamera* camera)
+    {
+        SCameraCapturePresentation presentation;
+        static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera);
+        presentation.policyLabel = CCameraTextUtilities::describeCameraCapturePolicy(presentation, camera);
+        return presentation;
+    }
+};
 
 } // namespace nbl::ui
 

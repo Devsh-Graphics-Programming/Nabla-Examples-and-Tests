@@ -86,7 +86,7 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
         const float authoredTime = std::max(0.f, playbackAuthoring.newKeyframeTime);
         keyframe.time = authoredTime;
         playbackAuthoring.newKeyframeTime = authoredTime;
-        if (nbl::core::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
+        if (nbl::core::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
         {
             playbackAuthoring.keyframeTrack.keyframes.emplace_back(std::move(keyframe));
             sortKeyframesByTime();

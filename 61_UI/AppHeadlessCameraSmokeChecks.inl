@@ -61,15 +61,15 @@
 		if (!state.initialPresets.orbit.has_value())
 			return true;
 
-		if (std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
-			std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
-			std::string_view(nbl::ui::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
+		if (std::string_view(nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::All)) != "All" ||
+			std::string_view(nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::Exact)) != "Exact" ||
+			std::string_view(nbl::ui::CCameraPresentationUtilities::getPresetApplyPresentationFilterLabel(EPresetApplyPresentationFilter::BestEffort)) != "Best-effort")
 		{
 			outError = "Presentation utilities smoke returned an unexpected filter label.";
 			return false;
 		}
 
-		const auto blockedPresentation = nbl::ui::analyzePresetPresentation(state.goalSolver, nullptr, state.initialPresets.orbit.value());
+		const auto blockedPresentation = nbl::ui::CCameraPresentationUtilities::analyzePresetPresentation(state.goalSolver, nullptr, state.initialPresets.orbit.value());
 		if (blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 			blockedPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
 		{
@@ -82,7 +82,7 @@
 			return false;
 		}
 
-		const auto blockedBadges = nbl::ui::collectGoalApplyPresentationBadges(blockedPresentation);
+		const auto blockedBadges = nbl::ui::CCameraPresentationUtilities::collectGoalApplyPresentationBadges(blockedPresentation);
 		if (!blockedBadges.blocked || blockedBadges.exact || blockedBadges.bestEffort || blockedPresentation.badges.blocked != blockedBadges.blocked)
 		{
 			outError = "Presentation utilities smoke produced wrong blocked badge flags.";
@@ -91,7 +91,7 @@
 
 		if (state.orbitCamera)
 		{
-			const auto exactPresentation = nbl::ui::analyzePresetPresentation(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value());
+			const auto exactPresentation = nbl::ui::CCameraPresentationUtilities::analyzePresetPresentation(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value());
 			if (!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 				!exactPresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 				exactPresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -100,7 +100,7 @@
 				return false;
 			}
 
-			const auto exactBadges = nbl::ui::collectGoalApplyPresentationBadges(exactPresentation);
+			const auto exactBadges = nbl::ui::CCameraPresentationUtilities::collectGoalApplyPresentationBadges(exactPresentation);
 			if (!exactBadges.exact || exactBadges.bestEffort || exactBadges.dropsState || exactBadges.sharedStateOnly || exactBadges.blocked)
 			{
 				outError = "Presentation utilities smoke produced wrong exact badge flags.";
@@ -112,7 +112,7 @@
 				return false;
 			}
 
-			const auto capturePresentation = nbl::ui::analyzeCapturePresentation(state.goalSolver, state.orbitCamera);
+			const auto capturePresentation = nbl::ui::CCameraPresentationUtilities::analyzeCapturePresentation(state.goalSolver, state.orbitCamera);
 			if (!capturePresentation.canCapture || capturePresentation.policyLabel.empty())
 			{
 				outError = "Presentation utilities smoke failed orbit capture presentation.";
@@ -122,7 +122,7 @@
 
 		if (state.initialPresets.path.has_value() && state.orbitCamera)
 		{
-			const auto approximatePresentation = nbl::ui::analyzePresetPresentation(state.goalSolver, state.orbitCamera, state.initialPresets.path.value());
+			const auto approximatePresentation = nbl::ui::CCameraPresentationUtilities::analyzePresetPresentation(state.goalSolver, state.orbitCamera, state.initialPresets.path.value());
 			if (!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::All) ||
 				approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::Exact) ||
 				!approximatePresentation.matchesFilter(EPresetApplyPresentationFilter::BestEffort))
@@ -131,7 +131,7 @@
 				return false;
 			}
 
-			const auto approximateBadges = nbl::ui::collectGoalApplyPresentationBadges(approximatePresentation);
+			const auto approximateBadges = nbl::ui::CCameraPresentationUtilities::collectGoalApplyPresentationBadges(approximatePresentation);
 			if (approximateBadges.exact || !approximateBadges.bestEffort || !approximateBadges.dropsState || approximateBadges.sharedStateOnly || approximateBadges.blocked)
 			{
 				outError = "Presentation utilities smoke produced wrong best-effort badge flags.";
@@ -190,7 +190,7 @@
 			outError = "Preset persistence smoke failed to deserialize preset collection.";
 			return false;
 		}
-		if (!nbl::core::comparePresetCollections(
+		if (!nbl::core::CCameraPresetUtilities::comparePresetCollections(
 				sourcePresetSpan,
 				std::span<const CameraPreset>(loadedPresets.data(), loadedPresets.size()),
 				SCameraSmokePersistenceThresholds::PositionTolerance,
@@ -269,7 +269,7 @@
 			outError = "Preset persistence smoke failed to load preset collection file.";
 			return false;
 		}
-		if (!nbl::core::comparePresetCollections(
+		if (!nbl::core::CCameraPresetUtilities::comparePresetCollections(
 				sourcePresetSpan,
 				std::span<const CameraPreset>(fileLoadedPresets.data(), fileLoadedPresets.size()),
 				SCameraSmokePersistenceThresholds::PositionTolerance,
@@ -497,7 +497,7 @@
 
 		CCameraScriptedTimeline scriptedTimeline;
 		std::string runtimeBuildError;
-		if (!nbl::system::appendCompiledSequenceSegmentToScriptedTimeline(
+		if (!nbl::system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
 				scriptedTimeline,
 				SCameraSmokeSequenceDefaults::StartFrame,
 				compiledSegment,
@@ -512,7 +512,7 @@
 			outError = "Sequence runtime builder smoke failed to append a compiled segment. " + runtimeBuildError;
 			return false;
 		}
-		nbl::system::finalizeScriptedTimeline(scriptedTimeline);
+		nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(scriptedTimeline);
 
 		if (scriptedTimeline.captureFrames != std::vector<uint64_t>(
 				SCameraSmokeSequenceDefaults::CaptureFrames.begin(),
@@ -552,7 +552,7 @@
 
 		size_t runtimeNextEventIndex = 0u;
 		CCameraScriptedFrameEvents runtimeBatch;
-		nbl::system::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, SCameraSmokeSequenceDefaults::StartFrame, runtimeBatch);
+		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, SCameraSmokeSequenceDefaults::StartFrame, runtimeBatch);
 		if (runtimeBatch.actions.size() != 10u || runtimeBatch.goals.size() != 1u ||
 			runtimeBatch.trackedTargetTransforms.size() != 1u || runtimeBatch.segmentLabels.size() != 1u)
 		{
@@ -576,7 +576,7 @@
 		if (state.initialPresets.orbit.has_value() && state.orbitCamera)
 		{
 			std::array<ICamera*, 2u> exactTargets = { state.orbitCamera, nullptr };
-			const auto exactSummary = nbl::core::applyPresetToCameraRange(
+			const auto exactSummary = nbl::core::CCameraPresetFlowUtilities::applyPresetToCameraRange(
 				state.goalSolver,
 				std::span<ICamera* const>(exactTargets.data(), exactTargets.size()),
 				state.initialPresets.orbit.value());
@@ -590,7 +590,7 @@
 		if (state.initialPresets.path.has_value() && state.orbitCamera)
 		{
 			std::array<ICamera*, 1u> approximateTargets = { state.orbitCamera };
-			const auto approximateSummary = nbl::core::applyPresetToCameraRange(
+			const auto approximateSummary = nbl::core::CCameraPresetFlowUtilities::applyPresetToCameraRange(
 				state.goalSolver,
 				std::span<ICamera* const>(approximateTargets.data(), approximateTargets.size()),
 				state.initialPresets.path.value());
@@ -623,7 +623,7 @@
 		{
 			CameraPreset orientedPreset = state.initialPresets.free.value();
 			orientedPreset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
-			const auto orientResult = nbl::core::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
+			const auto orientResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
 			if (!orientResult.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
 			{
 				outError = "Camera manipulation utilities smoke failed to orient Free camera before translation remap.";
@@ -661,7 +661,7 @@
 
 			CameraPreset pitchPreset = state.initialPresets.free.value();
 			pitchPreset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
-			const auto pitchResult = nbl::core::applyPresetDetailed(state.goalSolver, state.freeCamera, pitchPreset);
+			const auto pitchResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, pitchPreset);
 			if (!pitchResult.succeeded())
 			{
 				outError = "Camera manipulation utilities smoke failed to prepare Free camera pitch clamp.";
@@ -687,7 +687,7 @@
 				return false;
 			}
 
-			const auto restoreFree = nbl::core::applyPresetDetailed(state.goalSolver, state.freeCamera, state.initialPresets.free.value());
+			const auto restoreFree = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, state.initialPresets.free.value());
 			if (!restoreFree.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, state.initialPresets.free.value()))
 			{
 				outError = "Camera manipulation utilities smoke failed to restore Free camera baseline.";
@@ -699,7 +699,7 @@
 		{
 			CameraPreset farOrbitPreset = state.initialPresets.orbit.value();
 			farOrbitPreset.goal.distance = state.initialPresets.orbit->goal.distance + SCameraSmokeManipulationDefaults::OrbitDistanceDelta;
-			const auto farOrbitResult = nbl::core::applyPresetDetailed(state.goalSolver, state.orbitCamera, farOrbitPreset);
+			const auto farOrbitResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.orbitCamera, farOrbitPreset);
 			if (!farOrbitResult.succeeded())
 			{
 				outError = "Camera manipulation utilities smoke failed to prepare Orbit distance clamp.";
@@ -728,7 +728,7 @@
 				return false;
 			}
 
-			const auto restoreOrbit = nbl::core::applyPresetDetailed(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value());
+			const auto restoreOrbit = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value());
 			if (!restoreOrbit.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value()))
 			{
 				outError = "Camera manipulation utilities smoke failed to restore Orbit baseline.";
@@ -749,7 +749,7 @@
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFovDeg);
-			if (!nbl::core::syncDynamicPerspectiveProjection(state.dollyZoomCamera, perspectiveProjection))
+			if (!nbl::core::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, perspectiveProjection))
 			{
 				outError = "Camera projection utilities smoke failed to sync dynamic perspective projection.";
 				return false;
@@ -764,7 +764,7 @@
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::OrthoExtent);
-			if (nbl::core::syncDynamicPerspectiveProjection(state.dollyZoomCamera, orthographicProjection))
+			if (nbl::core::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, orthographicProjection))
 			{
 				outError = "Camera projection utilities smoke unexpectedly synced orthographic projection.";
 				return false;
@@ -834,7 +834,7 @@
 
 		if (state.orbitCamera)
 		{
-			const auto baselinePreset = nbl::core::capturePreset(state.goalSolver, state.orbitCamera, "orbit-follow-baseline");
+			const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.orbitCamera, "orbit-follow-baseline");
 			SCameraFollowConfig followConfig = {};
 			followConfig.enabled = true;
 			followConfig.mode = ECameraFollowMode::OrbitTarget;
@@ -868,7 +868,7 @@
 				continue;
 
 			const auto label = std::string(defaultFollowCamera->getIdentifier()) + " default follow";
-			const auto baselinePreset = nbl::core::capturePreset(state.goalSolver, defaultFollowCamera, label + " baseline");
+			const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, defaultFollowCamera, label + " baseline");
 
 			trackedTarget.setPose(
 				SCameraSmokeFollowScenario::InitialTargetPosition,
@@ -900,7 +900,7 @@
 
 		if (state.freeCamera)
 		{
-			const auto baselinePreset = nbl::core::capturePreset(state.goalSolver, state.freeCamera, "free-follow-baseline");
+			const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.freeCamera, "free-follow-baseline");
 			SCameraFollowConfig followConfig = {};
 			followConfig.enabled = true;
 			followConfig.mode = ECameraFollowMode::LookAtTarget;
@@ -925,7 +925,7 @@
 
 		if (state.chaseCamera)
 		{
-			const auto baselinePreset = nbl::core::capturePreset(state.goalSolver, state.chaseCamera, "chase-follow-baseline");
+			const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.chaseCamera, "chase-follow-baseline");
 			SCameraFollowConfig followConfig = {};
 			followConfig.enabled = true;
 			followConfig.mode = ECameraFollowMode::KeepLocalOffset;

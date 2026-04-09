@@ -10,23 +10,26 @@
 namespace nbl::core
 {
 
-//! Apply a camera-provided dynamic perspective FOV to one planar projection entry.
-inline bool syncDynamicPerspectiveProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
+struct CCameraProjectionUtilities final
 {
-    if (!camera)
-        return false;
+    //! Apply a camera-provided dynamic perspective FOV to one planar projection entry.
+    static inline bool syncDynamicPerspectiveProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
+    {
+        if (!camera)
+            return false;
 
-    const auto& params = projection.getParameters();
-    if (params.m_type != IPlanarProjection::CProjection::Perspective)
-        return false;
+        const auto& params = projection.getParameters();
+        if (params.m_type != IPlanarProjection::CProjection::Perspective)
+            return false;
 
-    float dynamicFov = 0.0f;
-    if (!camera->tryGetDynamicPerspectiveFov(dynamicFov))
-        return false;
+        float dynamicFov = 0.0f;
+        if (!camera->tryGetDynamicPerspectiveFov(dynamicFov))
+            return false;
 
-    projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
-    return true;
-}
+        projection.setPerspective(params.m_zNear, params.m_zFar, dynamicFov);
+        return true;
+    }
+};
 
 } // namespace nbl::core
 

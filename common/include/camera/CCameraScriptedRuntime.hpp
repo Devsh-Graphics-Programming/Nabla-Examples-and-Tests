@@ -186,131 +186,134 @@ struct CCameraScriptedTimeline
     }
 };
 
-inline void finalizeScriptedTimeline(
-    std::vector<CCameraScriptedInputEvent>& events,
-    std::vector<CCameraScriptedInputCheck>& checks,
-    std::vector<uint64_t>& captureFrames,
-    const bool disableCaptureFrames = false)
+struct CCameraScriptedRuntimeUtilities final
 {
-    std::stable_sort(events.begin(), events.end(),
-        [](const CCameraScriptedInputEvent& a, const CCameraScriptedInputEvent& b) { return a.frame < b.frame; });
-    std::stable_sort(checks.begin(), checks.end(),
-        [](const CCameraScriptedInputCheck& a, const CCameraScriptedInputCheck& b) { return a.frame < b.frame; });
-    if (!captureFrames.empty())
+    static inline void finalizeScriptedTimeline(
+        std::vector<CCameraScriptedInputEvent>& events,
+        std::vector<CCameraScriptedInputCheck>& checks,
+        std::vector<uint64_t>& captureFrames,
+        const bool disableCaptureFrames = false)
     {
-        std::sort(captureFrames.begin(), captureFrames.end());
-        captureFrames.erase(std::unique(captureFrames.begin(), captureFrames.end()), captureFrames.end());
+        std::stable_sort(events.begin(), events.end(),
+            [](const CCameraScriptedInputEvent& a, const CCameraScriptedInputEvent& b) { return a.frame < b.frame; });
+        std::stable_sort(checks.begin(), checks.end(),
+            [](const CCameraScriptedInputCheck& a, const CCameraScriptedInputCheck& b) { return a.frame < b.frame; });
+        if (!captureFrames.empty())
+        {
+            std::sort(captureFrames.begin(), captureFrames.end());
+            captureFrames.erase(std::unique(captureFrames.begin(), captureFrames.end()), captureFrames.end());
+        }
+        if (disableCaptureFrames)
+            captureFrames.clear();
     }
-    if (disableCaptureFrames)
-        captureFrames.clear();
-}
 
-inline void finalizeScriptedTimeline(CCameraScriptedTimeline& timeline, const bool disableCaptureFrames = false)
-{
-    finalizeScriptedTimeline(timeline.events, timeline.checks, timeline.captureFrames, disableCaptureFrames);
-}
-
-inline void appendScriptedActionEvent(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    const CCameraScriptedInputEvent::ActionData::Kind kind,
-    const int32_t value)
-{
-    CCameraScriptedInputEvent entry;
-    entry.frame = frame;
-    entry.type = CCameraScriptedInputEvent::Type::Action;
-    entry.action.kind = kind;
-    entry.action.value = value;
-    timeline.events.emplace_back(std::move(entry));
-}
-
-inline void appendScriptedGoalEvent(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    const core::CCameraGoal& goal,
-    const bool requireExact = true)
-{
-    CCameraScriptedInputEvent entry;
-    entry.frame = frame;
-    entry.type = CCameraScriptedInputEvent::Type::Goal;
-    entry.goal.goal = goal;
-    entry.goal.requireExact = requireExact;
-    timeline.events.emplace_back(std::move(entry));
-}
-
-inline void appendScriptedTrackedTargetTransformEvent(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    const hlsl::float64_t4x4& transform)
-{
-    CCameraScriptedInputEvent entry;
-    entry.frame = frame;
-    entry.type = CCameraScriptedInputEvent::Type::TrackedTargetTransform;
-    entry.trackedTargetTransform.transform = transform;
-    timeline.events.emplace_back(std::move(entry));
-}
-
-inline void appendScriptedSegmentLabelEvent(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    std::string label)
-{
-    CCameraScriptedInputEvent entry;
-    entry.frame = frame;
-    entry.type = CCameraScriptedInputEvent::Type::SegmentLabel;
-    entry.segmentLabel.label = std::move(label);
-    timeline.events.emplace_back(std::move(entry));
-}
-
-inline void appendScriptedBaselineCheck(CCameraScriptedTimeline& timeline, const uint64_t frame)
-{
-    CCameraScriptedInputCheck entry;
-    entry.frame = frame;
-    entry.kind = CCameraScriptedInputCheck::Kind::Baseline;
-    timeline.checks.emplace_back(std::move(entry));
-}
-
-inline void appendScriptedGimbalStepCheck(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    const bool hasPosDeltaConstraint,
-    const float posTolerance,
-    const float minPosDelta,
-    const bool hasEulerDeltaConstraint,
-    const float eulerToleranceDeg,
-    const float minEulerDeltaDeg)
-{
-    CCameraScriptedInputCheck entry;
-    entry.frame = frame;
-    entry.kind = CCameraScriptedInputCheck::Kind::GimbalStep;
-    if (hasPosDeltaConstraint)
+    static inline void finalizeScriptedTimeline(CCameraScriptedTimeline& timeline, const bool disableCaptureFrames = false)
     {
-        entry.hasPosDeltaConstraint = true;
-        entry.posTolerance = posTolerance;
-        entry.minPosDelta = minPosDelta;
+        finalizeScriptedTimeline(timeline.events, timeline.checks, timeline.captureFrames, disableCaptureFrames);
     }
-    if (hasEulerDeltaConstraint)
-    {
-        entry.hasEulerDeltaConstraint = true;
-        entry.eulerToleranceDeg = eulerToleranceDeg;
-        entry.minEulerDeltaDeg = minEulerDeltaDeg;
-    }
-    timeline.checks.emplace_back(std::move(entry));
-}
 
-inline void appendScriptedFollowTargetLockCheck(
-    CCameraScriptedTimeline& timeline,
-    const uint64_t frame,
-    const float toleranceDeg = CCameraScriptedCheckDefaults::EulerToleranceDeg,
-    const float screenToleranceNdc = CCameraScriptedCheckDefaults::FollowScreenToleranceNdc)
-{
-    CCameraScriptedInputCheck entry;
-    entry.frame = frame;
-    entry.kind = CCameraScriptedInputCheck::Kind::FollowTargetLock;
-    entry.eulerToleranceDeg = toleranceDeg;
-    entry.posTolerance = screenToleranceNdc;
-    timeline.checks.emplace_back(std::move(entry));
-}
+    static inline void appendScriptedActionEvent(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        const CCameraScriptedInputEvent::ActionData::Kind kind,
+        const int32_t value)
+    {
+        CCameraScriptedInputEvent entry;
+        entry.frame = frame;
+        entry.type = CCameraScriptedInputEvent::Type::Action;
+        entry.action.kind = kind;
+        entry.action.value = value;
+        timeline.events.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedGoalEvent(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        const core::CCameraGoal& goal,
+        const bool requireExact = true)
+    {
+        CCameraScriptedInputEvent entry;
+        entry.frame = frame;
+        entry.type = CCameraScriptedInputEvent::Type::Goal;
+        entry.goal.goal = goal;
+        entry.goal.requireExact = requireExact;
+        timeline.events.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedTrackedTargetTransformEvent(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        const hlsl::float64_t4x4& transform)
+    {
+        CCameraScriptedInputEvent entry;
+        entry.frame = frame;
+        entry.type = CCameraScriptedInputEvent::Type::TrackedTargetTransform;
+        entry.trackedTargetTransform.transform = transform;
+        timeline.events.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedSegmentLabelEvent(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        std::string label)
+    {
+        CCameraScriptedInputEvent entry;
+        entry.frame = frame;
+        entry.type = CCameraScriptedInputEvent::Type::SegmentLabel;
+        entry.segmentLabel.label = std::move(label);
+        timeline.events.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedBaselineCheck(CCameraScriptedTimeline& timeline, const uint64_t frame)
+    {
+        CCameraScriptedInputCheck entry;
+        entry.frame = frame;
+        entry.kind = CCameraScriptedInputCheck::Kind::Baseline;
+        timeline.checks.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedGimbalStepCheck(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        const bool hasPosDeltaConstraint,
+        const float posTolerance,
+        const float minPosDelta,
+        const bool hasEulerDeltaConstraint,
+        const float eulerToleranceDeg,
+        const float minEulerDeltaDeg)
+    {
+        CCameraScriptedInputCheck entry;
+        entry.frame = frame;
+        entry.kind = CCameraScriptedInputCheck::Kind::GimbalStep;
+        if (hasPosDeltaConstraint)
+        {
+            entry.hasPosDeltaConstraint = true;
+            entry.posTolerance = posTolerance;
+            entry.minPosDelta = minPosDelta;
+        }
+        if (hasEulerDeltaConstraint)
+        {
+            entry.hasEulerDeltaConstraint = true;
+            entry.eulerToleranceDeg = eulerToleranceDeg;
+            entry.minEulerDeltaDeg = minEulerDeltaDeg;
+        }
+        timeline.checks.emplace_back(std::move(entry));
+    }
+
+    static inline void appendScriptedFollowTargetLockCheck(
+        CCameraScriptedTimeline& timeline,
+        const uint64_t frame,
+        const float toleranceDeg = CCameraScriptedCheckDefaults::EulerToleranceDeg,
+        const float screenToleranceNdc = CCameraScriptedCheckDefaults::FollowScreenToleranceNdc)
+    {
+        CCameraScriptedInputCheck entry;
+        entry.frame = frame;
+        entry.kind = CCameraScriptedInputCheck::Kind::FollowTargetLock;
+        entry.eulerToleranceDeg = toleranceDeg;
+        entry.posTolerance = screenToleranceNdc;
+        timeline.checks.emplace_back(std::move(entry));
+    }
+};
 
 /**
 * Per-frame scripted runtime batch already partitioned by payload kind.
@@ -347,44 +350,47 @@ struct CCameraScriptedFrameEvents
 };
 
 //! Dequeue all authored scripted events scheduled for one frame.
-inline void dequeueScriptedFrameEvents(
-    const std::vector<CCameraScriptedInputEvent>& events,
-    size_t& nextEventIndex,
-    const uint64_t frame,
-    CCameraScriptedFrameEvents& out)
+struct CCameraScriptedFrameEventUtilities final
 {
-    out.clear();
-    while (nextEventIndex < events.size() && events[nextEventIndex].frame == frame)
+    static inline void dequeueScriptedFrameEvents(
+        const std::vector<CCameraScriptedInputEvent>& events,
+        size_t& nextEventIndex,
+        const uint64_t frame,
+        CCameraScriptedFrameEvents& out)
     {
-        const auto& ev = events[nextEventIndex];
-        switch (ev.type)
+        out.clear();
+        while (nextEventIndex < events.size() && events[nextEventIndex].frame == frame)
         {
-            case CCameraScriptedInputEvent::Type::Keyboard:
-                out.keyboard.emplace_back(ev.keyboard);
-                break;
-            case CCameraScriptedInputEvent::Type::Mouse:
-                out.mouse.emplace_back(ev.mouse);
-                break;
-            case CCameraScriptedInputEvent::Type::Imguizmo:
-                out.imguizmo.emplace_back(ev.imguizmo);
-                break;
-            case CCameraScriptedInputEvent::Type::Action:
-                out.actions.emplace_back(ev.action);
-                break;
-            case CCameraScriptedInputEvent::Type::Goal:
-                out.goals.emplace_back(ev.goal);
-                break;
-            case CCameraScriptedInputEvent::Type::TrackedTargetTransform:
-                out.trackedTargetTransforms.emplace_back(ev.trackedTargetTransform);
-                break;
-            case CCameraScriptedInputEvent::Type::SegmentLabel:
-                out.segmentLabels.emplace_back(ev.segmentLabel.label);
-                break;
-        }
+            const auto& ev = events[nextEventIndex];
+            switch (ev.type)
+            {
+                case CCameraScriptedInputEvent::Type::Keyboard:
+                    out.keyboard.emplace_back(ev.keyboard);
+                    break;
+                case CCameraScriptedInputEvent::Type::Mouse:
+                    out.mouse.emplace_back(ev.mouse);
+                    break;
+                case CCameraScriptedInputEvent::Type::Imguizmo:
+                    out.imguizmo.emplace_back(ev.imguizmo);
+                    break;
+                case CCameraScriptedInputEvent::Type::Action:
+                    out.actions.emplace_back(ev.action);
+                    break;
+                case CCameraScriptedInputEvent::Type::Goal:
+                    out.goals.emplace_back(ev.goal);
+                    break;
+                case CCameraScriptedInputEvent::Type::TrackedTargetTransform:
+                    out.trackedTargetTransforms.emplace_back(ev.trackedTargetTransform);
+                    break;
+                case CCameraScriptedInputEvent::Type::SegmentLabel:
+                    out.segmentLabels.emplace_back(ev.segmentLabel.label);
+                    break;
+            }
 
-        ++nextEventIndex;
+            ++nextEventIndex;
+        }
     }
-}
+};
 
 } // namespace nbl::system
 

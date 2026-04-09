@@ -29,7 +29,7 @@ public:
         const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
     {
         return hlsl::abs(static_cast<double>(lhs.time - rhs.time)) <= timeEps &&
-            comparePresets(lhs.preset, rhs.preset, posEps, rotEpsDeg, scalarEps);
+            CCameraPresetUtilities::comparePresets(lhs.preset, rhs.preset, posEps, rotEpsDeg, scalarEps);
     }
 
     //! Compare two authored keyframe tracks with optional selection-state checking.
@@ -81,7 +81,12 @@ public:
 
         const double alpha = static_cast<double>(clampedTime - a.time) / static_cast<double>(b.time - a.time);
         preset = a.preset;
-        assignGoalToPreset(preset, CCameraGoalUtilities::blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
+        CCameraPresetUtilities::assignGoalToPreset(
+            preset,
+            CCameraGoalUtilities::blendGoals(
+                CCameraPresetUtilities::makeGoalFromPreset(a.preset),
+                CCameraPresetUtilities::makeGoalFromPreset(b.preset),
+                alpha));
         return true;
     }
 

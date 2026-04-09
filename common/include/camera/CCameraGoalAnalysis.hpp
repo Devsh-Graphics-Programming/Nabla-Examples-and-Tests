@@ -68,7 +68,7 @@ public:
 
     static inline SCameraGoalApplyAnalysis analyzePresetApply(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraPreset& preset)
     {
-        return analyzeGoalApply(solver, camera, makeGoalFromPreset(preset));
+        return analyzeGoalApply(solver, camera, CCameraPresetUtilities::makeGoalFromPreset(preset));
     }
 
     static inline SCameraCaptureAnalysis analyzeCameraCapture(const CCameraGoalSolver& solver, ICamera* camera)

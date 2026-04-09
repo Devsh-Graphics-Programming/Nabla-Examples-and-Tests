@@ -21,7 +21,7 @@ public:
     CTurntableCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        m_v = std::clamp(m_v, MinPitch, MaxPitch);
+        m_orbitUv.y = std::clamp(m_orbitUv.y, MinPitch, MaxPitch);
         applyPose();
     }
     ~CTurntableCamera() = default;
@@ -39,8 +39,8 @@ public:
         const double deltaPitch = scaleVirtualRotation(impulse.dVirtualRotation.x);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
-        m_u += deltaYaw;
-        m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
+        m_orbitUv.x += deltaYaw;
+        m_orbitUv.y = std::clamp(m_orbitUv.y + deltaPitch, MinPitch, MaxPitch);
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         return applyPose();
