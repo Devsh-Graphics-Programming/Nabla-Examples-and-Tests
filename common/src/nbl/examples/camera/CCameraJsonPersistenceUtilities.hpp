@@ -59,11 +59,20 @@ inline void deserializeGoalJson(const Json& entry, core::CCameraGoal& goal)
         goal.orbitDistance = entry["orbit_distance"].get<float>();
         goal.hasOrbitState = true;
     }
-    if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
+    if (entry.contains("path_s") && entry.contains("path_u") && entry.contains("path_v"))
     {
-        goal.pathState.angle = entry["path_angle"].get<double>();
-        goal.pathState.radius = entry["path_radius"].get<double>();
-        goal.pathState.height = entry["path_height"].get<double>();
+        goal.pathState.s = entry["path_s"].get<double>();
+        goal.pathState.u = entry["path_u"].get<double>();
+        goal.pathState.v = entry["path_v"].get<double>();
+        goal.pathState.roll = entry.contains("path_roll") ? entry["path_roll"].get<double>() : 0.0;
+        goal.hasPathState = true;
+    }
+    else if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
+    {
+        goal.pathState.s = entry["path_angle"].get<double>();
+        goal.pathState.u = entry["path_radius"].get<double>();
+        goal.pathState.v = entry["path_height"].get<double>();
+        goal.pathState.roll = entry.contains("path_roll") ? entry["path_roll"].get<double>() : 0.0;
         goal.hasPathState = true;
     }
     if (entry.contains("dynamic_base_fov"))

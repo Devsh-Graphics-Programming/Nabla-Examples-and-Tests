@@ -7,6 +7,7 @@
 		ICamera* freeCamera = nullptr;
 		ICamera* chaseCamera = nullptr;
 		ICamera* dollyCamera = nullptr;
+		ICamera* pathCamera = nullptr;
 		ICamera* dollyZoomCamera = nullptr;
 	};
 
@@ -596,6 +597,134 @@
 			if (approximateSummary.targetCount != 1u || approximateSummary.successCount != 1u || approximateSummary.approximateCount != 1u || approximateSummary.failureCount != 0u)
 			{
 				outError = "Preset apply summary smoke failed for approximate target range.";
+				return false;
+			}
+		}
+
+		if (state.initialPresets.path.has_value() && state.pathCamera)
+		{
+			if (!restorePresetStrict(
+					state.goalSolver,
+					state.pathCamera,
+					state.initialPresets.path.value(),
+					"Path manipulation smoke failed to restore the baseline preset",
+					outError))
+			{
+				return false;
+			}
+
+			ICamera::PathState baselinePathState = {};
+			if (!state.pathCamera->tryGetPathState(baselinePathState))
+			{
+				outError = "Path manipulation smoke failed to read the baseline path state.";
+				return false;
+			}
+
+			const hlsl::float64_t3 directTranslationMagnitude(1.5, 0.75, 2.0);
+			const double directRollMagnitude = 0.5;
+			const std::array<CVirtualGimbalEvent, 4u> directPathEvents = {{
+				{ CVirtualGimbalEvent::MoveRight, directTranslationMagnitude.x },
+				{ CVirtualGimbalEvent::MoveUp, directTranslationMagnitude.y },
+				{ CVirtualGimbalEvent::MoveForward, directTranslationMagnitude.z },
+				{ CVirtualGimbalEvent::RollRight, directRollMagnitude }
+			}};
+
+			if (!state.pathCamera->manipulate({ directPathEvents.data(), directPathEvents.size() }))
+			{
+				outError = "Path manipulation smoke failed to apply direct path virtual events.";
+				return false;
+			}
+
+			ICamera::PathState manipulatedPathState = {};
+			if (!state.pathCamera->tryGetPathState(manipulatedPathState))
+			{
+				outError = "Path manipulation smoke failed to read the manipulated path state.";
+				return false;
+			}
+
+			const auto expectedPathDelta = nbl::core::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
+				state.pathCamera->scaleVirtualTranslation(directTranslationMagnitude),
+				state.pathCamera->scaleVirtualRotation(hlsl::float64_t3(0.0, 0.0, directRollMagnitude)));
+			ICamera::PathState expectedPathState = {};
+			if (!nbl::core::CCameraPathUtilities::tryApplyPathStateDelta(
+					baselinePathState,
+					expectedPathDelta,
+					nbl::core::CCameraPathUtilities::makeDefaultPathLimits(),
+					expectedPathState) ||
+				!nbl::core::CCameraPathUtilities::pathStatesNearlyEqual(
+					manipulatedPathState,
+					expectedPathState,
+					nbl::core::SCameraPathDefaults::ExactComparisonThresholds))
+			{
+				outError = "Path manipulation smoke changed the default s/u/v/roll runtime mapping.";
+				return false;
+			}
+
+			const auto movedCapture = state.goalSolver.captureDetailed(state.pathCamera);
+			if (!movedCapture.canUseGoal())
+			{
+				outError = "Path manipulation smoke failed to capture the moved path goal.";
+				return false;
+			}
+
+			if (!restorePresetStrict(
+					state.goalSolver,
+					state.pathCamera,
+					state.initialPresets.path.value(),
+					"Path manipulation smoke failed to reset the baseline preset before replay",
+					outError))
+			{
+				return false;
+			}
+
+			std::vector<CVirtualGimbalEvent> replayEvents;
+			if (!state.goalSolver.buildEvents(state.pathCamera, movedCapture.goal, replayEvents) || replayEvents.empty())
+			{
+				outError = "Path manipulation smoke failed to build replay virtual events for the moved path goal.";
+				return false;
+			}
+
+			bool hasRollReplay = false;
+			for (const auto& event : replayEvents)
+			{
+				if (event.type == CVirtualGimbalEvent::RollLeft || event.type == CVirtualGimbalEvent::RollRight)
+				{
+					hasRollReplay = true;
+					break;
+				}
+			}
+			if (!hasRollReplay)
+			{
+				outError = "Path manipulation smoke dropped the roll replay event for the moved path goal.";
+				return false;
+			}
+
+			if (!state.pathCamera->manipulate({ replayEvents.data(), replayEvents.size() }))
+			{
+				outError = "Path manipulation smoke failed to replay path virtual events onto the baseline camera.";
+				return false;
+			}
+
+			const auto replayCapture = state.goalSolver.captureDetailed(state.pathCamera);
+			if (!replayCapture.canUseGoal() ||
+				!nbl::core::CCameraGoalUtilities::compareGoals(
+					replayCapture.goal,
+					movedCapture.goal,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance))
+			{
+				outError = "Path manipulation smoke failed the goal -> events -> manipulate replay roundtrip.";
+				return false;
+			}
+
+			if (!restorePresetStrict(
+					state.goalSolver,
+					state.pathCamera,
+					state.initialPresets.path.value(),
+					"Path manipulation smoke failed to restore the baseline preset after replay",
+					outError))
+			{
 				return false;
 			}
 		}

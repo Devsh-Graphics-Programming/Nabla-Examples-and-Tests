@@ -431,60 +431,62 @@ struct CCameraMathUtilities final
     }
 
     template<typename T>
-    static inline T getPathDistance(const T radius, const T height)
+    static inline T getPathDistance(const T pathU, const T pathV)
     {
-        return length(camera_vector_t<T, 2>(radius, height));
+        return length(camera_vector_t<T, 2>(pathU, pathV));
     }
 
     template<typename T>
-    static inline camera_vector_t<T, 3> makePathOffsetFromState(const T angle, const T radius, const T height)
+    static inline camera_vector_t<T, 3> makePathOffsetFromState(const T pathS, const T pathU, const T pathV)
     {
-        return camera_vector_t<T, 3>(hlsl::cos(angle) * radius, height, hlsl::sin(angle) * radius);
+        return camera_vector_t<T, 3>(hlsl::cos(pathS) * pathU, pathV, hlsl::sin(pathS) * pathU);
     }
 
     template<typename T>
-    static inline bool sanitizePathState(T& angle, T& radius, T& height, const T minRadius)
+    static inline bool sanitizePathState(T& pathS, T& pathU, T& pathV, T& pathRoll, const T minU)
     {
-        if (!isFiniteScalar(angle) || !isFiniteScalar(radius) || !isFiniteScalar(height))
+        if (!isFiniteScalar(pathS) || !isFiniteScalar(pathU) || !isFiniteScalar(pathV) || !isFiniteScalar(pathRoll))
             return false;
 
-        angle = wrapAngleRad(angle);
-        radius = std::max(minRadius, radius);
-        return isFiniteScalar(angle) &&
-            isFiniteScalar(radius) &&
-            isFiniteScalar(height);
+        pathS = wrapAngleRad(pathS);
+        pathU = std::max(minU, pathU);
+        pathRoll = wrapAngleRad(pathRoll);
+        return isFiniteScalar(pathS) &&
+            isFiniteScalar(pathU) &&
+            isFiniteScalar(pathV) &&
+            isFiniteScalar(pathRoll);
     }
 
     template<typename T>
     static inline bool tryScalePathStateDistance(
         const T desiredDistance,
-        const T minRadius,
-        T& radius,
-        T& height,
+        const T minU,
+        T& pathU,
+        T& pathV,
         T* outAppliedDistance = nullptr)
     {
         if (!isFiniteScalar(desiredDistance) ||
-            !isFiniteScalar(radius) ||
-            !isFiniteScalar(height))
+            !isFiniteScalar(pathU) ||
+            !isFiniteScalar(pathV))
             return false;
 
-        const T currentDistance = getPathDistance(radius, height);
+        const T currentDistance = getPathDistance(pathU, pathV);
         constexpr T Epsilon = std::numeric_limits<T>::epsilon();
         if (currentDistance > Epsilon)
         {
             const T scale = desiredDistance / currentDistance;
-            radius = std::max(minRadius, radius * scale);
-            height *= scale;
+            pathU = std::max(minU, pathU * scale);
+            pathV *= scale;
         }
         else
         {
-            radius = std::max(minRadius, desiredDistance);
-            height = T(0);
+            pathU = std::max(minU, desiredDistance);
+            pathV = T(0);
         }
 
         if (outAppliedDistance)
-            *outAppliedDistance = getPathDistance(radius, height);
-        return isFiniteScalar(radius) && isFiniteScalar(height);
+            *outAppliedDistance = getPathDistance(pathU, pathV);
+        return isFiniteScalar(pathU) && isFiniteScalar(pathV);
     }
 
     template<typename T>
@@ -492,21 +494,21 @@ struct CCameraMathUtilities final
         const camera_vector_t<T, 3>& targetPosition,
         const camera_vector_t<T, 3>& position,
         const T minRadius,
-        T& outAngle,
-        T& outRadius,
-        T& outHeight)
+        T& outS,
+        T& outU,
+        T& outV)
     {
         const auto offset = position - targetPosition;
         const auto radius = getPlanarRadiusXZ(offset);
         if (!isFiniteScalar(radius) || !isFiniteScalar(offset.y))
             return false;
 
-        outAngle = wrapAngleRad(hlsl::atan2(offset.z, offset.x));
-        outRadius = std::max(minRadius, radius);
-        outHeight = offset.y;
-        return isFiniteScalar(outAngle) &&
-            isFiniteScalar(outRadius) &&
-            isFiniteScalar(outHeight);
+        outS = wrapAngleRad(hlsl::atan2(offset.z, offset.x));
+        outU = std::max(minRadius, radius);
+        outV = offset.y;
+        return isFiniteScalar(outS) &&
+            isFiniteScalar(outU) &&
+            isFiniteScalar(outV);
     }
 
     template<typename T>
@@ -622,9 +624,10 @@ struct CCameraMathUtilities final
     template<typename T>
     static inline bool tryBuildPathPoseFromState(
         const camera_vector_t<T, 3>& targetPosition,
-        const T pathAngle,
-        const T pathRadius,
-        const T pathHeight,
+        const T pathS,
+        const T pathU,
+        const T pathV,
+        const T pathRoll,
         const T minRadius,
         const T minDistance,
         const T maxDistance,
@@ -633,13 +636,14 @@ struct CCameraMathUtilities final
         T* outAppliedDistance = nullptr,
         camera_vector_t<T, 2>* outOrbitUv = nullptr)
     {
-        if (!isFiniteScalar(pathAngle) ||
-            !isFiniteScalar(pathRadius) ||
-            !isFiniteScalar(pathHeight))
+        if (!isFiniteScalar(pathS) ||
+            !isFiniteScalar(pathU) ||
+            !isFiniteScalar(pathV) ||
+            !isFiniteScalar(pathRoll))
             return false;
 
-        const T appliedRadius = std::max(minRadius, pathRadius);
-        const auto offset = makePathOffsetFromState(pathAngle, appliedRadius, pathHeight);
+        const T appliedU = std::max(minRadius, pathU);
+        const auto offset = makePathOffsetFromState(pathS, appliedU, pathV);
 
         camera_vector_t<T, 2> orbitUv = camera_vector_t<T, 2>(T(0));
         T distance = T(0);
@@ -647,6 +651,16 @@ struct CCameraMathUtilities final
             return false;
         if (!tryBuildSphericalPoseFromOrbit(targetPosition, orbitUv, distance, minDistance, maxDistance, outPosition, outOrientation, &distance))
             return false;
+
+        if (!isNearlyZeroScalar(pathRoll, std::numeric_limits<T>::epsilon()))
+        {
+            const auto basis = getQuaternionBasisMatrix(outOrientation);
+            const T rollCos = hlsl::cos(pathRoll);
+            const T rollSin = hlsl::sin(pathRoll);
+            const auto right = basis[0u] * rollCos + basis[1u] * rollSin;
+            const auto up = basis[1u] * rollCos - basis[0u] * rollSin;
+            outOrientation = makeQuaternionFromBasis(right, up, basis[2u]);
+        }
 
         if (outAppliedDistance)
             *outAppliedDistance = distance;

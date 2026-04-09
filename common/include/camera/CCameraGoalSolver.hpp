@@ -422,14 +422,15 @@ private:
     inline void appendPathDeltaEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const SCameraPathDelta& delta,
-        const double moveDenominator) const
+        const double moveDenominator,
+        const double rotationDenominator) const
     {
-        CCameraPathUtilities::appendPathAdvanceEvents(
+        CCameraPathUtilities::appendPathDeltaEvents(
             events,
             delta,
             moveDenominator,
-            SCameraPathDefaults::ComparisonThresholds.angleToleranceDeg,
-            SCameraPathDefaults::ComparisonThresholds.scalarTolerance);
+            rotationDenominator,
+            SCameraPathDefaults::ExactComparisonThresholds);
     }
 
     inline double getMoveMagnitudeDenominator(const ICamera* camera) const
@@ -544,7 +545,8 @@ private:
         }
 
         const auto moveDenom = getMoveMagnitudeDenominator(camera);
-        appendPathDeltaEvents(out, transition.delta, moveDenom);
+        const auto rotationDenom = getRotationMagnitudeDenominator(camera);
+        appendPathDeltaEvents(out, transition.delta, moveDenom, rotationDenom);
         return !out.empty();
     }
 

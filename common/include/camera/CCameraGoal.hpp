@@ -300,9 +300,10 @@ public:
         }
         if (actual.hasPathState)
         {
-            oss << " path_angle=" << actual.pathState.angle
-                << " path_radius=" << actual.pathState.radius
-                << " path_height=" << actual.pathState.height;
+            oss << " path_s=" << actual.pathState.s
+                << " path_u=" << actual.pathState.u
+                << " path_v=" << actual.pathState.v
+                << " path_roll=" << actual.pathState.roll;
         }
         else if (expected.hasPathState)
         {

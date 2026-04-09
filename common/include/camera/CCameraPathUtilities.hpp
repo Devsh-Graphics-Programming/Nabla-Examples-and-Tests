@@ -1,7 +1,9 @@
 #ifndef _C_CAMERA_PATH_UTILITIES_HPP_
 #define _C_CAMERA_PATH_UTILITIES_HPP_
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 #include <string_view>
 #include <vector>
 
@@ -12,7 +14,7 @@
 namespace nbl::core
 {
 
-//! Shared helpers for the target-relative cylindrical path rig exposed as `PathRig`.
+//! Shared helpers for the reusable `PathRig` camera kind.
 struct SCameraPathPose final : SCameraRigPose
 {
     hlsl::float64_t appliedDistance = 0.0;
@@ -21,22 +23,33 @@ struct SCameraPathPose final : SCameraRigPose
 
 struct SCameraPathDelta final : ICamera::PathState
 {
-    inline hlsl::float64_t3 asVector() const
+    inline hlsl::float64_t4 asVector() const
     {
         return ICamera::PathState::asVector();
     }
 
     inline hlsl::float64_t3 translationVector() const
     {
-        return hlsl::float64_t3(radius, height, 0.0);
+        return ICamera::PathState::asTranslationVector();
     }
 
-    static inline SCameraPathDelta fromVector(const hlsl::float64_t3& value)
+    static inline SCameraPathDelta fromVector(const hlsl::float64_t4& value)
     {
         SCameraPathDelta delta = {};
-        delta.angle = value.z;
-        delta.radius = value.x;
-        delta.height = value.y;
+        delta.s = value.x;
+        delta.u = value.y;
+        delta.v = value.z;
+        delta.roll = value.w;
+        return delta;
+    }
+
+    static inline SCameraPathDelta fromMotion(const hlsl::float64_t3& translation, const double pathRoll = 0.0)
+    {
+        SCameraPathDelta delta = {};
+        delta.s = translation.z;
+        delta.u = translation.x;
+        delta.v = translation.y;
+        delta.roll = pathRoll;
         return delta;
     }
 };
@@ -56,7 +69,8 @@ struct SCameraCanonicalPathState final
 
 struct SCameraPathComparisonThresholds final
 {
-    double angleToleranceDeg = ICamera::DefaultAngularToleranceDeg;
+    double sToleranceDeg = ICamera::DefaultAngularToleranceDeg;
+    double rollToleranceDeg = ICamera::DefaultAngularToleranceDeg;
     double scalarTolerance = ICamera::ScalarTolerance;
 };
 
@@ -68,50 +82,97 @@ struct SCameraPathDistanceUpdateResult final
 
 struct SCameraPathDefaults final
 {
-    static constexpr double MinRadius = static_cast<double>(ICamera::SphericalMinDistance);
+    static constexpr double MinU = static_cast<double>(ICamera::SphericalMinDistance);
     static constexpr double ScalarTolerance = ICamera::ScalarTolerance;
     static constexpr double ExactStateTolerance = ICamera::TinyScalarEpsilon;
     static constexpr double ExactAngleToleranceDeg = ExactStateTolerance * 180.0 / hlsl::numbers::pi<double>;
     static constexpr double AngleToleranceDeg = ICamera::DefaultAngularToleranceDeg;
-    static inline constexpr std::string_view Identifier = "Target-relative Cylindrical Path Rig";
-    static inline constexpr std::string_view Description = "Adjust a target-relative cylindrical path rig around a target";
+    static inline constexpr std::string_view Identifier = "Target-relative Path Rig";
+    static inline constexpr std::string_view Description = "Adjust a target-relative path rig with s/u/v/roll state";
+
     struct SLimits final
     {
-        double minRadius = SCameraPathDefaults::MinRadius;
+        double minU = SCameraPathDefaults::MinU;
         hlsl::float64_t minDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance);
         hlsl::float64_t maxDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance);
     };
 
     static inline constexpr SLimits Limits = {};
     static inline constexpr SCameraPathComparisonThresholds ComparisonThresholds = {
-        .angleToleranceDeg = AngleToleranceDeg,
+        .sToleranceDeg = AngleToleranceDeg,
+        .rollToleranceDeg = AngleToleranceDeg,
         .scalarTolerance = ScalarTolerance
     };
     static inline constexpr SCameraPathComparisonThresholds ExactComparisonThresholds = {
-        .angleToleranceDeg = ExactAngleToleranceDeg,
+        .sToleranceDeg = ExactAngleToleranceDeg,
+        .rollToleranceDeg = ExactAngleToleranceDeg,
         .scalarTolerance = ExactStateTolerance
     };
 };
 
 using SCameraPathLimits = SCameraPathDefaults::SLimits;
 
+struct SCameraPathControlContext final
+{
+    ICamera::PathState currentState = {};
+    hlsl::float64_t3 translation = hlsl::float64_t3(0.0);
+    hlsl::float64_t3 rotation = hlsl::float64_t3(0.0);
+    hlsl::float64_t3 targetPosition = hlsl::float64_t3(0.0);
+    const CReferenceTransform* reference = nullptr;
+    SCameraPathLimits limits = SCameraPathDefaults::Limits;
+};
+
+struct SCameraPathModel final
+{
+    using resolve_state_t = std::function<bool(
+        const hlsl::float64_t3& targetPosition,
+        const hlsl::float64_t3& position,
+        const SCameraPathLimits& limits,
+        const ICamera::PathState* requestedState,
+        ICamera::PathState& outState)>;
+    using control_law_t = std::function<SCameraPathDelta(const SCameraPathControlContext&)>;
+    using integrate_t = std::function<bool(
+        const ICamera::PathState& currentState,
+        const SCameraPathDelta& delta,
+        const SCameraPathLimits& limits,
+        ICamera::PathState& outState)>;
+    using evaluate_t = std::function<bool(
+        const hlsl::float64_t3& targetPosition,
+        const ICamera::PathState& state,
+        const SCameraPathLimits& limits,
+        SCameraCanonicalPathState& outState)>;
+    using update_distance_t = std::function<bool(
+        const float desiredDistance,
+        const SCameraPathLimits& limits,
+        ICamera::PathState& ioState,
+        SCameraPathDistanceUpdateResult* outResult)>;
+
+    resolve_state_t resolveState;
+    control_law_t controlLaw;
+    integrate_t integrate;
+    evaluate_t evaluate;
+    update_distance_t updateDistance;
+};
+
 struct CCameraPathUtilities final
 {
-    static inline ICamera::PathState makeDefaultPathState(const double minRadius = SCameraPathDefaults::MinRadius)
+    static inline ICamera::PathState makeDefaultPathState(const double minU = SCameraPathDefaults::MinU)
     {
         return {
-            .angle = 0.0,
-            .radius = minRadius,
-            .height = 0.0
+            .s = 0.0,
+            .u = minU,
+            .v = 0.0,
+            .roll = 0.0
         };
     }
 
     static inline SCameraPathComparisonThresholds makePathComparisonThresholds(
-        const double angleToleranceDeg = SCameraPathDefaults::AngleToleranceDeg,
+        const double angularToleranceDeg = SCameraPathDefaults::AngleToleranceDeg,
         const double scalarTolerance = SCameraPathDefaults::ScalarTolerance)
     {
         return {
-            .angleToleranceDeg = angleToleranceDeg,
+            .sToleranceDeg = angularToleranceDeg,
+            .rollToleranceDeg = angularToleranceDeg,
             .scalarTolerance = scalarTolerance
         };
     }
@@ -123,27 +184,28 @@ struct CCameraPathUtilities final
 
     static inline bool isPathStateFinite(const ICamera::PathState& state)
     {
-        return hlsl::CCameraMathUtilities::isFiniteScalar(state.angle) &&
-            hlsl::CCameraMathUtilities::isFiniteScalar(state.radius) &&
-            hlsl::CCameraMathUtilities::isFiniteScalar(state.height);
+        return hlsl::CCameraMathUtilities::isFiniteScalar(state.s) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(state.u) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(state.v) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(state.roll);
     }
 
-    static inline bool sanitizePathState(ICamera::PathState& state, const double minRadius)
+    static inline bool sanitizePathState(ICamera::PathState& state, const double minU)
     {
-        return hlsl::CCameraMathUtilities::sanitizePathState(state.angle, state.radius, state.height, minRadius);
+        return hlsl::CCameraMathUtilities::sanitizePathState(state.s, state.u, state.v, state.roll, minU);
     }
 
     static inline bool tryScalePathStateDistance(
         const double desiredDistance,
-        const double minRadius,
+        const double minU,
         ICamera::PathState& ioState,
         double* outAppliedDistance = nullptr)
     {
         return hlsl::CCameraMathUtilities::tryScalePathStateDistance(
             desiredDistance,
-            minRadius,
-            ioState.radius,
-            ioState.height,
+            minU,
+            ioState.u,
+            ioState.v,
             outAppliedDistance);
     }
 
@@ -155,7 +217,7 @@ struct CCameraPathUtilities final
     {
         const auto clampedDistance = std::clamp<hlsl::float64_t>(desiredDistance, limits.minDistance, limits.maxDistance);
         double appliedDistance = 0.0;
-        if (!tryScalePathStateDistance(static_cast<double>(clampedDistance), limits.minRadius, ioState, &appliedDistance))
+        if (!tryScalePathStateDistance(static_cast<double>(clampedDistance), limits.minU, ioState, &appliedDistance))
             return false;
 
         if (outResult)
@@ -170,16 +232,23 @@ struct CCameraPathUtilities final
     static inline bool tryBuildPathStateFromPosition(
         const hlsl::float64_t3& targetPosition,
         const hlsl::float64_t3& position,
-        const double minRadius,
+        const double minU,
         ICamera::PathState& outState)
     {
-        return hlsl::CCameraMathUtilities::tryBuildPathStateFromPosition(
-            targetPosition,
-            position,
-            minRadius,
-            outState.angle,
-            outState.radius,
-            outState.height);
+        outState = {};
+        if (!hlsl::CCameraMathUtilities::tryBuildPathStateFromPosition(
+                targetPosition,
+                position,
+                minU,
+                outState.s,
+                outState.u,
+                outState.v))
+        {
+            return false;
+        }
+
+        outState.roll = 0.0;
+        return true;
     }
 
     static inline bool tryResolvePathState(
@@ -192,14 +261,14 @@ struct CCameraPathUtilities final
         if (requestedState)
         {
             outState = *requestedState;
-            return sanitizePathState(outState, limits.minRadius);
+            return sanitizePathState(outState, limits.minU);
         }
 
-        if (tryBuildPathStateFromPosition(targetPosition, position, limits.minRadius, outState))
+        if (tryBuildPathStateFromPosition(targetPosition, position, limits.minU, outState))
             return true;
 
-        outState = makeDefaultPathState(limits.minRadius);
-        return sanitizePathState(outState, limits.minRadius);
+        outState = makeDefaultPathState(limits.minU);
+        return sanitizePathState(outState, limits.minU);
     }
 
     static inline bool tryBuildPathPoseFromState(
@@ -210,10 +279,11 @@ struct CCameraPathUtilities final
     {
         return hlsl::CCameraMathUtilities::tryBuildPathPoseFromState(
             targetPosition,
-            state.angle,
-            state.radius,
-            state.height,
-            limits.minRadius,
+            state.s,
+            state.u,
+            state.v,
+            state.roll,
+            limits.minU,
             limits.minDistance,
             limits.maxDistance,
             outPose.position,
@@ -249,9 +319,10 @@ struct CCameraPathUtilities final
         const ICamera::PathState& rhs,
         const SCameraPathComparisonThresholds& thresholds = {})
     {
-        return hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(lhs.angle, rhs.angle) <= thresholds.angleToleranceDeg &&
-            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.radius, rhs.radius, thresholds.scalarTolerance) &&
-            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.height, rhs.height, thresholds.scalarTolerance);
+        return hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(lhs.s, rhs.s) <= thresholds.sToleranceDeg &&
+            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.u, rhs.u, thresholds.scalarTolerance) &&
+            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.v, rhs.v, thresholds.scalarTolerance) &&
+            hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(lhs.roll, rhs.roll) <= thresholds.rollToleranceDeg;
     }
 
     static inline bool pathStatesChanged(
@@ -262,12 +333,13 @@ struct CCameraPathUtilities final
         return !pathStatesNearlyEqual(lhs, rhs, thresholds);
     }
 
-    static inline hlsl::float64_t3 buildPathStateDeltaVector(
+    static inline hlsl::float64_t4 buildPathStateDeltaVector(
         const ICamera::PathState& currentState,
         const ICamera::PathState& desiredState)
     {
         auto deltaVector = desiredState.asVector() - currentState.asVector();
-        deltaVector.z = hlsl::CCameraMathUtilities::wrapAngleRad(deltaVector.z);
+        deltaVector.x = hlsl::CCameraMathUtilities::wrapAngleRad(deltaVector.x);
+        deltaVector.w = hlsl::CCameraMathUtilities::wrapAngleRad(deltaVector.w);
         return deltaVector;
     }
 
@@ -278,30 +350,37 @@ struct CCameraPathUtilities final
         return SCameraPathDelta::fromVector(buildPathStateDeltaVector(currentState, desiredState));
     }
 
-    static inline SCameraPathDelta makePathDeltaFromVirtualPathTranslate(const hlsl::float64_t3& delta)
+    static inline SCameraPathDelta makePathDeltaFromVirtualPathMotion(
+        const hlsl::float64_t3& translation,
+        const hlsl::float64_t3& rotation = hlsl::float64_t3(0.0))
     {
-        return SCameraPathDelta::fromVector(delta);
+        return SCameraPathDelta::fromMotion(translation, rotation.z);
     }
 
-    static inline void appendPathAdvanceEvents(
+    static inline SCameraPathDelta buildDefaultPathControlDelta(const SCameraPathControlContext& context)
+    {
+        return makePathDeltaFromVirtualPathMotion(context.translation, context.rotation);
+    }
+
+    static inline void appendPathDeltaEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const SCameraPathDelta& delta,
         const double moveDenominator,
-        const double angleToleranceDeg = SCameraPathDefaults::AngleToleranceDeg,
-        const double scalarTolerance = SCameraPathDefaults::ScalarTolerance)
+        const double rotationDenominator,
+        const SCameraPathComparisonThresholds& thresholds = {})
     {
         CCameraVirtualEventUtilities::appendLocalTranslationEvents(
             events,
             delta.translationVector(),
             hlsl::float64_t3(moveDenominator),
-            hlsl::float64_t3(scalarTolerance));
+            hlsl::float64_t3(thresholds.scalarTolerance));
         CCameraVirtualEventUtilities::appendAngularDeltaEvent(
             events,
-            delta.angle,
-            moveDenominator,
-            angleToleranceDeg,
-            CVirtualGimbalEvent::MoveForward,
-            CVirtualGimbalEvent::MoveBackward);
+            delta.roll,
+            rotationDenominator,
+            thresholds.rollToleranceDeg,
+            CVirtualGimbalEvent::RollRight,
+            CVirtualGimbalEvent::RollLeft);
     }
 
     static inline bool tryBuildCanonicalPathState(
@@ -329,9 +408,10 @@ struct CCameraPathUtilities final
         ICamera::PathState& outState)
     {
         auto stateVector = currentState.asVector() + delta.asVector();
-        stateVector.z = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.z);
+        stateVector.x = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.x);
+        stateVector.w = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.w);
         outState = ICamera::PathState::fromVector(stateVector);
-        return sanitizePathState(outState, limits.minRadius);
+        return sanitizePathState(outState, limits.minU);
     }
 
     static inline ICamera::PathState blendPathStates(
@@ -342,9 +422,10 @@ struct CCameraPathUtilities final
         const auto fromVector = from.asVector();
         const auto toVector = to.asVector();
         return {
-            .angle = hlsl::CCameraMathUtilities::lerpWrappedAngleRad(fromVector.z, toVector.z, alpha),
-            .radius = fromVector.x + (toVector.x - fromVector.x) * alpha,
-            .height = fromVector.y + (toVector.y - fromVector.y) * alpha
+            .s = hlsl::CCameraMathUtilities::lerpWrappedAngleRad(fromVector.x, toVector.x, alpha),
+            .u = fromVector.y + (toVector.y - fromVector.y) * alpha,
+            .v = fromVector.z + (toVector.z - fromVector.z) * alpha,
+            .roll = hlsl::CCameraMathUtilities::lerpWrappedAngleRad(fromVector.w, toVector.w, alpha)
         };
     }
 
@@ -365,9 +446,52 @@ struct CCameraPathUtilities final
         outTransition.delta = buildPathStateDelta(outTransition.current, outTransition.desired);
         return true;
     }
+
+    static inline SCameraPathModel makeDefaultPathModel()
+    {
+        return {
+            .resolveState =
+                [](const hlsl::float64_t3& targetPosition,
+                    const hlsl::float64_t3& position,
+                    const SCameraPathLimits& limits,
+                    const ICamera::PathState* requestedState,
+                    ICamera::PathState& outState) -> bool
+                {
+                    return tryResolvePathState(targetPosition, position, limits, requestedState, outState);
+                },
+            .controlLaw =
+                [](const SCameraPathControlContext& context) -> SCameraPathDelta
+                {
+                    return buildDefaultPathControlDelta(context);
+                },
+            .integrate =
+                [](const ICamera::PathState& currentState,
+                    const SCameraPathDelta& delta,
+                    const SCameraPathLimits& limits,
+                    ICamera::PathState& outState) -> bool
+                {
+                    return tryApplyPathStateDelta(currentState, delta, limits, outState);
+                },
+            .evaluate =
+                [](const hlsl::float64_t3& targetPosition,
+                    const ICamera::PathState& state,
+                    const SCameraPathLimits& limits,
+                    SCameraCanonicalPathState& outState) -> bool
+                {
+                    return tryBuildCanonicalPathState(targetPosition, state, limits, outState);
+                },
+            .updateDistance =
+                [](const float desiredDistance,
+                    const SCameraPathLimits& limits,
+                    ICamera::PathState& ioState,
+                    SCameraPathDistanceUpdateResult* outResult) -> bool
+                {
+                    return tryUpdatePathStateDistance(desiredDistance, limits, ioState, outResult);
+                }
+        };
+    }
 };
 
 } // namespace nbl::core
 
 #endif // _C_CAMERA_PATH_UTILITIES_HPP_
-

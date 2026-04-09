@@ -160,6 +160,7 @@ namespace
 		ICamera* free = nullptr;
 		ICamera* chase = nullptr;
 		ICamera* dolly = nullptr;
+		ICamera* path = nullptr;
 		ICamera* dollyZoom = nullptr;
 	};
 
@@ -372,6 +373,7 @@ namespace
 			.free = findCameraByKind(cameras, ICamera::CameraKind::Free),
 			.chase = findCameraByKind(cameras, ICamera::CameraKind::Chase),
 			.dolly = findCameraByKind(cameras, ICamera::CameraKind::Dolly),
+			.path = findCameraByKind(cameras, ICamera::CameraKind::Path),
 			.dollyZoom = findCameraByKind(cameras, ICamera::CameraKind::DollyZoom)
 		};
 	}
@@ -738,6 +740,7 @@ namespace
 
 			{
 				const auto modifiedPreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, "smoke-direct");
+				const bool requireDirectPresetChange = camera->getKind() != ICamera::CameraKind::Path;
 				if (!applyPresetAndValidate(
 						goalSolver,
 						camera,
@@ -756,7 +759,7 @@ namespace
 						camera,
 						modifiedPreset,
 						EPresetComparePolicy::StrictThresholds,
-						true,
+						requireDirectPresetChange,
 						false,
 						"Preset apply from direct smoke failed for camera \"" + cameraIdentifier + "\"",
 						outError))

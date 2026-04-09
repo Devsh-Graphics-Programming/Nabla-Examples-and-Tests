@@ -213,13 +213,13 @@ private:
             core::CVirtualGimbalEvent::MoveDown,
             core::CVirtualGimbalEvent::MoveUp
         };
-        static inline constexpr std::array PathRigAdvanceAndRadius = {
+        static inline constexpr std::array PathRigProgressAndU = {
             core::CVirtualGimbalEvent::MoveForward,
             core::CVirtualGimbalEvent::MoveBackward,
             core::CVirtualGimbalEvent::MoveLeft,
             core::CVirtualGimbalEvent::MoveRight
         };
-        static inline constexpr std::array PathRigHeight = VerticalMove;
+        static inline constexpr std::array PathRigV = VerticalMove;
         static inline constexpr std::array TurntableMove = {
             core::CVirtualGimbalEvent::MoveForward,
             core::CVirtualGimbalEvent::MoveBackward,
@@ -390,8 +390,8 @@ private:
     };
 
     static inline constexpr SKeyboardPresetSpec PathKeyboardSpec = {
-        SCameraInputBindingEventGroups::PathRigAdvanceAndRadius,
-        SCameraInputBindingEventGroups::PathRigHeight,
+        SCameraInputBindingEventGroups::PathRigProgressAndU,
+        SCameraInputBindingEventGroups::PathRigV,
         {}
     };
 
@@ -413,6 +413,11 @@ private:
     static inline constexpr SMousePresetSpec TopDownMouseSpec = {
         SCameraInputBindingEventGroups::RelativeTopDown,
         OrbitMouseSpec.scroll
+    };
+
+    static inline constexpr SMousePresetSpec PathMouseSpec = {
+        SCameraInputBindingEventGroups::RelativeOrbitTranslate,
+        SCameraInputBindingEventGroups::OrbitZoom
     };
 
     static inline constexpr SCameraInteractionBindingSpec FpsInteractionBindingSpec = {
@@ -447,7 +452,7 @@ private:
 
     static inline constexpr SCameraInteractionBindingSpec PathInteractionBindingSpec = {
         PathKeyboardSpec,
-        OrbitMouseSpec
+        PathMouseSpec
     };
 
     template<typename Map, typename SpecArray, typename Builder>

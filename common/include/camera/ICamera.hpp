@@ -86,24 +86,46 @@ public:
         float referenceDistance = 0.f;
     };
 
-    //! Target-relative cylindrical rig state used by the `Path Rig` camera kind.
+    //! Parametric path-rig state used by the `Path Rig` camera kind.
+    //!
+    //! The default shared model interprets `(s, u, v, roll)` as angular progress,
+    //! radial component, vertical component, and view-axis roll around a target.
+    //! Concrete path models may reuse the same coordinates differently, but the
+    //! hot runtime contract still stays event-only through `manipulate(...)`.
     struct PathState
     {
-        double angle = 0.0;
-        double radius = 0.0;
-        double height = 0.0;
+        double s = 0.0;
+        double u = 0.0;
+        double v = 0.0;
+        double roll = 0.0;
 
-        inline hlsl::float64_t3 asVector() const
+        inline hlsl::float64_t4 asVector() const
         {
-            return hlsl::float64_t3(radius, height, angle);
+            return hlsl::float64_t4(s, u, v, roll);
         }
 
-        static inline PathState fromVector(const hlsl::float64_t3& value)
+        inline hlsl::float64_t3 asTranslationVector() const
+        {
+            return hlsl::float64_t3(u, v, s);
+        }
+
+        static inline PathState fromVector(const hlsl::float64_t4& value)
         {
             return {
-                .angle = value.z,
-                .radius = value.x,
-                .height = value.y
+                .s = value.x,
+                .u = value.y,
+                .v = value.z,
+                .roll = value.w
+            };
+        }
+
+        static inline PathState fromTranslationVector(const hlsl::float64_t3& value, const double pathRoll = 0.0)
+        {
+            return {
+                .s = value.z,
+                .u = value.x,
+                .v = value.y,
+                .roll = pathRoll
             };
         }
     };

@@ -40,9 +40,10 @@ json_t serializeGoalJson(const nbl::core::CCameraGoal& goal)
     }
     if (goal.hasPathState)
     {
-        json["path_angle"] = goal.pathState.angle;
-        json["path_radius"] = goal.pathState.radius;
-        json["path_height"] = goal.pathState.height;
+        json["path_s"] = goal.pathState.s;
+        json["path_u"] = goal.pathState.u;
+        json["path_v"] = goal.pathState.v;
+        json["path_roll"] = goal.pathState.roll;
     }
     if (goal.hasDynamicPerspectiveState)
     {

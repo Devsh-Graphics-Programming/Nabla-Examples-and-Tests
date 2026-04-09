@@ -82,14 +82,17 @@ struct CCameraSequenceGoalDelta
     bool hasOrbitDistanceDelta = false;
     float orbitDistanceDelta = 0.f;
 
-    bool hasPathAngleDeltaDeg = false;
-    double pathAngleDeltaDeg = 0.0;
+    bool hasPathSDeltaDeg = false;
+    double pathSDeltaDeg = 0.0;
 
-    bool hasPathRadiusDelta = false;
-    double pathRadiusDelta = 0.0;
+    bool hasPathUDelta = false;
+    double pathUDelta = 0.0;
 
-    bool hasPathHeightDelta = false;
-    double pathHeightDelta = 0.0;
+    bool hasPathVDelta = false;
+    double pathVDelta = 0.0;
+
+    bool hasPathRollDeltaDeg = false;
+    double pathRollDeltaDeg = 0.0;
 
     bool hasDynamicBaseFovDelta = false;
     float dynamicBaseFovDelta = 0.f;
@@ -314,7 +317,7 @@ struct CCameraSequenceScriptUtilities final
 
         const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
         const bool hasSphericalDelta = delta.hasTargetOffset || delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta;
-        const bool hasPathDelta = delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta;
+        const bool hasPathDelta = delta.hasPathSDeltaDeg || delta.hasPathUDelta || delta.hasPathVDelta || delta.hasPathRollDeltaDeg;
 
         if (hasPoseDelta && (hasSphericalDelta || hasPathDelta))
         {
@@ -367,7 +370,7 @@ struct CCameraSequenceScriptUtilities final
                 goal.orbitDistance += delta.orbitDistanceDelta;
         }
 
-        if (delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta)
+        if (delta.hasPathSDeltaDeg || delta.hasPathUDelta || delta.hasPathVDelta || delta.hasPathRollDeltaDeg)
         {
             if (!goal.hasPathState)
             {
@@ -376,10 +379,11 @@ struct CCameraSequenceScriptUtilities final
                 return false;
             }
 
-            const auto pathDelta = SCameraPathDelta::fromVector(hlsl::float64_t3(
-                delta.hasPathRadiusDelta ? static_cast<hlsl::float64_t>(delta.pathRadiusDelta) : hlsl::float64_t(0.0),
-                delta.hasPathHeightDelta ? static_cast<hlsl::float64_t>(delta.pathHeightDelta) : hlsl::float64_t(0.0),
-                delta.hasPathAngleDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathAngleDeltaDeg)) : hlsl::float64_t(0.0)));
+            SCameraPathDelta pathDelta = {};
+            pathDelta.s = delta.hasPathSDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathSDeltaDeg)) : hlsl::float64_t(0.0);
+            pathDelta.u = delta.hasPathUDelta ? static_cast<hlsl::float64_t>(delta.pathUDelta) : hlsl::float64_t(0.0);
+            pathDelta.v = delta.hasPathVDelta ? static_cast<hlsl::float64_t>(delta.pathVDelta) : hlsl::float64_t(0.0);
+            pathDelta.roll = delta.hasPathRollDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathRollDeltaDeg)) : hlsl::float64_t(0.0);
             if (!CCameraPathUtilities::tryApplyPathStateDelta(goal.pathState, pathDelta, CCameraPathUtilities::makeDefaultPathLimits(), goal.pathState))
             {
                 if (error)

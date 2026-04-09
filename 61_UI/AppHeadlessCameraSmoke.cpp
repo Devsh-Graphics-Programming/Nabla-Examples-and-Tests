@@ -79,6 +79,7 @@ bool App::runHeadlessCameraSmoke(argparse::ArgumentParser& program, smart_refctd
 		.freeCamera = cameraInventory.free,
 		.chaseCamera = cameraInventory.chase,
 		.dollyCamera = cameraInventory.dolly,
+		.pathCamera = cameraInventory.path,
 		.dollyZoomCamera = cameraInventory.dollyZoom
 	};
 
