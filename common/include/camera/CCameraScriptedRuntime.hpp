@@ -123,6 +123,14 @@ struct CCameraScriptedInputEvent
     SegmentLabelData segmentLabel;
 };
 
+struct CCameraScriptedCheckDefaults final
+{
+    static constexpr float VirtualEventTolerance = 1e-3f;
+    static constexpr float PositionTolerance = static_cast<float>(core::ICamera::DefaultPositionTolerance);
+    static constexpr float EulerToleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg);
+    static constexpr float FollowScreenToleranceNdc = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
+};
+
 struct CCameraScriptedInputCheck
 {
     enum class Kind : uint8_t
@@ -143,15 +151,15 @@ struct CCameraScriptedInputCheck
 
     uint64_t frame = 0;
     Kind kind = Kind::Baseline;
-    float tolerance = 1e-3f;
+    float tolerance = CCameraScriptedCheckDefaults::VirtualEventTolerance;
     std::vector<ExpectedVirtualEvent> expectedVirtualEvents;
 
     hlsl::float32_t3 expectedPos = hlsl::float32_t3(0.f);
     hlsl::float32_t3 expectedEulerDeg = hlsl::float32_t3(0.f);
     bool hasExpectedPos = false;
     bool hasExpectedEuler = false;
-    float posTolerance = 0.05f;
-    float eulerToleranceDeg = 1.0f;
+    float posTolerance = CCameraScriptedCheckDefaults::PositionTolerance;
+    float eulerToleranceDeg = CCameraScriptedCheckDefaults::EulerToleranceDeg;
     float minPosDelta = 0.0f;
     float minEulerDeltaDeg = 0.0f;
     bool hasPosDeltaConstraint = false;
@@ -293,8 +301,8 @@ inline void appendScriptedGimbalStepCheck(
 inline void appendScriptedFollowTargetLockCheck(
     CCameraScriptedTimeline& timeline,
     const uint64_t frame,
-    const float toleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg),
-    const float screenToleranceNdc = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance)
+    const float toleranceDeg = CCameraScriptedCheckDefaults::EulerToleranceDeg,
+    const float screenToleranceNdc = CCameraScriptedCheckDefaults::FollowScreenToleranceNdc)
 {
     CCameraScriptedInputCheck entry;
     entry.frame = frame;

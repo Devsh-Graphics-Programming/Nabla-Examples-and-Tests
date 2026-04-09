@@ -31,18 +31,16 @@ public:
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = scaleVirtualRotation(impulse.dVirtualRotation.y);
-        const double deltaPanX = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
-        const double deltaPanY = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        const auto deltaRotation = scaleVirtualRotation(impulse.dVirtualRotation);
+        const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
-        m_u += deltaYaw;
+        m_u += deltaRotation.y;
         m_v = TopDownPitch;
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         const auto basis = computeBasis(m_u, m_v, m_distance);
-        if (deltaPanX != 0.0 || deltaPanY != 0.0)
-            m_targetPosition += basis.right * deltaPanX + basis.up * deltaPanY;
+        applyPlanarTargetTranslation(deltaTranslation, basis);
 
         return applyPose();
     }
@@ -53,7 +51,7 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double TopDownPitch = -hlsl::numbers::pi<double> * 0.5;
+    static inline constexpr double TopDownPitch = SCameraTargetRelativeRigDefaults::TopDownPitchRad;
 };
 
 }

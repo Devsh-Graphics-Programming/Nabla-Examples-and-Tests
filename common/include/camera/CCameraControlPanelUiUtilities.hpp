@@ -8,8 +8,11 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include "imgui/imgui.h"
+#include "imgui/misc/cpp/imgui_stdlib.h"
 
 namespace nbl::ui
 {
@@ -17,6 +20,7 @@ namespace nbl::ui
 //! Shared visual theme and layout constants for the control panel consumer UI.
 struct SCameraControlPanelStyle final
 {
+    static constexpr float MillisecondsPerSecond = 1000.0f;
     static constexpr float WindowWidthRatio = 0.19f;
     static constexpr float WindowMinWidth = 200.0f;
     static constexpr float WindowMaxWidthRatio = 0.25f;
@@ -107,6 +111,10 @@ struct SCameraControlPanelStyle final
     static constexpr float HeaderMetricFontScale = 1.05f;
     static constexpr float HeaderDummyY = 1.0f;
     static constexpr float HeaderGapSmall = 2.0f;
+    static constexpr float TabChildRounding = 4.0f;
+    static constexpr ImVec2 TogglePadding = ImVec2(6.0f, 2.0f);
+    static constexpr float KeyframeListHeight = 120.0f;
+    static constexpr float EventLogBottomThreshold = 5.0f;
 
     static constexpr float DefaultFrameMetricMin = 16.0f;
     static constexpr float DefaultEventMetricMin = 4.0f;
@@ -135,11 +143,89 @@ struct SCameraControlPanelMiniStatSpec final
     float minValue = 0.0f;
 };
 
+struct SCameraControlPanelCheckboxSpec final
+{
+    const char* label = "";
+    bool* value = nullptr;
+    const char* hint = "";
+};
+
+struct SCameraControlPanelSliderSpec final
+{
+    const char* label = "";
+    float* value = nullptr;
+    float minValue = 0.0f;
+    float maxValue = 0.0f;
+    const char* format = "%.3f";
+    ImGuiSliderFlags flags = ImGuiSliderFlags_None;
+    const char* hint = "";
+};
+
+struct SCameraControlPanelStatusLineSpec final
+{
+    const char* label = "";
+    std::string_view value = {};
+    ImVec4 dotColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    ImVec4 valueColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+};
+
+struct SCameraControlPanelPolicyStatusSpec final
+{
+    const char* label = "";
+    std::string_view value = {};
+    bool active = false;
+};
+
+struct SCameraControlPanelHeaderHints final
+{
+    static inline constexpr std::array<const char*, 4u> MoveKeys = { "W", "A", "S", "D" };
+    static inline constexpr std::array<const char*, 1u> LookKeys = { "RMB" };
+    static inline constexpr std::array<const char*, 1u> ZoomKeys = { "MW" };
+};
+
+struct SCameraControlPanelToggleLabels final
+{
+    static inline constexpr std::array<const char*, 3u> Labels = { "WINDOW", "STATUS", "EVENT LOG" };
+};
+
+template<typename DrawValueFn>
+inline void drawSummaryRow(const char* label, DrawValueFn&& drawValue)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::TextUnformatted(label);
+    ImGui::TableSetColumnIndex(1);
+    drawValue();
+}
+
+inline void drawDot(const ImVec4& color, const SCameraControlPanelStyle& style);
+
+inline void drawStatusLine(const SCameraControlPanelStatusLineSpec& spec, const SCameraControlPanelStyle& style = {})
+{
+    drawSummaryRow(spec.label, [&]()
+    {
+        drawDot(spec.dotColor, style);
+        ImGui::TextColored(spec.valueColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
+    });
+}
+
+inline void drawPolicyStatus(const SCameraControlPanelPolicyStatusSpec& spec, const SCameraControlPanelStyle& style = {})
+{
+    ImGui::TextDisabled("%s", spec.label);
+    ImGui::SameLine();
+    ImGui::TextColored(spec.active ? style.GoodColor : style.BadColor, "%.*s", static_cast<int>(spec.value.size()), spec.value.data());
+}
+
 inline ImVec2 calcControlPanelWindowSize(const ImVec2& displaySize, const SCameraControlPanelStyle& style = {})
 {
     return ImVec2(
         std::clamp(displaySize.x * style.WindowWidthRatio, style.WindowMinWidth, displaySize.x * style.WindowMaxWidthRatio),
         std::clamp(displaySize.y * style.WindowHeightRatio, style.WindowMinHeight, displaySize.y * style.WindowMaxHeightRatio));
+}
+
+inline float calcFramesPerSecond(const float frameMs, const SCameraControlPanelStyle& style = {})
+{
+    return frameMs > 0.0f ? (style.MillisecondsPerSecond / frameMs) : 0.0f;
 }
 
 inline float calcPillWidth(const char* label, const ImVec2& padding)
@@ -189,6 +275,14 @@ inline void popControlPanelWindowStyle()
 {
     ImGui::PopStyleColor(19);
     ImGui::PopStyleVar(9);
+}
+
+inline bool inputTextString(
+    const char* label,
+    std::string& value,
+    ImGuiInputTextFlags flags = 0)
+{
+    return ImGui::InputText(label, &value, flags);
 }
 
 inline void drawControlPanelWindowBackdrop(ImDrawList& drawList, const ImVec2& panelPos, const ImVec2& panelSize, const SCameraControlPanelStyle& style = {})
@@ -375,6 +469,48 @@ inline void drawHoverHint(const char* text)
     ImGui::BeginTooltip();
     ImGui::TextUnformatted(text);
     ImGui::EndTooltip();
+}
+
+inline bool drawCheckboxWithHint(const SCameraControlPanelCheckboxSpec& spec)
+{
+    if (!spec.value)
+        return false;
+
+    const bool changed = ImGui::Checkbox(spec.label, spec.value);
+    if (spec.hint && spec.hint[0] != '\0')
+        drawHoverHint(spec.hint);
+    return changed;
+}
+
+inline bool drawSliderFloatWithHint(const SCameraControlPanelSliderSpec& spec)
+{
+    if (!spec.value)
+        return false;
+
+    const bool changed = ImGui::SliderFloat(spec.label, spec.value, spec.minValue, spec.maxValue, spec.format, spec.flags);
+    if (spec.hint && spec.hint[0] != '\0')
+        drawHoverHint(spec.hint);
+    return changed;
+}
+
+inline bool drawActionButtonWithHint(const char* label, const char* hint)
+{
+    const bool pressed = ImGui::Button(label);
+    if (hint && hint[0] != '\0')
+        drawHoverHint(hint);
+    return pressed;
+}
+
+inline bool beginControlPanelTabChild(const char* id, const SCameraControlPanelStyle& style = {})
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.TabChildRounding);
+    return ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), true);
+}
+
+inline void endControlPanelTabChild()
+{
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
 }
 
 inline void drawDot(const ImVec4& color, const SCameraControlPanelStyle& style = {})

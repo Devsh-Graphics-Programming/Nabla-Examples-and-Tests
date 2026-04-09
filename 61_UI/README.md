@@ -56,7 +56,7 @@ and `61_UI` owns:
 - Chase
 - Dolly
 - DollyZoom
-- Path
+- Path Rig
 
 These are exposed through the active planar/view configuration in the example UI.
 
@@ -83,7 +83,7 @@ and not around a mesh reference.
 
 Current default setup:
 
-- `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path`
+- `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path Rig`
   use `OrbitTarget`
 - `Chase`, `Dolly`
   use `KeepLocalOffset`

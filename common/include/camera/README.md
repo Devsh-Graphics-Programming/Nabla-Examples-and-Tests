@@ -84,7 +84,7 @@ It also keeps camera semantics inside the camera type:
 
 - `Orbit` means orbit
 - `FPS` means FPS
-- `Path` means path-driven camera
+- `Path Rig` means target-relative cylindrical path rig
 
 instead of allowing every caller to overwrite camera internals arbitrarily.
 
@@ -369,7 +369,7 @@ That is why:
 
 - `Chase` and `Dolly` currently stay on shared spherical state
 - `DollyZoom` has dynamic perspective state
-- `Path` has path state
+- `Path Rig` has target-relative cylindrical path state
 
 ## Follow model
 

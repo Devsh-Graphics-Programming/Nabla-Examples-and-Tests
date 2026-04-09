@@ -252,7 +252,7 @@ inline void drawViewportSplitOverlay(
 //! Draw one follow-target overlay in the active viewport using projected tracked-target metrics.
 inline void drawFollowTargetViewportOverlay(
     ImDrawList& drawList,
-    const hlsl::float32_t4x4& viewProjMatrix,
+    const system::SCameraProjectionContext& projectionContext,
     const core::CTrackedTarget& trackedTarget,
     const SViewportOverlayRect& viewportRect,
     const SCameraFollowTargetViewportOverlayStyle& style = {})
@@ -260,15 +260,13 @@ inline void drawFollowTargetViewportOverlay(
     if (!viewportRect.valid())
         return;
 
-    float ndcX = 0.0f;
-    float ndcY = 0.0f;
-    float ndcRadius = 0.0f;
-    if (!system::tryComputeProjectedFollowTargetMetrics(viewProjMatrix, trackedTarget, ndcX, ndcY, &ndcRadius))
+    system::SCameraProjectedTargetMetrics projectedTarget = {};
+    if (!system::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
         return;
 
-    const bool centered = ndcRadius <= style.centeredNdcRadius;
+    const bool centered = projectedTarget.radius <= style.centeredNdcRadius;
     const ImVec2 center = viewportRect.getCenter();
-    const ImVec2 target = viewportRect.ndcToScreen(ImVec2(ndcX, ndcY));
+    const ImVec2 target = viewportRect.ndcToScreen(ImVec2(projectedTarget.ndc.x, projectedTarget.ndc.y));
     const float targetRadius = centered ? style.centeredTargetRadius : style.defaultTargetRadius;
     const ImU32 targetColor = centered ? style.centeredTargetColor : style.defaultTargetColor;
     const ImU32 targetFillColor = centered ? style.centeredTargetFillColor : style.defaultTargetFillColor;

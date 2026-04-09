@@ -15,12 +15,7 @@
 namespace nbl::system
 {
 
-//! Small shared bundle for smoke/regression pose deltas measured around one camera manipulation.
-struct SCameraManipulationDelta
-{
-    double position = 0.0;
-    double rotationDeg = 0.0;
-};
+using SCameraManipulationDelta = hlsl::SCameraPoseDelta<hlsl::float64_t>;
 
 struct SCameraSmokeComparisonThresholds final
 {
@@ -48,12 +43,7 @@ inline bool tryComputeCameraManipulationDelta(
     const auto& gimbal = camera->getGimbal();
     const auto afterPosition = gimbal.getPosition();
     const auto afterOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-    if (!hlsl::isFiniteVec3(afterPosition) || !hlsl::isFiniteQuaternion(beforeOrientation) || !hlsl::isFiniteQuaternion(afterOrientation))
-        return false;
-
-    outDelta.position = hlsl::length(afterPosition - beforePosition);
-    outDelta.rotationDeg = hlsl::getQuaternionAngularDistanceDegrees(beforeOrientation, afterOrientation);
-    return true;
+    return hlsl::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
 }
 
 //! Manipulate a camera and report how far its pose moved in position and Euler-angle terms.

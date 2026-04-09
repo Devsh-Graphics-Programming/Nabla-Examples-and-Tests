@@ -8,6 +8,7 @@
 #include <iosfwd>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "CCameraScriptedRuntime.hpp"
@@ -15,6 +16,8 @@
 
 namespace nbl::system
 {
+
+class ISystem;
 
 //! Optional scripted control overrides parsed alongside one runtime payload.
 struct CCameraScriptedControlOverrides
@@ -58,8 +61,10 @@ inline void appendScriptedInputParseWarning(CCameraScriptedInputParseResult& out
 
 //! Parse one low-level scripted runtime payload from an existing stream.
 bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
+//! Parse one low-level scripted runtime payload directly from text.
+bool readCameraScriptedInput(std::string_view text, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
 //! Load one low-level scripted runtime payload from a file.
-bool loadCameraScriptedInputFromFile(const path& path, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
+bool loadCameraScriptedInputFromFile(ISystem& system, const path& path, CCameraScriptedInputParseResult& out, std::string* error = nullptr);
 
 } // namespace nbl::system
 

@@ -9,7 +9,8 @@
 
 namespace nbl::core
 {
-// Free Lock Camera
+
+//! Free-position camera that allows full yaw/pitch/roll rotation.
 class CFreeCamera final : public ICamera
 {
 public:

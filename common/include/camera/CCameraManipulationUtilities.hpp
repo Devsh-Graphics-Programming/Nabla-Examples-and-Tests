@@ -9,9 +9,22 @@
 #include <vector>
 
 #include "CCameraPresetFlow.hpp"
+#include "CCameraVirtualEventUtilities.hpp"
 
 namespace nbl::core
 {
+
+struct SCameraConstraintDefaults final
+{
+    static constexpr float PitchMinDeg = -80.0f;
+    static constexpr float PitchMaxDeg = 80.0f;
+    static constexpr float YawMinDeg = -180.0f;
+    static constexpr float YawMaxDeg = 180.0f;
+    static constexpr float RollMinDeg = -180.0f;
+    static constexpr float RollMaxDeg = 180.0f;
+    static constexpr float MinDistance = ICamera::SphericalMinDistance;
+    static constexpr float MaxDistance = ICamera::SphericalMaxDistance;
+};
 
 //! Reusable constraint settings for post-manipulation camera clamping.
 struct SCameraConstraintSettings
@@ -21,14 +34,14 @@ struct SCameraConstraintSettings
     bool clampYaw = false;
     bool clampRoll = false;
     bool clampDistance = false;
-    float pitchMinDeg = -80.f;
-    float pitchMaxDeg = 80.f;
-    float yawMinDeg = -180.f;
-    float yawMaxDeg = 180.f;
-    float rollMinDeg = -180.f;
-    float rollMaxDeg = 180.f;
-    float minDistance = 0.1f;
-    float maxDistance = 1000.f;
+    float pitchMinDeg = SCameraConstraintDefaults::PitchMinDeg;
+    float pitchMaxDeg = SCameraConstraintDefaults::PitchMaxDeg;
+    float yawMinDeg = SCameraConstraintDefaults::YawMinDeg;
+    float yawMaxDeg = SCameraConstraintDefaults::YawMaxDeg;
+    float rollMinDeg = SCameraConstraintDefaults::RollMinDeg;
+    float rollMaxDeg = SCameraConstraintDefaults::RollMaxDeg;
+    float minDistance = SCameraConstraintDefaults::MinDistance;
+    float maxDistance = SCameraConstraintDefaults::MaxDistance;
 };
 
 //! Apply an authored world-space reference frame through the shared camera runtime entry point.
@@ -46,17 +59,11 @@ inline void scaleVirtualEvents(std::vector<CVirtualGimbalEvent>& events, const u
     for (uint32_t i = 0u; i < count; ++i)
     {
         auto& ev = events[i];
-        const auto type = ev.type;
-
-        if (type == CVirtualGimbalEvent::MoveForward || type == CVirtualGimbalEvent::MoveBackward ||
-            type == CVirtualGimbalEvent::MoveLeft || type == CVirtualGimbalEvent::MoveRight ||
-            type == CVirtualGimbalEvent::MoveUp || type == CVirtualGimbalEvent::MoveDown)
+        if (CVirtualGimbalEvent::isTranslationEvent(ev.type))
         {
             ev.magnitude *= translationScale;
         }
-        else if (type == CVirtualGimbalEvent::TiltUp || type == CVirtualGimbalEvent::TiltDown ||
-            type == CVirtualGimbalEvent::PanLeft || type == CVirtualGimbalEvent::PanRight ||
-            type == CVirtualGimbalEvent::RollLeft || type == CVirtualGimbalEvent::RollRight)
+        else if (CVirtualGimbalEvent::isRotationEvent(ev.type))
         {
             ev.magnitude *= rotationScale;
         }
@@ -69,57 +76,25 @@ inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::v
     if (!camera)
         return;
 
-    hlsl::float64_t3 worldDelta = hlsl::float64_t3(0.0);
     std::vector<CVirtualGimbalEvent> filtered;
     filtered.reserve(events.size());
 
     for (uint32_t i = 0u; i < count; ++i)
     {
         const auto& ev = events[i];
-        switch (ev.type)
-        {
-            case CVirtualGimbalEvent::MoveRight: worldDelta.x += ev.magnitude; break;
-            case CVirtualGimbalEvent::MoveLeft: worldDelta.x -= ev.magnitude; break;
-            case CVirtualGimbalEvent::MoveUp: worldDelta.y += ev.magnitude; break;
-            case CVirtualGimbalEvent::MoveDown: worldDelta.y -= ev.magnitude; break;
-            case CVirtualGimbalEvent::MoveForward: worldDelta.z += ev.magnitude; break;
-            case CVirtualGimbalEvent::MoveBackward: worldDelta.z -= ev.magnitude; break;
-            default:
-                filtered.emplace_back(ev);
-                break;
-        }
+        if (!CVirtualGimbalEvent::isTranslationEvent(ev.type))
+            filtered.emplace_back(ev);
     }
 
-    if (worldDelta.x == 0.0 && worldDelta.y == 0.0 && worldDelta.z == 0.0)
+    const auto worldDelta = collectSignedTranslationDelta({ events.data(), count });
+    if (hlsl::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
     {
         events = std::move(filtered);
         count = static_cast<uint32_t>(events.size());
         return;
     }
 
-    const auto& gimbal = camera->getGimbal();
-    const auto right = gimbal.getXAxis();
-    const auto up = gimbal.getYAxis();
-    const auto forward = gimbal.getZAxis();
-
-    const hlsl::float64_t3 localDelta = hlsl::float64_t3(
-        hlsl::dot(worldDelta, right),
-        hlsl::dot(worldDelta, up),
-        hlsl::dot(worldDelta, forward)
-    );
-
-    auto emitAxis = [&](double v, CVirtualGimbalEvent::VirtualEventType pos, CVirtualGimbalEvent::VirtualEventType neg)
-    {
-        if (v == 0.0)
-            return;
-        auto& ev = filtered.emplace_back();
-        ev.type = (v > 0.0) ? pos : neg;
-        ev.magnitude = std::abs(v);
-    };
-
-    emitAxis(localDelta.x, CVirtualGimbalEvent::MoveRight, CVirtualGimbalEvent::MoveLeft);
-    emitAxis(localDelta.y, CVirtualGimbalEvent::MoveUp, CVirtualGimbalEvent::MoveDown);
-    emitAxis(localDelta.z, CVirtualGimbalEvent::MoveForward, CVirtualGimbalEvent::MoveBackward);
+    appendWorldTranslationAsLocalEvents(filtered, camera->getGimbal().getOrientation(), worldDelta);
 
     events = std::move(filtered);
     count = static_cast<uint32_t>(events.size());
@@ -152,7 +127,7 @@ inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* cam
 
     const auto& gimbal = camera->getGimbal();
     const auto pos = gimbal.getPosition();
-    const auto eulerDeg = hlsl::getQuaternionEulerDegrees(gimbal.getOrientation());
+    const auto eulerDeg = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 
     auto clamped = eulerDeg;
     if (constraints.clampPitch)
@@ -167,7 +142,7 @@ inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* cam
 
     CCameraPreset preset;
     preset.goal.position = pos;
-    preset.goal.orientation = hlsl::makeQuaternionFromEulerDegrees(clamped);
+    preset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(clamped);
     return applyPreset(solver, camera, preset);
 }
 

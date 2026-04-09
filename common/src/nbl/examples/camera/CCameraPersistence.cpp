@@ -5,8 +5,9 @@
 #include "camera/CCameraPersistence.hpp"
 
 #include <array>
-#include <fstream>
+#include <sstream>
 
+#include "CCameraJsonPersistenceUtilities.hpp"
 #include "nlohmann/json.hpp"
 
 namespace
@@ -52,95 +53,12 @@ json_t serializeGoalJson(const nbl::core::CCameraGoal& goal)
     return json;
 }
 
-void deserializeGoalJson(const json_t& entry, nbl::core::CCameraGoal& goal)
-{
-    goal = {};
-
-    if (entry.contains("camera_kind"))
-        goal.sourceKind = static_cast<nbl::core::ICamera::CameraKind>(entry["camera_kind"].get<uint32_t>());
-    if (entry.contains("camera_capabilities"))
-        goal.sourceCapabilities = entry["camera_capabilities"].get<uint32_t>();
-    if (entry.contains("camera_goal_state_mask"))
-        goal.sourceGoalStateMask = entry["camera_goal_state_mask"].get<uint32_t>();
-
-    if (entry.contains("position") && entry["position"].is_array())
-    {
-        const auto values = entry["position"].get<std::array<double, 3>>();
-        goal.position = nbl::hlsl::float64_t3(values[0], values[1], values[2]);
-    }
-    if (entry.contains("orientation") && entry["orientation"].is_array())
-    {
-        const auto values = entry["orientation"].get<std::array<nbl::hlsl::float64_t, 4>>();
-        goal.orientation = nbl::hlsl::makeQuaternionFromComponents<nbl::hlsl::float64_t>(
-            values[0],
-            values[1],
-            values[2],
-            values[3]);
-    }
-    if (entry.contains("target_position") && entry["target_position"].is_array())
-    {
-        const auto values = entry["target_position"].get<std::array<double, 3>>();
-        goal.targetPosition = nbl::hlsl::float64_t3(values[0], values[1], values[2]);
-        goal.hasTargetPosition = true;
-    }
-    if (entry.contains("distance"))
-    {
-        goal.distance = entry["distance"].get<float>();
-        goal.hasDistance = true;
-    }
-    if (entry.contains("orbit_u"))
-    {
-        goal.orbitU = entry["orbit_u"].get<double>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("orbit_v"))
-    {
-        goal.orbitV = entry["orbit_v"].get<double>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("orbit_distance"))
-    {
-        goal.orbitDistance = entry["orbit_distance"].get<float>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
-    {
-        goal.pathState.angle = entry["path_angle"].get<double>();
-        goal.pathState.radius = entry["path_radius"].get<double>();
-        goal.pathState.height = entry["path_height"].get<double>();
-        goal.hasPathState = true;
-    }
-    if (entry.contains("dynamic_base_fov"))
-    {
-        goal.dynamicPerspectiveState.baseFov = entry["dynamic_base_fov"].get<float>();
-        goal.hasDynamicPerspectiveState = true;
-    }
-    if (entry.contains("dynamic_reference_distance"))
-    {
-        goal.dynamicPerspectiveState.referenceDistance = entry["dynamic_reference_distance"].get<float>();
-        goal.hasDynamicPerspectiveState = true;
-    }
-}
-
 json_t serializePresetJson(const nbl::core::CCameraPreset& preset)
 {
     auto json = serializeGoalJson(nbl::core::makeGoalFromPreset(preset));
     json["name"] = preset.name;
     json["identifier"] = preset.identifier;
     return json;
-}
-
-void deserializePresetJson(const json_t& entry, nbl::core::CCameraPreset& preset)
-{
-    preset = {};
-    if (entry.contains("name"))
-        preset.name = entry["name"].get<std::string>();
-    if (entry.contains("identifier"))
-        preset.identifier = entry["identifier"].get<std::string>();
-
-    nbl::core::CCameraGoal goal;
-    deserializeGoalJson(entry, goal);
-    nbl::core::assignGoalToPreset(preset, goal);
 }
 
 json_t serializeKeyframeTrackJson(const nbl::core::CCameraKeyframeTrack& track)
@@ -169,7 +87,7 @@ bool deserializeKeyframeTrackJson(const json_t& root, nbl::core::CCameraKeyframe
         nbl::core::CCameraKeyframe keyframe;
         if (entry.contains("time"))
             keyframe.time = std::max(0.f, entry["time"].get<float>());
-        deserializePresetJson(entry, keyframe.preset);
+        nbl::system::deserializePresetJson(entry, keyframe.preset);
         track.keyframes.emplace_back(std::move(keyframe));
     }
 
@@ -197,7 +115,7 @@ bool deserializePresetCollectionJson(const json_t& root, std::vector<nbl::core::
     for (const auto& entry : root["presets"])
     {
         nbl::core::CCameraPreset preset;
-        deserializePresetJson(entry, preset);
+        nbl::system::deserializePresetJson(entry, preset);
         loadedPresets.emplace_back(std::move(preset));
     }
 
@@ -225,19 +143,25 @@ bool readGoal(std::istream& in, core::CCameraGoal& goal)
 
     json_t root;
     in >> root;
-    deserializeGoalJson(root, goal);
+    nbl::system::deserializeGoalJson(root, goal);
     return true;
 }
 
-bool saveGoalToFile(const path& filePath, const core::CCameraGoal& goal, const int indent)
+bool saveGoalToFile(ISystem& system, const path& filePath, const core::CCameraGoal& goal, const int indent)
 {
-    std::ofstream out(filePath.string(), std::ios::binary);
-    return writeGoal(out, goal, indent);
+    std::ostringstream out;
+    if (!writeGoal(out, goal, indent))
+        return false;
+    return writeTextFile(system, filePath, out.str());
 }
 
-bool loadGoalFromFile(const path& filePath, core::CCameraGoal& goal)
+bool loadGoalFromFile(ISystem& system, const path& filePath, core::CCameraGoal& goal)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
+    std::string text;
+    if (!readTextFile(system, filePath, text))
+        return false;
+
+    std::istringstream in(text);
     return readGoal(in, goal);
 }
 
@@ -257,19 +181,25 @@ bool readPreset(std::istream& in, core::CCameraPreset& preset)
 
     json_t root;
     in >> root;
-    deserializePresetJson(root, preset);
+    nbl::system::deserializePresetJson(root, preset);
     return true;
 }
 
-bool savePresetToFile(const path& filePath, const core::CCameraPreset& preset, const int indent)
+bool savePresetToFile(ISystem& system, const path& filePath, const core::CCameraPreset& preset, const int indent)
 {
-    std::ofstream out(filePath.string(), std::ios::binary);
-    return writePreset(out, preset, indent);
+    std::ostringstream out;
+    if (!writePreset(out, preset, indent))
+        return false;
+    return writeTextFile(system, filePath, out.str());
 }
 
-bool loadPresetFromFile(const path& filePath, core::CCameraPreset& preset)
+bool loadPresetFromFile(ISystem& system, const path& filePath, core::CCameraPreset& preset)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
+    std::string text;
+    if (!readTextFile(system, filePath, text))
+        return false;
+
+    std::istringstream in(text);
     return readPreset(in, preset);
 }
 
@@ -292,15 +222,21 @@ bool readKeyframeTrack(std::istream& in, core::CCameraKeyframeTrack& track)
     return deserializeKeyframeTrackJson(root, track);
 }
 
-bool saveKeyframeTrackToFile(const path& filePath, const core::CCameraKeyframeTrack& track, const int indent)
+bool saveKeyframeTrackToFile(ISystem& system, const path& filePath, const core::CCameraKeyframeTrack& track, const int indent)
 {
-    std::ofstream out(filePath.string(), std::ios::binary);
-    return writeKeyframeTrack(out, track, indent);
+    std::ostringstream out;
+    if (!writeKeyframeTrack(out, track, indent))
+        return false;
+    return writeTextFile(system, filePath, out.str());
 }
 
-bool loadKeyframeTrackFromFile(const path& filePath, core::CCameraKeyframeTrack& track)
+bool loadKeyframeTrackFromFile(ISystem& system, const path& filePath, core::CCameraKeyframeTrack& track)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
+    std::string text;
+    if (!readTextFile(system, filePath, text))
+        return false;
+
+    std::istringstream in(text);
     return readKeyframeTrack(in, track);
 }
 
@@ -323,15 +259,21 @@ bool readPresetCollection(std::istream& in, std::vector<core::CCameraPreset>& pr
     return deserializePresetCollectionJson(root, presets);
 }
 
-bool savePresetCollectionToFile(const path& filePath, std::span<const core::CCameraPreset> presets, const int indent)
+bool savePresetCollectionToFile(ISystem& system, const path& filePath, std::span<const core::CCameraPreset> presets, const int indent)
 {
-    std::ofstream out(filePath.string(), std::ios::binary);
-    return writePresetCollection(out, presets, indent);
+    std::ostringstream out;
+    if (!writePresetCollection(out, presets, indent))
+        return false;
+    return writeTextFile(system, filePath, out.str());
 }
 
-bool loadPresetCollectionFromFile(const path& filePath, std::vector<core::CCameraPreset>& presets)
+bool loadPresetCollectionFromFile(ISystem& system, const path& filePath, std::vector<core::CCameraPreset>& presets)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
+    std::string text;
+    if (!readTextFile(system, filePath, text))
+        return false;
+
+    std::istringstream in(text);
     return readPresetCollection(in, presets);
 }
 

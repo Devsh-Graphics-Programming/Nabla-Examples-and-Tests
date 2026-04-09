@@ -87,11 +87,26 @@ public:
         float referenceDistance = 0.f;
     };
 
+    //! Target-relative cylindrical rig state used by the `Path Rig` camera kind.
     struct PathState
     {
         double angle = 0.0;
         double radius = 0.0;
         double height = 0.0;
+
+        inline hlsl::float64_t3 asVector() const
+        {
+            return hlsl::float64_t3(radius, height, angle);
+        }
+
+        static inline PathState fromVector(const hlsl::float64_t3& value)
+        {
+            return {
+                .angle = value.z,
+                .radius = value.x,
+                .height = value.y
+            };
+        }
     };
 
     //! Gimbal that models the camera pose and cached view matrix in world space.
@@ -274,13 +289,28 @@ public:
     {
         return magnitude * getScaledVirtualTranslationMagnitude();
     }
+    template<typename T, uint32_t N>
+    inline hlsl::camera_vector_t<T, N> scaleVirtualTranslation(const hlsl::camera_vector_t<T, N>& magnitude) const
+    {
+        return magnitude * static_cast<T>(getScaledVirtualTranslationMagnitude());
+    }
     inline double scaleUnscaledVirtualTranslation(const double magnitude) const
     {
         return magnitude * getUnscaledVirtualTranslationMagnitude();
     }
+    template<typename T, uint32_t N>
+    inline hlsl::camera_vector_t<T, N> scaleUnscaledVirtualTranslation(const hlsl::camera_vector_t<T, N>& magnitude) const
+    {
+        return magnitude * static_cast<T>(getUnscaledVirtualTranslationMagnitude());
+    }
     inline double scaleVirtualRotation(const double magnitude) const
     {
         return magnitude * getRotationSpeedScale();
+    }
+    template<typename T, uint32_t N>
+    inline hlsl::camera_vector_t<T, N> scaleVirtualRotation(const hlsl::camera_vector_t<T, N>& magnitude) const
+    {
+        return magnitude * static_cast<T>(getRotationSpeedScale());
     }
     inline SScopedMotionScaleOverride overrideMotionScales(const double moveScale, const double rotationScale)
     {

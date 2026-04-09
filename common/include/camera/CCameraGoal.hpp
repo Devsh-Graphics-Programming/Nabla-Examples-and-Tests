@@ -7,9 +7,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <string>
 
+#include "CCameraPathUtilities.hpp"
+#include "CCameraTargetRelativeUtilities.hpp"
 #include "ICamera.hpp"
 
 namespace nbl::core
@@ -39,11 +42,6 @@ struct CCameraGoal
     ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
 };
 
-inline double lerpWrappedAngleRad(double a, double b, double alpha)
-{
-    return a + hlsl::wrapAngleRad(b - a) * alpha;
-}
-
 inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target)
 {
     uint32_t mask = ICamera::GoalStateNone;
@@ -56,41 +54,158 @@ inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target)
     return mask;
 }
 
-inline bool applyCanonicalPathGoal(CCameraGoal& goal)
+inline void applyCanonicalTargetRelativeGoalFields(
+    CCameraGoal& goal,
+    const SCameraTargetRelativeState& state,
+    const SCameraTargetRelativePose& pose)
 {
-    if (!(goal.hasPathState && goal.hasTargetPosition))
-        return false;
-    if (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height))
+    goal.position = pose.position;
+    goal.orientation = pose.orientation;
+    goal.hasTargetPosition = true;
+    goal.targetPosition = state.target;
+    goal.hasDistance = true;
+    goal.distance = static_cast<float>(pose.appliedDistance);
+    goal.hasOrbitState = true;
+    goal.orbitU = state.orbitU;
+    goal.orbitV = state.orbitV;
+    goal.orbitDistance = static_cast<float>(pose.appliedDistance);
+}
+
+inline bool applyCanonicalTargetRelativeGoal(CCameraGoal& goal, const SCameraTargetRelativeState& state)
+{
+    SCameraTargetRelativePose pose = {};
+    if (!tryBuildTargetRelativePoseFromState(state, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance, pose))
         return false;
 
-    hlsl::float64_t appliedOrbitDistance = 0.0;
-    if (!hlsl::tryBuildPathPoseFromState(
-        goal.targetPosition,
-        goal.pathState.angle,
-        goal.pathState.radius,
-        goal.pathState.height,
-        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
-        goal.position,
-        goal.orientation,
-        &appliedOrbitDistance,
-        &goal.orbitU,
-        &goal.orbitV))
+    applyCanonicalTargetRelativeGoalFields(goal, state, pose);
+    return true;
+}
+
+inline bool applyCanonicalPathGoalFields(
+    CCameraGoal& goal,
+    const hlsl::float64_t3& targetPosition,
+    const ICamera::PathState& pathState,
+    const SCameraPathLimits& limits = makeDefaultPathLimits())
+{
+    SCameraCanonicalPathState canonicalPathState = {};
+    if (!tryBuildCanonicalPathState(targetPosition, pathState, limits, canonicalPathState))
+        return false;
+
+    goal.hasTargetPosition = true;
+    goal.targetPosition = targetPosition;
+    goal.hasPathState = true;
+    goal.pathState = pathState;
+    applyCanonicalTargetRelativeGoalFields(
+        goal,
+        canonicalPathState.targetRelative,
+        {
+            .position = canonicalPathState.pose.position,
+            .orientation = canonicalPathState.pose.orientation,
+            .appliedDistance = canonicalPathState.pose.appliedDistance
+        });
+    return true;
+}
+
+inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
+{
+    if (!(goal.hasTargetPosition && goal.hasOrbitState))
+        return false;
+    if (!hlsl::isFiniteScalar(goal.orbitU) || !hlsl::isFiniteScalar(goal.orbitV) || !hlsl::isFiniteScalar(goal.orbitDistance))
+        return false;
+
+    return applyCanonicalTargetRelativeGoal(
+        goal,
+        {
+            .target = goal.targetPosition,
+            .orbitU = goal.orbitU,
+            .orbitV = goal.orbitV,
+            .distance = goal.orbitDistance
+        });
+}
+
+inline bool buildCanonicalTargetRelativeGoalFromPosition(
+    CCameraGoal& goal,
+    const hlsl::float64_t3& targetPosition,
+    const hlsl::float64_t3& position)
+{
+    SCameraTargetRelativeState state = {};
+    if (!tryBuildTargetRelativeStateFromPosition(
+            targetPosition,
+            position,
+            ICamera::SphericalMinDistance,
+            ICamera::SphericalMaxDistance,
+            state))
     {
         return false;
     }
 
-    goal.hasDistance = true;
-    goal.distance = static_cast<float>(appliedOrbitDistance);
-    goal.hasOrbitState = true;
-    goal.orbitDistance = static_cast<float>(appliedOrbitDistance);
+    return applyCanonicalTargetRelativeGoal(goal, state);
+}
+
+inline bool tryResolveCanonicalTargetRelativeState(
+    const CCameraGoal& goal,
+    const ICamera::SphericalTargetState& currentState,
+    SCameraTargetRelativeState& outState)
+{
+    outState.target = goal.hasTargetPosition ? goal.targetPosition : currentState.target;
+    outState.orbitU = currentState.u;
+    outState.orbitV = currentState.v;
+    outState.distance = currentState.distance;
+
+    if (goal.hasOrbitState)
+    {
+        outState.orbitU = goal.orbitU;
+        outState.orbitV = goal.orbitV;
+        outState.distance = goal.orbitDistance;
+    }
+    else
+    {
+        SCameraTargetRelativeState resolvedState = {};
+        if (!tryBuildTargetRelativeStateFromPosition(
+                outState.target,
+                goal.position,
+                currentState.minDistance,
+                currentState.maxDistance,
+                resolvedState))
+        {
+            return false;
+        }
+
+        outState.orbitU = resolvedState.orbitU;
+        outState.orbitV = resolvedState.orbitV;
+        outState.distance = resolvedState.distance;
+    }
+
+    if (goal.hasDistance && !goal.hasOrbitState)
+        outState.distance = goal.distance;
+
+    outState.distance = std::clamp(outState.distance, currentState.minDistance, currentState.maxDistance);
+    return true;
+}
+
+inline bool applyCanonicalPathGoal(CCameraGoal& goal)
+{
+    if (!(goal.hasPathState && goal.hasTargetPosition))
+        return false;
+    if (!isPathStateFinite(goal.pathState))
+        return false;
+    return applyCanonicalPathGoalFields(goal, goal.targetPosition, goal.pathState);
+}
+
+inline bool applyCanonicalGoalState(CCameraGoal& goal)
+{
+    if (goal.hasPathState)
+        return applyCanonicalPathGoal(goal);
+
+    if (goal.hasTargetPosition && goal.hasOrbitState)
+        return applyCanonicalSphericalGoal(goal);
+
     return true;
 }
 
 inline CCameraGoal canonicalizeGoal(CCameraGoal goal)
 {
-    applyCanonicalPathGoal(goal);
+    applyCanonicalGoalState(goal);
     return goal;
 }
 
@@ -100,14 +215,14 @@ inline bool isGoalFinite(const CCameraGoal& goal)
         return false;
     if (goal.hasTargetPosition && !hlsl::isFiniteVec3(goal.targetPosition))
         return false;
-    if (goal.hasDistance && !std::isfinite(goal.distance))
+    if (goal.hasDistance && !hlsl::isFiniteScalar(goal.distance))
         return false;
-    if (goal.hasOrbitState && (!std::isfinite(goal.orbitU) || !std::isfinite(goal.orbitV) || !std::isfinite(goal.orbitDistance)))
+    if (goal.hasOrbitState && (!hlsl::isFiniteScalar(goal.orbitU) || !hlsl::isFiniteScalar(goal.orbitV) || !hlsl::isFiniteScalar(goal.orbitDistance)))
         return false;
-    if (goal.hasPathState && (!std::isfinite(goal.pathState.angle) || !std::isfinite(goal.pathState.radius) || !std::isfinite(goal.pathState.height)))
+    if (goal.hasPathState && !isPathStateFinite(goal.pathState))
         return false;
     if (goal.hasDynamicPerspectiveState &&
-        (!std::isfinite(goal.dynamicPerspectiveState.baseFov) || !std::isfinite(goal.dynamicPerspectiveState.referenceDistance)))
+        (!hlsl::isFiniteScalar(goal.dynamicPerspectiveState.baseFov) || !hlsl::isFiniteScalar(goal.dynamicPerspectiveState.referenceDistance)))
         return false;
     return true;
 }
@@ -115,14 +230,10 @@ inline bool isGoalFinite(const CCameraGoal& goal)
 inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     const double posEps, const double rotEpsDeg, const double scalarEps)
 {
-    const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
-    const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
-    if (!hlsl::isFiniteVec3(actual.position) || !hlsl::isFiniteVec3(expected.position) || !hlsl::isFiniteQuaternion(currentOrientation) || !hlsl::isFiniteQuaternion(expectedOrientation))
+    hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
+    if (!hlsl::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta))
         return false;
-
-    const double posDelta = hlsl::length(actual.position - expected.position);
-    const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
-    if (posDelta > posEps || rotDeltaDeg > rotEpsDeg)
+    if (poseDelta.position > posEps || poseDelta.rotationDeg > rotEpsDeg)
         return false;
 
     if (expected.hasTargetPosition)
@@ -139,9 +250,9 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     {
         if (!actual.hasOrbitState)
             return false;
-        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.orbitU, actual.orbitU)) > rotEpsDeg)
+        if (hlsl::getWrappedAngleDistanceDegrees(expected.orbitU, actual.orbitU) > rotEpsDeg)
             return false;
-        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.orbitV, actual.orbitV)) > rotEpsDeg)
+        if (hlsl::getWrappedAngleDistanceDegrees(expected.orbitV, actual.orbitV) > rotEpsDeg)
             return false;
         if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.orbitDistance), static_cast<double>(expected.orbitDistance), scalarEps))
             return false;
@@ -150,11 +261,7 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
     {
         if (!actual.hasPathState)
             return false;
-        if (hlsl::degrees(hlsl::getWrappedAngleDistanceRadians(expected.pathState.angle, actual.pathState.angle)) > rotEpsDeg)
-            return false;
-        if (!hlsl::nearlyEqualScalar(actual.pathState.radius, expected.pathState.radius, scalarEps))
-            return false;
-        if (!hlsl::nearlyEqualScalar(actual.pathState.height, expected.pathState.height, scalarEps))
+        if (!pathStatesNearlyEqual(actual.pathState, expected.pathState, makePathComparisonThresholds(rotEpsDeg, scalarEps)))
             return false;
     }
     if (expected.hasDynamicPerspectiveState)
@@ -173,12 +280,12 @@ inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
 inline std::string describeGoalMismatch(const CCameraGoal& actual, const CCameraGoal& expected)
 {
     std::ostringstream oss;
+    hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
+    const bool hasPoseDelta = hlsl::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta);
     const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
     const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
-    const double posDelta = hlsl::length(actual.position - expected.position);
-    const double rotDeltaDeg = hlsl::getQuaternionAngularDistanceDegrees(currentOrientation, expectedOrientation);
-    oss << "pos_delta=" << posDelta
-        << " rot_delta_deg=" << rotDeltaDeg
+    oss << "pos_delta=" << (hasPoseDelta ? poseDelta.position : std::numeric_limits<double>::quiet_NaN())
+        << " rot_delta_deg=" << (hasPoseDelta ? poseDelta.rotationDeg : std::numeric_limits<double>::quiet_NaN())
         << " current_pos=(" << actual.position.x << "," << actual.position.y << "," << actual.position.z << ")"
         << " expected_pos=(" << expected.position.x << "," << expected.position.y << "," << expected.position.z << ")"
         << " current_quat=(" << currentOrientation.data.x << "," << currentOrientation.data.y << "," << currentOrientation.data.z << "," << currentOrientation.data.w << ")"
@@ -252,8 +359,8 @@ inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double
         const float da = a.hasOrbitState ? a.orbitDistance : b.orbitDistance;
         const float db = b.hasOrbitState ? b.orbitDistance : a.orbitDistance;
 
-        blended.orbitU = lerpWrappedAngleRad(ua, ub, alpha);
-        blended.orbitV = lerpWrappedAngleRad(va, vb, alpha);
+        blended.orbitU = hlsl::lerpWrappedAngleRad(ua, ub, alpha);
+        blended.orbitV = hlsl::lerpWrappedAngleRad(va, vb, alpha);
         blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
     }
     blended.hasDynamicPerspectiveState = a.hasDynamicPerspectiveState || b.hasDynamicPerspectiveState;
@@ -270,9 +377,7 @@ inline CCameraGoal blendGoals(const CCameraGoal& a, const CCameraGoal& b, double
     {
         const auto pathA = a.hasPathState ? a.pathState : b.pathState;
         const auto pathB = b.hasPathState ? b.pathState : a.pathState;
-        blended.pathState.angle = lerpWrappedAngleRad(pathA.angle, pathB.angle, alpha);
-        blended.pathState.radius = pathA.radius + (pathB.radius - pathA.radius) * alpha;
-        blended.pathState.height = pathA.height + (pathB.height - pathA.height) * alpha;
+        blended.pathState = blendPathStates(pathA, pathB, alpha);
     }
     return canonicalizeGoal(blended);
 }

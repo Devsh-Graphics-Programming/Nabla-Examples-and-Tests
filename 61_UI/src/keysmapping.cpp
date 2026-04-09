@@ -1,14 +1,31 @@
 #include "keysmapping.hpp"
+#include "app/AppTypes.hpp"
+
 #include <string>
 #include <unordered_map>
+
+namespace
+{
+
+inline std::string buildKeyCodeLabel(const ui::E_KEY_CODE keyCode)
+{
+    return std::string(1u, ui::keyCodeToChar(keyCode, true));
+}
+
+inline ImVec4 getBindingActiveStatusColor(const bool active)
+{
+    return active ? SCameraAppBindingEditorUiDefaults::ActiveStatusColor : SCameraAppBindingEditorUiDefaults::InactiveStatusColor;
+}
+
+} // namespace
 
 bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     bool anyMapUpdated = false;
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-    ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
-    ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 0.33f);
-    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.33f);
+    ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
+    ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
+    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
     ImGui::TableHeadersRow();
 
     ImGui::TableNextRow();
@@ -30,14 +47,14 @@ bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbal
     ImGui::TableSetColumnIndex(1);
     if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
     {
-        char newKeyDisplay[2] = { ui::keyCodeToChar(newKey, true), '\0' };
-        if (ImGui::BeginCombo("##selectKey", newKeyDisplay))
+        const auto newKeyDisplay = buildKeyCodeLabel(newKey);
+        if (ImGui::BeginCombo("##selectKey", newKeyDisplay.c_str()))
         {
             for (int i = ui::E_KEY_CODE::EKC_A; i <= ui::E_KEY_CODE::EKC_Z; ++i)
             {
                 bool isSelected = (newKey == static_cast<ui::E_KEY_CODE>(i));
-                char label[2] = { ui::keyCodeToChar(static_cast<ui::E_KEY_CODE>(i), true), '\0' };
-                if (ImGui::Selectable(label, isSelected))
+                const auto label = buildKeyCodeLabel(static_cast<ui::E_KEY_CODE>(i));
+                if (ImGui::Selectable(label.c_str(), isSelected))
                     newKey = static_cast<ui::E_KEY_CODE>(i);
                 if (isSelected)
                     ImGui::SetItemDefaultFocus();
@@ -62,7 +79,7 @@ bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbal
     }
 
     ImGui::TableSetColumnIndex(2);
-    if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
+    if (ImGui::Button("Confirm Add", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
     {
         anyMapUpdated |= true;
         if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
@@ -100,7 +117,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
 
     if (spawnWindow)
     {
-        ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(SCameraAppBindingEditorUiDefaults::WindowInitialSize, ImGuiCond_FirstUseEver);
         ImGui::Begin("Binding Layouts & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
     }
 
@@ -111,7 +128,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
             state.activeBindingDomain = IGimbalBindingLayout::Keyboard;
             ImGui::Separator();
 
-            if (ImGui::Button("Add Key", ImVec2(100, 30)))
+            if (ImGui::Button("Add Key", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
                 state.addMode = !state.addMode;
 
             ImGui::Separator();
@@ -133,13 +150,13 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
                 ImGui::TextWrapped("%s", eventName);
 
                 ImGui::TableSetColumnIndex(1);
-                std::string keyString(1, ui::keyCodeToChar(keyboardCode, true));
+                const auto keyString = buildKeyCodeLabel(keyboardCode);
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextWrapped("%s", keyString.c_str());
 
                 ImGui::TableSetColumnIndex(2);
                 bool isActive = (hash.event.magnitude > 0);
-                ImVec4 statusColor = isActive ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+                const ImVec4 statusColor = getBindingActiveStatusColor(isActive);
                 ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
 
                 ImGui::TableSetColumnIndex(3);
@@ -169,7 +186,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
             state.activeBindingDomain = IGimbalBindingLayout::Mouse;
             ImGui::Separator();
 
-            if (ImGui::Button("Add Key", ImVec2(100, 30)))
+            if (ImGui::Button("Add Key", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
                 state.addMode = !state.addMode;
 
             ImGui::Separator();
@@ -197,7 +214,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
 
                 ImGui::TableSetColumnIndex(2);
                 bool isActive = (hash.event.magnitude > 0);
-                ImVec4 statusColor = isActive ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+                const ImVec4 statusColor = getBindingActiveStatusColor(isActive);
                 ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
 
                 ImGui::TableSetColumnIndex(3);

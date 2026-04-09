@@ -52,7 +52,7 @@
         "baseFov": 40.0
       },
       {
-        "type": "Path",
+        "type": "PathRig",
         "position": [12.000, 1.500, 12.000],
         "target": [0, 0, 0]
       }

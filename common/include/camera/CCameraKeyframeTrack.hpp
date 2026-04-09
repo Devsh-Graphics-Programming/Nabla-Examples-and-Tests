@@ -25,7 +25,7 @@ struct CCameraKeyframeTrack
 inline bool compareKeyframes(const CCameraKeyframe& lhs, const CCameraKeyframe& rhs,
     const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
 {
-    return std::abs(static_cast<double>(lhs.time - rhs.time)) <= timeEps &&
+    return hlsl::abs(static_cast<double>(lhs.time - rhs.time)) <= timeEps &&
         comparePresets(lhs.preset, rhs.preset, posEps, rotEpsDeg, scalarEps);
 }
 
@@ -107,10 +107,10 @@ inline int selectKeyframeTrackNearestTime(CCameraKeyframeTrack& track, const flo
     }
 
     size_t bestIx = 0u;
-    float bestDelta = std::abs(track.keyframes.front().time - time);
+    float bestDelta = hlsl::abs(track.keyframes.front().time - time);
     for (size_t i = 1u; i < track.keyframes.size(); ++i)
     {
-        const float delta = std::abs(track.keyframes[i].time - time);
+        const float delta = hlsl::abs(track.keyframes[i].time - time);
         if (delta < bestDelta)
         {
             bestDelta = delta;

@@ -6,98 +6,16 @@
 
 #include <algorithm>
 #include <array>
-#include <fstream>
+#include <sstream>
 #include <string_view>
 #include <type_traits>
 
+#include "CCameraJsonPersistenceUtilities.hpp"
 #include "nlohmann/json.hpp"
 
 namespace
 {
 using json_t = nlohmann::json;
-
-void deserializeGoalJson(const json_t& entry, nbl::core::CCameraGoal& goal)
-{
-    goal = {};
-
-    if (entry.contains("camera_kind"))
-        goal.sourceKind = static_cast<nbl::core::ICamera::CameraKind>(entry["camera_kind"].get<uint32_t>());
-    if (entry.contains("camera_capabilities"))
-        goal.sourceCapabilities = entry["camera_capabilities"].get<uint32_t>();
-    if (entry.contains("camera_goal_state_mask"))
-        goal.sourceGoalStateMask = entry["camera_goal_state_mask"].get<uint32_t>();
-
-    if (entry.contains("position") && entry["position"].is_array())
-    {
-        const auto values = entry["position"].get<std::array<double, 3>>();
-        goal.position = nbl::hlsl::float64_t3(values[0], values[1], values[2]);
-    }
-    if (entry.contains("orientation") && entry["orientation"].is_array())
-    {
-        const auto values = entry["orientation"].get<std::array<nbl::hlsl::float64_t, 4>>();
-        goal.orientation = nbl::hlsl::makeQuaternionFromComponents<nbl::hlsl::float64_t>(
-            values[0],
-            values[1],
-            values[2],
-            values[3]);
-    }
-    if (entry.contains("target_position") && entry["target_position"].is_array())
-    {
-        const auto values = entry["target_position"].get<std::array<double, 3>>();
-        goal.targetPosition = nbl::hlsl::float64_t3(values[0], values[1], values[2]);
-        goal.hasTargetPosition = true;
-    }
-    if (entry.contains("distance"))
-    {
-        goal.distance = entry["distance"].get<float>();
-        goal.hasDistance = true;
-    }
-    if (entry.contains("orbit_u"))
-    {
-        goal.orbitU = entry["orbit_u"].get<double>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("orbit_v"))
-    {
-        goal.orbitV = entry["orbit_v"].get<double>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("orbit_distance"))
-    {
-        goal.orbitDistance = entry["orbit_distance"].get<float>();
-        goal.hasOrbitState = true;
-    }
-    if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
-    {
-        goal.pathState.angle = entry["path_angle"].get<double>();
-        goal.pathState.radius = entry["path_radius"].get<double>();
-        goal.pathState.height = entry["path_height"].get<double>();
-        goal.hasPathState = true;
-    }
-    if (entry.contains("dynamic_base_fov"))
-    {
-        goal.dynamicPerspectiveState.baseFov = entry["dynamic_base_fov"].get<float>();
-        goal.hasDynamicPerspectiveState = true;
-    }
-    if (entry.contains("dynamic_reference_distance"))
-    {
-        goal.dynamicPerspectiveState.referenceDistance = entry["dynamic_reference_distance"].get<float>();
-        goal.hasDynamicPerspectiveState = true;
-    }
-}
-
-void deserializePresetJson(const json_t& entry, nbl::core::CCameraPreset& preset)
-{
-    preset = {};
-    if (entry.contains("name"))
-        preset.name = entry["name"].get<std::string>();
-    if (entry.contains("identifier"))
-        preset.identifier = entry["identifier"].get<std::string>();
-
-    nbl::core::CCameraGoal goal;
-    deserializeGoalJson(entry, goal);
-    nbl::core::assignGoalToPreset(preset, goal);
-}
 
 bool tryParseCaptureFractionJson(const json_t& entry, float& outFraction)
 {
@@ -318,7 +236,7 @@ bool deserializeSequenceKeyframeJson(const json_t& root, nbl::core::CCameraSeque
 
     if (root.contains("preset"))
     {
-        deserializePresetJson(root["preset"], out.absolutePreset);
+        nbl::system::deserializePresetJson(root["preset"], out.absolutePreset);
         out.hasAbsolutePreset = true;
     }
     else if (root.contains("position") || root.contains("orientation") || root.contains("target_position") ||
@@ -326,7 +244,7 @@ bool deserializeSequenceKeyframeJson(const json_t& root, nbl::core::CCameraSeque
         root.contains("orbit_distance") || root.contains("path_angle") || root.contains("path_radius") ||
         root.contains("path_height") || root.contains("dynamic_base_fov") || root.contains("dynamic_reference_distance"))
     {
-        deserializePresetJson(root, out.absolutePreset);
+        nbl::system::deserializePresetJson(root, out.absolutePreset);
         out.hasAbsolutePreset = true;
     }
 
@@ -1151,17 +1069,19 @@ bool readCameraSequenceScript(std::istream& in, core::CCameraSequenceScript& out
     return deserializeCameraSequenceScriptJson(root, out, error);
 }
 
-bool loadCameraSequenceScriptFromFile(const path& filePath, core::CCameraSequenceScript& out, std::string* error)
+bool readCameraSequenceScript(std::string_view text, core::CCameraSequenceScript& out, std::string* error)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
-    if (!in.is_open())
-    {
-        if (error)
-            *error = "Cannot open camera sequence script file.";
-        return false;
-    }
+    std::istringstream stream{std::string(text)};
+    return readCameraSequenceScript(stream, out, error);
+}
 
-    return readCameraSequenceScript(in, out, error);
+bool loadCameraSequenceScriptFromFile(ISystem& system, const path& filePath, core::CCameraSequenceScript& out, std::string* error)
+{
+    std::string text;
+    if (!readTextFile(system, filePath, text, error, "Cannot open camera sequence script file."))
+        return false;
+
+    return readCameraSequenceScript(text, out, error);
 }
 
 bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& out, std::string* error)
@@ -1222,17 +1142,19 @@ bool readCameraScriptedInput(std::istream& in, CCameraScriptedInputParseResult& 
     return true;
 }
 
-bool loadCameraScriptedInputFromFile(const path& filePath, CCameraScriptedInputParseResult& out, std::string* error)
+bool readCameraScriptedInput(std::string_view text, CCameraScriptedInputParseResult& out, std::string* error)
 {
-    std::ifstream in(filePath.string(), std::ios::binary);
-    if (!in.is_open())
-    {
-        if (error)
-            *error = "Cannot open scripted input file.";
-        return false;
-    }
+    std::istringstream stream{std::string(text)};
+    return readCameraScriptedInput(stream, out, error);
+}
 
-    return readCameraScriptedInput(in, out, error);
+bool loadCameraScriptedInputFromFile(ISystem& system, const path& filePath, CCameraScriptedInputParseResult& out, std::string* error)
+{
+    std::string text;
+    if (!readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
+        return false;
+
+    return readCameraScriptedInput(text, out, error);
 }
 
 } // namespace nbl::system

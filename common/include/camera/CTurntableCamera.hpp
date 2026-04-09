@@ -56,7 +56,7 @@ public:
 private:
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = hlsl::numbers::pi<double> * (89.0 / 180.0);
+    static inline constexpr double MaxPitch = SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad;
     static inline constexpr double MinPitch = -MaxPitch;
 };
 

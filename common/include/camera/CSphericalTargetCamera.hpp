@@ -2,7 +2,7 @@
 #define _C_SPHERICAL_TARGET_CAMERA_HPP_
 
 #include <algorithm>
-#include "ICamera.hpp"
+#include "CCameraTargetRelativeUtilities.hpp"
 
 namespace nbl::core
 {
@@ -18,7 +18,7 @@ public:
     using base_t = ICamera;
 
     CSphericalTargetCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
-        : base_t(), m_targetPosition(target), m_distance(1.0f),
+        : base_t(), m_targetPosition(target), m_distance(SCameraTargetRelativeRigDefaults::InitialDistance),
           m_gimbal({ .position = position, .orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>() })
     {
         initFromPosition(position);
@@ -80,52 +80,26 @@ public:
     }
 
 protected:
-    struct SphericalBasis
-    {
-        hlsl::float64_t3 localSpherePosition = hlsl::float64_t3(0.0);
-        hlsl::float64_t3 right = hlsl::float64_t3(1.0, 0.0, 0.0);
-        hlsl::float64_t3 up = hlsl::float64_t3(0.0, 0.0, 1.0);
-        hlsl::float64_t3 forward = hlsl::float64_t3(0.0, 1.0, 0.0);
-    };
+    using SphericalBasis = SCameraTargetRelativeBasis;
 
     inline SphericalBasis computeBasis(double orbitU, double orbitV, float distance) const
     {
         SphericalBasis basis;
-        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
-        if (!hlsl::tryBuildSphericalPoseFromOrbit(
-                m_targetPosition,
-                orbitU,
-                orbitV,
-                static_cast<hlsl::float64_t>(distance),
-                static_cast<hlsl::float64_t>(MinDistance),
-                static_cast<hlsl::float64_t>(MaxDistance),
-                position,
-                orientation))
-        {
+        const SCameraTargetRelativeState state = {
+            .target = m_targetPosition,
+            .orbitU = orbitU,
+            .orbitV = orbitV,
+            .distance = distance
+        };
+        if (!tryBuildTargetRelativeBasis(state, MinDistance, MaxDistance, basis))
             return basis;
-        }
-
-        basis.localSpherePosition = position - m_targetPosition;
-        basis.right = orientation.transformVector(hlsl::float64_t3(1.0, 0.0, 0.0), true);
-        basis.up = orientation.transformVector(hlsl::float64_t3(0.0, 1.0, 0.0), true);
-        basis.forward = orientation.transformVector(hlsl::float64_t3(0.0, 0.0, 1.0), true);
         return basis;
     }
 
     inline void initFromPosition(const hlsl::float64_t3& position)
     {
-        double orbitU = 0.0;
-        double orbitV = 0.0;
-        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(MinDistance);
-        if (!hlsl::tryBuildOrbitFromPosition(
-                m_targetPosition,
-                position,
-                static_cast<hlsl::float64_t>(MinDistance),
-                static_cast<hlsl::float64_t>(MaxDistance),
-                orbitU,
-                orbitV,
-                appliedDistance))
+        SCameraTargetRelativeState state = {};
+        if (!tryBuildTargetRelativeStateFromPosition(m_targetPosition, position, MinDistance, MaxDistance, state))
         {
             m_distance = MinDistance;
             m_u = 0.0;
@@ -133,35 +107,40 @@ protected:
             return;
         }
 
-        m_distance = static_cast<float>(appliedDistance);
-        m_u = orbitU;
-        m_v = orbitV;
+        m_distance = state.distance;
+        m_u = state.orbitU;
+        m_v = state.orbitV;
+    }
+
+    inline void applyPlanarTargetTranslation(const hlsl::float64_t3& deltaTranslation, const SphericalBasis& basis)
+    {
+        if (!hlsl::hasPlanarDeltaXY(deltaTranslation, static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon)))
+            return;
+
+        m_targetPosition += hlsl::transformLocalVectorToWorldBasis(
+            hlsl::float64_t3(deltaTranslation.x, deltaTranslation.y, 0.0),
+            basis.right,
+            basis.up,
+            basis.forward);
     }
 
     inline bool applyPose()
     {
-        hlsl::float64_t3 newPosition = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> newOrientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
-        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(m_distance);
-        if (!hlsl::tryBuildSphericalPoseFromOrbit(
-                m_targetPosition,
-                m_u,
-                m_v,
-                static_cast<hlsl::float64_t>(m_distance),
-                static_cast<hlsl::float64_t>(MinDistance),
-                static_cast<hlsl::float64_t>(MaxDistance),
-                newPosition,
-                newOrientation,
-                &appliedDistance))
-        {
+        const SCameraTargetRelativeState state = {
+            .target = m_targetPosition,
+            .orbitU = m_u,
+            .orbitV = m_v,
+            .distance = m_distance
+        };
+        SCameraTargetRelativePose pose = {};
+        if (!tryBuildTargetRelativePoseFromState(state, MinDistance, MaxDistance, pose))
             return false;
-        }
-        m_distance = static_cast<float>(appliedDistance);
+        m_distance = static_cast<float>(pose.appliedDistance);
 
         m_gimbal.begin();
         {
-            m_gimbal.setPosition(newPosition);
-            m_gimbal.setOrientation(newOrientation);
+            m_gimbal.setPosition(pose.position);
+            m_gimbal.setOrientation(pose.orientation);
         }
         m_gimbal.end();
 

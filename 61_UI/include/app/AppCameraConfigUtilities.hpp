@@ -1,166 +1,105 @@
-﻿#ifndef _APP_CAMERA_CONFIG_UTILITIES_HPP_
+#ifndef _APP_CAMERA_CONFIG_UTILITIES_HPP_
 #define _APP_CAMERA_CONFIG_UTILITIES_HPP_
 
-#include <array>
+#include <span>
 #include <string>
+#include <optional>
 #include <vector>
 
 #include "app/AppResourceUtilities.hpp"
-#include "camera/CArcballCamera.hpp"
-#include "camera/CChaseCamera.hpp"
-#include "camera/CDollyCamera.hpp"
-#include "camera/CDollyZoomCamera.hpp"
-#include "camera/CFPSCamera.hpp"
-#include "camera/CFreeLockCamera.hpp"
-#include "camera/CIsometricCamera.hpp"
-#include "camera/COrbitCamera.hpp"
-#include "camera/CPathCamera.hpp"
-#include "camera/CTopDownCamera.hpp"
-#include "camera/CTurntableCamera.hpp"
+#include "app/AppTypes.hpp"
 
 namespace nbl::system
 {
 
-struct SCameraConfigFactoryMotionScales final
+struct SCameraInputBindingCollections final
 {
-    static constexpr double DefaultMove = core::ICamera::DefaultMoveSpeedScale;
-    static constexpr double DefaultRotate = core::ICamera::DefaultRotationSpeedScale;
-    static constexpr double TargetRigMove = 0.5;
+    std::vector<ui::IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
+    std::vector<ui::IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
 };
 
-inline void initializeCameraMotionConfig(core::ICamera& camera, const double moveScale, const double rotationScale)
+struct SCameraViewportBindingSelection final
 {
-    camera.setMotionScales(moveScale, rotationScale);
-}
+    std::optional<uint32_t> keyboard = std::nullopt;
+    std::optional<uint32_t> mouse = std::nullopt;
+};
 
-inline bool tryCreateCameraFromJson(
-    const camera_json_t& jCamera,
-    std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera)
+struct SCameraViewportConfig final
 {
-    if (!jCamera.contains("type"))
-    {
-        error = "Camera entry missing \"type\".";
-        return false;
-    }
+    uint32_t projectionIx = 0u;
+    SCameraViewportBindingSelection bindings = {};
+};
 
-    if (!jCamera.contains("position"))
-    {
-        error = "Camera entry missing \"position\".";
-        return false;
-    }
-
-    const std::string type = jCamera["type"].get<std::string>();
-    const bool withOrientation = jCamera.contains("orientation");
-    const bool withTarget = jCamera.contains("target");
-
-    const auto position = [&]()
-    {
-        const auto value = jCamera["position"].get<std::array<float, 3>>();
-        return hlsl::float64_t3(value[0], value[1], value[2]);
-    }();
-
-    const auto getOrientation = [&]()
-    {
-        const auto value = jCamera["orientation"].get<std::array<float, 4>>();
-        return hlsl::makeQuaternionFromComponents<hlsl::float64_t>(value[0], value[1], value[2], value[3]);
-    };
-
-    const auto getTarget = [&]()
-    {
-        const auto value = jCamera["target"].get<std::array<float, 3>>();
-        return hlsl::float64_t3(value[0], value[1], value[2]);
-    };
-
-    const auto finalize = [&](auto&& camera, const double moveScale, const double rotationScale)
-    {
-        initializeCameraMotionConfig(*camera, moveScale, rotationScale);
-        outCamera = std::move(camera);
-        return true;
-    };
-
-    if (type == "FPS")
-    {
-        if (!withOrientation)
-        {
-            error = "FPS camera requires \"orientation\".";
-            return false;
-        }
-        return finalize(core::make_smart_refctd_ptr<core::CFPSCamera>(position, getOrientation()), SCameraConfigFactoryMotionScales::DefaultMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    }
-
-    if (type == "Free")
-    {
-        if (!withOrientation)
-        {
-            error = "Free camera requires \"orientation\".";
-            return false;
-        }
-        return finalize(core::make_smart_refctd_ptr<core::CFreeCamera>(position, getOrientation()), SCameraConfigFactoryMotionScales::DefaultMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    }
-
-    if (!withTarget)
-    {
-        error = "Camera type \"" + type + "\" requires \"target\".";
-        return false;
-    }
-
-    if (type == "Orbit")
-        return finalize(core::make_smart_refctd_ptr<core::COrbitCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Arcball")
-        return finalize(core::make_smart_refctd_ptr<core::CArcballCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Turntable")
-        return finalize(core::make_smart_refctd_ptr<core::CTurntableCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "TopDown")
-        return finalize(core::make_smart_refctd_ptr<core::CTopDownCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Isometric")
-        return finalize(core::make_smart_refctd_ptr<core::CIsometricCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Chase")
-        return finalize(core::make_smart_refctd_ptr<core::CChaseCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Dolly")
-        return finalize(core::make_smart_refctd_ptr<core::CDollyCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "Path")
-        return finalize(core::make_smart_refctd_ptr<core::CPathCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    if (type == "DollyZoom")
-    {
-        if (jCamera.contains("baseFov"))
-            return finalize(core::make_smart_refctd_ptr<core::CDollyZoomCamera>(position, getTarget(), jCamera["baseFov"].get<float>()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-        return finalize(core::make_smart_refctd_ptr<core::CDollyZoomCamera>(position, getTarget()), SCameraConfigFactoryMotionScales::TargetRigMove, SCameraConfigFactoryMotionScales::DefaultRotate);
-    }
-
-    error = "Unsupported camera type \"" + type + "\".";
-    return false;
-}
-
-inline bool tryLoadCameraCollectionFromJson(
-    const camera_json_t& json,
-    std::string& error,
-    std::vector<core::smart_refctd_ptr<core::ICamera>>& outCameras)
+struct SCameraPlanarConfig final
 {
-    outCameras.clear();
-    if (!json.contains("cameras") || !json["cameras"].is_array())
-    {
-        error = "Missing \"cameras\" array in config.";
-        return false;
-    }
+    uint32_t cameraIx = 0u;
+    std::vector<uint32_t> viewportIxs = {};
+};
 
-    outCameras.reserve(json["cameras"].size());
-    for (const auto& jCamera : json["cameras"])
-    {
-        core::smart_refctd_ptr<core::ICamera> camera;
-        if (!tryCreateCameraFromJson(jCamera, error, camera))
-            return false;
-        outCameras.emplace_back(std::move(camera));
-    }
+struct SCameraPlanarConfigCollections final
+{
+    std::vector<SCameraViewportConfig> viewports = {};
+    std::vector<SCameraPlanarConfig> planars = {};
 
-    if (outCameras.empty())
+    inline bool valid() const
     {
-        error = "No cameras defined.";
-        return false;
+        return !planars.empty();
     }
+};
 
-    return true;
-}
+struct SCameraConfigCollections final
+{
+    std::string embeddedScriptedInputText = {};
+    std::vector<core::smart_refctd_ptr<core::ICamera>> cameras = {};
+    std::vector<core::IPlanarProjection::CProjection> projections = {};
+    SCameraInputBindingCollections bindings = {};
+    SCameraPlanarConfigCollections planarConfig = {};
+
+    inline bool hasEmbeddedScriptedInputText() const
+    {
+        return !embeddedScriptedInputText.empty();
+    }
+};
+
+struct SCameraPlanarRuntimeBootstrap final
+{
+    SCameraConfigLoadResult loadResult = {};
+    SCameraConfigCollections collections = {};
+    std::vector<core::smart_refctd_ptr<planar_projection_t>> planars = {};
+};
+
+bool tryLoadCameraConfigCollections(
+    const SCameraAppResourceContext& context,
+    const SCameraConfigLoadRequest& request,
+    SCameraConfigLoadResult& outLoadResult,
+    SCameraConfigCollections& outCollections,
+    std::string* error = nullptr);
+
+bool tryBuildCameraConfigCollections(
+    const std::string_view text,
+    SCameraConfigCollections& outCollections,
+    std::string& error);
+
+bool tryBuildCameraPlanarRuntime(
+    const SCameraConfigCollections& collections,
+    std::vector<core::smart_refctd_ptr<planar_projection_t>>& outPlanars,
+    std::string& error);
+
+bool tryBuildCameraPlanarRuntimeBootstrap(
+    const SCameraAppResourceContext& context,
+    const SCameraConfigLoadRequest& request,
+    SCameraPlanarRuntimeBootstrap& outBootstrap,
+    std::string* error = nullptr);
+
+bool tryGetEmbeddedCameraScriptedInputText(
+    const SCameraConfigCollections& collections,
+    std::string& outText);
+
+bool tryCaptureInitialPlanarPresets(
+    const core::CCameraGoalSolver& goalSolver,
+    std::span<const core::smart_refctd_ptr<planar_projection_t>> planars,
+    std::vector<core::CCameraPreset>& outPresets,
+    std::string& outError);
 
 } // namespace nbl::system
 

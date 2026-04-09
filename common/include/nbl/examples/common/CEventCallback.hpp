@@ -2,14 +2,14 @@
 #define _NBL_EXAMPLES_COMMON_C_EVENT_CALLBACK_HPP_INCLUDED_
 
 
-#include "nbl/video/utilities/CSimpleResizeSurface.h"
+#include "nbl/video/utilities/CSmoothResizeSurface.h"
 
 #include "nbl/examples/common/InputSystem.hpp"
 
 
 namespace nbl::examples
 {
-class CEventCallback : public nbl::video::ISimpleManagedSurface::ICallback
+class CEventCallback : public nbl::video::ISmoothResizeSurface::ICallback
 {
 	public:
 		CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}

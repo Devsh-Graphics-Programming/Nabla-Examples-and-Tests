@@ -6,8 +6,9 @@
 #define _C_CAMERA_SCRIPT_VISUAL_DEBUG_OVERLAY_UTILITIES_HPP_
 
 #include <algorithm>
-#include <cstdio>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -33,6 +34,7 @@ struct SCameraScriptVisualDebugOverlayData final
 //! Shared camera/debug state used to format one scripted visual debug HUD payload.
 struct SCameraScriptVisualDebugStatus final
 {
+    static constexpr float DefaultTargetFps = 60.0f;
     std::string_view title = "SCRIPT VISUAL DEBUG";
     std::string_view cameraLabel = "Unknown";
     std::string_view cameraHint = "Unspecified camera behavior";
@@ -42,7 +44,7 @@ struct SCameraScriptVisualDebugStatus final
     bool hasHoldFrames = false;
     uint64_t progressFrames = 0u;
     uint64_t holdFrames = 0u;
-    float targetFps = 60.0f;
+    float targetFps = DefaultTargetFps;
     uint64_t absoluteFrame = 0u;
     std::string_view segmentLabel = {};
     bool hasDynamicFov = false;
@@ -135,64 +137,57 @@ inline void drawScriptVisualDebugOverlay(
     drawList->AddText(font, style.hintSize, ImVec2(hintX, hintY), style.hintColor, data.hintLine.c_str());
 }
 
+inline std::string formatFixedScalar(const float value, const int precision)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(precision) << value;
+    return oss.str();
+}
+
+inline std::string buildScriptVisualDebugProgressLine(const SCameraScriptVisualDebugStatus& status)
+{
+    if (status.hasHoldFrames)
+    {
+        const float safeFps = std::max(status.targetFps, 1.0f);
+        const double elapsedSeconds = static_cast<double>(status.progressFrames) / static_cast<double>(safeFps);
+        const double holdSeconds = static_cast<double>(status.holdFrames) / static_cast<double>(safeFps);
+
+        std::ostringstream oss;
+        oss << "Planar " << status.planarIndex
+            << "  Segment " << std::fixed << std::setprecision(1)
+            << elapsedSeconds << "/" << holdSeconds
+            << " s  Frame " << status.progressFrames << "/" << status.holdFrames;
+        return oss.str();
+    }
+
+    std::ostringstream oss;
+    oss << "Planar " << status.planarIndex << "  Frame " << status.absoluteFrame;
+    return oss.str();
+}
+
 //! Build the display strings for one scripted visual debug HUD snapshot.
 inline SCameraScriptVisualDebugOverlayData buildScriptVisualDebugOverlayData(const SCameraScriptVisualDebugStatus& status)
 {
     SCameraScriptVisualDebugOverlayData out = {};
     out.title = std::string(status.title);
     out.headline = "Camera " + std::to_string(status.cameraIndex + 1u) + "/" + std::to_string(status.cameraCount) + "  " + std::string(status.cameraLabel);
-
-    char progressBuffer[256] = {};
-    if (status.hasHoldFrames)
-    {
-        const float safeFps = std::max(status.targetFps, 1.0f);
-        const double elapsedSeconds = static_cast<double>(status.progressFrames) / static_cast<double>(safeFps);
-        const double holdSeconds = static_cast<double>(status.holdFrames) / static_cast<double>(safeFps);
-        std::snprintf(
-            progressBuffer,
-            sizeof(progressBuffer),
-            "Planar %u  Segment %.1f/%.1f s  Frame %llu/%llu",
-            status.planarIndex,
-            elapsedSeconds,
-            holdSeconds,
-            static_cast<unsigned long long>(status.progressFrames),
-            static_cast<unsigned long long>(status.holdFrames));
-    }
-    else
-    {
-        std::snprintf(
-            progressBuffer,
-            sizeof(progressBuffer),
-            "Planar %u  Frame %llu",
-            status.planarIndex,
-            static_cast<unsigned long long>(status.absoluteFrame));
-    }
-    out.progressLine = progressBuffer;
+    out.progressLine = buildScriptVisualDebugProgressLine(status);
     if (!status.segmentLabel.empty())
         out.progressLine += "  |  " + std::string(status.segmentLabel);
 
     out.hintLine = std::string(status.cameraHint);
     if (status.hasDynamicFov)
-    {
-        char fovBuffer[96] = {};
-        std::snprintf(fovBuffer, sizeof(fovBuffer), "  |  Dynamic FOV %.2f deg", status.dynamicFovDeg);
-        out.hintLine += fovBuffer;
-    }
+        out.hintLine += "  |  Dynamic FOV " + formatFixedScalar(status.dynamicFovDeg, 2) + " deg";
 
     if (status.followActive)
     {
         out.hintLine += "  |  " + std::string(status.followModeDescription);
         if (status.followLockValid)
         {
-            char followBuffer[192] = {};
-            std::snprintf(
-                followBuffer,
-                sizeof(followBuffer),
-                "  |  lock %.2f deg  |  target %.2f  |  center err %.3f",
-                status.followLockAngleDeg,
-                status.followTargetDistance,
-                status.followTargetCenterNdcRadius);
-            out.hintLine += followBuffer;
+            out.hintLine +=
+                "  |  lock " + formatFixedScalar(status.followLockAngleDeg, 2) +
+                " deg  |  target " + formatFixedScalar(status.followTargetDistance, 2) +
+                "  |  center err " + formatFixedScalar(status.followTargetCenterNdcRadius, 3);
         }
         else
         {

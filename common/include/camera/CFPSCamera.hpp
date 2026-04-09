@@ -12,10 +12,17 @@
 namespace nbl::core
 {
 
+//! Free-position camera that keeps the view upright and exposes only yaw/pitch rotation.
 class CFPSCamera final : public ICamera
 { 
 public:
     using base_t = ICamera;
+    struct SFpsCameraDefaults final
+    {
+        static inline constexpr float RollValidationEpsilonDeg = 1.e-4f;
+        static inline constexpr float StraightRollDeg = 0.0f;
+        static inline constexpr float InvertedRollDeg = 180.0f;
+    };
 
     CFPSCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
@@ -23,7 +30,7 @@ public:
         m_gimbal.begin();
         {
             const auto pitchYaw = hlsl::getPitchYawFromForwardVector(m_gimbal.getZAxis());
-            m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadians(hlsl::float64_t3(pitchYaw.x, pitchYaw.y, 0.0)));
+            m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(pitchYaw.x, pitchYaw.y, 0.0)));
         }
         m_gimbal.end();
     }
@@ -48,10 +55,12 @@ public:
             if (referenceFrame)
             {
                 const float roll = static_cast<float>(hlsl::degrees(hlsl::getQuaternionEulerRadiansYXZ(reference.orientation).z));
-                const float absRoll = std::abs(roll);
-                constexpr float epsilon = 1.e-4f;
+                const bool matchesStraightRoll =
+                    hlsl::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::StraightRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
+                const bool matchesInvertedRoll =
+                    hlsl::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::InvertedRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
 
-                if (not ((absRoll <= epsilon) || (std::abs(absRoll - 180.f) <= epsilon)))
+                if (!(matchesStraightRoll || matchesInvertedRoll))
                     return false;
             }
 
@@ -69,7 +78,7 @@ public:
             const float newYaw = static_cast<float>(pitchYaw.y + scaleVirtualRotation(impulse.dVirtualRotation.y));
 
             if (validateReference())
-                m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadians(hlsl::float64_t3(newPitch, newYaw, 0.0f)));
+                m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(newPitch, newYaw, 0.0f)));
             m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
@@ -102,7 +111,7 @@ private:
     typename base_t::CGimbal m_gimbal;
 
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr float MaxVerticalAngle = static_cast<float>(hlsl::numbers::pi<double> * (88.0 / 180.0));
+    static inline constexpr float MaxVerticalAngle = static_cast<float>(hlsl::SCameraViewRigDefaults::FpsVerticalPitchLimitRad);
     static inline constexpr float MinVerticalAngle = -MaxVerticalAngle;
 };
 

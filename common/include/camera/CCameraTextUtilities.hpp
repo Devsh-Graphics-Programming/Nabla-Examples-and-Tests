@@ -19,21 +19,7 @@ namespace nbl::ui
 //! Return a short human-readable label for a camera kind.
 inline std::string_view getCameraTypeLabel(const core::ICamera::CameraKind kind)
 {
-	switch (kind)
-	{
-		case core::ICamera::CameraKind::FPS: return "FPS";
-		case core::ICamera::CameraKind::Free: return "Free";
-		case core::ICamera::CameraKind::Orbit: return "Orbit";
-		case core::ICamera::CameraKind::Arcball: return "Arcball";
-		case core::ICamera::CameraKind::Turntable: return "Turntable";
-		case core::ICamera::CameraKind::TopDown: return "TopDown";
-		case core::ICamera::CameraKind::Isometric: return "Isometric";
-		case core::ICamera::CameraKind::Chase: return "Chase";
-		case core::ICamera::CameraKind::Dolly: return "Dolly";
-		case core::ICamera::CameraKind::DollyZoom: return "Dolly Zoom";
-		case core::ICamera::CameraKind::Path: return "Path";
-		default: return "Unknown";
-	}
+	return core::getCameraKindLabel(kind);
 }
 
 //! Return a short human-readable label for a concrete camera instance.
@@ -45,21 +31,7 @@ inline std::string_view getCameraTypeLabel(const core::ICamera* camera)
 //! Return a short human-readable description for a camera kind.
 inline std::string_view getCameraTypeDescription(const core::ICamera::CameraKind kind)
 {
-	switch (kind)
-	{
-		case core::ICamera::CameraKind::FPS: return "First-person WASD + mouse look";
-		case core::ICamera::CameraKind::Free: return "Free-fly 6DOF with full rotation";
-		case core::ICamera::CameraKind::Orbit: return "Orbit around target with dolly";
-		case core::ICamera::CameraKind::Arcball: return "Arcball trackball around target";
-		case core::ICamera::CameraKind::Turntable: return "Turntable yaw/pitch around target";
-		case core::ICamera::CameraKind::TopDown: return "Fixed pitch top-down pan";
-		case core::ICamera::CameraKind::Isometric: return "Fixed isometric view with pan";
-		case core::ICamera::CameraKind::Chase: return "Target follow with chase controls";
-		case core::ICamera::CameraKind::Dolly: return "Rig truck/dolly with look-at";
-		case core::ICamera::CameraKind::DollyZoom: return "Orbit with dolly-zoom FOV";
-		case core::ICamera::CameraKind::Path: return "Move along a target path";
-		default: return "Unspecified camera behavior";
-	}
+	return core::getCameraKindDescription(kind);
 }
 
 //! Return a short human-readable description for a concrete camera instance.
@@ -114,7 +86,7 @@ inline std::string describeGoalStateMask(const uint32_t mask)
 
 	append("Spherical target", core::ICamera::GoalStateSphericalTarget);
 	append("Dynamic perspective", core::ICamera::GoalStateDynamicPerspective);
-	append("Path", core::ICamera::GoalStatePath);
+	append("Path rig state", core::ICamera::GoalStatePath);
 	return out;
 }
 

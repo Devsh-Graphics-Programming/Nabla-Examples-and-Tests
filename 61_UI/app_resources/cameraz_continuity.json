@@ -524,7 +524,7 @@
     },
     {
       "name": "path_arc",
-      "camera_kind": "Path",
+      "camera_kind": "PathRig",
       "keyframes": [
         {
           "time": 0.0

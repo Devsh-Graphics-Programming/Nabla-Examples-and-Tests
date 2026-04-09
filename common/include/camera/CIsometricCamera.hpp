@@ -32,8 +32,7 @@ public:
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaPanX = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
-        const double deltaPanY = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
+        const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
         m_u = IsoYaw;
@@ -41,8 +40,7 @@ public:
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         const auto basis = computeBasis(m_u, m_v, m_distance);
-        if (deltaPanX != 0.0 || deltaPanY != 0.0)
-            m_targetPosition += basis.right * deltaPanX + basis.up * deltaPanY;
+        applyPlanarTargetTranslation(deltaTranslation, basis);
 
         return applyPose();
     }
@@ -53,8 +51,8 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
-    static inline constexpr double IsoYaw = hlsl::numbers::pi<double> * 0.25;
-    static inline constexpr double IsoPitch = hlsl::numbers::pi<double> * (35.264389682754654 / 180.0);
+    static inline constexpr double IsoYaw = SCameraTargetRelativeRigDefaults::IsometricYawRad;
+    static inline constexpr double IsoPitch = SCameraTargetRelativeRigDefaults::IsometricPitchRad;
 };
 
 }

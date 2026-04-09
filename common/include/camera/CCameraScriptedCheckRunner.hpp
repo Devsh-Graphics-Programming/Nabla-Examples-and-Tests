@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -51,7 +52,7 @@ struct CCameraScriptedCheckContext
     uint32_t imguizmoVirtualCount = 0u;
     const core::CTrackedTarget* trackedTarget = nullptr;
     const core::SCameraFollowConfig* followConfig = nullptr;
-    const hlsl::float32_t4x4* followViewProjMatrix = nullptr;
+    const SCameraProjectionContext* followProjectionContext = nullptr;
     const core::CCameraGoalSolver* goalSolver = nullptr;
 };
 
@@ -90,13 +91,19 @@ inline void scriptedCheckSetBaselineReference(
     scriptedCheckSetStepReference(state, position, orientation);
 }
 
-inline float scriptedCheckComputeRotationDeltaDegrees(
+inline bool scriptedCheckComputePoseDelta(
+    const hlsl::float64_t3& currentPosition,
     const hlsl::camera_quaternion_t<hlsl::float64_t>& currentOrientation,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation)
+    const hlsl::float64_t3& referencePosition,
+    const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation,
+    hlsl::SCameraPoseDelta<hlsl::float64_t>& outDelta)
 {
-    return static_cast<float>(hlsl::getQuaternionAngularDistanceDegrees(
-        hlsl::normalizeQuaternion(currentOrientation),
-        hlsl::normalizeQuaternion(referenceOrientation)));
+    return hlsl::tryComputePoseDelta(
+        currentPosition,
+        currentOrientation,
+        referencePosition,
+        referenceOrientation,
+        outDelta);
 }
 
 template<typename Fn>
@@ -147,7 +154,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
         const auto& gimbal = context.camera->getGimbal();
         const auto pos = gimbal.getPosition();
         const auto orientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getQuaternionEulerDegrees(orientation));
+        const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getCameraOrientationEulerDegrees(orientation));
 
         if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteQuaternion(orientation) || !hlsl::isFiniteVec3(eulerDeg))
         {
@@ -202,7 +209,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             }
                         }
 
-                        if (!found || std::abs(actual - expected.magnitude) > check.tolerance)
+                        if (!found || hlsl::abs(actual - expected.magnitude) > check.tolerance)
                         {
                             ok = false;
                             appendScriptedCheckLog(
@@ -239,8 +246,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 bool ok = true;
                 if (check.hasExpectedPos)
                 {
-                    const hlsl::float64_t3 diff = pos - hlsl::getCastedVector<hlsl::float64_t>(check.expectedPos);
-                    const double distance = hlsl::length(diff);
+                    const double distance = hlsl::length(pos - hlsl::getCastedVector<hlsl::float64_t>(check.expectedPos));
                     if (distance > check.posTolerance)
                     {
                         ok = false;
@@ -258,9 +264,12 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 }
                 if (check.hasExpectedEuler)
                 {
-                    const auto expectedOrientation = hlsl::makeQuaternionFromEulerDegrees(
+                    const auto expectedOrientation = hlsl::makeQuaternionFromEulerDegreesYXZ(
                         hlsl::getCastedVector<hlsl::float64_t>(check.expectedEulerDeg));
-                    const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, expectedOrientation);
+                    hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
+                    if (!scriptedCheckComputePoseDelta(pos, orientation, pos, expectedOrientation, poseDelta))
+                        poseDelta.rotationDeg = std::numeric_limits<hlsl::float64_t>::infinity();
+                    const auto rotationDeltaDeg = poseDelta.rotationDeg;
                     if (rotationDeltaDeg > check.eulerToleranceDeg)
                     {
                         ok = false;
@@ -303,11 +312,20 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     break;
                 }
 
-                const hlsl::float64_t3 diff = pos - state.baseline.position;
-                const double dpos = hlsl::length(diff);
-                const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, state.baseline.orientation);
+                hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
+                if (!scriptedCheckComputePoseDelta(pos, orientation, state.baseline.position, state.baseline.orientation, poseDelta))
+                {
+                    appendScriptedCheckLog(
+                        result,
+                        true,
+                        buildScriptedCheckMessage([&](std::ostringstream& oss)
+                        {
+                            oss << "[script][fail] gimbal_delta frame=" << context.frame << " non-finite pose delta";
+                        }));
+                    break;
+                }
 
-                if (dpos > check.posTolerance || rotationDeltaDeg > check.eulerToleranceDeg)
+                if (poseDelta.position > check.posTolerance || poseDelta.rotationDeg > check.eulerToleranceDeg)
                 {
                     appendScriptedCheckLog(
                         result,
@@ -316,9 +334,9 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         {
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][fail] gimbal_delta frame=" << context.frame
-                                << " pos_diff=" << dpos
+                                << " pos_diff=" << poseDelta.position
                                 << " tol=" << check.posTolerance
-                                << " rot_delta_deg=" << rotationDeltaDeg
+                                << " rot_delta_deg=" << poseDelta.rotationDeg
                                 << " tol=" << check.eulerToleranceDeg;
                         }));
                 }
@@ -331,8 +349,8 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         {
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][pass] gimbal_delta frame=" << context.frame
-                                << " pos_diff=" << dpos
-                                << " rot_delta_deg=" << rotationDeltaDeg;
+                                << " pos_diff=" << poseDelta.position
+                                << " rot_delta_deg=" << poseDelta.rotationDeg;
                         }));
                 }
                 break;
@@ -360,16 +378,26 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                     }
                 }
 
-                const hlsl::float64_t3 diff = pos - state.step.position;
-                const double dpos = hlsl::length(diff);
-                const auto rotationDeltaDeg = scriptedCheckComputeRotationDeltaDegrees(orientation, state.step.orientation);
+                hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
+                if (!scriptedCheckComputePoseDelta(pos, orientation, state.step.position, state.step.orientation, poseDelta))
+                {
+                    appendScriptedCheckLog(
+                        result,
+                        true,
+                        buildScriptedCheckMessage([&](std::ostringstream& oss)
+                        {
+                            oss << "[script][fail] gimbal_step frame=" << context.frame << " non-finite pose delta";
+                        }));
+                    scriptedCheckSetStepReference(state, pos, orientation);
+                    break;
+                }
 
                 bool ok = true;
                 bool requiresProgress = false;
                 bool hasProgress = false;
                 if (check.hasPosDeltaConstraint)
                 {
-                    if (dpos > check.posTolerance)
+                    if (poseDelta.position > check.posTolerance)
                     {
                         ok = false;
                         appendScriptedCheckLog(
@@ -377,21 +405,21 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             true,
                             buildScriptedCheckMessage([&](std::ostringstream& oss)
                             {
-                                oss << std::fixed << std::setprecision(6);
-                                oss << "[script][fail] gimbal_step frame=" << context.frame
-                                    << " pos_delta=" << dpos
+                            oss << std::fixed << std::setprecision(6);
+                            oss << "[script][fail] gimbal_step frame=" << context.frame
+                                    << " pos_delta=" << poseDelta.position
                                     << " max=" << check.posTolerance;
                             }));
                     }
                     if (check.minPosDelta > 0.0f)
                     {
                         requiresProgress = true;
-                        hasProgress = hasProgress || dpos >= check.minPosDelta;
+                        hasProgress = hasProgress || poseDelta.position >= check.minPosDelta;
                     }
                 }
                 if (check.hasEulerDeltaConstraint)
                 {
-                    if (rotationDeltaDeg > check.eulerToleranceDeg)
+                    if (poseDelta.rotationDeg > check.eulerToleranceDeg)
                     {
                         ok = false;
                         appendScriptedCheckLog(
@@ -399,16 +427,16 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             true,
                             buildScriptedCheckMessage([&](std::ostringstream& oss)
                             {
-                                oss << std::fixed << std::setprecision(6);
-                                oss << "[script][fail] gimbal_step frame=" << context.frame
-                                    << " rot_delta_deg=" << rotationDeltaDeg
+                            oss << std::fixed << std::setprecision(6);
+                            oss << "[script][fail] gimbal_step frame=" << context.frame
+                                    << " rot_delta_deg=" << poseDelta.rotationDeg
                                     << " max=" << check.eulerToleranceDeg;
                             }));
                     }
                     if (check.minEulerDeltaDeg > 0.0f)
                     {
                         requiresProgress = true;
-                        hasProgress = hasProgress || rotationDeltaDeg >= check.minEulerDeltaDeg;
+                        hasProgress = hasProgress || poseDelta.rotationDeg >= check.minEulerDeltaDeg;
                     }
                 }
                 if (requiresProgress && !hasProgress)
@@ -421,8 +449,8 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         {
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][fail] gimbal_step frame=" << context.frame
-                                << " missing progress pos_delta=" << dpos
-                                << " rot_delta_deg=" << rotationDeltaDeg;
+                                << " missing progress pos_delta=" << poseDelta.position
+                                << " rot_delta_deg=" << poseDelta.rotationDeg;
                         }));
                 }
 
@@ -435,8 +463,8 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         {
                             oss << std::fixed << std::setprecision(6);
                             oss << "[script][pass] gimbal_step frame=" << context.frame
-                                << " pos_delta=" << dpos
-                                << " rot_delta_deg=" << rotationDeltaDeg;
+                                << " pos_delta=" << poseDelta.position
+                                << " rot_delta_deg=" << poseDelta.rotationDeg;
                         }));
                 }
                 scriptedCheckSetStepReference(state, pos, orientation);
@@ -481,9 +509,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 SCameraFollowRegressionResult regression = {};
                 std::string regressionError;
                 core::CCameraGoal expectedFollowGoal = {};
-                SCameraFollowRegressionThresholds thresholds = {};
-                thresholds.lockAngleToleranceDeg = check.eulerToleranceDeg;
-                thresholds.projectedNdcTolerance = check.posTolerance;
+                const auto thresholds = makeFollowRegressionThresholds(check.posTolerance, check.eulerToleranceDeg);
                 const bool ok = core::tryBuildFollowGoal(
                         *context.goalSolver,
                         context.camera,
@@ -497,7 +523,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                         expectedFollowGoal,
                         regression,
                         &regressionError,
-                        context.followViewProjMatrix,
+                        context.followProjectionContext,
                         thresholds);
 
                 if (!ok)
@@ -522,7 +548,7 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                             oss << "[script][pass] follow_lock frame=" << context.frame
                                 << " angle_deg=" << regression.lockAngleDeg
                                 << " target_distance=" << regression.targetDistance
-                                << " screen_ndc=" << regression.projectedNdcRadius;
+                                << " screen_ndc=" << regression.projectedTarget.radius;
                         }));
                 }
                 break;

@@ -12,6 +12,12 @@
 namespace nbl::system
 {
 
+struct SCameraProjectedTargetMetrics final
+{
+    hlsl::float32_t2 ndc = hlsl::float32_t2(0.0f);
+    float radius = 0.0f;
+};
+
 /**
 * Reusable follow-contract validation helpers.
 *
@@ -29,9 +35,7 @@ struct SCameraFollowRegressionResult
     float lockAngleDeg = 0.0f;
     double targetDistance = 0.0;
     bool hasProjectedMetrics = false;
-    float projectedNdcX = 0.0f;
-    float projectedNdcY = 0.0f;
-    float projectedNdcRadius = 0.0f;
+    SCameraProjectedTargetMetrics projectedTarget = {};
     bool hasSphericalState = false;
     hlsl::float64_t3 sphericalTarget = hlsl::float64_t3(0.0);
     float sphericalDistance = 0.0f;
@@ -46,9 +50,14 @@ struct SCameraFollowVisualMetrics
     float lockAngleDeg = 0.0f;
     float targetDistance = 0.0f;
     bool projectedValid = false;
-    float projectedNdcX = 0.0f;
-    float projectedNdcY = 0.0f;
-    float projectedNdcRadius = 0.0f;
+    SCameraProjectedTargetMetrics projectedTarget = {};
+};
+
+//! Shared view/projection bundle for CPU-side projected target metrics.
+struct SCameraProjectionContext
+{
+    hlsl::float32_t4x4 viewMatrix = hlsl::float32_t4x4(1.0f);
+    hlsl::float32_t4x4 projectionMatrix = hlsl::float32_t4x4(1.0f);
 };
 
 //! Shared tolerances for follow target lock, writeback, and projected-center checks.
@@ -73,6 +82,16 @@ struct SCameraFollowRegressionThresholds
     double scalarTolerance = DefaultScalarTolerance;
 };
 
+inline SCameraFollowRegressionThresholds makeFollowRegressionThresholds(
+    const float projectedNdcTolerance = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance,
+    const float lockAngleToleranceDeg = SCameraFollowRegressionThresholds::DefaultLockAngleToleranceDeg)
+{
+    auto thresholds = SCameraFollowRegressionThresholds{};
+    thresholds.projectedNdcTolerance = projectedNdcTolerance;
+    thresholds.lockAngleToleranceDeg = lockAngleToleranceDeg;
+    return thresholds;
+}
+
 //! Bundled reusable follow regression flow.
 //! The helper builds a follow goal, applies it, verifies the resulting camera state,
 //! and then checks the lock/writeback follow contract.
@@ -87,56 +106,53 @@ struct SCameraFollowApplyValidationResult
 };
 
 inline bool tryComputeProjectedFollowTargetMetrics(
-    const hlsl::float32_t4x4& viewProjMatrix,
+    const SCameraProjectionContext& projectionContext,
     const core::CTrackedTarget& trackedTarget,
-    float& outNdcX,
-    float& outNdcY,
-    float* outNdcRadius = nullptr,
+    SCameraProjectedTargetMetrics& outMetrics,
     const float clipWEpsilon = SCameraFollowRegressionThresholds::DefaultClipWEpsilon)
 {
+    outMetrics = {};
     const auto target = hlsl::getCastedVector<hlsl::float32_t>(trackedTarget.getGimbal().getPosition());
-    const auto clip = hlsl::mul(viewProjMatrix, hlsl::float32_t4(target.x, target.y, target.z, 1.0f));
-    if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w))
+    const auto viewSpace = hlsl::mul(projectionContext.viewMatrix, hlsl::float32_t4(target.x, target.y, target.z, 1.0f));
+    const auto clipProjection = hlsl::transpose(projectionContext.projectionMatrix);
+    const auto clip = hlsl::mul(clipProjection, viewSpace);
+    if (!hlsl::isFiniteScalar(clip.x) || !hlsl::isFiniteScalar(clip.y) || !hlsl::isFiniteScalar(clip.z) || !hlsl::isFiniteScalar(clip.w))
         return false;
 
-    const auto absW = std::abs(clip.w);
+    const auto absW = hlsl::abs(clip.w);
     if (absW < clipWEpsilon)
         return false;
 
     const float invW = 1.0f / clip.w;
-    outNdcX = clip.x * invW;
-    outNdcY = clip.y * invW;
-    if (!std::isfinite(outNdcX) || !std::isfinite(outNdcY))
+    outMetrics.ndc = hlsl::float32_t2(clip.x, clip.y) * invW;
+    if (!hlsl::isFiniteScalar(outMetrics.ndc.x) || !hlsl::isFiniteScalar(outMetrics.ndc.y))
         return false;
 
-    if (outNdcRadius)
-        *outNdcRadius = hlsl::length(hlsl::float32_t2(outNdcX, outNdcY));
+    outMetrics.radius = hlsl::length(outMetrics.ndc);
 
     return true;
 }
 
 inline bool validateProjectedFollowTargetContract(
-    const hlsl::float32_t4x4& viewProjMatrix,
+    const SCameraProjectionContext& projectionContext,
     const core::CTrackedTarget& trackedTarget,
-    float& outNdcRadius,
+    SCameraProjectedTargetMetrics& outMetrics,
     std::string* error = nullptr,
     const SCameraFollowRegressionThresholds& thresholds = {})
 {
-    float ndcX = 0.0f;
-    float ndcY = 0.0f;
-    if (!tryComputeProjectedFollowTargetMetrics(viewProjMatrix, trackedTarget, ndcX, ndcY, &outNdcRadius, thresholds.clipWEpsilon))
+    if (!tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, outMetrics, thresholds.clipWEpsilon))
     {
         if (error)
             *error = "failed to project follow target";
         return false;
     }
 
-    if (outNdcRadius > thresholds.projectedNdcTolerance)
+    if (outMetrics.radius > thresholds.projectedNdcTolerance)
     {
         if (error)
         {
-            *error = "projected target mismatch ndc=(" + std::to_string(ndcX) +
-                "," + std::to_string(ndcY) + ") radius=" + std::to_string(outNdcRadius);
+            *error = "projected target mismatch ndc=(" + std::to_string(outMetrics.ndc.x) +
+                "," + std::to_string(outMetrics.ndc.y) + ") radius=" + std::to_string(outMetrics.radius);
         }
         return false;
     }
@@ -148,7 +164,7 @@ inline SCameraFollowVisualMetrics buildFollowVisualMetrics(
     core::ICamera* camera,
     const core::CTrackedTarget& trackedTarget,
     const core::SCameraFollowConfig* followConfig,
-    const hlsl::float32_t4x4* viewProjMatrix = nullptr)
+    const SCameraProjectionContext* projectionContext = nullptr)
 {
     SCameraFollowVisualMetrics out = {};
     if (!camera || !followConfig || !followConfig->enabled || followConfig->mode == core::ECameraFollowMode::Disabled)
@@ -163,14 +179,9 @@ inline SCameraFollowVisualMetrics buildFollowVisualMetrics(
     if (out.lockValid)
         out.targetDistance = static_cast<float>(targetDistance);
 
-    if (out.lockValid && viewProjMatrix)
+    if (out.lockValid && projectionContext)
     {
-        out.projectedValid = tryComputeProjectedFollowTargetMetrics(
-            *viewProjMatrix,
-            trackedTarget,
-            out.projectedNdcX,
-            out.projectedNdcY,
-            &out.projectedNdcRadius);
+        out.projectedValid = tryComputeProjectedFollowTargetMetrics(*projectionContext, trackedTarget, out.projectedTarget);
     }
 
     return out;
@@ -183,7 +194,7 @@ inline bool validateFollowTargetContract(
     const core::CCameraGoal& followGoal,
     SCameraFollowRegressionResult& out,
     std::string* error = nullptr,
-    const hlsl::float32_t4x4* viewProjMatrix = nullptr,
+    const SCameraProjectionContext* projectionContext = nullptr,
     const SCameraFollowRegressionThresholds& thresholds = {})
 {
     out = {};
@@ -205,7 +216,7 @@ inline bool validateFollowTargetContract(
         }
 
         const auto expectedTargetDistance = hlsl::length(trackedTarget.getGimbal().getPosition() - camera->getGimbal().getPosition());
-        if (!std::isfinite(expectedTargetDistance) || std::abs(expectedTargetDistance - out.targetDistance) > thresholds.distanceTolerance)
+        if (!hlsl::isFiniteScalar(expectedTargetDistance) || hlsl::abs(expectedTargetDistance - out.targetDistance) > thresholds.distanceTolerance)
         {
             if (error)
             {
@@ -222,14 +233,12 @@ inline bool validateFollowTargetContract(
             return false;
         }
 
-        if (viewProjMatrix)
+        if (projectionContext)
         {
             out.hasProjectedMetrics = tryComputeProjectedFollowTargetMetrics(
-                *viewProjMatrix,
+                *projectionContext,
                 trackedTarget,
-                out.projectedNdcX,
-                out.projectedNdcY,
-                &out.projectedNdcRadius,
+                out.projectedTarget,
                 thresholds.clipWEpsilon);
             if (!out.hasProjectedMetrics)
             {
@@ -238,13 +247,11 @@ inline bool validateFollowTargetContract(
                 return false;
             }
 
-            if (out.projectedNdcRadius > thresholds.projectedNdcTolerance)
+            if (out.projectedTarget.radius > thresholds.projectedNdcTolerance)
             {
                 if (error)
-                {
-                    *error = "projected target mismatch ndc=(" + std::to_string(out.projectedNdcX) +
-                        "," + std::to_string(out.projectedNdcY) + ") radius=" + std::to_string(out.projectedNdcRadius);
-                }
+                    *error = "projected target mismatch ndc=(" + std::to_string(out.projectedTarget.ndc.x) +
+                        "," + std::to_string(out.projectedTarget.ndc.y) + ") radius=" + std::to_string(out.projectedTarget.radius);
                 return false;
             }
         }
@@ -267,7 +274,7 @@ inline bool validateFollowTargetContract(
         const auto trackedTargetPosition = trackedTarget.getGimbal().getPosition();
         const auto targetDelta = state.target - trackedTargetPosition;
         const auto targetDeltaLen = hlsl::length(targetDelta);
-        if (!std::isfinite(targetDeltaLen) || targetDeltaLen > thresholds.targetTolerance)
+        if (!hlsl::isFiniteScalar(targetDeltaLen) || targetDeltaLen > thresholds.targetTolerance)
         {
             if (error)
                 *error = "spherical target writeback mismatch";
@@ -277,9 +284,9 @@ inline bool validateFollowTargetContract(
         const auto actualDistance = hlsl::length(camera->getGimbal().getPosition() - trackedTargetPosition);
         const auto expectedDistance = followGoal.hasOrbitState ? static_cast<double>(followGoal.orbitDistance) :
             (followGoal.hasDistance ? static_cast<double>(followGoal.distance) : actualDistance);
-        if (!std::isfinite(actualDistance) || !std::isfinite(expectedDistance) ||
-            std::abs(actualDistance - expectedDistance) > thresholds.distanceTolerance ||
-            std::abs(static_cast<double>(state.distance) - expectedDistance) > thresholds.distanceTolerance)
+        if (!hlsl::isFiniteScalar(actualDistance) || !hlsl::isFiniteScalar(expectedDistance) ||
+            hlsl::abs(actualDistance - expectedDistance) > thresholds.distanceTolerance ||
+            hlsl::abs(static_cast<double>(state.distance) - expectedDistance) > thresholds.distanceTolerance)
         {
             if (error)
             {
@@ -302,7 +309,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
     const core::SCameraFollowConfig& followConfig,
     SCameraFollowApplyValidationResult& out,
     std::string* error = nullptr,
-    const hlsl::float32_t4x4* viewProjMatrix = nullptr,
+    const SCameraProjectionContext* projectionContext = nullptr,
     const SCameraFollowRegressionThresholds& thresholds = {})
 {
     out = {};
@@ -347,7 +354,7 @@ inline bool buildApplyAndValidateFollowTargetContract(
         out.goal,
         out.regression,
         error,
-        viewProjMatrix,
+        projectionContext,
         thresholds))
     {
         return false;

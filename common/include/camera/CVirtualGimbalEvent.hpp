@@ -113,6 +113,21 @@ struct CVirtualGimbalEvent
         return None;
     }
 
+    static constexpr bool isTranslationEvent(const VirtualEventType event)
+    {
+        return event != None && (event & Translate) == event;
+    }
+
+    static constexpr bool isRotationEvent(const VirtualEventType event)
+    {
+        return event != None && (event & Rotate) == event;
+    }
+
+    static constexpr bool isScaleEvent(const VirtualEventType event)
+    {
+        return event != None && (event & Scale) == event;
+    }
+
     static inline constexpr auto VirtualEventsTypeTable = []()
     {
         std::array<VirtualEventType, EventsCount> output;

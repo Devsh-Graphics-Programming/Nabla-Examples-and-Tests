@@ -14,6 +14,7 @@
 
 #include "CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
+#include "CCameraTargetRelativeUtilities.hpp"
 #include "IPlanarProjection.hpp"
 
 namespace nbl::core
@@ -263,7 +264,7 @@ inline bool tryParseCameraKind(std::string_view value, ICamera::CameraKind& outK
         outKind = ICamera::CameraKind::Dolly;
     else if (value == "DollyZoom" || value == "Dolly Zoom")
         outKind = ICamera::CameraKind::DollyZoom;
-    else if (value == "Path")
+    else if (value == "PathRig" || value == "Path Rig")
         outKind = ICamera::CameraKind::Path;
     else
         return false;
@@ -290,36 +291,8 @@ inline void normalizeCaptureFractions(std::vector<float>& fractions)
 
     std::sort(fractions.begin(), fractions.end());
     fractions.erase(std::unique(fractions.begin(), fractions.end(),
-        [](const float lhs, const float rhs) { return std::abs(lhs - rhs) <= static_cast<float>(ICamera::ScalarTolerance); }),
+        [](const float lhs, const float rhs) { return hlsl::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
         fractions.end());
-}
-
-inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
-{
-    if (!(goal.hasTargetPosition && goal.hasOrbitState))
-        return false;
-    if (!std::isfinite(goal.orbitU) || !std::isfinite(goal.orbitV) || !std::isfinite(goal.orbitDistance))
-        return false;
-
-    hlsl::float64_t appliedDistance = 0.0;
-    if (!hlsl::tryBuildSphericalPoseFromOrbit(
-        goal.targetPosition,
-        goal.orbitU,
-        goal.orbitV,
-        static_cast<hlsl::float64_t>(goal.orbitDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
-        goal.position,
-        goal.orientation,
-        &appliedDistance))
-    {
-        return false;
-    }
-
-    goal.hasDistance = true;
-    goal.distance = static_cast<float>(appliedDistance);
-    goal.orbitDistance = static_cast<float>(appliedDistance);
-    return true;
 }
 
 inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CCameraSequenceKeyframe& authored, CCameraPreset& outPreset, std::string* error = nullptr)
@@ -357,7 +330,7 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
 
     if (delta.hasRotationEulerDegOffset)
     {
-        goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
+        goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
     }
 
     if (delta.hasTargetOffset)
@@ -383,8 +356,10 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             goal.orbitU = hlsl::wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
         if (delta.hasOrbitVDeltaDeg)
         {
-            constexpr double OrbitPitchLimit = hlsl::numbers::pi<double> * (89.0 / 180.0);
-            goal.orbitV = std::clamp(goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg), -OrbitPitchLimit, OrbitPitchLimit);
+            goal.orbitV = std::clamp(
+                goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg),
+                -SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad,
+                SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad);
         }
         if (delta.hasOrbitDistanceDelta)
             goal.orbitDistance += delta.orbitDistanceDelta;
@@ -398,12 +373,17 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
                 *error = "Sequence keyframe path deltas require path state.";
             return false;
         }
-        if (delta.hasPathAngleDeltaDeg)
-            goal.pathState.angle = hlsl::wrapAngleRad(goal.pathState.angle + hlsl::radians(delta.pathAngleDeltaDeg));
-        if (delta.hasPathRadiusDelta)
-            goal.pathState.radius += delta.pathRadiusDelta;
-        if (delta.hasPathHeightDelta)
-            goal.pathState.height += delta.pathHeightDelta;
+
+        const auto pathDelta = SCameraPathDelta::fromVector(hlsl::float64_t3(
+            delta.hasPathRadiusDelta ? static_cast<hlsl::float64_t>(delta.pathRadiusDelta) : hlsl::float64_t(0.0),
+            delta.hasPathHeightDelta ? static_cast<hlsl::float64_t>(delta.pathHeightDelta) : hlsl::float64_t(0.0),
+            delta.hasPathAngleDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathAngleDeltaDeg)) : hlsl::float64_t(0.0)));
+        if (!tryApplyPathStateDelta(goal.pathState, pathDelta, makeDefaultPathLimits(), goal.pathState))
+        {
+            if (error)
+                *error = "Sequence keyframe path deltas produced an invalid path state.";
+            return false;
+        }
     }
 
     if (delta.hasDynamicBaseFovDelta || delta.hasDynamicReferenceDistanceDelta)
@@ -420,21 +400,14 @@ inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CC
             goal.dynamicPerspectiveState.referenceDistance = std::max(0.001f, goal.dynamicPerspectiveState.referenceDistance + delta.dynamicReferenceDistanceDelta);
     }
 
-    if (hasPathDelta)
+    if (hasPathDelta || hasSphericalDelta)
     {
-        if (!applyCanonicalPathGoal(goal))
+        if (!applyCanonicalGoalState(goal))
         {
             if (error)
-                *error = "Sequence keyframe failed to canonicalize path state.";
-            return false;
-        }
-    }
-    else if (hasSphericalDelta)
-    {
-        if (!applyCanonicalSphericalGoal(goal))
-        {
-            if (error)
-                *error = "Sequence keyframe failed to canonicalize spherical state.";
+                *error = hasPathDelta ?
+                    "Sequence keyframe failed to canonicalize path state." :
+                    "Sequence keyframe failed to canonicalize spherical state.";
             return false;
         }
     }
@@ -472,10 +445,7 @@ inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, cons
 inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
 {
     return hlsl::isFiniteVec3(pose.position) &&
-        std::isfinite(pose.orientation.data.x) &&
-        std::isfinite(pose.orientation.data.y) &&
-        std::isfinite(pose.orientation.data.z) &&
-        std::isfinite(pose.orientation.data.w);
+        hlsl::isFiniteQuaternion(pose.orientation);
 }
 
 inline bool buildSequenceTrackedTargetPoseFromReference(
@@ -489,14 +459,14 @@ inline bool buildSequenceTrackedTargetPoseFromReference(
     if (authored.hasAbsolutePosition)
         outPose.position = authored.absolutePosition;
     if (authored.hasAbsoluteRotationEulerDeg)
-        outPose.orientation = hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(authored.absoluteRotationEulerDeg));
+        outPose.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.absoluteRotationEulerDeg));
 
     if (authored.hasDelta)
     {
         if (authored.delta.hasPositionOffset)
             outPose.position += authored.delta.positionOffset;
         if (authored.delta.hasRotationEulerDegOffset)
-            outPose.orientation = hlsl::normalizeQuaternion(outPose.orientation * hlsl::makeQuaternionFromEulerDegrees(hlsl::getCastedVector<hlsl::float64_t>(authored.delta.rotationEulerDegOffset)));
+            outPose.orientation = hlsl::normalizeQuaternion(outPose.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.delta.rotationEulerDegOffset)));
     }
 
     if (!isSequenceTrackedTargetPoseFinite(outPose))
@@ -539,7 +509,7 @@ inline bool buildSequenceTrackedTargetTrackFromReference(
     normalized.reserve(outTrack.keyframes.size());
     for (const auto& keyframe : outTrack.keyframes)
     {
-        if (!normalized.empty() && std::abs(normalized.back().time - keyframe.time) <= static_cast<float>(ICamera::ScalarTolerance))
+        if (!normalized.empty() && hlsl::nearlyEqualScalar(normalized.back().time, keyframe.time, static_cast<float>(ICamera::ScalarTolerance)))
             normalized.back() = keyframe;
         else
             normalized.emplace_back(keyframe);

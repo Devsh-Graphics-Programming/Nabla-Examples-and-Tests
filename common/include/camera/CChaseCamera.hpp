@@ -31,8 +31,9 @@ public:
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = scaleVirtualRotation(impulse.dVirtualRotation.y);
-        const double deltaPitch = scaleVirtualRotation(impulse.dVirtualRotation.x);
+        const auto deltaRotation = scaleVirtualRotation(impulse.dVirtualRotation);
+        const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
+        const auto deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.y);
 
         const auto basis = computeBasis(m_u, m_v, m_distance);
 
@@ -43,12 +44,11 @@ public:
             hlsl::float64_t3(basis.right.x, 0.0, basis.right.z),
             hlsl::float64_t3(1.0, 0.0, 0.0));
 
-        m_targetPosition += planarRight * scaleVirtualTranslation(impulse.dVirtualTranslate.x) +
-            planarForward * scaleVirtualTranslation(impulse.dVirtualTranslate.z);
-        m_distance = std::clamp<float>(m_distance + static_cast<float>(scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.y)), MinDistance, MaxDistance);
+        m_targetPosition += planarRight * deltaTranslation.x + planarForward * deltaTranslation.z;
+        m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
-        m_u += deltaYaw;
-        m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
+        m_u += deltaRotation.y;
+        m_v = std::clamp(m_v + deltaRotation.x, MinPitch, MaxPitch);
 
         return applyPose();
     }
@@ -59,8 +59,8 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = hlsl::numbers::pi<double> * (70.0 / 180.0);
-    static inline constexpr double MinPitch = -hlsl::numbers::pi<double> / 3.0;
+    static inline constexpr double MaxPitch = SCameraTargetRelativeRigDefaults::ChaseMaxPitchRad;
+    static inline constexpr double MinPitch = SCameraTargetRelativeRigDefaults::ChaseMinPitchRad;
 };
 
 }

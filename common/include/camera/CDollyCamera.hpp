@@ -31,18 +31,15 @@ public:
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
-        const double deltaYaw = scaleVirtualRotation(impulse.dVirtualRotation.y);
-        const double deltaPitch = scaleVirtualRotation(impulse.dVirtualRotation.x);
+        const auto deltaRotation = scaleVirtualRotation(impulse.dVirtualRotation);
 
+        const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const auto basis = computeBasis(m_u, m_v, m_distance);
-        const auto delta =
-            basis.right * scaleVirtualTranslation(impulse.dVirtualTranslate.x) +
-            basis.up * scaleVirtualTranslation(impulse.dVirtualTranslate.y) +
-            basis.forward * scaleVirtualTranslation(impulse.dVirtualTranslate.z);
+        const auto delta = hlsl::transformLocalVectorToWorldBasis(deltaTranslation, basis.right, basis.up, basis.forward);
 
         m_targetPosition += delta;
-        m_u += deltaYaw;
-        m_v = std::clamp(m_v + deltaPitch, MinPitch, MaxPitch);
+        m_u += deltaRotation.y;
+        m_v = std::clamp(m_v + deltaRotation.x, MinPitch, MaxPitch);
 
         return applyPose();
     }
@@ -53,7 +50,7 @@ public:
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr double MaxPitch = hlsl::numbers::pi<double> * (85.0 / 180.0);
+    static inline constexpr double MaxPitch = SCameraTargetRelativeRigDefaults::DollyPitchLimitRad;
     static inline constexpr double MinPitch = -MaxPitch;
 };
 

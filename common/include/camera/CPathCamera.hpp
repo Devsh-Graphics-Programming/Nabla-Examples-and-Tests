@@ -2,11 +2,17 @@
 #define _C_PATH_CAMERA_HPP_
 
 #include <algorithm>
+#include "CCameraPathUtilities.hpp"
 #include "CSphericalTargetCamera.hpp"
 
 namespace nbl::core
 {
 
+//! Target-relative cylindrical path rig camera driven by `PathState`.
+//!
+//! The authored surface exposes this kind as `PathRig`. It stores a
+//! cylindrical target-relative state `(angle, radius, height)` and rebuilds the
+//! camera pose from that state through the shared path utilities.
 class CPathCamera final : public CSphericalTargetCamera
 {
 public:
@@ -15,21 +21,8 @@ public:
     CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        if (!hlsl::tryBuildPathStateFromPosition(
-                target,
-                position,
-                MinPathRadius,
-                m_pathState.angle,
-                m_pathState.radius,
-                m_pathState.height))
-        {
-            m_pathState = {
-                .angle = 0.0,
-                .radius = MinPathRadius,
-                .height = 0.0
-            };
-        }
-        updateFromPath();
+        tryResolvePathState(target, position, SCameraPathDefaults::Limits, nullptr, m_pathState);
+        updateFromPathState();
     }
     ~CPathCamera() = default;
 
@@ -40,15 +33,23 @@ public:
         if (not virtualEvents.size() and not referenceFrame)
             return false;
 
-        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        PathState nextPathState = m_pathState;
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            if (!m_gimbal.extractReferenceTransform(&reference, referenceFrame))
+                return false;
+            if (!tryResolvePathState(m_targetPosition, hlsl::float64_t3(reference.frame[3]), SCameraPathDefaults::Limits, nullptr, nextPathState))
+                return false;
+        }
 
-        m_pathState.angle += scaleVirtualTranslation(impulse.dVirtualTranslate.z);
-        m_pathState.radius += scaleVirtualTranslation(impulse.dVirtualTranslate.x);
-        m_pathState.height += scaleVirtualTranslation(impulse.dVirtualTranslate.y);
-        if (!hlsl::sanitizePathState(m_pathState.angle, m_pathState.radius, m_pathState.height, MinPathRadius))
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        const auto stateDelta = makePathDeltaFromVirtualPathTranslate(scaleVirtualTranslation(impulse.dVirtualTranslate));
+        if (!tryApplyPathStateDelta(nextPathState, stateDelta, SCameraPathDefaults::Limits, nextPathState))
             return false;
 
-        return updateFromPath();
+        m_pathState = nextPathState;
+        return updateFromPathState();
     }
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
@@ -62,74 +63,46 @@ public:
     virtual bool trySetPathState(const PathState& state) override
     {
         auto sanitized = state;
-        if (!hlsl::sanitizePathState(sanitized.angle, sanitized.radius, sanitized.height, MinPathRadius))
+        if (!sanitizePathState(sanitized, SCameraPathDefaults::Limits.minRadius))
             return false;
 
-        const bool exact = hlsl::nearlyEqualScalar(
-            static_cast<hlsl::float64_t>(sanitized.radius),
-            static_cast<hlsl::float64_t>(state.radius),
-            static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon));
+        const bool exact = pathStatesNearlyEqual(sanitized, state, SCameraPathDefaults::ExactComparisonThresholds);
         m_pathState = sanitized;
-        updateFromPath();
+        updateFromPathState();
         return exact;
     }
     virtual bool trySetSphericalDistance(float distance) override
     {
-        const auto clamped = std::clamp<float>(distance, MinDistance, MaxDistance);
-        const bool inRange = clamped == distance;
-
-        if (!hlsl::tryScalePathStateDistance(
-                static_cast<double>(clamped),
-                MinPathRadius,
-                m_pathState.radius,
-                m_pathState.height))
+        SCameraPathDistanceUpdateResult distanceUpdate = {};
+        if (!tryUpdatePathStateDistance(distance, SCameraPathDefaults::Limits, m_pathState, &distanceUpdate))
             return false;
 
-        updateFromPath();
-
-        const double appliedDistance = hlsl::getPathDistance(m_pathState.radius, m_pathState.height);
-        return inRange && std::abs(appliedDistance - static_cast<double>(clamped)) <= ICamera::ScalarTolerance;
+        updateFromPathState();
+        return distanceUpdate.exact;
     }
-    virtual std::string_view getIdentifier() const override { return "Path Camera"; }
+    virtual std::string_view getIdentifier() const override { return SCameraPathDefaults::Identifier; }
 
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
-    static inline constexpr double MinPathRadius = ICamera::SphericalMinDistance;
 
-    PathState m_pathState = { .angle = 0.0, .radius = 1.0, .height = 0.0 };
+    PathState m_pathState = makeDefaultPathState(SCameraPathDefaults::Limits.minRadius);
 
-    bool updateFromPath()
+    bool updateFromPathState()
     {
-        hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
-        hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(m_distance);
-        double orbitU = m_u;
-        double orbitV = m_v;
-        if (!hlsl::tryBuildPathPoseFromState(
-                m_targetPosition,
-                m_pathState.angle,
-                m_pathState.radius,
-                m_pathState.height,
-                MinPathRadius,
-                static_cast<hlsl::float64_t>(MinDistance),
-                static_cast<hlsl::float64_t>(MaxDistance),
-                position,
-                orientation,
-                &appliedDistance,
-                &orbitU,
-                &orbitV))
+        SCameraCanonicalPathState canonicalPathState = {};
+        if (!tryBuildCanonicalPathState(m_targetPosition, m_pathState, SCameraPathDefaults::Limits, canonicalPathState))
         {
             return false;
         }
 
-        m_distance = static_cast<float>(appliedDistance);
-        m_u = orbitU;
-        m_v = orbitV;
+        m_distance = canonicalPathState.targetRelative.distance;
+        m_u = canonicalPathState.targetRelative.orbitU;
+        m_v = canonicalPathState.targetRelative.orbitV;
 
         m_gimbal.begin();
         {
-            m_gimbal.setPosition(position);
-            m_gimbal.setOrientation(orientation);
+            m_gimbal.setPosition(canonicalPathState.pose.position);
+            m_gimbal.setOrientation(canonicalPathState.pose.orientation);
         }
         m_gimbal.end();
 

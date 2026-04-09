@@ -1,6 +1,9 @@
 #ifndef _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
 #define _NBL_I_GIMBAL_INPUT_PROCESSOR_HPP_
 
+#include <algorithm>
+#include <array>
+
 #include "nbl/ui/KeyCodes.h"
 #include "nbl/ui/SInputEvent.h"
 
@@ -15,7 +18,15 @@ namespace nbl::ui
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:
-    static inline constexpr double MaxFrameDeltaMs = 200.0;
+    struct SInputProcessorDefaults final
+    {
+        static inline constexpr double MaxFrameDeltaMs = 200.0;
+        static inline constexpr float ZeroPivot = 0.0f;
+        static inline constexpr float UnitPivot = 1.0f;
+    };
+    static inline constexpr double MaxFrameDeltaMs = SInputProcessorDefaults::MaxFrameDeltaMs;
+    static inline constexpr float ZeroPivot = SInputProcessorDefaults::ZeroPivot;
+    static inline constexpr float UnitPivot = SInputProcessorDefaults::UnitPivot;
 
     using CGimbalBindingLayoutStorage::CGimbalBindingLayoutStorage;
 
@@ -34,13 +45,7 @@ public:
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
         m_nextPresentationTimeStamp = nextPresentationTimeStamp;
-        const auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - m_lastVirtualUpTimeStamp).count();
-        if (deltaMs < 0)
-            m_frameDeltaTime = 0.0;
-        else if (static_cast<double>(deltaMs) > MaxFrameDeltaMs)
-            m_frameDeltaTime = MaxFrameDeltaMs;
-        else
-            m_frameDeltaTime = static_cast<double>(deltaMs);
+        m_frameDeltaTime = clampFrameDeltaTimeMs(m_nextPresentationTimeStamp, m_lastVirtualUpTimeStamp);
     }
 
     void endInputProcessing()
@@ -120,38 +125,20 @@ public:
     */
     void processKeyboard(gimbal_event_t* output, uint32_t& count, std::span<const input_keyboard_event_t> events)
     {
-        count = 0u;
-        const auto mappedVirtualEventsCount = m_keyboardVirtualEventMap.size();
-
-        if (!output)
-        {
-            count = mappedVirtualEventsCount;
-            return;
-        }
-
-        if (mappedVirtualEventsCount)
-        {
-            preprocess(m_keyboardVirtualEventMap);
-
-            for (const auto& keyboardEvent : events)
+        processBindingMap(
+            m_keyboardVirtualEventMap,
+            output,
+            count,
+            [&](auto& map)
             {
-                auto request = m_keyboardVirtualEventMap.find(keyboardEvent.keyCode);
-                if (request != std::end(m_keyboardVirtualEventMap))
+                for (const auto& keyboardEvent : events)
                 {
-                    auto& hash = request->second;
-
                     if (keyboardEvent.action == input_keyboard_event_t::ECA_PRESSED)
-                    {
-                        if (!hash.active)
-                            hash.active = true;
-                    }
+                        setBindingActiveState(map, keyboardEvent.keyCode, true);
                     else if (keyboardEvent.action == input_keyboard_event_t::ECA_RELEASED)
-                        hash.active = false;
+                        setBindingActiveState(map, keyboardEvent.keyCode, false);
                 }
-            }
-
-            postprocess(m_keyboardVirtualEventMap, output, count);
-        }
+            });
     }
 
     /**
@@ -175,71 +162,45 @@ public:
     */
     void processMouse(gimbal_event_t* output, uint32_t& count, std::span<const input_mouse_event_t> events)
     {
-        count = 0u;
-        const auto mappedVirtualEventsCount = m_mouseVirtualEventMap.size();
-
-        if (!output)
-        {
-            count = mappedVirtualEventsCount;
-            return;
-        }
-
-        if (mappedVirtualEventsCount)
-        {
-            preprocess(m_mouseVirtualEventMap);
-
-            for (const auto& mouseEvent : events)
+        processBindingMap(
+            m_mouseVirtualEventMap,
+            output,
+            count,
+            [&](auto& map)
             {
-                ui::E_MOUSE_CODE mouseCode = ui::EMC_NONE;
-
-                switch (mouseEvent.type)
+                for (const auto& mouseEvent : events)
                 {
-                    case input_mouse_event_t::EET_CLICK:
+                    switch (mouseEvent.type)
                     {
-                        switch (mouseEvent.clickEvent.mouseButton)
-                        {
-                            case ui::EMB_LEFT_BUTTON:    mouseCode = ui::EMC_LEFT_BUTTON; break;
-                            case ui::EMB_RIGHT_BUTTON:   mouseCode = ui::EMC_RIGHT_BUTTON; break;
-                            case ui::EMB_MIDDLE_BUTTON:  mouseCode = ui::EMC_MIDDLE_BUTTON; break;
-                            case ui::EMB_BUTTON_4:       mouseCode = ui::EMC_BUTTON_4; break;
-                            case ui::EMB_BUTTON_5:       mouseCode = ui::EMC_BUTTON_5; break;
-                            default: continue;
-                        }
+                        case input_mouse_event_t::EET_CLICK:
+                            updateMouseButtonState(map, mouseEvent.clickEvent);
+                            break;
 
-                        auto request = m_mouseVirtualEventMap.find(mouseCode);
-                        if (request != std::end(m_mouseVirtualEventMap))
-                        {
-                            auto& hash = request->second;
+                        case input_mouse_event_t::EET_SCROLL:
+                            requestMagnitudeUpdateWithSignedComponents(
+                                ZeroPivot,
+                                hlsl::float32_t2(
+                                    static_cast<float>(mouseEvent.scrollEvent.verticalScroll),
+                                    mouseEvent.scrollEvent.horizontalScroll),
+                                SInputProcessorBindingGroups::MouseScroll,
+                                map);
+                            break;
 
-                            if (mouseEvent.clickEvent.action == input_mouse_event_t::SClickEvent::EA_PRESSED)
-                            {
-                                if (!hash.active)
-                                    hash.active = true;
-                            }
-                            else if (mouseEvent.clickEvent.action == input_mouse_event_t::SClickEvent::EA_RELEASED)
-                                hash.active = false;
-                        }
-                    } break;
+                        case input_mouse_event_t::EET_MOVEMENT:
+                            requestMagnitudeUpdateWithSignedComponents(
+                                ZeroPivot,
+                                hlsl::float32_t2(
+                                    mouseEvent.movementEvent.relativeMovementX,
+                                    mouseEvent.movementEvent.relativeMovementY),
+                                SInputProcessorBindingGroups::MouseRelativeMovement,
+                                map);
+                            break;
 
-                    case input_mouse_event_t::EET_SCROLL:
-                    {
-                        requestMagnitudeUpdateWithScalar(0.f, float(mouseEvent.scrollEvent.verticalScroll), float(std::abs(mouseEvent.scrollEvent.verticalScroll)), ui::EMC_VERTICAL_POSITIVE_SCROLL, ui::EMC_VERTICAL_NEGATIVE_SCROLL, m_mouseVirtualEventMap);
-                        requestMagnitudeUpdateWithScalar(0.f, mouseEvent.scrollEvent.horizontalScroll, std::abs(mouseEvent.scrollEvent.horizontalScroll), ui::EMC_HORIZONTAL_POSITIVE_SCROLL, ui::EMC_HORIZONTAL_NEGATIVE_SCROLL, m_mouseVirtualEventMap);
-                    } break;
-
-                    case input_mouse_event_t::EET_MOVEMENT:
-                    {
-                        requestMagnitudeUpdateWithScalar(0.f, mouseEvent.movementEvent.relativeMovementX, std::abs(mouseEvent.movementEvent.relativeMovementX), ui::EMC_RELATIVE_POSITIVE_MOVEMENT_X, ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_X, m_mouseVirtualEventMap);
-                        requestMagnitudeUpdateWithScalar(0.f, mouseEvent.movementEvent.relativeMovementY, std::abs(mouseEvent.movementEvent.relativeMovementY), ui::EMC_RELATIVE_POSITIVE_MOVEMENT_Y, ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y, m_mouseVirtualEventMap);
-                    } break;
-
-                    default:
-                        break;
+                        default:
+                            break;
+                    }
                 }
-            }
-
-            postprocess(m_mouseVirtualEventMap, output, count);
-        }
+            });
     }
 
     /**
@@ -264,49 +225,181 @@ public:
     */
     void processImguizmo(gimbal_event_t* output, uint32_t& count, std::span<const input_imguizmo_event_t> events)
     {
-        count = 0u;
-        const auto mappedVirtualEventsCount = m_imguizmoVirtualEventMap.size();
+        processBindingMap(
+            m_imguizmoVirtualEventMap,
+            output,
+            count,
+            [&](auto& map)
+            {
+                for (const auto& ev : events)
+                {
+                    const auto& deltaWorldTRS = ev;
 
+                    hlsl::SRigidTransformComponents<hlsl::float32_t> world = {};
+                    if (!hlsl::tryExtractRigidTransformComponents(deltaWorldTRS, world))
+                        continue;
+
+                    requestMagnitudeUpdateWithSignedComponents(
+                        ZeroPivot,
+                        world.translation,
+                        SInputProcessorBindingGroups::ImguizmoTranslation,
+                        map);
+
+                    const auto dRotationRad = hlsl::getCameraOrientationEulerRadians(world.orientation);
+                    requestMagnitudeUpdateWithSignedComponents(
+                        ZeroPivot,
+                        dRotationRad,
+                        SInputProcessorBindingGroups::ImguizmoRotation,
+                        map);
+
+                    requestMagnitudeUpdateWithSignedComponents(
+                        UnitPivot,
+                        world.scale,
+                        SInputProcessorBindingGroups::ImguizmoScale,
+                        map);
+                }
+            });
+    }
+
+private:
+    template<typename EncodeType, uint32_t N>
+    struct SEncodedAxisBindingGroup final
+    {
+        std::array<EncodeType, N> positive = {};
+        std::array<EncodeType, N> negative = {};
+    };
+
+    struct SInputProcessorBindingGroups final
+    {
+        static inline constexpr SEncodedAxisBindingGroup<ui::E_MOUSE_CODE, 2u> MouseScroll = {
+            .positive = {
+                ui::EMC_VERTICAL_POSITIVE_SCROLL,
+                ui::EMC_HORIZONTAL_POSITIVE_SCROLL
+            },
+            .negative = {
+                ui::EMC_VERTICAL_NEGATIVE_SCROLL,
+                ui::EMC_HORIZONTAL_NEGATIVE_SCROLL
+            }
+        };
+
+        static inline constexpr SEncodedAxisBindingGroup<ui::E_MOUSE_CODE, 2u> MouseRelativeMovement = {
+            .positive = {
+                ui::EMC_RELATIVE_POSITIVE_MOVEMENT_X,
+                ui::EMC_RELATIVE_POSITIVE_MOVEMENT_Y
+            },
+            .negative = {
+                ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_X,
+                ui::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y
+            }
+        };
+
+        static inline constexpr SEncodedAxisBindingGroup<gimbal_event_t::VirtualEventType, 3u> ImguizmoTranslation = {
+            .positive = {
+                gimbal_event_t::MoveRight,
+                gimbal_event_t::MoveUp,
+                gimbal_event_t::MoveForward
+            },
+            .negative = {
+                gimbal_event_t::MoveLeft,
+                gimbal_event_t::MoveDown,
+                gimbal_event_t::MoveBackward
+            }
+        };
+
+        static inline constexpr SEncodedAxisBindingGroup<gimbal_event_t::VirtualEventType, 3u> ImguizmoRotation = {
+            .positive = {
+                gimbal_event_t::TiltUp,
+                gimbal_event_t::PanRight,
+                gimbal_event_t::RollRight
+            },
+            .negative = {
+                gimbal_event_t::TiltDown,
+                gimbal_event_t::PanLeft,
+                gimbal_event_t::RollLeft
+            }
+        };
+
+        static inline constexpr SEncodedAxisBindingGroup<gimbal_event_t::VirtualEventType, 3u> ImguizmoScale = {
+            .positive = {
+                gimbal_event_t::ScaleXInc,
+                gimbal_event_t::ScaleYInc,
+                gimbal_event_t::ScaleZInc
+            },
+            .negative = {
+                gimbal_event_t::ScaleXDec,
+                gimbal_event_t::ScaleYDec,
+                gimbal_event_t::ScaleZDec
+            }
+        };
+    };
+
+    static double clampFrameDeltaTimeMs(
+        const std::chrono::microseconds nextPresentationTimeStamp,
+        const std::chrono::microseconds lastVirtualUpTimeStamp)
+    {
+        const auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
+        if (deltaMs < 0)
+            return 0.0;
+        return std::min(static_cast<double>(deltaMs), MaxFrameDeltaMs);
+    }
+
+    template<typename Map, typename ConsumeFn>
+    void processBindingMap(Map& map, gimbal_event_t* output, uint32_t& count, ConsumeFn&& consume)
+    {
+        count = 0u;
+        const auto mappedVirtualEventsCount = static_cast<uint32_t>(map.size());
         if (!output)
         {
             count = mappedVirtualEventsCount;
             return;
         }
+        if (!mappedVirtualEventsCount)
+            return;
 
-        if (mappedVirtualEventsCount)
+        preprocess(map);
+        consume(map);
+        postprocess(map, output, count);
+    }
+
+    static bool tryGetMouseButtonCode(
+        const ui::E_MOUSE_BUTTON button,
+        ui::E_MOUSE_CODE& outCode)
+    {
+        switch (button)
         {
-            preprocess(m_imguizmoVirtualEventMap);
-
-            for (const auto& ev : events)
-            {
-                const auto& deltaWorldTRS = ev;
-
-                hlsl::SRigidTransformComponents<hlsl::float32_t> world = {};
-                if (!hlsl::tryExtractRigidTransformComponents(deltaWorldTRS, world))
-                    continue;
-
-                // Delta translation impulse
-                requestMagnitudeUpdateWithScalar(0.f, world.translation[0], std::abs(world.translation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.translation[1], std::abs(world.translation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, world.translation[2], std::abs(world.translation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
-
-                // Delta rotation impulse
-                const auto dRotationRad = hlsl::getQuaternionEulerRadians(world.orientation);
-                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[0], std::abs(dRotationRad[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[1], std::abs(dRotationRad[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dRotationRad[2], std::abs(dRotationRad[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
-
-                // Delta scale impulse
-                requestMagnitudeUpdateWithScalar(1.f, world.scale[0], std::abs(world.scale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, world.scale[1], std::abs(world.scale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, world.scale[2], std::abs(world.scale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
-            }
-
-            postprocess(m_imguizmoVirtualEventMap, output, count);
+            case ui::EMB_LEFT_BUTTON:    outCode = ui::EMC_LEFT_BUTTON; return true;
+            case ui::EMB_RIGHT_BUTTON:   outCode = ui::EMC_RIGHT_BUTTON; return true;
+            case ui::EMB_MIDDLE_BUTTON:  outCode = ui::EMC_MIDDLE_BUTTON; return true;
+            case ui::EMB_BUTTON_4:       outCode = ui::EMC_BUTTON_4; return true;
+            case ui::EMB_BUTTON_5:       outCode = ui::EMC_BUTTON_5; return true;
+            default:
+                return false;
         }
     }
 
-private:
+    template<typename Map>
+    void updateMouseButtonState(Map& map, const input_mouse_event_t::SClickEvent& clickEvent)
+    {
+        ui::E_MOUSE_CODE mouseCode = ui::EMC_NONE;
+        if (!tryGetMouseButtonCode(clickEvent.mouseButton, mouseCode))
+            return;
+
+        if (clickEvent.action == input_mouse_event_t::SClickEvent::EA_PRESSED)
+            setBindingActiveState(map, mouseCode, true);
+        else if (clickEvent.action == input_mouse_event_t::SClickEvent::EA_RELEASED)
+            setBindingActiveState(map, mouseCode, false);
+    }
+
+    template<typename Code, typename Map>
+    void setBindingActiveState(Map& map, const Code code, const bool active)
+    {
+        const auto request = map.find(code);
+        if (request == map.end())
+            return;
+
+        request->second.active = active;
+    }
 
     void preprocess(auto& map)
     {
@@ -332,15 +425,43 @@ private:
     }
 
     template <typename EncodeType, typename Map>
-    void requestMagnitudeUpdateWithScalar(float signPivot, float dScalar, float dMagnitude, EncodeType positive, EncodeType negative, Map& map)
+    void requestMagnitudeUpdateWithScalar(float signPivot, float dScalar, EncodeType positive, EncodeType negative, Map& map)
     {
         if (dScalar != signPivot)
         {
+            const auto dMagnitude = hlsl::abs(dScalar);
             auto code = (dScalar > signPivot) ? positive : negative;
             auto request = map.find(code);
             if (request != map.end())
                 request->second.event.magnitude += dMagnitude;
         }
+    }
+
+    template <typename EncodeType, typename Map, uint32_t N>
+    void requestMagnitudeUpdateWithSignedComponents(
+        float signPivot,
+        const hlsl::vector<float, N>& components,
+        const std::array<EncodeType, N>& positive,
+        const std::array<EncodeType, N>& negative,
+        Map& map)
+    {
+        for (uint32_t i = 0u; i < N; ++i)
+            requestMagnitudeUpdateWithScalar(signPivot, components[i], positive[i], negative[i], map);
+    }
+
+    template <typename EncodeType, typename Map, uint32_t N>
+    void requestMagnitudeUpdateWithSignedComponents(
+        float signPivot,
+        const hlsl::vector<float, N>& components,
+        const SEncodedAxisBindingGroup<EncodeType, N>& bindings,
+        Map& map)
+    {
+        requestMagnitudeUpdateWithSignedComponents(
+            signPivot,
+            components,
+            bindings.positive,
+            bindings.negative,
+            map);
     }
 
     double m_frameDeltaTime = {};

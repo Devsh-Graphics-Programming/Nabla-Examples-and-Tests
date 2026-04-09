@@ -175,7 +175,7 @@ namespace nbl::core
 
         inline void transform(const CReferenceTransform& reference, const VirtualImpulse& impulse)
         {
-            setOrientation(reference.orientation * hlsl::makeQuaternionFromEulerRadians(impulse.dVirtualRotation));
+            setOrientation(reference.orientation * hlsl::makeQuaternionFromEulerRadiansYXZ(impulse.dVirtualRotation));
             setPosition(hlsl::mul(hlsl::float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
         }
 

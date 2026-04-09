@@ -9,6 +9,8 @@
 #include <string_view>
 
 #include "CCameraGoalSolver.hpp"
+#include "CCameraTargetRelativeUtilities.hpp"
+#include "CCameraKindUtilities.hpp"
 
 namespace nbl::core
 {
@@ -156,19 +158,48 @@ inline constexpr bool cameraFollowModeUsesCapturedOffset(const ECameraFollowMode
     return cameraFollowModeUsesWorldOffset(mode) || cameraFollowModeUsesLocalOffset(mode);
 }
 
+inline constexpr ECameraFollowMode getDefaultCameraFollowMode(const ICamera::CameraKind kind)
+{
+    switch (kind)
+    {
+        case ICamera::CameraKind::Orbit:
+        case ICamera::CameraKind::Arcball:
+        case ICamera::CameraKind::Turntable:
+        case ICamera::CameraKind::TopDown:
+        case ICamera::CameraKind::Isometric:
+        case ICamera::CameraKind::DollyZoom:
+        case ICamera::CameraKind::Path:
+            return ECameraFollowMode::OrbitTarget;
+        case ICamera::CameraKind::Chase:
+        case ICamera::CameraKind::Dolly:
+            return ECameraFollowMode::KeepLocalOffset;
+        default:
+            return ECameraFollowMode::Disabled;
+    }
+}
+
+inline constexpr SCameraFollowConfig makeDefaultFollowConfig(const ICamera::CameraKind kind)
+{
+    const auto mode = getDefaultCameraFollowMode(kind);
+    return {
+        .enabled = mode != ECameraFollowMode::Disabled,
+        .mode = mode
+    };
+}
+
+inline constexpr SCameraFollowConfig makeDefaultFollowConfig(const ICamera* const camera)
+{
+    return camera ? makeDefaultFollowConfig(camera->getKind()) : SCameraFollowConfig{};
+}
+
 inline hlsl::float64_t3 transformFollowLocalOffset(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& localOffset)
 {
-    return gimbal.getXAxis() * localOffset.x +
-        gimbal.getYAxis() * localOffset.y +
-        gimbal.getZAxis() * localOffset.z;
+    return hlsl::rotateVectorByQuaternion(gimbal.getOrientation(), localOffset);
 }
 
 inline hlsl::float64_t3 projectFollowWorldOffsetToLocal(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& worldOffset)
 {
-    return hlsl::float64_t3(
-        hlsl::dot(worldOffset, gimbal.getXAxis()),
-        hlsl::dot(worldOffset, gimbal.getYAxis()),
-        hlsl::dot(worldOffset, gimbal.getZAxis()));
+    return hlsl::projectWorldVectorToLocalQuaternionFrame(gimbal.getOrientation(), worldOffset);
 }
 
 inline bool buildFollowLookAtOrientation(
@@ -178,59 +209,6 @@ inline bool buildFollowLookAtOrientation(
     hlsl::camera_quaternion_t<hlsl::float64_t>& outOrientation)
 {
     return hlsl::tryBuildLookAtOrientation(position, targetPosition, preferredUp, outOrientation);
-}
-
-inline bool applyFollowSphericalPose(
-    CCameraGoal& goal,
-    const hlsl::float64_t3& targetPosition,
-    const double orbitU,
-    const double orbitV,
-    const float distance)
-{
-    hlsl::float64_t appliedDistance = 0.0;
-    if (!hlsl::tryBuildSphericalPoseFromOrbit(
-        targetPosition,
-        orbitU,
-        orbitV,
-        static_cast<hlsl::float64_t>(distance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
-        goal.position,
-        goal.orientation,
-        &appliedDistance))
-    {
-        return false;
-    }
-
-    goal.hasTargetPosition = true;
-    goal.targetPosition = targetPosition;
-    goal.hasDistance = true;
-    goal.distance = static_cast<float>(appliedDistance);
-    goal.hasOrbitState = true;
-    goal.orbitU = orbitU;
-    goal.orbitV = orbitV;
-    goal.orbitDistance = static_cast<float>(appliedDistance);
-    return true;
-}
-
-inline bool buildFollowSphericalGoalFromPose(CCameraGoal& goal, const hlsl::float64_t3& targetPosition, const hlsl::float64_t3& position)
-{
-    hlsl::float64_t orbitU = 0.0;
-    hlsl::float64_t orbitV = 0.0;
-    hlsl::float64_t distance = 0.0;
-    if (!hlsl::tryBuildOrbitFromPosition(
-        targetPosition,
-        position,
-        static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-        static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance),
-        orbitU,
-        orbitV,
-        distance))
-    {
-        return false;
-    }
-
-    return applyFollowSphericalPose(goal, targetPosition, orbitU, orbitV, static_cast<float>(distance));
 }
 
 inline bool captureFollowOffsetsFromCamera(
@@ -257,22 +235,38 @@ inline bool tryComputeFollowTargetLockMetrics(
 {
     const auto toTarget = trackedTarget.getGimbal().getPosition() - cameraGimbal.getPosition();
     const auto targetDistance = hlsl::length(toTarget);
-    if (!std::isfinite(targetDistance) || targetDistance <= ICamera::TinyScalarEpsilon)
+    if (!hlsl::isFiniteScalar(targetDistance) || targetDistance <= ICamera::TinyScalarEpsilon)
         return false;
 
-    const auto forward = hlsl::normalize(cameraGimbal.getZAxis());
-    if (!hlsl::isFiniteVec3(forward) || hlsl::length(forward) <= ICamera::TinyScalarEpsilon)
+    const auto forward = cameraGimbal.getZAxis();
+    const auto forwardLength = hlsl::length(forward);
+    if (!hlsl::isFiniteVec3(forward) || !hlsl::isFiniteScalar(forwardLength) || forwardLength <= ICamera::TinyScalarEpsilon)
         return false;
 
+    const auto forwardDirection = forward / forwardLength;
     const auto targetDir = toTarget / targetDistance;
-    const auto dotForward = std::clamp(hlsl::dot(forward, targetDir), -1.0, 1.0);
-    outAngleDeg = static_cast<float>(hlsl::degrees(std::acos(dotForward)));
-    if (!std::isfinite(outAngleDeg))
+    const auto dotForward = std::clamp(hlsl::dot(forwardDirection, targetDir), -1.0, 1.0);
+    outAngleDeg = static_cast<float>(hlsl::degrees(hlsl::acos(dotForward)));
+    if (!hlsl::isFiniteScalar(outAngleDeg))
         return false;
 
     if (outDistance)
         *outDistance = targetDistance;
     return true;
+}
+
+inline bool tryBuildFollowPositionGoal(
+    ICamera* camera,
+    CCameraGoal& outGoal,
+    const hlsl::float64_t3& targetPosition,
+    const hlsl::float64_t3& position,
+    const hlsl::float64_t3& preferredUp)
+{
+    if (camera->supportsGoalState(ICamera::GoalStateSphericalTarget))
+        return buildCanonicalTargetRelativeGoalFromPosition(outGoal, targetPosition, position);
+
+    outGoal.position = position;
+    return buildFollowLookAtOrientation(outGoal.position, targetPosition, preferredUp, outGoal.orientation) && isGoalFinite(outGoal);
 }
 
 inline bool tryBuildFollowGoal(
@@ -303,10 +297,7 @@ inline bool tryBuildFollowGoal(
 
             if (outGoal.hasPathState)
             {
-                outGoal.hasTargetPosition = true;
-                outGoal.targetPosition = targetPosition;
-                outGoal = canonicalizeGoal(outGoal);
-                return isGoalFinite(outGoal);
+                return applyCanonicalPathGoalFields(outGoal, targetPosition, outGoal.pathState) && isGoalFinite(outGoal);
             }
 
             const bool hasSphericalState = outGoal.hasOrbitState || outGoal.hasDistance;
@@ -314,36 +305,31 @@ inline bool tryBuildFollowGoal(
                 return false;
 
             const auto orbitDistance = outGoal.hasOrbitState ? outGoal.orbitDistance : outGoal.distance;
-            return applyFollowSphericalPose(outGoal, targetPosition, outGoal.orbitU, outGoal.orbitV, orbitDistance);
+            return applyCanonicalTargetRelativeGoal(
+                outGoal,
+                {
+                    .target = targetPosition,
+                    .orbitU = outGoal.orbitU,
+                    .orbitV = outGoal.orbitV,
+                    .distance = orbitDistance
+                });
         }
 
         case ECameraFollowMode::LookAtTarget:
         {
-            if (camera->supportsGoalState(ICamera::GoalStateSphericalTarget))
-                return buildFollowSphericalGoalFromPose(outGoal, targetPosition, capture.goal.position);
-
-            outGoal.position = capture.goal.position;
-            return buildFollowLookAtOrientation(outGoal.position, targetPosition, targetGimbal.getYAxis(), outGoal.orientation) && isGoalFinite(outGoal);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, capture.goal.position, targetGimbal.getYAxis());
         }
 
         case ECameraFollowMode::KeepWorldOffset:
         {
             const auto position = targetPosition + config.worldOffset;
-            if (camera->supportsGoalState(ICamera::GoalStateSphericalTarget))
-                return buildFollowSphericalGoalFromPose(outGoal, targetPosition, position);
-
-            outGoal.position = position;
-            return buildFollowLookAtOrientation(outGoal.position, targetPosition, targetGimbal.getYAxis(), outGoal.orientation) && isGoalFinite(outGoal);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetGimbal.getYAxis());
         }
 
         case ECameraFollowMode::KeepLocalOffset:
         {
             const auto position = targetPosition + transformFollowLocalOffset(targetGimbal, config.localOffset);
-            if (camera->supportsGoalState(ICamera::GoalStateSphericalTarget))
-                return buildFollowSphericalGoalFromPose(outGoal, targetPosition, position);
-
-            outGoal.position = position;
-            return buildFollowLookAtOrientation(outGoal.position, targetPosition, targetGimbal.getYAxis(), outGoal.orientation) && isGoalFinite(outGoal);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetGimbal.getYAxis());
         }
 
         default:

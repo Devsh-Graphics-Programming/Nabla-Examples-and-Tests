@@ -44,12 +44,11 @@ public:
             return false;
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
-        const double deltaU = scaleVirtualTranslation(impulse.dVirtualTranslate.y);
-        const double deltaV = scaleVirtualTranslation(impulse.dVirtualTranslate.x);
+        const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);
 
-        m_u += deltaU;
-        m_v += deltaV;
+        m_u += deltaTranslation.y;
+        m_v += deltaTranslation.x;
         m_distance = std::clamp<float>(m_distance + static_cast<float>(deltaDistance), MinDistance, MaxDistance);
 
         return applyPose();
@@ -71,7 +70,7 @@ public:
     }
     virtual bool trySetDynamicPerspectiveState(const DynamicPerspectiveState& state) override
     {
-        if (!std::isfinite(state.baseFov) || !std::isfinite(state.referenceDistance) || state.referenceDistance <= 0.f)
+        if (!hlsl::isFiniteScalar(state.baseFov) || !hlsl::isFiniteScalar(state.referenceDistance) || state.referenceDistance <= 0.f)
             return false;
 
         m_baseFov = state.baseFov;
