@@ -144,7 +144,7 @@ inline bool loadTextResource(
             candidates.asSpan(),
             [&](const path& candidate) -> bool
             {
-                return readTextFile(system, candidate, outText);
+                return CCameraFileUtilities::readTextFile(system, candidate, outText);
             },
             outLoadedPath))
     {

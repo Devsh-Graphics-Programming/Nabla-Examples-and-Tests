@@ -29,89 +29,93 @@ struct SCameraSmokeComparisonThresholds final
     static constexpr double TrackTimeTolerance = core::ICamera::ScalarTolerance;
 };
 
-//! Measure one camera pose delta against an authored reference pose.
-inline bool tryComputeCameraManipulationDelta(
-    core::ICamera* camera,
-    const hlsl::float64_t3& beforePosition,
-    const hlsl::camera_quaternion_t<hlsl::float64_t>& beforeOrientation,
-    SCameraManipulationDelta& outDelta)
+struct CCameraSmokeRegressionUtilities final
 {
-    outDelta = {};
-    if (!camera)
-        return false;
+public:
+    //! Measure one camera pose delta against an authored reference pose.
+    static inline bool tryComputeCameraManipulationDelta(
+        core::ICamera* camera,
+        const hlsl::float64_t3& beforePosition,
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& beforeOrientation,
+        SCameraManipulationDelta& outDelta)
+    {
+        outDelta = {};
+        if (!camera)
+            return false;
 
-    const auto& gimbal = camera->getGimbal();
-    const auto afterPosition = gimbal.getPosition();
-    const auto afterOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-    return hlsl::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
-}
+        const auto& gimbal = camera->getGimbal();
+        const auto afterPosition = gimbal.getPosition();
+        const auto afterOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
+        return hlsl::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
+    }
 
-//! Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
-inline bool tryManipulateCameraAndMeasureDelta(
-    core::ICamera* camera,
-    std::span<const core::CVirtualGimbalEvent> events,
-    SCameraManipulationDelta& outDelta,
-    const double tinyEpsilon = SCameraSmokeComparisonThresholds::TinyScalarEpsilon)
-{
-    outDelta = {};
-    if (!camera || events.empty())
-        return false;
+    //! Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
+    static inline bool tryManipulateCameraAndMeasureDelta(
+        core::ICamera* camera,
+        std::span<const core::CVirtualGimbalEvent> events,
+        SCameraManipulationDelta& outDelta,
+        const double tinyEpsilon = SCameraSmokeComparisonThresholds::TinyScalarEpsilon)
+    {
+        outDelta = {};
+        if (!camera || events.empty())
+            return false;
 
-    const auto& beforeGimbal = camera->getGimbal();
-    const auto beforePosition = beforeGimbal.getPosition();
-    const auto beforeOrientation = hlsl::normalizeQuaternion(beforeGimbal.getOrientation());
-    if (!hlsl::isFiniteVec3(beforePosition) || !hlsl::isFiniteQuaternion(beforeOrientation))
-        return false;
+        const auto& beforeGimbal = camera->getGimbal();
+        const auto beforePosition = beforeGimbal.getPosition();
+        const auto beforeOrientation = hlsl::normalizeQuaternion(beforeGimbal.getOrientation());
+        if (!hlsl::isFiniteVec3(beforePosition) || !hlsl::isFiniteQuaternion(beforeOrientation))
+            return false;
 
-    if (!camera->manipulate(events))
-        return false;
+        if (!camera->manipulate(events))
+            return false;
 
-    if (!tryComputeCameraManipulationDelta(camera, beforePosition, beforeOrientation, outDelta))
-        return false;
+        if (!tryComputeCameraManipulationDelta(camera, beforePosition, beforeOrientation, outDelta))
+            return false;
 
-    return outDelta.position > tinyEpsilon || outDelta.rotationDeg > tinyEpsilon;
-}
+        return outDelta.position > tinyEpsilon || outDelta.rotationDeg > tinyEpsilon;
+    }
 
-inline bool comparePresetToCameraStateWithDefaultThresholds(
-    const core::CCameraGoalSolver& solver,
-    core::ICamera* camera,
-    const core::CCameraPreset& preset)
-{
-    return core::comparePresetToCameraState(
-        solver,
-        camera,
-        preset,
-        SCameraSmokeComparisonThresholds::DefaultPositionTolerance,
-        SCameraSmokeComparisonThresholds::DefaultAngularToleranceDeg,
-        SCameraSmokeComparisonThresholds::DefaultScalarTolerance);
-}
+    static inline bool comparePresetToCameraStateWithDefaultThresholds(
+        const core::CCameraGoalSolver& solver,
+        core::ICamera* camera,
+        const core::CCameraPreset& preset)
+    {
+        return core::comparePresetToCameraState(
+            solver,
+            camera,
+            preset,
+            SCameraSmokeComparisonThresholds::DefaultPositionTolerance,
+            SCameraSmokeComparisonThresholds::DefaultAngularToleranceDeg,
+            SCameraSmokeComparisonThresholds::DefaultScalarTolerance);
+    }
 
-inline bool comparePresetToCameraStateWithStrictThresholds(
-    const core::CCameraGoalSolver& solver,
-    core::ICamera* camera,
-    const core::CCameraPreset& preset)
-{
-    return core::comparePresetToCameraState(
-        solver,
-        camera,
-        preset,
-        SCameraSmokeComparisonThresholds::StrictPositionTolerance,
-        SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
-        SCameraSmokeComparisonThresholds::StrictScalarTolerance);
-}
+    static inline bool comparePresetToCameraStateWithStrictThresholds(
+        const core::CCameraGoalSolver& solver,
+        core::ICamera* camera,
+        const core::CCameraPreset& preset)
+    {
+        return core::comparePresetToCameraState(
+            solver,
+            camera,
+            preset,
+            SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+            SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+            SCameraSmokeComparisonThresholds::StrictScalarTolerance);
+    }
 
-inline bool compareKeyframeTrackContentWithStrictThresholds(
-    const core::CCameraKeyframeTrack& lhs,
-    const core::CCameraKeyframeTrack& rhs)
-{
-    return core::compareKeyframeTrackContent(
-        lhs,
-        rhs,
-        SCameraSmokeComparisonThresholds::TrackTimeTolerance,
-        SCameraSmokeComparisonThresholds::StrictPositionTolerance,
-        SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
-        SCameraSmokeComparisonThresholds::StrictScalarTolerance);
-}
+    static inline bool compareKeyframeTrackContentWithStrictThresholds(
+        const core::CCameraKeyframeTrack& lhs,
+        const core::CCameraKeyframeTrack& rhs)
+    {
+        return core::CCameraKeyframeTrackUtilities::compareKeyframeTrackContent(
+            lhs,
+            rhs,
+            SCameraSmokeComparisonThresholds::TrackTimeTolerance,
+            SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+            SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+            SCameraSmokeComparisonThresholds::StrictScalarTolerance);
+    }
+};
 
 } // namespace nbl::system
 

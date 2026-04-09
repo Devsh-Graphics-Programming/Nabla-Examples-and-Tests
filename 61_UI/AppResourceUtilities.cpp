@@ -48,7 +48,7 @@ inline bool loadSpaceEnvBlob(
     std::vector<uint8_t>& outPayload)
 {
     std::vector<uint8_t> blobBytes;
-    if (!nbl::system::readBinaryFile(system, blobPath, blobBytes))
+    if (!nbl::system::CCameraFileUtilities::readBinaryFile(system, blobPath, blobBytes))
         return false;
     return parseSpaceEnvBlobBytes(blobBytes, outHeader, outPayload);
 }

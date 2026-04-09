@@ -214,7 +214,7 @@ void App::applyManipulableObjectTransform(const SManipulableObjectContext& conte
 		case SceneManipulatedObjectKind::Camera:
 			if (context.camera)
 			{
-				nbl::core::applyReferenceFrameToCamera(context.camera, transform);
+				nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(context.camera, transform);
 				if (context.planarIx.has_value())
 					refreshFollowOffsetConfigForPlanar(context.planarIx.value());
 			}

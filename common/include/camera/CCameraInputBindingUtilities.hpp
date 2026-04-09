@@ -480,7 +480,7 @@ private:
 
     static inline const SCameraMappedInteractionBindingSpec& interactionBindingPresetForKind(const core::ICamera::CameraKind kind)
     {
-        const auto familyIx = interactionFamilyIndex(core::getCameraInteractionFamily(kind));
+        const auto familyIx = interactionFamilyIndex(core::CCameraKindUtilities::getCameraInteractionFamily(kind));
         static const auto cache = makePresetCache<SCameraMappedInteractionBindingSpec>(
             InteractionFamilyPresetSpecs,
             [](const SCameraInteractionBindingSpec& spec) { return mapInteractionBindingSpec(spec); });

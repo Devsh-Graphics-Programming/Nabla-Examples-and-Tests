@@ -155,7 +155,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 
 bool App::tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
 {
-	return nbl::core::tryBuildKeyframeTrackPresetAtTime(m_playbackAuthoring.keyframeTrack, time, preset);
+	return nbl::core::CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(m_playbackAuthoring.keyframeTrack, time, preset);
 }
 
 bool App::applyPlaybackAtTime(const float time)
@@ -173,32 +173,32 @@ bool App::applyPlaybackAtTime(const float time)
 
 void App::sortKeyframesByTime()
 {
-	nbl::core::sortKeyframeTrackByTime(m_playbackAuthoring.keyframeTrack);
+	nbl::core::CCameraKeyframeTrackUtilities::sortKeyframeTrackByTime(m_playbackAuthoring.keyframeTrack);
 }
 
 void App::clampPlaybackTimeToKeyframes()
 {
-	nbl::core::clampPlaybackCursorToTrack(m_playbackAuthoring.keyframeTrack, m_playbackAuthoring.playback);
+	nbl::core::CCameraPlaybackTimelineUtilities::clampPlaybackCursorToTrack(m_playbackAuthoring.keyframeTrack, m_playbackAuthoring.playback);
 }
 
 int App::selectKeyframeNearestTime(const float time)
 {
-	return nbl::core::selectKeyframeTrackNearestTime(m_playbackAuthoring.keyframeTrack, time);
+	return nbl::core::CCameraKeyframeTrackUtilities::selectKeyframeTrackNearestTime(m_playbackAuthoring.keyframeTrack, time);
 }
 
 void App::normalizeSelectedKeyframe()
 {
-	nbl::core::normalizeSelectedKeyframeTrack(m_playbackAuthoring.keyframeTrack);
+	nbl::core::CCameraKeyframeTrackUtilities::normalizeSelectedKeyframeTrack(m_playbackAuthoring.keyframeTrack);
 }
 
 App::CameraKeyframe* App::getSelectedKeyframe()
 {
-	return nbl::core::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
+	return nbl::core::CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
 }
 
 const App::CameraKeyframe* App::getSelectedKeyframe() const
 {
-	return nbl::core::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
+	return nbl::core::CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
 }
 
 bool App::replaceSelectedKeyframeFromCamera(ICamera* camera)
@@ -212,12 +212,12 @@ bool App::replaceSelectedKeyframeFromCamera(ICamera* camera)
 	if (!nbl::core::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
 		return false;
 
-	return nbl::core::replaceSelectedKeyframePreset(m_playbackAuthoring.keyframeTrack, std::move(updatedPreset));
+	return nbl::core::CCameraKeyframeTrackUtilities::replaceSelectedKeyframePreset(m_playbackAuthoring.keyframeTrack, std::move(updatedPreset));
 }
 
 void App::updatePlayback(const double dtSec)
 {
-	const auto advance = nbl::core::advancePlaybackCursor(m_playbackAuthoring.playback, m_playbackAuthoring.keyframeTrack, dtSec);
+	const auto advance = nbl::core::CCameraPlaybackTimelineUtilities::advancePlaybackCursor(m_playbackAuthoring.playback, m_playbackAuthoring.keyframeTrack, dtSec);
 	if (!advance.hasTrack || !advance.changedTime)
 		return;
 

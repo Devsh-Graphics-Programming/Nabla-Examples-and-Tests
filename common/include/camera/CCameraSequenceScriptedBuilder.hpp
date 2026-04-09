@@ -75,7 +75,7 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
     for (const auto& policy : framePolicies)
     {
         core::CCameraPreset preset;
-        if (!tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
+        if (!core::CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
         {
             if (error)
                 *error = "Failed to sample compiled segment track.";

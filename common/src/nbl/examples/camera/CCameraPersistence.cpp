@@ -91,8 +91,8 @@ bool deserializeKeyframeTrackJson(const json_t& root, nbl::core::CCameraKeyframe
         track.keyframes.emplace_back(std::move(keyframe));
     }
 
-    nbl::core::sortKeyframeTrackByTime(track);
-    nbl::core::normalizeSelectedKeyframeTrack(track);
+    nbl::core::CCameraKeyframeTrackUtilities::sortKeyframeTrackByTime(track);
+    nbl::core::CCameraKeyframeTrackUtilities::normalizeSelectedKeyframeTrack(track);
     return true;
 }
 
@@ -152,13 +152,13 @@ bool saveGoalToFile(ISystem& system, const path& filePath, const core::CCameraGo
     std::ostringstream out;
     if (!writeGoal(out, goal, indent))
         return false;
-    return writeTextFile(system, filePath, out.str());
+    return CCameraFileUtilities::writeTextFile(system, filePath, out.str());
 }
 
 bool loadGoalFromFile(ISystem& system, const path& filePath, core::CCameraGoal& goal)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text))
         return false;
 
     std::istringstream in(text);
@@ -190,13 +190,13 @@ bool savePresetToFile(ISystem& system, const path& filePath, const core::CCamera
     std::ostringstream out;
     if (!writePreset(out, preset, indent))
         return false;
-    return writeTextFile(system, filePath, out.str());
+    return CCameraFileUtilities::writeTextFile(system, filePath, out.str());
 }
 
 bool loadPresetFromFile(ISystem& system, const path& filePath, core::CCameraPreset& preset)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text))
         return false;
 
     std::istringstream in(text);
@@ -227,13 +227,13 @@ bool saveKeyframeTrackToFile(ISystem& system, const path& filePath, const core::
     std::ostringstream out;
     if (!writeKeyframeTrack(out, track, indent))
         return false;
-    return writeTextFile(system, filePath, out.str());
+    return CCameraFileUtilities::writeTextFile(system, filePath, out.str());
 }
 
 bool loadKeyframeTrackFromFile(ISystem& system, const path& filePath, core::CCameraKeyframeTrack& track)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text))
         return false;
 
     std::istringstream in(text);
@@ -264,13 +264,13 @@ bool savePresetCollectionToFile(ISystem& system, const path& filePath, std::span
     std::ostringstream out;
     if (!writePresetCollection(out, presets, indent))
         return false;
-    return writeTextFile(system, filePath, out.str());
+    return CCameraFileUtilities::writeTextFile(system, filePath, out.str());
 }
 
 bool loadPresetCollectionFromFile(ISystem& system, const path& filePath, std::vector<core::CCameraPreset>& presets)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text))
         return false;
 
     std::istringstream in(text);

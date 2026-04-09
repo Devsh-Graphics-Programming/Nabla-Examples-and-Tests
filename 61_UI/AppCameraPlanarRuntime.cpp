@@ -46,7 +46,7 @@ bool tryCaptureInitialPlanarPresets(
         const auto captureAnalysis = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
         if (!captureAnalysis.canCapture)
         {
-            const auto kindLabel = camera ? std::string(core::getCameraKindLabel(camera->getKind())) : std::string("Unknown");
+            const auto kindLabel = camera ? std::string(core::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown");
             const auto reason =
                 !captureAnalysis.hasCamera ? "missing camera" :
                 (!captureAnalysis.capturedGoal ? "capture failed" :
@@ -62,7 +62,7 @@ bool tryCaptureInitialPlanarPresets(
         {
             outError =
                 "Failed to build initial planar preset " + std::to_string(planarIx) +
-                " for camera kind \"" + (camera ? std::string(core::getCameraKindLabel(camera->getKind())) : std::string("Unknown")) + "\".";
+                " for camera kind \"" + (camera ? std::string(core::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown")) + "\".";
             return false;
         }
 

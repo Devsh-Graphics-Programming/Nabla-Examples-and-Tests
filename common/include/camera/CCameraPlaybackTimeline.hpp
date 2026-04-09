@@ -33,66 +33,70 @@ struct SCameraPlaybackAdvanceResult
     float time = 0.f;
 };
 
-//! Duration of the current playback track in seconds.
-inline float getPlaybackTrackDuration(const CCameraKeyframeTrack& track)
+struct CCameraPlaybackTimelineUtilities final
 {
-    if (track.keyframes.empty())
-        return 0.f;
-
-    return track.keyframes.back().time;
-}
-
-//! Reset cursor time and stop playback without mutating loop or speed settings.
-inline void resetPlaybackCursor(CCameraPlaybackCursor& cursor, const float time = 0.f)
-{
-    cursor.playing = false;
-    cursor.time = std::max(0.f, time);
-}
-
-//! Clamp cursor time into the valid time range of the current track.
-inline void clampPlaybackCursorToTrack(const CCameraKeyframeTrack& track, CCameraPlaybackCursor& cursor)
-{
-    clampTrackTimeToKeyframes(track, cursor.time);
-}
-
-//! Advance cursor time by `dtSec * speed` and report whether playback wrapped or stopped.
-inline SCameraPlaybackAdvanceResult advancePlaybackCursor(CCameraPlaybackCursor& cursor, const CCameraKeyframeTrack& track, const double dtSec)
-{
-    SCameraPlaybackAdvanceResult result;
-    result.hasTrack = !track.keyframes.empty();
-    result.duration = getPlaybackTrackDuration(track);
-    result.time = cursor.time;
-
-    if (!result.hasTrack || !cursor.playing)
-        return result;
-
-    const auto previousTime = cursor.time;
-    cursor.time += static_cast<float>(dtSec * cursor.speed);
-    result.changedTime = cursor.time != previousTime;
-    result.time = cursor.time;
-
-    if (result.duration <= 0.f)
-        return result;
-
-    if (cursor.loop)
+public:
+    //! Duration of the current playback track in seconds.
+    static inline float getPlaybackTrackDuration(const CCameraKeyframeTrack& track)
     {
-        while (cursor.time > result.duration)
-        {
-            cursor.time -= result.duration;
-            result.wrapped = true;
-        }
+        if (track.keyframes.empty())
+            return 0.f;
+
+        return track.keyframes.back().time;
     }
-    else if (cursor.time > result.duration)
+
+    //! Reset cursor time and stop playback without mutating loop or speed settings.
+    static inline void resetPlaybackCursor(CCameraPlaybackCursor& cursor, const float time = 0.f)
     {
-        cursor.time = result.duration;
         cursor.playing = false;
-        result.reachedEnd = true;
-        result.stopped = true;
+        cursor.time = std::max(0.f, time);
     }
 
-    result.time = cursor.time;
-    return result;
-}
+    //! Clamp cursor time into the valid time range of the current track.
+    static inline void clampPlaybackCursorToTrack(const CCameraKeyframeTrack& track, CCameraPlaybackCursor& cursor)
+    {
+        CCameraKeyframeTrackUtilities::clampTrackTimeToKeyframes(track, cursor.time);
+    }
+
+    //! Advance cursor time by `dtSec * speed` and report whether playback wrapped or stopped.
+    static inline SCameraPlaybackAdvanceResult advancePlaybackCursor(CCameraPlaybackCursor& cursor, const CCameraKeyframeTrack& track, const double dtSec)
+    {
+        SCameraPlaybackAdvanceResult result;
+        result.hasTrack = !track.keyframes.empty();
+        result.duration = getPlaybackTrackDuration(track);
+        result.time = cursor.time;
+
+        if (!result.hasTrack || !cursor.playing)
+            return result;
+
+        const auto previousTime = cursor.time;
+        cursor.time += static_cast<float>(dtSec * cursor.speed);
+        result.changedTime = cursor.time != previousTime;
+        result.time = cursor.time;
+
+        if (result.duration <= 0.f)
+            return result;
+
+        if (cursor.loop)
+        {
+            while (cursor.time > result.duration)
+            {
+                cursor.time -= result.duration;
+                result.wrapped = true;
+            }
+        }
+        else if (cursor.time > result.duration)
+        {
+            cursor.time = result.duration;
+            cursor.playing = false;
+            result.reachedEnd = true;
+            result.stopped = true;
+        }
+
+        result.time = cursor.time;
+        return result;
+    }
+};
 
 } // namespace nbl::core
 

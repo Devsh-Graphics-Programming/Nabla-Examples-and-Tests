@@ -44,107 +44,111 @@ struct SCameraConstraintSettings
     float maxDistance = SCameraConstraintDefaults::MaxDistance;
 };
 
-//! Apply an authored world-space reference frame through the shared camera runtime entry point.
-inline bool applyReferenceFrameToCamera(ICamera* camera, const hlsl::float64_t4x4& referenceFrame)
+struct CCameraManipulationUtilities final
 {
-    if (!camera)
-        return false;
-
-    return camera->manipulateWithUnitMotionScales({}, &referenceFrame);
-}
-
-//! Scale translation and rotation event magnitudes without touching unrelated event types.
-inline void scaleVirtualEvents(std::vector<CVirtualGimbalEvent>& events, const uint32_t count, const float translationScale, const float rotationScale)
-{
-    for (uint32_t i = 0u; i < count; ++i)
+public:
+    //! Apply an authored world-space reference frame through the shared camera runtime entry point.
+    static inline bool applyReferenceFrameToCamera(ICamera* camera, const hlsl::float64_t4x4& referenceFrame)
     {
-        auto& ev = events[i];
-        if (CVirtualGimbalEvent::isTranslationEvent(ev.type))
-        {
-            ev.magnitude *= translationScale;
-        }
-        else if (CVirtualGimbalEvent::isRotationEvent(ev.type))
-        {
-            ev.magnitude *= rotationScale;
-        }
-    }
-}
+        if (!camera)
+            return false;
 
-//! Reinterpret world-space translation intents as local camera-space movement events.
-inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::vector<CVirtualGimbalEvent>& events, uint32_t& count)
-{
-    if (!camera)
-        return;
-
-    std::vector<CVirtualGimbalEvent> filtered;
-    filtered.reserve(events.size());
-
-    for (uint32_t i = 0u; i < count; ++i)
-    {
-        const auto& ev = events[i];
-        if (!CVirtualGimbalEvent::isTranslationEvent(ev.type))
-            filtered.emplace_back(ev);
+        return camera->manipulateWithUnitMotionScales({}, &referenceFrame);
     }
 
-    const auto worldDelta = CCameraVirtualEventUtilities::collectSignedTranslationDelta({ events.data(), count });
-    if (hlsl::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
+    //! Scale translation and rotation event magnitudes without touching unrelated event types.
+    static inline void scaleVirtualEvents(std::vector<CVirtualGimbalEvent>& events, const uint32_t count, const float translationScale, const float rotationScale)
     {
+        for (uint32_t i = 0u; i < count; ++i)
+        {
+            auto& ev = events[i];
+            if (CVirtualGimbalEvent::isTranslationEvent(ev.type))
+            {
+                ev.magnitude *= translationScale;
+            }
+            else if (CVirtualGimbalEvent::isRotationEvent(ev.type))
+            {
+                ev.magnitude *= rotationScale;
+            }
+        }
+    }
+
+    //! Reinterpret world-space translation intents as local camera-space movement events.
+    static inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::vector<CVirtualGimbalEvent>& events, uint32_t& count)
+    {
+        if (!camera)
+            return;
+
+        std::vector<CVirtualGimbalEvent> filtered;
+        filtered.reserve(events.size());
+
+        for (uint32_t i = 0u; i < count; ++i)
+        {
+            const auto& ev = events[i];
+            if (!CVirtualGimbalEvent::isTranslationEvent(ev.type))
+                filtered.emplace_back(ev);
+        }
+
+        const auto worldDelta = CCameraVirtualEventUtilities::collectSignedTranslationDelta({ events.data(), count });
+        if (hlsl::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
+        {
+            events = std::move(filtered);
+            count = static_cast<uint32_t>(events.size());
+            return;
+        }
+
+        CCameraVirtualEventUtilities::appendWorldTranslationAsLocalEvents(filtered, camera->getGimbal().getOrientation(), worldDelta);
+
         events = std::move(filtered);
         count = static_cast<uint32_t>(events.size());
-        return;
     }
 
-    CCameraVirtualEventUtilities::appendWorldTranslationAsLocalEvents(filtered, camera->getGimbal().getOrientation(), worldDelta);
-
-    events = std::move(filtered);
-    count = static_cast<uint32_t>(events.size());
-}
-
-//! Apply shared distance and Euler-angle constraints after manipulation.
-inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* camera, const SCameraConstraintSettings& constraints)
-{
-    if (!constraints.enabled || !camera)
-        return false;
-
-    if (camera->hasCapability(ICamera::SphericalTarget))
+    //! Apply shared distance and Euler-angle constraints after manipulation.
+    static inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* camera, const SCameraConstraintSettings& constraints)
     {
-        if (!constraints.clampDistance)
+        if (!constraints.enabled || !camera)
             return false;
 
-        ICamera::SphericalTargetState sphericalState;
-        if (!camera->tryGetSphericalTargetState(sphericalState))
+        if (camera->hasCapability(ICamera::SphericalTarget))
+        {
+            if (!constraints.clampDistance)
+                return false;
+
+            ICamera::SphericalTargetState sphericalState;
+            if (!camera->tryGetSphericalTargetState(sphericalState))
+                return false;
+
+            const float clamped = std::clamp<float>(sphericalState.distance, constraints.minDistance, constraints.maxDistance);
+            if (clamped == sphericalState.distance)
+                return false;
+
+            return camera->trySetSphericalDistance(clamped);
+        }
+
+        if (!(constraints.clampPitch || constraints.clampYaw || constraints.clampRoll))
             return false;
 
-        const float clamped = std::clamp<float>(sphericalState.distance, constraints.minDistance, constraints.maxDistance);
-        if (clamped == sphericalState.distance)
+        const auto& gimbal = camera->getGimbal();
+        const auto pos = gimbal.getPosition();
+        const auto eulerDeg = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+
+        auto clamped = eulerDeg;
+        if (constraints.clampPitch)
+            clamped.x = std::clamp(clamped.x, static_cast<decltype(clamped.x)>(constraints.pitchMinDeg), static_cast<decltype(clamped.x)>(constraints.pitchMaxDeg));
+        if (constraints.clampYaw)
+            clamped.y = std::clamp(clamped.y, static_cast<decltype(clamped.y)>(constraints.yawMinDeg), static_cast<decltype(clamped.y)>(constraints.yawMaxDeg));
+        if (constraints.clampRoll)
+            clamped.z = std::clamp(clamped.z, static_cast<decltype(clamped.z)>(constraints.rollMinDeg), static_cast<decltype(clamped.z)>(constraints.rollMaxDeg));
+
+        if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
             return false;
 
-        return camera->trySetSphericalDistance(clamped);
+        CCameraPreset preset;
+        preset.goal.position = pos;
+        preset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(clamped);
+        return applyPreset(solver, camera, preset);
     }
-
-    if (!(constraints.clampPitch || constraints.clampYaw || constraints.clampRoll))
-        return false;
-
-    const auto& gimbal = camera->getGimbal();
-    const auto pos = gimbal.getPosition();
-    const auto eulerDeg = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
-
-    auto clamped = eulerDeg;
-    if (constraints.clampPitch)
-        clamped.x = std::clamp(clamped.x, static_cast<decltype(clamped.x)>(constraints.pitchMinDeg), static_cast<decltype(clamped.x)>(constraints.pitchMaxDeg));
-    if (constraints.clampYaw)
-        clamped.y = std::clamp(clamped.y, static_cast<decltype(clamped.y)>(constraints.yawMinDeg), static_cast<decltype(clamped.y)>(constraints.yawMaxDeg));
-    if (constraints.clampRoll)
-        clamped.z = std::clamp(clamped.z, static_cast<decltype(clamped.z)>(constraints.rollMinDeg), static_cast<decltype(clamped.z)>(constraints.rollMaxDeg));
-
-    if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
-        return false;
-
-    CCameraPreset preset;
-    preset.goal.position = pos;
-    preset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(clamped);
-    return applyPreset(solver, camera, preset);
-}
+};
 
 } // namespace nbl::core
 

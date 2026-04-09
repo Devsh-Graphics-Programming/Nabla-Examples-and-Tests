@@ -441,8 +441,8 @@ struct CCameraSequenceScriptUtilities final
             outTrack.keyframes.emplace_back(std::move(keyframe));
         }
 
-        sortKeyframeTrackByTime(outTrack);
-        normalizeSelectedKeyframeTrack(outTrack);
+        CCameraKeyframeTrackUtilities::sortKeyframeTrackByTime(outTrack);
+        CCameraKeyframeTrackUtilities::normalizeSelectedKeyframeTrack(outTrack);
         return !outTrack.keyframes.empty();
     }
 

@@ -22,7 +22,7 @@ public:
 	//! Return a short human-readable label for a camera kind.
 	static inline std::string_view getCameraTypeLabel(const core::ICamera::CameraKind kind)
 	{
-		return core::getCameraKindLabel(kind);
+		return core::CCameraKindUtilities::getCameraKindLabel(kind);
 	}
 
 	//! Return a short human-readable label for a concrete camera instance.
@@ -34,7 +34,7 @@ public:
 	//! Return a short human-readable description for a camera kind.
 	static inline std::string_view getCameraTypeDescription(const core::ICamera::CameraKind kind)
 	{
-		return core::getCameraKindDescription(kind);
+		return core::CCameraKindUtilities::getCameraKindDescription(kind);
 	}
 
 	//! Return a short human-readable description for a concrete camera instance.

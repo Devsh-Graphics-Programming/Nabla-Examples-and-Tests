@@ -1078,7 +1078,7 @@ bool readCameraSequenceScript(std::string_view text, core::CCameraSequenceScript
 bool loadCameraSequenceScriptFromFile(ISystem& system, const path& filePath, core::CCameraSequenceScript& out, std::string* error)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text, error, "Cannot open camera sequence script file."))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text, error, "Cannot open camera sequence script file."))
         return false;
 
     return readCameraSequenceScript(text, out, error);
@@ -1151,7 +1151,7 @@ bool readCameraScriptedInput(std::string_view text, CCameraScriptedInputParseRes
 bool loadCameraScriptedInputFromFile(ISystem& system, const path& filePath, CCameraScriptedInputParseResult& out, std::string* error)
 {
     std::string text;
-    if (!readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
+    if (!CCameraFileUtilities::readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
         return false;
 
     return readCameraScriptedInput(text, out, error);

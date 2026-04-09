@@ -31,108 +31,108 @@ struct SCameraKindTraits final
     ECameraInteractionFamily interactionFamily = ECameraInteractionFamily::None;
 };
 
-namespace impl
+struct CCameraKindUtilities final
 {
-
-inline constexpr std::array<SCameraKindTraits, static_cast<size_t>(ICamera::CameraKind::Path) + 1u> CameraKindTraitsTable = {{
+public:
+    static inline constexpr const SCameraKindTraits& getCameraKindTraits(const ICamera::CameraKind kind)
     {
-        .kind = ICamera::CameraKind::Unknown,
-        .label = "Unknown",
-        .description = "Unspecified camera behavior",
-        .interactionFamily = ECameraInteractionFamily::None
-    },
-    {
-        .kind = ICamera::CameraKind::FPS,
-        .label = "FPS",
-        .description = "First-person WASD + mouse look",
-        .interactionFamily = ECameraInteractionFamily::Fps
-    },
-    {
-        .kind = ICamera::CameraKind::Free,
-        .label = "Free",
-        .description = "Free-fly 6DOF with full rotation",
-        .interactionFamily = ECameraInteractionFamily::Free
-    },
-    {
-        .kind = ICamera::CameraKind::Orbit,
-        .label = "Orbit",
-        .description = "Orbit around target with dolly",
-        .interactionFamily = ECameraInteractionFamily::Orbit
-    },
-    {
-        .kind = ICamera::CameraKind::Arcball,
-        .label = "Arcball",
-        .description = "Arcball trackball around target",
-        .interactionFamily = ECameraInteractionFamily::Orbit
-    },
-    {
-        .kind = ICamera::CameraKind::Turntable,
-        .label = "Turntable",
-        .description = "Turntable yaw/pitch around target",
-        .interactionFamily = ECameraInteractionFamily::Turntable
-    },
-    {
-        .kind = ICamera::CameraKind::TopDown,
-        .label = "TopDown",
-        .description = "Fixed pitch top-down pan",
-        .interactionFamily = ECameraInteractionFamily::TopDown
-    },
-    {
-        .kind = ICamera::CameraKind::Isometric,
-        .label = "Isometric",
-        .description = "Fixed isometric view with pan",
-        .interactionFamily = ECameraInteractionFamily::Orbit
-    },
-    {
-        .kind = ICamera::CameraKind::Chase,
-        .label = "Chase",
-        .description = "Target follow with chase controls",
-        .interactionFamily = ECameraInteractionFamily::TargetRig
-    },
-    {
-        .kind = ICamera::CameraKind::Dolly,
-        .label = "Dolly",
-        .description = "Rig truck/dolly with look-at",
-        .interactionFamily = ECameraInteractionFamily::TargetRig
-    },
-    {
-        .kind = ICamera::CameraKind::DollyZoom,
-        .label = "Dolly Zoom",
-        .description = "Orbit with dolly-zoom FOV",
-        .interactionFamily = ECameraInteractionFamily::Orbit
-    },
-    {
-        .kind = ICamera::CameraKind::Path,
-        .label = "Path Rig",
-        .description = SCameraPathDefaults::Description,
-        .interactionFamily = ECameraInteractionFamily::Path
+        const auto ix = static_cast<size_t>(kind);
+        if (ix >= CameraKindTraitsTable.size())
+            return CameraKindTraitsTable[0u];
+        return CameraKindTraitsTable[ix];
     }
-}};
 
-} // namespace impl
+    static inline constexpr std::string_view getCameraKindLabel(const ICamera::CameraKind kind)
+    {
+        return getCameraKindTraits(kind).label;
+    }
 
-inline constexpr const SCameraKindTraits& getCameraKindTraits(const ICamera::CameraKind kind)
-{
-    const auto ix = static_cast<size_t>(kind);
-    if (ix >= impl::CameraKindTraitsTable.size())
-        return impl::CameraKindTraitsTable[0u];
-    return impl::CameraKindTraitsTable[ix];
-}
+    static inline constexpr std::string_view getCameraKindDescription(const ICamera::CameraKind kind)
+    {
+        return getCameraKindTraits(kind).description;
+    }
 
-inline constexpr std::string_view getCameraKindLabel(const ICamera::CameraKind kind)
-{
-    return getCameraKindTraits(kind).label;
-}
+    static inline constexpr ECameraInteractionFamily getCameraInteractionFamily(const ICamera::CameraKind kind)
+    {
+        return getCameraKindTraits(kind).interactionFamily;
+    }
 
-inline constexpr std::string_view getCameraKindDescription(const ICamera::CameraKind kind)
-{
-    return getCameraKindTraits(kind).description;
-}
-
-inline constexpr ECameraInteractionFamily getCameraInteractionFamily(const ICamera::CameraKind kind)
-{
-    return getCameraKindTraits(kind).interactionFamily;
-}
+private:
+    static inline constexpr std::array<SCameraKindTraits, static_cast<size_t>(ICamera::CameraKind::Path) + 1u> CameraKindTraitsTable = {{
+        {
+            .kind = ICamera::CameraKind::Unknown,
+            .label = "Unknown",
+            .description = "Unspecified camera behavior",
+            .interactionFamily = ECameraInteractionFamily::None
+        },
+        {
+            .kind = ICamera::CameraKind::FPS,
+            .label = "FPS",
+            .description = "First-person WASD + mouse look",
+            .interactionFamily = ECameraInteractionFamily::Fps
+        },
+        {
+            .kind = ICamera::CameraKind::Free,
+            .label = "Free",
+            .description = "Free-fly 6DOF with full rotation",
+            .interactionFamily = ECameraInteractionFamily::Free
+        },
+        {
+            .kind = ICamera::CameraKind::Orbit,
+            .label = "Orbit",
+            .description = "Orbit around target with dolly",
+            .interactionFamily = ECameraInteractionFamily::Orbit
+        },
+        {
+            .kind = ICamera::CameraKind::Arcball,
+            .label = "Arcball",
+            .description = "Arcball trackball around target",
+            .interactionFamily = ECameraInteractionFamily::Orbit
+        },
+        {
+            .kind = ICamera::CameraKind::Turntable,
+            .label = "Turntable",
+            .description = "Turntable yaw/pitch around target",
+            .interactionFamily = ECameraInteractionFamily::Turntable
+        },
+        {
+            .kind = ICamera::CameraKind::TopDown,
+            .label = "TopDown",
+            .description = "Fixed pitch top-down pan",
+            .interactionFamily = ECameraInteractionFamily::TopDown
+        },
+        {
+            .kind = ICamera::CameraKind::Isometric,
+            .label = "Isometric",
+            .description = "Fixed isometric view with pan",
+            .interactionFamily = ECameraInteractionFamily::Orbit
+        },
+        {
+            .kind = ICamera::CameraKind::Chase,
+            .label = "Chase",
+            .description = "Target follow with chase controls",
+            .interactionFamily = ECameraInteractionFamily::TargetRig
+        },
+        {
+            .kind = ICamera::CameraKind::Dolly,
+            .label = "Dolly",
+            .description = "Rig truck/dolly with look-at",
+            .interactionFamily = ECameraInteractionFamily::TargetRig
+        },
+        {
+            .kind = ICamera::CameraKind::DollyZoom,
+            .label = "Dolly Zoom",
+            .description = "Orbit with dolly-zoom FOV",
+            .interactionFamily = ECameraInteractionFamily::Orbit
+        },
+        {
+            .kind = ICamera::CameraKind::Path,
+            .label = "Path Rig",
+            .description = SCameraPathDefaults::Description,
+            .interactionFamily = ECameraInteractionFamily::Path
+        }
+    }};
+};
 
 } // namespace nbl::core
 

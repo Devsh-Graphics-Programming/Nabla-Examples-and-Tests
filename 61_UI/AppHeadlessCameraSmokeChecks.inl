@@ -225,7 +225,7 @@
 			outError = "Keyframe persistence smoke failed to deserialize track.";
 			return false;
 		}
-		if (!nbl::system::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, loadedTrack))
+		if (!nbl::system::CCameraSmokeRegressionUtilities::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, loadedTrack))
 		{
 			outError = "Keyframe persistence smoke changed stream track content.";
 			return false;
@@ -292,7 +292,7 @@
 			outError = "Keyframe persistence smoke failed to load track file.";
 			return false;
 		}
-		if (!nbl::system::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, fileLoadedTrack))
+		if (!nbl::system::CCameraSmokeRegressionUtilities::compareKeyframeTrackContentWithStrictThresholds(sourceTrack, fileLoadedTrack))
 		{
 			outError = "Keyframe persistence smoke changed file track content.";
 			return false;
@@ -321,7 +321,7 @@
 				.time = SCameraSmokePlaybackDefaults::MidPlaybackTime
 			};
 
-			const auto advanceToEnd = nbl::core::advancePlaybackCursor(cursor, playbackTrack, SCameraSmokePlaybackDefaults::AdvanceDt);
+			const auto advanceToEnd = nbl::core::CCameraPlaybackTimelineUtilities::advancePlaybackCursor(cursor, playbackTrack, SCameraSmokePlaybackDefaults::AdvanceDt);
 			if (!advanceToEnd.hasTrack || !advanceToEnd.changedTime || !advanceToEnd.reachedEnd || advanceToEnd.wrapped || !advanceToEnd.stopped)
 			{
 				outError = "Playback timeline smoke failed for non-loop end-of-track advance.";
@@ -333,7 +333,7 @@
 				return false;
 			}
 
-			nbl::core::resetPlaybackCursor(cursor, SCameraSmokePlaybackDefaults::ResetPlaybackTime);
+			nbl::core::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(cursor, SCameraSmokePlaybackDefaults::ResetPlaybackTime);
 			if (cursor.playing || hlsl::abs(static_cast<double>(cursor.time - SCameraSmokePlaybackDefaults::ResetPlaybackTime)) > CameraTinyScalarEpsilon)
 			{
 				outError = "Playback timeline smoke failed to reset cursor.";
@@ -344,7 +344,7 @@
 			cursor.loop = true;
 			cursor.speed = 1.f;
 			cursor.time = SCameraSmokePlaybackDefaults::MidPlaybackTime;
-			const auto advanceLoop = nbl::core::advancePlaybackCursor(cursor, playbackTrack, SCameraSmokePlaybackDefaults::AdvanceDt);
+			const auto advanceLoop = nbl::core::CCameraPlaybackTimelineUtilities::advancePlaybackCursor(cursor, playbackTrack, SCameraSmokePlaybackDefaults::AdvanceDt);
 			if (!advanceLoop.hasTrack || !advanceLoop.changedTime || !advanceLoop.wrapped || advanceLoop.stopped || advanceLoop.reachedEnd)
 			{
 				outError = "Playback timeline smoke failed for looped advance.";
@@ -357,7 +357,7 @@
 			}
 
 			cursor.time = SCameraSmokePlaybackDefaults::OvershootPlaybackTime;
-			nbl::core::clampPlaybackCursorToTrack(playbackTrack, cursor);
+			nbl::core::CCameraPlaybackTimelineUtilities::clampPlaybackCursorToTrack(playbackTrack, cursor);
 			if (hlsl::abs(static_cast<double>(cursor.time - SCameraSmokePlaybackDefaults::EndKeyframeTime)) > CameraTinyScalarEpsilon)
 			{
 				outError = "Playback timeline smoke failed to clamp cursor time.";
@@ -609,7 +609,7 @@
 			scaledEvents[1].magnitude = 3.0;
 			scaledEvents[2].type = CVirtualGimbalEvent::ScaleXInc;
 			scaledEvents[2].magnitude = 4.0;
-			nbl::core::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
+			nbl::core::CCameraManipulationUtilities::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
 			if (hlsl::abs(scaledEvents[0].magnitude - 1.0) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
 				hlsl::abs(scaledEvents[1].magnitude - 6.0) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
 				hlsl::abs(scaledEvents[2].magnitude - 4.0) > SCameraSmokeUtilityThresholds::VirtualEventScale)
@@ -624,7 +624,7 @@
 			CameraPreset orientedPreset = state.initialPresets.free.value();
 			orientedPreset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
 			const auto orientResult = nbl::core::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
-			if (!orientResult.succeeded() || !nbl::system::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
+			if (!orientResult.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
 			{
 				outError = "Camera manipulation utilities smoke failed to orient Free camera before translation remap.";
 				return false;
@@ -638,7 +638,7 @@
 			worldTranslationEvents[2].type = CVirtualGimbalEvent::MoveForward;
 			worldTranslationEvents[2].magnitude = SCameraSmokeManipulationDefaults::WorldTranslationDelta.z;
 			uint32_t remappedCount = static_cast<uint32_t>(worldTranslationEvents.size());
-			nbl::core::remapTranslationEventsFromWorldToCameraLocal(state.freeCamera, worldTranslationEvents, remappedCount);
+			nbl::core::CCameraManipulationUtilities::remapTranslationEventsFromWorldToCameraLocal(state.freeCamera, worldTranslationEvents, remappedCount);
 			if (remappedCount == 0u)
 			{
 				outError = "Camera manipulation utilities smoke produced empty translation remap.";
@@ -674,7 +674,7 @@
 				.pitchMinDeg = SCameraSmokeManipulationDefaults::PitchMinDeg,
 				.pitchMaxDeg = SCameraSmokeManipulationDefaults::PitchMaxDeg
 			};
-			if (!nbl::core::applyCameraConstraints(state.goalSolver, state.freeCamera, freeConstraints))
+			if (!nbl::core::CCameraManipulationUtilities::applyCameraConstraints(state.goalSolver, state.freeCamera, freeConstraints))
 			{
 				outError = "Camera manipulation utilities smoke failed to clamp Free camera orientation.";
 				return false;
@@ -688,7 +688,7 @@
 			}
 
 			const auto restoreFree = nbl::core::applyPresetDetailed(state.goalSolver, state.freeCamera, state.initialPresets.free.value());
-			if (!restoreFree.succeeded() || !nbl::system::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, state.initialPresets.free.value()))
+			if (!restoreFree.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, state.initialPresets.free.value()))
 			{
 				outError = "Camera manipulation utilities smoke failed to restore Free camera baseline.";
 				return false;
@@ -714,7 +714,7 @@
 					state.initialPresets.orbit->goal.distance * SCameraSmokeManipulationDefaults::OrbitClampMinScale),
 				.maxDistance = state.initialPresets.orbit->goal.distance * SCameraSmokeManipulationDefaults::OrbitClampMaxScale
 			};
-			if (!nbl::core::applyCameraConstraints(state.goalSolver, state.orbitCamera, orbitConstraints))
+			if (!nbl::core::CCameraManipulationUtilities::applyCameraConstraints(state.goalSolver, state.orbitCamera, orbitConstraints))
 			{
 				outError = "Camera manipulation utilities smoke failed to clamp Orbit distance.";
 				return false;
@@ -729,7 +729,7 @@
 			}
 
 			const auto restoreOrbit = nbl::core::applyPresetDetailed(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value());
-			if (!restoreOrbit.succeeded() || !nbl::system::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value()))
+			if (!restoreOrbit.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.orbitCamera, state.initialPresets.orbit.value()))
 			{
 				outError = "Camera manipulation utilities smoke failed to restore Orbit baseline.";
 				return false;

@@ -387,9 +387,9 @@ namespace
 			case EPresetComparePolicy::None:
 				return true;
 			case EPresetComparePolicy::DefaultThresholds:
-				return nbl::system::comparePresetToCameraStateWithDefaultThresholds(goalSolver, camera, preset);
+				return nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithDefaultThresholds(goalSolver, camera, preset);
 			case EPresetComparePolicy::StrictThresholds:
-				return nbl::system::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset);
+				return nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset);
 			default:
 				return false;
 		}
@@ -440,7 +440,7 @@ namespace
 		std::string& outError)
 	{
 		const auto restoreResult = nbl::core::applyPresetDetailed(goalSolver, camera, preset);
-		if (restoreResult.succeeded() && nbl::system::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset))
+		if (restoreResult.succeeded() && nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset))
 			return true;
 
         outError = std::string(failurePrefix) + ". " + CCameraTextUtilities::describeApplyResult(restoreResult);
@@ -730,7 +730,7 @@ namespace
 			}
 
 			nbl::system::SCameraManipulationDelta directDelta = {};
-			if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { directEvents.data(), directEvents.size() }, directDelta, CameraTinyScalarEpsilon))
+			if (!nbl::system::CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { directEvents.data(), directEvents.size() }, directDelta, CameraTinyScalarEpsilon))
 			{
 				outError = "Direct manipulate smoke failed for camera \"" + cameraIdentifier + "\".";
 				return false;
@@ -786,7 +786,7 @@ namespace
 				auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 				if (keyboardEvents.empty())
 					continue;
-				if (nbl::system::tryManipulateCameraAndMeasureDelta(camera, { keyboardEvents.data(), keyboardEvents.size() }, keyboardDelta, CameraTinyScalarEpsilon))
+				if (nbl::system::CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { keyboardEvents.data(), keyboardEvents.size() }, keyboardDelta, CameraTinyScalarEpsilon))
 				{
 					keyboardOk = true;
 					break;
@@ -823,7 +823,7 @@ namespace
 					outError = "Mouse move virtual events missing for camera \"" + cameraIdentifier + "\".";
 					return false;
 				}
-				if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { mouseMoveEvents.data(), mouseMoveEvents.size() }, mouseMoveDelta, CameraTinyScalarEpsilon))
+				if (!nbl::system::CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { mouseMoveEvents.data(), mouseMoveEvents.size() }, mouseMoveDelta, CameraTinyScalarEpsilon))
 				{
 					outError = "Mouse move binding smoke failed for camera \"" + cameraIdentifier + "\".";
 					return false;
@@ -844,7 +844,7 @@ namespace
 					outError = "Mouse scroll virtual events missing for camera \"" + cameraIdentifier + "\".";
 					return false;
 				}
-				if (!nbl::system::tryManipulateCameraAndMeasureDelta(camera, { mouseScrollEvents.data(), mouseScrollEvents.size() }, mouseScrollDelta, CameraTinyScalarEpsilon))
+				if (!nbl::system::CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { mouseScrollEvents.data(), mouseScrollEvents.size() }, mouseScrollDelta, CameraTinyScalarEpsilon))
 				{
 					outError = "Mouse scroll binding smoke failed for camera \"" + cameraIdentifier + "\".";
 					return false;
@@ -1138,7 +1138,7 @@ namespace
 			return false;
 		}
 
-		if (!nbl::system::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, reachedEditedPreset))
+		if (!nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, reachedEditedPreset))
 		{
 			outError = std::string("Follow recapture smoke mismatch for ") + std::string(label) + ". " +
 				nbl::core::describePresetCameraMismatch(goalSolver, camera, reachedEditedPreset);

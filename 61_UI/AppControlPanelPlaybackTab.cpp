@@ -42,13 +42,13 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
     ImGui::SameLine();
     if (nbl::ui::drawActionButtonWithHint("Stop", "Stop playback and reset time"))
     {
-        nbl::core::resetPlaybackCursor(playbackAuthoring.playback);
+        nbl::core::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
         applyPlaybackAtTime(playbackAuthoring.playback.time);
     }
 
     if (!playbackAuthoring.keyframeTrack.keyframes.empty())
     {
-        const float duration = nbl::core::getPlaybackTrackDuration(playbackAuthoring.keyframeTrack);
+        const float duration = nbl::core::CCameraPlaybackTimelineUtilities::getPlaybackTrackDuration(playbackAuthoring.keyframeTrack);
         if (ImGui::SliderFloat("Time", &playbackAuthoring.playback.time, 0.f, duration, "%.3f"))
             applyPlaybackAtTime(playbackAuthoring.playback.time);
     }
@@ -104,7 +104,7 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
     if (nbl::ui::drawActionButtonWithHint("Clear keyframes", "Remove all keyframes"))
     {
         playbackAuthoring.keyframeTrack = {};
-        nbl::core::resetPlaybackCursor(playbackAuthoring.playback);
+        nbl::core::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
         clearApplyStatusBanner(playbackAuthoring.applyBanner);
     }
 
