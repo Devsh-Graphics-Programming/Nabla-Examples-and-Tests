@@ -1,9 +1,6 @@
 #include "app/App.hpp"
 #include "app/AppResourceUtilities.hpp"
 
-namespace
-{
-
 template<typename TContext>
 inline bool tryBindActiveViewportContext(TContext& outContext, const SActiveViewportRuntimeState& viewportState)
 {
@@ -25,8 +22,6 @@ inline SCameraFollowConfig* tryGetViewportFollowConfig(
 
 	return &followConfigs[planarIx];
 }
-
-} // namespace
 
 nbl::system::SCameraAppResourceContext App::getCameraAppResourceContext() const
 {

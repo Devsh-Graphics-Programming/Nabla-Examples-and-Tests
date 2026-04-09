@@ -9,6 +9,10 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera locked to the shared isometric yaw and pitch.
+///
+/// Translation moves the tracked target in the current view plane while the
+/// authored isometric orientation stays fixed. Distance changes are still allowed.
 class CIsometricCamera final : public CSphericalTargetCamera
 {
 public:
@@ -24,10 +28,24 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply one frame of planar target translation and distance changes while preserving the fixed isometric angles.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceIsometricState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            adoptTargetRelativeState(resolvedState);
+        }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -45,6 +63,7 @@ public:
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Isometric; }
+    /// @brief Return the stable user-facing identifier for this concrete camera kind.
     virtual std::string_view getIdentifier() const override { return "Isometric Camera"; }
 
 private:

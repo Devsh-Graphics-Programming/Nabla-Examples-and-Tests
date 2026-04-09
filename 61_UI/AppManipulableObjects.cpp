@@ -1,8 +1,5 @@
 #include "app/App.hpp"
 
-namespace
-{
-
 inline float32_t4x4 buildModelManipulationTransform(const float32_t3x4& model)
 {
 	return hlsl::transpose(getMatrix3x4As4x4(model));
@@ -32,8 +29,6 @@ inline float32_t3 buildFollowTargetWorldPosition(const CTrackedTarget& trackedTa
 {
 	return getCastedVector<float32_t>(trackedTarget.getGimbal().getPosition());
 }
-
-} // namespace
 
 uint32_t App::getManipulableObjectCount() const
 {

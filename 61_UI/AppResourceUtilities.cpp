@@ -7,9 +7,6 @@
 #include "app/AppResourcePathUtilities.hpp"
 #include "camera/CCameraFileUtilities.hpp"
 
-namespace
-{
-
 inline bool parseSpaceEnvBlobBytes(
     std::span<const uint8_t> blobBytes,
     nbl::system::SSpaceEnvBlobHeader& outHeader,
@@ -52,8 +49,6 @@ inline bool loadSpaceEnvBlob(
         return false;
     return parseSpaceEnvBlobBytes(blobBytes, outHeader, outPayload);
 }
-
-} // namespace
 
 namespace nbl::system
 {

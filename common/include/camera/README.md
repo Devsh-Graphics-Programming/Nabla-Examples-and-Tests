@@ -1,313 +1,159 @@
 # Shared Camera API
 
-This directory contains the shared camera stack.
-A complete runnable integration is [`61_UI`](../../../61_UI/README.md).
+This directory contains the reusable camera stack used by [`61_UI`](../../../61_UI/README.md).
+It is the source of truth for camera semantics, typed camera state, scripted playback, follow behavior, and camera-focused validation.
 
-## What this stack is
+## Scope
 
-This stack is a reusable camera framework with two clearly separated halves:
+This stack is:
 
-1. Runtime camera control
-   The hot path that reacts to input and updates camera pose.
-2. Tooling and validation
-   The sidecar layer used for capture, restore, presets, tracks, playback, scripted validation, and follow.
-
-The runtime half is intentionally event-driven.
-The tooling half is intentionally state-driven.
-
-That split is the core design decision.
-
-## What this stack is not
+- a reusable camera runtime based on semantic virtual events
+- a typed tooling layer for capture, restore, presets, playback, follow, and scripted validation
+- a shared authoring and CI surface reused by `61_UI`
 
 This stack is not:
 
-- engine-core Nabla camera API
-- a generic scene animation system
-- a direct scene-object-follow system
-- a setter-heavy camera API with arbitrary absolute pose mutation in the hot runtime path
+- the engine-wide Nabla scene graph API
+- a generic animation system for arbitrary scene objects
+- a setter-heavy runtime camera API
+- a `61_UI`-local convenience layer
 
-## Design goals
+## Design pillars
 
-The design goals are:
+The current design is built around five rules.
 
-- one semantic command language for keyboard, mouse, gizmo, scripts, and CI
-- no input-device assumptions inside camera models
-- no viewport glue inside camera models
-- no direct dependence on application-specific UI concepts in the reusable camera layer
-- best-effort absolute restore for tooling without turning cameras into mutable state bags
-- reusable persistence, analysis, playback, follow, and validation helpers
+### 1. Runtime is event-driven
+
+The hot path stays on:
+
+```text
+input -> virtual events -> ICamera::manipulate(...)
+```
+
+Camera models do not expose arbitrary absolute runtime setters for position, target, yaw/pitch/roll, or similar mutable bags of state.
+
+### 2. Tooling is typed-state driven
+
+Capture, presets, restore, tracks, and validation use typed sidecar state:
+
+- [`CCameraGoal.hpp`](CCameraGoal.hpp)
+- [`CCameraPreset.hpp`](CCameraPreset.hpp)
+- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
+- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
+- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+
+That layer is allowed to reason in terms of canonical camera state because it is not the hot input path.
+
+### 3. Input mapping is separate from camera semantics
+
+The reusable stack keeps these responsibilities separate:
+
+- physical input mapping
+- virtual event processing
+- camera semantics
+- absolute state capture / restore
+- scripted playback and validation
+
+This keeps camera models reusable across keyboard, mouse, ImGuizmo, CI, and headless tools.
+
+### 4. Projection-local state is allowed, runtime input processing is not
+
+Projection types may own viewport-local binding layouts, but raw input processing stays in the input layer.
+
+### 5. Follow and scripts stay above camera models
+
+Follow and scripted playback are shared layers built on top of camera semantics.
+They are not hardwired into `ICamera`.
 
 ## Namespace split
 
-The stack is split across existing Nabla namespaces:
+The stack is intentionally spread across existing Nabla namespaces.
 
 - `nbl::hlsl`
-  math types and camera math helpers
+  camera math, transform math, pose deltas, interpolation helpers, and reusable vector/quaternion types
 - `nbl::core`
-  camera runtime model, goals, presets, tracks, playback, follow, and authored sequence data
+  runtime camera model, typed goal state, presets, tracks, follow, playback, path-rig helpers, and authored sequence data
 - `nbl::ui`
-  binding layouts, input processors, binders, default input mappings, and user-facing presentation/text helpers
+  input binding layouts, input processors, runtime binders, default input presets, and presentation-facing UI helpers
 - `nbl::system`
-  persistence, scripted runtime payloads, scripted parsing, scripted check execution, and follow validation helpers
+  persistence, scripted runtime parsing, scripted timeline building, scripted check execution, and follow validation
 
 The shared camera math is written against `nbl::hlsl`.
-Consumers of this stack are expected to talk to camera math through `nbl::hlsl` types and helpers rather than through direct `glm::...` calls.
+Consumers are expected to use those `nbl::hlsl` types and helpers directly rather than duplicating local math wrappers.
 
-## Why virtual events and not absolute setters
+## Runtime pipeline
 
-The runtime path is intentionally built around virtual events such as:
-
-- `MoveForward`
-- `PanLeft`
-- `TiltUp`
-- `RollRight`
-
-instead of runtime methods like:
-
-- `setPosition(...)`
-- `setTarget(...)`
-- `setYawPitchRoll(...)`
-
-The reason is architectural, not cosmetic.
-
-### What the event-driven design buys us
-
-It gives us one shared runtime path for:
-
-- live keyboard and mouse input
-- ImGuizmo manipulation
-- scripted playback
-- CI validation
-- future headless or tool-driven input sources
-
-It also keeps camera semantics inside the camera type:
-
-- `Orbit` means orbit
-- `FPS` means FPS
-- `Path Rig` means a path-model camera with typed `s/u/v/roll` state
-
-instead of allowing every caller to overwrite camera internals arbitrarily.
-
-### Why the absolute layer still exists
-
-Tooling still needs absolute-ish operations:
-
-- capture current state
-- restore preset
-- scrub playback
-- compare two camera states
-- run validation against expected state
-
-That is why the absolute layer exists, but it is kept outside `ICamera`.
-
-The intended pattern is:
-
-`camera <-> goal/preset/track/solver`
-
-not:
-
-`camera exposes public setters for everything`
-
-This is why the design uses:
-
-- [`CCameraGoal.hpp`](CCameraGoal.hpp)
-- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
-- [`CCameraPreset.hpp`](CCameraPreset.hpp)
-- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
-
-instead of making `ICamera` setter-heavy.
-
-## High-level architecture
-
-There are two main paths.
-
-### Runtime path
+The hot runtime path is:
 
 ```text
 raw input
-  -> binding layout
-  -> input processor / binder
-  -> virtual gimbal events
+  -> IGimbalBindingLayout
+  -> IGimbalInputProcessor / CGimbalInputBinder
+  -> CVirtualGimbalEvent[]
   -> ICamera::manipulate(...)
-  -> updated camera gimbal / view
+  -> updated camera gimbal and cached view matrix
 ```
 
-### Tooling path
-
-```text
-ICamera
-  <-> CCameraGoal
-  <-> CCameraPreset
-  <-> CCameraKeyframeTrack
-  <-> CCameraPlaybackTimeline
-  <-> CCameraSequenceScript
-```
-
-### Follow path
-
-```text
-CTrackedTarget + SCameraFollowConfig
-  -> CCameraGoal
-  -> CCameraGoalSolver
-  -> camera state
-```
-
-### Scripted sequence path
-
-```text
-CCameraSequenceScript
-  -> compiled sequence segment
-  -> scripted runtime timeline
-  -> scripted check runner
-  -> runtime logging / CI / screenshots
-```
-
-## Stack breakdown
-
-### 1. Gimbal and semantic commands
+The main building blocks are:
 
 - [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
+  shared semantic command language
 - [`IGimbal.hpp`](IGimbal.hpp)
-- [`CCameraMathUtilities.hpp`](CCameraMathUtilities.hpp)
+  gimbal math, event accumulation, and world-space pose handling
+- [`ICamera.hpp`](ICamera.hpp)
+  camera runtime interface and typed tooling hooks
+- [`SCameraRigPose.hpp`](SCameraRigPose.hpp)
+  shared typed pose transport used outside the hot runtime path
 
-This is the mathematical foundation.
+## Input layer
 
-It defines:
+The input layer is split into three parts.
 
-- the shared semantic event language in `CVirtualGimbalEvent`
-- low-level gimbal math
-- reusable camera-oriented math helpers in `nbl::hlsl`
-- accumulation of multiple semantic commands into one camera impulse
-
-This is the shared command language used by all camera types and all runtime input sources.
-
-### 2. Binding layout
+### Binding layout
 
 - [`IGimbalBindingLayout.hpp`](IGimbalBindingLayout.hpp)
 
-This layer stores static mappings such as:
+This layer stores static mappings from physical inputs to semantic virtual events.
+It does not process runtime input.
 
-- keyboard key -> virtual event
-- mouse input -> virtual event
-- ImGuizmo delta -> virtual event
-
-This layer does not process runtime input.
-It only stores how input should map to the semantic command language.
-
-### 3. Runtime input processing
+### Input processing
 
 - [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
 - [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
+
+`IGimbalInputProcessor` converts keyboard, mouse, and ImGuizmo input into virtual events.
+`CGimbalInputBinder` is the convenience runtime wrapper that collects one frame of virtual events together with per-domain counts.
+
+### Shared presets
+
 - [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
+- [`CCameraScriptedUiInputUtilities.hpp`](CCameraScriptedUiInputUtilities.hpp)
 
-The main runtime type is `IGimbalInputProcessor`.
+These helpers provide shared default input presets for camera kinds and the scripted/UI-facing glue that reuses the same semantic event language.
 
-This layer:
+## Core camera interface
 
-- receives actual keyboard and mouse streams
-- receives ImGuizmo transforms
-- emits virtual events for the current frame
-- stores reusable default keyboard, mouse, and ImGuizmo binding presets for camera kinds
-
-`CGimbalInputBinder` is the convenience runtime binder that a consumer should usually use.
-
-### 4. Camera core
-
-- [`ICamera.hpp`](ICamera.hpp)
-
-This is the core interface that camera models implement.
+The main runtime interface is [`ICamera.hpp`](ICamera.hpp).
 
 Important properties:
 
-- runtime entry point is `manipulate(...)`
-- the runtime path consumes virtual events only
-- cameras own their own gimbal and view state
-- cameras expose typed optional state hooks only for tooling
+- runtime entry point is `manipulate(std::span<const CVirtualGimbalEvent>, const hlsl::float64_t4x4*)`
+- cameras own their own `CGimbal`
+- motion scaling stays camera-local through `SMotionConfig`
+- typed state hooks are optional and exist for tooling, not for direct runtime driving
 
-`ICamera` also exposes:
+`ICamera` currently exposes these shared typed states:
+
+- `SphericalTargetState`
+- `DynamicPerspectiveState`
+- `PathState`
+- `PathStateLimits`
+
+The capability and state-mask surface is:
 
 - `CameraKind`
 - `CameraCapability`
 - `GoalStateMask`
-- motion config
-- typed state hooks used by tooling
-
-### 5. Projection layer
-
-- [`ILinearProjection.hpp`](ILinearProjection.hpp)
-- [`IPlanarProjection.hpp`](IPlanarProjection.hpp)
-- [`CPlanarProjection.hpp`](CPlanarProjection.hpp)
-- [`CLinearProjection.hpp`](CLinearProjection.hpp)
-- [`CCubeProjection.hpp`](CCubeProjection.hpp)
-
-This layer handles projection state.
-
-Important rule:
-
-- projection may own viewport-local binding layout state
-- projection does not own raw input processing
-
-That separation was one of the major cleanup goals of the refactor.
-
-### 6. Goal / preset / track tooling
-
-- [`CCameraGoal.hpp`](CCameraGoal.hpp)
-- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
-- [`CCameraGoalAnalysis.hpp`](CCameraGoalAnalysis.hpp)
-- [`CCameraPreset.hpp`](CCameraPreset.hpp)
-- [`CCameraPresetFlow.hpp`](CCameraPresetFlow.hpp)
-- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
-- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
-- [`CCameraPersistence.hpp`](CCameraPersistence.hpp)
-
-This is the tooling half of the stack.
-
-It covers:
-
-- state capture
-- compatibility analysis
-- best-effort restore
-- preset storage
-- keyframe playback
-- persistence
-- UI-facing diagnostics and presentation helpers
-
-### 7. Follow
-
-- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
-
-Follow is deliberately not part of `ICamera`.
-
-The tracked subject owns its own gimbal through `CTrackedTarget`.
-Follow stays as a policy layer above the camera.
-
-That means the camera API does not know about meshes, scene nodes, or any particular UI harness.
-It only knows about:
-
-- camera
-- tracked target gimbal
-- follow config
-- best-effort goal application
-
-### 8. Scripted sequence and validation
-
-- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
-- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
-- [`CCameraScriptedRuntimePersistence.hpp`](CCameraScriptedRuntimePersistence.hpp)
-- [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
-- [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
-
-This is the reusable scripting and CI half.
-
-It supports two levels of representation:
-
-1. Compact authored camera-domain script
-2. Expanded frame-by-frame scripted runtime payload
-
-That separation is important.
-Authored assets stay short and meaningful.
-Expanded runtime payloads stay normalized and reusable.
 
 ## Camera families
 
@@ -333,142 +179,343 @@ These cameras share:
 
 - target position
 - distance
-- orbit angles
-
-They participate in the shared spherical goal flow.
+- orbit angles in `orbitUv`
 
 ### Extended-state cameras
 
 - [`CDollyZoomCamera.hpp`](CDollyZoomCamera.hpp)
 - [`CPathCamera.hpp`](CPathCamera.hpp)
 
-These extend the shared base with typed extra state:
+`DollyZoom` adds dynamic perspective state.
+`Path Rig` adds typed path-rig state and a pluggable path model.
 
-- `DynamicPerspectiveState`
-- `PathState`
+## Path Rig design
 
-## Capabilities and typed state
+`Path Rig` is described explicitly by typed state, typed limits, and a path model.
 
-The core camera interface exposes:
+### Typed path state
 
-- `CameraCapability`
-- `GoalStateMask`
+`ICamera::PathState` stores:
 
-The currently relevant typed state is:
+- `s`
+  path progress / angular progress in the default model
+- `u`
+  lateral / radial component in the default model
+- `v`
+  vertical component
+- `roll`
+  roll around the view axis / path tangent
 
-- `SphericalTargetState`
-- `DynamicPerspectiveState`
-- `PathState`
+The default shared target-relative model interprets `s/u/v/roll` as a target-relative path rig, but custom models may reuse the same coordinates differently.
 
-The rule is:
+### Typed path limits
 
-- if a camera can round-trip through shared spherical state, do not add fake extra state
-- if a camera has real additional semantics that would be lost, add typed state explicitly
+`ICamera::PathStateLimits` stores per-instance limits:
 
-That is why:
+- `minU`
+- `minDistance`
+- `maxDistance`
 
-- `Chase` and `Dolly` currently stay on shared spherical state
-- `DollyZoom` has dynamic perspective state
-- `Path Rig` has typed `PathState` and the shared default model interprets it as target-relative `s/u/v/roll`
+Those limits are part of the active camera state surface.
+They are queried through `tryGetPathStateLimits(...)` and used by the solver, validation, and path-state sanitization.
 
-## Follow model
+### Shared path helpers
 
-Follow is modeled around a tracked target gimbal, not around a scene object id.
+- [`CCameraPathMetadata.hpp`](CCameraPathMetadata.hpp)
+- [`CCameraPathUtilities.hpp`](CCameraPathUtilities.hpp)
 
-### Source of truth
+`CCameraPathUtilities` provides:
 
-The source of truth is:
+- default path metadata and identifiers
+- path-state sanitization and comparison
+- position-to-state and state-to-pose conversion
+- distance updates
+- delta and transition helpers
+- the default `Path Rig` model
 
-- `CTrackedTarget`
+### Path model seam
 
-which literally owns a gimbal.
+The path seam is [`SCameraPathModel`](CCameraPathUtilities.hpp).
+It is a named typed model, not an ad-hoc runtime hack.
+
+It contains five callbacks:
+
+- `resolveState`
+  normalize requested state or derive initial state from target + position
+- `controlLaw`
+  turn accumulated runtime motion into a `SCameraPathDelta`
+- `integrate`
+  apply one delta to the current state under typed limits
+- `evaluate`
+  convert path state into canonical pose plus target-relative data
+- `updateDistance`
+  retarget state to a requested spherical distance
+
+The default model is created by `CCameraPathUtilities::makeDefaultPathModel()`.
+
+### Runtime behavior of `CPathCamera`
+
+[`CPathCamera.hpp`](CPathCamera.hpp) keeps the public runtime entry point unchanged:
+
+```text
+virtual events -> gimbal accumulation -> path controlLaw -> integrate -> evaluate -> gimbal pose
+```
+
+`CPathCamera` owns:
+
+- one active `SCameraPathModel`
+- one active `PathState`
+- one active `PathStateLimits`
+
+and exposes:
+
+- `getPathModel()`
+- `getPathStateLimits()`
+- `setPathModel(...)`
+- `setPathStateLimits(...)`
+- `tryGetPathState(...)`
+- `trySetPathState(...)`
+
+Construction is resilient:
+
+- a complete custom model is accepted directly
+- an incomplete model falls back to the shared default model
+- invalid custom limits are sanitized or replaced with shared defaults
+
+That means `Path Rig` is first-class and pluggable without changing `ICamera::manipulate(...)`.
+
+## Goals, presets, tracks, and playback
+
+The tooling side of the stack is built around a shared canonical camera state.
+
+### Goal layer
+
+- [`CCameraGoal.hpp`](CCameraGoal.hpp)
+- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
+- [`CCameraGoalAnalysis.hpp`](CCameraGoalAnalysis.hpp)
+
+`CCameraGoal` is the canonical typed transport object.
+It extends [`SCameraRigPose.hpp`](SCameraRigPose.hpp) with optional state such as:
+
+- target position
+- orbit state
+- path state
+- dynamic perspective state
+
+`CCameraGoalSolver` is the bridge between typed state and the event-driven runtime:
+
+- capture camera state into a goal
+- analyze compatibility
+- apply what can be applied through typed hooks
+- replay virtual events when needed
+
+This is the main best-effort absolute layer.
+
+### Presets and preset flow
+
+- [`CCameraPreset.hpp`](CCameraPreset.hpp)
+- [`CCameraPresetFlow.hpp`](CCameraPresetFlow.hpp)
+- [`CCameraPresetPersistence.hpp`](CCameraPresetPersistence.hpp)
+
+Presets are named `CCameraGoal` wrappers.
+`CCameraPresetFlowUtilities` provides the high-level capture/apply helpers that most consumers should call.
+
+### Keyframe tracks and playback
+
+- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
+- [`CCameraKeyframeTrackPersistence.hpp`](CCameraKeyframeTrackPersistence.hpp)
+- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
+
+Keyframe tracks are preset-based reusable playback data.
+`CCameraPlaybackTimeline` owns only transport-like playback cursor logic.
+Higher-level playback policy remains on the consumer side.
+
+### Persistence and file helpers
+
+- [`CCameraPersistence.hpp`](CCameraPersistence.hpp)
+- [`CCameraFileUtilities.hpp`](CCameraFileUtilities.hpp)
+
+These helpers cover camera presets, tracks, and related shared persistence tasks.
+
+## Follow layer
+
+Follow is deliberately not baked into `ICamera`.
+
+### Tracked target
+
+- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
+
+The tracked subject is `CTrackedTarget`.
+It owns its own `ICamera::CGimbal`.
+
+The follow source of truth is:
+
+- tracked-target pose
+- follow mode
+- follow config
+
+not a scene-node id or mesh handle.
 
 ### Follow modes
 
-Current modes:
+Current reusable modes are:
 
-- `LookAtTarget`
 - `OrbitTarget`
+- `LookAtTarget`
 - `KeepWorldOffset`
 - `KeepLocalOffset`
 
-### Follow invariants
+### Follow application and validation
 
-For enabled modes, the camera must stay logically locked to the tracked target:
-
-- camera-to-target direction must match the expected view direction
-- projected target center error must stay small when projection is available
-- spherical cameras must write target state back consistently
-- camera-target distance must remain internally consistent
-
-Those invariants are reusable and validated through:
-
+- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
 - [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
 
-## Compact sequence design
+`CCameraFollowUtilities` builds goal state from tracked target + policy and applies it through `CCameraGoalSolver`.
+`CCameraFollowRegressionUtilities` validates lock angle, projected target placement, distance consistency, and spherical writeback behavior.
 
-The compact sequence format is deliberately camera-domain.
+## Scripted authoring and validation
 
-It describes:
+The scripting side is split into compact authored data and expanded runtime payloads.
+
+### Compact authored sequence
+
+- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+- [`CCameraSequenceScriptPersistence.hpp`](CCameraSequenceScriptPersistence.hpp)
+
+This is the human-maintainable authored representation.
+It stores:
 
 - camera kind or identifier
 - projection presentation requests
-- goal keyframes
-- tracked-target keyframes
+- compact goal keyframes
+- compact tracked-target keyframes
 - continuity thresholds
 - capture fractions
 
-It deliberately does not describe:
+It intentionally does not store frame-by-frame low-level event dumps.
 
-- runtime-specific window actions as authored source data
-- frame-by-frame event dumps
-- ImGuizmo matrices as authored motion primitives
+### Expanded runtime payload
 
-This is why the new continuity asset became small and maintainable instead of being a giant generated dump.
+- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
+- [`CCameraScriptedRuntimePersistence.hpp`](CCameraScriptedRuntimePersistence.hpp)
 
-## Scripted runtime design
+This layer stores:
 
-The expanded scripted runtime exists so that a consumer can execute frame-by-frame logic without redefining runtime types locally.
+- low-level scripted input events
+- per-frame checks
+- capture frame scheduling
+- optional compact sequence payload parsed alongside the low-level runtime payload
 
-It is split into:
+### Sequence expansion
 
-- authored parsing and normalization
-- timeline finalization
-- segment-to-runtime expansion
-- per-frame dequeue
-- per-frame check evaluation
+- [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
 
-This keeps one runtime from owning a private scripting subsystem.
+This converts one compiled sequence segment into frame-by-frame scripted runtime payloads.
 
-## Current validation story
+### Frame check execution
 
-The current camera-focused validation is exercised through scripted smoke and continuity tests.
+- [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
+- [`CCameraSmokeRegressionUtilities.hpp`](CCameraSmokeRegressionUtilities.hpp)
 
-### Smoke
+This layer evaluates authored per-frame checks against the active runtime state.
+It is used by shared smoke and continuity coverage in `61_UI`.
 
-Purpose:
+## Projection layer
 
-- prove that camera selection and basic scripted manipulation still work
-- validate preset, sequence, runtime, and follow helper behavior with small regression checks
+Projection state is a separate reusable layer.
 
-### Continuity
+- [`IProjection.hpp`](IProjection.hpp)
+- [`ILinearProjection.hpp`](ILinearProjection.hpp)
+- [`IPerspectiveProjection.hpp`](IPerspectiveProjection.hpp)
+- [`IPlanarProjection.hpp`](IPlanarProjection.hpp)
+- [`CLinearProjection.hpp`](CLinearProjection.hpp)
+- [`CPlanarProjection.hpp`](CPlanarProjection.hpp)
+- [`CCubeProjection.hpp`](CCubeProjection.hpp)
+- [`IRange.hpp`](IRange.hpp)
 
-Purpose:
+Important rule:
 
-- prove that camera motion remains smooth frame-to-frame
-- prove that follow target lock remains valid during scripted target motion
+- projections may own viewport-local binding layouts
+- projections do not process raw runtime input
 
-This test now runs on the compact authored sequence format rather than a large expanded frame dump.
+That separation keeps viewport glue out of reusable camera semantics.
 
-## Recommended integration patterns
+## Presentation and UI-facing helpers
 
-### Minimal runtime integration
+The shared layer also exposes small reusable helpers used by consumers such as `61_UI`:
+
+- [`CCameraPresentationUtilities.hpp`](CCameraPresentationUtilities.hpp)
+- [`CCameraProjectionUtilities.hpp`](CCameraProjectionUtilities.hpp)
+- [`CCameraTextUtilities.hpp`](CCameraTextUtilities.hpp)
+- [`CCameraViewportOverlayUtilities.hpp`](CCameraViewportOverlayUtilities.hpp)
+- [`CCameraControlPanelUiUtilities.hpp`](CCameraControlPanelUiUtilities.hpp)
+- [`CCameraScriptVisualDebugOverlayUtilities.hpp`](CCameraScriptVisualDebugOverlayUtilities.hpp)
+
+These are still shared camera helpers.
+They are presentation-facing, but they remain camera-domain rather than `61_UI`-local glue.
+
+## 61_UI integration
+
+`61_UI` is the full runnable integration for this stack:
+
+- [`61_UI/README.md`](../../../61_UI/README.md)
+
+`61_UI` provides:
+
+- scene setup
+- active planar / window routing
+- ImGui control panel
+- tracked-target visualization
+- scripted smoke and continuity assets
+- screenshot capture
+- local logging
+
+The shared camera layer remains the source of truth for camera semantics.
+`61_UI` is the concrete harness that exercises them.
+
+## Local configure, build, and test
+
+Current local setup uses the Visual Studio 2022 dynamic preset.
+
+Configure:
+
+```powershell
+cmake --preset user-configure-dynamic-msvc
+```
+
+Build `61_UI`:
+
+```powershell
+cmake --build build/dynamic/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
+```
+
+Run the camera-focused tests:
+
+```powershell
+ctest --test-dir build/dynamic/examples_tests/61_UI -C Debug --output-on-failure -R NBL_61_UI_CAMERA_
+```
+
+Run the example manually:
+
+```powershell
+examples_tests/61_UI/bin/61_ui_d.exe
+```
+
+Run CI-style screenshot capture:
+
+```powershell
+examples_tests/61_UI/bin/61_ui_d.exe --ci
+```
+
+## Minimal integration examples
+
+### Runtime input to camera
 
 ```cpp
 auto camera = core::make_smart_refctd_ptr<COrbitCamera>(eye, target);
 
-CGimbalInputBinder binder;
-CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(binder, *camera);
+ui::CGimbalInputBinder binder;
+ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(binder, *camera);
 
 auto collected = binder.collectVirtualEvents(timestamp, {
     .mouseEvents = { mouseEvents.data(), mouseEvents.size() },
@@ -478,86 +525,65 @@ auto collected = binder.collectVirtualEvents(timestamp, {
 camera->manipulate(collected.events);
 ```
 
-### Preset / tooling integration
+### Capture and apply a preset
 
 ```cpp
-CCameraGoalSolver solver;
+core::CCameraGoalSolver solver;
 
 auto capture = solver.captureDetailed(camera.get());
 if (capture.canUseGoal())
 {
-    CCameraPreset preset;
-    CCameraPresetUtilities::assignGoalToPreset(preset, capture.goal);
+    core::CCameraPreset preset;
+    core::CCameraPresetUtilities::assignGoalToPreset(preset, capture.goal);
 
-    auto apply = CCameraPresetFlowUtilities::applyPresetDetailed(solver, camera.get(), preset);
+    auto apply = core::CCameraPresetFlowUtilities::applyPresetDetailed(solver, camera.get(), preset);
     if (!apply.succeeded())
     {
-        // report exact vs best-effort or unsupported state
+        // report unsupported or approximate apply
     }
 }
 ```
 
-### Follow integration
+### Apply follow
 
 ```cpp
-CTrackedTarget trackedTarget(position, orientation);
+core::CTrackedTarget trackedTarget(position, orientation);
 
-SCameraFollowConfig follow = {};
+core::SCameraFollowConfig follow = {};
 follow.enabled = true;
-follow.mode = ECameraFollowMode::KeepLocalOffset;
-follow.localOffset = float64_t3(-4.0, 0.0, 1.0);
+follow.mode = core::ECameraFollowMode::KeepLocalOffset;
+follow.localOffset = hlsl::float64_t3(-4.0, 0.0, 1.0);
 
-CCameraGoalSolver solver;
-auto result = CCameraFollowUtilities::applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
+auto result = core::CCameraFollowUtilities::applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
 ```
 
-### Sequence / CI integration
+### Expand a compact sequence into runtime payloads
 
 ```cpp
-CCameraSequenceScript script = ...;
-CCameraSequenceCompiledSegment segment = ...;
+system::CCameraScriptedTimeline timeline;
 
-CCameraScriptedTimeline timeline;
-CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
+system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
     timeline,
     baseFrame,
-    segment,
+    compiledSegment,
     buildInfo);
 
-CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline);
-
-CCameraScriptedCheckRuntimeState state = {};
-auto frameResult = CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
-    timeline.checks,
-    state,
-    context);
+system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline);
 ```
 
-## Why this split matters
+## Summary
 
-The design deliberately keeps these concerns separate:
+The current stack is organized as:
 
-- input binding
-- camera semantics
-- absolute/tooling state
-- follow policy
-- scripted playback and validation
+```text
+input layer
+  -> semantic virtual events
+  -> runtime camera models
+  -> typed goal / preset / track tooling
+  -> compact sequence authoring
+  -> expanded scripted runtime
+  -> shared validation
+```
 
-It also keeps the math side explicit:
-
-- camera-space vectors, matrices, and quaternions come from `nbl::hlsl`
-- runtime camera semantics stay in `nbl::core`
-- input-device mappings stay in `nbl::ui`
-- scripting, persistence, and validation helpers stay in `nbl::system`
-
-That separation is what keeps the stack reusable.
-
-If any one of those concerns leaks into the others:
-
-- cameras become setter-heavy
-- projections become input processors
-- consumers own private copies of state math
-- scripts become runtime-specific
-- follow becomes scene-object-specific
-
-The current refactor was mostly about removing exactly those leaks.
+That split is intentional.
+It is what keeps the runtime path small, the tooling path expressive, and the `61_UI` integration reusable instead of example-local.

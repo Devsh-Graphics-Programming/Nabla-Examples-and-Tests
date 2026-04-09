@@ -4,9 +4,6 @@
 #include <array>
 #include <vector>
 
-namespace
-{
-
 using control_panel_style_t = nbl::ui::SCameraControlPanelStyle;
 
 enum class EControlPanelToggleBinding : uint8_t
@@ -57,8 +54,6 @@ inline float calcControlPanelToggleRowWidth(
 	}
 	return rowWidth;
 }
-
-} // namespace
 
 void App::drawControlPanelHeader(const nbl::ui::SCameraControlPanelStyle& panelStyle)
 {

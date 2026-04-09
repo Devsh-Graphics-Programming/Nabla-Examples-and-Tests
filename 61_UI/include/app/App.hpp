@@ -23,7 +23,6 @@
 #include "app/AppTypes.hpp"
 #include "app/AppViewportBindingUtilities.hpp"
 #include "camera/CCubeProjection.hpp"
-#include "nbl/ext/Frustum/CDrawFrustum.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
@@ -140,6 +139,7 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		void refreshAllFollowOffsetConfigs();
 		float64_t3 getDefaultFollowTargetPosition() const;
 		camera_quaternion_t<float64_t> getDefaultFollowTargetOrientation() const;
+		SCameraFollowConfig makeExampleDefaultFollowConfig(const ICamera* camera) const;
 		void resetFollowTargetToDefault();
 		void snapFollowTargetToModel();
 		void applyFollowToConfiguredCameras(bool allowDuringScriptedInput = false);
@@ -247,8 +247,6 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		void logScriptedCameraPose(const char* label, ICamera* camera) const;
 		void updateScriptedFollowVisualState(const CCameraScriptedFrameEvents& scriptedFrameEvents);
 		void runActiveFrameScriptedChecks(const SScriptedFrameInputState& scriptedFrame);
-		std::optional<uint32_t> findFrustumSourceBindingIx(uint32_t planarIx) const;
-		std::optional<uint32_t> tryBuildFrustumOverlaySourceBindingIx() const;
 		void updateSceneDebugInstances();
 		void updateAuxSceneInstances(size_t geometryCount);
 		bool recordSceneFramebufferPass(IGPUCommandBuffer* cmdbuf, SWindowControlBinding& binding, uint32_t bindingIx);

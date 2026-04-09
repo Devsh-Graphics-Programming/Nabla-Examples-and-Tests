@@ -107,7 +107,7 @@ struct SCameraViewportInfoOverlayData final
 
     inline bool valid() const
     {
-        return !headline.empty() && !description.empty() && !detail.empty();
+        return !headline.empty() && !description.empty();
     }
 };
 
@@ -190,9 +190,12 @@ struct CCameraViewportOverlayUtilities final
 
         const ImVec2 headlineSize = ImGui::CalcTextSize(data.headline.c_str());
         const ImVec2 descriptionSize = ImGui::CalcTextSize(data.description.c_str());
-        const ImVec2 detailSize = ImGui::CalcTextSize(data.detail.c_str());
+        const bool hasDetail = !data.detail.empty();
+        const ImVec2 detailSize = hasDetail ? ImGui::CalcTextSize(data.detail.c_str()) : ImVec2(0.0f, 0.0f);
         const float width = std::max(std::max(headlineSize.x, descriptionSize.x), detailSize.x);
-        const float height = headlineSize.y + descriptionSize.y + detailSize.y + style.lineGap * 2.0f + style.padding.y * 2.0f;
+        float height = headlineSize.y + descriptionSize.y + style.lineGap + style.padding.y * 2.0f;
+        if (hasDetail)
+            height += detailSize.y + style.lineGap;
         ImVec2 overlayPos(
             viewportRect.position.x + viewportRect.size.x - width - style.padding.x * 2.0f - style.margin,
             viewportRect.position.y + style.margin);
@@ -206,10 +209,13 @@ struct CCameraViewportOverlayUtilities final
             ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + style.lineGap),
             style.descriptionColor,
             data.description.c_str());
-        drawList.AddText(
-            ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + descriptionSize.y + style.lineGap * 2.0f),
-            style.detailColor,
-            data.detail.c_str());
+        if (hasDetail)
+        {
+            drawList.AddText(
+                ImVec2(overlayPos.x + style.padding.x, overlayPos.y + style.padding.y + headlineSize.y + descriptionSize.y + style.lineGap * 2.0f),
+                style.detailColor,
+                data.detail.c_str());
+        }
     }
 
     static inline void beginHoverInfoOverlay(const char* name, const ImVec2& mousePos, const SCameraHoverInfoOverlayStyle& style = {})

@@ -3,7 +3,12 @@
 		const CCameraGoalSolver& goalSolver;
 		nbl::system::ISystem* system = nullptr;
 		const SCameraSmokePresetInventory& initialPresets;
+		ICamera* fpsCamera = nullptr;
 		ICamera* orbitCamera = nullptr;
+		ICamera* arcballCamera = nullptr;
+		ICamera* turntableCamera = nullptr;
+		ICamera* topDownCamera = nullptr;
+		ICamera* isometricCamera = nullptr;
 		ICamera* freeCamera = nullptr;
 		ICamera* chaseCamera = nullptr;
 		ICamera* dollyCamera = nullptr;
@@ -163,6 +168,411 @@
 		if (initialPresets.dollyZoom.has_value())
 			sourcePresets.push_back(initialPresets.dollyZoom.value());
 		return sourcePresets;
+	}
+
+	inline float chooseShiftedReferenceDistance(const ICamera::SphericalTargetState& state)
+	{
+		const float farther = std::min(state.maxDistance, state.distance + 1.25f);
+		if (hlsl::abs(static_cast<double>(farther - state.distance)) > CameraTinyScalarEpsilon)
+			return farther;
+
+		const float nearer = std::max(state.minDistance, state.distance - 1.25f);
+		return nearer;
+	}
+
+	inline bool tryBuildReferenceFrameFromTargetRelativeState(
+		const nbl::core::SCameraTargetRelativeState& desiredState,
+		hlsl::float64_t4x4& outReferenceFrame,
+		nbl::core::CCameraGoal& outExpectedGoal)
+	{
+		outExpectedGoal = {};
+		nbl::core::SCameraTargetRelativePose pose = {};
+		if (!nbl::core::CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(
+				desiredState,
+				ICamera::SphericalMinDistance,
+				ICamera::SphericalMaxDistance,
+				pose) ||
+			!nbl::core::CCameraGoalUtilities::applyCanonicalTargetRelativeGoal(outExpectedGoal, desiredState))
+		{
+			return false;
+		}
+
+		outReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(pose.position, pose.orientation);
+		return true;
+	}
+
+	inline bool verifyReferenceFrameGoalApply(
+		const SCameraSmokeResolvedState& state,
+		ICamera* const camera,
+		const nbl::core::SCameraTargetRelativeState& desiredState,
+		std::string_view label,
+		std::string& outError)
+	{
+		ICamera::SphericalTargetState baselineState = {};
+		if (!camera->tryGetSphericalTargetState(baselineState))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to capture the baseline spherical state.";
+			return false;
+		}
+
+		const nbl::core::SCameraTargetRelativeState baselineTargetRelativeState = {
+			.target = baselineState.target,
+			.orbitUv = baselineState.orbitUv,
+			.distance = baselineState.distance
+		};
+
+		hlsl::float64_t4x4 referenceFrame = hlsl::float64_t4x4(1.0);
+		hlsl::float64_t4x4 baselineReferenceFrame = hlsl::float64_t4x4(1.0);
+		nbl::core::CCameraGoal expectedGoal = {};
+		nbl::core::CCameraGoal baselineGoal = {};
+		if (!tryBuildReferenceFrameFromTargetRelativeState(desiredState, referenceFrame, expectedGoal) ||
+			!tryBuildReferenceFrameFromTargetRelativeState(baselineTargetRelativeState, baselineReferenceFrame, baselineGoal))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to build the projected reference pose.";
+			return false;
+		}
+
+		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, referenceFrame))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to apply the reference pose.";
+			return false;
+		}
+
+		ICamera::SphericalTargetState actualState = {};
+			if (!camera->tryGetSphericalTargetState(actualState) ||
+			!hlsl::CCameraMathUtilities::nearlyEqualVec3(
+				actualState.target,
+				desiredState.target,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance) ||
+			hlsl::CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.x, desiredState.orbitUv.x) >
+				hlsl::radians(nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
+			hlsl::CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.y, desiredState.orbitUv.y) >
+				hlsl::radians(nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
+			hlsl::abs(static_cast<double>(actualState.distance - desiredState.distance)) >
+				nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance)
+		{
+			std::ostringstream oss;
+			oss << label
+				<< " reference-frame smoke produced the wrong spherical state:"
+				<< " actual_target=(" << actualState.target.x << "," << actualState.target.y << "," << actualState.target.z << ")"
+				<< " expected_target=(" << desiredState.target.x << "," << desiredState.target.y << "," << desiredState.target.z << ")"
+				<< " actual_orbit=(" << actualState.orbitUv.x << "," << actualState.orbitUv.y << ")"
+				<< " expected_orbit=(" << desiredState.orbitUv.x << "," << desiredState.orbitUv.y << ")"
+				<< " actual_distance=" << actualState.distance
+				<< " expected_distance=" << desiredState.distance;
+			outError = oss.str();
+			return false;
+		}
+
+		expectedGoal.hasTargetPosition = false;
+		expectedGoal.hasDistance = false;
+		expectedGoal.hasOrbitState = false;
+
+		const auto capture = state.goalSolver.captureDetailed(camera);
+		if (!capture.canUseGoal() ||
+			!nbl::core::CCameraGoalUtilities::compareGoals(
+				capture.goal,
+				expectedGoal,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance))
+		{
+			outError = std::string(label) + " reference-frame smoke produced the wrong projected goal: " +
+				(capture.canUseGoal() ? nbl::core::CCameraGoalUtilities::describeGoalMismatch(capture.goal, expectedGoal) : std::string("goal_state=unavailable"));
+			return false;
+		}
+
+		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, baselineReferenceFrame))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline reference pose.";
+			return false;
+		}
+
+		return true;
+	}
+
+	inline bool verifyReferenceFramePoseApply(
+		const SCameraSmokeResolvedState& state,
+		ICamera* const camera,
+		const hlsl::float64_t3& desiredPosition,
+		const hlsl::camera_quaternion_t<hlsl::float64_t>& desiredOrientation,
+		std::string_view label,
+		std::string& outError)
+	{
+		const auto baselineCapture = state.goalSolver.captureDetailed(camera);
+		if (!baselineCapture.canUseGoal())
+		{
+			outError = std::string(label) + " reference-frame smoke failed to capture the baseline pose.";
+			return false;
+		}
+
+		nbl::core::CCameraGoal expectedGoal = {};
+		expectedGoal.position = desiredPosition;
+		expectedGoal.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(desiredOrientation);
+
+		const auto baselineReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+			baselineCapture.goal.position,
+			baselineCapture.goal.orientation);
+		const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+			desiredPosition,
+			expectedGoal.orientation);
+		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, referenceFrame))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to apply the rigid reference pose.";
+			return false;
+		}
+
+		const auto capture = state.goalSolver.captureDetailed(camera);
+		if (!capture.canUseGoal() ||
+			!nbl::core::CCameraGoalUtilities::compareGoals(
+				capture.goal,
+				expectedGoal,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+				nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance))
+		{
+			outError = std::string(label) + " reference-frame smoke produced the wrong rigid goal: " +
+				(capture.canUseGoal() ? nbl::core::CCameraGoalUtilities::describeGoalMismatch(capture.goal, expectedGoal) : std::string("goal_state=unavailable"));
+			return false;
+		}
+
+		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, baselineReferenceFrame))
+		{
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline rigid pose.";
+			return false;
+		}
+
+		return true;
+	}
+
+	inline bool verifyReferenceFrameSupportSmoke(
+		const SCameraSmokeResolvedState& state,
+		std::string& outError)
+	{
+		if (state.fpsCamera)
+		{
+			if (!verifyReferenceFramePoseApply(
+					state,
+					state.fpsCamera,
+					hlsl::float64_t3(2.5, -0.75, 4.0),
+					hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(-20.0, 35.0, 0.0)),
+					"FPS",
+					outError))
+			{
+				return false;
+			}
+		}
+
+		if (state.freeCamera)
+		{
+			if (!verifyReferenceFramePoseApply(
+					state,
+					state.freeCamera,
+					hlsl::float64_t3(-1.25, 0.5, 3.5),
+					hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(15.0, 45.0, 20.0)),
+					"Free",
+					outError))
+			{
+				return false;
+			}
+		}
+
+		const auto verifySphericalReference = [&](ICamera* const camera, std::string_view label, const auto& mutateDesiredState) -> bool
+		{
+			if (!camera)
+				return true;
+
+			ICamera::SphericalTargetState baselineState = {};
+			if (!camera->tryGetSphericalTargetState(baselineState))
+			{
+				outError = std::string(label) + " reference-frame smoke failed to query the baseline spherical state.";
+				return false;
+			}
+
+			nbl::core::SCameraTargetRelativeState desiredState = {
+				.target = baselineState.target,
+				.orbitUv = baselineState.orbitUv,
+				.distance = chooseShiftedReferenceDistance(baselineState)
+			};
+			mutateDesiredState(desiredState);
+			return verifyReferenceFrameGoalApply(state, camera, desiredState, label, outError);
+		};
+
+		if (!verifySphericalReference(state.orbitCamera, "Orbit", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(0.45, -0.25);
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.arcballCamera, "Arcball", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(0.35, 0.2);
+				desiredState.orbitUv.y = std::clamp(
+					desiredState.orbitUv.y,
+					-static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad),
+					static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad));
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.turntableCamera, "Turntable", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(-0.4, 0.18);
+				desiredState.orbitUv.y = std::clamp(
+					desiredState.orbitUv.y,
+					-static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad),
+					static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad));
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.topDownCamera, "TopDown", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv = hlsl::float64_t2(
+					desiredState.orbitUv.x + 0.6,
+					nbl::core::SCameraTargetRelativeRigDefaults::TopDownPitchRad);
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.isometricCamera, "Isometric", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv = hlsl::float64_t2(
+					nbl::core::SCameraTargetRelativeRigDefaults::IsometricYawRad,
+					nbl::core::SCameraTargetRelativeRigDefaults::IsometricPitchRad);
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.chaseCamera, "Chase", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(0.3, 0.15);
+				desiredState.orbitUv.y = std::clamp(
+					desiredState.orbitUv.y,
+					static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::ChaseMinPitchRad),
+					static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::ChaseMaxPitchRad));
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.dollyCamera, "Dolly", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(-0.3, -0.22);
+				desiredState.orbitUv.y = std::clamp(
+					desiredState.orbitUv.y,
+					-static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad),
+					static_cast<double>(nbl::core::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad));
+			}))
+		{
+			return false;
+		}
+
+		if (!verifySphericalReference(state.dollyZoomCamera, "DollyZoom", [&](nbl::core::SCameraTargetRelativeState& desiredState)
+			{
+				desiredState.orbitUv += hlsl::float64_t2(0.28, -0.14);
+			}))
+		{
+			return false;
+		}
+
+		if (state.pathCamera)
+		{
+			ICamera::PathState baselinePathState = {};
+			ICamera::PathStateLimits pathLimits = {};
+			ICamera::SphericalTargetState sphericalState = {};
+			if (!state.pathCamera->tryGetPathState(baselinePathState) ||
+				!state.pathCamera->tryGetPathStateLimits(pathLimits) ||
+				!state.pathCamera->tryGetSphericalTargetState(sphericalState))
+			{
+				outError = "Path reference-frame smoke failed to query the baseline typed state.";
+				return false;
+			}
+
+			ICamera::PathState desiredPathState = {};
+			ICamera::PathState projectedPathState = {};
+			const auto pathDelta = nbl::core::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
+				hlsl::float64_t3(0.8, 0.35, 1.1),
+				hlsl::float64_t3(0.0, 0.0, 0.45));
+			if (!nbl::core::CCameraPathUtilities::tryApplyPathStateDelta(
+					baselinePathState,
+					pathDelta,
+					pathLimits,
+					desiredPathState))
+			{
+				outError = "Path reference-frame smoke failed to build the desired typed path state.";
+				return false;
+			}
+
+			nbl::core::SCameraCanonicalPathState canonicalPathState = {};
+			nbl::core::SCameraCanonicalPathState baselineCanonicalPathState = {};
+			nbl::core::CCameraGoal expectedGoal = {};
+			if (!nbl::core::CCameraPathUtilities::tryBuildCanonicalPathState(
+					sphericalState.target,
+					desiredPathState,
+					pathLimits,
+					canonicalPathState) ||
+				!nbl::core::CCameraPathUtilities::tryResolvePathState(
+					sphericalState.target,
+					canonicalPathState.pose.position,
+					pathLimits,
+					nullptr,
+					projectedPathState) ||
+				!nbl::core::CCameraPathUtilities::tryBuildCanonicalPathState(
+					sphericalState.target,
+					baselinePathState,
+					pathLimits,
+					baselineCanonicalPathState) ||
+				!nbl::core::CCameraGoalUtilities::applyCanonicalPathGoalFields(
+					expectedGoal,
+					sphericalState.target,
+					projectedPathState,
+					pathLimits))
+			{
+				outError = "Path reference-frame smoke failed to build the canonical target-relative path pose.";
+				return false;
+			}
+
+			const auto baselineReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+				baselineCanonicalPathState.pose.position,
+				baselineCanonicalPathState.pose.orientation);
+			const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+				canonicalPathState.pose.position,
+				canonicalPathState.pose.orientation);
+			if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(state.pathCamera, referenceFrame))
+			{
+				outError = "Path reference-frame smoke failed to apply the projected path pose.";
+				return false;
+			}
+
+			const auto capture = state.goalSolver.captureDetailed(state.pathCamera);
+			if (!capture.canUseGoal() ||
+				!nbl::core::CCameraGoalUtilities::compareGoals(
+					capture.goal,
+					expectedGoal,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance))
+			{
+				outError = "Path reference-frame smoke produced the wrong projected goal: " +
+					(capture.canUseGoal() ? nbl::core::CCameraGoalUtilities::describeGoalMismatch(capture.goal, expectedGoal) : std::string("goal_state=unavailable"));
+				return false;
+			}
+
+			if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(state.pathCamera, baselineReferenceFrame))
+			{
+				outError = "Path reference-frame smoke failed to restore the baseline reference pose.";
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	inline bool verifyPersistenceAndPlaybackSmoke(
@@ -956,6 +1366,9 @@
 			}
 		}
 
+		if (!verifyReferenceFrameSupportSmoke(state, outError))
+			return false;
+
 		if (state.initialPresets.orbit.has_value() && state.orbitCamera && state.initialPresets.orbit->goal.hasDistance)
 		{
 			CameraPreset farOrbitPreset = state.initialPresets.orbit.value();
@@ -1124,7 +1537,7 @@
 			if (!defaultFollowCamera)
 				continue;
 
-			auto followConfig = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(defaultFollowCamera);
+			auto followConfig = makeDefaultFollowConfig(defaultFollowCamera);
 			if (!followConfig.enabled || followConfig.mode == ECameraFollowMode::Disabled)
 				continue;
 
@@ -1214,5 +1627,4 @@
 
 		return true;
 	}
-}
 

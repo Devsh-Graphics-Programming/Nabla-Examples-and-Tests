@@ -1,5 +1,3 @@
-namespace
-{
 	using camera_json_t = nlohmann::json;
 	using CameraPreset = nbl::core::CCameraPreset;
 	constexpr double CameraTinyScalarEpsilon = nbl::system::SCameraSmokeComparisonThresholds::TinyScalarEpsilon;
@@ -156,7 +154,12 @@ namespace
 
 	struct SCameraSmokeCameraInventory final
 	{
+		ICamera* fps = nullptr;
 		ICamera* orbit = nullptr;
+		ICamera* arcball = nullptr;
+		ICamera* turntable = nullptr;
+		ICamera* topDown = nullptr;
+		ICamera* isometric = nullptr;
 		ICamera* free = nullptr;
 		ICamera* chase = nullptr;
 		ICamera* dolly = nullptr;
@@ -369,7 +372,12 @@ namespace
 	inline SCameraSmokeCameraInventory collectSmokeCameras(const std::span<const smart_refctd_ptr<ICamera>> cameras)
 	{
 		return {
+			.fps = findCameraByKind(cameras, ICamera::CameraKind::FPS),
 			.orbit = findCameraByKind(cameras, ICamera::CameraKind::Orbit),
+			.arcball = findCameraByKind(cameras, ICamera::CameraKind::Arcball),
+			.turntable = findCameraByKind(cameras, ICamera::CameraKind::Turntable),
+			.topDown = findCameraByKind(cameras, ICamera::CameraKind::TopDown),
+			.isometric = findCameraByKind(cameras, ICamera::CameraKind::Isometric),
 			.free = findCameraByKind(cameras, ICamera::CameraKind::Free),
 			.chase = findCameraByKind(cameras, ICamera::CameraKind::Chase),
 			.dolly = findCameraByKind(cameras, ICamera::CameraKind::Dolly),

@@ -3,9 +3,6 @@
 #include <span>
 #include <string>
 
-namespace
-{
-
 template<typename BindingMap, typename ApplyBinding>
 bool tryApplyProjectionBindingSelection(
     const std::optional<uint32_t>& bindingIx,
@@ -25,8 +22,6 @@ bool tryApplyProjectionBindingSelection(
     applyBinding(bindings[bindingIx.value()]);
     return true;
 }
-
-} // namespace
 
 namespace nbl::system
 {

@@ -2,9 +2,6 @@
 
 #include "app/AppResourceUtilities.hpp"
 
-namespace
-{
-
 struct SSpaceEnvironmentTextureSpec final
 {
 	E_FORMAT format = EF_R16G16B16A16_SFLOAT;
@@ -36,8 +33,6 @@ inline SSpaceEnvironmentTextureSpec buildSpaceEnvironmentTextureSpec(const nbl::
 	}};
 	return textureSpec;
 }
-
-} // namespace
 
 bool App::initializeSpaceEnvironmentResources()
 {

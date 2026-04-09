@@ -2,9 +2,6 @@
 
 #include <unordered_set>
 
-namespace
-{
-
 struct SCollectedCameraVirtualEvents final
 {
 	std::vector<CVirtualGimbalEvent> events = {};
@@ -164,8 +161,6 @@ inline void applyCollectedVirtualEventsToCamera(
 		refreshFollowOffsets(planarIx);
 	appendVirtualEventLog(target, planarIx, collectedVirtualEvents);
 }
-
-} // namespace
 
 void App::applyActiveCameraInput(
 	std::span<const SKeyboardEvent> keyboardEvents,

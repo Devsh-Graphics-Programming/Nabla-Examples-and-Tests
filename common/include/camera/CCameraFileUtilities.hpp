@@ -10,9 +10,14 @@
 namespace nbl::system
 {
 
+/// @brief Shared file I/O helpers used by camera persistence and scripted-runtime loaders.
+///
+/// The helpers keep camera-facing persistence code independent from ad-hoc file
+/// handling and provide one place for consistent error propagation.
 struct CCameraFileUtilities final
 {
 public:
+    /// @brief Read a whole file into a byte buffer.
     static inline bool readBinaryFile(
         ISystem& system,
         const path& filePath,
@@ -47,6 +52,7 @@ public:
         return true;
     }
 
+    /// @brief Read a whole file and interpret its payload as UTF-8 text.
     static inline bool readTextFile(
         ISystem& system,
         const path& filePath,
@@ -62,6 +68,7 @@ public:
         return true;
     }
 
+    /// @brief Overwrite a file with the provided text payload.
     static inline bool writeTextFile(
         ISystem& system,
         const path& filePath,

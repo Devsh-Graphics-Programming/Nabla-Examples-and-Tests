@@ -9,6 +9,10 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera constrained to look straight down at the tracked target.
+///
+/// Yaw may still rotate the view around the vertical axis, while pitch is fixed to
+/// the top-down angle and translation moves the tracked target in the view plane.
 class CTopDownCamera final : public CSphericalTargetCamera
 {
 public:
@@ -24,10 +28,24 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply one frame of top-down yaw rotation, planar translation, and distance changes.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceTopDownState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            adoptTargetRelativeState(resolvedState);
+        }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -47,6 +65,7 @@ public:
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::TopDown; }
+    /// @brief Return the stable user-facing identifier for this concrete camera kind.
     virtual std::string_view getIdentifier() const override { return "Top-Down Camera"; }
 
 private:

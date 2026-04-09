@@ -1,7 +1,7 @@
 #include "app/App.hpp"
 #include "app/AppRenderPassUtilities.hpp"
 
-bool App::recordSceneFramebufferPass(IGPUCommandBuffer* cmdbuf, SWindowControlBinding& binding, const uint32_t bindingIx)
+bool App::recordSceneFramebufferPass(IGPUCommandBuffer* cmdbuf, SWindowControlBinding& binding, const uint32_t)
 {
 	if (!cmdbuf || !binding.sceneFramebuffer)
 		return true;
@@ -43,28 +43,6 @@ bool App::recordSceneFramebufferPass(IGPUCommandBuffer* cmdbuf, SWindowControlBi
 
 	const auto viewParams = CSimpleDebugRenderer::SViewParams(binding.viewMatrix, binding.viewProjMatrix);
 	m_debugScene.renderer->render(cmdbuf, viewParams);
-
-	const bool drawScriptFrustum = m_scriptedInput.enabled && m_scriptedInput.visualDebug;
-	if (!m_debugScene.frustumDrawer || !drawScriptFrustum)
-		return finalize();
-
-	const auto sourceBindingIx = tryBuildFrustumOverlaySourceBindingIx();
-	if (!sourceBindingIx.has_value())
-		return finalize();
-
-	const auto& sourceBinding = m_viewports.windowBindings[sourceBindingIx.value()];
-	const bool sameCameraAsView = binding.activePlanarIx == sourceBinding.activePlanarIx;
-	const bool sameWindow = bindingIx == sourceBindingIx.value();
-	if (sameCameraAsView || sameWindow)
-		return finalize();
-
-	ext::frustum::CDrawFrustum::DrawParameters drawParams = {};
-	drawParams.commandBuffer = cmdbuf;
-	drawParams.viewProjectionMatrix = binding.viewProjMatrix;
-	drawParams.lineWidth = SCameraAppSceneDebugDefaults::FrustumLineWidth;
-
-	const float32_t4 color = SCameraAppFrameRuntimeDefaults::FrustumColor;
-	success = success && m_debugScene.frustumDrawer->renderSingle(drawParams, hlsl::inverse(sourceBinding.viewProjMatrix), color);
 	return finalize();
 }
 

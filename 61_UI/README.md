@@ -1,50 +1,49 @@
 # 61_UI Cameraz
 
-`61_UI` is a full integration example and validation target for the shared camera stack in
-[`../common/include/camera`](../common/include/camera/README.md).
+`61_UI` is the full runnable integration and validation target for the shared camera stack documented in [`../common/include/camera/README.md`](../common/include/camera/README.md).
 
-If you want the architecture, design rationale, and reusable API breakdown, start there first.
+If you want the reusable API design, start there first.
 This README focuses on what `61_UI` adds on top of the shared layer.
 
 ## Role of this example
 
-It is used to:
+`61_UI` is used to:
 
-- exercise all current camera models in one scene
-- validate the shared input, goal, preset, playback, follow, and scripting layers
-- provide an interactive manual playground
+- exercise all current camera kinds in one visible scene
+- validate the shared input, goal, preset, playback, follow, and scripted layers
+- provide a manual playground for camera behavior
 - provide CI-oriented smoke and continuity coverage
 
-The example is intentionally not the source of truth for camera semantics.
-Its job is to consume the shared camera APIs and expose them through a visible, testable UI.
+It is intentionally not the source of truth for camera semantics.
+Its job is to consume the shared camera API and expose it through one concrete, testable app.
 
-## What `61_UI` contributes locally
+## What `61_UI` owns locally
 
-The reusable camera layer stops at shared camera-domain interfaces.
-`61_UI` adds the local glue needed to turn that into an example application:
+The shared camera layer stops at reusable camera-domain APIs.
+`61_UI` adds the local glue needed to turn that into an application:
 
 - scene setup and demo geometry
-- planar/window routing
-- ImGui control panel and transform editor
+- planar / window routing
+- ImGui control panel
+- transform editor and gizmo glue
 - screenshot capture
-- scripted visual-debug HUD
-- local logging and failure reporting
+- runtime logging and failure reporting
+- local visual-debug presentation
 
-That means the shared camera layer owns:
+The shared layer owns:
 
 - camera semantics
 - follow semantics
-- compact sequence semantics
+- compact sequence authoring
 - scripted runtime payloads
 - scripted check semantics
 
-and `61_UI` owns:
+`61_UI` owns how those pieces are presented, visualized, and driven in one sample.
 
-- how those things are presented and driven in one concrete sample
+## Camera set
 
-## Cameras in the scene
-
-`app_resources/cameras.json` configures the currently showcased camera set:
+`app_resources/cameras.json` configures the showcased cameras.
+The current set is:
 
 - FPS
 - Orbit
@@ -58,41 +57,41 @@ and `61_UI` owns:
 - DollyZoom
 - Path Rig
 
-These are exposed through the active planar/view configuration in the example UI.
+These are exposed through the active planar / viewport configuration in the UI.
 
-## Follow target in `61_UI`
+## Follow target
 
 `61_UI` exposes one tracked target in the default scene.
 
 Important rule:
 
-- the tracked target is the reusable `CTrackedTarget` gimbal
-- it is not the large cone
-- it is not any scene object id
-- the rendered marker is only a visualization of that gimbal
+- the reusable tracked subject is `core::CTrackedTarget`
+- it owns its own gimbal
+- it is not the large cone mesh
+- the rendered marker is only a visualization of the tracked-target gimbal
 
-This is important because the shared follow layer is intentionally modeled around:
+This matters because the shared follow layer is modeled around:
 
-- tracked target pose
+- tracked-target pose
 - follow mode
 - follow config
 
-and not around a mesh reference.
+and not around a scene-node or mesh id.
 
-### Default follow usage in the scene
+### Default follow usage
 
-Current default setup:
+The default scene uses:
 
 - `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path Rig`
-  use `OrbitTarget`
+  with `OrbitTarget`
 - `Chase`, `Dolly`
-  use `KeepLocalOffset`
+  with `KeepLocalOffset`
 
-Manual runtime and scripted continuity both drive the same follow layer.
+Manual runtime and scripted continuity both drive the same shared follow layer.
 
 ## Scripted assets
 
-`61_UI` currently uses two camera-focused scripted assets:
+`61_UI` currently ships two camera-focused scripted assets:
 
 - `app_resources/cameraz_smoke_all.json`
 - `app_resources/cameraz_continuity.json`
@@ -102,78 +101,90 @@ Manual runtime and scripted continuity both drive the same follow layer.
 Purpose:
 
 - validate basic camera selection and movement
-- validate helper behavior in a small, cheap run
+- validate shared helpers in a short, cheap run
 
 ### Continuity
 
 Purpose:
 
 - validate smooth frame-to-frame motion
-- validate tracked-target follow lock during scripted target motion
+- validate follow lock while the tracked target moves
 - provide a readable visual-debug showcase
 
-The continuity asset is now a compact authored camera-sequence script.
+The continuity asset is a compact authored camera-sequence script.
 It is no longer a giant committed frame dump.
 
-## Shared pieces consumed by `61_UI`
+## Shared pieces consumed directly by `61_UI`
 
-The example now consumes these shared scripting and follow pieces directly:
+`61_UI` consumes the shared stack directly rather than carrying private copies of camera logic:
 
+- [`CCameraInputBindingUtilities.hpp`](../common/include/camera/CCameraInputBindingUtilities.hpp)
+- [`CCameraPresetFlow.hpp`](../common/include/camera/CCameraPresetFlow.hpp)
+- [`CCameraFollowUtilities.hpp`](../common/include/camera/CCameraFollowUtilities.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](../common/include/camera/CCameraFollowRegressionUtilities.hpp)
 - [`CCameraSequenceScript.hpp`](../common/include/camera/CCameraSequenceScript.hpp)
 - [`CCameraScriptedRuntime.hpp`](../common/include/camera/CCameraScriptedRuntime.hpp)
 - [`CCameraScriptedRuntimePersistence.hpp`](../common/include/camera/CCameraScriptedRuntimePersistence.hpp)
 - [`CCameraSequenceScriptedBuilder.hpp`](../common/include/camera/CCameraSequenceScriptedBuilder.hpp)
 - [`CCameraScriptedCheckRunner.hpp`](../common/include/camera/CCameraScriptedCheckRunner.hpp)
-- [`CCameraFollowUtilities.hpp`](../common/include/camera/CCameraFollowUtilities.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](../common/include/camera/CCameraFollowRegressionUtilities.hpp)
 
-That means `61_UI` no longer owns a private scripting model or private follow math.
+That means `61_UI` does not own a private scripting model, private follow math, or private camera restore logic.
 
-## Manual usage
+## Local build and run
 
-Typical manual workflow:
+Current local setup uses the Visual Studio 2022 dynamic preset.
 
-1. Pick a camera/planar in the UI.
-2. Manipulate the camera through mouse, keyboard, or ImGuizmo-backed controls.
-3. Use presets and playback tools if needed.
-4. Move the tracked target marker.
-5. Observe how follow-enabled cameras react.
-
-## CI and validation
-
-`CMakeLists.txt` registers two dedicated tests:
-
-- `NBL_61_UI_CAMERA_SMOKE`
-- `NBL_61_UI_CAMERA_CONTINUITY`
-
-Run from `build_vs2026/examples_tests/61_UI`:
+Configure:
 
 ```powershell
-ctest -C Debug --output-on-failure -R NBL_61_UI_CAMERA_
+cmake --preset user-configure-dynamic-msvc
 ```
-
-## Build and run
 
 Build:
 
 ```powershell
-cmake --build build_vs2026/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
+cmake --build build/dynamic/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
 ```
 
-Run manual smoke-style playback:
+Run tests:
 
 ```powershell
-./61_ui_d.exe --script app_resources/cameraz_smoke_all.json --script-log
+ctest --test-dir build/dynamic/examples_tests/61_UI -C Debug --output-on-failure -R NBL_61_UI_CAMERA_
 ```
 
-Run continuity in CI-style mode:
+Run the example:
 
 ```powershell
-./61_ui_d.exe --ci --script app_resources/cameraz_continuity.json --script-log --script-visual-debug
+examples_tests/61_UI/bin/61_ui_d.exe
 ```
 
-Notes:
+Run CI-style screenshot capture:
 
-- continuity visual run is about `47 s`
-- `visual_debug` can also be authored in JSON
-- the compact continuity asset stays camera-domain and reusable instead of storing example-specific frame dumps
+```powershell
+examples_tests/61_UI/bin/61_ui_d.exe --ci
+```
+
+Run smoke-style scripted playback:
+
+```powershell
+examples_tests/61_UI/bin/61_ui_d.exe --script app_resources/cameraz_smoke_all.json --script-log
+```
+
+Run continuity with visual debug:
+
+```powershell
+examples_tests/61_UI/bin/61_ui_d.exe --ci --script app_resources/cameraz_continuity.json --script-log --script-visual-debug
+```
+
+## Typical manual workflow
+
+1. Pick a camera and planar in the UI.
+2. Drive the camera with keyboard, mouse, or ImGuizmo-backed controls.
+3. Capture or restore presets if needed.
+4. Move the tracked target marker.
+5. Observe follow-enabled cameras and scripted overlays.
+
+## Summary
+
+`61_UI` is the app-layer harness around the shared camera API.
+It proves that the reusable stack works end-to-end in a visible scene, with shared follow, presets, scripted playback, and CI validation all going through the same underlying camera semantics.

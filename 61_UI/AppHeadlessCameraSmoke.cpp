@@ -75,7 +75,12 @@ bool App::runHeadlessCameraSmoke(argparse::ArgumentParser& program, smart_refctd
 		.goalSolver = m_cameraGoalSolver,
 		.system = getCameraAppResourceContext().system,
 		.initialPresets = initialPresets,
+		.fpsCamera = cameraInventory.fps,
 		.orbitCamera = cameraInventory.orbit,
+		.arcballCamera = cameraInventory.arcball,
+		.turntableCamera = cameraInventory.turntable,
+		.topDownCamera = cameraInventory.topDown,
+		.isometricCamera = cameraInventory.isometric,
 		.freeCamera = cameraInventory.free,
 		.chaseCamera = cameraInventory.chase,
 		.dollyCamera = cameraInventory.dolly,
@@ -89,7 +94,7 @@ bool App::runHeadlessCameraSmoke(argparse::ArgumentParser& program, smart_refctd
 			resolvedSmokeState,
 			{ cameras.data(), cameras.size() },
 			{ smokePlanars.data(), smokePlanars.size() },
-			[](ICamera* camera) { return nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera); },
+			[this](ICamera* camera) { return makeExampleDefaultFollowConfig(camera); },
 			[](const CTrackedTarget& trackedTarget, const std::string_view label, std::string& error)
 			{
 				return verifyFollowTargetMarkerAlignmentForSmoke(trackedTarget, label, error);

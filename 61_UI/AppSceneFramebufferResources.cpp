@@ -1,8 +1,5 @@
 #include "app/App.hpp"
 
-namespace
-{
-
 smart_refctd_ptr<IGPUImageView> createSceneAttachmentView(ILogicalDevice* device, E_FORMAT format, uint32_t width, uint32_t height, const char* debugName)
 {
 	if (!device)
@@ -59,8 +56,6 @@ smart_refctd_ptr<IGPUFramebuffer> createSceneFramebuffer(
 	} };
 	return device->createFramebuffer(std::move(params));
 }
-
-} // namespace
 
 bool App::initializeSceneRenderpass()
 {

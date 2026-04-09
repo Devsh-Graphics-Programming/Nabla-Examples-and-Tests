@@ -21,17 +21,17 @@ namespace nbl::ui
 struct SCameraControlPanelStyle final
 {
     static constexpr float MillisecondsPerSecond = 1000.0f;
-    static constexpr float WindowWidthRatio = 0.19f;
-    static constexpr float WindowMinWidth = 200.0f;
-    static constexpr float WindowMaxWidthRatio = 0.25f;
-    static constexpr float WindowHeightRatio = 0.34f;
+    static constexpr float WindowWidthRatio = 0.22f;
+    static constexpr float WindowMinWidth = 340.0f;
+    static constexpr float WindowMaxWidthRatio = 0.30f;
+    static constexpr float WindowHeightRatio = 0.32f;
     static constexpr float WindowMinHeight = 200.0f;
     static constexpr float WindowMaxHeightRatio = 0.50f;
 
-    static constexpr ImVec2 WindowPadding = ImVec2(5.0f, 4.0f);
-    static constexpr ImVec2 FramePadding = ImVec2(4.0f, 1.0f);
-    static constexpr ImVec2 ItemSpacing = ImVec2(3.0f, 2.0f);
-    static constexpr ImVec2 CellPadding = ImVec2(3.0f, 2.0f);
+    static constexpr ImVec2 WindowPadding = ImVec2(4.0f, 3.0f);
+    static constexpr ImVec2 FramePadding = ImVec2(3.0f, 1.0f);
+    static constexpr ImVec2 ItemSpacing = ImVec2(2.0f, 1.0f);
+    static constexpr ImVec2 CellPadding = ImVec2(2.0f, 1.0f);
     static constexpr float WindowRounding = 4.0f;
     static constexpr float FrameRounding = 3.0f;
     static constexpr float TabRounding = 3.0f;
@@ -78,18 +78,18 @@ struct SCameraControlPanelStyle final
     static constexpr ImVec4 SectionChildBackgroundColor = ImVec4(0.14f, 0.18f, 0.22f, 0.52f);
     static constexpr ImVec4 MiniStatChildBackgroundColor = ImVec4(0.14f, 0.16f, 0.19f, 0.75f);
 
-    static constexpr ImVec2 BadgePadding = ImVec2(6.0f, 2.0f);
-    static constexpr ImVec2 KeyHintPadding = ImVec2(4.0f, 1.0f);
-    static constexpr float BadgeFramePaddingX = 6.0f;
-    static constexpr float BadgeFramePaddingY = 2.0f;
-    static constexpr float KeyHintFramePaddingX = 4.0f;
+    static constexpr ImVec2 BadgePadding = ImVec2(5.0f, 1.0f);
+    static constexpr ImVec2 KeyHintPadding = ImVec2(3.0f, 1.0f);
+    static constexpr float BadgeFramePaddingX = 5.0f;
+    static constexpr float BadgeFramePaddingY = 1.0f;
+    static constexpr float KeyHintFramePaddingX = 3.0f;
     static constexpr float KeyHintFramePaddingY = 1.0f;
-    static constexpr float DotRadius = 3.5f;
+    static constexpr float DotRadius = 3.0f;
     static constexpr float DotYOffset = 1.0f;
-    static constexpr float DotSpacing = 6.0f;
+    static constexpr float DotSpacing = 5.0f;
     static constexpr float SectionChildRounding = 4.0f;
     static constexpr float CardChildRounding = 6.0f;
-    static constexpr ImVec2 CardWindowPadding = ImVec2(10.0f, 8.0f);
+    static constexpr ImVec2 CardWindowPadding = ImVec2(8.0f, 6.0f);
     static constexpr float PanelShadowOffsetX = 2.0f;
     static constexpr float PanelShadowOffsetY = 3.0f;
     static constexpr float PanelShadowExtentX = 4.0f;
@@ -98,29 +98,29 @@ struct SCameraControlPanelStyle final
     static constexpr float PanelShadowRounding = 8.0f;
     static constexpr float PanelRounding = 6.0f;
     static constexpr float SectionHeaderWidth = 2.0f;
-    static constexpr float SectionHeaderTextOffsetX = 8.0f;
-    static constexpr float SectionHeaderHeight = 20.0f;
+    static constexpr float SectionHeaderTextOffsetX = 7.0f;
+    static constexpr float SectionHeaderHeight = 18.0f;
     static constexpr float SectionSpacingY = 0.0f;
-    static constexpr float CardExtraRows = 1.0f;
-    static constexpr float CardHeightPadding = 10.0f;
-    static constexpr float MiniStatHeight = 56.0f;
-    static constexpr float MiniStatPlotHeight = 24.0f;
+    static constexpr float CardExtraRows = 0.7f;
+    static constexpr float CardHeightPadding = 6.0f;
+    static constexpr float MiniStatHeight = 48.0f;
+    static constexpr float MiniStatPlotHeight = 20.0f;
     static constexpr float MiniStatChildRounding = 6.0f;
-    static constexpr float HeaderWindowHeight = 64.0f;
-    static constexpr float HeaderTitleFontScale = 1.08f;
-    static constexpr float HeaderMetricFontScale = 1.05f;
-    static constexpr float HeaderDummyY = 1.0f;
-    static constexpr float HeaderGapSmall = 2.0f;
+    static constexpr float HeaderWindowHeight = 56.0f;
+    static constexpr float HeaderTitleFontScale = 1.04f;
+    static constexpr float HeaderMetricFontScale = 1.02f;
+    static constexpr float HeaderDummyY = 0.0f;
+    static constexpr float HeaderGapSmall = 1.0f;
     static constexpr float TabChildRounding = 4.0f;
-    static constexpr ImVec2 TogglePadding = ImVec2(6.0f, 2.0f);
-    static constexpr float KeyframeListHeight = 120.0f;
+    static constexpr ImVec2 TogglePadding = ImVec2(5.0f, 1.0f);
+    static constexpr float KeyframeListHeight = 108.0f;
     static constexpr float EventLogBottomThreshold = 5.0f;
 
     static constexpr float DefaultFrameMetricMin = 16.0f;
     static constexpr float DefaultEventMetricMin = 4.0f;
 
     static constexpr ImGuiTableFlags SummaryTableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX;
-    static constexpr float SummaryLabelColumnWidth = 120.0f;
+    static constexpr float SummaryLabelColumnWidth = 108.0f;
 };
 
 struct SCameraControlPanelBadgeData final

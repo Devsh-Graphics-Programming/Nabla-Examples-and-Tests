@@ -11,12 +11,14 @@
 namespace nbl::core
 {
 
+/// @brief Positive and negative semantic virtual-event pair for one scalar axis.
 struct SCameraVirtualEventAxisBinding final
 {
     CVirtualGimbalEvent::VirtualEventType positive = CVirtualGimbalEvent::None;
     CVirtualGimbalEvent::VirtualEventType negative = CVirtualGimbalEvent::None;
 };
 
+/// @brief Reusable axis-binding presets shared by helpers that synthesize virtual events.
 struct SCameraVirtualEventBindings final
 {
     static inline constexpr std::array<SCameraVirtualEventAxisBinding, 3u> LocalTranslation = {{
@@ -26,9 +28,15 @@ struct SCameraVirtualEventBindings final
     }};
 };
 
+/// @brief Shared helpers for building and analyzing `CVirtualGimbalEvent` batches.
+///
+/// These utilities are reused by goal replay, path-model control translation,
+/// scripted tooling, and smoke checks whenever code needs to convert typed deltas
+/// into semantic event streams or inspect those streams on the CPU.
 struct CCameraVirtualEventUtilities final
 {
 public:
+    /// @brief Append one signed scalar as either the positive or negative event variant.
     static inline void appendSignedVirtualEvent(
         std::vector<CVirtualGimbalEvent>& events,
         const double value,
@@ -44,6 +52,7 @@ public:
         ev.magnitude = hlsl::abs(value);
     }
 
+    /// @brief Append one signed scalar after normalizing it by a caller-provided denominator.
     static inline void appendScaledVirtualEvent(
         std::vector<CVirtualGimbalEvent>& events,
         const double value,
@@ -58,6 +67,7 @@ public:
         appendSignedVirtualEvent(events, value / denominator, positive, negative, tolerance);
     }
 
+    /// @brief Append one angular delta by comparing it against a tolerance expressed in degrees.
     static inline void appendAngularDeltaEvent(
         std::vector<CVirtualGimbalEvent>& events,
         const double deltaRadians,
@@ -81,6 +91,7 @@ public:
             negative);
     }
 
+    /// @brief Append one 3-axis scalar bundle through a caller-provided binding table.
     static inline void appendScaledVirtualAxisEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const hlsl::float64_t3& values,
@@ -100,6 +111,7 @@ public:
         }
     }
 
+    /// @brief Append a local-space translation delta as semantic move events.
     static inline void appendLocalTranslationEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const hlsl::float64_t3& localDelta,
@@ -114,6 +126,7 @@ public:
             SCameraVirtualEventBindings::LocalTranslation);
     }
 
+    /// @brief Reinterpret a world-space translation delta in the local frame of a camera orientation.
     static inline void appendWorldTranslationAsLocalEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation,
@@ -128,6 +141,7 @@ public:
             tolerances);
     }
 
+    /// @brief Append one 3-axis angular delta through a caller-provided binding table.
     static inline void appendAngularAxisEvents(
         std::vector<CVirtualGimbalEvent>& events,
         const hlsl::float64_t3& deltaRadians,
@@ -147,6 +161,7 @@ public:
         }
     }
 
+    /// @brief Accumulate only translation-related virtual events back into a signed delta vector.
     static inline hlsl::float64_t3 collectSignedTranslationDelta(std::span<const CVirtualGimbalEvent> events)
     {
         hlsl::float64_t3 delta = hlsl::float64_t3(0.0);

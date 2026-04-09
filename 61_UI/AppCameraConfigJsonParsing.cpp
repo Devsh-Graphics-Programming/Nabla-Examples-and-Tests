@@ -24,9 +24,6 @@ namespace nbl::system
 
 using camera_json_t = nlohmann::json;
 
-namespace
-{
-
 struct SCameraConfigJsonKeys final
 {
     static constexpr std::string_view Type = "type";
@@ -665,8 +662,6 @@ bool tryBuildCameraConfigCollections(
 
     return true;
 }
-
-} // namespace
 
 bool tryBuildCameraConfigCollections(
     const std::string_view text,

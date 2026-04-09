@@ -18,22 +18,28 @@ namespace nbl::core
 /// @brief Shared helpers for the reusable `PathRig` camera kind.
 struct SCameraPathPose final : SCameraRigPose
 {
+    /// @brief Final radial distance actually applied after clamping and path-state sanitization.
     hlsl::float64_t appliedDistance = 0.0;
+    /// @brief Canonical orbit yaw/pitch derived from the evaluated path state.
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
 };
 
+/// @brief Typed delta applied to `ICamera::PathState`.
 struct SCameraPathDelta final : ICamera::PathState
 {
+    /// @brief Pack the delta into one four-component vector.
     inline hlsl::float64_t4 asVector() const
     {
         return ICamera::PathState::asVector();
     }
 
+    /// @brief Reinterpret the delta as the translation-style helper representation.
     inline hlsl::float64_t3 translationVector() const
     {
         return ICamera::PathState::asTranslationVector();
     }
 
+    /// @brief Rebuild the delta from the packed vector representation.
     static inline SCameraPathDelta fromVector(const hlsl::float64_t4& value)
     {
         SCameraPathDelta delta = {};
@@ -44,6 +50,7 @@ struct SCameraPathDelta final : ICamera::PathState
         return delta;
     }
 
+    /// @brief Rebuild the delta from a translation-style helper vector and optional roll value.
     static inline SCameraPathDelta fromMotion(const hlsl::float64_t3& translation, const double pathRoll = 0.0)
     {
         SCameraPathDelta delta = {};
@@ -55,6 +62,7 @@ struct SCameraPathDelta final : ICamera::PathState
     }
 };
 
+/// @brief One desired path-state change expressed as current state, desired state, and their delta.
 struct SCameraPathStateTransition final
 {
     ICamera::PathState current = {};
@@ -62,12 +70,14 @@ struct SCameraPathStateTransition final
     SCameraPathDelta delta = {};
 };
 
+/// @brief Canonical evaluated path state combining a final pose and target-relative view of that pose.
 struct SCameraCanonicalPathState final
 {
     SCameraPathPose pose = {};
     SCameraTargetRelativeState targetRelative = {};
 };
 
+/// @brief Comparison tolerances used when matching two path states.
 struct SCameraPathComparisonThresholds final
 {
     double sToleranceDeg = ICamera::DefaultAngularToleranceDeg;
@@ -75,12 +85,14 @@ struct SCameraPathComparisonThresholds final
     double scalarTolerance = ICamera::ScalarTolerance;
 };
 
+/// @brief Result of updating the path distance while preserving the rest of the path state.
 struct SCameraPathDistanceUpdateResult final
 {
     bool exact = false;
     hlsl::float64_t appliedDistance = 0.0;
 };
 
+/// @brief Shared default constants used by the built-in `Path Rig` model.
 struct SCameraPathDefaults final
 {
     static constexpr double MinU = static_cast<double>(ICamera::SphericalMinDistance);
@@ -105,6 +117,7 @@ struct SCameraPathDefaults final
 
 using SCameraPathLimits = ICamera::PathStateLimits;
 
+/// @brief Evaluation context passed into the active path-model control law.
 struct SCameraPathControlContext final
 {
     ICamera::PathState currentState = {};
@@ -115,6 +128,11 @@ struct SCameraPathControlContext final
     SCameraPathLimits limits = SCameraPathDefaults::Limits;
 };
 
+/// @brief Callback bundle defining how a concrete `Path Rig` model behaves.
+///
+/// The model is intentionally split into state resolution, control law,
+/// integration, canonical evaluation, and distance updates so the runtime camera
+/// can stay event-driven while tooling still works with a typed path state.
 struct SCameraPathModel final
 {
     using resolve_state_t = std::function<bool(
@@ -147,8 +165,10 @@ struct SCameraPathModel final
     update_distance_t updateDistance;
 };
 
+/// @brief Shared state, comparison, and model-building helpers for `Path Rig`.
 struct CCameraPathUtilities final
 {
+    /// @brief Build the default path state used by the shared built-in model.
     static inline ICamera::PathState makeDefaultPathState(const double minU = SCameraPathDefaults::MinU)
     {
         return {
@@ -159,6 +179,7 @@ struct CCameraPathUtilities final
         };
     }
 
+    /// @brief Build path-state comparison tolerances from caller-provided angular and scalar thresholds.
     static inline SCameraPathComparisonThresholds makePathComparisonThresholds(
         const double angularToleranceDeg = SCameraPathDefaults::AngleToleranceDeg,
         const double scalarTolerance = SCameraPathDefaults::ScalarTolerance)
@@ -170,11 +191,13 @@ struct CCameraPathUtilities final
         };
     }
 
+    /// @brief Return the shared default path-state limits.
     static inline constexpr SCameraPathLimits makeDefaultPathLimits()
     {
         return SCameraPathDefaults::Limits;
     }
 
+    /// @brief Check whether every scalar stored in the path state is finite.
     static inline bool isPathStateFinite(const ICamera::PathState& state)
     {
         return hlsl::CCameraMathUtilities::isFiniteScalar(state.s) &&
@@ -183,6 +206,7 @@ struct CCameraPathUtilities final
             hlsl::CCameraMathUtilities::isFiniteScalar(state.roll);
     }
 
+    /// @brief Check whether every scalar stored in the path limits is finite.
     static inline bool isPathLimitsFinite(const SCameraPathLimits& limits)
     {
         return hlsl::CCameraMathUtilities::isFiniteScalar(limits.minU) &&
@@ -190,6 +214,7 @@ struct CCameraPathUtilities final
             hlsl::CCameraMathUtilities::isFiniteScalar(limits.maxDistance);
     }
 
+    /// @brief Clamp and normalize path-state limits into the valid shared domain.
     static inline bool sanitizePathLimits(SCameraPathLimits& limits)
     {
         if (!isPathLimitsFinite(limits))
@@ -210,11 +235,13 @@ struct CCameraPathUtilities final
         return true;
     }
 
+    /// @brief Sanitize a path state against a caller-provided `minU` lower bound.
     static inline bool sanitizePathState(ICamera::PathState& state, const double minU)
     {
         return hlsl::CCameraMathUtilities::sanitizePathState(state.s, state.u, state.v, state.roll, minU);
     }
 
+    /// @brief Sanitize a path state against a full limit bundle and optionally report the applied distance.
     static inline bool sanitizePathState(ICamera::PathState& state, const SCameraPathLimits& limits, double* outAppliedDistance = nullptr)
     {
         SCameraPathLimits sanitizedLimits = limits;
@@ -231,6 +258,7 @@ struct CCameraPathUtilities final
         return tryScalePathStateDistance(desiredDistance, sanitizedLimits.minU, state, outAppliedDistance);
     }
 
+    /// @brief Rescale the `(u, v)` pair so the path state reaches the requested radial distance.
     static inline bool tryScalePathStateDistance(
         const double desiredDistance,
         const double minU,
@@ -245,6 +273,7 @@ struct CCameraPathUtilities final
             outAppliedDistance);
     }
 
+    /// @brief Update the distance encoded by a path state while respecting the provided limits.
     static inline bool tryUpdatePathStateDistance(
         const float desiredDistance,
         const SCameraPathLimits& limits,

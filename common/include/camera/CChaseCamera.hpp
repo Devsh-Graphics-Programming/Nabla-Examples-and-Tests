@@ -9,6 +9,11 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera that slides the target on the ground plane while chasing it from behind.
+///
+/// The camera keeps a bounded orbit around the target, but translation is resolved
+/// in the planar forward/right frame so the tracked subject can be moved across a
+/// horizontal surface without changing the follow style.
 class CChaseCamera final : public CSphericalTargetCamera
 {
 public:
@@ -24,10 +29,25 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply chase-style planar translation, pitch/yaw orbiting, and distance changes.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceTargetRelativeState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            resolvedState.orbitUv.y = std::clamp(resolvedState.orbitUv.y, MinPitch, MaxPitch);
+            adoptTargetRelativeState(resolvedState);
+        }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -55,6 +75,7 @@ public:
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Chase; }
+    /// @brief Return the stable user-facing identifier for this concrete camera kind.
     virtual std::string_view getIdentifier() const override { return "Chase Camera"; }
 
 private:

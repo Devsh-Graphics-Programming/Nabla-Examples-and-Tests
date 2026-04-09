@@ -6,12 +6,22 @@
 
 namespace nbl::core
 {
+    /// @brief Optional rigid reference frame used to reinterpret a frame of semantic camera input.
+    ///
+    /// Some camera consumers replay authored input relative to an external frame
+    /// instead of the current camera pose. This bundle stores the rigid transform
+    /// and its orientation in a form ready for `IGimbal::transform(...)`.
     struct CReferenceTransform
     {
         hlsl::float64_t4x4 frame;
         hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     };
 
+    /// @brief Generic world-space gimbal used by runtime cameras and tracked targets.
+    ///
+    /// The gimbal owns position, orientation, scale, and an orthonormal local basis.
+    /// It also provides the shared `accumulate(...)` helper that turns semantic
+    /// `CVirtualGimbalEvent` batches into translation, rotation, and scale impulses.
     template<typename T>
     requires is_any_of_v<T, hlsl::float32_t, hlsl::float64_t>
     class IGimbal
@@ -24,6 +34,7 @@ namespace nbl::core
         /// @brief underlying type for world matrix (TRS)
         using model_matrix_t = hlsl::matrix<precision_t, 3, 4>;
 
+        /// @brief One frame of accumulated virtual translation, rotation, and scaling intent.
         struct VirtualImpulse
         {
             vector_t<3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 1.0f };
@@ -118,12 +129,14 @@ namespace nbl::core
             return impulse;
         }
 
+        /// @brief Accumulate one frame of virtual events using the current gimbal basis as the reference frame.
         template <uint32_t AllowedEvents>
         VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents)
         {
             return accumulate<AllowedEvents>(virtualEvents, getXAxis(), getYAxis(), getZAxis());
         }
 
+        /// @brief Construction-time pose for one gimbal instance.
         struct SCreationParameters
         {
             vector_t<3u> position;
@@ -141,12 +154,14 @@ namespace nbl::core
             updateOrthonormalOrientationBase();
         }
 
+        /// @brief Enter manipulation mode and reset the per-frame manipulation counter.
         void begin()
         {
             m_isManipulating = true;
             m_counter = 0u;
         }
 
+        /// @brief Replace the world-space position while the gimbal is in manipulation mode.
         inline void setPosition(const vector_t<3u>& position)
         {
             assert(m_isManipulating);
@@ -157,11 +172,13 @@ namespace nbl::core
             m_position = position;
         }
 
+        /// @brief Replace the scale component stored by the gimbal.
         inline void setScale(const vector_t<3u>& scale)
         {
             m_scale = scale;
         }
 
+        /// @brief Replace the orientation while keeping the orthonormal basis normalized.
         inline void setOrientation(const quaternion_t& orientation)
         {
             assert(m_isManipulating);
@@ -173,12 +190,14 @@ namespace nbl::core
             updateOrthonormalOrientationBase();
         }
 
+        /// @brief Apply a prebuilt rigid reference transform and an accumulated impulse in one step.
         inline void transform(const CReferenceTransform& reference, const VirtualImpulse& impulse)
         {
             setOrientation(reference.orientation * hlsl::CCameraMathUtilities::makeQuaternionFromEulerRadiansYXZ(impulse.dVirtualRotation));
             setPosition(hlsl::mul(hlsl::float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
         }
 
+        /// @brief Rotate the gimbal around a world-space axis by the requested angle in radians.
         inline void rotate(const vector_t<3u>& axis, float dRadians)
         {
             assert(m_isManipulating);
@@ -191,6 +210,7 @@ namespace nbl::core
             updateOrthonormalOrientationBase();
         }
 
+        /// @brief Translate the gimbal directly in world space.
         inline void move(vector_t<3u> delta)
         {
             assert(m_isManipulating);
@@ -203,21 +223,25 @@ namespace nbl::core
             m_position = newPosition;
         }
 
+        /// @brief Translate the gimbal along its local right axis.
         inline void strafe(precision_t distance)
         {
             move(getXAxis() * distance);
         }
 
+        /// @brief Translate the gimbal along its local up axis.
         inline void climb(precision_t distance)
         {
             move(getYAxis() * distance);
         }
 
+        /// @brief Translate the gimbal along its local forward axis.
         inline void advance(precision_t distance)
         {
             move(getZAxis() * distance);
         }
 
+        /// @brief Leave manipulation mode after all pose updates for the current frame are finished.
         inline void end()
         {
             m_isManipulating = false;
@@ -286,6 +310,7 @@ namespace nbl::core
         /// @brief Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
 
+        /// @brief Build a rigid reference transform either from an external frame or from the current gimbal pose.
         bool extractReferenceTransform(CReferenceTransform* out, const hlsl::float64_t4x4* referenceFrame = nullptr)
         {
             if (not out)

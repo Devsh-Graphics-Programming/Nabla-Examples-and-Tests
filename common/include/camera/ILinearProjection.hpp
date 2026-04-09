@@ -20,15 +20,16 @@ protected:
 
     core::smart_refctd_ptr<ICamera> m_camera;
 public:
-    /// @brief underlying type for linear world TRS matrix
+    /// @brief World transform type expected by the linear projection helpers.
     using model_matrix_t = typename decltype(m_camera)::pointee::CGimbal::model_matrix_t;
 
-    /// @brief underlying type for linear concatenated matrix
+    /// @brief Matrix type used for fully concatenated linear transforms.
     using concatenated_matrix_t = hlsl::float64_t4x4;
 
-    /// @brief underlying type for linear inverse of concatenated matrix
+    /// @brief Optional inverse of a concatenated transform when the matrix is not singular.
     using inv_concatenated_matrix_t = std::optional<hlsl::float64_t4x4>;
 
+    /// @brief One concrete linear projection matrix together with cached inverse metadata.
     struct CProjection : public IProjection
     {
         using IProjection::IProjection;
@@ -64,6 +65,7 @@ public:
         }
 
     protected:
+        /// @brief Replace the projection matrix and rebuild cached handedness and inverse information.
         inline void setProjectionMatrix(const projection_matrix_t& matrix)
         {
             m_projectionMatrix = matrix;
@@ -92,9 +94,12 @@ public:
         bool m_isProjectionSingular;
     };
 
+    /// @brief Return the number of linear projection entries owned by the concrete wrapper.
     virtual uint32_t getLinearProjectionCount() const = 0;
+    /// @brief Return one linear projection entry by index.
     virtual const CProjection& getLinearProjection(uint32_t index) const = 0;
     
+    /// @brief Replace the camera referenced by this projection wrapper.
     inline bool setCamera(core::smart_refctd_ptr<ICamera>&& camera)
     {
         if (camera)
@@ -106,6 +111,7 @@ public:
         return false;
     }
 
+    /// @brief Return the camera referenced by this projection wrapper.
     inline ICamera* getCamera()
     {
         return m_camera.get();

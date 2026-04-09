@@ -4,9 +4,6 @@
 #include <string>
 #include <unordered_map>
 
-namespace
-{
-
 inline std::string buildKeyCodeLabel(const ui::E_KEY_CODE keyCode)
 {
     return std::string(1u, ui::keyCodeToChar(keyCode, true));
@@ -16,8 +13,6 @@ inline ImVec4 getBindingActiveStatusColor(const bool active)
 {
     return active ? SCameraAppBindingEditorUiDefaults::ActiveStatusColor : SCameraAppBindingEditorUiDefaults::InactiveStatusColor;
 }
-
-} // namespace
 
 bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {

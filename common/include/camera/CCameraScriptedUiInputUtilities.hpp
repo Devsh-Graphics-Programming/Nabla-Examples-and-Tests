@@ -10,8 +10,14 @@
 namespace nbl::ui
 {
 
+/// @brief Convert authored scripted keyboard and mouse payloads into runtime UI input events.
+///
+/// The scripted runtime stores compact authoring-friendly payloads. This helper
+/// expands them into the concrete `SKeyboardEvent` and `SMouseEvent` objects
+/// consumed by the same input path as live window events.
 struct CCameraScriptedUiInputUtilities final
 {
+    /// @brief Build one runtime keyboard event from authored scripted keyboard data.
     static inline SKeyboardEvent makeScriptedKeyboardEvent(
         const std::chrono::microseconds timestamp,
         IWindow* const window,
@@ -27,6 +33,7 @@ struct CCameraScriptedUiInputUtilities final
         return event;
     }
 
+    /// @brief Build one runtime mouse event from authored scripted mouse data.
     static inline bool tryBuildScriptedMouseEvent(
         const std::chrono::microseconds timestamp,
         IWindow* const window,
@@ -63,6 +70,7 @@ struct CCameraScriptedUiInputUtilities final
         }
     }
 
+    /// @brief Append one authored scripted input batch to existing runtime event buffers.
     static inline void appendScriptedUiInputEvents(
         const std::chrono::microseconds timestamp,
         IWindow* const window,

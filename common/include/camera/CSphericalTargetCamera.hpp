@@ -78,6 +78,90 @@ public:
 protected:
     using SphericalBasis = SCameraTargetRelativeBasis;
 
+    /// @brief Return the current canonical target-relative state stored by the spherical rig.
+    inline SCameraTargetRelativeState currentTargetRelativeState() const
+    {
+        return {
+            .target = m_targetPosition,
+            .orbitUv = m_orbitUv,
+            .distance = m_distance
+        };
+    }
+
+    /// @brief Replace the stored target-relative state without touching the gimbal pose yet.
+    inline void adoptTargetRelativeState(const SCameraTargetRelativeState& state)
+    {
+        m_targetPosition = state.target;
+        m_orbitUv = state.orbitUv;
+        m_distance = state.distance;
+    }
+
+    /// @brief Extract one rigid reference transform from the optional external override or the current gimbal pose.
+    inline bool tryExtractReferenceTransform(CReferenceTransform& outReference, const hlsl::float64_t4x4* referenceFrame)
+    {
+        return m_gimbal.extractReferenceTransform(&outReference, referenceFrame);
+    }
+
+    /// @brief Resolve the current target-relative state from one rigid reference position around the current target.
+    inline bool tryResolveReferenceTargetRelativeState(const CReferenceTransform& reference, SCameraTargetRelativeState& outState) const
+    {
+        return CCameraTargetRelativeUtilities::tryBuildTargetRelativeStateFromPosition(
+            m_targetPosition,
+            hlsl::float64_t3(reference.frame[3]),
+            MinDistance,
+            MaxDistance,
+            outState);
+    }
+
+    /// @brief Resolve the top-down yaw encoded by a rigid reference orientation.
+    static inline double resolveTopDownYawFromReference(const CReferenceTransform& reference, const double fallbackYaw)
+    {
+        const auto basis = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(reference.orientation);
+        const auto planarUp = hlsl::float64_t2(basis[1].x, basis[1].y);
+        constexpr auto Epsilon = static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon);
+        if (!hlsl::CCameraMathUtilities::isNearlyZeroVector(planarUp, Epsilon))
+            return hlsl::atan2(planarUp.y, planarUp.x);
+
+        const auto planarRight = hlsl::float64_t2(basis[0].x, basis[0].y);
+        if (!hlsl::CCameraMathUtilities::isNearlyZeroVector(planarRight, Epsilon))
+            return hlsl::atan2(planarRight.x, -planarRight.y);
+
+        return fallbackYaw;
+    }
+
+    /// @brief Project one rigid reference pose onto the legal top-down state manifold around the current target.
+    inline bool tryResolveReferenceTopDownState(const CReferenceTransform& reference, SCameraTargetRelativeState& outState) const
+    {
+        const auto offset = hlsl::float64_t3(reference.frame[3]) - m_targetPosition;
+        const auto distance = hlsl::length(offset);
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(distance) ||
+            distance <= static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon))
+        {
+            return false;
+        }
+
+        outState = currentTargetRelativeState();
+        outState.distance = static_cast<float>(std::clamp(
+            distance,
+            static_cast<hlsl::float64_t>(MinDistance),
+            static_cast<hlsl::float64_t>(MaxDistance)));
+        outState.orbitUv.x = resolveTopDownYawFromReference(reference, m_orbitUv.x);
+        outState.orbitUv.y = SCameraTargetRelativeRigDefaults::TopDownPitchRad;
+        return true;
+    }
+
+    /// @brief Project one rigid reference pose onto the legal fixed-angle isometric manifold around the current target.
+    inline bool tryResolveReferenceIsometricState(const CReferenceTransform& reference, SCameraTargetRelativeState& outState) const
+    {
+        if (!tryResolveReferenceTargetRelativeState(reference, outState))
+            return false;
+
+        outState.orbitUv = hlsl::float64_t2(
+            SCameraTargetRelativeRigDefaults::IsometricYawRad,
+            SCameraTargetRelativeRigDefaults::IsometricPitchRad);
+        return true;
+    }
+
     inline SphericalBasis computeBasis(const hlsl::float64_t2& orbitUv, float distance) const
     {
         SphericalBasis basis;

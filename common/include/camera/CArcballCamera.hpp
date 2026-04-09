@@ -13,6 +13,11 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera that supports planar target translation plus bounded arcball orbiting.
+///
+/// The camera keeps a target position, orbit angles, and distance inherited from
+/// `CSphericalTargetCamera`. Translation moves the target in the view plane while
+/// rotation changes the orbit around that target with a symmetric pitch limit.
 class CArcballCamera final : public CSphericalTargetCamera
 {
 public:
@@ -28,10 +33,25 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply one frame of semantic translation and rotation input to the arcball rig.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceTargetRelativeState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            resolvedState.orbitUv.y = std::clamp(resolvedState.orbitUv.y, MinPitch, MaxPitch);
+            adoptTargetRelativeState(resolvedState);
+        }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -51,6 +71,7 @@ public:
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Arcball; }
+    /// @brief Return the stable user-facing identifier for this concrete camera kind.
     virtual std::string_view getIdentifier() const override { return "Arcball Camera"; }
 
     static inline constexpr float MinDistance = base_t::MinDistance;

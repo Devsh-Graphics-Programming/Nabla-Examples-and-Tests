@@ -1,9 +1,6 @@
 #include "app/App.hpp"
 #include "app/AppResourceUtilities.hpp"
 
-namespace
-{
-
 template<size_t Count>
 struct SUiSampledDescriptorWrites final
 {
@@ -102,8 +99,6 @@ inline void initializeViewportLayoutFromDisplaySize(
 		renderWindow.iSize = { eachXSize, eachYSize };
 	}
 }
-
-} // namespace
 
 bool App::updateGUIDescriptorSet()
 {

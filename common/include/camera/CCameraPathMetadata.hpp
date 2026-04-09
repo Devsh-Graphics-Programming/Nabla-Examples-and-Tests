@@ -9,11 +9,20 @@
 namespace nbl::core
 {
 
+/// @brief Stable descriptive strings shared by the reusable `Path Rig` camera kind.
+///
+/// These labels are intentionally kept outside the heavy path utility header so
+/// simple metadata consumers can describe the camera kind without pulling in the
+/// full path-model implementation.
 struct SCameraPathRigMetadata final
 {
+    /// @brief User-facing camera kind label.
     static inline constexpr std::string_view KindLabel = "Path Rig";
+    /// @brief Short user-facing description of the camera kind.
     static inline constexpr std::string_view KindDescription = "Path-model camera with typed s/u/v/roll state";
+    /// @brief Default runtime identifier used by the concrete camera instance.
     static inline constexpr std::string_view Identifier = "Target-relative Path Rig";
+    /// @brief Default description of the built-in path model shipped by the shared API.
     static inline constexpr std::string_view DefaultModelDescription = "Adjust a target-relative path rig with s/u/v/roll state";
 };
 

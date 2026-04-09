@@ -10,8 +10,23 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	}
 
 	ImGui::PushItemWidth(-1.0f);
+	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("PlanarSelectHeader", "Planar Selection", panelStyle.AccentColor, panelStyle);
+
 	SActiveProjectionTabContext runtime = {};
-	if (!tryBuildActiveProjectionTabContext(runtime))
+	auto refreshRuntime = [&]() -> bool
+	{
+		return tryBuildActiveProjectionTabContext(runtime);
+	};
+
+	if (!nbl::ui::drawRenderWindowSelector(m_viewports.windowBindings.size(), m_viewports.activeRenderWindowIx, refreshRuntime))
+	{
+		ImGui::PopItemWidth();
+		nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();
+		return;
+	}
+	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Choose which render window the panel edits");
+
+	if (!refreshRuntime())
 	{
 		ImGui::TextDisabled("No active viewport.");
 		ImGui::PopItemWidth();
@@ -19,14 +34,8 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 		return;
 	}
 
-	nbl::ui::CCameraControlPanelUiUtilities::drawSectionHeader("PlanarSelectHeader", "Planar Selection", panelStyle.AccentColor, panelStyle);
-	ImGui::Text("Active Render Window: %s", runtime.activeRenderWindowIxString.c_str());
-	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Window that receives input and camera switching");
-
-	auto refreshRuntime = [&]() -> bool
-	{
-		return tryBuildActiveProjectionTabContext(runtime);
-	};
+	ImGui::Text("Editing: %s", runtime.activeRenderWindowIxString.c_str());
+	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Selected render window for planar and projection changes");
 
 	assert(!m_planarProjections.empty());
 	auto& binding = runtime.requireBinding();

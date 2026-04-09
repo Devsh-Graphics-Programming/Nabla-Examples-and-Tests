@@ -82,7 +82,6 @@ void App::drawViewportWindowOverlay(
 	nbl::ui::SCameraViewportInfoOverlayData overlayData = {};
 	overlayData.headline = "Planar " + std::to_string(binding.activePlanarIx) + " | " + projLabel + " | W" + std::to_string(windowIx);
     overlayData.description = std::string(CCameraTextUtilities::getCameraTypeLabel(viewportState.camera)) + ": " + std::string(CCameraTextUtilities::getCameraTypeDescription(viewportState.camera));
-	overlayData.detail = "Frustum: active camera (hidden in owner view)";
 	nbl::ui::CCameraViewportOverlayUtilities::drawViewportInfoOverlay(drawList, viewportRect, overlayData);
 }
 

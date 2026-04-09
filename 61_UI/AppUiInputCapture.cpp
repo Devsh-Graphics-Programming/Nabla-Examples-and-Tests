@@ -1,8 +1,5 @@
 #include "app/App.hpp"
 
-namespace
-{
-
 template<typename ChannelReader, typename EventContainer>
 inline void appendFocusedChannelEvents(
 	ChannelReader& reader,
@@ -38,8 +35,6 @@ inline void scaleCapturedMouseEvents(
 		}
 	}
 }
-
-} // namespace
 
 void App::updatePresentationTiming()
 {

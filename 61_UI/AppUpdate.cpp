@@ -1,8 +1,5 @@
 #include "app/App.hpp"
 
-namespace
-{
-
 inline void logScriptedFramePayload(
 	ILogger& logger,
 	const uint64_t frameIx,
@@ -18,8 +15,6 @@ inline void logScriptedFramePayload(
 		scriptedFrame.frameEvents.goals.size(),
 		scriptedFrame.frameEvents.trackedTargetTransforms.size());
 }
-
-} // namespace
 
 SAppFrameUpdateState App::buildFrameUpdateState()
 {

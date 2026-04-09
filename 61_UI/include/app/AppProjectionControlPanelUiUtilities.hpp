@@ -11,6 +11,46 @@ namespace nbl::ui
 using camera_panel_slider_spec_t = SCameraControlPanelSliderSpec;
 
 template<typename RefreshRuntime>
+inline bool drawRenderWindowSelector(
+    const size_t windowCount,
+    uint32_t& activeWindowIx,
+    RefreshRuntime&& refreshRuntime)
+{
+    if (windowCount == 0u)
+        return false;
+
+    if (activeWindowIx >= windowCount)
+        activeWindowIx = 0u;
+
+    int currentWindowIx = static_cast<int>(activeWindowIx);
+    const auto currentWindowLabel = "Window " + std::to_string(currentWindowIx);
+    if (!ImGui::BeginCombo("Render Window", currentWindowLabel.c_str()))
+        return true;
+
+    for (size_t windowIx = 0u; windowIx < windowCount; ++windowIx)
+    {
+        const bool isSelected = currentWindowIx == static_cast<int>(windowIx);
+        const auto windowLabel = "Window " + std::to_string(windowIx);
+        if (ImGui::Selectable(windowLabel.c_str(), isSelected))
+        {
+            currentWindowIx = static_cast<int>(windowIx);
+            activeWindowIx = static_cast<uint32_t>(currentWindowIx);
+            if (!refreshRuntime())
+            {
+                ImGui::EndCombo();
+                return false;
+            }
+        }
+
+        if (isSelected)
+            ImGui::SetItemDefaultFocus();
+    }
+
+    ImGui::EndCombo();
+    return true;
+}
+
+template<typename RefreshRuntime>
 inline bool drawProjectionPlanarSelector(
     std::span<const smart_refctd_ptr<planar_projection_t>> planarProjections,
     SActiveProjectionTabContext& runtime,

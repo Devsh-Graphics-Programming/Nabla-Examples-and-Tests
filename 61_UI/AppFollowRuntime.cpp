@@ -1,8 +1,5 @@
 #include "app/App.hpp"
 
-namespace
-{
-
 inline float getScriptVisualDebugFps(const SScriptedInputRuntimeState& scriptedInput)
 {
 	return std::max(1.f, scriptedInput.visualTargetFps);
@@ -69,8 +66,6 @@ inline float getFollowTargetMarkerScale(const SScriptedInputRuntimeState& script
 		SCameraAppSceneDefaults::FollowTargetMarkerScaleVisualDebug :
 		SCameraAppSceneDefaults::FollowTargetMarkerScale;
 }
-
-} // namespace
 
 void App::setFollowTargetTransform(const float64_t4x4& transform)
 {

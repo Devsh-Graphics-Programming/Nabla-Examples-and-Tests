@@ -21,25 +21,41 @@ namespace nbl::core
 /// @brief Typed transport object for camera state used by capture, comparison, presets, and playback.
 struct CCameraGoal : SCameraRigPose
 {
+    /// @brief Camera kind that originally produced this goal.
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
+    /// @brief Capability mask captured from the source camera.
     uint32_t sourceCapabilities = ICamera::None;
+    /// @brief Goal-state fragments that were valid on the source camera.
     uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
+    /// @brief Whether `targetPosition` is present in this goal.
     bool hasTargetPosition = false;
+    /// @brief Tracked target position in world space.
     hlsl::float64_t3 targetPosition = hlsl::float64_t3(0.0);
+    /// @brief Whether `distance` is present in this goal.
     bool hasDistance = false;
+    /// @brief Explicit target-relative distance when present.
     float distance = 0.f;
+    /// @brief Whether the canonical orbit state is present in this goal.
     bool hasOrbitState = false;
+    /// @brief Canonical orbit yaw and pitch, expressed in radians.
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
+    /// @brief Distance associated with `orbitUv` when the orbit state is present.
     float orbitDistance = 0.f;
+    /// @brief Whether a typed path state is present in this goal.
     bool hasPathState = false;
+    /// @brief Typed path state captured from or authored for a `Path Rig` camera.
     ICamera::PathState pathState = {};
+    /// @brief Whether a dynamic perspective state is present in this goal.
     bool hasDynamicPerspectiveState = false;
+    /// @brief Typed dynamic perspective state captured from or authored for the source camera.
     ICamera::DynamicPerspectiveState dynamicPerspectiveState = {};
 };
 
+/// @brief Shared canonicalization, comparison, and conversion helpers for `CCameraGoal`.
 struct CCameraGoalUtilities final
 {
 public:
+    /// @brief Compute which typed goal-state fragments are required by the current goal payload.
     static inline uint32_t getRequiredGoalStateMask(const CCameraGoal& target)
     {
         uint32_t mask = ICamera::GoalStateNone;
@@ -52,6 +68,7 @@ public:
         return mask;
     }
 
+    /// @brief Overwrite the canonical target-relative fields of a goal from prebuilt state and pose data.
     static inline void applyCanonicalTargetRelativeGoalFields(
         CCameraGoal& goal,
         const SCameraTargetRelativeState& state,
@@ -68,6 +85,7 @@ public:
         goal.orbitDistance = static_cast<float>(pose.appliedDistance);
     }
 
+    /// @brief Rebuild the canonical target-relative portion of a goal from typed target-relative state.
     static inline bool applyCanonicalTargetRelativeGoal(CCameraGoal& goal, const SCameraTargetRelativeState& state)
     {
         SCameraTargetRelativePose pose = {};
@@ -78,6 +96,7 @@ public:
         return true;
     }
 
+    /// @brief Rebuild the canonical pose and orbit fields of a goal from typed path state.
     static inline bool applyCanonicalPathGoalFields(
         CCameraGoal& goal,
         const hlsl::float64_t3& targetPosition,
@@ -103,6 +122,7 @@ public:
         return true;
     }
 
+    /// @brief Rebuild the canonical pose fields from the goal's current spherical-target payload.
     static inline bool applyCanonicalSphericalGoal(CCameraGoal& goal)
     {
         if (!(goal.hasTargetPosition && goal.hasOrbitState))
@@ -119,6 +139,7 @@ public:
             });
     }
 
+    /// @brief Infer a target-relative goal from a target position and a desired camera position.
     static inline bool buildCanonicalTargetRelativeGoalFromPosition(
         CCameraGoal& goal,
         const hlsl::float64_t3& targetPosition,
@@ -138,6 +159,7 @@ public:
         return applyCanonicalTargetRelativeGoal(goal, state);
     }
 
+    /// @brief Resolve the effective target-relative state of a goal against the current camera state.
     static inline bool tryResolveCanonicalTargetRelativeState(
         const CCameraGoal& goal,
         const ICamera::SphericalTargetState& currentState,
@@ -176,6 +198,7 @@ public:
         return true;
     }
 
+    /// @brief Rebuild the canonical pose fields from the goal's current path payload.
     static inline bool applyCanonicalPathGoal(CCameraGoal& goal)
     {
         if (!(goal.hasPathState && goal.hasTargetPosition))
@@ -185,6 +208,7 @@ public:
         return applyCanonicalPathGoalFields(goal, goal.targetPosition, goal.pathState);
     }
 
+    /// @brief Canonicalize whichever typed state fragments are currently present on the goal.
     static inline bool applyCanonicalGoalState(CCameraGoal& goal)
     {
         if (goal.hasPathState)
@@ -196,12 +220,14 @@ public:
         return true;
     }
 
+    /// @brief Return a value-copied goal after canonicalizing its typed state.
     static inline CCameraGoal canonicalizeGoal(CCameraGoal goal)
     {
         applyCanonicalGoalState(goal);
         return goal;
     }
 
+    /// @brief Check whether every populated scalar and vector stored by the goal is finite.
     static inline bool isGoalFinite(const CCameraGoal& goal)
     {
         if (!hlsl::CCameraMathUtilities::isFiniteVec3(goal.position) || !hlsl::CCameraMathUtilities::isFiniteQuaternion(goal.orientation))
@@ -220,6 +246,7 @@ public:
         return true;
     }
 
+    /// @brief Compare two goals using caller-provided pose and scalar tolerances.
     static inline bool compareGoals(const CCameraGoal& actual, const CCameraGoal& expected,
         const double posEps, const double rotEpsDeg, const double scalarEps)
     {

@@ -161,13 +161,11 @@ struct SCameraAppFrameRuntimeDefaults final
 	static inline constexpr float ViewportMaxDepth = 0.0f;
 	static inline constexpr float32_t4 InverseViewRotationXyzMask = float32_t4(1.0f, 1.0f, 1.0f, 0.0f);
 	static inline constexpr float32_t4 InverseViewRotationHomogeneousRow = float32_t4(0.0f, 0.0f, 0.0f, 1.0f);
-	static inline constexpr float32_t4 FrustumColor = float32_t4(1.0f, 0.95f, 0.25f, 1.0f);
 	static inline constexpr IGPUCommandBuffer::SClearColorValue UiClearColor = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } };
 };
 
 struct SCameraAppSceneDebugDefaults final
 {
-	static inline constexpr float FrustumLineWidth = 1.0f;
 	static inline constexpr float GridExtent = 32.0f;
 	static inline constexpr float GridVerticalOffset = -0.5f;
 };
@@ -481,7 +479,6 @@ struct SCameraAppDebugSceneState final
 	nbl::core::smart_refctd_ptr<CGeometryCreatorScene> scene = {};
 	nbl::core::smart_refctd_ptr<IGPURenderpass> renderpass = {};
 	nbl::core::smart_refctd_ptr<CSimpleDebugRenderer> renderer = {};
-	nbl::core::smart_refctd_ptr<nbl::ext::frustum::CDrawFrustum> frustumDrawer = {};
 	std::optional<uint32_t> gridGeometryIx = std::nullopt;
 	std::optional<uint32_t> followTargetGeometryIx = std::nullopt;
 	uint16_t geometrySelectionIx = 0u;

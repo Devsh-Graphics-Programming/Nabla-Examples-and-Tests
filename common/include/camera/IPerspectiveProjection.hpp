@@ -22,6 +22,7 @@ namespace nbl::core
 class IPerspectiveProjection : public ILinearProjection
 {
 public:
+    /// @brief One quad projection entry described by a pretransform and a viewport projection.
     struct CProjection : ILinearProjection::CProjection
     {
         using base_t = ILinearProjection::CProjection;
@@ -32,6 +33,7 @@ public:
             setQuadTransform(pretransform, viewport); 
         }
 
+        /// @brief Rebuild the concatenated quad projection from its authored components.
         inline void setQuadTransform(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport)
         {
             auto concatenated = hlsl::mul(hlsl::getMatrix3x4As4x4(pretransform), viewport);
@@ -41,7 +43,9 @@ public:
             m_viewport = viewport;
         }
 
+        /// @brief Return the authored pretransform applied before the viewport projection.
         inline const ILinearProjection::model_matrix_t& getPretransform() const { return m_pretransform; }
+        /// @brief Return the authored viewport projection matrix stored for this quad.
         inline const ILinearProjection::concatenated_matrix_t& getViewportProjection() const { return m_viewport; }
 
     private:

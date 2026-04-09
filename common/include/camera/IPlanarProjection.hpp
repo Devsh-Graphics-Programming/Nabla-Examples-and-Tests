@@ -19,6 +19,7 @@ public:
     {
         using base_t = ILinearProjection::CProjection;
 
+        /// @brief Stable runtime classification of supported planar projection parameterizations.
         enum ProjectionType : uint8_t
         {
             Perspective,
@@ -42,6 +43,7 @@ public:
         CProjection(const CProjection& other) = default;
         CProjection(CProjection&& other) noexcept = default;
 
+        /// @brief Authored parameter bundle stored by one planar projection entry.
         struct ProjectionParameters
         {
             ProjectionType m_type;
@@ -66,6 +68,7 @@ public:
             float m_zFar;
         };
 
+        /// @brief Rebuild the concrete projection matrix from the stored parameters.
         inline void update(bool leftHanded, float aspectRatio)
         {
             switch (m_parameters.m_type)
@@ -93,6 +96,7 @@ public:
             }
         }
 
+        /// @brief Switch the entry to perspective mode and store its authored parameters.
         inline void setPerspective(float zNear = 0.1f, float zFar = 100.f, float fov = 60.f)
         {
             m_parameters.m_type = Perspective;
@@ -101,6 +105,7 @@ public:
             m_parameters.m_zFar = zFar;
         }
 
+        /// @brief Switch the entry to orthographic mode and store its authored parameters.
         inline void setOrthographic(float zNear = 0.1f, float zFar = 100.f, float orthoWidth = 10.f)
         {
             m_parameters.m_type = Orthographic;
@@ -109,8 +114,11 @@ public:
             m_parameters.m_zFar = zFar;
         }
 
+        /// @brief Return the authored planar projection parameters.
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
+        /// @brief Return the viewport-local input binding layout stored next to this projection entry.
         inline const ui::IGimbalBindingLayout& getInputBinding() const { return m_inputBinding; }
+        /// @brief Return mutable access to the viewport-local input binding layout.
         inline ui::IGimbalBindingLayout& getInputBinding() { return m_inputBinding; }
     private:
         CProjection() = default;

@@ -13,6 +13,10 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera that behaves like a classic turntable around a fixed target.
+///
+/// The camera exposes yaw, bounded pitch, and distance changes while keeping the
+/// target fixed in space and avoiding arbitrary planar target translation.
 class CTurntableCamera final : public CSphericalTargetCamera
 {
 public:
@@ -28,10 +32,25 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply one frame of yaw, bounded pitch, and distance input around the tracked target.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
         if (not virtualEvents.size() and not referenceFrame)
             return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceTargetRelativeState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            resolvedState.orbitUv.y = std::clamp(resolvedState.orbitUv.y, MinPitch, MaxPitch);
+            adoptTargetRelativeState(resolvedState);
+        }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -48,6 +67,7 @@ public:
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
     virtual CameraKind getKind() const override { return CameraKind::Turntable; }
+    /// @brief Return the stable user-facing identifier for this concrete camera kind.
     virtual std::string_view getIdentifier() const override { return "Turntable Camera"; }
 
     static inline constexpr float MinDistance = base_t::MinDistance;

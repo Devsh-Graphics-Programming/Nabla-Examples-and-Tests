@@ -13,8 +13,6 @@
 #include "CCameraJsonPersistenceUtilities.hpp"
 #include "nlohmann/json.hpp"
 
-namespace
-{
 using json_t = nlohmann::json;
 
 bool tryParseCaptureFractionJson(const json_t& entry, float& outFraction)
@@ -1049,7 +1047,6 @@ void parseScriptedChecksJson(const json_t& script, nbl::system::CCameraScriptedI
     for (const auto& check : script["checks"])
         parseScriptedCheckJson(check, out);
 }
-} // anonymous namespace
 
 namespace nbl::system
 {

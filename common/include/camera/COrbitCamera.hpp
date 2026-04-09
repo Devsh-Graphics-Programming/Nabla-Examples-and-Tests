@@ -8,6 +8,10 @@
 namespace nbl::core
 {
 
+/// @brief Target-relative camera that interprets translation input as orbit-angle and distance changes.
+///
+/// This is the simplest spherical-target camera in the stack. It keeps the target
+/// fixed and adjusts only orbit yaw, orbit pitch, and camera distance.
 class COrbitCamera final : public CSphericalTargetCamera
 {
 public:
@@ -23,8 +27,25 @@ public:
 
     const typename base_t::CGimbal& getGimbal() override { return m_gimbal; }
 
+    /// @brief Apply one frame of orbit-angle and distance input around the current target.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) override
     {
+        if (virtualEvents.empty() && !referenceFrame)
+            return false;
+
+        if (referenceFrame)
+        {
+            CReferenceTransform reference = {};
+            SCameraTargetRelativeState resolvedState = {};
+            if (!tryExtractReferenceTransform(reference, referenceFrame) ||
+                !tryResolveReferenceTargetRelativeState(reference, resolvedState))
+            {
+                return false;
+            }
+
+            adoptTargetRelativeState(resolvedState);
+        }
+
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const double deltaDistance = scaleUnscaledVirtualTranslation(impulse.dVirtualTranslate.z);

@@ -11,10 +11,6 @@
 #include "camera/CCameraPersistence.hpp"
 #include "camera/CCameraScriptedRuntimePersistence.hpp"
 
-namespace
-{
-} // namespace
-
 bool App::initializeCameraConfiguration(const argparse::ArgumentParser& program)
 {
 	nbl::system::SCameraPlanarRuntimeBootstrap runtimeBootstrap = {};
@@ -95,6 +91,25 @@ bool App::initializePlanarRuntimeState(
 	return true;
 }
 
+SCameraFollowConfig App::makeExampleDefaultFollowConfig(const ICamera* const camera) const
+{
+	auto config = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
+	if (!camera)
+		return config;
+
+	switch (camera->getKind())
+	{
+		case ICamera::CameraKind::Free:
+			config.enabled = true;
+			config.mode = ECameraFollowMode::LookAtTarget;
+			break;
+		default:
+			break;
+	}
+
+	return config;
+}
+
 void App::initializePlanarFollowConfigs()
 {
 	resetFollowTargetToDefault();
@@ -103,7 +118,7 @@ void App::initializePlanarFollowConfigs()
 	for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
 	{
 		auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
-		auto config = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
+		auto config = makeExampleDefaultFollowConfig(camera);
 		m_sceneInteraction.planarFollowConfigs.emplace_back(config);
 		if (config.enabled)
 			captureFollowOffsetsForPlanar(planarIx);

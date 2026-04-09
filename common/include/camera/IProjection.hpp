@@ -6,13 +6,19 @@
 namespace nbl::core
 {
 
-/// @brief Interface class for any type of projection
+/// @brief Base interface for any reusable projection model in the camera stack.
+///
+/// A projection transforms vectors between some input space and the projection
+/// space understood by a concrete viewport or projection consumer. Specialized
+/// interfaces such as `ILinearProjection`, `IPlanarProjection`, and
+/// `IPerspectiveProjection` refine this abstraction with additional structure.
 class IProjection
 {
 public:
-    /// @brief underlying type for all vectors we project or un-project (inverse), projections *may* transform vectors in less dimensions
+    /// @brief Common vector type used by projection and unprojection operations.
     using projection_vector_t = hlsl::float64_t4;
 
+    /// @brief Stable runtime classification of supported projection families.
     enum class ProjectionType
     {
         /// @brief Any raw linear transformation, for example it may represent Perspective, Orthographic, Oblique, Axonometric, Shear projections
@@ -32,7 +38,7 @@ public:
         
         Count
     };
-    
+
     IProjection() = default;
     virtual ~IProjection() = default;
 
@@ -51,7 +57,7 @@ public:
     /// @return `true` when the inverse transform succeeded, otherwise `false`.
     virtual bool unproject(const projection_vector_t& vecFromProjectionSpace, projection_vector_t& output) const = 0;
 
-    /// @brief Return the specific type of the projection.
+    /// @brief Return the specific projection family implemented by the concrete instance.
     ///
     /// Examples include linear, spherical, and thin-lens projections as defined
     /// by `ProjectionType`.

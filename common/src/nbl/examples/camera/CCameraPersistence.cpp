@@ -10,8 +10,6 @@
 #include "CCameraJsonPersistenceUtilities.hpp"
 #include "nlohmann/json.hpp"
 
-namespace
-{
 using json_t = nlohmann::json;
 
 json_t serializeGoalJson(const nbl::core::CCameraGoal& goal)
@@ -123,7 +121,6 @@ bool deserializePresetCollectionJson(const json_t& root, std::vector<nbl::core::
     presets = std::move(loadedPresets);
     return true;
 }
-} // anonymous namespace
 
 namespace nbl::system
 {
