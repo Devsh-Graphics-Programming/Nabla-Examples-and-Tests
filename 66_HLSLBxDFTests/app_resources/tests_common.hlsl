@@ -91,7 +91,11 @@ struct SBxDFTestResources
         retval.T = rot.transformVector(tangent);
         retval.B = rot.transformVector(bitangent);
 
-        retval.N2 = retval.N;
+        // for microfacet-based normal mapping bxdf
+        // perturbed normal shouldn't be too far off shading normal
+        retval.N2 = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(retval.rng_vec<2>())));
+        if (hlsl::dot(retval.N2, retval.N) < 0.f)
+            retval.N2 = -retval.N2;
 
         retval.alpha.x = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
         retval.alpha.y = hlsl::max(ConvertToFloat01<uint32_t>::__call(retval.rng()), 1e-4f);
