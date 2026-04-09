@@ -96,14 +96,14 @@ public:
         goal.targetPosition = targetPosition;
         goal.hasPathState = true;
         goal.pathState = pathState;
+        SCameraTargetRelativePose canonicalPose = {};
+        canonicalPose.position = canonicalPathState.pose.position;
+        canonicalPose.orientation = canonicalPathState.pose.orientation;
+        canonicalPose.appliedDistance = canonicalPathState.pose.appliedDistance;
         applyCanonicalTargetRelativeGoalFields(
             goal,
             canonicalPathState.targetRelative,
-            {
-                .position = canonicalPathState.pose.position,
-                .orientation = canonicalPathState.pose.orientation,
-                .appliedDistance = canonicalPathState.pose.appliedDistance
-            });
+            canonicalPose);
         return true;
     }
 

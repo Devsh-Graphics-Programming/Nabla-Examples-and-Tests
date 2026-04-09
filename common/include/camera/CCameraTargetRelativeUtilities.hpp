@@ -16,11 +16,16 @@ struct SCameraTargetRelativeState final
     float distance = ICamera::SphericalMinDistance;
 };
 
-//! Pose reconstructed from a target-relative orbit state.
-struct SCameraTargetRelativePose final
+//! Shared reconstructed camera pose used by target-relative and path rigs.
+struct SCameraRigPose
 {
     hlsl::float64_t3 position = hlsl::float64_t3(0.0);
     hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
+};
+
+//! Pose reconstructed from a target-relative orbit state.
+struct SCameraTargetRelativePose final : SCameraRigPose
+{
     hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance);
 };
 
