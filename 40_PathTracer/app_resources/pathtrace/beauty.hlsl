@@ -47,14 +47,20 @@ struct CCascades
         if (sampleCount>1)
             data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
         if (doPrint)
+        {
             printf("Old Mem %d %d %d %d\n",data.x,data.y,data.z,data.w);
+        }
         layer_type value = bit_cast<layer_type>(data.xyz);
         if (doPrint)
             printf("Old Val %f %f %f\n",value.x,value.y,value.z);
         const sample_count_type oldSampleCount = data.w;
         value += (weightedSample - value*weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
         if (doPrint)
+        {
+            printf("Weighted Sample %f %f %f\n",weightedSample.x,weightedSample.y,weightedSample.z);
+            printf("Count Diff %d\n", sampleCount - oldSampleCount);
             printf("New Val %f %f %f\n",value.x,value.y,value.z);
+        }
         data = uint16_t4(bit_cast<uint16_t3>(value),sampleCount);
         if (doPrint)
             printf("New Mem %d %d %d %d\n",data.x,data.y,data.z,data.w);

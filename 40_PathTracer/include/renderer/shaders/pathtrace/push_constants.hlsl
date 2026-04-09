@@ -58,14 +58,14 @@ struct SBeautyPushConstants
 
 	SSensorDynamics sensorDynamics;
 #ifdef __HLSL_VERSION
-	uint32_t __16BitData[sizeof(S16BitData)/sizeof(uint32_t)];
+	uint32_t2 __16BitData;
+	static_assert(sizeof(uint32_t2)==sizeof(S16BitData));
 	// 
 	S16BitData get16BitData()
 	{
 		S16BitData retval;
-		// TODO: implement later
-		retval.rrThroughputWeights = hlsl::promote<float16_t3>(hlsl::numeric_limits<float16_t>::max); // always pass RR
-		retval.maxSppPerDispatch = 3;
+		retval.rrThroughputWeights = hlsl::bit_cast<float16_t4>(__16BitData).xyz;
+		retval.maxSppPerDispatch = hlsl::bit_cast<uint16_t4>(__16BitData).w;
 		return retval;
 	}
 #else

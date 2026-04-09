@@ -223,9 +223,49 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		}
 	}
 
-	// TODO: transition image layouts instead of barriering in Reset
+	bool success = immutables;
 
-	if (!immutables || !reset(m_params.initDynamics,info))
+	// transition image layouts instead of barriering in Reset
+	if (success)
+	{
+		// slam the barriers as big as possible, it wont happen frequently
+		using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+		core::vector<image_barrier_t> barr;
+		{
+			constexpr image_barrier_t base = {
+				.barrier = {
+					.dep = {
+						.dstStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+				},
+				.subresourceRange = {},
+				.newLayout = IGPUImage::LAYOUT::GENERAL
+			};
+			barr.reserve(SensorDSBindingCounts::AsSampledImages);
+
+			auto enqueueBarrier = [&barr,base](const SImageWithViews& img)->void
+			{
+				auto& out = barr.emplace_back(base);
+				out.image = img.image.get();
+				out.subresourceRange = {
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+					.levelCount = 1,
+					.layerCount = out.image->getCreationParameters().arrayLayers
+				};
+			};
+			enqueueBarrier(immutables.sampleCount);
+			enqueueBarrier(immutables.beauty); // TODO: who will clear this? Resolver or denoiser?
+			enqueueBarrier(immutables.rwmcCascades);
+			enqueueBarrier(immutables.albedo);
+			enqueueBarrier(immutables.normal);
+			enqueueBarrier(immutables.motion);
+			enqueueBarrier(immutables.mask);
+		}
+		success = info.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=barr});
+	}
+
+	if (!success || !reset(m_params.initDynamics,info))
 	{
 		logger.log("Could not Init Session for sensor \"%s\" failed to reset!",ILogger::ELL_ERROR,m_params.name.c_str());
 		deinit();
@@ -242,55 +282,38 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 
 	auto* const renderer = m_params.scene->getRenderer();
 	auto* const device = renderer->getDevice();
-	const auto& immutables = m_active.immutables;
+	const auto& scrambleImage = m_active.immutables.scrambleKey.image;
+	const auto& params = scrambleImage->getCreationParameters();
+	const IGPUImage::SSubresourceRange subresources = {
+		.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+		.levelCount = 1,
+		.layerCount = params.arrayLayers
+	};
 
 	bool success = true;
+	constexpr auto RegularScrambleAccesses = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT|PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 	// slam the barriers as big as possible, it wont happen frequently
 	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
-	core::vector<image_barrier_t> before;
 	{
-		constexpr image_barrier_t beforeBase = {
+		const image_barrier_t before = {
 			.barrier = {
 				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+					.srcStageMask = RegularScrambleAccesses,
 					.srcAccessMask = ACCESS_FLAGS::NONE, // because we don't care about reading previously written values
-					.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
-					.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 				}
 			},
-			.subresourceRange = {},
+			.image = scrambleImage.get(),
+			.subresourceRange = subresources,
 			.newLayout = IGPUImage::LAYOUT::GENERAL
 		};
-		before.reserve(SensorDSBindingCounts::AsSampledImages);
-
-		auto enqueueBarrier = [&before,beforeBase](const SImageWithViews& img)->void
-		{
-			auto& out = before.emplace_back(beforeBase);
-			out.image = img.image.get();
-			out.subresourceRange = {
-				.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-				.levelCount = 1,
-				.layerCount = out.image->getCreationParameters().arrayLayers
-			};
-		};
-		{
-			enqueueBarrier(immutables.scrambleKey);
-			before.back().barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-		}
-		enqueueBarrier(immutables.sampleCount);
-		enqueueBarrier(immutables.beauty); // TODO: who will clear this? Resolver or denoiser?
-		enqueueBarrier(immutables.rwmcCascades);
-		enqueueBarrier(immutables.albedo);
-		enqueueBarrier(immutables.normal);
-		enqueueBarrier(immutables.motion);
-		enqueueBarrier(immutables.mask);
-		success = success && info.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=before});
+		success = success && info.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(asset::EDF_NONE,{.imgBarriers={&before,1}});
 	}
 
 	// fill scramble with noise
 	{
-		auto* const utils = m_params.scene->getRenderer()->getCreationParams().utilities.get();
-		const auto& params = immutables.scrambleKey.image->getCreationParameters();
+		auto* const utils = renderer->getCreationParams().utilities.get();
 		core::vector<hlsl::uint32_t2> data(params.extent.width*params.extent.height*params.arrayLayers);
 		{
 			core::RandomSampler rng(0xbadc0ffeu);
@@ -308,27 +331,25 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 			},
 			.imageExtent = params.extent
 		};
-		utils->updateImageViaStagingBuffer(info,data.data(),params.format,immutables.scrambleKey.image.get(),IGPUImage::LAYOUT::GENERAL,{&region,1});
-	}
-	// TODO: don't clear the images, the pipelines do it (still requires transitioning the images though - but right after creation)
-	// clear all other images
-	{
-		IGPUCommandBuffer::SClearColorValue color;
-		memset(&color,0,sizeof(color));
-		for (const auto& entry : before)
-		if (entry.image!=immutables.scrambleKey.image.get())
-			success = success && info.getCommandBufferForRecording()->cmdbuf->clearColorImage(const_cast<IGPUImage*>(entry.image),IGPUImage::LAYOUT::GENERAL,&color,1,&entry.subresourceRange);
+		utils->updateImageViaStagingBuffer(info,data.data(),params.format,scrambleImage.get(),IGPUImage::LAYOUT::GENERAL,{&region,1});
 	}
 
-	const SMemoryBarrier after[] = {
-		{
-			.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT|PIPELINE_STAGE_FLAGS::COPY_BIT,
-			.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-			.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-			.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
-		}
-	};
-	success = success && info.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(asset::EDF_NONE,{.memBarriers=after});
+	{
+		const image_barrier_t after = {
+			.barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+					.dstStageMask = RegularScrambleAccesses,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
+				}
+			},
+			.image = scrambleImage.get(),
+			.subresourceRange = subresources,
+			.newLayout = IGPUImage::LAYOUT::GENERAL
+		};
+		success = success && info.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(asset::EDF_NONE,{.imgBarriers={&after,1}});
+	}
 
 	if (success)
 	{

@@ -790,6 +790,9 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			case CSession::RenderMode::Beauty:
 			{
 				SBeautyPushConstants pc = {.sensorDynamics=sessionResources.currentSensorState};
+				// TODOs
+				pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later hlsl::transpose(hlsl::colorspace::scRGBtoXYZ)[1];
+				pc.__16BitData.maxSppPerDispatch = 3;
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}
@@ -798,11 +801,54 @@ auto CRenderer::render(CSession* session) -> SSubmit
 				return {};
 		}
 	}
+
+	const auto& sessionImmutables = sessionResources.immutables;
 	// bind pipelines
 	success = success && cb->bindRayTracingPipeline(pipeline);
 	{
-		const IGPUDescriptorSet* sets[2] = {sessionParams.scene->getDescriptorSet(),sessionResources.immutables.ds.get()};
+		const IGPUDescriptorSet* sets[2] = {sessionParams.scene->getDescriptorSet(),sessionImmutables.ds.get()};
 		success = success && cb->bindDescriptorSets(EPBP_RAY_TRACING,pipeline->getLayout(),0,2,sets);
+	}
+	
+	// barrier against previous usages of accumulation targets (so that RMW cycles sync up properly)
+	{
+		constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+		using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+		core::vector<image_barrier_t> barr;
+		{
+			constexpr image_barrier_t base = {
+				.barrier = {
+					.dep = {
+						// Any of the images can be read by Debug/Presenter, ideally we should be aware of that and inject it here via a Command Graph
+						// but to keep code decoupled we'll have those subsystems use one more pipeline barrier after their own dispatch
+						.srcStageMask = raytracingStages,
+						.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+						.dstStageMask = raytracingStages,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+				},
+				.subresourceRange = {}
+			};
+			barr.reserve(SensorDSBindingCounts::AsSampledImages);
+
+			auto enqueueBarrier = [&barr,base](const CSession::SImageWithViews& img)->void
+			{
+				auto& out = barr.emplace_back(base);
+				out.image = img.image.get();
+				out.subresourceRange = {
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+					.levelCount = 1,
+					.layerCount = out.image->getCreationParameters().arrayLayers
+				};
+			};
+			enqueueBarrier(sessionImmutables.sampleCount);
+			enqueueBarrier(sessionImmutables.rwmcCascades);
+			enqueueBarrier(sessionImmutables.albedo);
+			enqueueBarrier(sessionImmutables.normal);
+			enqueueBarrier(sessionImmutables.motion);
+			enqueueBarrier(sessionImmutables.mask);
+		}
+		success = cb->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=barr});
 	}
 
 	const auto renderSize = sessionParams.uniforms.renderSize;
