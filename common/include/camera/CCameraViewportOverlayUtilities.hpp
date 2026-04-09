@@ -261,7 +261,7 @@ inline void drawFollowTargetViewportOverlay(
         return;
 
     system::SCameraProjectedTargetMetrics projectedTarget = {};
-    if (!system::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
+    if (!system::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
         return;
 
     const bool centered = projectedTarget.radius <= style.centeredNdcRadius;

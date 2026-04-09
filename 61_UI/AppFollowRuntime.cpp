@@ -23,25 +23,6 @@ inline uint64_t computeProgressFrames(const uint64_t elapsedFrames, const uint64
 	return holdFrames ? std::min(elapsedFrames, holdFrames) : elapsedFrames;
 }
 
-inline bool ensureScriptVisualDebugCamera(
-	const std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>>& planarProjections,
-	std::span<SWindowControlBinding> windowBindings,
-	const uint32_t activeRenderWindowIx,
-	SWindowControlBinding*& outBinding,
-	ICamera*& outCamera)
-{
-	outBinding = nullptr;
-	outCamera = nullptr;
-
-	SActiveViewportRuntimeState viewportState = {};
-	if (!nbl::ui::tryBuildActiveViewportRuntimeState(planarProjections, windowBindings, activeRenderWindowIx, viewportState))
-		return false;
-
-	outBinding = viewportState.binding;
-	outCamera = viewportState.camera;
-	return true;
-}
-
 inline nbl::ui::SCameraScriptVisualDebugStatus buildScriptVisualDebugStatus(
 	const ICamera& camera,
 	const uint32_t planarIx,
@@ -109,7 +90,7 @@ bool App::captureFollowOffsetsForPlanar(const uint32_t planarIx)
 		return false;
 
 	auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
-	return nbl::core::captureFollowOffsetsFromCamera(
+	return nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(
 		m_cameraGoalSolver,
 		camera,
 		m_sceneInteraction.followTarget,
@@ -118,7 +99,7 @@ bool App::captureFollowOffsetsForPlanar(const uint32_t planarIx)
 
 bool App::followConfigUsesCapturedOffset(const SCameraFollowConfig& config) const
 {
-	return config.enabled && nbl::core::cameraFollowModeUsesCapturedOffset(config.mode);
+	return config.enabled && nbl::core::CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(config.mode);
 }
 
 void App::refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
@@ -134,7 +115,7 @@ void App::refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
 	if (!camera)
 		return;
 
-	nbl::core::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
+	nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
 }
 
 void App::refreshFollowOffsetConfigsForCamera(ICamera* camera)
@@ -196,7 +177,7 @@ void App::applyFollowToConfiguredCameras(const bool allowDuringScriptedInput)
 		if (!config.enabled || config.mode == ECameraFollowMode::Disabled)
 			continue;
 
-		const auto result = nbl::core::applyFollowToCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
+		const auto result = nbl::core::CCameraFollowUtilities::applyFollowToCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
 		if (!result.succeeded())
 			continue;
 
@@ -262,26 +243,20 @@ void App::drawScriptVisualDebugOverlay(const ImVec2& displaySize)
 	if (!(m_scriptedInput.enabled && m_scriptedInput.visualDebug))
 		return;
 
-	SWindowControlBinding* activeBinding = nullptr;
-	ICamera* camera = nullptr;
-	if (!ensureScriptVisualDebugCamera(
-			m_planarProjections,
-			std::span<SWindowControlBinding>(m_viewports.windowBindings.data(), m_viewports.windowBindings.size()),
-			m_viewports.activeRenderWindowIx,
-			activeBinding,
-			camera))
+	const auto viewportState = tryGetActiveViewportRuntimeState();
+	if (!viewportState.valid())
 		return;
 
 	if (!m_scriptedInput.visualPlanar.valid)
 	{
 		m_scriptedInput.visualPlanar.valid = true;
-		m_scriptedInput.visualPlanar.planarIx = activeBinding->activePlanarIx;
+		m_scriptedInput.visualPlanar.planarIx = viewportState.requireBinding().activePlanarIx;
 		m_scriptedInput.visualPlanar.startFrame = m_realFrameIx;
 	}
 
 	const auto debugStatus = buildScriptVisualDebugStatus(
-		*camera,
-		activeBinding->activePlanarIx,
+		viewportState.requireCamera(),
+		viewportState.requireBinding().activePlanarIx,
 		m_planarProjections.size(),
 		m_realFrameIx,
 		m_scriptedInput);

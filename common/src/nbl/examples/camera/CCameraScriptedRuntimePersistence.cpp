@@ -69,7 +69,7 @@ bool deserializeSequencePresentationsJson(const json_t& root, std::vector<nbl::c
         }
 
         nbl::core::CCameraSequencePresentation presentation;
-        if (!nbl::core::tryParseProjectionType(entry["projection"].get<std::string>(), presentation.projection))
+        if (!nbl::core::CCameraSequenceScriptUtilities::tryParseProjectionType(entry["projection"].get<std::string>(), presentation.projection))
         {
             if (error)
                 *error = "Sequence presentation has invalid projection type.";
@@ -172,12 +172,12 @@ bool deserializeSequenceGoalDeltaJson(const json_t& root, nbl::core::CCameraSequ
     }
     if (root.contains("orbit_u_delta_deg"))
     {
-        out.orbitUDeltaDeg = root["orbit_u_delta_deg"].get<double>();
+        out.orbitUvDeltaDeg.x = root["orbit_u_delta_deg"].get<double>();
         out.hasOrbitUDeltaDeg = true;
     }
     if (root.contains("orbit_v_delta_deg"))
     {
-        out.orbitVDeltaDeg = root["orbit_v_delta_deg"].get<double>();
+        out.orbitUvDeltaDeg.y = root["orbit_v_delta_deg"].get<double>();
         out.hasOrbitVDeltaDeg = true;
     }
     if (root.contains("orbit_distance_delta"))
@@ -325,7 +325,7 @@ bool deserializeSequenceSegmentJson(const json_t& root, nbl::core::CCameraSequen
         out.cameraIdentifier = root["camera_identifier"].get<std::string>();
     if (root.contains("camera_kind"))
     {
-        if (!nbl::core::tryParseCameraKind(root["camera_kind"].get<std::string>(), out.cameraKind))
+        if (!nbl::core::CCameraSequenceScriptUtilities::tryParseCameraKind(root["camera_kind"].get<std::string>(), out.cameraKind))
         {
             if (error)
                 *error = "Sequence segment has invalid camera_kind.";
@@ -374,7 +374,7 @@ bool deserializeSequenceSegmentJson(const json_t& root, nbl::core::CCameraSequen
             }
             out.captureFractions.emplace_back(fraction);
         }
-        nbl::core::normalizeCaptureFractions(out.captureFractions);
+        nbl::core::CCameraSequenceScriptUtilities::normalizeCaptureFractions(out.captureFractions);
         out.hasCaptureFractions = true;
     }
     if (root.contains("keyframes"))
@@ -507,7 +507,7 @@ bool deserializeCameraSequenceScriptJson(const json_t& root, nbl::core::CCameraS
                 }
                 out.defaults.captureFractions.emplace_back(fraction);
             }
-            nbl::core::normalizeCaptureFractions(out.defaults.captureFractions);
+            nbl::core::CCameraSequenceScriptUtilities::normalizeCaptureFractions(out.defaults.captureFractions);
         }
     }
 

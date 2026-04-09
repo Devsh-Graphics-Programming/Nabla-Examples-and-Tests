@@ -407,7 +407,7 @@
 		}
 		sequence.segments.push_back(segment);
 
-		if (!nbl::core::sequenceScriptUsesMultiplePresentations(sequence))
+		if (!nbl::core::CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence))
 		{
 			outError = "Sequence compile smoke failed to detect multi-presentation authored defaults.";
 			return false;
@@ -420,7 +420,7 @@
 
 		nbl::core::CCameraSequenceCompiledSegment compiledSegment;
 		std::string compileError;
-		if (!nbl::core::compileSequenceSegmentFromReference(
+		if (!nbl::core::CCameraSequenceScriptUtilities::compileSequenceSegmentFromReference(
 				sequence,
 				sequence.segments.front(),
 				state.initialPresets.orbit.value(),
@@ -457,7 +457,7 @@
 		}
 
 		std::vector<nbl::core::CCameraSequenceCompiledFramePolicy> framePolicies;
-		if (!nbl::core::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, true))
+		if (!nbl::core::CCameraSequenceScriptUtilities::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, true))
 		{
 			outError = "Sequence compile smoke failed to build shared frame policies.";
 			return false;
@@ -484,7 +484,7 @@
 		}
 
 		CCameraSequenceTrackedTargetPose poseAtOne;
-		if (!nbl::core::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, 1.f, poseAtOne))
+		if (!nbl::core::CCameraSequenceScriptUtilities::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, 1.f, poseAtOne))
 		{
 			outError = "Sequence compile smoke failed to sample normalized tracked-target track.";
 			return false;
@@ -863,7 +863,7 @@
 			if (!defaultFollowCamera)
 				continue;
 
-			auto followConfig = nbl::core::makeDefaultFollowConfig(defaultFollowCamera);
+			auto followConfig = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(defaultFollowCamera);
 			if (!followConfig.enabled || followConfig.mode == ECameraFollowMode::Disabled)
 				continue;
 
@@ -873,8 +873,8 @@
 			trackedTarget.setPose(
 				SCameraSmokeFollowScenario::InitialTargetPosition,
 				SCameraSmokeFollowScenario::InitialTargetOrientation);
-			if ((nbl::core::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::core::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
-				!nbl::core::captureFollowOffsetsFromCamera(state.goalSolver, defaultFollowCamera, trackedTarget, followConfig))
+			if ((nbl::core::CCameraFollowUtilities::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::core::CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
+				!nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(state.goalSolver, defaultFollowCamera, trackedTarget, followConfig))
 			{
 				outError = "Default follow smoke failed to capture offsets for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".";
 				return false;
@@ -929,7 +929,7 @@
 			SCameraFollowConfig followConfig = {};
 			followConfig.enabled = true;
 			followConfig.mode = ECameraFollowMode::KeepLocalOffset;
-			if (!nbl::core::captureFollowOffsetsFromCamera(state.goalSolver, state.chaseCamera, trackedTarget, followConfig))
+			if (!nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(state.goalSolver, state.chaseCamera, trackedTarget, followConfig))
 			{
 				outError = "Chase follow smoke failed to capture local offset.";
 				return false;

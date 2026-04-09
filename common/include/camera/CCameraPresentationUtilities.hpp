@@ -95,7 +95,7 @@ inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCamer
 //! Analyze one preset against one camera and return reusable presentation data.
 inline SCameraGoalApplyPresentation analyzePresetPresentation(const core::CCameraGoalSolver& solver, const core::ICamera* camera, const core::CCameraPreset& preset)
 {
-    return makeGoalApplyPresentation(core::analyzePresetApply(solver, camera, preset), camera);
+    return makeGoalApplyPresentation(core::CCameraGoalAnalysisUtilities::analyzePresetApply(solver, camera, preset), camera);
 }
 
 //! Build reusable badge flags for one preset/keyframe compatibility answer.
@@ -114,7 +114,7 @@ inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(con
 inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCameraGoalSolver& solver, core::ICamera* camera)
 {
     SCameraCapturePresentation presentation;
-    static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::analyzeCameraCapture(solver, camera);
+    static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera);
     presentation.policyLabel = describeCameraCapturePolicy(presentation, camera);
     return presentation;
 }

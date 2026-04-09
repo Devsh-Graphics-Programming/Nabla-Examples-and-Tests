@@ -152,7 +152,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 	CCameraScriptedTimeline timeline;
 	resetScriptedInputRuntimeState();
 
-	const bool useWindowMode = nbl::core::sequenceScriptUsesMultiplePresentations(sequence);
+	const bool useWindowMode = nbl::core::CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence);
 	nbl::system::appendScriptedActionEvent(
 		timeline,
 		0u,
@@ -179,14 +179,14 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		}
 
 		const bool useTrackedTargetFollow =
-			nbl::core::sequenceSegmentUsesTrackedTargetTrack(segment) &&
+			nbl::core::CCameraSequenceScriptUtilities::sequenceSegmentUsesTrackedTargetTrack(segment) &&
 			planarIx.value() < m_sceneInteraction.planarFollowConfigs.size() &&
 			m_sceneInteraction.planarFollowConfigs[planarIx.value()].enabled &&
 			m_sceneInteraction.planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Disabled;
 
 		nbl::core::CCameraSequenceCompiledSegment compiledSegment;
 		std::string trackError;
-		if (!nbl::core::compileSequenceSegmentFromReference(
+		if (!nbl::core::CCameraSequenceScriptUtilities::compileSequenceSegmentFromReference(
 				sequence,
 				segment,
 				m_presetAuthoring.initialPlanarPresets[planarIx.value()],

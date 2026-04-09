@@ -51,34 +51,38 @@ struct SCameraCaptureAnalysis
     bool canCapture = false;
 };
 
-inline SCameraGoalApplyAnalysis analyzeGoalApply(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraGoal& goal)
+struct CCameraGoalAnalysisUtilities final
 {
-    SCameraGoalApplyAnalysis analysis;
-    analysis.goal = canonicalizeGoal(goal);
-    analysis.hasCamera = camera != nullptr;
-    analysis.finiteGoal = isGoalFinite(analysis.goal);
-    analysis.canApply = analysis.hasCamera && analysis.finiteGoal;
-    if (analysis.hasCamera)
-        analysis.compatibility = solver.analyzeCompatibility(camera, analysis.goal);
-    return analysis;
-}
+public:
+    static inline SCameraGoalApplyAnalysis analyzeGoalApply(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraGoal& goal)
+    {
+        SCameraGoalApplyAnalysis analysis;
+        analysis.goal = CCameraGoalUtilities::canonicalizeGoal(goal);
+        analysis.hasCamera = camera != nullptr;
+        analysis.finiteGoal = CCameraGoalUtilities::isGoalFinite(analysis.goal);
+        analysis.canApply = analysis.hasCamera && analysis.finiteGoal;
+        if (analysis.hasCamera)
+            analysis.compatibility = solver.analyzeCompatibility(camera, analysis.goal);
+        return analysis;
+    }
 
-inline SCameraGoalApplyAnalysis analyzePresetApply(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraPreset& preset)
-{
-    return analyzeGoalApply(solver, camera, makeGoalFromPreset(preset));
-}
+    static inline SCameraGoalApplyAnalysis analyzePresetApply(const CCameraGoalSolver& solver, const ICamera* camera, const CCameraPreset& preset)
+    {
+        return analyzeGoalApply(solver, camera, makeGoalFromPreset(preset));
+    }
 
-inline SCameraCaptureAnalysis analyzeCameraCapture(const CCameraGoalSolver& solver, ICamera* camera)
-{
-    SCameraCaptureAnalysis analysis;
-    const auto capture = solver.captureDetailed(camera);
-    analysis.goal = capture.goal;
-    analysis.hasCamera = capture.hasCamera;
-    analysis.capturedGoal = capture.captured;
-    analysis.finiteGoal = capture.finiteGoal;
-    analysis.canCapture = capture.canUseGoal();
-    return analysis;
-}
+    static inline SCameraCaptureAnalysis analyzeCameraCapture(const CCameraGoalSolver& solver, ICamera* camera)
+    {
+        SCameraCaptureAnalysis analysis;
+        const auto capture = solver.captureDetailed(camera);
+        analysis.goal = capture.goal;
+        analysis.hasCamera = capture.hasCamera;
+        analysis.capturedGoal = capture.captured;
+        analysis.finiteGoal = capture.finiteGoal;
+        analysis.canCapture = capture.canUseGoal();
+        return analysis;
+    }
+};
 
 } // namespace nbl::core
 

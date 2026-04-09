@@ -42,7 +42,7 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
     std::string* error = nullptr)
 {
     std::vector<core::CCameraSequenceCompiledFramePolicy> framePolicies;
-    if (!buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, buildInfo.includeFollowTargetLock))
+    if (!core::CCameraSequenceScriptUtilities::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, buildInfo.includeFollowTargetLock))
     {
         if (error)
             *error = "Failed to build compiled frame policies.";
@@ -86,7 +86,7 @@ inline bool appendCompiledSequenceSegmentToScriptedTimeline(
         if (compiledSegment.usesTrackedTargetTrack())
         {
             core::CCameraSequenceTrackedTargetPose trackedTargetPose;
-            if (!tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
+            if (!core::CCameraSequenceScriptUtilities::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
             {
                 if (error)
                     *error = "Failed to sample compiled tracked-target track.";

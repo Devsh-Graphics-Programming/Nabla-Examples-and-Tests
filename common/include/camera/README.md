@@ -508,7 +508,7 @@ follow.mode = ECameraFollowMode::KeepLocalOffset;
 follow.localOffset = float64_t3(-4.0, 0.0, 1.0);
 
 CCameraGoalSolver solver;
-auto result = applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
+auto result = CCameraFollowUtilities::applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
 ```
 
 ### Sequence / CI integration

@@ -34,8 +34,8 @@ json_t serializeGoalJson(const nbl::core::CCameraGoal& goal)
         json["distance"] = goal.distance;
     if (goal.hasOrbitState)
     {
-        json["orbit_u"] = goal.orbitU;
-        json["orbit_v"] = goal.orbitV;
+        json["orbit_u"] = goal.orbitUv.x;
+        json["orbit_v"] = goal.orbitUv.y;
         json["orbit_distance"] = goal.orbitDistance;
     }
     if (goal.hasPathState)

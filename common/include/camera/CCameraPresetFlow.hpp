@@ -47,7 +47,7 @@ inline bool comparePresetToCameraState(const CCameraGoalSolver& solver, ICamera*
     if (!capture.canUseGoal())
         return false;
 
-    return compareGoals(capture.goal, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
+    return CCameraGoalUtilities::compareGoals(capture.goal, makeGoalFromPreset(preset), posEps, rotEpsDeg, scalarEps);
 }
 
 //! Explain the first visible mismatch between a camera state and a preset.
@@ -61,7 +61,7 @@ inline std::string describePresetCameraMismatch(const CCameraGoalSolver& solver,
     if (!capture.finiteGoal)
         return "goal_state=invalid";
 
-    return describeGoalMismatch(capture.goal, makeGoalFromPreset(preset));
+    return CCameraGoalUtilities::describeGoalMismatch(capture.goal, makeGoalFromPreset(preset));
 }
 
 //! Build a preset from an already analyzed capture result.
@@ -80,7 +80,7 @@ inline bool tryCapturePreset(const SCameraCaptureAnalysis& captureAnalysis, ICam
 //! Capture a preset directly from a camera through the shared goal solver.
 inline bool tryCapturePreset(const CCameraGoalSolver& solver, ICamera* camera, std::string_view name, CCameraPreset& preset)
 {
-    return tryCapturePreset(analyzeCameraCapture(solver, camera), camera, name, preset);
+    return tryCapturePreset(CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera), camera, name, preset);
 }
 
 //! Value-returning convenience wrapper around `tryCapturePreset`.

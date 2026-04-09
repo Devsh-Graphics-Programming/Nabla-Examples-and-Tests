@@ -9,10 +9,10 @@ void App::updateScriptedFollowVisualState(const CCameraScriptedFrameEvents& scri
 		SActiveScriptedCameraContext runtimeContext = {};
 		if (tryBuildActiveScriptedCameraContext(runtimeContext) && runtimeContext.followConfig)
 		{
-			followMetrics = nbl::system::buildFollowVisualMetrics(
-				runtimeContext.viewport.camera,
-				m_sceneInteraction.followTarget,
-				runtimeContext.followConfig,
+            followMetrics = nbl::system::CCameraFollowRegressionUtilities::buildFollowVisualMetrics(
+                runtimeContext.viewport.camera,
+                m_sceneInteraction.followTarget,
+                runtimeContext.followConfig,
 				runtimeContext.getProjectionContext());
 		}
 		m_scriptedInput.visualFollow = followMetrics;

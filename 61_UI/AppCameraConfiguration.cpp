@@ -103,7 +103,7 @@ void App::initializePlanarFollowConfigs()
 	for (uint32_t planarIx = 0u; planarIx < m_planarProjections.size(); ++planarIx)
 	{
 		auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
-		auto config = nbl::core::makeDefaultFollowConfig(camera);
+		auto config = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
 		m_sceneInteraction.planarFollowConfigs.emplace_back(config);
 		if (config.enabled)
 			captureFollowOffsetsForPlanar(planarIx);

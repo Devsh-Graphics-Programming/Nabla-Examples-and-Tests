@@ -104,7 +104,7 @@ public:
         if (!camera)
             return false;
 
-        const auto canonicalTarget = canonicalizeGoal(target);
+        const auto canonicalTarget = CCameraGoalUtilities::canonicalizeGoal(target);
 
         if (camera->hasCapability(ICamera::SphericalTarget))
             return buildSphericalEvents(camera, canonicalTarget, out);
@@ -133,8 +133,7 @@ public:
             out.distance = sphericalState.distance;
             out.hasDistance = true;
             out.orbitDistance = sphericalState.distance;
-            out.orbitU = sphericalState.u;
-            out.orbitV = sphericalState.v;
+            out.orbitUv = sphericalState.orbitUv;
             out.hasOrbitState = true;
         }
 
@@ -152,7 +151,7 @@ public:
             out.pathState = pathState;
         }
 
-        out = canonicalizeGoal(out);
+        out = CCameraGoalUtilities::canonicalizeGoal(out);
         return true;
     }
 
@@ -164,7 +163,7 @@ public:
             return result;
 
         result.captured = capture(camera, result.goal);
-        result.finiteGoal = result.captured && isGoalFinite(result.goal);
+        result.finiteGoal = result.captured && CCameraGoalUtilities::isGoalFinite(result.goal);
         return result;
     }
 
@@ -174,10 +173,10 @@ public:
         if (!camera)
             return result;
 
-        const auto canonicalTarget = canonicalizeGoal(target);
+        const auto canonicalTarget = CCameraGoalUtilities::canonicalizeGoal(target);
         result.sameKind = canonicalTarget.sourceKind == ICamera::CameraKind::Unknown || canonicalTarget.sourceKind == camera->getKind();
         result.supportedGoalStateMask = camera->getGoalStateMask();
-        result.requiredGoalStateMask = getRequiredGoalStateMask(canonicalTarget);
+        result.requiredGoalStateMask = CCameraGoalUtilities::getRequiredGoalStateMask(canonicalTarget);
         result.missingGoalStateMask = result.requiredGoalStateMask & ~result.supportedGoalStateMask;
         result.exact = result.missingGoalStateMask == ICamera::GoalStateNone;
         return result;
@@ -189,7 +188,7 @@ public:
         if (!camera)
             return result;
 
-        const auto canonicalTarget = canonicalizeGoal(target);
+        const auto canonicalTarget = CCameraGoalUtilities::canonicalizeGoal(target);
 
         bool exact = true;
         bool absoluteChanged = false;
@@ -304,8 +303,8 @@ public:
                 else
                 {
                     const auto thresholds = SCameraPathDefaults::ComparisonThresholds;
-                    const bool pathChanged = pathStatesChanged(beforeState, afterState, thresholds);
-                    const bool pathExact = pathStatesNearlyEqual(afterState, canonicalTarget.pathState, thresholds);
+                    const bool pathChanged = CCameraPathUtilities::pathStatesChanged(beforeState, afterState, thresholds);
+                    const bool pathExact = CCameraPathUtilities::pathStatesNearlyEqual(afterState, canonicalTarget.pathState, thresholds);
 
                     absoluteChanged = absoluteChanged || pathChanged;
                     exact = exact && pathExact;
@@ -425,7 +424,7 @@ private:
         const SCameraPathDelta& delta,
         const double moveDenominator) const
     {
-        appendPathAdvanceEvents(
+        CCameraPathUtilities::appendPathAdvanceEvents(
             events,
             delta,
             moveDenominator,
@@ -511,8 +510,8 @@ private:
         std::vector<CVirtualGimbalEvent>& out,
         const SCameraTargetRelativeEventPolicy& policy) const
     {
-        const auto delta = buildTargetRelativeDelta(sphericalState, goal);
-        appendTargetRelativeDeltaEvents(
+        const auto delta = CCameraTargetRelativeUtilities::buildTargetRelativeDelta(sphericalState, goal);
+        CCameraTargetRelativeUtilities::appendTargetRelativeDeltaEvents(
             out,
             delta,
             policy.translateOrbit ? getMoveMagnitudeDenominator(camera) : getRotationMagnitudeDenominator(camera),
@@ -532,7 +531,7 @@ private:
         ICamera::PathState currentState = {};
         const ICamera::PathState* currentStateOverride = camera->tryGetPathState(currentState) ? &currentState : nullptr;
         SCameraPathStateTransition transition = {};
-        if (!tryBuildPathStateTransition(
+        if (!CCameraPathUtilities::tryBuildPathStateTransition(
                 effectiveTarget,
                 camera->getGimbal().getPosition(),
                 target.position,
@@ -559,7 +558,7 @@ private:
             return buildPathEvents(camera, target, sphericalState, out);
 
         SCameraTargetRelativeState goal;
-        if (!tryResolveCanonicalTargetRelativeState(target, sphericalState, goal))
+        if (!CCameraGoalUtilities::tryResolveCanonicalTargetRelativeState(target, sphericalState, goal))
             return false;
 
         switch (camera->getKind())

@@ -30,12 +30,12 @@ struct CCameraKeyframe
 
 inline void assignGoalToPreset(CCameraPreset& preset, const CCameraGoal& goal)
 {
-    preset.goal = canonicalizeGoal(goal);
+    preset.goal = CCameraGoalUtilities::canonicalizeGoal(goal);
 }
 
 inline CCameraGoal makeGoalFromPreset(const CCameraPreset& preset)
 {
-    return canonicalizeGoal(preset.goal);
+    return CCameraGoalUtilities::canonicalizeGoal(preset.goal);
 }
 
 //! Compare two named presets through their shared canonical goal state.
@@ -44,7 +44,7 @@ inline bool comparePresets(const CCameraPreset& lhs, const CCameraPreset& rhs,
 {
     return lhs.name == rhs.name &&
         lhs.identifier == rhs.identifier &&
-        compareGoals(makeGoalFromPreset(lhs), makeGoalFromPreset(rhs), posEps, rotEpsDeg, scalarEps);
+        CCameraGoalUtilities::compareGoals(makeGoalFromPreset(lhs), makeGoalFromPreset(rhs), posEps, rotEpsDeg, scalarEps);
 }
 
 //! Compare two preset collections element-by-element through the shared canonical goal state.

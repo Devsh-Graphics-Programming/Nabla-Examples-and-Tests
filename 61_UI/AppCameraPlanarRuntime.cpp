@@ -43,7 +43,7 @@ bool tryCaptureInitialPlanarPresets(
     {
         auto* camera = planars[planarIx] ? planars[planarIx]->getCamera() : nullptr;
         const std::string presetName = "Planar " + std::to_string(planarIx);
-        const auto captureAnalysis = core::analyzeCameraCapture(goalSolver, camera);
+        const auto captureAnalysis = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
         if (!captureAnalysis.canCapture)
         {
             const auto kindLabel = camera ? std::string(core::getCameraKindLabel(camera->getKind())) : std::string("Unknown");

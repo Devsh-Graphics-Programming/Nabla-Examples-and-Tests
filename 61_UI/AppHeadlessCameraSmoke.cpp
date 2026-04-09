@@ -88,7 +88,7 @@ bool App::runHeadlessCameraSmoke(argparse::ArgumentParser& program, smart_refctd
 			resolvedSmokeState,
 			{ cameras.data(), cameras.size() },
 			{ smokePlanars.data(), smokePlanars.size() },
-			[](ICamera* camera) { return nbl::core::makeDefaultFollowConfig(camera); },
+			[](ICamera* camera) { return nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera); },
 			[](const CTrackedTarget& trackedTarget, const std::string_view label, std::string& error)
 			{
 				return verifyFollowTargetMarkerAlignmentForSmoke(trackedTarget, label, error);

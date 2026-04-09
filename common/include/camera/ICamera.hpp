@@ -74,9 +74,8 @@ public:
     struct SphericalTargetState
     {
         hlsl::float64_t3 target = hlsl::float64_t3(0.0);
+        hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
         float distance = 0.f;
-        double u = 0.0;
-        double v = 0.0;
         float minDistance = 0.f;
         float maxDistance = 0.f;
     };

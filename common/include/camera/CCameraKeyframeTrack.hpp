@@ -78,7 +78,7 @@ inline bool tryBuildKeyframeTrackPresetAtTime(const CCameraKeyframeTrack& track,
 
     const double alpha = static_cast<double>(clampedTime - a.time) / static_cast<double>(b.time - a.time);
     preset = a.preset;
-    assignGoalToPreset(preset, blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
+    assignGoalToPreset(preset, CCameraGoalUtilities::blendGoals(makeGoalFromPreset(a.preset), makeGoalFromPreset(b.preset), alpha));
     return true;
 }
 

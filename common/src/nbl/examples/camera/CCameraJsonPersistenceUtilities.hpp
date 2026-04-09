@@ -46,12 +46,12 @@ inline void deserializeGoalJson(const Json& entry, core::CCameraGoal& goal)
     }
     if (entry.contains("orbit_u"))
     {
-        goal.orbitU = entry["orbit_u"].get<double>();
+        goal.orbitUv.x = entry["orbit_u"].get<double>();
         goal.hasOrbitState = true;
     }
     if (entry.contains("orbit_v"))
     {
-        goal.orbitV = entry["orbit_v"].get<double>();
+        goal.orbitUv.y = entry["orbit_v"].get<double>();
         goal.hasOrbitState = true;
     }
     if (entry.contains("orbit_distance"))

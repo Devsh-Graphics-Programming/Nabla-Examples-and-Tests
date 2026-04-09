@@ -21,7 +21,7 @@ App::CaptureUiAnalysis App::analyzeCameraCaptureForUi(ICamera* camera) const
 
 CCameraGoalSolver::SCompatibilityResult App::analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 {
-	return nbl::core::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
+    return nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
 }
 
 bool App::presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const

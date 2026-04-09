@@ -2,7 +2,7 @@
 
 nbl::hlsl::uint32_t2 App::getPresentationRenderExtent() const
 {
-	if (m_cliRuntime.ciMode)
+	if (m_cliRuntime.ciMode && !m_cliRuntime.scriptVisualDebugCli)
 		return SCameraAppPresentationDefaults::CiWindowExtent;
 
 	const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
@@ -11,7 +11,7 @@ nbl::hlsl::uint32_t2 App::getPresentationRenderExtent() const
 
 bool App::shouldMaximizePresentationWindow() const
 {
-	return !m_cliRuntime.ciMode;
+	return !m_cliRuntime.ciMode || m_cliRuntime.scriptVisualDebugCli;
 }
 
 core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> App::getSurfaces() const
@@ -105,7 +105,9 @@ bool App::initializePresentationResources()
 			return logFail("Failed to Create a Renderpass!");
 	}
 
-	if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()), std::make_unique<CSwapchainResources>(), { .imageUsage = IGPUImage::EUF_TRANSFER_SRC_BIT }))
+	ISwapchain::SSharedCreationParams sharedParams = {};
+	sharedParams.imageUsage |= IGPUImage::EUF_TRANSFER_SRC_BIT;
+	if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()), std::make_unique<CSwapchainResources>(), sharedParams))
 		return logFail("Failed to Create a Swapchain!");
 
 	const auto presentationExtent = getPresentationRenderExtent();

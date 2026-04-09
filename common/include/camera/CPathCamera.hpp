@@ -21,7 +21,7 @@ public:
     CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(position, target)
     {
-        tryResolvePathState(target, position, SCameraPathDefaults::Limits, nullptr, m_pathState);
+        CCameraPathUtilities::tryResolvePathState(target, position, SCameraPathDefaults::Limits, nullptr, m_pathState);
         updateFromPathState();
     }
     ~CPathCamera() = default;
@@ -39,13 +39,13 @@ public:
             CReferenceTransform reference = {};
             if (!m_gimbal.extractReferenceTransform(&reference, referenceFrame))
                 return false;
-            if (!tryResolvePathState(m_targetPosition, hlsl::float64_t3(reference.frame[3]), SCameraPathDefaults::Limits, nullptr, nextPathState))
+            if (!CCameraPathUtilities::tryResolvePathState(m_targetPosition, hlsl::float64_t3(reference.frame[3]), SCameraPathDefaults::Limits, nullptr, nextPathState))
                 return false;
         }
 
         const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
-        const auto stateDelta = makePathDeltaFromVirtualPathTranslate(scaleVirtualTranslation(impulse.dVirtualTranslate));
-        if (!tryApplyPathStateDelta(nextPathState, stateDelta, SCameraPathDefaults::Limits, nextPathState))
+        const auto stateDelta = CCameraPathUtilities::makePathDeltaFromVirtualPathTranslate(scaleVirtualTranslation(impulse.dVirtualTranslate));
+        if (!CCameraPathUtilities::tryApplyPathStateDelta(nextPathState, stateDelta, SCameraPathDefaults::Limits, nextPathState))
             return false;
 
         m_pathState = nextPathState;
@@ -63,10 +63,10 @@ public:
     virtual bool trySetPathState(const PathState& state) override
     {
         auto sanitized = state;
-        if (!sanitizePathState(sanitized, SCameraPathDefaults::Limits.minRadius))
+        if (!CCameraPathUtilities::sanitizePathState(sanitized, SCameraPathDefaults::Limits.minRadius))
             return false;
 
-        const bool exact = pathStatesNearlyEqual(sanitized, state, SCameraPathDefaults::ExactComparisonThresholds);
+        const bool exact = CCameraPathUtilities::pathStatesNearlyEqual(sanitized, state, SCameraPathDefaults::ExactComparisonThresholds);
         m_pathState = sanitized;
         updateFromPathState();
         return exact;
@@ -74,7 +74,7 @@ public:
     virtual bool trySetSphericalDistance(float distance) override
     {
         SCameraPathDistanceUpdateResult distanceUpdate = {};
-        if (!tryUpdatePathStateDistance(distance, SCameraPathDefaults::Limits, m_pathState, &distanceUpdate))
+        if (!CCameraPathUtilities::tryUpdatePathStateDistance(distance, SCameraPathDefaults::Limits, m_pathState, &distanceUpdate))
             return false;
 
         updateFromPathState();
@@ -85,19 +85,19 @@ public:
 private:
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
 
-    PathState m_pathState = makeDefaultPathState(SCameraPathDefaults::Limits.minRadius);
+    PathState m_pathState = CCameraPathUtilities::makeDefaultPathState(SCameraPathDefaults::Limits.minRadius);
 
     bool updateFromPathState()
     {
         SCameraCanonicalPathState canonicalPathState = {};
-        if (!tryBuildCanonicalPathState(m_targetPosition, m_pathState, SCameraPathDefaults::Limits, canonicalPathState))
+        if (!CCameraPathUtilities::tryBuildCanonicalPathState(m_targetPosition, m_pathState, SCameraPathDefaults::Limits, canonicalPathState))
         {
             return false;
         }
 
         m_distance = canonicalPathState.targetRelative.distance;
-        m_u = canonicalPathState.targetRelative.orbitU;
-        m_v = canonicalPathState.targetRelative.orbitV;
+        m_u = canonicalPathState.targetRelative.orbitUv.x;
+        m_v = canonicalPathState.targetRelative.orbitUv.y;
 
         m_gimbal.begin();
         {

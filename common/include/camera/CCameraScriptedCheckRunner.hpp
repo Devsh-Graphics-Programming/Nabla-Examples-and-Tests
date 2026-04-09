@@ -509,14 +509,14 @@ inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
                 SCameraFollowRegressionResult regression = {};
                 std::string regressionError;
                 core::CCameraGoal expectedFollowGoal = {};
-                const auto thresholds = makeFollowRegressionThresholds(check.posTolerance, check.eulerToleranceDeg);
-                const bool ok = core::tryBuildFollowGoal(
+                const auto thresholds = CCameraFollowRegressionUtilities::makeFollowRegressionThresholds(check.posTolerance, check.eulerToleranceDeg);
+                const bool ok = core::CCameraFollowUtilities::tryBuildFollowGoal(
                         *context.goalSolver,
                         context.camera,
                         *context.trackedTarget,
                         *context.followConfig,
                         expectedFollowGoal) &&
-                    validateFollowTargetContract(
+                    CCameraFollowRegressionUtilities::validateFollowTargetContract(
                         context.camera,
                         *context.trackedTarget,
                         *context.followConfig,

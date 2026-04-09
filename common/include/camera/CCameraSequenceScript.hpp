@@ -76,10 +76,8 @@ struct CCameraSequenceGoalDelta
     hlsl::float64_t3 targetOffset = hlsl::float64_t3(0.0);
 
     bool hasOrbitUDeltaDeg = false;
-    double orbitUDeltaDeg = 0.0;
-
     bool hasOrbitVDeltaDeg = false;
-    double orbitVDeltaDeg = 0.0;
+    hlsl::float64_t2 orbitUvDeltaDeg = hlsl::float64_t2(0.0);
 
     bool hasOrbitDistanceDelta = false;
     float orbitDistanceDelta = 0.f;
@@ -242,219 +240,225 @@ struct CCameraSequenceCompiledFramePolicy
     bool followTargetLock = false;
 };
 
-inline bool tryParseCameraKind(std::string_view value, ICamera::CameraKind& outKind)
+struct CCameraSequenceScriptUtilities final
 {
-    if (value == "FPS")
-        outKind = ICamera::CameraKind::FPS;
-    else if (value == "Free")
-        outKind = ICamera::CameraKind::Free;
-    else if (value == "Orbit")
-        outKind = ICamera::CameraKind::Orbit;
-    else if (value == "Arcball")
-        outKind = ICamera::CameraKind::Arcball;
-    else if (value == "Turntable")
-        outKind = ICamera::CameraKind::Turntable;
-    else if (value == "TopDown")
-        outKind = ICamera::CameraKind::TopDown;
-    else if (value == "Isometric")
-        outKind = ICamera::CameraKind::Isometric;
-    else if (value == "Chase")
-        outKind = ICamera::CameraKind::Chase;
-    else if (value == "Dolly")
-        outKind = ICamera::CameraKind::Dolly;
-    else if (value == "DollyZoom" || value == "Dolly Zoom")
-        outKind = ICamera::CameraKind::DollyZoom;
-    else if (value == "PathRig" || value == "Path Rig")
-        outKind = ICamera::CameraKind::Path;
-    else
-        return false;
-
-    return true;
-}
-
-inline bool tryParseProjectionType(std::string_view value, IPlanarProjection::CProjection::ProjectionType& outType)
-{
-    if (value == "perspective" || value == "Perspective")
-        outType = IPlanarProjection::CProjection::Perspective;
-    else if (value == "orthographic" || value == "Orthographic")
-        outType = IPlanarProjection::CProjection::Orthographic;
-    else
-        return false;
-
-    return true;
-}
-
-inline void normalizeCaptureFractions(std::vector<float>& fractions)
-{
-    for (auto& fraction : fractions)
-        fraction = std::clamp(fraction, 0.f, 1.f);
-
-    std::sort(fractions.begin(), fractions.end());
-    fractions.erase(std::unique(fractions.begin(), fractions.end(),
-        [](const float lhs, const float rhs) { return hlsl::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
-        fractions.end());
-}
-
-inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CCameraSequenceKeyframe& authored, CCameraPreset& outPreset, std::string* error = nullptr)
-{
-    if (authored.hasAbsolutePreset)
+    static inline bool tryParseCameraKind(std::string_view value, ICamera::CameraKind& outKind)
     {
-        outPreset = authored.absolutePreset;
-        if (outPreset.identifier.empty())
-            outPreset.identifier = reference.identifier;
-        if (outPreset.name.empty())
-            outPreset.name = reference.name;
-        return isGoalFinite(makeGoalFromPreset(outPreset));
-    }
+        if (value == "FPS")
+            outKind = ICamera::CameraKind::FPS;
+        else if (value == "Free")
+            outKind = ICamera::CameraKind::Free;
+        else if (value == "Orbit")
+            outKind = ICamera::CameraKind::Orbit;
+        else if (value == "Arcball")
+            outKind = ICamera::CameraKind::Arcball;
+        else if (value == "Turntable")
+            outKind = ICamera::CameraKind::Turntable;
+        else if (value == "TopDown")
+            outKind = ICamera::CameraKind::TopDown;
+        else if (value == "Isometric")
+            outKind = ICamera::CameraKind::Isometric;
+        else if (value == "Chase")
+            outKind = ICamera::CameraKind::Chase;
+        else if (value == "Dolly")
+            outKind = ICamera::CameraKind::Dolly;
+        else if (value == "DollyZoom" || value == "Dolly Zoom")
+            outKind = ICamera::CameraKind::DollyZoom;
+        else if (value == "PathRig" || value == "Path Rig")
+            outKind = ICamera::CameraKind::Path;
+        else
+            return false;
 
-    outPreset = reference;
-    if (!authored.hasDelta)
         return true;
-
-    auto goal = makeGoalFromPreset(reference);
-    const auto& delta = authored.delta;
-
-    const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
-    const bool hasSphericalDelta = delta.hasTargetOffset || delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta;
-    const bool hasPathDelta = delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta;
-
-    if (hasPoseDelta && (hasSphericalDelta || hasPathDelta))
-    {
-        if (error)
-            *error = "Sequence keyframe delta cannot mix pose offsets with spherical/path deltas.";
-        return false;
     }
 
-    if (delta.hasPositionOffset)
-        goal.position += delta.positionOffset;
-
-    if (delta.hasRotationEulerDegOffset)
+    static inline bool tryParseProjectionType(std::string_view value, IPlanarProjection::CProjection::ProjectionType& outType)
     {
-        goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
+        if (value == "perspective" || value == "Perspective")
+            outType = IPlanarProjection::CProjection::Perspective;
+        else if (value == "orthographic" || value == "Orthographic")
+            outType = IPlanarProjection::CProjection::Orthographic;
+        else
+            return false;
+
+        return true;
     }
 
-    if (delta.hasTargetOffset)
+    static inline void normalizeCaptureFractions(std::vector<float>& fractions)
     {
-        if (!goal.hasTargetPosition)
+        for (auto& fraction : fractions)
+            fraction = std::clamp(fraction, 0.f, 1.f);
+
+        std::sort(fractions.begin(), fractions.end());
+        fractions.erase(std::unique(fractions.begin(), fractions.end(),
+            [](const float lhs, const float rhs) { return hlsl::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
+            fractions.end());
+    }
+
+    static inline bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CCameraSequenceKeyframe& authored, CCameraPreset& outPreset, std::string* error = nullptr)
+    {
+        if (authored.hasAbsolutePreset)
+        {
+            outPreset = authored.absolutePreset;
+            if (outPreset.identifier.empty())
+                outPreset.identifier = reference.identifier;
+            if (outPreset.name.empty())
+                outPreset.name = reference.name;
+            return CCameraGoalUtilities::isGoalFinite(makeGoalFromPreset(outPreset));
+        }
+
+        outPreset = reference;
+        if (!authored.hasDelta)
+            return true;
+
+        auto goal = makeGoalFromPreset(reference);
+        const auto& delta = authored.delta;
+
+        const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
+        const bool hasSphericalDelta = delta.hasTargetOffset || delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta;
+        const bool hasPathDelta = delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta;
+
+        if (hasPoseDelta && (hasSphericalDelta || hasPathDelta))
         {
             if (error)
-                *error = "Sequence keyframe target_offset requires target state.";
+                *error = "Sequence keyframe delta cannot mix pose offsets with spherical/path deltas.";
             return false;
         }
-        goal.targetPosition += delta.targetOffset;
-    }
 
-    if (delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta)
-    {
-        if (!goal.hasOrbitState)
+        if (delta.hasPositionOffset)
+            goal.position += delta.positionOffset;
+
+        if (delta.hasRotationEulerDegOffset)
+        {
+            goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
+        }
+
+        if (delta.hasTargetOffset)
+        {
+            if (!goal.hasTargetPosition)
+            {
+                if (error)
+                    *error = "Sequence keyframe target_offset requires target state.";
+                return false;
+            }
+            goal.targetPosition += delta.targetOffset;
+        }
+
+        if (delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta)
+        {
+            if (!goal.hasOrbitState)
+            {
+                if (error)
+                    *error = "Sequence keyframe orbit deltas require spherical orbit state.";
+                return false;
+            }
+
+            const auto orbitUvDeltaRad = hlsl::float64_t2(
+                delta.hasOrbitUDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.x)) : hlsl::float64_t(0.0),
+                delta.hasOrbitVDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.y)) : hlsl::float64_t(0.0));
+            if (delta.hasOrbitUDeltaDeg)
+                goal.orbitUv.x = hlsl::wrapAngleRad(goal.orbitUv.x + orbitUvDeltaRad.x);
+            if (delta.hasOrbitVDeltaDeg)
+            {
+                goal.orbitUv.y = std::clamp(
+                    goal.orbitUv.y + orbitUvDeltaRad.y,
+                    -SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad,
+                    SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad);
+            }
+            if (delta.hasOrbitDistanceDelta)
+                goal.orbitDistance += delta.orbitDistanceDelta;
+        }
+
+        if (delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta)
+        {
+            if (!goal.hasPathState)
+            {
+                if (error)
+                    *error = "Sequence keyframe path deltas require path state.";
+                return false;
+            }
+
+            const auto pathDelta = SCameraPathDelta::fromVector(hlsl::float64_t3(
+                delta.hasPathRadiusDelta ? static_cast<hlsl::float64_t>(delta.pathRadiusDelta) : hlsl::float64_t(0.0),
+                delta.hasPathHeightDelta ? static_cast<hlsl::float64_t>(delta.pathHeightDelta) : hlsl::float64_t(0.0),
+                delta.hasPathAngleDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathAngleDeltaDeg)) : hlsl::float64_t(0.0)));
+            if (!CCameraPathUtilities::tryApplyPathStateDelta(goal.pathState, pathDelta, CCameraPathUtilities::makeDefaultPathLimits(), goal.pathState))
+            {
+                if (error)
+                    *error = "Sequence keyframe path deltas produced an invalid path state.";
+                return false;
+            }
+        }
+
+        if (delta.hasDynamicBaseFovDelta || delta.hasDynamicReferenceDistanceDelta)
+        {
+            if (!goal.hasDynamicPerspectiveState)
+            {
+                if (error)
+                    *error = "Sequence keyframe dynamic perspective deltas require dynamic perspective state.";
+                return false;
+            }
+            if (delta.hasDynamicBaseFovDelta)
+                goal.dynamicPerspectiveState.baseFov = std::clamp(goal.dynamicPerspectiveState.baseFov + delta.dynamicBaseFovDelta, 1.f, 179.f);
+            if (delta.hasDynamicReferenceDistanceDelta)
+                goal.dynamicPerspectiveState.referenceDistance = std::max(0.001f, goal.dynamicPerspectiveState.referenceDistance + delta.dynamicReferenceDistanceDelta);
+        }
+
+        if (hasPathDelta || hasSphericalDelta)
+        {
+            if (!CCameraGoalUtilities::applyCanonicalGoalState(goal))
+            {
+                if (error)
+                    *error = hasPathDelta ?
+                        "Sequence keyframe failed to canonicalize path state." :
+                        "Sequence keyframe failed to canonicalize spherical state.";
+                return false;
+            }
+        }
+
+        if (!CCameraGoalUtilities::isGoalFinite(goal))
         {
             if (error)
-                *error = "Sequence keyframe orbit deltas require spherical orbit state.";
+                *error = "Sequence keyframe produced a non-finite goal.";
             return false;
         }
-        if (delta.hasOrbitUDeltaDeg)
-            goal.orbitU = hlsl::wrapAngleRad(goal.orbitU + hlsl::radians(delta.orbitUDeltaDeg));
-        if (delta.hasOrbitVDeltaDeg)
-        {
-            goal.orbitV = std::clamp(
-                goal.orbitV + hlsl::radians(delta.orbitVDeltaDeg),
-                -SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad,
-                SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad);
-        }
-        if (delta.hasOrbitDistanceDelta)
-            goal.orbitDistance += delta.orbitDistanceDelta;
+
+        assignGoalToPreset(outPreset, goal);
+        return true;
     }
 
-    if (delta.hasPathAngleDeltaDeg || delta.hasPathRadiusDelta || delta.hasPathHeightDelta)
+    static inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, const CCameraSequenceSegment& segment, CCameraKeyframeTrack& outTrack, std::string* error = nullptr)
     {
-        if (!goal.hasPathState)
+        outTrack = {};
+        outTrack.keyframes.reserve(segment.keyframes.size());
+
+        for (const auto& entry : segment.keyframes)
         {
-            if (error)
-                *error = "Sequence keyframe path deltas require path state.";
-            return false;
+            CCameraKeyframe keyframe;
+            keyframe.time = std::max(0.f, entry.time);
+            if (!buildSequenceKeyframePreset(reference, entry, keyframe.preset, error))
+                return false;
+            outTrack.keyframes.emplace_back(std::move(keyframe));
         }
 
-        const auto pathDelta = SCameraPathDelta::fromVector(hlsl::float64_t3(
-            delta.hasPathRadiusDelta ? static_cast<hlsl::float64_t>(delta.pathRadiusDelta) : hlsl::float64_t(0.0),
-            delta.hasPathHeightDelta ? static_cast<hlsl::float64_t>(delta.pathHeightDelta) : hlsl::float64_t(0.0),
-            delta.hasPathAngleDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathAngleDeltaDeg)) : hlsl::float64_t(0.0)));
-        if (!tryApplyPathStateDelta(goal.pathState, pathDelta, makeDefaultPathLimits(), goal.pathState))
-        {
-            if (error)
-                *error = "Sequence keyframe path deltas produced an invalid path state.";
-            return false;
-        }
+        sortKeyframeTrackByTime(outTrack);
+        normalizeSelectedKeyframeTrack(outTrack);
+        return !outTrack.keyframes.empty();
     }
 
-    if (delta.hasDynamicBaseFovDelta || delta.hasDynamicReferenceDistanceDelta)
+    static inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
     {
-        if (!goal.hasDynamicPerspectiveState)
-        {
-            if (error)
-                *error = "Sequence keyframe dynamic perspective deltas require dynamic perspective state.";
-            return false;
-        }
-        if (delta.hasDynamicBaseFovDelta)
-            goal.dynamicPerspectiveState.baseFov = std::clamp(goal.dynamicPerspectiveState.baseFov + delta.dynamicBaseFovDelta, 1.f, 179.f);
-        if (delta.hasDynamicReferenceDistanceDelta)
-            goal.dynamicPerspectiveState.referenceDistance = std::max(0.001f, goal.dynamicPerspectiveState.referenceDistance + delta.dynamicReferenceDistanceDelta);
+        return hlsl::isFiniteVec3(pose.position) &&
+            hlsl::isFiniteQuaternion(pose.orientation);
     }
 
-    if (hasPathDelta || hasSphericalDelta)
-    {
-        if (!applyCanonicalGoalState(goal))
-        {
-            if (error)
-                *error = hasPathDelta ?
-                    "Sequence keyframe failed to canonicalize path state." :
-                    "Sequence keyframe failed to canonicalize spherical state.";
-            return false;
-        }
-    }
-
-    if (!isGoalFinite(goal))
-    {
-        if (error)
-            *error = "Sequence keyframe produced a non-finite goal.";
-        return false;
-    }
-
-    assignGoalToPreset(outPreset, goal);
-    return true;
-}
-
-inline bool buildSequenceTrackFromReference(const CCameraPreset& reference, const CCameraSequenceSegment& segment, CCameraKeyframeTrack& outTrack, std::string* error = nullptr)
-{
-    outTrack = {};
-    outTrack.keyframes.reserve(segment.keyframes.size());
-
-    for (const auto& entry : segment.keyframes)
-    {
-        CCameraKeyframe keyframe;
-        keyframe.time = std::max(0.f, entry.time);
-        if (!buildSequenceKeyframePreset(reference, entry, keyframe.preset, error))
-            return false;
-        outTrack.keyframes.emplace_back(std::move(keyframe));
-    }
-
-    sortKeyframeTrackByTime(outTrack);
-    normalizeSelectedKeyframeTrack(outTrack);
-    return !outTrack.keyframes.empty();
-}
-
-inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
-{
-    return hlsl::isFiniteVec3(pose.position) &&
-        hlsl::isFiniteQuaternion(pose.orientation);
-}
-
-inline bool buildSequenceTrackedTargetPoseFromReference(
+    static inline bool buildSequenceTrackedTargetPoseFromReference(
     const CCameraSequenceTrackedTargetPose& reference,
     const CCameraSequenceTrackedTargetKeyframe& authored,
     CCameraSequenceTrackedTargetPose& outPose,
     std::string* error = nullptr)
-{
-    outPose = reference;
+    {
+        outPose = reference;
 
     if (authored.hasAbsolutePosition)
         outPose.position = authored.absolutePosition;
@@ -476,17 +480,17 @@ inline bool buildSequenceTrackedTargetPoseFromReference(
         return false;
     }
 
-    return true;
-}
+        return true;
+    }
 
-inline bool buildSequenceTrackedTargetTrackFromReference(
+    static inline bool buildSequenceTrackedTargetTrackFromReference(
     const CCameraSequenceTrackedTargetPose& reference,
     const CCameraSequenceSegment& segment,
     CCameraSequenceTrackedTargetTrack& outTrack,
     std::string* error = nullptr)
-{
-    outTrack = {};
-    outTrack.keyframes.reserve(segment.targetKeyframes.size());
+    {
+        outTrack = {};
+        outTrack.keyframes.reserve(segment.targetKeyframes.size());
 
     for (const auto& entry : segment.targetKeyframes)
     {
@@ -516,125 +520,125 @@ inline bool buildSequenceTrackedTargetTrackFromReference(
     }
     outTrack.keyframes = std::move(normalized);
 
-    return !outTrack.keyframes.empty();
-}
+        return !outTrack.keyframes.empty();
+    }
 
-inline bool tryBuildSequenceTrackedTargetPoseAtTime(
+    static inline bool tryBuildSequenceTrackedTargetPoseAtTime(
     const CCameraSequenceTrackedTargetTrack& track,
     const float time,
     CCameraSequenceTrackedTargetPose& outPose)
-{
-    if (track.keyframes.empty())
-        return false;
-    if (track.keyframes.size() == 1u || time <= track.keyframes.front().time)
     {
-        outPose = track.keyframes.front().pose;
-        return true;
-    }
-    if (time >= track.keyframes.back().time)
-    {
+        if (track.keyframes.empty())
+            return false;
+        if (track.keyframes.size() == 1u || time <= track.keyframes.front().time)
+        {
+            outPose = track.keyframes.front().pose;
+            return true;
+        }
+        if (time >= track.keyframes.back().time)
+        {
+            outPose = track.keyframes.back().pose;
+            return true;
+        }
+
+        for (size_t ix = 1u; ix < track.keyframes.size(); ++ix)
+        {
+            const auto& lhs = track.keyframes[ix - 1u];
+            const auto& rhs = track.keyframes[ix];
+            if (time > rhs.time)
+                continue;
+
+            const auto span = std::max(static_cast<float>(ICamera::ScalarTolerance), rhs.time - lhs.time);
+            const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
+            outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
+            outPose.orientation = hlsl::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));
+            return true;
+        }
+
         outPose = track.keyframes.back().pose;
         return true;
     }
-
-    for (size_t ix = 1u; ix < track.keyframes.size(); ++ix)
+    
+    static inline bool sequenceSegmentUsesTrackedTargetTrack(const CCameraSequenceSegment& segment)
     {
-        const auto& lhs = track.keyframes[ix - 1u];
-        const auto& rhs = track.keyframes[ix];
-        if (time > rhs.time)
-            continue;
-
-        const auto span = std::max(static_cast<float>(ICamera::ScalarTolerance), rhs.time - lhs.time);
-        const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
-        outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
-        outPose.orientation = hlsl::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));
-        return true;
+        return !segment.targetKeyframes.empty();
     }
 
-    outPose = track.keyframes.back().pose;
-    return true;
-}
-
-inline bool sequenceSegmentUsesTrackedTargetTrack(const CCameraSequenceSegment& segment)
-{
-    return !segment.targetKeyframes.empty();
-}
-
-inline float getSequenceSegmentDurationSeconds(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment, const CCameraKeyframeTrack* track = nullptr)
-{
-    if (segment.hasDurationSeconds)
-        return std::max(0.f, segment.durationSeconds);
-    if (script.defaults.durationSeconds > 0.f)
-        return script.defaults.durationSeconds;
-    if (track)
-        return track->keyframes.empty() ? 0.f : track->keyframes.back().time;
-    return 0.f;
-}
-
-inline const std::vector<CCameraSequencePresentation>& getSequenceSegmentPresentations(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
-{
-    return segment.presentations.empty() ? script.defaults.presentations : segment.presentations;
-}
-
-inline CCameraSequenceContinuitySettings getSequenceSegmentContinuity(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
-{
-    return segment.hasContinuity ? segment.continuity : script.defaults.continuity;
-}
-
-inline std::vector<float> getSequenceSegmentCaptureFractions(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
-{
-    auto captures = segment.hasCaptureFractions ? segment.captureFractions : script.defaults.captureFractions;
-    normalizeCaptureFractions(captures);
-    return captures;
-}
-
-inline bool getSequenceSegmentResetCamera(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
-{
-    return segment.hasResetCamera ? segment.resetCamera : script.defaults.resetCamera;
-}
-
-inline bool sequenceScriptUsesMultiplePresentations(const CCameraSequenceScript& script)
-{
-    if (script.defaults.presentations.size() > 1u)
-        return true;
-
-    for (const auto& segment : script.segments)
+    static inline float getSequenceSegmentDurationSeconds(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment, const CCameraKeyframeTrack* track = nullptr)
     {
-        if (getSequenceSegmentPresentations(script, segment).size() > 1u)
+        if (segment.hasDurationSeconds)
+            return std::max(0.f, segment.durationSeconds);
+        if (script.defaults.durationSeconds > 0.f)
+            return script.defaults.durationSeconds;
+        if (track)
+            return track->keyframes.empty() ? 0.f : track->keyframes.back().time;
+        return 0.f;
+    }
+
+    static inline const std::vector<CCameraSequencePresentation>& getSequenceSegmentPresentations(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
+    {
+        return segment.presentations.empty() ? script.defaults.presentations : segment.presentations;
+    }
+
+    static inline CCameraSequenceContinuitySettings getSequenceSegmentContinuity(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
+    {
+        return segment.hasContinuity ? segment.continuity : script.defaults.continuity;
+    }
+
+    static inline std::vector<float> getSequenceSegmentCaptureFractions(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
+    {
+        auto captures = segment.hasCaptureFractions ? segment.captureFractions : script.defaults.captureFractions;
+        normalizeCaptureFractions(captures);
+        return captures;
+    }
+
+    static inline bool getSequenceSegmentResetCamera(const CCameraSequenceScript& script, const CCameraSequenceSegment& segment)
+    {
+        return segment.hasResetCamera ? segment.resetCamera : script.defaults.resetCamera;
+    }
+
+    static inline bool sequenceScriptUsesMultiplePresentations(const CCameraSequenceScript& script)
+    {
+        if (script.defaults.presentations.size() > 1u)
             return true;
+
+        for (const auto& segment : script.segments)
+        {
+            if (getSequenceSegmentPresentations(script, segment).size() > 1u)
+                return true;
+        }
+
+        return false;
     }
 
-    return false;
-}
-
-inline uint64_t buildSequenceDurationFrames(const float durationSeconds, const float fps)
-{
-    const auto safeDuration = std::max(0.f, durationSeconds);
-    const auto safeFps = std::max(1.f, fps);
-    return std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(static_cast<double>(safeDuration) * static_cast<double>(safeFps))));
-}
-
-//! Build one sampled time per authored frame in the compiled segment.
-inline void buildSequenceSampleTimes(const float durationSeconds, const uint64_t durationFrames, std::vector<float>& outTimes)
-{
-    outTimes.clear();
-    outTimes.reserve(durationFrames);
-
-    for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
+    static inline uint64_t buildSequenceDurationFrames(const float durationSeconds, const float fps)
     {
-        const float alpha = durationFrames > 1u ? static_cast<float>(frameOffset) / static_cast<float>(durationFrames - 1u) : 0.f;
-        outTimes.emplace_back(durationSeconds * alpha);
+        const auto safeDuration = std::max(0.f, durationSeconds);
+        const auto safeFps = std::max(1.f, fps);
+        return std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(static_cast<double>(safeDuration) * static_cast<double>(safeFps))));
     }
-}
 
-//! Expand normalized capture fractions into concrete frame offsets inside the compiled segment.
-inline void buildSequenceCaptureFrameOffsets(
+    //! Build one sampled time per authored frame in the compiled segment.
+    static inline void buildSequenceSampleTimes(const float durationSeconds, const uint64_t durationFrames, std::vector<float>& outTimes)
+    {
+        outTimes.clear();
+        outTimes.reserve(durationFrames);
+
+        for (uint64_t frameOffset = 0u; frameOffset < durationFrames; ++frameOffset)
+        {
+            const float alpha = durationFrames > 1u ? static_cast<float>(frameOffset) / static_cast<float>(durationFrames - 1u) : 0.f;
+            outTimes.emplace_back(durationSeconds * alpha);
+        }
+    }
+
+    //! Expand normalized capture fractions into concrete frame offsets inside the compiled segment.
+    static inline void buildSequenceCaptureFrameOffsets(
     const uint64_t durationFrames,
     const std::vector<float>& captureFractions,
     std::vector<uint64_t>& outOffsets)
-{
-    outOffsets.clear();
-    outOffsets.reserve(captureFractions.size());
+    {
+        outOffsets.clear();
+        outOffsets.reserve(captureFractions.size());
 
     for (const auto fraction : captureFractions)
     {
@@ -645,47 +649,47 @@ inline void buildSequenceCaptureFrameOffsets(
     }
 
     std::sort(outOffsets.begin(), outOffsets.end());
-    outOffsets.erase(std::unique(outOffsets.begin(), outOffsets.end()), outOffsets.end());
-}
+        outOffsets.erase(std::unique(outOffsets.begin(), outOffsets.end()), outOffsets.end());
+    }
 
-//! Compile one authored sequence segment into normalized reusable data for runtime consumers.
-inline bool compileSequenceSegmentFromReference(
+    //! Compile one authored sequence segment into normalized reusable data for runtime consumers.
+    static inline bool compileSequenceSegmentFromReference(
     const CCameraSequenceScript& script,
     const CCameraSequenceSegment& segment,
     const CCameraPreset& referencePreset,
     const CCameraSequenceTrackedTargetPose& referenceTrackedTargetPose,
     CCameraSequenceCompiledSegment& outSegment,
     std::string* error = nullptr)
-{
-    outSegment = {};
-    outSegment.name = segment.name;
-    outSegment.presentations = getSequenceSegmentPresentations(script, segment);
-    outSegment.continuity = getSequenceSegmentContinuity(script, segment);
-    outSegment.resetCamera = getSequenceSegmentResetCamera(script, segment);
-
-    if (!buildSequenceTrackFromReference(referencePreset, segment, outSegment.track, error))
-        return false;
-
-    if (sequenceSegmentUsesTrackedTargetTrack(segment) &&
-        !buildSequenceTrackedTargetTrackFromReference(referenceTrackedTargetPose, segment, outSegment.trackedTargetTrack, error))
     {
-        return false;
+        outSegment = {};
+        outSegment.name = segment.name;
+        outSegment.presentations = getSequenceSegmentPresentations(script, segment);
+        outSegment.continuity = getSequenceSegmentContinuity(script, segment);
+        outSegment.resetCamera = getSequenceSegmentResetCamera(script, segment);
+
+        if (!buildSequenceTrackFromReference(referencePreset, segment, outSegment.track, error))
+            return false;
+
+        if (sequenceSegmentUsesTrackedTargetTrack(segment) &&
+            !buildSequenceTrackedTargetTrackFromReference(referenceTrackedTargetPose, segment, outSegment.trackedTargetTrack, error))
+        {
+            return false;
+        }
+
+        outSegment.durationSeconds = getSequenceSegmentDurationSeconds(script, segment, &outSegment.track);
+        outSegment.durationFrames = buildSequenceDurationFrames(outSegment.durationSeconds, script.fps);
+        buildSequenceSampleTimes(outSegment.durationSeconds, outSegment.durationFrames, outSegment.sampleTimes);
+        buildSequenceCaptureFrameOffsets(outSegment.durationFrames, getSequenceSegmentCaptureFractions(script, segment), outSegment.captureFrameOffsets);
+        return true;
     }
 
-    outSegment.durationSeconds = getSequenceSegmentDurationSeconds(script, segment, &outSegment.track);
-    outSegment.durationFrames = buildSequenceDurationFrames(outSegment.durationSeconds, script.fps);
-    buildSequenceSampleTimes(outSegment.durationSeconds, outSegment.durationFrames, outSegment.sampleTimes);
-    buildSequenceCaptureFrameOffsets(outSegment.durationFrames, getSequenceSegmentCaptureFractions(script, segment), outSegment.captureFrameOffsets);
-    return true;
-}
-
-inline bool buildCompiledSegmentFramePolicies(
+    static inline bool buildCompiledSegmentFramePolicies(
     const CCameraSequenceCompiledSegment& segment,
     std::vector<CCameraSequenceCompiledFramePolicy>& outPolicies,
     const bool includeFollowTargetLock = false)
-{
-    if (segment.sampleTimes.size() != segment.durationFrames)
-        return false;
+    {
+        if (segment.sampleTimes.size() != segment.durationFrames)
+            return false;
 
     outPolicies.clear();
     outPolicies.reserve(segment.durationFrames);
@@ -709,8 +713,9 @@ inline bool buildCompiledSegmentFramePolicies(
         outPolicies.emplace_back(std::move(policy));
     }
 
-    return true;
-}
+        return true;
+    }
+};
 
 } // namespace nbl::core
 

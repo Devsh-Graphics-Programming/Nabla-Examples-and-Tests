@@ -459,10 +459,10 @@ namespace
 		std::string* const outError)
 	{
 		std::string regressionError;
-		if (nbl::system::buildApplyAndValidateFollowTargetContract(
-				solver,
-				camera,
-				trackedTarget,
+        if (nbl::system::CCameraFollowRegressionUtilities::buildApplyAndValidateFollowTargetContract(
+                solver,
+                camera,
+                trackedTarget,
 				followConfig,
 				outResult,
 				&regressionError,
@@ -473,10 +473,10 @@ namespace
 				return true;
 
 			nbl::system::SCameraFollowRegressionResult postApplyRegression = {};
-			if (!nbl::system::validateFollowTargetContract(
-					camera,
-					trackedTarget,
-					followConfig,
+            if (!nbl::system::CCameraFollowRegressionUtilities::validateFollowTargetContract(
+                    camera,
+                    trackedTarget,
+                    followConfig,
 					outResult.goal,
 					postApplyRegression,
 					&regressionError,
@@ -520,7 +520,7 @@ namespace
 				*outError = std::string("Follow visual metrics smoke was inactive for ") + label + ".";
 			return false;
 		}
-		if (nbl::core::cameraFollowModeLocksViewToTarget(followConfig.mode) && !metrics.lockValid)
+		if (nbl::core::CCameraFollowUtilities::cameraFollowModeLocksViewToTarget(followConfig.mode) && !metrics.lockValid)
 		{
 			if (outError)
 				*outError = std::string("Follow visual metrics smoke was missing lock metrics for ") + label + ".";
@@ -607,7 +607,7 @@ namespace
 
 			const std::string cameraIdentifier(camera->getIdentifier());
 			const auto initialPreset = nbl::core::capturePreset(goalSolver, camera, "smoke-initial");
-			const auto initialCompatibility = nbl::core::analyzePresetApply(goalSolver, camera, initialPreset).compatibility;
+            const auto initialCompatibility = nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(goalSolver, camera, initialPreset).compatibility;
 			if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
 			{
 				outError = "Preset compatibility smoke failed for camera \"" + cameraIdentifier +
@@ -878,7 +878,7 @@ namespace
 			return true;
 
 		const uint32_t expectedMissingGoalStateMask = expectedMissingGoalStateMaskForIssue(expectedIssue);
-		const auto compatibility = nbl::core::analyzePresetApply(goalSolver, targetCamera, sourcePreset).compatibility;
+        const auto compatibility = nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(goalSolver, targetCamera, sourcePreset).compatibility;
 		if (compatibility.exact || compatibility.missingGoalStateMask != expectedMissingGoalStateMask)
 		{
 			outError = std::string("Cross-kind preset compatibility smoke failed for ") + label +
@@ -915,7 +915,7 @@ namespace
 		if (!targetCamera)
 			return true;
 
-		const auto compatibility = nbl::core::analyzePresetApply(goalSolver, targetCamera, sourcePreset).compatibility;
+        const auto compatibility = nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(goalSolver, targetCamera, sourcePreset).compatibility;
 		if (!compatibility.exact || compatibility.missingGoalStateMask != ICamera::GoalStateNone)
 		{
 			outError = std::string("Exact cross-kind preset compatibility smoke failed for ") + label +
@@ -996,10 +996,10 @@ namespace
 	{
 		nbl::system::SCameraProjectionContext projectionContext = {};
 		const bool hasProjectionContext = nbl::ui::tryBuildCameraProjectionContext(planarProjections, camera, projectionContext);
-		return nbl::system::buildFollowVisualMetrics(
-			camera,
-			trackedTarget,
-			&followConfig,
+        return nbl::system::CCameraFollowRegressionUtilities::buildFollowVisualMetrics(
+            camera,
+            trackedTarget,
+            &followConfig,
 			hasProjectionContext ? &projectionContext : nullptr);
 	}
 
@@ -1024,10 +1024,10 @@ namespace
 		std::string regressionError;
 		nbl::system::SCameraProjectionContext projectionContext = {};
 		const bool hasProjectionContext = nbl::ui::tryBuildCameraProjectionContext(planarProjections, camera, projectionContext);
-		if (nbl::system::validateFollowTargetContract(
-				camera,
-				trackedTarget,
-				followConfig,
+        if (nbl::system::CCameraFollowRegressionUtilities::validateFollowTargetContract(
+                camera,
+                trackedTarget,
+                followConfig,
 				followGoal,
 				regression,
 				&regressionError,
@@ -1074,13 +1074,13 @@ namespace
 		followConfig.enabled = true;
 		followConfig.mode = ECameraFollowMode::KeepLocalOffset;
 
-		if (!nbl::core::captureFollowOffsetsFromCamera(goalSolver, camera, trackedTarget, followConfig))
+		if (!nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(goalSolver, camera, trackedTarget, followConfig))
 		{
 			outError = std::string("Follow recapture smoke failed to capture initial offset for ") + std::string(label) + ".";
 			return false;
 		}
 
-		const auto initialApply = nbl::core::applyFollowToCamera(goalSolver, camera, trackedTarget, followConfig);
+		const auto initialApply = nbl::core::CCameraFollowUtilities::applyFollowToCamera(goalSolver, camera, trackedTarget, followConfig);
 		if (!initialApply.succeeded())
 		{
 			outError = std::string("Follow recapture smoke failed to apply initial follow for ") + std::string(label) + ".";
@@ -1094,14 +1094,14 @@ namespace
 			return false;
 		}
 
-		editedPreset.goal.orbitU = hlsl::wrapAngleRad(
-			editedPreset.goal.orbitU + hlsl::radians(SCameraSmokeFollowScenario::OrbitRecaptureDeltaDeg));
+        editedPreset.goal.orbitUv.x = hlsl::wrapAngleRad(
+            editedPreset.goal.orbitUv.x + hlsl::radians(SCameraSmokeFollowScenario::OrbitRecaptureDeltaDeg));
 		editedPreset.goal.orbitDistance = std::clamp(
 			editedPreset.goal.orbitDistance + SCameraSmokeFollowScenario::OrbitRecaptureDistanceDelta,
 			CSphericalTargetCamera::MinDistance,
 			CSphericalTargetCamera::MaxDistance);
-		editedPreset.goal = nbl::core::canonicalizeGoal(editedPreset.goal);
-		if (!nbl::core::isGoalFinite(editedPreset.goal))
+		editedPreset.goal = nbl::core::CCameraGoalUtilities::canonicalizeGoal(editedPreset.goal);
+		if (!nbl::core::CCameraGoalUtilities::isGoalFinite(editedPreset.goal))
 		{
 			outError = std::string("Follow recapture smoke produced a non-finite edited goal for ") + std::string(label) + ".";
 			return false;
@@ -1117,20 +1117,20 @@ namespace
 
 		const auto reachedEditedPreset = nbl::core::capturePreset(goalSolver, camera, std::string(label) + " reached");
 
-		if (!nbl::core::captureFollowOffsetsFromCamera(goalSolver, camera, trackedTarget, followConfig))
+		if (!nbl::core::CCameraFollowUtilities::captureFollowOffsetsFromCamera(goalSolver, camera, trackedTarget, followConfig))
 		{
 			outError = std::string("Follow recapture smoke failed to recapture offset for ") + std::string(label) + ".";
 			return false;
 		}
 
 		CCameraGoal recapturedGoal = {};
-		if (!nbl::core::tryBuildFollowGoal(goalSolver, camera, trackedTarget, followConfig, recapturedGoal))
+		if (!nbl::core::CCameraFollowUtilities::tryBuildFollowGoal(goalSolver, camera, trackedTarget, followConfig, recapturedGoal))
 		{
 			outError = std::string("Follow recapture smoke failed to rebuild follow goal for ") + std::string(label) + ".";
 			return false;
 		}
 
-		const auto recapturedApply = nbl::core::applyFollowToCamera(goalSolver, camera, trackedTarget, followConfig);
+		const auto recapturedApply = nbl::core::CCameraFollowUtilities::applyFollowToCamera(goalSolver, camera, trackedTarget, followConfig);
 		if (!recapturedApply.succeeded())
 		{
 			outError = std::string("Follow recapture smoke failed to apply recaptured follow for ") + std::string(label) +
@@ -1365,7 +1365,7 @@ namespace
 		followConfig.enabled = true;
 		followConfig.mode = ECameraFollowMode::OrbitTarget;
 		CCameraGoal followGoal = {};
-		if (!nbl::core::applyFollowToCamera(goalSolver, orbitCamera.get(), trackedTarget, followConfig, &followGoal).succeeded())
+		if (!nbl::core::CCameraFollowUtilities::applyFollowToCamera(goalSolver, orbitCamera.get(), trackedTarget, followConfig, &followGoal).succeeded())
 		{
 			if (outError)
 				*outError = "Scripted check runner smoke failed to apply follow before follow-lock validation.";
@@ -1411,7 +1411,7 @@ namespace
 				const auto goalBasis = getQuaternionBasisMatrix(followGoal.orientation);
 				float lockAngle = 0.0f;
 				double targetDistance = 0.0;
-				const bool hasLockMetrics = nbl::core::tryComputeFollowTargetLockMetrics(gimbal, trackedTarget, lockAngle, &targetDistance);
+				const bool hasLockMetrics = nbl::core::CCameraFollowUtilities::tryComputeFollowTargetLockMetrics(gimbal, trackedTarget, lockAngle, &targetDistance);
 				std::ostringstream oss;
 				oss << std::fixed << std::setprecision(6)
 					<< "Scripted check runner follow-lock smoke failed. " << details

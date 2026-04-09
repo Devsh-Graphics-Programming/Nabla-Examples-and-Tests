@@ -61,8 +61,7 @@ public:
     {
         out.target = m_targetPosition;
         out.distance = m_distance;
-        out.u = m_u;
-        out.v = m_v;
+        out.orbitUv = hlsl::float64_t2(m_u, m_v);
         out.minDistance = MinDistance;
         out.maxDistance = MaxDistance;
         return true;
@@ -87,11 +86,10 @@ protected:
         SphericalBasis basis;
         const SCameraTargetRelativeState state = {
             .target = m_targetPosition,
-            .orbitU = orbitU,
-            .orbitV = orbitV,
+            .orbitUv = hlsl::float64_t2(orbitU, orbitV),
             .distance = distance
         };
-        if (!tryBuildTargetRelativeBasis(state, MinDistance, MaxDistance, basis))
+        if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativeBasis(state, MinDistance, MaxDistance, basis))
             return basis;
         return basis;
     }
@@ -99,7 +97,7 @@ protected:
     inline void initFromPosition(const hlsl::float64_t3& position)
     {
         SCameraTargetRelativeState state = {};
-        if (!tryBuildTargetRelativeStateFromPosition(m_targetPosition, position, MinDistance, MaxDistance, state))
+        if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativeStateFromPosition(m_targetPosition, position, MinDistance, MaxDistance, state))
         {
             m_distance = MinDistance;
             m_u = 0.0;
@@ -108,8 +106,8 @@ protected:
         }
 
         m_distance = state.distance;
-        m_u = state.orbitU;
-        m_v = state.orbitV;
+        m_u = state.orbitUv.x;
+        m_v = state.orbitUv.y;
     }
 
     inline void applyPlanarTargetTranslation(const hlsl::float64_t3& deltaTranslation, const SphericalBasis& basis)
@@ -128,12 +126,11 @@ protected:
     {
         const SCameraTargetRelativeState state = {
             .target = m_targetPosition,
-            .orbitU = m_u,
-            .orbitV = m_v,
+            .orbitUv = hlsl::float64_t2(m_u, m_v),
             .distance = m_distance
         };
         SCameraTargetRelativePose pose = {};
-        if (!tryBuildTargetRelativePoseFromState(state, MinDistance, MaxDistance, pose))
+        if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(state, MinDistance, MaxDistance, pose))
             return false;
         m_distance = static_cast<float>(pose.appliedDistance);
 

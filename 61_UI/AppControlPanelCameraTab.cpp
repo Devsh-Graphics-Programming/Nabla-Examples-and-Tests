@@ -111,7 +111,7 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 			followConfig.mode = static_cast<ECameraFollowMode>(followModeIx);
 
 		const bool followStateChanged = followConfig.enabled != prevFollowEnabled || followConfig.mode != prevFollowMode;
-		if (followStateChanged && followConfig.enabled && nbl::core::cameraFollowModeUsesCapturedOffset(followConfig.mode))
+		if (followStateChanged && followConfig.enabled && nbl::core::CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(followConfig.mode))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 		if (followStateChanged && followConfig.enabled)
 			applyFollowToConfiguredCameras();
@@ -134,13 +134,13 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		if (nbl::ui::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 
-		if (cameraFollowModeUsesWorldOffset(followConfig.mode))
+		if (CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode))
 		{
 			auto worldOffset = getCastedVector<float32_t>(followConfig.worldOffset);
 			if (ImGui::InputFloat3("World offset", &worldOffset[0]))
 				followConfig.worldOffset = getCastedVector<float64_t>(worldOffset);
 		}
-		if (cameraFollowModeUsesLocalOffset(followConfig.mode))
+		if (CCameraFollowUtilities::cameraFollowModeUsesLocalOffset(followConfig.mode))
 		{
 			auto localOffset = getCastedVector<float32_t>(followConfig.localOffset);
 			if (ImGui::InputFloat3("Local offset", &localOffset[0]))

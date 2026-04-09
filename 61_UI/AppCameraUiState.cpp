@@ -1,6 +1,33 @@
 #include "app/App.hpp"
 #include "app/AppResourceUtilities.hpp"
 
+namespace
+{
+
+template<typename TContext>
+inline bool tryBindActiveViewportContext(TContext& outContext, const SActiveViewportRuntimeState& viewportState)
+{
+	outContext = {};
+	outContext.viewport = viewportState;
+	return outContext.valid();
+}
+
+inline SCameraFollowConfig* tryGetViewportFollowConfig(
+	std::span<SCameraFollowConfig> followConfigs,
+	const SActiveViewportRuntimeState& viewportState)
+{
+	if (!viewportState.valid())
+		return nullptr;
+
+	const auto planarIx = viewportState.requireBinding().activePlanarIx;
+	if (planarIx >= followConfigs.size())
+		return nullptr;
+
+	return &followConfigs[planarIx];
+}
+
+} // namespace
+
 nbl::system::SCameraAppResourceContext App::getCameraAppResourceContext() const
 {
 	return m_system ?
@@ -23,10 +50,9 @@ uint32_t App::getActivePlanarIx() const
 
 SCameraFollowConfig* App::getActiveFollowConfig()
 {
-	const auto planarIx = getActivePlanarIx();
-	if (planarIx >= m_sceneInteraction.planarFollowConfigs.size())
-		return nullptr;
-	return &m_sceneInteraction.planarFollowConfigs[planarIx];
+	return tryGetViewportFollowConfig(
+		std::span<SCameraFollowConfig>(m_sceneInteraction.planarFollowConfigs.data(), m_sceneInteraction.planarFollowConfigs.size()),
+		tryGetActiveViewportRuntimeState());
 }
 
 const SCameraFollowConfig* App::getActiveFollowConfig() const
@@ -50,31 +76,27 @@ SActiveViewportRuntimeState App::tryGetActiveViewportRuntimeState()
 
 bool App::tryBuildActiveCameraInputContext(SActiveCameraInputContext& outContext)
 {
-	outContext = {};
-	outContext.viewport = tryGetActiveViewportRuntimeState();
-	return outContext.valid();
+	return tryBindActiveViewportContext(outContext, tryGetActiveViewportRuntimeState());
 }
 
 bool App::tryBuildActiveProjectionTabContext(SActiveProjectionTabContext& outContext)
 {
-	outContext = {};
-	outContext.viewport = tryGetActiveViewportRuntimeState();
-	if (!outContext.valid())
+	if (!tryBindActiveViewportContext(outContext, tryGetActiveViewportRuntimeState()))
 		return false;
 
 	outContext.activeRenderWindowIxString = std::to_string(m_viewports.activeRenderWindowIx);
-	outContext.activePlanarIxString = std::to_string(outContext.viewport.binding->activePlanarIx);
+	outContext.activePlanarIxString = std::to_string(outContext.requireBinding().activePlanarIx);
 	return true;
 }
 
 bool App::tryBuildActiveScriptedCameraContext(SActiveScriptedCameraContext& outContext)
 {
-	outContext = {};
-	outContext.viewport = tryGetActiveViewportRuntimeState();
-	if (!outContext.valid())
+	if (!tryBindActiveViewportContext(outContext, tryGetActiveViewportRuntimeState()))
 		return false;
 
-	outContext.followConfig = getActiveFollowConfig();
+	outContext.followConfig = tryGetViewportFollowConfig(
+		std::span<SCameraFollowConfig>(m_sceneInteraction.planarFollowConfigs.data(), m_sceneInteraction.planarFollowConfigs.size()),
+		outContext.viewport);
 	const auto planarSpan = getPlanarProjectionSpan();
 	outContext.hasProjectionContext = nbl::ui::tryBuildBindingProjectionContext(
 		planarSpan,
