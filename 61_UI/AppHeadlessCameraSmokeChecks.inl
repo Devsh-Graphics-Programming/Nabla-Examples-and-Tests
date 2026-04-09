@@ -232,9 +232,9 @@
 			return false;
 		}
 
-		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, referenceFrame))
+		if (!camera->manipulate({}, &referenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to apply the reference pose.";
+			outError = std::string(label) + " reference-frame smoke failed to apply the reference pose through manipulate({}, &referenceFrame).";
 			return false;
 		}
 
@@ -282,9 +282,9 @@
 			return false;
 		}
 
-		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, baselineReferenceFrame))
+		if (!camera->manipulate({}, &baselineReferenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to restore the baseline reference pose.";
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline reference pose through manipulate({}, &referenceFrame).";
 			return false;
 		}
 
@@ -316,9 +316,9 @@
 		const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
 			desiredPosition,
 			expectedGoal.orientation);
-		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, referenceFrame))
+		if (!camera->manipulate({}, &referenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to apply the rigid reference pose.";
+			outError = std::string(label) + " reference-frame smoke failed to apply the rigid reference pose through manipulate({}, &referenceFrame).";
 			return false;
 		}
 
@@ -336,9 +336,9 @@
 			return false;
 		}
 
-		if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(camera, baselineReferenceFrame))
+		if (!camera->manipulate({}, &baselineReferenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to restore the baseline rigid pose.";
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline rigid pose through manipulate({}, &referenceFrame).";
 			return false;
 		}
 
@@ -545,9 +545,9 @@
 			const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
 				canonicalPathState.pose.position,
 				canonicalPathState.pose.orientation);
-			if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(state.pathCamera, referenceFrame))
+			if (!state.pathCamera->manipulate({}, &referenceFrame))
 			{
-				outError = "Path reference-frame smoke failed to apply the projected path pose.";
+				outError = "Path reference-frame smoke failed to apply the projected path pose through manipulate({}, &referenceFrame).";
 				return false;
 			}
 
@@ -565,9 +565,9 @@
 				return false;
 			}
 
-			if (!nbl::core::CCameraManipulationUtilities::applyReferenceFrameToCamera(state.pathCamera, baselineReferenceFrame))
+			if (!state.pathCamera->manipulate({}, &baselineReferenceFrame))
 			{
-				outError = "Path reference-frame smoke failed to restore the baseline reference pose.";
+				outError = "Path reference-frame smoke failed to restore the baseline reference pose through manipulate({}, &referenceFrame).";
 				return false;
 			}
 		}

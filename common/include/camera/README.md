@@ -1,562 +1,195 @@
 # Shared Camera API
 
 This directory contains the reusable camera stack used by [`61_UI`](../../../61_UI/README.md).
-It defines the camera runtime, typed camera state, follow helpers, scripted playback data, and validation helpers reused by the example and by camera-domain tooling.
 
-## Scope
+The stack has two public faces:
 
-This stack is:
+- a runtime face used to move cameras during one frame
+- a typed face used to capture, store, restore, compare, replay, and validate camera state
 
-- a reusable camera runtime based on semantic virtual events
-- a typed tooling layer for capture, restore, presets, playback, follow, and scripted validation
-- a shared authoring and CI surface reused by `61_UI`
+The runtime face is centered on [`ICamera.hpp`](ICamera.hpp).
+The typed face is centered on [`CCameraGoal.hpp`](CCameraGoal.hpp) and [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp).
 
-This stack is not:
+## TL;DR
 
-- the engine-wide Nabla scene graph API
-- a generic animation system for arbitrary scene objects
-- a setter-heavy runtime camera API
-- a `61_UI`-local convenience layer
+If you want to know which type to touch first, use this table.
 
-## Design rules
+| I want to... | Use |
+|---|---|
+| apply one absolute rigid pose request at runtime | `camera->manipulate({}, &referenceFrame)` |
+| set exact position or exact orientation on `Free` and `FPS` | `referenceFrame` built from `camera->getGimbal()` |
+| set one absolute typed state that can be reused later | `CCameraGoal` + `CCameraGoalSolver` |
+| move a camera from live input this frame | `ICamera::manipulate(...)` |
+| convert keyboard or mouse input into camera commands | `IGimbalInputProcessor` or `CGimbalInputBinder` |
+| capture current camera state | `CCameraGoalSolver::capture...` |
+| restore a camera from typed state | `CCameraGoalSolver::apply...` |
+| save a named camera state | `CCameraPreset` |
+| store camera states over time | `CCameraKeyframeTrack` |
+| keep playback cursor state | `CCameraPlaybackTimeline` |
+| make a camera follow a moving target | `CCameraFollowUtilities` |
+| author compact scripted camera sequences | `CCameraSequenceScript` |
+| execute frame-by-frame scripted payloads | `CCameraScriptedRuntime` |
+| use the path-rig camera | `CPathCamera` and `SCameraPathModel` |
 
-### 1. Runtime is event-driven
+## Quick start
 
-The runtime entry path is:
+This section shows the common entry points before any deeper explanation.
 
-```text
-input -> virtual events -> ICamera::manipulate(...)
+### 1. Apply one absolute rigid pose request
+
+Use this when you already have one rigid transform and want the camera to consume it through the normal runtime entry point.
+
+```cpp
+const auto referenceFrame =
+    hlsl::CCameraMathUtilities::composeTransformMatrix(desiredPosition, desiredOrientation);
+
+camera->manipulate({}, &referenceFrame);
 ```
 
-Camera models do not expose arbitrary absolute runtime setters for position, target, yaw/pitch/roll, or similar mutable bags of state.
+#### Why not just expose `setPosition(...)` and `setOrientation(...)` everywhere?
 
-### 2. Tooling is typed-state driven
+Because not every camera kind stores arbitrary rigid pose as its native state.
 
-Capture, presets, restore, tracks, and validation use typed sidecar state:
+`Free` can represent arbitrary position and orientation directly.
 
-- [`CCameraGoal.hpp`](CCameraGoal.hpp)
-- [`CCameraPreset.hpp`](CCameraPreset.hpp)
-- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
-- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
-- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+`FPS` cannot. Its legal runtime state is:
 
-That layer stores canonical camera state and helper data outside the per-frame runtime input path.
+- world-space position
+- yaw
+- pitch
+- upright orientation reconstructed from yaw and pitch
 
-### 3. Input mapping is separate from camera semantics
+Consider this `FPS` example:
 
-The stack separates these responsibilities:
-
-- physical input mapping
-- virtual event processing
-- camera semantics
-- absolute state capture / restore
-- scripted playback and validation
-
-The same camera model can then be driven from keyboard input, mouse input, ImGuizmo, CI playback, and headless tools.
-
-### 4. Projection-local state is allowed, runtime input processing is not
-
-Projection types may own viewport-local binding layouts, but raw input processing stays in the input layer.
-
-### 5. Follow and scripts stay above camera models
-
-Follow and scripted playback are shared layers built on top of camera semantics.
-They are not hardwired into `ICamera`.
-
-### 6. Reference-frame manipulation resolves legal camera state
-
-`referenceFrame` is part of the public runtime seam on `ICamera::manipulate(...)`.
-All camera kinds consume it, but each family resolves it through its own state model.
-
-- `Free` and `FPS`
-  treat the extracted rigid reference as the pose anchor for one manipulation step
-- constrained target-relative cameras
-  project the rigid reference onto the nearest legal state of that camera family and then apply event deltas in that state space
-- `Path Rig`
-  resolves the extracted rigid reference through the active typed path model
-
-World-space and local-space gizmo workflows therefore call the same runtime seam across camera kinds.
-
-## Namespace split
-
-The code is split across existing Nabla namespaces.
-
-- `nbl::hlsl`
-  camera math, transform math, pose deltas, interpolation helpers, and reusable vector/quaternion types
-- `nbl::core`
-  runtime camera model, typed goal state, presets, tracks, follow, playback, path-rig helpers, and authored sequence data
-- `nbl::ui`
-  input binding layouts, input processors, runtime binders, default input presets, and presentation-facing UI helpers
-- `nbl::system`
-  persistence, scripted runtime parsing, scripted timeline building, scripted check execution, and follow validation
-
-The shared camera math is written against `nbl::hlsl`.
-Consumers can use the same `nbl::hlsl` types and helpers when they need to exchange typed camera-domain math with this stack.
-
-## Runtime pipeline
-
-The runtime pipeline is:
-
-```text
-raw input
-  -> IGimbalBindingLayout
-  -> IGimbalInputProcessor / CGimbalInputBinder
-  -> CVirtualGimbalEvent[]
-  -> ICamera::manipulate(...)
-  -> updated camera gimbal and cached view matrix
+```cpp
+const auto desiredPosition = hlsl::float64_t3(2.0, 1.0, -3.0);
+const auto desiredOrientation =
+    hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
+        hlsl::float64_t3(-15.0, 40.0, 25.0));
 ```
 
-The main building blocks are:
+The requested rigid pose contains `roll = 25 deg`.
 
-- [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
-  shared semantic command language
-- [`IGimbal.hpp`](IGimbal.hpp)
-  gimbal math, event accumulation, and world-space pose handling
-- [`ICamera.hpp`](ICamera.hpp)
-  camera runtime interface and typed tooling hooks
-- [`SCameraRigPose.hpp`](SCameraRigPose.hpp)
-  shared typed pose transport used outside the runtime pipeline
+That roll is not legal for `FPS`.
 
-### Reference-frame runtime seam
+If the API exposed unrestricted `setOrientation(...)` and accepted that quaternion as-is, the runtime camera would no longer match the rules of the `FPS` rig.
 
-The optional `referenceFrame` argument on `ICamera::manipulate(...)` is a rigid-frame manipulation anchor.
+The current API does this instead:
 
-At runtime the shared pattern is:
+1. accept one rigid pose request through `referenceFrame`
+2. project that pose onto the legal state space of the concrete camera kind
+3. rebuild the final runtime pose from that legal state
 
-```text
-referenceFrame
-  -> CGimbal::extractReferenceTransform(...)
-  -> resolve the nearest legal camera state for this camera kind
-  -> accumulate virtual events
-  -> apply camera-local deltas in that state space
-  -> rebuild pose
+For `FPS` that means:
+
+- keep the requested position
+- read forward direction from the rigid reference
+- rebuild legal `pitch/yaw`
+- reject arbitrary roll
+- write back one upright `FPS` pose
+
+The same pattern applies to every camera family:
+
+- `Free` keeps the rigid pose directly
+- `FPS` legalizes to upright `position + pitch/yaw`
+- target-relative cameras legalize to `target + orbitUv + distance`
+- `Path Rig` legalizes to `PathState`
+
+That is why `camera->manipulate({}, &referenceFrame)` is the shared absolute runtime path.
+
+It accepts one rigid pose request at the API boundary and lets each camera family legalize it according to its own runtime model.
+
+Use this path for:
+
+- one-shot runtime pose application
+- ImGuizmo
+- world-space or local-space pose anchoring
+
+### 2. Set exact position or exact orientation on `Free` and `FPS`
+
+Use this when the target camera is `Free` or `FPS` and you want to replace only one rigid-pose component.
+
+```cpp
+const auto& gimbal = camera->getGimbal();
+
+const auto newPosition = desiredPosition;
+const auto keepOrientation = gimbal.getOrientation();
+
+const auto referenceFrame =
+    hlsl::CCameraMathUtilities::composeTransformMatrix(newPosition, keepOrientation);
+
+camera->manipulate({}, &referenceFrame);
 ```
 
-The seam is stable across all camera kinds. The legal-state projection remains camera-specific.
+```cpp
+const auto& gimbal = camera->getGimbal();
 
-## Input layer
+const auto keepPosition = gimbal.getPosition();
+const auto newOrientation = desiredOrientation;
 
-The input layer is split into three parts.
+const auto referenceFrame =
+    hlsl::CCameraMathUtilities::composeTransformMatrix(keepPosition, newOrientation);
 
-### Binding layout
-
-- [`IGimbalBindingLayout.hpp`](IGimbalBindingLayout.hpp)
-
-This layer stores static mappings from physical inputs to semantic virtual events.
-It does not process runtime input.
-
-### Input processing
-
-- [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
-- [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
-
-`IGimbalInputProcessor` converts keyboard, mouse, and ImGuizmo input into virtual events.
-`CGimbalInputBinder` is the convenience runtime wrapper that collects one frame of virtual events together with per-domain counts.
-
-### Shared presets
-
-- [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
-- [`CCameraScriptedUiInputUtilities.hpp`](CCameraScriptedUiInputUtilities.hpp)
-
-These helpers provide shared default input presets for camera kinds and the scripted/UI-facing glue that reuses the same semantic event language.
-
-## Core camera interface
-
-The main runtime interface is [`ICamera.hpp`](ICamera.hpp).
-
-Shared properties:
-
-- runtime entry point is `manipulate(std::span<const CVirtualGimbalEvent>, const hlsl::float64_t4x4*)`
-- cameras own their own `CGimbal`
-- motion scaling stays camera-local through `SMotionConfig`
-- typed state hooks are optional and exist for tooling, not for direct runtime driving
-
-`ICamera` currently exposes these shared typed states:
-
-- `SphericalTargetState`
-- `DynamicPerspectiveState`
-- `PathState`
-- `PathStateLimits`
-
-The capability and state-mask surface is:
-
-- `CameraKind`
-- `CameraCapability`
-- `GoalStateMask`
-
-## Camera families
-
-### Free cameras
-
-- [`CFPSCamera.hpp`](CFPSCamera.hpp)
-- [`CFreeLockCamera.hpp`](CFreeLockCamera.hpp)
-
-These are pose-driven cameras without spherical target semantics.
-They consume `referenceFrame` as a rigid pose anchor directly.
-
-### Spherical-target family
-
-- [`CSphericalTargetCamera.hpp`](CSphericalTargetCamera.hpp)
-- [`COrbitCamera.hpp`](COrbitCamera.hpp)
-- [`CArcballCamera.hpp`](CArcballCamera.hpp)
-- [`CTurntableCamera.hpp`](CTurntableCamera.hpp)
-- [`CTopDownCamera.hpp`](CTopDownCamera.hpp)
-- [`CIsometricCamera.hpp`](CIsometricCamera.hpp)
-- [`CChaseCamera.hpp`](CChaseCamera.hpp)
-- [`CDollyCamera.hpp`](CDollyCamera.hpp)
-
-These cameras share:
-
-- target position
-- distance
-- orbit angles in `orbitUv`
-
-They also share the same reference-frame rule:
-
-- extract one rigid reference transform
-- resolve a legal target-relative state against the current target
-- apply virtual-event deltas on top of that resolved state
-
-### Extended-state cameras
-
-- [`CDollyZoomCamera.hpp`](CDollyZoomCamera.hpp)
-- [`CPathCamera.hpp`](CPathCamera.hpp)
-
-`DollyZoom` adds dynamic perspective state.
-`Path Rig` adds typed path-rig state and a path model.
-
-`DollyZoom` resolves reference frames through target-relative state plus dynamic perspective state.
-`Path Rig` resolves reference frames through its typed path-model callbacks.
-
-## Path Rig design
-
-`Path Rig` is described explicitly by typed state, typed limits, and a path model.
-
-### Typed path state
-
-`ICamera::PathState` stores:
-
-- `s`
-  path progress / angular progress in the default model
-- `u`
-  lateral / radial component in the default model
-- `v`
-  vertical component
-- `roll`
-  roll around the view axis / path tangent
-
-The default shared target-relative model interprets `s/u/v/roll` as a target-relative path rig, but custom models may reuse the same coordinates differently.
-
-### Typed path limits
-
-`ICamera::PathStateLimits` stores per-instance limits:
-
-- `minU`
-- `minDistance`
-- `maxDistance`
-
-Those limits are part of the active camera state surface.
-They are queried through `tryGetPathStateLimits(...)` and used by the solver, validation, and path-state sanitization.
-
-### Shared path helpers
-
-- [`CCameraPathMetadata.hpp`](CCameraPathMetadata.hpp)
-- [`CCameraPathUtilities.hpp`](CCameraPathUtilities.hpp)
-
-`CCameraPathUtilities` provides:
-
-- default path metadata and identifiers
-- path-state sanitization and comparison
-- position-to-state and state-to-pose conversion
-- distance updates
-- delta and transition helpers
-- the default `Path Rig` model
-
-### Path model seam
-
-The path-model interface is [`SCameraPathModel`](CCameraPathUtilities.hpp).
-`CPathCamera` and path utilities call this typed callback bundle to resolve, integrate, and evaluate path state.
-
-It contains five callbacks:
-
-- `resolveState`
-  normalize requested state or derive initial state from target + position
-- `controlLaw`
-  turn accumulated runtime motion into a `SCameraPathDelta`
-- `integrate`
-  apply one delta to the current state under typed limits
-- `evaluate`
-  convert path state into canonical pose plus target-relative data
-- `updateDistance`
-  retarget state to a requested spherical distance
-
-The default model is created by `CCameraPathUtilities::makeDefaultPathModel()`.
-That same model is also responsible for resolving `referenceFrame` into legal typed path state.
-
-### Runtime behavior of `CPathCamera`
-
-[`CPathCamera.hpp`](CPathCamera.hpp) uses the same public runtime entry point as the other camera kinds:
-
-```text
-virtual events -> gimbal accumulation -> path controlLaw -> integrate -> evaluate -> gimbal pose
+camera->manipulate({}, &referenceFrame);
 ```
 
-`CPathCamera` owns:
+`Free` applies these requests exactly.
 
-- one active `SCameraPathModel`
-- one active `PathState`
-- one active `PathStateLimits`
+`FPS` keeps the exact position but legalizes orientation to its upright `pitch/yaw` state.
 
-and exposes:
+Do not describe this path as exact position-only or exact orientation-only for constrained target-relative or path cameras. Those cameras legalize the rigid pose request into their own family state.
 
-- `getPathModel()`
-- `getPathStateLimits()`
-- `setPathModel(...)`
-- `setPathStateLimits(...)`
-- `tryGetPathState(...)`
-- `trySetPathState(...)`
+### 3. Set one absolute typed state
 
-Construction handles three cases:
+Use this when the state should survive beyond one frame or should be reused by presets, follow, playback, persistence, or scripts.
 
-- a complete custom model is accepted directly
-- an incomplete model falls back to the shared default model
-- invalid custom limits are sanitized or replaced with shared defaults
+```cpp
+core::CCameraGoal goal = {};
+goal.position = desiredPosition;
+goal.orientation = desiredOrientation;
 
-`Path Rig` therefore uses `ICamera::manipulate(...)` like the other camera kinds while changing only the path-state callbacks behind it.
-
-## Goals, presets, tracks, and playback
-
-The tooling side of the stack is built around a shared canonical camera state.
-
-### Goal layer
-
-- [`CCameraGoal.hpp`](CCameraGoal.hpp)
-- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
-- [`CCameraGoalAnalysis.hpp`](CCameraGoalAnalysis.hpp)
-
-`CCameraGoal` is the canonical typed transport object.
-It extends [`SCameraRigPose.hpp`](SCameraRigPose.hpp) with optional state such as:
-
-- target position
-- orbit state
-- path state
-- dynamic perspective state
-
-`CCameraGoalSolver` is the bridge between typed state and the event-driven runtime:
-
-- capture camera state into a goal
-- analyze compatibility
-- apply what can be applied through typed hooks
-- replay virtual events when needed
-
-This layer converts between typed goal state and the event-driven runtime surface.
-
-### Presets and preset flow
-
-- [`CCameraPreset.hpp`](CCameraPreset.hpp)
-- [`CCameraPresetFlow.hpp`](CCameraPresetFlow.hpp)
-- [`CCameraPresetPersistence.hpp`](CCameraPresetPersistence.hpp)
-
-Presets are named `CCameraGoal` wrappers.
-`CCameraPresetFlowUtilities` provides the high-level capture/apply helpers used by camera-stack consumers.
-
-### Keyframe tracks and playback
-
-- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
-- [`CCameraKeyframeTrackPersistence.hpp`](CCameraKeyframeTrackPersistence.hpp)
-- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
-
-Keyframe tracks are preset-based reusable playback data.
-`CCameraPlaybackTimeline` owns only transport-like playback cursor logic.
-Higher-level playback policy remains on the consumer side.
-
-### Persistence and file helpers
-
-- [`CCameraPersistence.hpp`](CCameraPersistence.hpp)
-- [`CCameraFileUtilities.hpp`](CCameraFileUtilities.hpp)
-
-These helpers cover camera presets, tracks, and related shared persistence tasks.
-
-## Follow layer
-
-Follow is deliberately not baked into `ICamera`.
-
-### Tracked target
-
-- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
-
-The tracked subject is `CTrackedTarget`.
-It owns its own `ICamera::CGimbal`.
-
-Follow uses:
-
-- tracked-target pose
-- follow mode
-- follow config
-
-It does not use a scene-node id or mesh handle.
-
-### Follow modes
-
-Reusable modes:
-
-- `OrbitTarget`
-- `LookAtTarget`
-- `KeepWorldOffset`
-- `KeepLocalOffset`
-
-### Follow application and validation
-
-- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
-
-`CCameraFollowUtilities` builds goal state from tracked target + policy and applies it through `CCameraGoalSolver`.
-`CCameraFollowRegressionUtilities` validates lock angle, projected target placement, distance consistency, and spherical writeback behavior.
-
-## Scripted authoring and validation
-
-The scripting side is split into compact authored data and expanded runtime payloads.
-
-### Compact authored sequence
-
-- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
-- [`CCameraSequenceScriptPersistence.hpp`](CCameraSequenceScriptPersistence.hpp)
-
-This layer stores the authored sequence description.
-It stores:
-
-- camera kind or identifier
-- projection presentation requests
-- compact goal keyframes
-- compact tracked-target keyframes
-- continuity thresholds
-- capture fractions
-
-It stores compact keyframes and presentation requests. It does not store frame-by-frame low-level event dumps.
-
-### Expanded runtime payload
-
-- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
-- [`CCameraScriptedRuntimePersistence.hpp`](CCameraScriptedRuntimePersistence.hpp)
-
-This layer stores:
-
-- low-level scripted input events
-- per-frame checks
-- capture frame scheduling
-- optional compact sequence payload parsed alongside the low-level runtime payload
-
-### Sequence expansion
-
-- [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
-
-This converts one compiled sequence segment into frame-by-frame scripted runtime payloads.
-
-### Frame check execution
-
-- [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
-- [`CCameraSmokeRegressionUtilities.hpp`](CCameraSmokeRegressionUtilities.hpp)
-
-This layer evaluates authored per-frame checks against the active runtime state.
-It is used by shared smoke and continuity coverage in `61_UI`.
-
-## Projection layer
-
-Projection state is a separate reusable layer.
-
-- [`IProjection.hpp`](IProjection.hpp)
-- [`ILinearProjection.hpp`](ILinearProjection.hpp)
-- [`IPerspectiveProjection.hpp`](IPerspectiveProjection.hpp)
-- [`IPlanarProjection.hpp`](IPlanarProjection.hpp)
-- [`CLinearProjection.hpp`](CLinearProjection.hpp)
-- [`CPlanarProjection.hpp`](CPlanarProjection.hpp)
-- [`CCubeProjection.hpp`](CCubeProjection.hpp)
-- [`IRange.hpp`](IRange.hpp)
-
-Projection-layer rule:
-
-- projections may own viewport-local binding layouts
-- projections do not process raw runtime input
-
-Projection-local viewport glue stays in the projection layer. Reusable camera semantics stay in the camera helpers.
-
-## Presentation and UI-facing helpers
-
-The shared layer also exposes small reusable helpers used by consumers such as `61_UI`:
-
-- [`CCameraPresentationUtilities.hpp`](CCameraPresentationUtilities.hpp)
-- [`CCameraProjectionUtilities.hpp`](CCameraProjectionUtilities.hpp)
-- [`CCameraTextUtilities.hpp`](CCameraTextUtilities.hpp)
-- [`CCameraViewportOverlayUtilities.hpp`](CCameraViewportOverlayUtilities.hpp)
-- [`CCameraControlPanelUiUtilities.hpp`](CCameraControlPanelUiUtilities.hpp)
-- [`CCameraScriptVisualDebugOverlayUtilities.hpp`](CCameraScriptVisualDebugOverlayUtilities.hpp)
-
-These are still shared camera helpers.
-They are presentation-facing helpers built on shared camera-domain data. They are not `61_UI`-local copies.
-
-## 61_UI integration
-
-`61_UI` is the full runnable integration for this stack:
-
-- [`61_UI/README.md`](../../../61_UI/README.md)
-
-`61_UI` provides:
-
-- scene setup
-- active planar / window routing
-- ImGui control panel
-- tracked-target visualization
-- scripted smoke and continuity assets
-- screenshot capture
-- local logging
-
-`61_UI` exercises the shared camera layer in one runnable scene.
-
-## Local configure, build, and test
-
-Current local setup uses the Visual Studio 2022 dynamic preset.
-
-Configure:
-
-```powershell
-cmake --preset user-configure-dynamic-msvc
+core::CCameraGoalSolver solver;
+auto apply = solver.applyDetailed(camera.get(), goal);
 ```
 
-Build `61_UI`:
+Rule of thumb:
 
-```powershell
-cmake --build build/dynamic/examples_tests/61_UI --config Debug --target 61_ui -- /m
+- use `referenceFrame` for one runtime rigid pose request now
+- use `CCameraGoal` for one typed camera state that should be stored, compared, serialized, replayed, or applied later
+
+### 4. Set one absolute camera-family state
+
+Use this when you do not want a generic rigid pose and instead want to write the native state of one camera family.
+
+Target-relative cameras:
+
+```cpp
+camera->trySetSphericalTarget(targetPosition);
+camera->trySetSphericalDistance(distance);
 ```
 
-Run the camera-focused tests:
+Path camera:
 
-```powershell
-ctest --test-dir build/dynamic/examples_tests/61_UI -C Debug --output-on-failure -R NBL_61_UI_CAMERA_
+```cpp
+core::ICamera::PathState path = {
+    .s = desiredS,
+    .u = desiredU,
+    .v = desiredV,
+    .roll = desiredRoll
+};
+
+camera->trySetPathState(path);
 ```
 
-Those smoke and continuity tests cover:
+Use this path when you already have:
 
-- all runtime camera kinds
-- typed goal capture and replay
-- follow behavior
-- `Path Rig` typed-state manipulation
-- `referenceFrame` application across rigid, target-relative, and path-model cameras
+- target-relative state
+- path-rig state
+- one other family-specific typed fragment exposed by `ICamera`
 
-Run the example manually:
+### 5. Live runtime camera control
 
-```powershell
-examples_tests/61_UI/bin/61_ui_d.exe
-```
-
-Run CI-style screenshot capture:
-
-```powershell
-examples_tests/61_UI/bin/61_ui_d.exe --ci
-```
-
-## Minimal integration examples
-
-### Runtime input to camera
+Use this when keyboard, mouse, or ImGuizmo should move the camera right now.
 
 ```cpp
 auto camera = core::make_smart_refctd_ptr<COrbitCamera>(eye, target);
@@ -572,7 +205,47 @@ auto collected = binder.collectVirtualEvents(timestamp, {
 camera->manipulate(collected.events);
 ```
 
-### Capture and apply a preset
+What happens here:
+
+1. device input is converted into semantic camera commands
+2. the camera consumes those commands through `manipulate(...)`
+3. the camera updates its gimbal pose
+
+Main types involved:
+
+- [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
+- [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
+- [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
+- [`ICamera.hpp`](ICamera.hpp)
+
+### 6. Capture a camera and restore it later
+
+Use this when you want explicit camera state instead of one-frame runtime input.
+
+```cpp
+core::CCameraGoalSolver solver;
+
+auto capture = solver.captureDetailed(camera.get());
+if (capture.canUseGoal())
+{
+    auto apply = solver.applyDetailed(camera.get(), capture.goal);
+}
+```
+
+What happens here:
+
+1. the solver reads runtime camera state
+2. the solver writes that state into one `CCameraGoal`
+3. the solver later applies that goal back to a camera
+
+Main types involved:
+
+- [`CCameraGoal.hpp`](CCameraGoal.hpp)
+- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
+
+### 7. Save a named camera state
+
+Use this when one camera state needs a user-facing name or identifier.
 
 ```cpp
 core::CCameraGoalSolver solver;
@@ -581,30 +254,40 @@ auto capture = solver.captureDetailed(camera.get());
 if (capture.canUseGoal())
 {
     core::CCameraPreset preset;
+    preset.name = "Overview";
+    preset.identifier = "overview";
     core::CCameraPresetUtilities::assignGoalToPreset(preset, capture.goal);
-
-    auto apply = core::CCameraPresetFlowUtilities::applyPresetDetailed(solver, camera.get(), preset);
-    if (!apply.succeeded())
-    {
-        // report unsupported or approximate apply
-    }
 }
 ```
 
-### Apply follow
+Main types involved:
+
+- [`CCameraPreset.hpp`](CCameraPreset.hpp)
+- [`CCameraPresetFlow.hpp`](CCameraPresetFlow.hpp)
+
+### 8. Make a camera follow a moving target
+
+Use this when one tracked subject should drive camera behavior.
 
 ```cpp
 core::CTrackedTarget trackedTarget(position, orientation);
 
 core::SCameraFollowConfig follow = {};
 follow.enabled = true;
-follow.mode = core::ECameraFollowMode::KeepLocalOffset;
-follow.localOffset = hlsl::float64_t3(-4.0, 0.0, 1.0);
+follow.mode = core::ECameraFollowMode::LookAtTarget;
 
-auto result = core::CCameraFollowUtilities::applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
+core::CCameraGoalSolver solver;
+core::CCameraFollowUtilities::applyFollowToCamera(solver, camera.get(), trackedTarget, follow);
 ```
 
-### Expand a compact sequence into runtime payloads
+Main types involved:
+
+- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
+
+### 9. Build scripted runtime payloads from compact authored data
+
+Use this when camera playback is authored as sequence data and then expanded into per-frame runtime actions and checks.
 
 ```cpp
 system::CCameraScriptedTimeline timeline;
@@ -618,23 +301,598 @@ system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentTo
 system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline);
 ```
 
-## Summary
+Main types involved:
 
-The current stack is organized as:
+- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+- [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
+- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
+- [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
+
+## Mental model
+
+The stack uses two complementary representations of camera behavior.
+
+### Runtime representation
+
+The runtime representation answers:
+
+> what commands are applied to the camera during this frame
+
+It is event-driven.
+
+Core types:
+
+- `CVirtualGimbalEvent`
+- `IGimbal`
+- `ICamera`
+
+This representation is used by:
+
+- keyboard input
+- mouse input
+- ImGuizmo
+- replay helpers that need to mimic runtime movement
+
+### Typed representation
+
+The typed representation answers:
+
+> what explicit camera state should be captured, stored, restored, compared, blended, or validated
+
+It is state-driven.
+
+Core types:
+
+- `SCameraRigPose`
+- `CCameraGoal`
+- `CCameraPreset`
+- `CCameraKeyframeTrack`
+- `CCameraSequenceScript`
+
+This representation is used by:
+
+- capture
+- restore
+- persistence
+- presets
+- playback authoring
+- follow
+- scripted validation
+
+### Bridge between both representations
+
+`CCameraGoalSolver` is the main bridge.
+
+It converts:
+
+- runtime camera state into typed state
+- typed state back into runtime camera behavior
+
+## Core concepts
+
+### `CVirtualGimbalEvent`
+
+File:
+
+- [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
+
+`CVirtualGimbalEvent` is one semantic camera command plus one scalar magnitude.
+
+Examples:
+
+- `MoveForward`
+- `MoveLeft`
+- `MoveUp`
+- `TiltUp`
+- `PanRight`
+- `RollLeft`
+- `ScaleZInc`
+
+The event does not store device-specific origin.
+The same event type can come from keyboard input, mouse input, ImGuizmo, scripted playback, or replay helpers.
+
+### `IGimbal`
+
+Files:
+
+- [`IGimbal.hpp`](IGimbal.hpp)
+- [`ICamera.hpp`](ICamera.hpp)
+
+The gimbal stores runtime pose:
+
+- position
+- orientation
+- scale
+- orthonormal basis
+
+It also accumulates one frame of semantic events into a `VirtualImpulse`.
+
+`ICamera::CGimbal` extends the base gimbal with a cached world-to-view matrix.
+
+Every runtime camera owns one `CGimbal`.
+
+### `ICamera`
+
+File:
+
+- [`ICamera.hpp`](ICamera.hpp)
+
+`ICamera` is the shared runtime interface implemented by every camera kind.
+
+Its main job is:
+
+- consume one frame of semantic virtual events
+- optionally consume one rigid reference frame
+- update internal camera state
+- update runtime pose in the gimbal
+
+Important members:
+
+- `manipulate(...)`
+- `getGimbal()`
+- `getAllowedVirtualEvents()`
+- `getKind()`
+- `getCapabilities()`
+- typed hooks such as `tryGetSphericalTargetState(...)` and `tryGetPathState(...)`
+
+### `referenceFrame`
+
+Files:
+
+- [`ICamera.hpp`](ICamera.hpp)
+- [`IGimbal.hpp`](IGimbal.hpp)
+
+`referenceFrame` is the optional rigid transform passed to `ICamera::manipulate(...)`.
+
+It is the runtime pose anchor for one manipulation step.
+
+Typical producers:
+
+- ImGuizmo
+- restore helpers
+- replay helpers
+- code that wants world-space or local-space manipulation anchored to a specific rigid transform
+
+When you already have one absolute rigid pose, `referenceFrame` is the direct runtime entry point for requesting that pose through the runtime camera path.
+
+See Quick start sections 1 and 2 for the concrete absolute-pose usage patterns.
+
+### `SCameraRigPose`
+
+File:
+
+- [`SCameraRigPose.hpp`](SCameraRigPose.hpp)
+
+`SCameraRigPose` stores only:
+
+- world-space position
+- world-space orientation
+
+It is the smallest typed pose object reused across the stack.
+
+### `CCameraGoal`
+
+File:
+
+- [`CCameraGoal.hpp`](CCameraGoal.hpp)
+
+`CCameraGoal` is the canonical typed transport for camera state.
+
+You can think of it as:
+
+> one explicit camera-state snapshot used by higher-level tools
+
+It may contain:
+
+- pose
+- target position
+- target-relative distance
+- orbit state
+- path state
+- dynamic perspective state
+- source camera metadata
+
+It is used by:
+
+- capture
+- restore
+- preset flow
+- playback
+- follow
+- scripted checks
+
+When you want to set a camera absolutely in a reusable, serializable, or comparable way, `CCameraGoal` is the main public state object for that job.
+
+It is not:
+
+- a live input object
+- a replacement for `manipulate(...)`
+- a promise that every camera can represent every arbitrary pose exactly
+
+For constrained cameras, the solver may project the goal onto legal camera-family state before or during apply.
+
+### `CCameraGoalSolver`
+
+File:
+
+- [`CCameraGoalSolver.hpp`](CCameraGoalSolver.hpp)
+
+`CCameraGoalSolver` converts between typed camera state and runtime cameras.
+
+It performs:
+
+1. capture runtime camera into `CCameraGoal`
+2. analyze compatibility between goal and target camera
+3. apply typed fragments directly when the target camera supports them
+4. replay runtime movement when direct typed apply is not sufficient
+
+If you want to restore one absolute camera state and you are not sure which family-specific hook to call, use `CCameraGoalSolver`.
+
+### `CCameraPreset`
+
+File:
+
+- [`CCameraPreset.hpp`](CCameraPreset.hpp)
+
+`CCameraPreset` is a named saved `CCameraGoal`.
+
+It contains:
+
+- `name`
+- `identifier`
+- `goal`
+
+### `CCameraKeyframeTrack`
+
+File:
+
+- [`CCameraKeyframeTrack.hpp`](CCameraKeyframeTrack.hpp)
+
+`CCameraKeyframeTrack` is a sequence of time-stamped presets.
+
+Each keyframe contains:
+
+- one preset
+- one authored time
+
+### `CCameraPlaybackTimeline`
+
+File:
+
+- [`CCameraPlaybackTimeline.hpp`](CCameraPlaybackTimeline.hpp)
+
+`CCameraPlaybackTimeline` stores playback cursor state over time-based camera data.
+
+It tracks things such as:
+
+- current time
+- direction
+- looping
+- paused or playing state
+
+### `CTrackedTarget`
+
+File:
+
+- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
+
+`CTrackedTarget` is the reusable tracked subject used by follow.
+
+It owns its own gimbal.
+It is not a mesh id and not a scene-node handle.
+
+### `CCameraSequenceScript`
+
+File:
+
+- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+
+`CCameraSequenceScript` is the compact authored format for camera sequences.
+
+It stores camera-domain data such as:
+
+- targeted camera
+- projection presentation requests
+- camera keyframes
+- tracked-target keyframes
+- continuity settings
+- capture fractions
+
+It does not store frame-by-frame low-level input.
+
+### `CCameraScriptedRuntime`
+
+File:
+
+- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
+
+`CCameraScriptedRuntime` is the expanded executable form used during scripted playback and validation.
+
+It stores runtime payloads such as:
+
+- low-level input events
+- action events
+- per-frame checks
+- capture scheduling
+
+### `Path Rig`
+
+Files:
+
+- [`CPathCamera.hpp`](CPathCamera.hpp)
+- [`CCameraPathUtilities.hpp`](CCameraPathUtilities.hpp)
+- [`CCameraPathMetadata.hpp`](CCameraPathMetadata.hpp)
+
+`Path Rig` is the camera family with typed state:
+
+- `s`
+- `u`
+- `v`
+- `roll`
+
+Its runtime and typed tooling are driven by `SCameraPathModel`.
+
+Model callbacks:
+
+- `resolveState`
+- `controlLaw`
+- `integrate`
+- `evaluate`
+- `updateDistance`
+
+## Runtime behavior
+
+### Input flow
+
+Runtime input flow is:
 
 ```text
-input layer
-  -> semantic virtual events
-  -> runtime camera models
-  -> typed goal / preset / track tooling
-  -> compact sequence authoring
-  -> expanded scripted runtime
-  -> shared validation
+physical input
+  -> binding layout
+  -> input processor or binder
+  -> CVirtualGimbalEvent[]
+  -> ICamera::manipulate(...)
+  -> updated gimbal
+  -> updated view matrix
 ```
 
-This split yields:
+Main files:
 
-- one event-driven runtime path
-- one typed tooling path
-- one shared scripting and validation layer
-- one runnable example that consumes those shared pieces
+- [`IGimbalBindingLayout.hpp`](IGimbalBindingLayout.hpp)
+- [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
+- [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
+- [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
+
+### `manipulate(...)`
+
+`ICamera::manipulate(...)` is the shared runtime entry point for every camera kind.
+
+Its responsibilities are:
+
+- consume one frame of semantic virtual events
+- optionally consume one rigid reference frame
+- update camera-family state
+- update the runtime gimbal pose
+
+It is used by:
+
+- live input
+- ImGuizmo
+- replay helpers
+- code that wants one frame of camera movement
+
+### Motion scales
+
+`ICamera` stores per-camera motion scales in `SMotionConfig`.
+
+Those scales are applied on top of shared runtime units defined in [`CCameraTraits.hpp`](CCameraTraits.hpp).
+
+### Typed hooks
+
+Some runtime cameras expose typed state directly.
+
+Examples:
+
+- `tryGetSphericalTargetState(...)`
+- `trySetSphericalTarget(...)`
+- `tryGetDynamicPerspectiveState(...)`
+- `tryGetPathState(...)`
+
+The capability mask and goal-state mask report which typed fragments are valid for a given camera.
+
+## `referenceFrame`
+
+`referenceFrame` is the optional rigid transform passed into `ICamera::manipulate(...)`.
+
+Shared runtime pattern:
+
+```text
+referenceFrame
+  -> extract rigid reference transform
+  -> resolve legal state for this camera kind
+  -> accumulate virtual events
+  -> apply deltas in that state space
+  -> rebuild pose
+```
+
+This seam is supported across all current camera kinds.
+
+Per camera family:
+
+- `Free` and `FPS`
+  use the extracted rigid reference as the runtime pose anchor, with `FPS` legalizing orientation to upright `pitch/yaw`
+- target-relative cameras
+  resolve target-relative state from the rigid reference while preserving target-relative constraints
+- `Path Rig`
+  resolves typed path state through the active path model
+
+## Camera families
+
+### Free cameras
+
+Files:
+
+- [`CFPSCamera.hpp`](CFPSCamera.hpp)
+- [`CFreeLockCamera.hpp`](CFreeLockCamera.hpp)
+
+State:
+
+- world-space position
+- orientation or FPS-constrained yaw/pitch orientation
+
+Typical use:
+
+- free-fly navigation
+- direct pose-driven manipulation
+
+### Target-relative cameras
+
+Base:
+
+- [`CSphericalTargetCamera.hpp`](CSphericalTargetCamera.hpp)
+
+Derived:
+
+- [`COrbitCamera.hpp`](COrbitCamera.hpp)
+- [`CArcballCamera.hpp`](CArcballCamera.hpp)
+- [`CTurntableCamera.hpp`](CTurntableCamera.hpp)
+- [`CTopDownCamera.hpp`](CTopDownCamera.hpp)
+- [`CIsometricCamera.hpp`](CIsometricCamera.hpp)
+- [`CChaseCamera.hpp`](CChaseCamera.hpp)
+- [`CDollyCamera.hpp`](CDollyCamera.hpp)
+- [`CDollyZoomCamera.hpp`](CDollyZoomCamera.hpp)
+
+Shared state:
+
+- target position
+- `orbitUv`
+- distance
+
+These cameras resolve pose through target-relative state instead of arbitrary free pose.
+
+### DollyZoom
+
+File:
+
+- [`CDollyZoomCamera.hpp`](CDollyZoomCamera.hpp)
+
+This camera adds dynamic perspective state on top of target-relative state.
+
+Typed dynamic perspective state:
+
+- `baseFov`
+- `referenceDistance`
+
+### Path Rig
+
+Files:
+
+- [`CPathCamera.hpp`](CPathCamera.hpp)
+- [`CCameraPathUtilities.hpp`](CCameraPathUtilities.hpp)
+- [`CCameraPathMetadata.hpp`](CCameraPathMetadata.hpp)
+
+Typed path state:
+
+- `s`
+- `u`
+- `v`
+- `roll`
+
+Typed path limits:
+
+- `minU`
+- `minDistance`
+- `maxDistance`
+
+## Typed tooling
+
+The key typed types are introduced in the `Core concepts` section above.
+
+This section focuses on how they fit together in one workflow:
+
+1. `SCameraRigPose` is the smallest typed pose fragment.
+2. `CCameraGoal` is the canonical typed state transport built on top of pose and optional family-specific fragments.
+3. `CCameraGoalSolver` captures runtime cameras into goals and applies goals back to runtime cameras.
+4. `CCameraPreset` gives one goal a stable user-facing identity.
+5. `CCameraKeyframeTrack` stores presets over authored time.
+6. `CCameraPlaybackTimeline` stores playback cursor state while a track is being evaluated.
+
+Use this layer when camera state must outlive the current frame or be exchanged between tools.
+
+## Follow
+
+Files:
+
+- [`CCameraFollowUtilities.hpp`](CCameraFollowUtilities.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](CCameraFollowRegressionUtilities.hpp)
+
+Follow is built from:
+
+- one tracked target
+- one follow mode
+- one follow configuration
+
+Tracked target type:
+
+- `CTrackedTarget`
+
+Follow modes:
+
+- `OrbitTarget`
+- `LookAtTarget`
+- `KeepWorldOffset`
+- `KeepLocalOffset`
+
+`CCameraFollowUtilities` reads tracked-target pose, builds resulting camera goal state, and applies it through the shared goal solver.
+
+## Scripting
+
+### Compact authored format
+
+Files:
+
+- [`CCameraSequenceScript.hpp`](CCameraSequenceScript.hpp)
+- [`CCameraSequenceScriptPersistence.hpp`](CCameraSequenceScriptPersistence.hpp)
+
+This layer stores authored camera-domain data.
+
+### Expanded runtime format
+
+Files:
+
+- [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
+- [`CCameraScriptedRuntimePersistence.hpp`](CCameraScriptedRuntimePersistence.hpp)
+- [`CCameraSequenceScriptedBuilder.hpp`](CCameraSequenceScriptedBuilder.hpp)
+- [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
+
+This layer stores executable per-frame runtime payloads and validation checks.
+
+Common flow:
+
+```text
+compact authored sequence
+  -> compile or expand
+  -> scripted runtime payload
+  -> execute against runtime camera state
+```
+
+## Projection and presentation helpers
+
+Projection layer:
+
+- [`IProjection.hpp`](IProjection.hpp)
+- [`ILinearProjection.hpp`](ILinearProjection.hpp)
+- [`IPerspectiveProjection.hpp`](IPerspectiveProjection.hpp)
+- [`IPlanarProjection.hpp`](IPlanarProjection.hpp)
+- [`CLinearProjection.hpp`](CLinearProjection.hpp)
+- [`CPlanarProjection.hpp`](CPlanarProjection.hpp)
+- [`CCubeProjection.hpp`](CCubeProjection.hpp)
+
+Camera-facing presentation helpers:
+
+- [`CCameraPresentationUtilities.hpp`](CCameraPresentationUtilities.hpp)
+- [`CCameraProjectionUtilities.hpp`](CCameraProjectionUtilities.hpp)
+- [`CCameraTextUtilities.hpp`](CCameraTextUtilities.hpp)
+- [`CCameraViewportOverlayUtilities.hpp`](CCameraViewportOverlayUtilities.hpp)
+- [`CCameraControlPanelUiUtilities.hpp`](CCameraControlPanelUiUtilities.hpp)
+- [`CCameraScriptVisualDebugOverlayUtilities.hpp`](CCameraScriptVisualDebugOverlayUtilities.hpp)
