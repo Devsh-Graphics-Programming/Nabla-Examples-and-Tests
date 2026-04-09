@@ -436,7 +436,7 @@ private:
     inline double getMoveMagnitudeDenominator(const ICamera* camera) const
     {
         const double moveScale = camera->getMoveSpeedScale();
-        return SCameraRuntimeTraits::VirtualTranslationStep * (moveScale == 0.0 ? SGoalSolverDefaults::UnitScale : moveScale);
+        return camera->getUnscaledVirtualTranslationMagnitude() * (moveScale == 0.0 ? SGoalSolverDefaults::UnitScale : moveScale);
     }
 
     inline double getRotationMagnitudeDenominator(const ICamera* camera) const
@@ -517,7 +517,7 @@ private:
             delta,
             policy.translateOrbit ? getMoveMagnitudeDenominator(camera) : getRotationMagnitudeDenominator(camera),
             SCameraToolingThresholds::DefaultAngularToleranceDeg,
-            SCameraRuntimeTraits::VirtualTranslationStep,
+            camera->getUnscaledVirtualTranslationMagnitude(),
             SCameraToolingThresholds::ScalarTolerance,
             policy);
         return !out.empty();

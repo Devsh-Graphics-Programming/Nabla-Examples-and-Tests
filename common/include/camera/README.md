@@ -214,9 +214,93 @@ What happens here:
 Main types involved:
 
 - [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
+- [`IGimbalBindingLayout.hpp`](IGimbalBindingLayout.hpp)
 - [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
 - [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
+- [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
 - [`ICamera.hpp`](ICamera.hpp)
+
+The controller-side stack is:
+
+- `IGimbalBindingLayout` for the static mapping from device inputs to virtual events
+- `IGimbalInputProcessor` for converting one frame of raw input into event magnitudes
+- `CGimbalInputBinder` for the common runtime object that owns a layout and collects one frame of events
+- `CCameraInputBindingUtilities` for shared preset layouts such as default `FPS`, `Orbit`, or `Path Rig` bindings
+
+#### How do I bind `FPS` to `WASD`?
+
+Use the shared default binding preset for the active camera kind.
+
+```cpp
+auto camera = core::make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+
+ui::CGimbalInputBinder binder;
+ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(binder, *camera);
+```
+
+For `FPS`, the default preset gives you:
+
+- keyboard `W/S/A/D` -> forward, backward, left, right
+- keyboard `I/K/J/L` -> tilt up, tilt down, pan left, pan right
+- mouse relative movement -> look yaw and pitch
+
+For `Free`, the default preset adds `Q/E` for roll.
+
+For target-relative families and `Path Rig`, the default preset keeps the same physical inputs but maps them to the legal state space of that family.
+
+#### How do I make my own bindings?
+
+Use one `IGimbalBindingLayout` implementation such as `CGimbalInputBinder` and write the mapping you want.
+
+```cpp
+ui::CGimbalInputBinder binder;
+const double customMoveGain = /* choose a sensitivity for this binding */;
+
+binder.updateKeyboardMapping([customMoveGain](auto& map)
+{
+    map.clear();
+    map.emplace(ui::E_KEY_CODE::EKC_W, ui::IGimbalBindingLayout::CHashInfo(core::CVirtualGimbalEvent::MoveForward, customMoveGain));
+    map.emplace(ui::E_KEY_CODE::EKC_S, ui::IGimbalBindingLayout::CHashInfo(core::CVirtualGimbalEvent::MoveBackward, customMoveGain));
+    map.emplace(ui::E_KEY_CODE::EKC_A, ui::IGimbalBindingLayout::CHashInfo(core::CVirtualGimbalEvent::MoveLeft, customMoveGain));
+    map.emplace(ui::E_KEY_CODE::EKC_D, ui::IGimbalBindingLayout::CHashInfo(core::CVirtualGimbalEvent::MoveRight, customMoveGain));
+});
+```
+
+The same pattern works for:
+
+- mouse bindings through `updateMouseMapping(...)`
+- ImGuizmo bindings through `updateImguizmoMapping(...)`
+
+#### How are `magnitude` values generated?
+
+`CVirtualGimbalEvent::magnitude` is one non-negative scalar attached to one semantic command.
+
+It is not a raw device unit and it is not, by itself, the final world-space or angular motion applied by a camera.
+
+What stays stable at the API level is the meaning by event family:
+
+- translation events carry one controller-side translation amount
+- rotation events carry one controller-side angular amount
+- scale events carry one controller-side scale amount
+
+The binding layer maps raw producer values onto those amounts. Different sources may start from:
+
+- elapsed time for held input
+- cursor deltas for relative mouse input
+- scroll steps for wheel input
+- world-space translation or angular deltas for gizmo-driven input
+
+That means exact numeric gains are binding policy, not API contract. The binding layer owns sensitivity and repeat-rate tuning.
+
+After the controller side emits virtual magnitudes, the camera runtime applies its own motion scales and legalizes the result to the concrete camera family.
+
+The motion pipeline is therefore:
+
+1. raw device input
+2. binding-local gain
+3. `CVirtualGimbalEvent { type, magnitude }`
+4. camera-local motion scale
+5. family-specific legalization and state update
 
 ### 6. Capture a camera and restore it later
 
@@ -308,66 +392,6 @@ Main types involved:
 - [`CCameraScriptedRuntime.hpp`](CCameraScriptedRuntime.hpp)
 - [`CCameraScriptedCheckRunner.hpp`](CCameraScriptedCheckRunner.hpp)
 
-## Mental model
-
-The stack uses two complementary representations of camera behavior.
-
-### Runtime representation
-
-The runtime representation answers:
-
-> what commands are applied to the camera during this frame
-
-It is event-driven.
-
-Core types:
-
-- `CVirtualGimbalEvent`
-- `IGimbal`
-- `ICamera`
-
-This representation is used by:
-
-- keyboard input
-- mouse input
-- ImGuizmo
-- replay helpers that need to mimic runtime movement
-
-### Typed representation
-
-The typed representation answers:
-
-> what explicit camera state should be captured, stored, restored, compared, blended, or validated
-
-It is state-driven.
-
-Core types:
-
-- `SCameraRigPose`
-- `CCameraGoal`
-- `CCameraPreset`
-- `CCameraKeyframeTrack`
-- `CCameraSequenceScript`
-
-This representation is used by:
-
-- capture
-- restore
-- persistence
-- presets
-- playback authoring
-- follow
-- scripted validation
-
-### Bridge between both representations
-
-`CCameraGoalSolver` is the main bridge.
-
-It converts:
-
-- runtime camera state into typed state
-- typed state back into runtime camera behavior
-
 ## Core concepts
 
 ### `CVirtualGimbalEvent`
@@ -377,6 +401,10 @@ File:
 - [`CVirtualGimbalEvent.hpp`](CVirtualGimbalEvent.hpp)
 
 `CVirtualGimbalEvent` is one semantic camera command plus one scalar magnitude.
+
+The scalar magnitude is a controller-side virtual amount emitted after binding
+gains are applied. It is not a raw device delta and it is not, by itself, the
+final world-space motion applied by a camera.
 
 Examples:
 
@@ -435,6 +463,9 @@ Important members:
 - `getCapabilities()`
 - typed hooks such as `tryGetSphericalTargetState(...)` and `tryGetPathState(...)`
 
+Each camera also stores one local motion-scale bundle in `SMotionConfig`.
+Those scales are applied after the binding layer emits virtual magnitudes.
+
 ### `referenceFrame`
 
 Files:
@@ -456,6 +487,17 @@ Typical producers:
 When you already have one absolute rigid pose, `referenceFrame` is the direct runtime entry point for requesting that pose through the runtime camera path.
 
 See Quick start sections 1 and 2 for the concrete absolute-pose usage patterns.
+
+Shared runtime pattern:
+
+```text
+referenceFrame
+  -> extract rigid reference transform
+  -> resolve legal state for this camera kind
+  -> accumulate virtual events
+  -> apply deltas in that state space
+  -> rebuild pose
+```
 
 ### `SCameraRigPose`
 
@@ -519,12 +561,7 @@ File:
 
 `CCameraGoalSolver` converts between typed camera state and runtime cameras.
 
-It performs:
-
-1. capture runtime camera into `CCameraGoal`
-2. analyze compatibility between goal and target camera
-3. apply typed fragments directly when the target camera supports them
-4. replay runtime movement when direct typed apply is not sufficient
+It captures runtime cameras into `CCameraGoal`, analyzes whether a target camera can represent that goal directly, and applies the result either through typed state or through runtime replay when needed.
 
 If you want to restore one absolute camera state and you are not sure which family-specific hook to call, use `CCameraGoalSolver`.
 
@@ -630,101 +667,7 @@ Files:
 - `v`
 - `roll`
 
-Its runtime and typed tooling are driven by `SCameraPathModel`.
-
-Model callbacks:
-
-- `resolveState`
-- `controlLaw`
-- `integrate`
-- `evaluate`
-- `updateDistance`
-
-## Runtime behavior
-
-### Input flow
-
-Runtime input flow is:
-
-```text
-physical input
-  -> binding layout
-  -> input processor or binder
-  -> CVirtualGimbalEvent[]
-  -> ICamera::manipulate(...)
-  -> updated gimbal
-  -> updated view matrix
-```
-
-Main files:
-
-- [`IGimbalBindingLayout.hpp`](IGimbalBindingLayout.hpp)
-- [`IGimbalInputProcessor.hpp`](IGimbalInputProcessor.hpp)
-- [`CGimbalInputBinder.hpp`](CGimbalInputBinder.hpp)
-- [`CCameraInputBindingUtilities.hpp`](CCameraInputBindingUtilities.hpp)
-
-### `manipulate(...)`
-
-`ICamera::manipulate(...)` is the shared runtime entry point for every camera kind.
-
-Its responsibilities are:
-
-- consume one frame of semantic virtual events
-- optionally consume one rigid reference frame
-- update camera-family state
-- update the runtime gimbal pose
-
-It is used by:
-
-- live input
-- ImGuizmo
-- replay helpers
-- code that wants one frame of camera movement
-
-### Motion scales
-
-`ICamera` stores per-camera motion scales in `SMotionConfig`.
-
-Those scales are applied on top of shared runtime units defined in [`CCameraTraits.hpp`](CCameraTraits.hpp).
-
-### Typed hooks
-
-Some runtime cameras expose typed state directly.
-
-Examples:
-
-- `tryGetSphericalTargetState(...)`
-- `trySetSphericalTarget(...)`
-- `tryGetDynamicPerspectiveState(...)`
-- `tryGetPathState(...)`
-
-The capability mask and goal-state mask report which typed fragments are valid for a given camera.
-
-## `referenceFrame`
-
-`referenceFrame` is the optional rigid transform passed into `ICamera::manipulate(...)`.
-
-Shared runtime pattern:
-
-```text
-referenceFrame
-  -> extract rigid reference transform
-  -> resolve legal state for this camera kind
-  -> accumulate virtual events
-  -> apply deltas in that state space
-  -> rebuild pose
-```
-
-This seam is supported across all current camera kinds.
-
-Per camera family:
-
-- `Free` and `FPS`
-  use the extracted rigid reference as the runtime pose anchor, with `FPS` legalizing orientation to upright `pitch/yaw`
-- target-relative cameras
-  resolve target-relative state from the rigid reference while preserving target-relative constraints
-- `Path Rig`
-  resolves typed path state through the active path model
+Its runtime and typed tooling are driven by `SCameraPathModel`, which defines how path state is resolved, updated, and converted back into camera pose.
 
 ## Camera families
 

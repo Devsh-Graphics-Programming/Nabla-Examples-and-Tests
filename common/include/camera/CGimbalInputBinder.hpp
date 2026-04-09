@@ -121,7 +121,7 @@ private:
     {
         Map result;
         for (const auto& [code, hash] : source)
-            result.emplace(code, typename Map::mapped_type(hash.event.type));
+            result.emplace(code, typename Map::mapped_type(hash.event.type, hash.magnitudeScale));
         return result;
     }
 };

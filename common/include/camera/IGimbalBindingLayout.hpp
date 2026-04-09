@@ -13,6 +13,8 @@ namespace nbl::ui
 /// @brief Static mapping from external input domains to virtual gimbal events.
 ///
 /// This type stores binding layout only. It does not process runtime input.
+/// Each binding chooses both the semantic virtual event type and the gain used
+/// to convert raw producer values into `CVirtualGimbalEvent::magnitude`.
 struct IGimbalBindingLayout
 {
     IGimbalBindingLayout() {}
@@ -50,11 +52,18 @@ struct IGimbalBindingLayout
 
     struct CHashInfo
     {
+        static inline constexpr double DefaultMagnitudeScale = 1.0;
+
         CHashInfo() {}
-        CHashInfo(gimbal_event_t::VirtualEventType _type) : event({ .type = _type }) {}
+        CHashInfo(gimbal_event_t::VirtualEventType _type, const double _magnitudeScale = DefaultMagnitudeScale)
+            : event({ .type = _type }), magnitudeScale(_magnitudeScale) {}
         ~CHashInfo() = default;
 
+        /// @brief Virtual event emitted by this binding.
         gimbal_event_t event = {};
+        /// @brief Per-binding gain applied when raw input is converted into one virtual-event magnitude.
+        double magnitudeScale = DefaultMagnitudeScale;
+        /// @brief Runtime latch used by held keyboard and mouse-button bindings.
         bool active = false;
     };
 
@@ -90,7 +99,7 @@ protected:
     {
         Map result;
         for (const auto& [code, hash] : source)
-            result.emplace(code, typename Map::mapped_type(hash.event.type));
+            result.emplace(code, typename Map::mapped_type(hash.event.type, hash.magnitudeScale));
         return result;
     }
 };

@@ -14,8 +14,11 @@ namespace nbl::core
 /// @brief One semantic camera command passed to `ICamera::manipulate(...)`.
 ///
 /// `type` selects the command family. `magnitude` stores the non-negative
-/// scalar amount for that command. Input binders, scripted playback, replay
-/// helpers, and gizmo-driven tools all use the same event representation.
+/// source-normalized scalar amount for that command. Input binders convert
+/// raw keyboard, mouse, scroll, and ImGuizmo data into this representation
+/// before the camera sees it. Cameras then convert these virtual magnitudes
+/// into camera-local motion through their runtime scales and family-specific
+/// legalization rules.
 struct CVirtualGimbalEvent
 {
     /// @brief Bitmask identifiers for semantic movement, rotation, and scale commands.
@@ -57,6 +60,9 @@ struct CVirtualGimbalEvent
     /// @brief Semantic event identifier.
     VirtualEventType type = None;
     /// @brief Non-negative scalar amount associated with `type`.
+    ///
+    /// The value is not a raw device unit. It is the virtual amount emitted by
+    /// the active input path after applying binding-local gains.
     manipulation_encode_t magnitude = {};
 
     /// @brief Convert one event identifier to its stable string form.

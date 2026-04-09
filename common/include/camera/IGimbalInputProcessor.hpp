@@ -13,16 +13,22 @@ namespace nbl::ui
 {
 
 /// @brief Runtime processor that turns keyboard, mouse, and ImGuizmo input into virtual events.
+///
+/// Held keyboard and mouse-button bindings emit `frameDeltaSeconds * magnitudeScale`.
+/// Relative mouse movement, mouse scroll, and ImGuizmo deltas emit
+/// `abs(rawDelta) * magnitudeScale` per bound axis. The result is written into
+/// `CVirtualGimbalEvent::magnitude`.
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:
     struct SInputProcessorDefaults final
     {
-        static inline constexpr double MaxFrameDeltaMs = 200.0;
+        /// @brief Largest frame interval, in seconds, accepted from held-input accumulation.
+        static inline constexpr double MaxFrameDeltaSeconds = 0.2;
         static inline constexpr float ZeroPivot = 0.0f;
         static inline constexpr float UnitPivot = 1.0f;
     };
-    static inline constexpr double MaxFrameDeltaMs = SInputProcessorDefaults::MaxFrameDeltaMs;
+    static inline constexpr double MaxFrameDeltaSeconds = SInputProcessorDefaults::MaxFrameDeltaSeconds;
     static inline constexpr float ZeroPivot = SInputProcessorDefaults::ZeroPivot;
     static inline constexpr float UnitPivot = SInputProcessorDefaults::UnitPivot;
 
@@ -43,7 +49,7 @@ public:
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
         m_nextPresentationTimeStamp = nextPresentationTimeStamp;
-        m_frameDeltaTime = clampFrameDeltaTimeMs(m_nextPresentationTimeStamp, m_lastVirtualUpTimeStamp);
+        m_frameDeltaSeconds = clampFrameDeltaTimeSeconds(m_nextPresentationTimeStamp, m_lastVirtualUpTimeStamp);
     }
 
     void endInputProcessing()
@@ -93,6 +99,7 @@ public:
     ///
     /// @note This function maps keyboard press and release events into virtual
     /// gimbal manipulation events through the active keyboard bindings.
+    /// Held keys contribute elapsed seconds scaled by the binding gain.
     ///
     /// @param output Pointer to the destination array for generated gimbal events.
     /// Pass `nullptr` to query only the total event count.
@@ -120,6 +127,8 @@ public:
     ///
     /// @note This function maps mouse clicks, scrolls, and movements into
     /// virtual gimbal manipulation events through the active mouse bindings.
+    /// Relative movement and scroll contribute absolute signed deltas scaled by
+    /// the matching binding gain.
     ///
     /// @param output Pointer to the destination array for generated gimbal events.
     /// Pass `nullptr` to query only the total event count.
@@ -172,6 +181,8 @@ public:
     ///
     /// @note This function converts world-space delta transforms authored by
     /// ImGuizmo into translation, rotation, and scale virtual events.
+    /// Translation uses world-space delta components. Rotation uses extracted
+    /// Euler radians. Scale uses multiplicative components around pivot `1`.
     ///
     /// @param output Pointer to the destination array for generated gimbal events.
     /// Pass `nullptr` to query only the total event count.
@@ -287,15 +298,15 @@ private:
         };
     };
 
-    static double clampFrameDeltaTimeMs(
+    static double clampFrameDeltaTimeSeconds(
         const std::chrono::microseconds nextPresentationTimeStamp,
         const std::chrono::microseconds lastVirtualUpTimeStamp)
     {
-        const auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        const auto deltaSeconds = std::chrono::duration<double>(
             nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
-        if (deltaMs < 0)
+        if (deltaSeconds < 0.0)
             return 0.0;
-        return std::min(static_cast<double>(deltaMs), MaxFrameDeltaMs);
+        return std::min(deltaSeconds, MaxFrameDeltaSeconds);
     }
 
     template<typename Map, typename ConsumeFn>
@@ -362,7 +373,7 @@ private:
             hash.event.magnitude = 0.0f;
 
             if (hash.active)
-                hash.event.magnitude = m_frameDeltaTime;
+                hash.event.magnitude = m_frameDeltaSeconds * hash.magnitudeScale;
         }
     }
 
@@ -387,7 +398,7 @@ private:
             auto code = (dScalar > signPivot) ? positive : negative;
             auto request = map.find(code);
             if (request != map.end())
-                request->second.event.magnitude += dMagnitude;
+                request->second.event.magnitude += dMagnitude * request->second.magnitudeScale;
         }
     }
 
@@ -418,7 +429,7 @@ private:
             map);
     }
 
-    double m_frameDeltaTime = {};
+    double m_frameDeltaSeconds = {};
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
 

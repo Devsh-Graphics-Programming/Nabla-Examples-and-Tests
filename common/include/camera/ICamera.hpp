@@ -19,7 +19,7 @@ namespace nbl::core
 /// `ICamera` consumes batches of `CVirtualGimbalEvent` values and updates one
 /// camera pose stored in `CGimbal`. A `CVirtualGimbalEvent` identifies one
 /// semantic command such as `MoveForward`, `PanLeft`, or `RollRight` and carries
-/// one scalar magnitude for that command.
+/// one source-normalized scalar magnitude for that command.
 ///
 /// Keyboard input, mouse input, ImGuizmo interaction, scripted playback,
 /// preset replay, follow helpers, and goal solving all drive cameras through
@@ -29,18 +29,23 @@ namespace nbl::core
 /// capture, restore, compatibility analysis, persistence, or validation.
 class ICamera : virtual public core::IReferenceCounted
 { 
+private:
+    static inline constexpr double DefaultMoveSpeedScaleValue = 0.01;
+    static inline constexpr double DefaultRotationSpeedScaleValue = 0.003;
+    static inline constexpr double VirtualTranslationUnit = 0.01;
+
 public:
     /// @brief Camera-local multipliers applied when semantic virtual events are converted into motion.
     ///
-    /// The shared runtime traits define the base unit magnitude of a virtual
-    /// event. Concrete cameras multiply those base units by this per-camera
-    /// configuration before applying them to their own state model.
+    /// Input binders emit virtual magnitudes. Concrete cameras multiply those
+    /// magnitudes by this per-camera configuration before applying them to
+    /// their own state model.
     struct SMotionConfig
     {
         /// @brief Camera-local scale applied to virtual translation magnitudes.
-        double moveSpeedScale = SCameraRuntimeTraits::DefaultMoveSpeedScale;
+        double moveSpeedScale = DefaultMoveSpeedScaleValue;
         /// @brief Camera-local scale applied to virtual rotation magnitudes.
-        double rotationSpeedScale = SCameraRuntimeTraits::DefaultRotationSpeedScale;
+        double rotationSpeedScale = DefaultRotationSpeedScaleValue;
     };
 
     /// @brief Stable camera-family identifier used by metadata, presets, follow, and scripted helpers.
@@ -396,12 +401,12 @@ public:
     /// @brief Return the effective world-space translation represented by a unit virtual move event.
     inline double getScaledVirtualTranslationMagnitude() const
     {
-        return SCameraRuntimeTraits::VirtualTranslationStep * getMoveSpeedScale();
+        return getUnscaledVirtualTranslationMagnitude() * getMoveSpeedScale();
     }
     /// @brief Return the raw translation magnitude before applying the camera-local move scale.
     inline double getUnscaledVirtualTranslationMagnitude() const
     {
-        return SCameraRuntimeTraits::VirtualTranslationStep;
+        return VirtualTranslationUnit;
     }
     /// @brief Scale one scalar translation magnitude through the active move scale.
     inline double scaleVirtualTranslation(const double magnitude) const

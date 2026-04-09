@@ -178,8 +178,8 @@ struct SCameraAppInputDefaults final
 
 struct SCameraAppCameraFactoryDefaults final
 {
-	static inline constexpr double DefaultMoveScale = nbl::core::SCameraRuntimeTraits::DefaultMoveSpeedScale;
-	static inline constexpr double DefaultRotateScale = nbl::core::SCameraRuntimeTraits::DefaultRotationSpeedScale;
+	static inline constexpr double DefaultMoveScale = 0.01;
+	static inline constexpr double DefaultRotateScale = 0.003;
 	static inline constexpr double TargetRigMoveScale = 0.5;
 };
 

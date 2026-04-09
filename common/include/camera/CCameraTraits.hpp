@@ -10,17 +10,6 @@
 namespace nbl::core
 {
 
-/// @brief Constants used when converting unit virtual events into camera-local motion.
-struct SCameraRuntimeTraits final
-{
-    /// @brief Base world-space translation magnitude represented by a unit virtual move event.
-    static inline constexpr double VirtualTranslationStep = 0.01;
-    /// @brief Default per-camera multiplier applied to virtual translation magnitudes.
-    static inline constexpr double DefaultMoveSpeedScale = VirtualTranslationStep;
-    /// @brief Default per-camera multiplier applied to virtual rotation magnitudes.
-    static inline constexpr double DefaultRotationSpeedScale = 0.003;
-};
-
 /// @brief Geometric constants used by target-relative camera families.
 ///
 /// `MinDistance` prevents zero-distance target-relative states.

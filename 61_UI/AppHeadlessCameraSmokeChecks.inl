@@ -1290,6 +1290,101 @@
 			}
 		}
 
+		{
+			const auto findEventMagnitude = [](const auto& events, const CVirtualGimbalEvent::VirtualEventType type) -> std::optional<double>
+			{
+				for (const auto& event : events)
+				{
+					if (event.type == type)
+						return event.magnitude;
+				}
+				return std::nullopt;
+			};
+
+			const auto sumEventMagnitude = [](const auto& events, const CVirtualGimbalEvent::VirtualEventType type) -> double
+			{
+				double sum = 0.0;
+				for (const auto& event : events)
+				{
+					if (event.type == type)
+						sum += event.magnitude;
+				}
+				return sum;
+			};
+
+			const auto frameStepSeconds = std::chrono::duration<double>(SCameraSmokeInputDefaults::EventStep).count();
+			const auto expectedKeyboardMagnitude =
+				frameStepSeconds * nbl::ui::CCameraInputBindingUtilities::SInputMagnitudeDefaults::KeyboardHeldUnitsPerSecond;
+
+			nbl::ui::CGimbalInputBinder inputBinder;
+			nbl::ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
+				inputBinder,
+				ICamera::CameraKind::FPS,
+				CVirtualGimbalEvent::All);
+
+			const auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
+			const auto keyboardMagnitude = findEventMagnitude(keyboardEvents, CVirtualGimbalEvent::MoveForward);
+			if (!keyboardMagnitude.has_value() ||
+				hlsl::abs(*keyboardMagnitude - expectedKeyboardMagnitude) > SCameraSmokeUtilityThresholds::VirtualEventScale)
+			{
+				outError = "Input binding smoke produced the wrong held-key magnitude for default FPS WASD.";
+				return false;
+			}
+
+			inputBinder.clearBindingLayout();
+			nbl::ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
+				inputBinder,
+				ICamera::CameraKind::FPS,
+				CVirtualGimbalEvent::All);
+
+			const auto moveEvent = buildMovementSmokeMouseEvent();
+			const std::array<SMouseEvent, 1u> moveEvents = { moveEvent };
+			const auto mouseEvents = collectMouseVirtualEvents(inputBinder, { moveEvents.data(), moveEvents.size() });
+			const auto panMagnitude = findEventMagnitude(mouseEvents, CVirtualGimbalEvent::PanRight);
+			const auto tiltMagnitude = findEventMagnitude(mouseEvents, CVirtualGimbalEvent::TiltDown);
+			if (!panMagnitude.has_value() ||
+				!tiltMagnitude.has_value() ||
+				hlsl::abs(*panMagnitude - static_cast<double>(SCameraSmokeInputDefaults::RelativeMouseMove)) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
+				hlsl::abs(*tiltMagnitude - hlsl::abs(static_cast<double>(SCameraSmokeInputDefaults::RelativeMouseMoveY))) > SCameraSmokeUtilityThresholds::VirtualEventScale)
+			{
+				outError = "Input binding smoke produced the wrong relative-mouse magnitudes for default FPS look.";
+				return false;
+			}
+
+			inputBinder.clearBindingLayout();
+			nbl::ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
+				inputBinder,
+				ICamera::CameraKind::Orbit,
+				CVirtualGimbalEvent::All);
+
+			const auto scrollEvent = buildScrollSmokeMouseEvent();
+			const std::array<SMouseEvent, 1u> scrollEvents = { scrollEvent };
+			const auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { scrollEvents.data(), scrollEvents.size() });
+			const auto scrollForwardMagnitude = sumEventMagnitude(mouseScrollEvents, CVirtualGimbalEvent::MoveForward);
+			if (hlsl::abs(scrollForwardMagnitude - static_cast<double>(SCameraSmokeInputDefaults::VerticalScroll + SCameraSmokeInputDefaults::HorizontalScroll)) > SCameraSmokeUtilityThresholds::VirtualEventScale)
+			{
+				outError = "Input binding smoke produced the wrong scroll magnitude for default orbit zoom.";
+				return false;
+			}
+
+			nbl::ui::CGimbalBindingLayoutStorage customLayout;
+			customLayout.updateKeyboardMapping([&](auto& map)
+				{
+					map[nbl::ui::E_KEY_CODE::EKC_W] = nbl::ui::IGimbalBindingLayout::CHashInfo(CVirtualGimbalEvent::MoveForward, 7.5);
+				});
+			inputBinder.copyBindingLayoutFrom(customLayout);
+
+			const auto customKeyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
+			const auto customKeyboardMagnitude = findEventMagnitude(customKeyboardEvents, CVirtualGimbalEvent::MoveForward);
+			const auto expectedCustomKeyboardMagnitude = frameStepSeconds * 7.5;
+			if (!customKeyboardMagnitude.has_value() ||
+				hlsl::abs(*customKeyboardMagnitude - expectedCustomKeyboardMagnitude) > SCameraSmokeUtilityThresholds::VirtualEventScale)
+			{
+				outError = "Input binding smoke failed to preserve binding-scale metadata through layout copies.";
+				return false;
+			}
+		}
+
 		if (state.initialPresets.free.has_value() && state.freeCamera)
 		{
 			CameraPreset orientedPreset = state.initialPresets.free.value();
