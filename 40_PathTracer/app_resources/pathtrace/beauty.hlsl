@@ -311,7 +311,7 @@ void raygen()
 
                 // perform NEE
                 const float32_t neeProb = 1.f;
-                if (true) // whether to perform NEE at all for this material
+                if (false) // whether to perform NEE at all for this material
                 {
                     float32_t3 randNEE = randgen(sequenceProtoDim+uint16_t(1),sampleIndex);
                     // choose regular lights or envmap
@@ -349,7 +349,7 @@ void raygen()
                         // TODO: change to ESBTO_NEE when ready
                         spirv::traceRayKHR(gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,rayOrigin,tMin,L,tMax,payload);
 
-                        if (miss)
+                        if (false)
                         {
                             // apply everything
                         }
@@ -393,8 +393,10 @@ void raygen()
                 // to keep path depths equal for NEE and BxDF sampling, we 
                 if (contribEstimator.notCulled(throughput,depth<=lastNoRussianRouletteDepth,randVec.z))
                 {
-                    // advance ray origin ( TODO: the abs() should be a max of tMax and old ray origin abs)
-                    rayOrigin = closestInfo.hitPos + closestInfo.geometricNormal*abs(closestInfo.hitPos)*exp2(-12.f);
+                    // advance ray origin
+                    const float32_t3 originMagnitude = max(abs(closestInfo.hitPos),abs(rayOrigin));
+                    // TODO: should probably also take `tMax` of found hit into account
+                    rayOrigin = closestInfo.hitPos + closestInfo.geometricNormal*max(max(exp2(8.f),originMagnitude.x),max(originMagnitude.y,originMagnitude.z))*exp2(-20.f);
 
                     // continue the path
                     {
