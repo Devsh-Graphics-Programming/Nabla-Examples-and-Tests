@@ -26,7 +26,7 @@ struct SCameraConstraintDefaults final
     static constexpr float MaxDistance = ICamera::SphericalMaxDistance;
 };
 
-//! Reusable constraint settings for post-manipulation camera clamping.
+/// @brief Reusable constraint settings for post-manipulation camera clamping.
 struct SCameraConstraintSettings
 {
     bool enabled = false;
@@ -47,7 +47,7 @@ struct SCameraConstraintSettings
 struct CCameraManipulationUtilities final
 {
 public:
-    //! Apply an authored world-space reference frame through the shared camera runtime entry point.
+    /// @brief Apply an authored world-space reference frame through the shared camera runtime entry point.
     static inline bool applyReferenceFrameToCamera(ICamera* camera, const hlsl::float64_t4x4& referenceFrame)
     {
         if (!camera)
@@ -56,7 +56,7 @@ public:
         return camera->manipulateWithUnitMotionScales({}, &referenceFrame);
     }
 
-    //! Scale translation and rotation event magnitudes without touching unrelated event types.
+    /// @brief Scale translation and rotation event magnitudes without touching unrelated event types.
     static inline void scaleVirtualEvents(std::vector<CVirtualGimbalEvent>& events, const uint32_t count, const float translationScale, const float rotationScale)
     {
         for (uint32_t i = 0u; i < count; ++i)
@@ -73,7 +73,7 @@ public:
         }
     }
 
-    //! Reinterpret world-space translation intents as local camera-space movement events.
+    /// @brief Reinterpret world-space translation intents as local camera-space movement events.
     static inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::vector<CVirtualGimbalEvent>& events, uint32_t& count)
     {
         if (!camera)
@@ -103,7 +103,7 @@ public:
         count = static_cast<uint32_t>(events.size());
     }
 
-    //! Apply shared distance and Euler-angle constraints after manipulation.
+    /// @brief Apply shared distance and Euler-angle constraints after manipulation.
     static inline bool applyCameraConstraints(const CCameraGoalSolver& solver, ICamera* camera, const SCameraConstraintSettings& constraints)
     {
         if (!constraints.enabled || !camera)

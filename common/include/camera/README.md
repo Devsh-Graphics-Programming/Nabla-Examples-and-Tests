@@ -48,14 +48,14 @@ The stack is split across existing Nabla namespaces:
 - `nbl::ui`
   binding layouts, input processors, binders, default input mappings, and user-facing presentation/text helpers
 - `nbl::system`
-  persistence, scripted runtime payloads, scripted parsing, scripted check execution, and follow-contract validation helpers
+  persistence, scripted runtime payloads, scripted parsing, scripted check execution, and follow validation helpers
 
 The shared camera math is written against `nbl::hlsl`.
 Consumers of this stack are expected to talk to camera math through `nbl::hlsl` types and helpers rather than through direct `glm::...` calls.
 
 ## Why virtual events and not absolute setters
 
-The runtime contract is intentionally built around virtual events such as:
+The runtime path is intentionally built around virtual events such as:
 
 - `MoveForward`
 - `PanLeft`
@@ -70,7 +70,7 @@ instead of runtime methods like:
 
 The reason is architectural, not cosmetic.
 
-### What the event-driven contract buys us
+### What the event-driven design buys us
 
 It gives us one shared runtime path for:
 
@@ -215,12 +215,12 @@ This layer:
 
 - [`ICamera.hpp`](ICamera.hpp)
 
-This is the core contract that camera models implement.
+This is the core interface that camera models implement.
 
 Important properties:
 
 - runtime entry point is `manipulate(...)`
-- the runtime contract consumes virtual events only
+- the runtime path consumes virtual events only
 - cameras own their own gimbal and view state
 - cameras expose typed optional state hooks only for tooling
 
@@ -349,7 +349,7 @@ These extend the shared base with typed extra state:
 
 ## Capabilities and typed state
 
-The core camera contract exposes:
+The core camera interface exposes:
 
 - `CameraCapability`
 - `GoalStateMask`
@@ -449,7 +449,7 @@ The current camera-focused validation is exercised through scripted smoke and co
 Purpose:
 
 - prove that camera selection and basic scripted manipulation still work
-- validate preset, sequence, runtime, and follow helper contracts with small regression checks
+- validate preset, sequence, runtime, and follow helper behavior with small regression checks
 
 ### Continuity
 

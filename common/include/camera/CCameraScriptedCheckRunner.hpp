@@ -20,16 +20,14 @@
 namespace nbl::system
 {
 
-/**
-* Runtime state for authored scripted checks.
-*
-* The state is intentionally small:
-*
-* - authored check data stays in `CCameraScriptedInputCheck`
-* - the runner only remembers where the next check starts
-* - baseline and step references are maintained here so consumers do not have to
-*   keep duplicating the same bookkeeping
-*/
+/// @brief Runtime state for authored scripted checks.
+///
+/// The state is intentionally small:
+///
+/// - authored check data stays in `CCameraScriptedInputCheck`
+/// - the runner only remembers where the next check starts
+/// - baseline and step references are maintained here so consumers do not have to
+///   keep duplicating the same bookkeeping
 struct CCameraScriptedCheckRuntimeState
 {
     struct SPoseReference final : core::SCameraRigPose
@@ -42,7 +40,7 @@ struct CCameraScriptedCheckRuntimeState
     SPoseReference step = {};
 };
 
-//! Shared per-frame evaluation context for authored scripted checks.
+/// @brief Shared per-frame evaluation context for authored scripted checks.
 struct CCameraScriptedCheckContext
 {
     uint64_t frame = 0ull;
@@ -55,14 +53,14 @@ struct CCameraScriptedCheckContext
     const core::CCameraGoalSolver* goalSolver = nullptr;
 };
 
-//! Reusable log entry produced by scripted check evaluation.
+/// @brief Reusable log entry produced by scripted check evaluation.
 struct CCameraScriptedCheckLogEntry
 {
     bool failure = false;
     std::string text;
 };
 
-//! Result for one frame worth of scripted checks.
+/// @brief Result for one frame worth of scripted checks.
 struct CCameraScriptedCheckFrameResult
 {
     std::vector<CCameraScriptedCheckLogEntry> logs;
@@ -127,7 +125,7 @@ struct CCameraScriptedCheckRunnerUtilities final
         result.hadFailures = result.hadFailures || failure;
     }
 
-    //! Evaluate all authored scripted checks scheduled for the current frame.
+    /// @brief Evaluate all authored scripted checks scheduled for the current frame.
     static inline CCameraScriptedCheckFrameResult evaluateScriptedChecksForFrame(
         const std::vector<CCameraScriptedInputCheck>& checks,
         CCameraScriptedCheckRuntimeState& state,
@@ -535,7 +533,7 @@ struct CCameraScriptedCheckRunnerUtilities final
                         buildScriptedCheckMessage([&](std::ostringstream& oss)
                         {
                             oss << "[script][fail] follow_lock frame=" << context.frame << ' '
-                                << (regressionError.empty() ? "follow contract mismatch" : regressionError);
+                                << (regressionError.empty() ? "follow validation mismatch" : regressionError);
                         }));
                 }
                 else

@@ -17,7 +17,7 @@
 namespace nbl::ui
 {
 
-//! Shared data bundle for the scripted visual debug HUD.
+/// @brief Shared data bundle for the scripted visual debug HUD.
 struct SCameraScriptVisualDebugOverlayData final
 {
     std::string title;
@@ -31,7 +31,7 @@ struct SCameraScriptVisualDebugOverlayData final
     }
 };
 
-//! Shared camera/debug state used to format one scripted visual debug HUD payload.
+/// @brief Shared camera/debug state used to format one scripted visual debug HUD payload.
 struct SCameraScriptVisualDebugStatus final
 {
     static constexpr float DefaultTargetFps = 60.0f;
@@ -57,7 +57,7 @@ struct SCameraScriptVisualDebugStatus final
     float followTargetCenterNdcRadius = 0.0f;
 };
 
-//! Shared style bundle for the scripted visual debug HUD.
+/// @brief Shared style bundle for the scripted visual debug HUD.
 struct SCameraScriptVisualDebugOverlayStyle final
 {
     static constexpr float TitleSize = 50.0f;

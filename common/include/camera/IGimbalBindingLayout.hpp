@@ -10,11 +10,9 @@
 namespace nbl::ui
 {
 
-/**
-* Static mapping contract from external input domains to virtual gimbal events.
-*
-* This type stores binding layout only. It does not process runtime input.
-*/
+/// @brief Static mapping from external input domains to virtual gimbal events.
+///
+/// This type stores binding layout only. It does not process runtime input.
 struct IGimbalBindingLayout
 {
     IGimbalBindingLayout() {}
@@ -100,7 +98,7 @@ protected:
 class CGimbalBindingLayoutStorage : public IGimbalBindingLayout
 {
 public:
-    //! Mutable storage for active or preset binding layout.
+    /// @brief Mutable storage for active or preset binding layout.
     using IGimbalBindingLayout::IGimbalBindingLayout;
 
     CGimbalBindingLayoutStorage() {}

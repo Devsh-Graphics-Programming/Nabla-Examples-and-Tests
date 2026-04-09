@@ -11,7 +11,7 @@
 namespace nbl::core
 {
 
-//! Reusable typed answer for `goal/preset -> camera` compatibility checks.
+/// @brief Reusable typed answer for `goal/preset -> camera` compatibility checks.
 struct SCameraGoalApplyAnalysis
 {
     CCameraGoal goal = {};
@@ -41,7 +41,7 @@ struct SCameraGoalApplyAnalysis
     }
 };
 
-//! Reusable typed answer for `camera -> goal` capture viability.
+/// @brief Reusable typed answer for `camera -> goal` capture viability.
 struct SCameraCaptureAnalysis
 {
     CCameraGoal goal = {};

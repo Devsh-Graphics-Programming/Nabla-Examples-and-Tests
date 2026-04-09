@@ -21,36 +21,34 @@
 namespace nbl::core
 {
 
-/**
-* Compact authored camera-sequence format shared by playback, scripting, and validation tooling.
-*
-* The authored file describes:
-*
-* - which camera kind a segment targets
-* - which reusable projection presentations should be shown
-* - which keyframed camera goals should be sampled over time
-* - which tracked-target poses should be sampled over time
-* - which continuity thresholds and capture points should be generated
-*
-* The format intentionally does not store:
-*
-* - per-frame low-level event dumps
-* - runtime-specific window actions as authored source data
-* - ImGuizmo transforms as the primary authored primitive
-*
-* A consumer may expand the compact sequence into its own runtime event/check representation, but
-* the authored source of truth stays camera-domain and reusable.
-*/
+/// @brief Compact authored camera-sequence format shared by playback, scripting, and validation tooling.
+///
+/// The authored file describes:
+///
+/// - which camera kind a segment targets
+/// - which reusable projection presentations should be shown
+/// - which keyframed camera goals should be sampled over time
+/// - which tracked-target poses should be sampled over time
+/// - which continuity thresholds and capture points should be generated
+///
+/// The format intentionally does not store:
+///
+/// - per-frame low-level event dumps
+/// - runtime-specific window actions as authored source data
+/// - ImGuizmo transforms as the primary authored primitive
+///
+/// A consumer may expand the compact sequence into its own runtime event/check representation, but
+/// the authored source of truth stays camera-domain and reusable.
 
-//! Authored projection view request for camera-sequence playback.
+/// @brief Authored projection view request for camera-sequence playback.
 struct CCameraSequencePresentation
 {
     IPlanarProjection::CProjection::ProjectionType projection = IPlanarProjection::CProjection::Perspective;
     bool leftHanded = true;
 };
 
-//! Shared continuity thresholds authored once and reused per sequence segment.
-//! Max bounds are enforced per-step, while minimum progress can be satisfied by either position or rotation change.
+/// @brief Shared continuity thresholds authored once and reused per sequence segment.
+/// Max bounds are enforced per-step, while minimum progress can be satisfied by either position or rotation change.
 struct CCameraSequenceContinuitySettings
 {
     bool baseline = true;
@@ -63,10 +61,42 @@ struct CCameraSequenceContinuitySettings
     float maxEulerDeltaDeg = 1.f;
 };
 
-//! Relative goal adjustment authored against an initial preset captured from the target camera.
-//! Deltas stay camera-domain and avoid binding the authored file to any specific input device or consumer.
+/// @brief Relative goal adjustment authored against an initial preset captured from the target camera.
+/// Deltas stay camera-domain and avoid binding the authored file to any specific input device or consumer.
 struct CCameraSequenceGoalDelta
 {
+    struct SOrbitDelta final
+    {
+        hlsl::float64_t2 uvDeltaRad = hlsl::float64_t2(0.0);
+        float distanceDelta = 0.f;
+        bool hasU = false;
+        bool hasV = false;
+        bool hasDistance = false;
+
+        inline bool hasAny() const
+        {
+            return hasU || hasV || hasDistance;
+        }
+
+        inline void setUDeltaDeg(const double valueDeg)
+        {
+            uvDeltaRad.x = static_cast<hlsl::float64_t>(hlsl::radians(valueDeg));
+            hasU = true;
+        }
+
+        inline void setVDeltaDeg(const double valueDeg)
+        {
+            uvDeltaRad.y = static_cast<hlsl::float64_t>(hlsl::radians(valueDeg));
+            hasV = true;
+        }
+
+        inline void setDistanceDelta(const float valueScalar)
+        {
+            distanceDelta = valueScalar;
+            hasDistance = true;
+        }
+    };
+
     struct SPathDelta final
     {
         SCameraPathDelta value = {};
@@ -128,12 +158,7 @@ struct CCameraSequenceGoalDelta
     bool hasTargetOffset = false;
     hlsl::float64_t3 targetOffset = hlsl::float64_t3(0.0);
 
-    bool hasOrbitUDeltaDeg = false;
-    bool hasOrbitVDeltaDeg = false;
-    hlsl::float64_t2 orbitUvDeltaDeg = hlsl::float64_t2(0.0);
-
-    bool hasOrbitDistanceDelta = false;
-    float orbitDistanceDelta = 0.f;
+    SOrbitDelta orbitDelta = {};
 
     SPathDelta pathDelta = {};
 
@@ -144,8 +169,8 @@ struct CCameraSequenceGoalDelta
     float dynamicReferenceDistanceDelta = 0.f;
 };
 
-//! One authored keyframe inside a reusable camera-sequence segment.
-//! A keyframe can be described either as an absolute preset or as a delta relative to the captured reference preset.
+/// @brief One authored keyframe inside a reusable camera-sequence segment.
+/// A keyframe can be described either as an absolute preset or as a delta relative to the captured reference preset.
 struct CCameraSequenceKeyframe
 {
     float time = 0.f;
@@ -155,12 +180,12 @@ struct CCameraSequenceKeyframe
     CCameraSequenceGoalDelta delta = {};
 };
 
-//! Concrete tracked-target pose sampled from a shared authored sequence.
+/// @brief Concrete tracked-target pose sampled from a shared authored sequence.
 struct CCameraSequenceTrackedTargetPose final : SCameraRigPose
 {
 };
 
-//! Relative tracked-target adjustment authored against an initial tracked-target pose.
+/// @brief Relative tracked-target adjustment authored against an initial tracked-target pose.
 struct CCameraSequenceTrackedTargetDelta
 {
     bool hasPositionOffset = false;
@@ -170,8 +195,8 @@ struct CCameraSequenceTrackedTargetDelta
     hlsl::float32_t3 rotationEulerDegOffset = hlsl::float32_t3(0.f);
 };
 
-//! One authored tracked-target keyframe inside a reusable camera-sequence segment.
-//! Target keyframes stay camera-domain and can drive follow behavior without runtime-object references.
+/// @brief One authored tracked-target keyframe inside a reusable camera-sequence segment.
+/// Target keyframes stay camera-domain and can drive follow behavior without runtime-object references.
 struct CCameraSequenceTrackedTargetKeyframe
 {
     float time = 0.f;
@@ -183,8 +208,8 @@ struct CCameraSequenceTrackedTargetKeyframe
     CCameraSequenceTrackedTargetDelta delta = {};
 };
 
-//! Runtime sampled tracked-target track built from an authored segment plus a reference pose.
-//! Keyframes are normalized by time before sampling. Duplicate times collapse to the last authored pose.
+/// @brief Runtime sampled tracked-target track built from an authored segment plus a reference pose.
+/// Keyframes are normalized by time before sampling. Duplicate times collapse to the last authored pose.
 struct CCameraSequenceTrackedTargetTrack
 {
     struct SKeyframe
@@ -196,7 +221,7 @@ struct CCameraSequenceTrackedTargetTrack
     std::vector<SKeyframe> keyframes;
 };
 
-//! Defaults shared by all camera-sequence segments unless overridden locally.
+/// @brief Defaults shared by all camera-sequence segments unless overridden locally.
 struct CCameraSequenceSegmentDefaults
 {
     float durationSeconds = 4.f;
@@ -206,8 +231,8 @@ struct CCameraSequenceSegmentDefaults
     bool resetCamera = true;
 };
 
-//! Authored reusable camera-sequence segment.
-//! A segment is the main unit of authored playback and validation and usually maps to one camera showcase chunk.
+/// @brief Authored reusable camera-sequence segment.
+/// A segment is the main unit of authored playback and validation and usually maps to one camera showcase chunk.
 struct CCameraSequenceSegment
 {
     std::string name;
@@ -232,8 +257,8 @@ struct CCameraSequenceSegment
     std::vector<CCameraSequenceTrackedTargetKeyframe> targetKeyframes;
 };
 
-//! Top-level reusable camera-sequence script.
-//! Consumers are expected to expand this compact description into their own runtime playback/check pipeline.
+/// @brief Top-level reusable camera-sequence script.
+/// Consumers are expected to expand this compact description into their own runtime playback/check pipeline.
 struct CCameraSequenceScript
 {
     bool enabled = true;
@@ -251,8 +276,8 @@ struct CCameraSequenceScript
     std::vector<CCameraSequenceSegment> segments;
 };
 
-//! Reusable compiled sequence segment derived from authored data plus captured references.
-//! Consumers can build their own runtime actions/checks from this normalized representation.
+/// @brief Reusable compiled sequence segment derived from authored data plus captured references.
+/// Consumers can build their own runtime actions/checks from this normalized representation.
 struct CCameraSequenceCompiledSegment
 {
     std::string name;
@@ -272,8 +297,8 @@ struct CCameraSequenceCompiledSegment
     }
 };
 
-//! One compiled frame policy entry derived from a reusable compiled segment.
-//! Consumers can map these booleans to their own runtime checks and capture requests.
+/// @brief One compiled frame policy entry derived from a reusable compiled segment.
+/// Consumers can map these booleans to their own runtime checks and capture requests.
 struct CCameraSequenceCompiledFramePolicy
 {
     uint64_t frameOffset = 0ull;
@@ -359,7 +384,7 @@ struct CCameraSequenceScriptUtilities final
         const auto& delta = authored.delta;
 
         const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
-        const bool hasSphericalDelta = delta.hasTargetOffset || delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta;
+        const bool hasSphericalDelta = delta.hasTargetOffset || delta.orbitDelta.hasAny();
         const bool hasPathDelta = delta.pathDelta.hasAny();
 
         if (hasPoseDelta && (hasSphericalDelta || hasPathDelta))
@@ -388,7 +413,7 @@ struct CCameraSequenceScriptUtilities final
             goal.targetPosition += delta.targetOffset;
         }
 
-        if (delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta)
+        if (delta.orbitDelta.hasAny())
         {
             if (!goal.hasOrbitState)
             {
@@ -397,20 +422,17 @@ struct CCameraSequenceScriptUtilities final
                 return false;
             }
 
-            const auto orbitUvDeltaRad = hlsl::float64_t2(
-                delta.hasOrbitUDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.x)) : hlsl::float64_t(0.0),
-                delta.hasOrbitVDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.y)) : hlsl::float64_t(0.0));
-            if (delta.hasOrbitUDeltaDeg)
-                goal.orbitUv.x = hlsl::CCameraMathUtilities::wrapAngleRad(goal.orbitUv.x + orbitUvDeltaRad.x);
-            if (delta.hasOrbitVDeltaDeg)
+            if (delta.orbitDelta.hasU)
+                goal.orbitUv.x = hlsl::CCameraMathUtilities::wrapAngleRad(goal.orbitUv.x + delta.orbitDelta.uvDeltaRad.x);
+            if (delta.orbitDelta.hasV)
             {
                 goal.orbitUv.y = std::clamp(
-                    goal.orbitUv.y + orbitUvDeltaRad.y,
+                    goal.orbitUv.y + delta.orbitDelta.uvDeltaRad.y,
                     -SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad,
                     SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad);
             }
-            if (delta.hasOrbitDistanceDelta)
-                goal.orbitDistance += delta.orbitDistanceDelta;
+            if (delta.orbitDelta.hasDistance)
+                goal.orbitDistance += delta.orbitDelta.distanceDelta;
         }
 
         if (delta.pathDelta.hasAny())
@@ -662,7 +684,7 @@ struct CCameraSequenceScriptUtilities final
         return std::max<uint64_t>(1ull, static_cast<uint64_t>(std::llround(static_cast<double>(safeDuration) * static_cast<double>(safeFps))));
     }
 
-    //! Build one sampled time per authored frame in the compiled segment.
+    /// @brief Build one sampled time per authored frame in the compiled segment.
     static inline void buildSequenceSampleTimes(const float durationSeconds, const uint64_t durationFrames, std::vector<float>& outTimes)
     {
         outTimes.clear();
@@ -675,7 +697,7 @@ struct CCameraSequenceScriptUtilities final
         }
     }
 
-    //! Expand normalized capture fractions into concrete frame offsets inside the compiled segment.
+    /// @brief Expand normalized capture fractions into concrete frame offsets inside the compiled segment.
     static inline void buildSequenceCaptureFrameOffsets(
     const uint64_t durationFrames,
     const std::vector<float>& captureFractions,
@@ -696,7 +718,7 @@ struct CCameraSequenceScriptUtilities final
         outOffsets.erase(std::unique(outOffsets.begin(), outOffsets.end()), outOffsets.end());
     }
 
-    //! Compile one authored sequence segment into normalized reusable data for runtime consumers.
+    /// @brief Compile one authored sequence segment into normalized reusable data for runtime consumers.
     static inline bool compileSequenceSegmentFromReference(
     const CCameraSequenceScript& script,
     const CCameraSequenceSegment& segment,

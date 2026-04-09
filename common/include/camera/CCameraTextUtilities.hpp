@@ -19,31 +19,31 @@ namespace nbl::ui
 struct CCameraTextUtilities final
 {
 public:
-	//! Return a short human-readable label for a camera kind.
+	/// @brief Return a short human-readable label for a camera kind.
 	static inline std::string_view getCameraTypeLabel(const core::ICamera::CameraKind kind)
 	{
 		return core::CCameraKindUtilities::getCameraKindLabel(kind);
 	}
 
-	//! Return a short human-readable label for a concrete camera instance.
+	/// @brief Return a short human-readable label for a concrete camera instance.
 	static inline std::string_view getCameraTypeLabel(const core::ICamera* camera)
 	{
 		return camera ? getCameraTypeLabel(camera->getKind()) : "Unknown";
 	}
 
-	//! Return a short human-readable description for a camera kind.
+	/// @brief Return a short human-readable description for a camera kind.
 	static inline std::string_view getCameraTypeDescription(const core::ICamera::CameraKind kind)
 	{
 		return core::CCameraKindUtilities::getCameraKindDescription(kind);
 	}
 
-	//! Return a short human-readable description for a concrete camera instance.
+	/// @brief Return a short human-readable description for a concrete camera instance.
 	static inline std::string_view getCameraTypeDescription(const core::ICamera* camera)
 	{
 		return camera ? getCameraTypeDescription(camera->getKind()) : "Unspecified camera behavior";
 	}
 
-	//! Return a short human-readable label for a follow mode.
+	/// @brief Return a short human-readable label for a follow mode.
 	static inline constexpr const char* getCameraFollowModeLabel(const core::ECameraFollowMode mode)
 	{
 		switch (mode)
@@ -57,7 +57,7 @@ public:
 		}
 	}
 
-	//! Return a short human-readable description for a follow mode.
+	/// @brief Return a short human-readable description for a follow mode.
 	static inline constexpr const char* getCameraFollowModeDescription(const core::ECameraFollowMode mode)
 	{
 		switch (mode)
@@ -71,7 +71,7 @@ public:
 		}
 	}
 
-	//! Describe the typed goal-state mask in a stable human-readable format.
+	/// @brief Describe the typed goal-state mask in a stable human-readable format.
 	static inline std::string describeGoalStateMask(const uint32_t mask)
 	{
 		if (mask == core::ICamera::GoalStateNone)
@@ -93,7 +93,7 @@ public:
 		return out;
 	}
 
-	//! Describe a detailed goal-apply result for logs, smoke tests, and UI summaries.
+	/// @brief Describe a detailed goal-apply result for logs, smoke tests, and UI summaries.
 	static inline std::string describeApplyResult(const core::CCameraGoalSolver::SApplyResult& result)
 	{
 		std::ostringstream oss;
@@ -134,7 +134,7 @@ public:
 		return oss.str();
 	}
 
-	//! Describe compatibility preview for applying one analyzed goal to a target camera.
+	/// @brief Describe compatibility preview for applying one analyzed goal to a target camera.
 	static inline std::string describeGoalApplyCompatibility(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
 	{
 		if (!analysis.hasCamera)
@@ -153,7 +153,7 @@ public:
 		return oss.str();
 	}
 
-	//! Describe whether an analyzed goal can be meaningfully applied to the target camera.
+	/// @brief Describe whether an analyzed goal can be meaningfully applied to the target camera.
 	static inline std::string describeGoalApplyPolicy(const core::SCameraGoalApplyAnalysis& analysis)
 	{
 		if (!analysis.hasCamera)
@@ -173,7 +173,7 @@ public:
 		return oss.str();
 	}
 
-	//! Describe whether one analyzed camera state can be captured into a reusable goal.
+	/// @brief Describe whether one analyzed camera state can be captured into a reusable goal.
 	static inline std::string describeCameraCapturePolicy(const core::SCameraCaptureAnalysis& analysis, const core::ICamera* camera)
 	{
 		if (!analysis.hasCamera)
@@ -189,7 +189,7 @@ public:
 		return oss.str();
 	}
 
-	//! Describe the aggregate outcome of applying one preset to multiple cameras.
+	/// @brief Describe the aggregate outcome of applying one preset to multiple cameras.
 	static inline std::string describePresetApplySummary(const core::SCameraPresetApplySummary& summary, std::string_view noTargetsLabel, std::string_view prefix = "Playback apply")
 	{
 		if (!summary.hasTargets())

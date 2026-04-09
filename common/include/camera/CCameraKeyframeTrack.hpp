@@ -14,7 +14,7 @@
 namespace nbl::core
 {
 
-//! Reusable keyframe container plus selection state for playback tooling.
+/// @brief Reusable keyframe container plus selection state for playback tooling.
 struct CCameraKeyframeTrack
 {
     std::vector<CCameraKeyframe> keyframes;
@@ -24,7 +24,7 @@ struct CCameraKeyframeTrack
 struct CCameraKeyframeTrackUtilities final
 {
 public:
-    //! Compare two keyframes by authored time and shared preset state.
+    /// @brief Compare two keyframes by authored time and shared preset state.
     static inline bool compareKeyframes(const CCameraKeyframe& lhs, const CCameraKeyframe& rhs,
         const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
     {
@@ -32,7 +32,7 @@ public:
             CCameraPresetUtilities::comparePresets(lhs.preset, rhs.preset, posEps, rotEpsDeg, scalarEps);
     }
 
-    //! Compare two authored keyframe tracks with optional selection-state checking.
+    /// @brief Compare two authored keyframe tracks with optional selection-state checking.
     static inline bool compareKeyframeTracks(const CCameraKeyframeTrack& lhs, const CCameraKeyframeTrack& rhs,
         const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps, const bool compareSelection = true)
     {
@@ -48,7 +48,7 @@ public:
         return true;
     }
 
-    //! Compare only the serialized/authored content of two tracks and ignore transient UI selection state.
+    /// @brief Compare only the serialized/authored content of two tracks and ignore transient UI selection state.
     static inline bool compareKeyframeTrackContent(const CCameraKeyframeTrack& lhs, const CCameraKeyframeTrack& rhs,
         const double timeEps, const double posEps, const double rotEpsDeg, const double scalarEps)
     {

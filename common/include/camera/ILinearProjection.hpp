@@ -7,10 +7,10 @@
 namespace nbl::core
 {
 
-/**
- * @brief Interface class for any custom linear projection transformation (matrix elements are already evaluated scalars)
- * referencing a camera, great for Perspective, Orthographic, Oblique, Axonometric and Shear projections
- */
+/// @brief Interface for any custom linear projection transformation.
+///
+/// Matrix elements are already evaluated scalars referencing a camera.
+/// This covers perspective, orthographic, oblique, axonometric, and shear projections.
 class ILinearProjection : virtual public core::IReferenceCounted
 {
 protected:
@@ -20,13 +20,13 @@ protected:
 
     core::smart_refctd_ptr<ICamera> m_camera;
 public:
-    //! underlying type for linear world TRS matrix
+    /// @brief underlying type for linear world TRS matrix
     using model_matrix_t = typename decltype(m_camera)::pointee::CGimbal::model_matrix_t;
 
-    //! underlying type for linear concatenated matrix
+    /// @brief underlying type for linear concatenated matrix
     using concatenated_matrix_t = hlsl::float64_t4x4;
 
-    //! underlying type for linear inverse of concatenated matrix
+    /// @brief underlying type for linear inverse of concatenated matrix
     using inv_concatenated_matrix_t = std::optional<hlsl::float64_t4x4>;
 
     struct CProjection : public IProjection
@@ -38,10 +38,10 @@ public:
         CProjection() : CProjection(projection_matrix_t(1)) {}
         CProjection(const projection_matrix_t& matrix) { setProjectionMatrix(matrix); }
 
-        //! Returns P (Projection matrix)
+        /// @brief Returns P (Projection matrix)
         inline const projection_matrix_t& getProjectionMatrix() const { return m_projectionMatrix; }
 
-        //! Returns P⁻¹ (Inverse of Projection matrix) *if it exists*
+        /// @brief Returns P⁻¹ (Inverse of Projection matrix) *if it exists*
         inline const inv_projection_matrix_t& getInvProjectionMatrix() const { return m_invProjectionMatrix; }
 
         inline const std::optional<bool>& isProjectionLeftHanded() const { return m_isProjectionLeftHanded; }
@@ -111,23 +111,21 @@ public:
         return m_camera.get();
     }
 
-    /**
-    * @brief Computes Model View (MV) matrix
-    * @param "model" is world TRS matrix
-    * @return Returns MV matrix
-    */
+    /// @brief Compute the model-view matrix.
+    ///
+    /// @param model World TRS matrix.
+    /// @return The model-view matrix.
     inline concatenated_matrix_t getMV(const model_matrix_t& model) const
     {
         const auto& v = m_camera->getGimbal().getViewMatrix();
         return hlsl::mul(hlsl::getMatrix3x4As4x4(v), hlsl::getMatrix3x4As4x4(model));
     }
 
-    /**
-    * @brief Computes Model View Projection (MVP) matrix
-    * @param "projection" is linear projection
-    * @param "model" is world TRS matrix
-    * @return Returns MVP matrix
-    */
+    /// @brief Compute the model-view-projection matrix from a model matrix.
+    ///
+    /// @param projection Linear projection.
+    /// @param model World TRS matrix.
+    /// @return The model-view-projection matrix.
     inline concatenated_matrix_t getMVP(const CProjection& projection, const model_matrix_t& model) const
     {
         const auto& v = m_camera->getGimbal().getViewMatrix();
@@ -136,23 +134,21 @@ public:
         return hlsl::mul(p, mv);
     }
 
-    /**
-    * @brief Computes Model View Projection (MVP) matrix
-    * @param "projection" is linear projection 
-    * @param "mv" is Model View (MV) matrix 
-    * @return Returns MVP matrix
-    */
+    /// @brief Compute the model-view-projection matrix from a model-view matrix.
+    ///
+    /// @param projection Linear projection.
+    /// @param mv Model-view matrix.
+    /// @return The model-view-projection matrix.
     inline concatenated_matrix_t getMVP(const CProjection& projection, const concatenated_matrix_t& mv) const
     {
         const auto& p = projection.getProjectionMatrix();
         return hlsl::mul(p, mv);
     }
 
-    /**
-    * @brief Computes Inverse of Model View ((MV)⁻¹) matrix
-    * @param "mv" is Model View (MV) matrix
-    * @return Returns ((MV)⁻¹) matrix *if it exists*, otherwise returns std::nullopt
-    */
+    /// @brief Compute the inverse model-view matrix.
+    ///
+    /// @param model World TRS matrix.
+    /// @return The inverse model-view matrix when it exists, otherwise `std::nullopt`.
     inline inv_concatenated_matrix_t getMVInverse(const model_matrix_t& model) const
     {
         const auto mv = getMV(model);
@@ -161,12 +157,11 @@ public:
         return std::nullopt;
     }
 
-    /**
-    * @brief Computes Inverse of Model View Projection ((MVP)⁻¹) matrix
-    * @param "projection" is linear projection 
-    * @param "model" is world TRS matrix
-    * @return Returns ((MVP)⁻¹) matrix *if it exists*, otherwise returns std::nullopt
-    */
+    /// @brief Compute the inverse model-view-projection matrix.
+    ///
+    /// @param projection Linear projection.
+    /// @param model World TRS matrix.
+    /// @return The inverse model-view-projection matrix when it exists, otherwise `std::nullopt`.
     inline inv_concatenated_matrix_t getMVPInverse(const CProjection& projection, const model_matrix_t& model) const
     {
         const auto mvp = getMVP(projection, model);

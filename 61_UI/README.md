@@ -20,7 +20,7 @@ Its job is to consume the shared camera APIs and expose them through a visible, 
 
 ## What `61_UI` contributes locally
 
-The reusable camera layer stops at shared camera-domain contracts.
+The reusable camera layer stops at shared camera-domain interfaces.
 `61_UI` adds the local glue needed to turn that into an example application:
 
 - scene setup and demo geometry
@@ -102,7 +102,7 @@ Manual runtime and scripted continuity both drive the same follow layer.
 Purpose:
 
 - validate basic camera selection and movement
-- validate helper contracts in a small, cheap run
+- validate helper behavior in a small, cheap run
 
 ### Continuity
 

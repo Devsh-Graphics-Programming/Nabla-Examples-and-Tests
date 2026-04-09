@@ -12,7 +12,7 @@ namespace nbl::core
 
 struct CCameraProjectionUtilities final
 {
-    //! Apply a camera-provided dynamic perspective FOV to one planar projection entry.
+    /// @brief Apply a camera-provided dynamic perspective FOV to one planar projection entry.
     static inline bool syncDynamicPerspectiveProjection(ICamera* camera, IPlanarProjection::CProjection& projection)
     {
         if (!camera)

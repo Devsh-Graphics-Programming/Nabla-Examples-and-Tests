@@ -12,9 +12,7 @@
 namespace nbl::ui
 {
 
-/**
-* Runtime processor that turns keyboard, mouse, and ImGuizmo input into virtual events.
-*/
+/// @brief Runtime processor that turns keyboard, mouse, and ImGuizmo input into virtual events.
 class IGimbalInputProcessor : public CGimbalBindingLayoutStorage
 {
 public:
@@ -33,13 +31,13 @@ public:
     IGimbalInputProcessor() = default;
     virtual ~IGimbalInputProcessor() = default;
 
-    //! Keyboard events consumed by the processor.
+    /// @brief Keyboard events consumed by the processor.
     using input_keyboard_event_t = ui::SKeyboardEvent;
 
-    //! Mouse events consumed by the processor.
+    /// @brief Mouse events consumed by the processor.
     using input_mouse_event_t = ui::SMouseEvent;
 
-    //! ImGuizmo world-space delta transforms consumed by the processor.
+    /// @brief ImGuizmo world-space delta transforms consumed by the processor.
     using input_imguizmo_event_t = hlsl::float32_t4x4;
 
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
@@ -60,29 +58,16 @@ public:
         std::span<const input_imguizmo_event_t> imguizmoEvents = {};
     };
 
-    /**
-    * @brief Processes combined events from SUpdateParameters to generate virtual manipulation events.
-    *
-    * @note This function combines the processing of events from keyboards, mouse and ImGuizmo.
-    * It delegates the actual processing to the respective functions:
-    * - @ref processKeyboard for keyboard events
-    * - @ref processMouse for mouse events
-    * - @ref processImguizmo for ImGuizmo events
-    * The results are accumulated into the output array and the total count.
-    *
-    * @param "output" is a pointer to the array where all generated gimbal events will be stored.
-    * If nullptr, the function will only calculate the total count of potential
-    * output events without processing.
-    *
-    * @param "count" is a uint32_t reference to store the total count of generated gimbal events.
-    *
-    * @param "parameters" is an SUpdateParameters structure containing the individual event arrays
-    * for keyboard, mouse, and ImGuizmo inputs.
-    *
-    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
-    * containing "count" events. If "output" is nullptr, "count" tells you the total size of "output"
-    * you must guarantee to be valid.
-    */
+    /// @brief Process combined events from `SUpdateParameters` into virtual manipulation events.
+    ///
+    /// @note This function combines keyboard, mouse, and ImGuizmo processing.
+    /// It delegates the actual work to `processKeyboard`, `processMouse`, and
+    /// `processImguizmo`, then accumulates their output and total count.
+    ///
+    /// @param output Pointer to the destination array for generated gimbal events.
+    /// Pass `nullptr` to query only the total event count.
+    /// @param count Output total number of generated gimbal events.
+    /// @param parameters Individual keyboard, mouse, and ImGuizmo input spans.
     void process(gimbal_event_t* output, uint32_t& count, const SUpdateParameters parameters = {})
     {
         count = 0u;
@@ -104,25 +89,15 @@ public:
         count = vKeyboardEventsCount + vMouseEventsCount + vImguizmoEventsCount;
     }
 
-    /**
-    * @brief Processes keyboard events to generate virtual manipulation events.
-    *
-    * @note This function maps keyboard events into virtual gimbal manipulation events
-    * based on predefined mappings. It supports event types such as key press and key release
-    * to trigger corresponding actions.
-    *
-    * @param "output" is a pointer to the array where generated gimbal events will be stored.
-    * If nullptr, the function will only calculate the count of potential
-    * output events without processing.
-    *
-    * @param "count" is a uint32_t reference to store the count of generated gimbal events.
-    *
-    * @param "events" is a span of input_keyboard_event_t. Each such event contains a key code and action,
-    * such as key press or release.
-    *
-    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
-    * containing "count" events. If "output" is nullptr, "count" tells you the size of "output" you must guarantee to be valid.
-    */
+    /// @brief Process keyboard events into virtual manipulation events.
+    ///
+    /// @note This function maps keyboard press and release events into virtual
+    /// gimbal manipulation events through the active keyboard bindings.
+    ///
+    /// @param output Pointer to the destination array for generated gimbal events.
+    /// Pass `nullptr` to query only the total event count.
+    /// @param count Output number of generated gimbal events.
+    /// @param events Keyboard events to process.
     void processKeyboard(gimbal_event_t* output, uint32_t& count, std::span<const input_keyboard_event_t> events)
     {
         processBindingMap(
@@ -141,25 +116,15 @@ public:
             });
     }
 
-    /**
-    * @brief Processes mouse events to generate virtual manipulation events.
-    *
-    * @note This function processes mouse input, including clicks, scrolls, and movements,
-    * and maps them into virtual gimbal manipulation events. Mouse actions are processed
-    * using predefined mappings to determine corresponding gimbal manipulations.
-    *
-    * @param "output" is a pointer to the array where generated gimbal events will be stored.
-    * If nullptr, the function will only calculate the count of potential
-    * output events without processing.
-    *
-    * @param "count" is a uint32_t reference to store the count of generated gimbal events.
-    *
-    * @param "events" is a span of input_mouse_event_t. Each such event represents a mouse action,
-    * including clicks, scrolls, or movements.
-    *
-    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
-    * containing "count" events. If "output" is nullptr, "count" tells you the size of "output" you must guarantee to be valid.
-    */
+    /// @brief Process mouse events into virtual manipulation events.
+    ///
+    /// @note This function maps mouse clicks, scrolls, and movements into
+    /// virtual gimbal manipulation events through the active mouse bindings.
+    ///
+    /// @param output Pointer to the destination array for generated gimbal events.
+    /// Pass `nullptr` to query only the total event count.
+    /// @param count Output number of generated gimbal events.
+    /// @param events Mouse events to process.
     void processMouse(gimbal_event_t* output, uint32_t& count, std::span<const input_mouse_event_t> events)
     {
         processBindingMap(
@@ -203,26 +168,15 @@ public:
             });
     }
 
-    /**
-    * @brief Processes input events from ImGuizmo and generates virtual gimbal events.
-    *
-    * @note This function processes world-space delta transforms authored by ImGuizmo and converts
-    * them into virtual gimbal events for world-space camera manipulation.
-    * The function computes translation, rotation, and scale deltas from each transform matrix,
-    * which are then mapped to corresponding virtual events using a predefined mapping.
-    *
-    * @param "output" is pointer to the array where generated gimbal events will be stored.
-    * If nullptr, the function will only calculate the count of potential
-    * output events without processing.
-    * 
-    * @param "count" is uint32_t reference to store the count of generated gimbal events.
-    * 
-    * @param "events" is a span of input_imguizmo_event_t. Each such event contains a delta
-    * transformation matrix that represents changes in world space.
-    * 
-    * @return void. If "count" > 0 & "output" was valid pointer then use it to dereference your "output" containing "count" events. 
-    * If "output" is nullptr then "count" tells you about size of "output" you must guarantee to be valid.
-    */
+    /// @brief Process ImGuizmo transforms into virtual gimbal events.
+    ///
+    /// @note This function converts world-space delta transforms authored by
+    /// ImGuizmo into translation, rotation, and scale virtual events.
+    ///
+    /// @param output Pointer to the destination array for generated gimbal events.
+    /// Pass `nullptr` to query only the total event count.
+    /// @param count Output number of generated gimbal events.
+    /// @param events ImGuizmo delta transforms to process.
     void processImguizmo(gimbal_event_t* output, uint32_t& count, std::span<const input_imguizmo_event_t> events)
     {
         processBindingMap(

@@ -172,18 +172,15 @@ bool deserializeSequenceGoalDeltaJson(const json_t& root, nbl::core::CCameraSequ
     }
     if (root.contains("orbit_u_delta_deg"))
     {
-        out.orbitUvDeltaDeg.x = root["orbit_u_delta_deg"].get<double>();
-        out.hasOrbitUDeltaDeg = true;
+        out.orbitDelta.setUDeltaDeg(root["orbit_u_delta_deg"].get<double>());
     }
     if (root.contains("orbit_v_delta_deg"))
     {
-        out.orbitUvDeltaDeg.y = root["orbit_v_delta_deg"].get<double>();
-        out.hasOrbitVDeltaDeg = true;
+        out.orbitDelta.setVDeltaDeg(root["orbit_v_delta_deg"].get<double>());
     }
     if (root.contains("orbit_distance_delta"))
     {
-        out.orbitDistanceDelta = root["orbit_distance_delta"].get<float>();
-        out.hasOrbitDistanceDelta = true;
+        out.orbitDelta.setDistanceDelta(root["orbit_distance_delta"].get<float>());
     }
     if (root.contains("path_s_delta_deg"))
     {

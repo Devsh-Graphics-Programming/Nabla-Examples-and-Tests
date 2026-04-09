@@ -578,7 +578,7 @@ namespace
 				followResult,
 				&followError))
 		{
-			outError = std::string("Follow smoke contract failed for ") + std::string(label) + ". " + followError;
+			outError = std::string("Follow smoke validation failed for ") + std::string(label) + ". " + followError;
 			return false;
 		}
 		if (!verifyFollowVisualMetrics(planarSpan, camera, trackedTarget, followConfig, label.data(), &followError))
@@ -1040,7 +1040,7 @@ namespace
 			return true;
 		}
 
-		outError = std::string("Follow smoke contract failed for ") + std::string(label) + ". " + regressionError;
+		outError = std::string("Follow smoke validation failed for ") + std::string(label) + ". " + regressionError;
 		return false;
 	}
 

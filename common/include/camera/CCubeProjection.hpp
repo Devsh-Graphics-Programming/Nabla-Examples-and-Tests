@@ -7,36 +7,33 @@
 namespace nbl::core
 {
 
-/**
-* @brief A projection where each cube face is a perspective quad we project onto.
-*
-* Represents a cube projection given direction vector where each face of 
-* the cube is treated as a quad. The projection onto the cube is done using
-* these quads and each face has its own unique pre-transform and
-* view-port linear matrix.
-*/
+/// @brief Projection where each cube face is a perspective quad.
+///
+/// This represents a cube projection for a direction vector where each face of
+/// the cube is treated as a quad. Projection onto the cube is done through
+/// those quads, each with its own pre-transform and viewport linear matrix.
 class CCubeProjection final : public IPerspectiveProjection, public IProjection
 {
 public:
-    //! Represents six face identifiers of a cube.
+    /// @brief Represents six face identifiers of a cube.
     enum CubeFaces : uint8_t
     {
-        //! Cube face in the +X base direction
+        /// @brief Cube face in the +X base direction
         PositiveX = 0,
 
-        //! Cube face in the -X base direction
+        /// @brief Cube face in the -X base direction
         NegativeX,
 
-        //! Cube face in the +Y base direction
+        /// @brief Cube face in the +Y base direction
         PositiveY,
 
-        //! Cube face in the -Y base direction
+        /// @brief Cube face in the -Y base direction
         NegativeY,
 
-        //! Cube face in the +Z base direction
+        /// @brief Cube face in the +Z base direction
         PositiveZ,
 
-        //! Cube face in the -Z base direction
+        /// @brief Cube face in the -Z base direction
         NegativeZ,
 
         CubeFacesCount

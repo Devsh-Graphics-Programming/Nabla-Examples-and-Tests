@@ -280,7 +280,7 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
 
-		//! One window & surface
+		/// @brief One window and surface.
 		smart_refctd_ptr<CSmoothResizeSurface<CSwapchainResources>> m_surface;
 		smart_refctd_ptr<IWindow> m_window;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
@@ -306,7 +306,7 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		// Handles keyboard events
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-		//! next presentation timestamp
+		/// @brief Next presentation timestamp.
 		std::chrono::microseconds m_nextPresentationTimestamp = {};
 
 		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;

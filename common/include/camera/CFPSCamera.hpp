@@ -12,7 +12,7 @@
 namespace nbl::core
 {
 
-//! Free-position camera that keeps the view upright and exposes only yaw/pitch rotation.
+/// @brief Free-position camera that keeps the view upright and exposes only yaw/pitch rotation.
 class CFPSCamera final : public ICamera
 { 
 public:

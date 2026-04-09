@@ -21,7 +21,7 @@ namespace nbl::core
         using quaternion_t = hlsl::camera_quaternion_t<precision_t>;
         template<uint32_t N>
         using vector_t = hlsl::camera_vector_t<precision_t, N>;
-        //! underlying type for world matrix (TRS)
+        /// @brief underlying type for world matrix (TRS)
         using model_matrix_t = hlsl::matrix<precision_t, 3, 4>;
 
         struct VirtualImpulse
@@ -29,7 +29,7 @@ namespace nbl::core
             vector_t<3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 1.0f };
         };
 
-        //! Accumulates one frame of virtual events into a translation/rotation/scale impulse.
+        /// @brief Accumulates one frame of virtual events into a translation/rotation/scale impulse.
         template <uint32_t AllowedEvents>
         VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents, const vector_t<3u>& gRightOverride, const vector_t<3u>& gUpOverride, const vector_t<3u>& gForwardOverride)
         {
@@ -223,16 +223,16 @@ namespace nbl::core
             m_isManipulating = false;
         }
 
-        //! Position of gimbal in world space
+        /// @brief Position of gimbal in world space
         inline const auto& getPosition() const { return m_position; }
 
-        //! Orientation of gimbal
+        /// @brief Orientation of gimbal
         inline const auto& getOrientation() const { return m_orientation; }
 
-        //! Scale transform component
+        /// @brief Scale transform component
         inline const auto& getScale() const { return m_scale; }
 
-        //! World matrix (TRS)
+        /// @brief World matrix (TRS)
         template<typename TRS = model_matrix_t>
         requires is_any_of_v<TRS, model_matrix_t, hlsl::matrix<T, 4u, 4u>>
         const TRS operator()() const
@@ -262,28 +262,28 @@ namespace nbl::core
             }
         }
 
-        //! Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
+        /// @brief Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
         inline const auto& getOrthonornalMatrix() const { return m_orthonormal; }
 
-        //! Base "right" vector in orthonormal orientation basis (X-axis)
+        /// @brief Base "right" vector in orthonormal orientation basis (X-axis)
         inline const auto& getXAxis() const { return m_orthonormal[0u]; }
 
-        //! Base "up" vector in orthonormal orientation basis (Y-axis)
+        /// @brief Base "up" vector in orthonormal orientation basis (Y-axis)
         inline const auto& getYAxis() const { return m_orthonormal[1u]; }
 
-        //! Base "forward" vector in orthonormal orientation basis (Z-axis)
+        /// @brief Base "forward" vector in orthonormal orientation basis (Z-axis)
         inline const auto& getZAxis() const { return m_orthonormal[2u]; }
 
-        //! Target vector in local space, alias for getZAxis()
+        /// @brief Target vector in local space, alias for getZAxis()
         inline const auto getLocalTarget() const { return getZAxis(); }
 
-        //! Target vector in world space
+        /// @brief Target vector in world space
         inline const auto getWorldTarget() const { return getPosition() + getLocalTarget(); }
 
-        //! Counts how many times a valid manipulation has been performed, the counter resets when begin() is called
+        /// @brief Counts how many times a valid manipulation has been performed, the counter resets when begin() is called
         inline const auto& getManipulationCounter() { return m_counter; }
 
-        //! Returns true if gimbal records a manipulation 
+        /// @brief Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
 
         bool extractReferenceTransform(CReferenceTransform* out, const hlsl::float64_t4x4* referenceFrame = nullptr)
@@ -311,22 +311,22 @@ namespace nbl::core
             m_orthonormal = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(m_orientation);
         }
 
-        //! Position of a gimbal in world space
+        /// @brief Position of a gimbal in world space
         vector_t<3u> m_position;
 
-        //! Normalized orientation of gimbal
+        /// @brief Normalized orientation of gimbal
         quaternion_t m_orientation;
 
-        //! Scale transform component
+        /// @brief Scale transform component
         vector_t<3u> m_scale = { 1.f, 1.f , 1.f };
 
-        //! Orthonormal basis reconstructed from the current orientation.
+        /// @brief Orthonormal basis reconstructed from the current orientation.
         hlsl::matrix<precision_t, 3, 3> m_orthonormal;
 
-        //! Counter that increments for each performed manipulation, resets with each begin() call
+        /// @brief Counter that increments for each performed manipulation, resets with each begin() call
         size_t m_counter = {};
 
-        //! Tracks whether gimbal is currently in manipulation mode
+        /// @brief Tracks whether gimbal is currently in manipulation mode
         bool m_isManipulating = false;
 
     };

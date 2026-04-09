@@ -18,16 +18,14 @@ struct SCameraProjectedTargetMetrics final
     float radius = 0.0f;
 };
 
-/**
-* Reusable follow-contract validation helpers.
-*
-* The checks stay camera-domain:
-*
-* - camera-to-target direction must match the camera forward axis for locking modes
-* - target distance must be finite and internally consistent
-* - spherical cameras must write the tracked target back into spherical target state
-* - spherical distance must match the goal-derived distance when present
-*/
+/// @brief Reusable follow validation helpers.
+///
+/// The checks stay camera-domain:
+///
+/// - camera-to-target direction must match the camera forward axis for locking modes
+/// - target distance must be finite and internally consistent
+/// - spherical cameras must write the tracked target back into spherical target state
+/// - spherical distance must match the goal-derived distance when present
 struct SCameraFollowRegressionResult
 {
     bool passed = false;
@@ -41,7 +39,7 @@ struct SCameraFollowRegressionResult
     float sphericalDistance = 0.0f;
 };
 
-//! Reusable visual/debug metrics for one active follow configuration.
+/// @brief Reusable visual/debug metrics for one active follow configuration.
 struct SCameraFollowVisualMetrics
 {
     bool active = false;
@@ -53,14 +51,14 @@ struct SCameraFollowVisualMetrics
     SCameraProjectedTargetMetrics projectedTarget = {};
 };
 
-//! Shared view/projection bundle for CPU-side projected target metrics.
+/// @brief Shared view/projection bundle for CPU-side projected target metrics.
 struct SCameraProjectionContext
 {
     hlsl::float32_t4x4 viewMatrix = hlsl::float32_t4x4(1.0f);
     hlsl::float32_t4x4 projectionMatrix = hlsl::float32_t4x4(1.0f);
 };
 
-//! Shared tolerances for follow target lock, writeback, and projected-center checks.
+/// @brief Shared tolerances for follow target lock, writeback, and projected-center checks.
 struct SCameraFollowRegressionThresholds
 {
     static inline constexpr float DefaultClipWEpsilon = 1e-5f;
@@ -82,9 +80,9 @@ struct SCameraFollowRegressionThresholds
     double scalarTolerance = DefaultScalarTolerance;
 };
 
-//! Bundled reusable follow regression flow.
-//! The helper builds a follow goal, applies it, verifies the resulting camera state,
-//! and then checks the lock/writeback follow contract.
+/// @brief Bundled reusable follow regression flow.
+/// The helper builds a follow goal, applies it, verifies the resulting camera state,
+/// and then checks lock/writeback follow consistency.
 struct SCameraFollowApplyValidationResult
 {
     bool hasGoal = false;

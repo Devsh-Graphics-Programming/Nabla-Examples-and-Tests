@@ -6,21 +6,19 @@
 namespace nbl::core
 {
 
-/**
-* @brief Interface class for quad projections.
-*
-* This projection transforms a vector into the **model space of a perspective quad**
-* (defined by the pre-transform matrix) and then projects it onto the perspective quad
-* using the linear view-port transform.
-*
-* A perspective quad projection is represented by:
-* - A **pre-transform matrix** (non-linear/skewed transformation).
-* - A **linear view-port transform matrix**.
-*
-* The final projection matrix is the concatenation of the pre-transform and the linear view-port transform.
-*
-* @note Single perspective quad projection can represent a face quad of a CAVE-like system.
-*/
+/// @brief Interface for quad projections.
+///
+/// This projection transforms a vector into the model space of a perspective
+/// quad defined by the pre-transform matrix and then projects it onto the quad
+/// using the linear viewport transform.
+///
+/// A perspective quad projection is represented by:
+/// - a pre-transform matrix
+/// - a linear viewport transform matrix
+///
+/// The final projection matrix is the concatenation of those two transforms.
+///
+/// @note One perspective quad projection can represent a face quad of a CAVE-like system.
 class IPerspectiveProjection : public ILinearProjection
 {
 public:

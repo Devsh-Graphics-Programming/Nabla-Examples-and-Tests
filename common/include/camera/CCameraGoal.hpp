@@ -18,9 +18,7 @@
 namespace nbl::core
 {
 
-/**
-* Typed transport object for camera state used by capture, comparison, presets, and playback.
-*/
+/// @brief Typed transport object for camera state used by capture, comparison, presets, and playback.
 struct CCameraGoal : SCameraRigPose
 {
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;

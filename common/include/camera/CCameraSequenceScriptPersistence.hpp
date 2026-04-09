@@ -17,11 +17,11 @@ namespace nbl::system
 
 class ISystem;
 
-//! Parse one compact camera-sequence script from an existing stream.
+/// @brief Parse one compact camera-sequence script from an existing stream.
 bool readCameraSequenceScript(std::istream& in, core::CCameraSequenceScript& out, std::string* error = nullptr);
-//! Parse one compact camera-sequence script directly from text.
+/// @brief Parse one compact camera-sequence script directly from text.
 bool readCameraSequenceScript(std::string_view text, core::CCameraSequenceScript& out, std::string* error = nullptr);
-//! Load one compact camera-sequence script from a file.
+/// @brief Load one compact camera-sequence script from a file.
 bool loadCameraSequenceScriptFromFile(ISystem& system, const path& path, core::CCameraSequenceScript& out, std::string* error = nullptr);
 
 } // namespace nbl::system

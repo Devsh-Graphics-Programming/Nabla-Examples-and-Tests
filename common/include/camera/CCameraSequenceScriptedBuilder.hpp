@@ -14,28 +14,26 @@
 namespace nbl::system
 {
 
-/**
-* Build expanded scripted runtime data from a compiled camera-sequence segment.
-*
-* This keeps authored sequence semantics in shared camera helpers instead of re-encoding
-* `Goal`, `TrackedTargetTransform`, `Baseline`, `GimbalStep`, and capture scheduling inside
-* one consumer.
-*/
+/// @brief Build expanded scripted runtime data from a compiled camera-sequence segment.
+///
+/// This keeps authored sequence semantics in shared camera helpers instead of re-encoding
+/// `Goal`, `TrackedTargetTransform`, `Baseline`, `GimbalStep`, and capture scheduling inside
+/// one consumer.
 struct CCameraSequenceScriptedSegmentBuildInfo
 {
-    //! Planar that should receive the compiled segment.
+    /// @brief Planar that should receive the compiled segment.
     uint32_t planarIx = 0u;
-    //! Number of windows the consumer can actually route presentation actions to.
+    /// @brief Number of windows the consumer can actually route presentation actions to.
     size_t availableWindowCount = 1u;
-    //! Whether secondary window presentation actions should be emitted.
+    /// @brief Whether secondary window presentation actions should be emitted.
     bool useWindow = false;
-    //! Whether per-frame follow-lock checks should be generated for this segment.
+    /// @brief Whether per-frame follow-lock checks should be generated for this segment.
     bool includeFollowTargetLock = false;
 };
 
 struct CCameraSequenceScriptedBuilderUtilities final
 {
-    //! Append one compiled segment as expanded scripted runtime payloads.
+    /// @brief Append one compiled segment as expanded scripted runtime payloads.
     static inline bool appendCompiledSequenceSegmentToScriptedTimeline(
         CCameraScriptedTimeline& timeline,
         const uint64_t baseFrame,

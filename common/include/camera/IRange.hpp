@@ -4,7 +4,7 @@
 namespace nbl::core
 {
 
-//! Minimal concepts used by camera persistence and tooling helpers.
+/// @brief Minimal concepts used by camera persistence and tooling helpers.
 template<typename R>
 concept GeneralPurposeRange = requires
 {

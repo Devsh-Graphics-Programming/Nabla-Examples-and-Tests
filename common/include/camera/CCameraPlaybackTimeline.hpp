@@ -10,8 +10,8 @@
 namespace nbl::core
 {
 
-//! Shared playback cursor state for camera keyframe tracks.
-//! The cursor is intentionally transport-only so consumers can own higher-level playback policy.
+/// @brief Shared playback cursor state for camera keyframe tracks.
+/// The cursor is intentionally transport-only so consumers can own higher-level playback policy.
 struct CCameraPlaybackCursor
 {
     bool playing = false;
@@ -20,8 +20,8 @@ struct CCameraPlaybackCursor
     float time = 0.f;
 };
 
-//! Outcome of advancing a playback cursor against a keyframe track.
-//! This separates raw time stepping from higher-level consumer policy and UI feedback.
+/// @brief Outcome of advancing a playback cursor against a keyframe track.
+/// This separates raw time stepping from higher-level consumer policy and UI feedback.
 struct SCameraPlaybackAdvanceResult
 {
     bool hasTrack = false;
@@ -36,7 +36,7 @@ struct SCameraPlaybackAdvanceResult
 struct CCameraPlaybackTimelineUtilities final
 {
 public:
-    //! Duration of the current playback track in seconds.
+    /// @brief Duration of the current playback track in seconds.
     static inline float getPlaybackTrackDuration(const CCameraKeyframeTrack& track)
     {
         if (track.keyframes.empty())
@@ -45,20 +45,20 @@ public:
         return track.keyframes.back().time;
     }
 
-    //! Reset cursor time and stop playback without mutating loop or speed settings.
+    /// @brief Reset cursor time and stop playback without mutating loop or speed settings.
     static inline void resetPlaybackCursor(CCameraPlaybackCursor& cursor, const float time = 0.f)
     {
         cursor.playing = false;
         cursor.time = std::max(0.f, time);
     }
 
-    //! Clamp cursor time into the valid time range of the current track.
+    /// @brief Clamp cursor time into the valid time range of the current track.
     static inline void clampPlaybackCursorToTrack(const CCameraKeyframeTrack& track, CCameraPlaybackCursor& cursor)
     {
         CCameraKeyframeTrackUtilities::clampTrackTimeToKeyframes(track, cursor.time);
     }
 
-    //! Advance cursor time by `dtSec * speed` and report whether playback wrapped or stopped.
+    /// @brief Advance cursor time by `dtSec * speed` and report whether playback wrapped or stopped.
     static inline SCameraPlaybackAdvanceResult advancePlaybackCursor(CCameraPlaybackCursor& cursor, const CCameraKeyframeTrack& track, const double dtSec)
     {
         SCameraPlaybackAdvanceResult result;

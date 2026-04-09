@@ -8,12 +8,10 @@
 namespace nbl::ui
 {
 
-/**
-* High-level runtime binder for consumers and viewport glue.
-*
-* It owns active runtime mappings and collects one frame of virtual events
-* from raw keyboard, mouse, and ImGuizmo input.
-*/
+/// @brief High-level runtime binder for consumers and viewport glue.
+///
+/// It owns active runtime mappings and collects one frame of virtual events
+/// from raw keyboard, mouse, and ImGuizmo input.
 class CGimbalInputBinder final : public IGimbalInputProcessor
 {
 public:
@@ -25,7 +23,7 @@ public:
 
     struct SCollectedVirtualEvents
     {
-        //! Concatenated output buffer plus per-domain counts for diagnostics.
+        /// @brief Concatenated output buffer plus per-domain counts for diagnostics.
         std::vector<gimbal_event_t> events;
         uint32_t keyboardCount = 0u;
         uint32_t mouseCount = 0u;
@@ -37,7 +35,7 @@ public:
         }
     };
 
-    // Runtime input binder. It translates external keyboard/mouse/ImGuizmo input into virtual events.
+    /// @brief Translate one frame of external keyboard, mouse, and ImGuizmo input into virtual events.
     inline void clearActiveBindings()
     {
         updateKeyboardMapping([](auto& map) { map.clear(); });

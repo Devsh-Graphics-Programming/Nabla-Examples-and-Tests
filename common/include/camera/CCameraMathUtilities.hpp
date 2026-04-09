@@ -12,7 +12,7 @@
 namespace nbl::hlsl
 {
 
-//! Camera-oriented math aliases and helpers built on top of Nabla `nbl::hlsl` types.
+/// @brief Camera-oriented math aliases and helpers built on top of Nabla `nbl::hlsl` types.
 template<typename T, uint32_t N>
 using camera_vector_t = vector<T, N>;
 

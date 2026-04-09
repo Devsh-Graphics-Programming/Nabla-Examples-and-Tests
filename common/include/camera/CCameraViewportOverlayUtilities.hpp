@@ -14,7 +14,7 @@
 namespace nbl::ui
 {
 
-//! Screen-space viewport rectangle used by debug overlay helpers.
+/// @brief Screen-space viewport rectangle used by debug overlay helpers.
 struct SViewportOverlayRect final
 {
     ImVec2 position = ImVec2(0.0f, 0.0f);
@@ -38,7 +38,7 @@ struct SViewportOverlayRect final
     }
 };
 
-//! Shared style bundle for the follow-target viewport overlay.
+/// @brief Shared style bundle for the follow-target viewport overlay.
 struct SCameraFollowTargetViewportOverlayStyle final
 {
     static constexpr float CenteredNdcRadius = system::SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
@@ -84,7 +84,7 @@ struct SCameraFollowTargetViewportOverlayStyle final
     ImU32 defaultLinkColor = DefaultLinkColor;
 };
 
-//! Shared visual style for transparent viewport windows used by scene image panels.
+/// @brief Shared visual style for transparent viewport windows used by scene image panels.
 struct SCameraViewportWindowStyle final
 {
     static constexpr float WindowRounding = 0.0f;
@@ -98,7 +98,7 @@ struct SCameraViewportWindowStyle final
     ImVec4 windowBackgroundColor = WindowBackgroundColor;
 };
 
-//! Shared data bundle for the top-right camera/projection overlay rendered inside one viewport window.
+/// @brief Shared data bundle for the top-right camera/projection overlay rendered inside one viewport window.
 struct SCameraViewportInfoOverlayData final
 {
     std::string headline;
@@ -111,7 +111,7 @@ struct SCameraViewportInfoOverlayData final
     }
 };
 
-//! Shared style bundle for the top-right camera/projection overlay rendered inside one viewport window.
+/// @brief Shared style bundle for the top-right camera/projection overlay rendered inside one viewport window.
 struct SCameraViewportInfoOverlayStyle final
 {
     static constexpr ImVec2 Padding = ImVec2(6.0f, 4.0f);
@@ -135,7 +135,7 @@ struct SCameraViewportInfoOverlayStyle final
     ImU32 detailColor = DetailColor;
 };
 
-//! Shared style bundle for small hover-info popups near the mouse cursor.
+/// @brief Shared style bundle for small hover-info popups near the mouse cursor.
 struct SCameraHoverInfoOverlayStyle final
 {
     static constexpr ImVec4 WindowBackgroundColor = ImVec4(0.20f, 0.20f, 0.20f, 0.80f);
@@ -149,7 +149,7 @@ struct SCameraHoverInfoOverlayStyle final
     ImVec2 mouseOffset = MouseOffset;
 };
 
-//! Shared style bundle for the split divider overlay between stacked viewport windows.
+/// @brief Shared style bundle for the split divider overlay between stacked viewport windows.
 struct SCameraViewportSplitOverlayStyle final
 {
     static constexpr float MinimumGapFill = 2.0f;

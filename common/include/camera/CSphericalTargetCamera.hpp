@@ -7,11 +7,9 @@
 namespace nbl::core
 {
 
-/**
-* Common base for cameras orbiting or tracking a target with spherical coordinates.
-*
-* The shared state is target position, distance, and orbit angles stored in `orbitUv`.
-*/
+/// @brief Common base for cameras orbiting or tracking a target with spherical coordinates.
+///
+/// The shared state is target position, distance, and orbit angles stored in `orbitUv`.
 class CSphericalTargetCamera : public ICamera
 {
 public:

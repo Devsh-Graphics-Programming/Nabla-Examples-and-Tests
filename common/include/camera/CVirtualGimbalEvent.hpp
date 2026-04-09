@@ -11,12 +11,10 @@
 namespace nbl::core
 {
 
-/**
-* Shared semantic camera command.
-*
-* Input processors and scripted tools emit these events.
-* Camera implementations consume them through `ICamera::manipulate(...)`.
-*/
+/// @brief Shared semantic camera command.
+///
+/// Input processors and scripted tools emit these events.
+/// Camera implementations consume them through `ICamera::manipulate(...)`.
 struct CVirtualGimbalEvent
 {
     enum VirtualEventType : uint32_t

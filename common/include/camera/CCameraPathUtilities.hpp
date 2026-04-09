@@ -15,7 +15,7 @@
 namespace nbl::core
 {
 
-//! Shared helpers for the reusable `PathRig` camera kind.
+/// @brief Shared helpers for the reusable `PathRig` camera kind.
 struct SCameraPathPose final : SCameraRigPose
 {
     hlsl::float64_t appliedDistance = 0.0;
@@ -90,15 +90,7 @@ struct SCameraPathDefaults final
     static constexpr double AngleToleranceDeg = ICamera::DefaultAngularToleranceDeg;
     static inline constexpr std::string_view Identifier = SCameraPathRigMetadata::Identifier;
     static inline constexpr std::string_view Description = SCameraPathRigMetadata::DefaultModelDescription;
-
-    struct SLimits final
-    {
-        double minU = SCameraPathDefaults::MinU;
-        hlsl::float64_t minDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance);
-        hlsl::float64_t maxDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance);
-    };
-
-    static inline constexpr SLimits Limits = {};
+    static inline constexpr ICamera::PathStateLimits Limits = {};
     static inline constexpr SCameraPathComparisonThresholds ComparisonThresholds = {
         .sToleranceDeg = AngleToleranceDeg,
         .rollToleranceDeg = AngleToleranceDeg,
@@ -111,7 +103,7 @@ struct SCameraPathDefaults final
     };
 };
 
-using SCameraPathLimits = SCameraPathDefaults::SLimits;
+using SCameraPathLimits = ICamera::PathStateLimits;
 
 struct SCameraPathControlContext final
 {
@@ -191,9 +183,52 @@ struct CCameraPathUtilities final
             hlsl::CCameraMathUtilities::isFiniteScalar(state.roll);
     }
 
+    static inline bool isPathLimitsFinite(const SCameraPathLimits& limits)
+    {
+        return hlsl::CCameraMathUtilities::isFiniteScalar(limits.minU) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(limits.minDistance) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(limits.maxDistance);
+    }
+
+    static inline bool sanitizePathLimits(SCameraPathLimits& limits)
+    {
+        if (!isPathLimitsFinite(limits))
+            return false;
+
+        limits.minU = std::clamp(
+            limits.minU,
+            0.0,
+            static_cast<double>(ICamera::SphericalMaxDistance));
+        limits.minDistance = std::clamp(
+            std::max<hlsl::float64_t>(limits.minDistance, static_cast<hlsl::float64_t>(limits.minU)),
+            static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
+            static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance));
+        limits.maxDistance = std::clamp(
+            limits.maxDistance,
+            limits.minDistance,
+            static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance));
+        return true;
+    }
+
     static inline bool sanitizePathState(ICamera::PathState& state, const double minU)
     {
         return hlsl::CCameraMathUtilities::sanitizePathState(state.s, state.u, state.v, state.roll, minU);
+    }
+
+    static inline bool sanitizePathState(ICamera::PathState& state, const SCameraPathLimits& limits, double* outAppliedDistance = nullptr)
+    {
+        SCameraPathLimits sanitizedLimits = limits;
+        if (!sanitizePathLimits(sanitizedLimits))
+            return false;
+
+        if (!sanitizePathState(state, sanitizedLimits.minU))
+            return false;
+
+        const auto desiredDistance = std::clamp(
+            hlsl::CCameraMathUtilities::getPathDistance(state.u, state.v),
+            sanitizedLimits.minDistance,
+            sanitizedLimits.maxDistance);
+        return tryScalePathStateDistance(desiredDistance, sanitizedLimits.minU, state, outAppliedDistance);
     }
 
     static inline bool tryScalePathStateDistance(
@@ -216,9 +251,13 @@ struct CCameraPathUtilities final
         ICamera::PathState& ioState,
         SCameraPathDistanceUpdateResult* outResult = nullptr)
     {
-        const auto clampedDistance = std::clamp<hlsl::float64_t>(desiredDistance, limits.minDistance, limits.maxDistance);
+        SCameraPathLimits sanitizedLimits = limits;
+        if (!sanitizePathLimits(sanitizedLimits) || !sanitizePathState(ioState, sanitizedLimits))
+            return false;
+
+        const auto clampedDistance = std::clamp<hlsl::float64_t>(desiredDistance, sanitizedLimits.minDistance, sanitizedLimits.maxDistance);
         double appliedDistance = 0.0;
-        if (!tryScalePathStateDistance(static_cast<double>(clampedDistance), limits.minU, ioState, &appliedDistance))
+        if (!tryScalePathStateDistance(static_cast<double>(clampedDistance), sanitizedLimits.minU, ioState, &appliedDistance))
             return false;
 
         if (outResult)
@@ -259,17 +298,21 @@ struct CCameraPathUtilities final
         const ICamera::PathState* requestedState,
         ICamera::PathState& outState)
     {
+        SCameraPathLimits sanitizedLimits = limits;
+        if (!sanitizePathLimits(sanitizedLimits))
+            return false;
+
         if (requestedState)
         {
             outState = *requestedState;
-            return sanitizePathState(outState, limits.minU);
+            return sanitizePathState(outState, sanitizedLimits);
         }
 
-        if (tryBuildPathStateFromPosition(targetPosition, position, limits.minU, outState))
-            return true;
+        if (tryBuildPathStateFromPosition(targetPosition, position, sanitizedLimits.minU, outState))
+            return sanitizePathState(outState, sanitizedLimits);
 
-        outState = makeDefaultPathState(limits.minU);
-        return sanitizePathState(outState, limits.minU);
+        outState = makeDefaultPathState(sanitizedLimits.minU);
+        return sanitizePathState(outState, sanitizedLimits);
     }
 
     static inline bool tryBuildPathPoseFromState(
@@ -278,15 +321,19 @@ struct CCameraPathUtilities final
         const SCameraPathLimits& limits,
         SCameraPathPose& outPose)
     {
+        SCameraPathLimits sanitizedLimits = limits;
+        if (!sanitizePathLimits(sanitizedLimits))
+            return false;
+
         return hlsl::CCameraMathUtilities::tryBuildPathPoseFromState(
             targetPosition,
             state.s,
             state.u,
             state.v,
             state.roll,
-            limits.minU,
-            limits.minDistance,
-            limits.maxDistance,
+            sanitizedLimits.minU,
+            sanitizedLimits.minDistance,
+            sanitizedLimits.maxDistance,
             outPose.position,
             outPose.orientation,
             &outPose.appliedDistance,
@@ -412,7 +459,7 @@ struct CCameraPathUtilities final
         stateVector.x = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.x);
         stateVector.w = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.w);
         outState = ICamera::PathState::fromVector(stateVector);
-        return sanitizePathState(outState, limits.minU);
+        return sanitizePathState(outState, limits);
     }
 
     static inline ICamera::PathState blendPathStates(

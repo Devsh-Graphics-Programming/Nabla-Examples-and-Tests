@@ -17,7 +17,7 @@
 namespace nbl::ui
 {
 
-//! Shared visual theme and layout constants for the control panel consumer UI.
+/// @brief Shared visual theme and layout constants for the control panel consumer UI.
 struct SCameraControlPanelStyle final
 {
     static constexpr float MillisecondsPerSecond = 1000.0f;

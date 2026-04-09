@@ -13,7 +13,7 @@
 namespace nbl::core
 {
 
-//! Named persisted camera state built on top of `CCameraGoal`.
+/// @brief Named persisted camera state built on top of `CCameraGoal`.
 struct CCameraPreset
 {
     std::string name;
@@ -21,7 +21,7 @@ struct CCameraPreset
     CCameraGoal goal = {};
 };
 
-//! Time-stamped preset entry used by playback and authoring tools.
+/// @brief Time-stamped preset entry used by playback and authoring tools.
 struct CCameraKeyframe
 {
     CCameraPreset preset;
@@ -40,7 +40,7 @@ struct CCameraPresetUtilities final
         return CCameraGoalUtilities::canonicalizeGoal(preset.goal);
     }
 
-    //! Compare two named presets through their shared canonical goal state.
+    /// @brief Compare two named presets through their shared canonical goal state.
     static inline bool comparePresets(const CCameraPreset& lhs, const CCameraPreset& rhs,
         const double posEps, const double rotEpsDeg, const double scalarEps)
     {
@@ -49,7 +49,7 @@ struct CCameraPresetUtilities final
             CCameraGoalUtilities::compareGoals(makeGoalFromPreset(lhs), makeGoalFromPreset(rhs), posEps, rotEpsDeg, scalarEps);
     }
 
-    //! Compare two preset collections element-by-element through the shared canonical goal state.
+    /// @brief Compare two preset collections element-by-element through the shared canonical goal state.
     static inline bool comparePresetCollections(std::span<const CCameraPreset> lhs, std::span<const CCameraPreset> rhs,
         const double posEps, const double rotEpsDeg, const double scalarEps)
     {

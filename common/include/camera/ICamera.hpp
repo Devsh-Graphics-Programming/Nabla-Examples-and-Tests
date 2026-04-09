@@ -13,13 +13,11 @@
 namespace nbl::core
 {
 
-/**
-* Shared camera contract.
-*
-* The hot runtime path is event-only: cameras consume `CVirtualGimbalEvent`
-* streams through `manipulate(...)`. Optional typed state hooks exist only for
-* tooling features such as capture, compatibility analysis, presets, and playback.
-*/
+/// @brief Shared camera interface.
+///
+/// The hot runtime path is event-only: cameras consume `CVirtualGimbalEvent`
+/// streams through `manipulate(...)`. Optional typed state hooks exist only for
+/// tooling features such as capture, compatibility analysis, presets, and playback.
 class ICamera : virtual public core::IReferenceCounted
 { 
 public:
@@ -35,7 +33,7 @@ public:
 
     struct SMotionConfig
     {
-        //! Camera-local scales applied by implementations to virtual motion magnitude.
+        /// @brief Camera-local scales applied by implementations to virtual motion magnitude.
         double moveSpeedScale = DefaultMoveSpeedScale;
         double rotationSpeedScale = DefaultRotationSpeedScale;
     };
@@ -86,12 +84,19 @@ public:
         float referenceDistance = 0.f;
     };
 
-    //! Parametric path-rig state used by the `Path Rig` camera kind.
-    //!
-    //! The default shared model interprets `(s, u, v, roll)` as angular progress,
-    //! radial component, vertical component, and view-axis roll around a target.
-    //! Concrete path models may reuse the same coordinates differently, but the
-    //! hot runtime contract still stays event-only through `manipulate(...)`.
+    struct PathStateLimits
+    {
+        double minU = static_cast<double>(SphericalMinDistance);
+        hlsl::float64_t minDistance = static_cast<hlsl::float64_t>(SphericalMinDistance);
+        hlsl::float64_t maxDistance = static_cast<hlsl::float64_t>(SphericalMaxDistance);
+    };
+
+    /// @brief Parametric path-rig state used by the `Path Rig` camera kind.
+    ///
+    /// The default shared model interprets `(s, u, v, roll)` as angular progress,
+    /// radial component, vertical component, and view-axis roll around a target.
+    /// Concrete path models may reuse the same coordinates differently, while the
+    /// hot runtime path still stays event-only through `manipulate(...)`.
     struct PathState
     {
         double s = 0.0;
@@ -130,7 +135,7 @@ public:
         }
     };
 
-    //! Gimbal that models the camera pose and cached view matrix in world space.
+    /// @brief Gimbal that models the camera pose and cached view matrix in world space.
     class CGimbal : public IGimbal<hlsl::float64_t>
     {
     public:
@@ -201,7 +206,9 @@ public:
 
 	virtual const CGimbal& getGimbal() = 0u;
 
-    // Camera core contract: consume virtual events only. Raw input binding and absolute goal solving live outside ICamera.
+    /// @brief Consume virtual events only.
+    ///
+    /// Raw input binding and absolute goal solving live outside `ICamera`.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) = 0;
     inline bool manipulateWithMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame, const double moveScale, const double rotationScale)
     {
@@ -270,6 +277,11 @@ public:
     }
 
     virtual bool tryGetPathState(PathState& out) const
+    {
+        return false;
+    }
+
+    virtual bool tryGetPathStateLimits(PathStateLimits& out) const
     {
         return false;
     }

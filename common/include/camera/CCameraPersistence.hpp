@@ -18,14 +18,14 @@ namespace nbl::system
 
 class ISystem;
 
-//! Serialize a preset collection to JSON.
+/// @brief Serialize a preset collection to JSON.
 bool writePresetCollection(std::ostream& out, std::span<const core::CCameraPreset> presets, int indent = 2);
-//! Parse a preset collection from JSON.
+/// @brief Parse a preset collection from JSON.
 bool readPresetCollection(std::istream& in, std::vector<core::CCameraPreset>& presets);
 
-//! Save a preset collection to disk as JSON.
+/// @brief Save a preset collection to disk as JSON.
 bool savePresetCollectionToFile(ISystem& system, const path& path, std::span<const core::CCameraPreset> presets, int indent = 2);
-//! Load a preset collection from disk.
+/// @brief Load a preset collection from disk.
 bool loadPresetCollectionFromFile(ISystem& system, const path& path, std::vector<core::CCameraPreset>& presets);
 
 } // namespace nbl::system

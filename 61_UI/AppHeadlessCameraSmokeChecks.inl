@@ -642,6 +642,8 @@
 				return false;
 			}
 
+			ICamera::PathStateLimits activePathLimits = nbl::core::CCameraPathUtilities::makeDefaultPathLimits();
+			state.pathCamera->tryGetPathStateLimits(activePathLimits);
 			const auto expectedPathDelta = nbl::core::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
 				state.pathCamera->scaleVirtualTranslation(directTranslationMagnitude),
 				state.pathCamera->scaleVirtualRotation(hlsl::float64_t3(0.0, 0.0, directRollMagnitude)));
@@ -649,7 +651,7 @@
 			if (!nbl::core::CCameraPathUtilities::tryApplyPathStateDelta(
 					baselinePathState,
 					expectedPathDelta,
-					nbl::core::CCameraPathUtilities::makeDefaultPathLimits(),
+					activePathLimits,
 					expectedPathState) ||
 				!nbl::core::CCameraPathUtilities::pathStatesNearlyEqual(
 					manipulatedPathState,
@@ -725,6 +727,137 @@
 					"Path manipulation smoke failed to restore the baseline preset after replay",
 					outError))
 			{
+				return false;
+			}
+
+			if (!state.initialPresets.path->goal.hasTargetPosition)
+			{
+				outError = "Path manipulation smoke is missing the baseline path target state for custom path-limit validation.";
+				return false;
+			}
+
+			const auto defaultPathModel = nbl::core::CCameraPathUtilities::makeDefaultPathModel();
+			nbl::core::CPathCamera::path_model_t incompletePathModel = {};
+			incompletePathModel.resolveState = defaultPathModel.resolveState;
+
+			ICamera::PathStateLimits customPathLimits = {
+				.minU = 2.0,
+				.minDistance = 2.0,
+				.maxDistance = 3.0
+			};
+			auto customPathCamera = nbl::core::make_smart_refctd_ptr<nbl::core::CPathCamera>(
+				state.initialPresets.path->goal.position,
+				state.initialPresets.path->goal.targetPosition,
+				std::move(incompletePathModel),
+				customPathLimits);
+
+			const auto& customPathModel = customPathCamera->getPathModel();
+			if (!customPathModel.resolveState || !customPathModel.controlLaw || !customPathModel.integrate || !customPathModel.evaluate || !customPathModel.updateDistance)
+			{
+				outError = "Path manipulation smoke left a partially initialized path model active after constructor fallback.";
+				return false;
+			}
+
+			ICamera::PathStateLimits resolvedPathLimits = {};
+			if (!customPathCamera->tryGetPathStateLimits(resolvedPathLimits) ||
+				hlsl::abs(resolvedPathLimits.minU - customPathLimits.minU) > CameraTinyScalarEpsilon ||
+				hlsl::abs(resolvedPathLimits.minDistance - customPathLimits.minDistance) > CameraTinyScalarEpsilon ||
+				hlsl::abs(resolvedPathLimits.maxDistance - customPathLimits.maxDistance) > CameraTinyScalarEpsilon)
+			{
+				outError = "Path manipulation smoke failed to expose custom per-camera path limits.";
+				return false;
+			}
+
+			ICamera::SphericalTargetState customSphericalState = {};
+			if (!customPathCamera->tryGetSphericalTargetState(customSphericalState) ||
+				hlsl::abs(static_cast<double>(customSphericalState.minDistance) - resolvedPathLimits.minDistance) > CameraTinyScalarEpsilon ||
+				hlsl::abs(static_cast<double>(customSphericalState.maxDistance) - resolvedPathLimits.maxDistance) > CameraTinyScalarEpsilon)
+			{
+				outError = "Path manipulation smoke failed to surface path limits through spherical target state.";
+				return false;
+			}
+
+			ICamera::PathState customBaselinePathState = {};
+			if (!customPathCamera->tryGetPathState(customBaselinePathState))
+			{
+				outError = "Path manipulation smoke failed to capture the custom path-camera baseline state.";
+				return false;
+			}
+
+			const double customBaselineDistance = hlsl::CCameraMathUtilities::getPathDistance(customBaselinePathState.u, customBaselinePathState.v);
+			if (customBaselineDistance + CameraTinyScalarEpsilon < resolvedPathLimits.minDistance ||
+				customBaselineDistance - CameraTinyScalarEpsilon > resolvedPathLimits.maxDistance)
+			{
+				outError = "Path manipulation smoke failed to clamp the constructor-resolved path state to custom limits.";
+				return false;
+			}
+
+			if (!customPathCamera->manipulate({ directPathEvents.data(), directPathEvents.size() }))
+			{
+				outError = "Path manipulation smoke failed to apply direct virtual events on the custom-limits path camera.";
+				return false;
+			}
+
+			ICamera::PathState customManipulatedPathState = {};
+			if (!customPathCamera->tryGetPathState(customManipulatedPathState))
+			{
+				outError = "Path manipulation smoke failed to read the manipulated custom-limits path state.";
+				return false;
+			}
+
+			ICamera::PathState expectedCustomPathState = {};
+			if (!nbl::core::CCameraPathUtilities::tryApplyPathStateDelta(
+					customBaselinePathState,
+					nbl::core::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
+						customPathCamera->scaleVirtualTranslation(directTranslationMagnitude),
+						customPathCamera->scaleVirtualRotation(hlsl::float64_t3(0.0, 0.0, directRollMagnitude))),
+					resolvedPathLimits,
+					expectedCustomPathState) ||
+				!nbl::core::CCameraPathUtilities::pathStatesNearlyEqual(
+					customManipulatedPathState,
+					expectedCustomPathState,
+					nbl::core::SCameraPathDefaults::ExactComparisonThresholds))
+			{
+				outError = "Path manipulation smoke failed the custom-limits default runtime mapping check.";
+				return false;
+			}
+
+			const auto customMovedCapture = state.goalSolver.captureDetailed(customPathCamera.get());
+			if (!customMovedCapture.canUseGoal())
+			{
+				outError = "Path manipulation smoke failed to capture the moved custom-limits path goal.";
+				return false;
+			}
+
+			if (!customPathCamera->trySetPathState(customBaselinePathState))
+			{
+				outError = "Path manipulation smoke failed to restore the custom-limits baseline path state.";
+				return false;
+			}
+
+			std::vector<CVirtualGimbalEvent> customReplayEvents;
+			if (!state.goalSolver.buildEvents(customPathCamera.get(), customMovedCapture.goal, customReplayEvents) || customReplayEvents.empty())
+			{
+				outError = "Path manipulation smoke failed to build replay events for the custom-limits path goal.";
+				return false;
+			}
+
+			if (!customPathCamera->manipulate({ customReplayEvents.data(), customReplayEvents.size() }))
+			{
+				outError = "Path manipulation smoke failed to replay events on the custom-limits path camera.";
+				return false;
+			}
+
+			const auto customReplayCapture = state.goalSolver.captureDetailed(customPathCamera.get());
+			if (!customReplayCapture.canUseGoal() ||
+				!nbl::core::CCameraGoalUtilities::compareGoals(
+					customReplayCapture.goal,
+					customMovedCapture.goal,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictPositionTolerance,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg,
+					nbl::system::SCameraSmokeComparisonThresholds::StrictScalarTolerance))
+			{
+				outError = "Path manipulation smoke failed the custom-limits goal replay roundtrip.";
 				return false;
 			}
 		}

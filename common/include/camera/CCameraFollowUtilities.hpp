@@ -15,12 +15,10 @@
 namespace nbl::core
 {
 
-/**
-* Reusable tracked-target and follow helpers layered on top of the shared camera API.
-*
-* The tracked subject owns its own gimbal. Follow stays outside `ICamera` and maps
-* a camera plus tracked target into a `CCameraGoal`.
-*/
+/// @brief Reusable tracked-target and follow helpers layered on top of the shared camera API.
+///
+/// The tracked subject owns its own gimbal. Follow stays outside `ICamera` and maps
+/// a camera plus tracked target into a `CCameraGoal`.
 class CTrackedTarget
 {
 public:
@@ -75,18 +73,16 @@ private:
     gimbal_t m_gimbal;
 };
 
-/**
-* Follow policy layered on top of a tracked target gimbal.
-*
-* The modes are intentionally explicit because `follow` is not one behavior:
-*
-* - `OrbitTarget` keeps a target-relative orbit/path rig and re-centers the tracked target
-* - `LookAtTarget` keeps the camera world position and only rotates the view toward the target
-* - `KeepWorldOffset` keeps a world-space camera offset from the target and locks the view onto it
-* - `KeepLocalOffset` keeps a target-local camera offset and locks the view onto it
-*
-* The tracked target remains the source of truth. The camera does not own the tracked subject.
-*/
+/// @brief Follow policy layered on top of a tracked target gimbal.
+///
+/// The modes are intentionally explicit because `follow` is not one behavior:
+///
+/// - `OrbitTarget` keeps a target-relative orbit/path rig and re-centers the tracked target
+/// - `LookAtTarget` keeps the camera world position and only rotates the view toward the target
+/// - `KeepWorldOffset` keeps a world-space camera offset from the target and locks the view onto it
+/// - `KeepLocalOffset` keeps a target-local camera offset and locks the view onto it
+///
+/// The tracked target remains the source of truth. The camera does not own the tracked subject.
 enum class ECameraFollowMode : uint8_t
 {
     Disabled,
@@ -96,8 +92,8 @@ enum class ECameraFollowMode : uint8_t
     KeepLocalOffset
 };
 
-//! Reusable follow configuration interpreted against a tracked target gimbal.
-//! `worldOffset` and `localOffset` are only meaningful for their matching offset-based modes.
+/// @brief Reusable follow configuration interpreted against a tracked target gimbal.
+/// `worldOffset` and `localOffset` are only meaningful for their matching offset-based modes.
 struct SCameraFollowConfig
 {
     bool enabled = false;

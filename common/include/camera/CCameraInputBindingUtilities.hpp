@@ -11,7 +11,7 @@
 namespace nbl::ui
 {
 
-//! Reusable keyboard, mouse, and ImGuizmo binding preset grouped for one camera kind.
+/// @brief Reusable keyboard, mouse, and ImGuizmo binding preset grouped for one camera kind.
 struct SCameraInputBindingPreset
 {
     IGimbalBindingLayout::keyboard_to_virtual_events_t keyboard;
@@ -19,7 +19,7 @@ struct SCameraInputBindingPreset
     IGimbalBindingLayout::imguizmo_to_virtual_events_t imguizmo;
 };
 
-//! Shared physical input bundles reused by default presets and smoke probing.
+/// @brief Shared physical input bundles reused by default presets and smoke probing.
 struct SCameraInputBindingPhysicalGroups final
 {
     static inline constexpr std::array KeyboardWasdCodes = {
@@ -190,7 +190,7 @@ private:
         };
     };
 
-    //! Shared virtual-event bundles reused across interaction families.
+    /// @brief Shared virtual-event bundles reused across interaction families.
     struct SCameraInputBindingEventGroups final
     {
         static inline constexpr std::array FpsMove = {

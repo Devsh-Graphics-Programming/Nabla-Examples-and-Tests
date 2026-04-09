@@ -32,7 +32,7 @@ struct SCameraSmokeComparisonThresholds final
 struct CCameraSmokeRegressionUtilities final
 {
 public:
-    //! Measure one camera pose delta against an authored reference pose.
+    /// @brief Measure one camera pose delta against an authored reference pose.
     static inline bool tryComputeCameraManipulationDelta(
         core::ICamera* camera,
         const hlsl::float64_t3& beforePosition,
@@ -49,7 +49,7 @@ public:
         return hlsl::CCameraMathUtilities::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
     }
 
-    //! Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
+    /// @brief Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
     static inline bool tryManipulateCameraAndMeasureDelta(
         core::ICamera* camera,
         std::span<const core::CVirtualGimbalEvent> events,

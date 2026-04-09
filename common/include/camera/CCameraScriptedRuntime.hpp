@@ -18,13 +18,11 @@
 namespace nbl::system
 {
 
-/**
-* Shared scripted runtime contract used by camera-sequence consumers.
-*
-* The compact authored sequence remains camera-domain. A concrete runtime may still expand it
-* into low-level per-frame events and checks, but those expanded payloads live in this shared
-* header rather than inside one consumer.
-*/
+/// @brief Shared scripted runtime payload used by camera-sequence consumers.
+///
+/// The compact authored sequence remains camera-domain. A concrete runtime may still expand it
+/// into low-level per-frame events and checks, but those expanded payloads live in this shared
+/// header rather than inside one consumer.
 struct CCameraScriptedInputEvent
 {
     enum class Type : uint8_t
@@ -166,7 +164,7 @@ struct CCameraScriptedInputCheck
     bool hasEulerDeltaConstraint = false;
 };
 
-//! Fully expanded scripted timeline shared between authored parsers and runtime consumers.
+/// @brief Fully expanded scripted timeline shared between authored parsers and runtime consumers.
 struct CCameraScriptedTimeline
 {
     std::vector<CCameraScriptedInputEvent> events;
@@ -315,12 +313,10 @@ struct CCameraScriptedRuntimeUtilities final
     }
 };
 
-/**
-* Per-frame scripted runtime batch already partitioned by payload kind.
-*
-* Consumers can dequeue authored events for one frame and then adapt only the buckets they care
-* about, without repeatedly switching on `CCameraScriptedInputEvent::Type` in local glue.
-*/
+/// @brief Per-frame scripted runtime batch already partitioned by payload kind.
+///
+/// Consumers can dequeue authored events for one frame and then adapt only the buckets they care
+/// about, without repeatedly switching on `CCameraScriptedInputEvent::Type` in local glue.
 struct CCameraScriptedFrameEvents
 {
     std::vector<CCameraScriptedInputEvent::KeyboardData> keyboard;
@@ -349,7 +345,7 @@ struct CCameraScriptedFrameEvents
     }
 };
 
-//! Dequeue all authored scripted events scheduled for one frame.
+/// @brief Dequeue all authored scripted events scheduled for one frame.
 struct CCameraScriptedFrameEventUtilities final
 {
     static inline void dequeueScriptedFrameEvents(

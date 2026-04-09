@@ -10,33 +10,37 @@
 namespace nbl::core
 {
 
-//! Path-rig camera driven by typed `PathState` plus an injected path model.
-//!
-//! The public runtime contract stays event-only through `manipulate(...)`.
-//! `CPathCamera` only interprets the accumulated impulse through `m_pathModel`
-//! instead of hardcoding one default target-relative mapping in the method body.
+/// @brief Path-rig camera driven by typed `PathState` plus an injected path model.
+///
+/// The public runtime path stays event-only through `manipulate(...)`.
+/// `CPathCamera` only interprets the accumulated impulse through `m_pathModel`
+/// instead of hardcoding one default target-relative mapping in the method body.
 class CPathCamera final : public CSphericalTargetCamera
 {
 public:
     using base_t = CSphericalTargetCamera;
     using path_model_t = SCameraPathModel;
+    using path_limits_t = PathStateLimits;
 
     CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
-        : base_t(position, target)
+        : CPathCamera(position, target, CCameraPathUtilities::makeDefaultPathModel(), CCameraPathUtilities::makeDefaultPathLimits())
     {
-        m_pathModel = CCameraPathUtilities::makeDefaultPathModel();
-        m_pathModel.resolveState(target, position, SCameraPathDefaults::Limits, nullptr, m_pathState);
-        updateFromPathState();
     }
 
     CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, path_model_t pathModel)
-        : base_t(position, target)
-        , m_pathModel(std::move(pathModel))
+        : CPathCamera(position, target, std::move(pathModel), CCameraPathUtilities::makeDefaultPathLimits())
     {
-        if (!m_pathModel.resolveState)
-            m_pathModel = CCameraPathUtilities::makeDefaultPathModel();
-        m_pathModel.resolveState(target, position, SCameraPathDefaults::Limits, nullptr, m_pathState);
-        updateFromPathState();
+    }
+
+    CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, path_limits_t pathLimits)
+        : CPathCamera(position, target, CCameraPathUtilities::makeDefaultPathModel(), pathLimits)
+    {
+    }
+
+    CPathCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target, path_model_t pathModel, path_limits_t pathLimits)
+        : base_t(position, target)
+    {
+        initializePathRig(position, std::move(pathModel), pathLimits);
     }
 
     ~CPathCamera() = default;
@@ -60,7 +64,7 @@ public:
                 !m_pathModel.resolveState(
                     m_targetPosition,
                     hlsl::float64_t3(reference.frame[3]),
-                    SCameraPathDefaults::Limits,
+                    m_pathLimits,
                     nullptr,
                     nextPathState))
             {
@@ -75,18 +79,25 @@ public:
             .rotation = scaleVirtualRotation(impulse.dVirtualRotation),
             .targetPosition = m_targetPosition,
             .reference = resolvedReference,
-            .limits = SCameraPathDefaults::Limits
+            .limits = m_pathLimits
         };
 
         if (!m_pathModel.controlLaw || !m_pathModel.integrate)
             return false;
 
         const auto stateDelta = m_pathModel.controlLaw(context);
-        if (!m_pathModel.integrate(nextPathState, stateDelta, SCameraPathDefaults::Limits, nextPathState))
+        if (!m_pathModel.integrate(nextPathState, stateDelta, m_pathLimits, nextPathState))
             return false;
 
+        const auto previousPathState = m_pathState;
         m_pathState = nextPathState;
-        return updateFromPathState();
+        bool manipulated = false;
+        if (refreshFromPathState(&manipulated))
+            return manipulated;
+
+        m_pathState = previousPathState;
+        refreshFromPathState();
+        return false;
     }
 
     virtual uint32_t getAllowedVirtualEvents() const override { return AllowedVirtualEvents; }
@@ -99,31 +110,75 @@ public:
         return true;
     }
 
+    virtual bool tryGetPathStateLimits(PathStateLimits& out) const override
+    {
+        out = m_pathLimits;
+        return true;
+    }
+
+    virtual bool tryGetSphericalTargetState(typename base_t::SphericalTargetState& out) const override
+    {
+        out.target = m_targetPosition;
+        out.distance = m_distance;
+        out.orbitUv = m_orbitUv;
+        out.minDistance = static_cast<float>(m_pathLimits.minDistance);
+        out.maxDistance = static_cast<float>(m_pathLimits.maxDistance);
+        return true;
+    }
+
+    virtual bool trySetSphericalTarget(const hlsl::float64_t3& targetPosition) override
+    {
+        if (m_targetPosition == targetPosition)
+            return true;
+
+        const auto previousTarget = m_targetPosition;
+        m_targetPosition = targetPosition;
+        if (refreshFromPathState())
+            return true;
+
+        m_targetPosition = previousTarget;
+        refreshFromPathState();
+        return false;
+    }
+
     virtual bool trySetPathState(const PathState& state) override
     {
         if (!m_pathModel.resolveState)
             return false;
 
         PathState sanitized = {};
-        if (!m_pathModel.resolveState(m_targetPosition, m_gimbal.getPosition(), SCameraPathDefaults::Limits, &state, sanitized))
+        if (!m_pathModel.resolveState(m_targetPosition, m_gimbal.getPosition(), m_pathLimits, &state, sanitized))
             return false;
 
         const bool exact = CCameraPathUtilities::pathStatesNearlyEqual(sanitized, state, SCameraPathDefaults::ExactComparisonThresholds);
+        const auto previousState = m_pathState;
         m_pathState = sanitized;
-        updateFromPathState();
-        return exact;
+        if (refreshFromPathState())
+            return exact;
+
+        m_pathState = previousState;
+        refreshFromPathState();
+        return false;
     }
 
     virtual bool trySetSphericalDistance(float distance) override
     {
         SCameraPathDistanceUpdateResult distanceUpdate = {};
-        if (!m_pathModel.updateDistance ||
-            !m_pathModel.updateDistance(distance, SCameraPathDefaults::Limits, m_pathState, &distanceUpdate))
+        if (!m_pathModel.updateDistance)
         {
             return false;
         }
 
-        updateFromPathState();
+        const auto previousState = m_pathState;
+        if (!m_pathModel.updateDistance(distance, m_pathLimits, m_pathState, &distanceUpdate))
+            return false;
+        if (!refreshFromPathState())
+        {
+            m_pathState = previousState;
+            refreshFromPathState();
+            return false;
+        }
+
         return distanceUpdate.exact;
     }
 
@@ -134,34 +189,113 @@ public:
         return m_pathModel;
     }
 
+    inline const path_limits_t& getPathStateLimits() const
+    {
+        return m_pathLimits;
+    }
+
+    inline bool setPathStateLimits(path_limits_t pathLimits)
+    {
+        if (!CCameraPathUtilities::sanitizePathLimits(pathLimits) || !m_pathModel.resolveState)
+            return false;
+
+        PathState sanitizedState = {};
+        if (!m_pathModel.resolveState(m_targetPosition, m_gimbal.getPosition(), pathLimits, &m_pathState, sanitizedState))
+            return false;
+
+        const auto previousLimits = m_pathLimits;
+        const auto previousState = m_pathState;
+        m_pathLimits = pathLimits;
+        m_pathState = sanitizedState;
+        if (refreshFromPathState())
+            return true;
+
+        m_pathLimits = previousLimits;
+        m_pathState = previousState;
+        refreshFromPathState();
+        return false;
+    }
+
     inline bool setPathModel(path_model_t pathModel)
     {
-        if (!pathModel.resolveState || !pathModel.controlLaw || !pathModel.integrate || !pathModel.evaluate || !pathModel.updateDistance)
+        if (!isPathModelComplete(pathModel))
             return false;
 
         PathState sanitized = {};
-        if (!pathModel.resolveState(m_targetPosition, m_gimbal.getPosition(), SCameraPathDefaults::Limits, &m_pathState, sanitized))
+        if (!pathModel.resolveState(m_targetPosition, m_gimbal.getPosition(), m_pathLimits, &m_pathState, sanitized))
             return false;
 
+        const auto previousModel = m_pathModel;
+        const auto previousState = m_pathState;
         m_pathModel = std::move(pathModel);
         m_pathState = sanitized;
-        return updateFromPathState();
+        if (refreshFromPathState())
+            return true;
+
+        m_pathModel = previousModel;
+        m_pathState = previousState;
+        refreshFromPathState();
+        return false;
     }
 
 private:
     static inline constexpr auto AllowedVirtualEvents =
         CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::RollLeft | CVirtualGimbalEvent::RollRight;
 
-    path_model_t m_pathModel = CCameraPathUtilities::makeDefaultPathModel();
-    PathState m_pathState = CCameraPathUtilities::makeDefaultPathState(SCameraPathDefaults::Limits.minU);
+    static inline bool isPathModelComplete(const path_model_t& pathModel)
+    {
+        return pathModel.resolveState && pathModel.controlLaw && pathModel.integrate && pathModel.evaluate && pathModel.updateDistance;
+    }
 
-    bool updateFromPathState()
+    inline bool tryInitializePathRig(const hlsl::float64_t3& position, path_model_t pathModel, path_limits_t pathLimits)
+    {
+        if (!CCameraPathUtilities::sanitizePathLimits(pathLimits))
+            return false;
+
+        if (!isPathModelComplete(pathModel))
+            return false;
+
+        PathState resolvedState = {};
+        if (!pathModel.resolveState(m_targetPosition, position, pathLimits, nullptr, resolvedState))
+            return false;
+
+        m_pathLimits = pathLimits;
+        m_pathModel = std::move(pathModel);
+        m_pathState = resolvedState;
+        return refreshFromPathState();
+    }
+
+    inline void initializePathRig(const hlsl::float64_t3& position, path_model_t pathModel, path_limits_t pathLimits)
+    {
+        path_limits_t sanitizedLimits = pathLimits;
+        const bool hasCustomLimits = CCameraPathUtilities::sanitizePathLimits(sanitizedLimits);
+        if (!hasCustomLimits)
+            sanitizedLimits = CCameraPathUtilities::makeDefaultPathLimits();
+
+        if (tryInitializePathRig(position, std::move(pathModel), sanitizedLimits))
+            return;
+
+        if (tryInitializePathRig(position, CCameraPathUtilities::makeDefaultPathModel(), sanitizedLimits))
+            return;
+
+        m_pathLimits = CCameraPathUtilities::makeDefaultPathLimits();
+        m_pathModel = CCameraPathUtilities::makeDefaultPathModel();
+        m_pathState = CCameraPathUtilities::makeDefaultPathState(m_pathLimits.minU);
+        m_pathModel.resolveState(m_targetPosition, position, m_pathLimits, nullptr, m_pathState);
+        refreshFromPathState();
+    }
+
+    path_model_t m_pathModel = CCameraPathUtilities::makeDefaultPathModel();
+    path_limits_t m_pathLimits = CCameraPathUtilities::makeDefaultPathLimits();
+    PathState m_pathState = CCameraPathUtilities::makeDefaultPathState(CCameraPathUtilities::makeDefaultPathLimits().minU);
+
+    bool refreshFromPathState(bool* outManipulated = nullptr)
     {
         if (!m_pathModel.evaluate)
             return false;
 
         SCameraCanonicalPathState canonicalPathState = {};
-        if (!m_pathModel.evaluate(m_targetPosition, m_pathState, SCameraPathDefaults::Limits, canonicalPathState))
+        if (!m_pathModel.evaluate(m_targetPosition, m_pathState, m_pathLimits, canonicalPathState))
             return false;
 
         m_distance = canonicalPathState.targetRelative.distance;
@@ -178,7 +312,9 @@ private:
         if (manipulated)
             m_gimbal.updateView();
 
-        return manipulated;
+        if (outManipulated)
+            *outManipulated = manipulated;
+        return true;
     }
 };
 

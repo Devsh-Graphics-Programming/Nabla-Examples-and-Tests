@@ -12,7 +12,7 @@
 namespace nbl::ui
 {
 
-//! Shared exactness-oriented filter used by preset presentation surfaces.
+/// @brief Shared exactness-oriented filter used by preset presentation surfaces.
 enum class EPresetApplyPresentationFilter : uint8_t
 {
     All,
@@ -20,7 +20,7 @@ enum class EPresetApplyPresentationFilter : uint8_t
     BestEffort
 };
 
-//! Shared badge/pill policy derived from one analyzed presentation answer.
+/// @brief Shared badge/pill policy derived from one analyzed presentation answer.
 struct SCameraGoalApplyPresentationBadges final
 {
     bool exact = false;
@@ -30,7 +30,7 @@ struct SCameraGoalApplyPresentationBadges final
     bool blocked = false;
 };
 
-//! Presentation-ready wrapper around analyzed goal apply compatibility.
+/// @brief Presentation-ready wrapper around analyzed goal apply compatibility.
 struct SCameraGoalApplyPresentation final : core::SCameraGoalApplyAnalysis
 {
     SCameraGoalApplyPresentationBadges badges;
@@ -55,7 +55,7 @@ struct SCameraGoalApplyPresentation final : core::SCameraGoalApplyAnalysis
     }
 };
 
-//! Presentation-ready wrapper around analyzed camera capture viability.
+/// @brief Presentation-ready wrapper around analyzed camera capture viability.
 struct SCameraCapturePresentation final : core::SCameraCaptureAnalysis
 {
     std::string policyLabel;
@@ -63,7 +63,7 @@ struct SCameraCapturePresentation final : core::SCameraCaptureAnalysis
 
 struct CCameraPresentationUtilities final
 {
-    //! Shared user-facing label for the exactness filter selector.
+    /// @brief Shared user-facing label for the exactness filter selector.
     static inline const char* getPresetApplyPresentationFilterLabel(const EPresetApplyPresentationFilter mode)
     {
         switch (mode)
@@ -79,7 +79,7 @@ struct CCameraPresentationUtilities final
         }
     }
 
-    //! Build reusable badge flags for one preset/keyframe compatibility answer.
+    /// @brief Build reusable badge flags for one preset/keyframe compatibility answer.
     static inline SCameraGoalApplyPresentationBadges collectGoalApplyPresentationBadges(const SCameraGoalApplyPresentation& presentation)
     {
         SCameraGoalApplyPresentationBadges badges;
@@ -91,7 +91,7 @@ struct CCameraPresentationUtilities final
         return badges;
     }
 
-    //! Build presentation text for one analyzed goal-apply result.
+    /// @brief Build presentation text for one analyzed goal-apply result.
     static inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCameraGoalApplyAnalysis& analysis, const core::ICamera* targetCamera)
     {
         SCameraGoalApplyPresentation presentation;
@@ -104,13 +104,13 @@ struct CCameraPresentationUtilities final
         return presentation;
     }
 
-    //! Analyze one preset against one camera and return reusable presentation data.
+    /// @brief Analyze one preset against one camera and return reusable presentation data.
     static inline SCameraGoalApplyPresentation analyzePresetPresentation(const core::CCameraGoalSolver& solver, const core::ICamera* camera, const core::CCameraPreset& preset)
     {
         return makeGoalApplyPresentation(core::CCameraGoalAnalysisUtilities::analyzePresetApply(solver, camera, preset), camera);
     }
 
-    //! Analyze one camera capture path and return reusable presentation data.
+    /// @brief Analyze one camera capture path and return reusable presentation data.
     static inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCameraGoalSolver& solver, core::ICamera* camera)
     {
         SCameraCapturePresentation presentation;

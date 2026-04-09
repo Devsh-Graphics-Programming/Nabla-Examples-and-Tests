@@ -10,7 +10,7 @@
 namespace nbl::core
 {
 
-//! Interaction family used to group camera kinds with matching control semantics.
+/// @brief Interaction family used to group camera kinds with matching control semantics.
 enum class ECameraInteractionFamily : uint8_t
 {
     None,
@@ -23,7 +23,7 @@ enum class ECameraInteractionFamily : uint8_t
     Path
 };
 
-//! Shared metadata for one concrete `CameraKind`.
+/// @brief Shared metadata for one concrete `CameraKind`.
 struct SCameraKindTraits final
 {
     ICamera::CameraKind kind = ICamera::CameraKind::Unknown;
