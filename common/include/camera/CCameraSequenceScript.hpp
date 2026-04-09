@@ -113,7 +113,7 @@ struct CCameraSequenceKeyframe
 struct CCameraSequenceTrackedTargetPose
 {
     hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
 };
 
 //! Relative tracked-target adjustment authored against an initial tracked-target pose.
@@ -291,7 +291,7 @@ struct CCameraSequenceScriptUtilities final
 
         std::sort(fractions.begin(), fractions.end());
         fractions.erase(std::unique(fractions.begin(), fractions.end(),
-            [](const float lhs, const float rhs) { return hlsl::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
+            [](const float lhs, const float rhs) { return hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
             fractions.end());
     }
 
@@ -330,7 +330,7 @@ struct CCameraSequenceScriptUtilities final
 
         if (delta.hasRotationEulerDegOffset)
         {
-            goal.orientation = hlsl::normalizeQuaternion(goal.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
+            goal.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(goal.orientation * hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(delta.rotationEulerDegOffset)));
         }
 
         if (delta.hasTargetOffset)
@@ -357,7 +357,7 @@ struct CCameraSequenceScriptUtilities final
                 delta.hasOrbitUDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.x)) : hlsl::float64_t(0.0),
                 delta.hasOrbitVDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.orbitUvDeltaDeg.y)) : hlsl::float64_t(0.0));
             if (delta.hasOrbitUDeltaDeg)
-                goal.orbitUv.x = hlsl::wrapAngleRad(goal.orbitUv.x + orbitUvDeltaRad.x);
+                goal.orbitUv.x = hlsl::CCameraMathUtilities::wrapAngleRad(goal.orbitUv.x + orbitUvDeltaRad.x);
             if (delta.hasOrbitVDeltaDeg)
             {
                 goal.orbitUv.y = std::clamp(
@@ -448,8 +448,8 @@ struct CCameraSequenceScriptUtilities final
 
     static inline bool isSequenceTrackedTargetPoseFinite(const CCameraSequenceTrackedTargetPose& pose)
     {
-        return hlsl::isFiniteVec3(pose.position) &&
-            hlsl::isFiniteQuaternion(pose.orientation);
+        return hlsl::CCameraMathUtilities::isFiniteVec3(pose.position) &&
+            hlsl::CCameraMathUtilities::isFiniteQuaternion(pose.orientation);
     }
 
     static inline bool buildSequenceTrackedTargetPoseFromReference(
@@ -463,14 +463,14 @@ struct CCameraSequenceScriptUtilities final
     if (authored.hasAbsolutePosition)
         outPose.position = authored.absolutePosition;
     if (authored.hasAbsoluteRotationEulerDeg)
-        outPose.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.absoluteRotationEulerDeg));
+        outPose.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.absoluteRotationEulerDeg));
 
     if (authored.hasDelta)
     {
         if (authored.delta.hasPositionOffset)
             outPose.position += authored.delta.positionOffset;
         if (authored.delta.hasRotationEulerDegOffset)
-            outPose.orientation = hlsl::normalizeQuaternion(outPose.orientation * hlsl::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.delta.rotationEulerDegOffset)));
+            outPose.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(outPose.orientation * hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::getCastedVector<hlsl::float64_t>(authored.delta.rotationEulerDegOffset)));
     }
 
     if (!isSequenceTrackedTargetPoseFinite(outPose))
@@ -513,7 +513,7 @@ struct CCameraSequenceScriptUtilities final
     normalized.reserve(outTrack.keyframes.size());
     for (const auto& keyframe : outTrack.keyframes)
     {
-        if (!normalized.empty() && hlsl::nearlyEqualScalar(normalized.back().time, keyframe.time, static_cast<float>(ICamera::ScalarTolerance)))
+        if (!normalized.empty() && hlsl::CCameraMathUtilities::nearlyEqualScalar(normalized.back().time, keyframe.time, static_cast<float>(ICamera::ScalarTolerance)))
             normalized.back() = keyframe;
         else
             normalized.emplace_back(keyframe);
@@ -551,7 +551,7 @@ struct CCameraSequenceScriptUtilities final
             const auto span = std::max(static_cast<float>(ICamera::ScalarTolerance), rhs.time - lhs.time);
             const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
             outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
-            outPose.orientation = hlsl::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));
+            outPose.orientation = hlsl::CCameraMathUtilities::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));
             return true;
         }
 
@@ -720,3 +720,4 @@ struct CCameraSequenceScriptUtilities final
 } // namespace nbl::core
 
 #endif // _C_CAMERA_SEQUENCE_SCRIPT_HPP_
+

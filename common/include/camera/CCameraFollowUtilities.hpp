@@ -28,7 +28,7 @@ public:
 
     CTrackedTarget(
         const hlsl::float64_t3& position = hlsl::float64_t3(0.0),
-        const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>(),
+        const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>(),
         std::string identifier = "Follow Target")
         : m_identifier(std::move(identifier)),
         m_gimbal({ .position = position, .orientation = orientation })
@@ -62,8 +62,8 @@ public:
     inline bool trySetFromTransform(const hlsl::float64_t4x4& transform)
     {
         hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
-        if (!hlsl::tryExtractRigidPoseFromTransform(transform, position, orientation))
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
+        if (!hlsl::CCameraMathUtilities::tryExtractRigidPoseFromTransform(transform, position, orientation))
             return false;
 
         setPose(position, orientation);
@@ -196,12 +196,12 @@ struct CCameraFollowUtilities final
 
     static inline hlsl::float64_t3 transformFollowLocalOffset(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& localOffset)
     {
-        return hlsl::rotateVectorByQuaternion(gimbal.getOrientation(), localOffset);
+        return hlsl::CCameraMathUtilities::rotateVectorByQuaternion(gimbal.getOrientation(), localOffset);
     }
 
     static inline hlsl::float64_t3 projectFollowWorldOffsetToLocal(const ICamera::CGimbal& gimbal, const hlsl::float64_t3& worldOffset)
     {
-        return hlsl::projectWorldVectorToLocalQuaternionFrame(gimbal.getOrientation(), worldOffset);
+        return hlsl::CCameraMathUtilities::projectWorldVectorToLocalQuaternionFrame(gimbal.getOrientation(), worldOffset);
     }
 
     static inline bool buildFollowLookAtOrientation(
@@ -210,7 +210,7 @@ struct CCameraFollowUtilities final
         const hlsl::float64_t3& preferredUp,
         hlsl::camera_quaternion_t<hlsl::float64_t>& outOrientation)
     {
-        return hlsl::tryBuildLookAtOrientation(position, targetPosition, preferredUp, outOrientation);
+        return hlsl::CCameraMathUtilities::tryBuildLookAtOrientation(position, targetPosition, preferredUp, outOrientation);
     }
 
     static inline bool captureFollowOffsetsFromCamera(
@@ -237,19 +237,19 @@ struct CCameraFollowUtilities final
     {
         const auto toTarget = trackedTarget.getGimbal().getPosition() - cameraGimbal.getPosition();
         const auto targetDistance = hlsl::length(toTarget);
-        if (!hlsl::isFiniteScalar(targetDistance) || targetDistance <= ICamera::TinyScalarEpsilon)
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(targetDistance) || targetDistance <= ICamera::TinyScalarEpsilon)
             return false;
 
         const auto forward = cameraGimbal.getZAxis();
         const auto forwardLength = hlsl::length(forward);
-        if (!hlsl::isFiniteVec3(forward) || !hlsl::isFiniteScalar(forwardLength) || forwardLength <= ICamera::TinyScalarEpsilon)
+        if (!hlsl::CCameraMathUtilities::isFiniteVec3(forward) || !hlsl::CCameraMathUtilities::isFiniteScalar(forwardLength) || forwardLength <= ICamera::TinyScalarEpsilon)
             return false;
 
         const auto forwardDirection = forward / forwardLength;
         const auto targetDir = toTarget / targetDistance;
         const auto dotForward = std::clamp(hlsl::dot(forwardDirection, targetDir), -1.0, 1.0);
         outAngleDeg = static_cast<float>(hlsl::degrees(hlsl::acos(dotForward)));
-        if (!hlsl::isFiniteScalar(outAngleDeg))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(outAngleDeg))
             return false;
 
         if (outDistance)
@@ -359,3 +359,4 @@ struct CCameraFollowUtilities final
 } // namespace nbl::core
 
 #endif // _C_CAMERA_FOLLOW_UTILITIES_HPP_
+

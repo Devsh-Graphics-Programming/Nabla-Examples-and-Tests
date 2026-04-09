@@ -19,7 +19,7 @@ public:
 
     CSphericalTargetCamera(const hlsl::float64_t3& position, const hlsl::float64_t3& target)
         : base_t(), m_targetPosition(target), m_distance(SCameraTargetRelativeRigDefaults::InitialDistance),
-          m_gimbal({ .position = position, .orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>() })
+          m_gimbal({ .position = position, .orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>() })
     {
         initFromPosition(position);
     }
@@ -111,10 +111,10 @@ protected:
 
     inline void applyPlanarTargetTranslation(const hlsl::float64_t3& deltaTranslation, const SphericalBasis& basis)
     {
-        if (!hlsl::hasPlanarDeltaXY(deltaTranslation, static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon)))
+        if (!hlsl::CCameraMathUtilities::hasPlanarDeltaXY(deltaTranslation, static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon)))
             return;
 
-        m_targetPosition += hlsl::transformLocalVectorToWorldBasis(
+        m_targetPosition += hlsl::CCameraMathUtilities::transformLocalVectorToWorldBasis(
             hlsl::float64_t3(deltaTranslation.x, deltaTranslation.y, 0.0),
             basis.right,
             basis.up,
@@ -156,3 +156,4 @@ protected:
 }
 
 #endif
+

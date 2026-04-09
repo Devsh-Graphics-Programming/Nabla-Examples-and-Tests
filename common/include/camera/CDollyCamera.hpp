@@ -35,7 +35,7 @@ public:
 
         const auto deltaTranslation = scaleVirtualTranslation(impulse.dVirtualTranslate);
         const auto basis = computeBasis(m_orbitUv, m_distance);
-        const auto delta = hlsl::transformLocalVectorToWorldBasis(deltaTranslation, basis.right, basis.up, basis.forward);
+        const auto delta = hlsl::CCameraMathUtilities::transformLocalVectorToWorldBasis(deltaTranslation, basis.right, basis.up, basis.forward);
 
         m_targetPosition += delta;
         m_orbitUv.x += deltaRotation.y;

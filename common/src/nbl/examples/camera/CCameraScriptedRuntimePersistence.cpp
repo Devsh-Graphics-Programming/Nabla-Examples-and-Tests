@@ -541,9 +541,9 @@ nbl::hlsl::float32_t4x4 composeScriptedImguizmoTransform(
     const std::array<float, 3>& rotationDeg,
     const std::array<float, 3>& scale)
 {
-    return nbl::hlsl::composeTransformMatrix(
+    return nbl::hlsl::CCameraMathUtilities::composeTransformMatrix(
         nbl::hlsl::float32_t3(translation[0], translation[1], translation[2]),
-        nbl::hlsl::makeQuaternionFromEulerDegrees(nbl::hlsl::float32_t3(rotationDeg[0], rotationDeg[1], rotationDeg[2])),
+        nbl::hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegrees(nbl::hlsl::float32_t3(rotationDeg[0], rotationDeg[1], rotationDeg[2])),
         nbl::hlsl::float32_t3(scale[0], scale[1], scale[2]));
 }
 

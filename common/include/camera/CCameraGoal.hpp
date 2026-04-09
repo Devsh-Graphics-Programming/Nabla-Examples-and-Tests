@@ -24,7 +24,7 @@ namespace nbl::core
 struct CCameraGoal
 {
     hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
     uint32_t sourceCapabilities = ICamera::None;
     uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
@@ -111,7 +111,7 @@ public:
     {
         if (!(goal.hasTargetPosition && goal.hasOrbitState))
             return false;
-        if (!hlsl::isFiniteScalar(goal.orbitUv.x) || !hlsl::isFiniteScalar(goal.orbitUv.y) || !hlsl::isFiniteScalar(goal.orbitDistance))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitUv.x) || !hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitUv.y) || !hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitDistance))
             return false;
 
         return applyCanonicalTargetRelativeGoal(
@@ -208,18 +208,18 @@ public:
 
     static inline bool isGoalFinite(const CCameraGoal& goal)
     {
-        if (!hlsl::isFiniteVec3(goal.position) || !hlsl::isFiniteQuaternion(goal.orientation))
+        if (!hlsl::CCameraMathUtilities::isFiniteVec3(goal.position) || !hlsl::CCameraMathUtilities::isFiniteQuaternion(goal.orientation))
             return false;
-        if (goal.hasTargetPosition && !hlsl::isFiniteVec3(goal.targetPosition))
+        if (goal.hasTargetPosition && !hlsl::CCameraMathUtilities::isFiniteVec3(goal.targetPosition))
             return false;
-        if (goal.hasDistance && !hlsl::isFiniteScalar(goal.distance))
+        if (goal.hasDistance && !hlsl::CCameraMathUtilities::isFiniteScalar(goal.distance))
             return false;
-        if (goal.hasOrbitState && (!hlsl::isFiniteScalar(goal.orbitUv.x) || !hlsl::isFiniteScalar(goal.orbitUv.y) || !hlsl::isFiniteScalar(goal.orbitDistance)))
+        if (goal.hasOrbitState && (!hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitUv.x) || !hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitUv.y) || !hlsl::CCameraMathUtilities::isFiniteScalar(goal.orbitDistance)))
             return false;
         if (goal.hasPathState && !CCameraPathUtilities::isPathStateFinite(goal.pathState))
             return false;
         if (goal.hasDynamicPerspectiveState &&
-            (!hlsl::isFiniteScalar(goal.dynamicPerspectiveState.baseFov) || !hlsl::isFiniteScalar(goal.dynamicPerspectiveState.referenceDistance)))
+            (!hlsl::CCameraMathUtilities::isFiniteScalar(goal.dynamicPerspectiveState.baseFov) || !hlsl::CCameraMathUtilities::isFiniteScalar(goal.dynamicPerspectiveState.referenceDistance)))
             return false;
         return true;
     }
@@ -228,30 +228,30 @@ public:
         const double posEps, const double rotEpsDeg, const double scalarEps)
     {
         hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
-        if (!hlsl::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta))
+        if (!hlsl::CCameraMathUtilities::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta))
             return false;
         if (poseDelta.position > posEps || poseDelta.rotationDeg > rotEpsDeg)
             return false;
 
         if (expected.hasTargetPosition)
         {
-            if (!actual.hasTargetPosition || !hlsl::nearlyEqualVec3(actual.targetPosition, expected.targetPosition, scalarEps))
+            if (!actual.hasTargetPosition || !hlsl::CCameraMathUtilities::nearlyEqualVec3(actual.targetPosition, expected.targetPosition, scalarEps))
                 return false;
         }
         if (expected.hasDistance)
         {
-            if (!actual.hasDistance || !hlsl::nearlyEqualScalar(static_cast<double>(actual.distance), static_cast<double>(expected.distance), scalarEps))
+            if (!actual.hasDistance || !hlsl::CCameraMathUtilities::nearlyEqualScalar(static_cast<double>(actual.distance), static_cast<double>(expected.distance), scalarEps))
                 return false;
         }
         if (expected.hasOrbitState)
         {
             if (!actual.hasOrbitState)
                 return false;
-            if (hlsl::getWrappedAngleDistanceDegrees(expected.orbitUv.x, actual.orbitUv.x) > rotEpsDeg)
+            if (hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(expected.orbitUv.x, actual.orbitUv.x) > rotEpsDeg)
                 return false;
-            if (hlsl::getWrappedAngleDistanceDegrees(expected.orbitUv.y, actual.orbitUv.y) > rotEpsDeg)
+            if (hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(expected.orbitUv.y, actual.orbitUv.y) > rotEpsDeg)
                 return false;
-            if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.orbitDistance), static_cast<double>(expected.orbitDistance), scalarEps))
+            if (!hlsl::CCameraMathUtilities::nearlyEqualScalar(static_cast<double>(actual.orbitDistance), static_cast<double>(expected.orbitDistance), scalarEps))
                 return false;
         }
         if (expected.hasPathState)
@@ -265,9 +265,9 @@ public:
         {
             if (!actual.hasDynamicPerspectiveState)
                 return false;
-            if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.baseFov), static_cast<double>(expected.dynamicPerspectiveState.baseFov), scalarEps))
+            if (!hlsl::CCameraMathUtilities::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.baseFov), static_cast<double>(expected.dynamicPerspectiveState.baseFov), scalarEps))
                 return false;
-            if (!hlsl::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.referenceDistance), static_cast<double>(expected.dynamicPerspectiveState.referenceDistance), scalarEps))
+            if (!hlsl::CCameraMathUtilities::nearlyEqualScalar(static_cast<double>(actual.dynamicPerspectiveState.referenceDistance), static_cast<double>(expected.dynamicPerspectiveState.referenceDistance), scalarEps))
                 return false;
         }
 
@@ -278,9 +278,9 @@ public:
     {
         std::ostringstream oss;
         hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
-        const bool hasPoseDelta = hlsl::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta);
-        const auto currentOrientation = hlsl::normalizeQuaternion(actual.orientation);
-        const auto expectedOrientation = hlsl::normalizeQuaternion(expected.orientation);
+        const bool hasPoseDelta = hlsl::CCameraMathUtilities::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta);
+        const auto currentOrientation = hlsl::CCameraMathUtilities::normalizeQuaternion(actual.orientation);
+        const auto expectedOrientation = hlsl::CCameraMathUtilities::normalizeQuaternion(expected.orientation);
         oss << "pos_delta=" << (hasPoseDelta ? poseDelta.position : std::numeric_limits<double>::quiet_NaN())
             << " rot_delta_deg=" << (hasPoseDelta ? poseDelta.rotationDeg : std::numeric_limits<double>::quiet_NaN())
             << " current_pos=(" << actual.position.x << "," << actual.position.y << "," << actual.position.z << ")"
@@ -328,7 +328,7 @@ public:
     {
         CCameraGoal blended;
         blended.position = a.position + (b.position - a.position) * alpha;
-        blended.orientation = hlsl::slerpQuaternion(a.orientation, b.orientation, static_cast<hlsl::float64_t>(alpha));
+        blended.orientation = hlsl::CCameraMathUtilities::slerpQuaternion(a.orientation, b.orientation, static_cast<hlsl::float64_t>(alpha));
         blended.sourceKind = (a.sourceKind == b.sourceKind) ? a.sourceKind : ICamera::CameraKind::Unknown;
         blended.sourceCapabilities = a.sourceCapabilities & b.sourceCapabilities;
         blended.sourceGoalStateMask = a.sourceGoalStateMask | b.sourceGoalStateMask;
@@ -355,8 +355,8 @@ public:
             const float db = b.hasOrbitState ? b.orbitDistance : a.orbitDistance;
 
             blended.orbitUv = hlsl::float64_t2(
-                hlsl::lerpWrappedAngleRad(orbitUvA.x, orbitUvB.x, alpha),
-                hlsl::lerpWrappedAngleRad(orbitUvA.y, orbitUvB.y, alpha));
+                hlsl::CCameraMathUtilities::lerpWrappedAngleRad(orbitUvA.x, orbitUvB.x, alpha),
+                hlsl::CCameraMathUtilities::lerpWrappedAngleRad(orbitUvA.y, orbitUvB.y, alpha));
             blended.orbitDistance = da + (db - da) * static_cast<float>(alpha);
         }
         blended.hasDynamicPerspectiveState = a.hasDynamicPerspectiveState || b.hasDynamicPerspectiveState;
@@ -382,3 +382,4 @@ public:
 } // namespace nbl::core
 
 #endif // _C_CAMERA_GOAL_HPP_
+

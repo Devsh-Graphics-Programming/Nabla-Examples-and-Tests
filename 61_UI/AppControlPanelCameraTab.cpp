@@ -129,7 +129,7 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 			snapFollowTargetToModel();
 		ImGui::SameLine();
 		if (nbl::ui::drawActionButtonWithHint("Target origin", "Reset tracked target to identity at world origin"))
-			m_sceneInteraction.followTarget.setPose(float64_t3(0.0), makeIdentityQuaternion<float64_t>());
+			m_sceneInteraction.followTarget.setPose(float64_t3(0.0), CCameraMathUtilities::makeIdentityQuaternion<float64_t>());
 		ImGui::SameLine();
 		if (nbl::ui::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());

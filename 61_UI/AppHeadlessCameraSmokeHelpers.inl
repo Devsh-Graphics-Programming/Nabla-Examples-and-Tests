@@ -27,7 +27,7 @@ namespace
 		static inline const float64_t3 OrbitCameraTarget = float64_t3(0.0, 0.0, 0.0);
 		static inline const float64_t3 InitialTrackedTargetPosition = float64_t3(2.0, 0.5, -1.5);
 		static inline const camera_quaternion_t<float64_t> InitialTrackedTargetOrientation =
-			makeQuaternionFromAxisAngle(float64_t3(0.0, 1.0, 0.0), hlsl::radians(35.0));
+			hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(float64_t3(0.0, 1.0, 0.0), hlsl::radians(35.0));
 		static constexpr uint64_t BaselineFrame = 1u;
 		static constexpr uint64_t StepFrame = 2u;
 		static constexpr uint64_t FollowLockFrame = 3u;
@@ -42,10 +42,10 @@ namespace
 	{
 		static inline const float64_t3 InitialTargetPosition = float64_t3(2.25, -0.75, 1.25);
 		static inline const camera_quaternion_t<float64_t> InitialTargetOrientation =
-			makeQuaternionFromEulerRadians(float64_t3(0.18, -0.22, 0.41));
+			hlsl::CCameraMathUtilities::makeQuaternionFromEulerRadians(float64_t3(0.18, -0.22, 0.41));
 		static inline const float64_t3 MovedTargetPosition = float64_t3(-1.5, 0.5, 2.25);
 		static inline const camera_quaternion_t<float64_t> MovedTargetOrientation =
-			makeQuaternionFromEulerRadians(float64_t3(-0.12, 0.35, 0.27));
+			hlsl::CCameraMathUtilities::makeQuaternionFromEulerRadians(float64_t3(-0.12, 0.35, 0.27));
 		static inline const float64_t3 OrbitWorldOffset = float64_t3(4.0, -1.5, 2.0);
 		static inline const float64_t3 FreeWorldOffset = float64_t3(5.0, -2.0, 1.5);
 		static constexpr double OrbitRecaptureDeltaDeg = 18.0;
@@ -643,7 +643,7 @@ namespace
 
 				ICamera::SphericalTargetState shiftedState;
 				if (!camera->tryGetSphericalTargetState(shiftedState) ||
-					!hlsl::nearlyEqualVec3(shiftedState.target, shiftedPreset.goal.targetPosition, SCameraSmokeUtilityThresholds::PositionWriteback))
+					!hlsl::CCameraMathUtilities::nearlyEqualVec3(shiftedState.target, shiftedPreset.goal.targetPosition, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Preset target writeback smoke failed for camera \"" + cameraIdentifier + "\".";
 					return false;
@@ -664,7 +664,7 @@ namespace
 
 				ICamera::SphericalTargetState restoredState;
 				if (!camera->tryGetSphericalTargetState(restoredState) ||
-					!hlsl::nearlyEqualVec3(restoredState.target, initialPreset.goal.targetPosition, SCameraSmokeUtilityThresholds::PositionWriteback))
+					!hlsl::CCameraMathUtilities::nearlyEqualVec3(restoredState.target, initialPreset.goal.targetPosition, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Preset target restore smoke failed for camera \"" + cameraIdentifier + "\".";
 					return false;
@@ -1051,7 +1051,7 @@ namespace
 		const auto markerPosition = getCastedVector<float64_t>(float32_t3(markerTransform[3]));
 		const auto positionDelta = markerPosition - trackedTarget.getGimbal().getPosition();
 		const auto errorLength = length(positionDelta);
-		if (hlsl::isFiniteScalar(errorLength) && errorLength <= CameraTinyScalarEpsilon)
+		if (hlsl::CCameraMathUtilities::isFiniteScalar(errorLength) && errorLength <= CameraTinyScalarEpsilon)
 			return true;
 
 		outError = std::string("Follow target marker alignment smoke failed for ") + std::string(label) + ".";
@@ -1094,7 +1094,7 @@ namespace
 			return false;
 		}
 
-        editedPreset.goal.orbitUv.x = hlsl::wrapAngleRad(
+        editedPreset.goal.orbitUv.x = hlsl::CCameraMathUtilities::wrapAngleRad(
             editedPreset.goal.orbitUv.x + hlsl::radians(SCameraSmokeFollowScenario::OrbitRecaptureDeltaDeg));
 		editedPreset.goal.orbitDistance = std::clamp(
 			editedPreset.goal.orbitDistance + SCameraSmokeFollowScenario::OrbitRecaptureDistanceDelta,
@@ -1207,7 +1207,7 @@ namespace
 			return false;
 		}
 		const auto trackedTargetPosition = float64_t3(batch.trackedTargetTransforms.front().transform[3]);
-		if (!hlsl::nearlyEqualVec3(trackedTargetPosition, SCameraSmokeRuntimeDefaults::TrackedTargetPosition, CameraTinyScalarEpsilon))
+		if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(trackedTargetPosition, SCameraSmokeRuntimeDefaults::TrackedTargetPosition, CameraTinyScalarEpsilon))
 		{
 			if (outError)
 				*outError = "Scripted runtime tracked-target payload smoke failed.";
@@ -1313,7 +1313,7 @@ namespace
 				const auto pos = gimbal.getPosition();
 				const auto orientation = gimbal.getOrientation();
 				const auto basis = gimbal.getOrthonornalMatrix();
-				const auto eulerDeg = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+				const auto eulerDeg = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 				std::ostringstream oss;
 				oss << std::fixed << std::setprecision(6)
 					<< "Scripted check runner baseline smoke failed."
@@ -1391,8 +1391,8 @@ namespace
 				const auto cameraForward = gimbal.getZAxis();
 				const auto targetPos = trackedTarget.getGimbal().getPosition();
 				const auto desiredForward = normalize(targetPos - cameraPos);
-				camera_quaternion_t<float64_t> desiredOrientation = makeIdentityQuaternion<float64_t>();
-				if (!nbl::hlsl::tryBuildLookAtOrientation(
+				camera_quaternion_t<float64_t> desiredOrientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<float64_t>();
+				if (!nbl::hlsl::CCameraMathUtilities::tryBuildLookAtOrientation(
 						cameraPos,
 						targetPos,
 						float64_t3(0.0, 1.0, 0.0),
@@ -1402,13 +1402,13 @@ namespace
 						*outError = "Scripted check runner follow-lock smoke failed to build desired look-at orientation.";
 					return false;
 				}
-				const auto desiredBasis = getQuaternionBasisMatrix(desiredOrientation);
+				const auto desiredBasis = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(desiredOrientation);
 				const auto desiredRight = desiredBasis[0];
 				const auto desiredUp = desiredBasis[1];
-				const auto goalRightVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(1.0, 0.0, 0.0), true);
-				const auto goalUpVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 1.0, 0.0), true);
-				const auto goalForwardVec = normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 0.0, 1.0), true);
-				const auto goalBasis = getQuaternionBasisMatrix(followGoal.orientation);
+				const auto goalRightVec = hlsl::CCameraMathUtilities::normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(1.0, 0.0, 0.0), true);
+				const auto goalUpVec = hlsl::CCameraMathUtilities::normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 1.0, 0.0), true);
+				const auto goalForwardVec = hlsl::CCameraMathUtilities::normalizeQuaternion(followGoal.orientation).transformVector(float64_t3(0.0, 0.0, 1.0), true);
+				const auto goalBasis = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(followGoal.orientation);
 				float lockAngle = 0.0f;
 				double targetDistance = 0.0;
 				const bool hasLockMetrics = nbl::core::CCameraFollowUtilities::tryComputeFollowTargetLockMetrics(gimbal, trackedTarget, lockAngle, &targetDistance);
@@ -1440,4 +1440,5 @@ namespace
 
 		return true;
 	}
+
 

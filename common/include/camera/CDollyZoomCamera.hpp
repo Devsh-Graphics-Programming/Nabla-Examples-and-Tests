@@ -69,7 +69,7 @@ public:
     }
     virtual bool trySetDynamicPerspectiveState(const DynamicPerspectiveState& state) override
     {
-        if (!hlsl::isFiniteScalar(state.baseFov) || !hlsl::isFiniteScalar(state.referenceDistance) || state.referenceDistance <= 0.f)
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(state.baseFov) || !hlsl::CCameraMathUtilities::isFiniteScalar(state.referenceDistance) || state.referenceDistance <= 0.f)
             return false;
 
         m_baseFov = state.baseFov;
@@ -91,3 +91,4 @@ private:
 }
 
 #endif
+

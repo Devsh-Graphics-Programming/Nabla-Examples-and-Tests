@@ -149,7 +149,7 @@ inline hlsl::float64_t3 readJsonFloat64Vec3(const camera_json_t& json, const std
 inline hlsl::camera_quaternion_t<hlsl::float64_t> readJsonQuaternion(const camera_json_t& json, const std::string_view key)
 {
     const auto value = readJsonArray<float, 4u>(json, key);
-    return hlsl::makeQuaternionFromComponents<hlsl::float64_t>(value[0], value[1], value[2], value[3]);
+    return hlsl::CCameraMathUtilities::makeQuaternionFromComponents<hlsl::float64_t>(value[0], value[1], value[2], value[3]);
 }
 
 template<typename Camera, typename... Args>

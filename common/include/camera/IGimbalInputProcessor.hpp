@@ -236,7 +236,7 @@ public:
                     const auto& deltaWorldTRS = ev;
 
                     hlsl::SRigidTransformComponents<hlsl::float32_t> world = {};
-                    if (!hlsl::tryExtractRigidTransformComponents(deltaWorldTRS, world))
+                    if (!hlsl::CCameraMathUtilities::tryExtractRigidTransformComponents(deltaWorldTRS, world))
                         continue;
 
                     requestMagnitudeUpdateWithSignedComponents(
@@ -245,7 +245,7 @@ public:
                         SInputProcessorBindingGroups::ImguizmoTranslation,
                         map);
 
-                    const auto dRotationRad = hlsl::getCameraOrientationEulerRadians(world.orientation);
+                    const auto dRotationRad = hlsl::CCameraMathUtilities::getCameraOrientationEulerRadians(world.orientation);
                     requestMagnitudeUpdateWithSignedComponents(
                         ZeroPivot,
                         dRotationRad,

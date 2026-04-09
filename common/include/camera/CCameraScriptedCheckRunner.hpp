@@ -35,7 +35,7 @@ struct CCameraScriptedCheckRuntimeState
     {
         bool valid = false;
         hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+        hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     };
 
     size_t nextCheckIndex = 0u;
@@ -79,7 +79,7 @@ struct CCameraScriptedCheckRunnerUtilities final
     {
         state.step.valid = true;
         state.step.position = position;
-        state.step.orientation = hlsl::normalizeQuaternion(orientation);
+        state.step.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(orientation);
     }
 
     static inline void scriptedCheckSetBaselineReference(
@@ -89,7 +89,7 @@ struct CCameraScriptedCheckRunnerUtilities final
     {
         state.baseline.valid = true;
         state.baseline.position = position;
-        state.baseline.orientation = hlsl::normalizeQuaternion(orientation);
+        state.baseline.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(orientation);
         scriptedCheckSetStepReference(state, position, orientation);
     }
 
@@ -100,7 +100,7 @@ struct CCameraScriptedCheckRunnerUtilities final
         const hlsl::camera_quaternion_t<hlsl::float64_t>& referenceOrientation,
         hlsl::SCameraPoseDelta<hlsl::float64_t>& outDelta)
     {
-        return hlsl::tryComputePoseDelta(
+        return hlsl::CCameraMathUtilities::tryComputePoseDelta(
             currentPosition,
             currentOrientation,
             referencePosition,
@@ -155,10 +155,10 @@ struct CCameraScriptedCheckRunnerUtilities final
 
             const auto& gimbal = context.camera->getGimbal();
             const auto pos = gimbal.getPosition();
-            const auto orientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-            const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::getCameraOrientationEulerDegrees(orientation));
+            const auto orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(gimbal.getOrientation());
+            const auto eulerDeg = hlsl::getCastedVector<hlsl::float32_t>(hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(orientation));
 
-            if (!hlsl::isFiniteVec3(pos) || !hlsl::isFiniteQuaternion(orientation) || !hlsl::isFiniteVec3(eulerDeg))
+            if (!hlsl::CCameraMathUtilities::isFiniteVec3(pos) || !hlsl::CCameraMathUtilities::isFiniteQuaternion(orientation) || !hlsl::CCameraMathUtilities::isFiniteVec3(eulerDeg))
             {
                 appendScriptedCheckLog(
                     result,
@@ -266,7 +266,7 @@ struct CCameraScriptedCheckRunnerUtilities final
                 }
                 if (check.hasExpectedEuler)
                 {
-                    const auto expectedOrientation = hlsl::makeQuaternionFromEulerDegreesYXZ(
+                    const auto expectedOrientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
                         hlsl::getCastedVector<hlsl::float64_t>(check.expectedEulerDeg));
                     hlsl::SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
                     if (!scriptedCheckComputePoseDelta(pos, orientation, pos, expectedOrientation, poseDelta))

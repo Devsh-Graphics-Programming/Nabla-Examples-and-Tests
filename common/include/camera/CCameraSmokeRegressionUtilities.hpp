@@ -45,8 +45,8 @@ public:
 
         const auto& gimbal = camera->getGimbal();
         const auto afterPosition = gimbal.getPosition();
-        const auto afterOrientation = hlsl::normalizeQuaternion(gimbal.getOrientation());
-        return hlsl::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
+        const auto afterOrientation = hlsl::CCameraMathUtilities::normalizeQuaternion(gimbal.getOrientation());
+        return hlsl::CCameraMathUtilities::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
     }
 
     //! Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
@@ -62,8 +62,8 @@ public:
 
         const auto& beforeGimbal = camera->getGimbal();
         const auto beforePosition = beforeGimbal.getPosition();
-        const auto beforeOrientation = hlsl::normalizeQuaternion(beforeGimbal.getOrientation());
-        if (!hlsl::isFiniteVec3(beforePosition) || !hlsl::isFiniteQuaternion(beforeOrientation))
+        const auto beforeOrientation = hlsl::CCameraMathUtilities::normalizeQuaternion(beforeGimbal.getOrientation());
+        if (!hlsl::CCameraMathUtilities::isFiniteVec3(beforePosition) || !hlsl::CCameraMathUtilities::isFiniteQuaternion(beforeOrientation))
             return false;
 
         if (!camera->manipulate(events))

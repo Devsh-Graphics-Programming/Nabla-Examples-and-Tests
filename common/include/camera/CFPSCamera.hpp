@@ -24,13 +24,13 @@ public:
         static inline constexpr float InvertedRollDeg = 180.0f;
     };
 
-    CFPSCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>())
+    CFPSCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
     {
         m_gimbal.begin();
         {
-            const auto pitchYaw = hlsl::getPitchYawFromForwardVector(m_gimbal.getZAxis());
-            m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(pitchYaw.x, pitchYaw.y, 0.0)));
+            const auto pitchYaw = hlsl::CCameraMathUtilities::getPitchYawFromForwardVector(m_gimbal.getZAxis());
+            m_gimbal.setOrientation(hlsl::CCameraMathUtilities::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(pitchYaw.x, pitchYaw.y, 0.0)));
         }
         m_gimbal.end();
     }
@@ -54,11 +54,11 @@ public:
         {
             if (referenceFrame)
             {
-                const float roll = static_cast<float>(hlsl::degrees(hlsl::getQuaternionEulerRadiansYXZ(reference.orientation).z));
+                const float roll = static_cast<float>(hlsl::degrees(hlsl::CCameraMathUtilities::getQuaternionEulerRadiansYXZ(reference.orientation).z));
                 const bool matchesStraightRoll =
-                    hlsl::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::StraightRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
+                    hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::StraightRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
                 const bool matchesInvertedRoll =
-                    hlsl::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::InvertedRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
+                    hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(roll, SFpsCameraDefaults::InvertedRollDeg) <= SFpsCameraDefaults::RollValidationEpsilonDeg;
 
                 if (!(matchesStraightRoll || matchesInvertedRoll))
                     return false;
@@ -73,13 +73,13 @@ public:
 
         m_gimbal.begin();
         {
-            const auto pitchYaw = hlsl::getPitchYawFromForwardVector(hlsl::float64_t3(reference.frame[2]));
+            const auto pitchYaw = hlsl::CCameraMathUtilities::getPitchYawFromForwardVector(hlsl::float64_t3(reference.frame[2]));
             const float newPitch = std::clamp<float>(static_cast<float>(pitchYaw.x + scaleVirtualRotation(impulse.dVirtualRotation.x)), MinVerticalAngle, MaxVerticalAngle);
             const float newYaw = static_cast<float>(pitchYaw.y + scaleVirtualRotation(impulse.dVirtualRotation.y));
 
             if (validateReference())
-                m_gimbal.setOrientation(hlsl::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(newPitch, newYaw, 0.0f)));
-            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
+                m_gimbal.setOrientation(hlsl::CCameraMathUtilities::makeQuaternionFromEulerRadiansYXZ(hlsl::float64_t3(newPitch, newYaw, 0.0f)));
+            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::CCameraMathUtilities::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 
@@ -118,3 +118,4 @@ private:
 }
 
 #endif // _C_FPS_CAMERA_HPP_
+

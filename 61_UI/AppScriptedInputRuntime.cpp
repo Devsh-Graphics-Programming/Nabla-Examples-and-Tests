@@ -7,7 +7,7 @@ void App::logScriptedCameraPose(const char* label, ICamera* camera) const
 
 	const auto& gimbal = camera->getGimbal();
 	const auto position = gimbal.getPosition();
-	const auto euler = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+	const auto euler = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 	m_logger->log(
 		"[script] %s gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)",
 		ILogger::ELL_INFO,

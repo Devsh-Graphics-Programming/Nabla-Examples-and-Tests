@@ -19,11 +19,11 @@ inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& transform)
 inline hlsl::SRigidTransformComponents<hlsl::float32_t> extractRigidTransformComponentsOrDefault(const float32_t4x4& transform)
 {
     hlsl::SRigidTransformComponents<hlsl::float32_t> components = {};
-    if (hlsl::tryExtractRigidTransformComponents(transform, components))
+    if (hlsl::CCameraMathUtilities::tryExtractRigidTransformComponents(transform, components))
         return components;
 
     components.translation = float32_t3(transform[3].x, transform[3].y, transform[3].z);
-    components.orientation = hlsl::makeIdentityQuaternion<hlsl::float32_t>();
+    components.orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float32_t>();
     components.scale = SCameraAppTransformEditorUiDefaults::IdentityScale;
     return components;
 }
@@ -33,9 +33,9 @@ inline float32_t4x4 composeRigidTransform(
     const hlsl::float32_t3& eulerDegrees,
     const hlsl::float32_t3& scale)
 {
-    return hlsl::composeTransformMatrix(
+    return hlsl::CCameraMathUtilities::composeTransformMatrix(
         translation,
-        hlsl::makeQuaternionFromEulerDegrees(eulerDegrees),
+        hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegrees(eulerDegrees),
         scale);
 }
 

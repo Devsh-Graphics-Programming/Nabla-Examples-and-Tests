@@ -36,7 +36,7 @@ public:
         const CVirtualGimbalEvent::VirtualEventType negative,
         const double tolerance = static_cast<double>(ICamera::TinyScalarEpsilon))
     {
-        if (!hlsl::isFiniteScalar(value) || hlsl::isNearlyZeroScalar(value, tolerance))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(value) || hlsl::CCameraMathUtilities::isNearlyZeroScalar(value, tolerance))
             return;
 
         auto& ev = events.emplace_back();
@@ -52,7 +52,7 @@ public:
         const CVirtualGimbalEvent::VirtualEventType positive,
         const CVirtualGimbalEvent::VirtualEventType negative)
     {
-        if (!hlsl::isFiniteScalar(denominator) || hlsl::isNearlyZeroScalar(denominator, static_cast<double>(ICamera::TinyScalarEpsilon)))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(denominator) || hlsl::CCameraMathUtilities::isNearlyZeroScalar(denominator, static_cast<double>(ICamera::TinyScalarEpsilon)))
             return;
 
         appendSignedVirtualEvent(events, value / denominator, positive, negative, tolerance);
@@ -66,8 +66,8 @@ public:
         const CVirtualGimbalEvent::VirtualEventType positive,
         const CVirtualGimbalEvent::VirtualEventType negative)
     {
-        if (!hlsl::isFiniteScalar(deltaRadians) ||
-            hlsl::isNearlyZeroScalar(hlsl::degrees(deltaRadians), toleranceDeg))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(deltaRadians) ||
+            hlsl::CCameraMathUtilities::isNearlyZeroScalar(hlsl::degrees(deltaRadians), toleranceDeg))
         {
             return;
         }
@@ -123,7 +123,7 @@ public:
     {
         appendLocalTranslationEvents(
             events,
-            hlsl::projectWorldVectorToLocalQuaternionFrame(orientation, worldDelta),
+            hlsl::CCameraMathUtilities::projectWorldVectorToLocalQuaternionFrame(orientation, worldDelta),
             denominators,
             tolerances);
     }
@@ -170,3 +170,4 @@ public:
 } // namespace nbl::core
 
 #endif // _C_CAMERA_VIRTUAL_EVENT_UTILITIES_HPP_
+

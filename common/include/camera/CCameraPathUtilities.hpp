@@ -16,7 +16,7 @@ namespace nbl::core
 struct SCameraPathPose final
 {
     hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     hlsl::float64_t appliedDistance = 0.0;
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
 };
@@ -129,14 +129,14 @@ struct CCameraPathUtilities final
 
     static inline bool isPathStateFinite(const ICamera::PathState& state)
     {
-        return hlsl::isFiniteScalar(state.angle) &&
-            hlsl::isFiniteScalar(state.radius) &&
-            hlsl::isFiniteScalar(state.height);
+        return hlsl::CCameraMathUtilities::isFiniteScalar(state.angle) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(state.radius) &&
+            hlsl::CCameraMathUtilities::isFiniteScalar(state.height);
     }
 
     static inline bool sanitizePathState(ICamera::PathState& state, const double minRadius)
     {
-        return hlsl::sanitizePathState(state.angle, state.radius, state.height, minRadius);
+        return hlsl::CCameraMathUtilities::sanitizePathState(state.angle, state.radius, state.height, minRadius);
     }
 
     static inline bool tryScalePathStateDistance(
@@ -145,7 +145,7 @@ struct CCameraPathUtilities final
         ICamera::PathState& ioState,
         double* outAppliedDistance = nullptr)
     {
-        return hlsl::tryScalePathStateDistance(
+        return hlsl::CCameraMathUtilities::tryScalePathStateDistance(
             desiredDistance,
             minRadius,
             ioState.radius,
@@ -168,7 +168,7 @@ struct CCameraPathUtilities final
         {
             outResult->appliedDistance = appliedDistance;
             outResult->exact = (clampedDistance == desiredDistance) &&
-                hlsl::nearlyEqualScalar(appliedDistance, static_cast<double>(desiredDistance), SCameraPathDefaults::ScalarTolerance);
+                hlsl::CCameraMathUtilities::nearlyEqualScalar(appliedDistance, static_cast<double>(desiredDistance), SCameraPathDefaults::ScalarTolerance);
         }
         return true;
     }
@@ -179,7 +179,7 @@ struct CCameraPathUtilities final
         const double minRadius,
         ICamera::PathState& outState)
     {
-        return hlsl::tryBuildPathStateFromPosition(
+        return hlsl::CCameraMathUtilities::tryBuildPathStateFromPosition(
             targetPosition,
             position,
             minRadius,
@@ -214,7 +214,7 @@ struct CCameraPathUtilities final
         const SCameraPathLimits& limits,
         SCameraPathPose& outPose)
     {
-        return hlsl::tryBuildPathPoseFromState(
+        return hlsl::CCameraMathUtilities::tryBuildPathPoseFromState(
             targetPosition,
             state.angle,
             state.radius,
@@ -256,9 +256,9 @@ struct CCameraPathUtilities final
         const ICamera::PathState& rhs,
         const SCameraPathComparisonThresholds& thresholds = {})
     {
-        return hlsl::getWrappedAngleDistanceDegrees(lhs.angle, rhs.angle) <= thresholds.angleToleranceDeg &&
-            hlsl::nearlyEqualScalar(lhs.radius, rhs.radius, thresholds.scalarTolerance) &&
-            hlsl::nearlyEqualScalar(lhs.height, rhs.height, thresholds.scalarTolerance);
+        return hlsl::CCameraMathUtilities::getWrappedAngleDistanceDegrees(lhs.angle, rhs.angle) <= thresholds.angleToleranceDeg &&
+            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.radius, rhs.radius, thresholds.scalarTolerance) &&
+            hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs.height, rhs.height, thresholds.scalarTolerance);
     }
 
     static inline bool pathStatesChanged(
@@ -274,7 +274,7 @@ struct CCameraPathUtilities final
         const ICamera::PathState& desiredState)
     {
         auto deltaVector = desiredState.asVector() - currentState.asVector();
-        deltaVector.z = hlsl::wrapAngleRad(deltaVector.z);
+        deltaVector.z = hlsl::CCameraMathUtilities::wrapAngleRad(deltaVector.z);
         return deltaVector;
     }
 
@@ -336,7 +336,7 @@ struct CCameraPathUtilities final
         ICamera::PathState& outState)
     {
         auto stateVector = currentState.asVector() + delta.asVector();
-        stateVector.z = hlsl::wrapAngleRad(stateVector.z);
+        stateVector.z = hlsl::CCameraMathUtilities::wrapAngleRad(stateVector.z);
         outState = ICamera::PathState::fromVector(stateVector);
         return sanitizePathState(outState, limits.minRadius);
     }
@@ -349,7 +349,7 @@ struct CCameraPathUtilities final
         const auto fromVector = from.asVector();
         const auto toVector = to.asVector();
         return {
-            .angle = hlsl::lerpWrappedAngleRad(fromVector.z, toVector.z, alpha),
+            .angle = hlsl::CCameraMathUtilities::lerpWrappedAngleRad(fromVector.z, toVector.z, alpha),
             .radius = fromVector.x + (toVector.x - fromVector.x) * alpha,
             .height = fromVector.y + (toVector.y - fromVector.y) * alpha
         };
@@ -377,3 +377,4 @@ struct CCameraPathUtilities final
 } // namespace nbl::core
 
 #endif // _C_CAMERA_PATH_UTILITIES_HPP_
+

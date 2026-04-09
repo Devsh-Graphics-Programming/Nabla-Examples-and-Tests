@@ -85,7 +85,7 @@ struct SCameraAppSceneDefaults final
 	static inline constexpr float FollowTargetMarkerScale = 0.28f;
 	static inline constexpr float FollowTargetMarkerScaleVisualDebug = 0.6f;
     static inline const float64_t3 DefaultFollowTargetPosition = float64_t3(6.0, -4.5, 2.25);
-    static inline const camera_quaternion_t<float64_t> DefaultFollowTargetOrientation = makeIdentityQuaternion<float64_t>();
+    static inline const camera_quaternion_t<float64_t> DefaultFollowTargetOrientation = CCameraMathUtilities::makeIdentityQuaternion<float64_t>();
 };
 
 inline float32_t3x4 buildFollowTargetMarkerWorldTransform(
@@ -95,9 +95,9 @@ inline float32_t3x4 buildFollowTargetMarkerWorldTransform(
     const auto& targetGimbal = trackedTarget.getGimbal();
     const auto position = getCastedVector<float32_t>(targetGimbal.getPosition());
     const auto orientation = getCastedVector<float32_t>(targetGimbal.getOrientation().data);
-    const auto markerTransform = hlsl::composeTransformMatrix(
+    const auto markerTransform = hlsl::CCameraMathUtilities::composeTransformMatrix(
         position,
-        makeQuaternionFromComponents<float32_t>(orientation.x, orientation.y, orientation.z, orientation.w),
+        CCameraMathUtilities::makeQuaternionFromComponents<float32_t>(orientation.x, orientation.y, orientation.z, orientation.w),
         float32_t3(markerScale, markerScale, markerScale));
     return float32_t3x4(hlsl::transpose(markerTransform));
 }

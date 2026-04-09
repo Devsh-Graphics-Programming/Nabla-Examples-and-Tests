@@ -16,7 +16,7 @@ class CFreeCamera final : public ICamera
 public:
     using base_t = ICamera;
 
-    CFreeCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>())
+    CFreeCamera(const hlsl::float64_t3& position, const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>())
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
     ~CFreeCamera() = default;
 
@@ -40,12 +40,12 @@ public:
 
         m_gimbal.begin();
         {
-            const auto pitch = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[0])), impulse.dVirtualRotation.x);
-            const auto yaw = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[1])), impulse.dVirtualRotation.y);
-            const auto roll = hlsl::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[2])), impulse.dVirtualRotation.z);
+            const auto pitch = hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[0])), impulse.dVirtualRotation.x);
+            const auto yaw = hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[1])), impulse.dVirtualRotation.y);
+            const auto roll = hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(hlsl::normalize(hlsl::float64_t3(reference.frame[2])), impulse.dVirtualRotation.z);
 
-            m_gimbal.setOrientation(hlsl::normalizeQuaternion(yaw * pitch * roll * reference.orientation));
-            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
+            m_gimbal.setOrientation(hlsl::CCameraMathUtilities::normalizeQuaternion(yaw * pitch * roll * reference.orientation));
+            m_gimbal.setPosition(hlsl::float64_t3(reference.frame[3]) + hlsl::CCameraMathUtilities::rotateVectorByQuaternion(reference.orientation, hlsl::float64_t3(impulse.dVirtualTranslate)));
         }
         m_gimbal.end();
 

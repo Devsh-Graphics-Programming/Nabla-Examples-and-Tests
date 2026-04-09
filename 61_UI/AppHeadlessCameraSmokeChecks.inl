@@ -622,7 +622,7 @@
 		if (state.initialPresets.free.has_value() && state.freeCamera)
 		{
 			CameraPreset orientedPreset = state.initialPresets.free.value();
-			orientedPreset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
+			orientedPreset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
 			const auto orientResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
 			if (!orientResult.succeeded() || !nbl::system::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
 			{
@@ -653,14 +653,14 @@
 
 			const auto remappedPosition = state.freeCamera->getGimbal().getPosition();
 			const auto positionDelta = remappedPosition - orientedPreset.goal.position;
-			if (!hlsl::nearlyEqualVec3(positionDelta, SCameraSmokeManipulationDefaults::WorldTranslationDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+			if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(positionDelta, SCameraSmokeManipulationDefaults::WorldTranslationDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 			{
 				outError = "Camera manipulation utilities smoke changed world-space translation semantics.";
 				return false;
 			}
 
 			CameraPreset pitchPreset = state.initialPresets.free.value();
-			pitchPreset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
+			pitchPreset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
 			const auto pitchResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, pitchPreset);
 			if (!pitchResult.succeeded())
 			{
@@ -680,7 +680,7 @@
 				return false;
 			}
 
-			const auto freeEulerDeg = hlsl::getCameraOrientationEulerDegrees(state.freeCamera->getGimbal().getOrientation());
+			const auto freeEulerDeg = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(state.freeCamera->getGimbal().getOrientation());
 			if (hlsl::abs(static_cast<double>(freeEulerDeg.x - SCameraSmokeManipulationDefaults::PitchMaxDeg)) > SCameraSmokeManipulationDefaults::PitchAppliedToleranceDeg)
 			{
 				outError = "Camera manipulation utilities smoke produced wrong clamped Free camera pitch.";
@@ -954,3 +954,4 @@
 		return true;
 	}
 }
+

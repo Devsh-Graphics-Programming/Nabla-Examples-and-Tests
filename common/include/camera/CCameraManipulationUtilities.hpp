@@ -90,7 +90,7 @@ public:
         }
 
         const auto worldDelta = CCameraVirtualEventUtilities::collectSignedTranslationDelta({ events.data(), count });
-        if (hlsl::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
+        if (hlsl::CCameraMathUtilities::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
         {
             events = std::move(filtered);
             count = static_cast<uint32_t>(events.size());
@@ -130,7 +130,7 @@ public:
 
         const auto& gimbal = camera->getGimbal();
         const auto pos = gimbal.getPosition();
-        const auto eulerDeg = hlsl::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+        const auto eulerDeg = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 
         auto clamped = eulerDeg;
         if (constraints.clampPitch)
@@ -145,7 +145,7 @@ public:
 
         CCameraPreset preset;
         preset.goal.position = pos;
-        preset.goal.orientation = hlsl::makeQuaternionFromEulerDegreesYXZ(clamped);
+        preset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(clamped);
         return CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
     }
 };
@@ -153,3 +153,4 @@ public:
 } // namespace nbl::core
 
 #endif // _C_CAMERA_MANIPULATION_UTILITIES_HPP_
+

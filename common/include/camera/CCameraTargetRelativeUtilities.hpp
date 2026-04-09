@@ -20,7 +20,7 @@ struct SCameraTargetRelativeState final
 struct SCameraTargetRelativePose final
 {
     hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::makeIdentityQuaternion<hlsl::float64_t>();
+    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance);
 };
 
@@ -120,7 +120,7 @@ struct CCameraTargetRelativeUtilities final
         outState.target = targetPosition;
 
         hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(minDistance);
-        if (!hlsl::tryBuildOrbitFromPosition(
+        if (!hlsl::CCameraMathUtilities::tryBuildOrbitFromPosition(
                 targetPosition,
                 position,
                 static_cast<hlsl::float64_t>(minDistance),
@@ -143,7 +143,7 @@ struct CCameraTargetRelativeUtilities final
         SCameraTargetRelativePose& outPose)
     {
         outPose = {};
-        return hlsl::tryBuildSphericalPoseFromOrbit(
+        return hlsl::CCameraMathUtilities::tryBuildSphericalPoseFromOrbit(
             state.target,
             state.orbitUv.x,
             state.orbitUv.y,
@@ -166,7 +166,7 @@ struct CCameraTargetRelativeUtilities final
             return false;
 
         outBasis.localOffset = pose.position - state.target;
-        const auto basis = hlsl::getQuaternionBasisMatrix(pose.orientation);
+        const auto basis = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(pose.orientation);
         outBasis.right = basis[0];
         outBasis.up = basis[1];
         outBasis.forward = basis[2];
@@ -199,8 +199,8 @@ struct CCameraTargetRelativeUtilities final
     {
         return {
             .orbitUv = hlsl::float64_t2(
-                hlsl::wrapAngleRad(desiredState.orbitUv.x - currentState.orbitUv.x),
-                hlsl::wrapAngleRad(desiredState.orbitUv.y - currentState.orbitUv.y)),
+                hlsl::CCameraMathUtilities::wrapAngleRad(desiredState.orbitUv.x - currentState.orbitUv.x),
+                hlsl::CCameraMathUtilities::wrapAngleRad(desiredState.orbitUv.y - currentState.orbitUv.y)),
             .distance = static_cast<double>(desiredState.distance - currentState.distance)
         };
     }
@@ -268,3 +268,4 @@ struct CCameraTargetRelativeUtilities final
 } // namespace nbl::core
 
 #endif // _C_CAMERA_TARGET_RELATIVE_UTILITIES_HPP_
+
