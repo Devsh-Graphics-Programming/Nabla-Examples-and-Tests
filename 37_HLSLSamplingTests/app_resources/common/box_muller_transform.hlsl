@@ -18,6 +18,8 @@ struct BoxMullerTransformTestResults
 	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
 	float32_t2 separateBackwardPdf;
 };
 
@@ -31,10 +33,12 @@ struct BoxMullerTransformTestExecutor
 			sampling::BoxMullerTransform<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 			output.cachedPdf = output.forwardPdf;
 		}
 
 		output.backwardPdf = sampler.backwardPdf(output.generated);
+		output.backwardWeight = sampler.backwardWeight(output.generated);
 		output.separateBackwardPdf = sampler.separateBackwardPdf(output.generated);
 	}
 };

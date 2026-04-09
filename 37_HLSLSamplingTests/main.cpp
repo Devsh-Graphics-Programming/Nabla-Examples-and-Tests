@@ -29,24 +29,25 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/concepts.hlsl"
 
 // ITester-based testers
-#include "CLinearTester.h"
-#include "CBilinearTester.h"
-#include "CUniformHemisphereTester.h"
-#include "CUniformSphereTester.h"
-#include "CProjectedHemisphereTester.h"
-#include "CProjectedSphereTester.h"
-#include "CConcentricMappingTester.h"
-#include "CPolarMappingTester.h"
-#include "CSphericalTriangleTester.h"
-#include "CBoxMullerTransformTester.h"
-#include "CProjectedSphericalTriangleTester.h"
-#include "CSphericalRectangleTester.h"
-#include "CDiscreteTableTester.h"
-#include "CAliasTableGPUTester.h"
-#include "CCumulativeProbabilityGPUTester.h"
+#include "tests/CLinearTester.h"
+#include "tests/CBilinearTester.h"
+#include "tests/CUniformHemisphereTester.h"
+#include "tests/CUniformSphereTester.h"
+#include "tests/CProjectedHemisphereTester.h"
+#include "tests/CProjectedSphereTester.h"
+#include "tests/CConcentricMappingTester.h"
+#include "tests/CPolarMappingTester.h"
+#include "tests/CSphericalTriangleTester.h"
+#include "tests/CBoxMullerTransformTester.h"
+#include "tests/CProjectedSphericalTriangleTester.h"
+#include "tests/CSphericalRectangleTester.h"
+#include "tests/CDiscreteTableTester.h"
+#include "tests/CAliasTableGPUTester.h"
+#include "tests/CCumulativeProbabilityGPUTester.h"
 
-#include "CSamplerBenchmark.h"
-#include "CDiscreteSamplerBenchmark.h"
+#include "benchmarks/CSamplerBenchmark.h"
+#include "benchmarks/CDiscreteSamplerBenchmark.h"
+#include "tests/property/CSamplerPropertyTester.h"
 
 constexpr bool DoBenchmark = true;
 
@@ -54,38 +55,6 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 {
    using device_base_t = application_templates::MonoDeviceApplication;
    using asset_base_t = BuiltinResourcesApplication;
-
-   // Helper to create pipeline setup data
-   template<typename Tester>
-   auto createSetupData(const std::string& shaderKey) -> typename Tester::PipelineSetupData
-   {
-      typename Tester::PipelineSetupData data;
-      data.device = m_device;
-      data.api = m_api;
-      data.assetMgr = m_assetMgr;
-      data.logger = m_logger;
-      data.physicalDevice = m_physicalDevice;
-      data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-      data.shaderKey = shaderKey;
-      return data;
-   }
-
-   CSamplerBenchmark::SetupData createBenchmarkSetupData(const std::string& shaderKey, uint32_t dispatchGroupCount, uint32_t samplesPerDispatch, size_t inputBufferBytes, size_t outputBufferBytes) const
-   {
-      CSamplerBenchmark::SetupData data;
-      data.device = m_device;
-      data.api = m_api;
-      data.assetMgr = m_assetMgr;
-      data.logger = m_logger;
-      data.physicalDevice = m_physicalDevice;
-      data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-      data.shaderKey = shaderKey;
-      data.dispatchGroupCount = dispatchGroupCount;
-      data.samplesPerDispatch = samplesPerDispatch;
-      data.inputBufferBytes = inputBufferBytes;
-      data.outputBufferBytes = outputBufferBytes;
-      return data;
-   }
 
    public:
    HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -192,7 +161,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
-      static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float, true>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::PolarMapping<float>>);
 
@@ -208,58 +177,163 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ================================================================
       bool pass = true;
       const uint32_t workgroupSize = 64;
-      const uint32_t testBatchCount = 64; // 64 * workgroupSize = 4096 tests per sampler
+      const uint32_t testBatchCount = 1024;
 
 
       // generic lambda to run a GPU sampler test
       auto runSamplerTest = [&]<typename Tester>(const char* testName, auto spirvKey, const char* logFile)
       {
          m_logger->log("Running %s tests...", ILogger::ELL_INFO, testName);
-         auto data = createSetupData<Tester>(spirvKey);
+         typename Tester::PipelineSetupData data;
+         data.device = m_device;
+         data.api = m_api;
+         data.assetMgr = m_assetMgr;
+         data.logger = m_logger;
+         data.physicalDevice = m_physicalDevice;
+         data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+         data.shaderKey = spirvKey;
          Tester tester(testBatchCount, workgroupSize);
          tester.setupPipeline(data);
          pass &= tester.performTestsAndVerifyResults(logFile);
       };
 
       // --- Sampler tests ---
-      runSamplerTest.operator()<CLinearTester>("Linear sampler", nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()), "LinearTestLog.txt");
-      runSamplerTest.operator()<CBilinearTester>("Bilinear sampler", nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()), "BilinearTestLog.txt");
-      runSamplerTest.operator()<CUniformHemisphereTester>("UniformHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()), "UniformHemisphereTestLog.txt");
-      runSamplerTest.operator()<CUniformSphereTester>("UniformSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()), "UniformSphereTestLog.txt");
-      runSamplerTest.operator()<CProjectedHemisphereTester>("ProjectedHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()), "ProjectedHemisphereTestLog.txt");
-      runSamplerTest.operator()<CProjectedSphereTester>("ProjectedSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()), "ProjectedSphereTestLog.txt");
-      runSamplerTest.operator()<CConcentricMappingTester>("ConcentricMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()), "ConcentricMappingTestLog.txt");
-      runSamplerTest.operator()<CPolarMappingTester>("PolarMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()), "PolarMappingTestLog.txt");
-      runSamplerTest.operator()<CBoxMullerTransformTester>("BoxMullerTransform sampler", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()), "BoxMullerTransformTestLog.txt");
-      runSamplerTest.operator()<CProjectedSphericalTriangleTester>("ProjectedSphericalTriangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()), "ProjectedSphericalTriangleTestLog.txt");
-      runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
-      runSamplerTest.operator()<CSphericalTriangleTester>("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()), "SphericalTriangleTestLog.txt");
-
-      // --- Discrete table construction (CPU) ---
+      if constexpr (true)
       {
-         m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
-         CDiscreteTableTester tableTester(m_logger.get());
-         pass &= tableTester.run();
+         runSamplerTest.operator()<CLinearTester>("Linear sampler", nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()), "LinearTestLog.txt");
+         runSamplerTest.operator()<CBilinearTester>("Bilinear sampler", nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()), "BilinearTestLog.txt");
+         runSamplerTest.operator()<CUniformHemisphereTester>("UniformHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()), "UniformHemisphereTestLog.txt");
+         runSamplerTest.operator()<CUniformSphereTester>("UniformSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()), "UniformSphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedHemisphereTester>("ProjectedHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()), "ProjectedHemisphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphereTester>("ProjectedSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()), "ProjectedSphereTestLog.txt");
+         runSamplerTest.operator()<CConcentricMappingTester>("ConcentricMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()), "ConcentricMappingTestLog.txt");
+         runSamplerTest.operator()<CPolarMappingTester>("PolarMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()), "PolarMappingTestLog.txt");
+         runSamplerTest.operator()<CBoxMullerTransformTester>("BoxMullerTransform sampler", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()), "BoxMullerTransformTestLog.txt");
+         runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
+         runSamplerTest.operator()<CSphericalTriangleTester>("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()), "SphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalTriangleTester>("ProjectedSphericalTriangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()), "ProjectedSphericalTriangleTestLog.txt");
       }
 
-      // --- GPU table sampler tests ---
-      runSamplerTest.operator()<CAliasTableGPUTester>("AliasTable GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()), "AliasTableTestLog.txt");
-      runSamplerTest.operator()<CCumulativeProbabilityGPUTester>("CumulativeProbability GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()), "CumulativeProbabilityTestLog.txt");
+      if constexpr (true)
+      {
+         // --- Discrete table construction (CPU) ---
+         {
+            m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
+            CDiscreteTableTester tableTester(m_logger.get());
+            pass &= tableTester.run();
+         }
 
+         // --- GPU table sampler tests ---
+         runSamplerTest.operator()<CAliasTableGPUTester>("AliasTable GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()), "AliasTableTestLog.txt");
+         runSamplerTest.operator()<CCumulativeProbabilityGPUTester>("CumulativeProbability GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()), "CumulativeProbabilityTestLog.txt");
+      }
       if (pass)
          m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
       else
          m_logger->log("Some sampling tests FAILED. Check log files for details.", ILogger::ELL_ERROR);
 
+      // ================================================================
+      // CPU-only mathematical property tests (PDF normalization, consistency)
+      // ================================================================
+      if constexpr (true)
+      {
+         m_logger->log("Running sampler property tests (CPU)...", ILogger::ELL_INFO);
+         m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
+
+         CSamplerPropertyTester<LinearPropertyConfig> linearProps(m_logger.get());
+         pass &= linearProps.run();
+
+         CSamplerPropertyTester<BilinearPropertyConfig> bilinearProps(m_logger.get());
+         pass &= bilinearProps.run();
+
+         CSamplerPropertyTester<UniformHemispherePropertyConfig> uniformHemiProps(m_logger.get());
+         pass &= uniformHemiProps.run();
+
+         CSamplerPropertyTester<UniformSpherePropertyConfig> uniformSphereProps(m_logger.get());
+         pass &= uniformSphereProps.run();
+
+         CSamplerPropertyTester<ProjectedHemispherePropertyConfig> projHemiProps(m_logger.get());
+         pass &= projHemiProps.run();
+
+         CSamplerPropertyTester<ProjectedSpherePropertyConfig> projSphereProps(m_logger.get());
+         pass &= projSphereProps.run();
+
+         CSamplerPropertyTester<ConcentricMappingPropertyConfig> concentricProps(m_logger.get());
+         pass &= concentricProps.run();
+
+         CSamplerPropertyTester<PolarMappingPropertyConfig> polarProps(m_logger.get());
+         pass &= polarProps.run();
+
+         CSamplerPropertyTester<BoxMullerTransformPropertyConfig> boxMullerProps(m_logger.get());
+         pass &= boxMullerProps.run();
+
+         CSamplerPropertyTester<SphericalTrianglePropertyConfig> sphTriProps(m_logger.get());
+         pass &= sphTriProps.run();
+
+         CSamplerPropertyTester<ProjectedSphericalTrianglePropertyConfig> projSphTriProps(m_logger.get());
+         pass &= projSphTriProps.run();
+
+         CSamplerPropertyTester<SphericalRectanglePropertyConfig> sphRectProps(m_logger.get());
+         pass &= sphRectProps.run();
+
+         // Stress tests: extreme coefficient ratios
+         CSamplerPropertyTester<LinearStressConfig> linearStress(m_logger.get());
+         pass &= linearStress.run();
+
+         CSamplerPropertyTester<BilinearStressConfig> bilinearStress(m_logger.get());
+         pass &= bilinearStress.run();
+
+         CSamplerPropertyTester<BilinearPSTPatternConfig> bilinearPST(m_logger.get());
+         pass &= bilinearPST.run();
+
+         CSamplerPropertyTester<SphericalTriangleStressConfig> sphTriStress(m_logger.get());
+         pass &= sphTriStress.run();
+
+         // Grazing angle tests
+         CSamplerPropertyTester<ProjectedSphericalTriangleGrazingConfig> grazingProps(m_logger.get());
+         pass &= grazingProps.run();
+
+         if (pass)
+            m_logger->log("All sampler property tests PASSED.", ILogger::ELL_INFO);
+         else
+            m_logger->log("Some sampler property tests FAILED.", ILogger::ELL_ERROR);
+      }
+
+      // ================================================================
+      // Solid angle accuracy and small triangle convergence tests (CPU-only)
+      // ================================================================
+      {
+         m_logger->log("Running geometry tests (CPU)...", ILogger::ELL_INFO);
+         m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
+
+         CSolidAngleAccuracyTester solidAngleTester(m_logger.get());
+         pass &= solidAngleTester.run();
+
+         CSphericalTriangleGenerateTester sphTriGenTester(m_logger.get());
+         pass &= sphTriGenTester.run();
+
+         CSphericalRectangleGenerateTester sphRectGenTester(m_logger.get());
+         pass &= sphRectGenTester.run();
+
+         CProjectedSphericalTriangleGeometricTester pstTester(m_logger.get());
+         pass &= pstTester.run();
+
+         if (pass)
+            m_logger->log("All geometry tests PASSED.", ILogger::ELL_INFO);
+         else
+            m_logger->log("Some geometry tests FAILED.", ILogger::ELL_ERROR);
+      }
+
       // ======================================================================
-      // GPU throughput benchmarks (1000 warmup + 20000 timed dispatches each)
+      // GPU throughput benchmarks (500 warmup + 5000 timed dispatches each)
       // ======================================================================
       if constexpr (DoBenchmark)
       {
          m_logger->log("=== GPU Sampler Benchmarks ===", ILogger::ELL_PERFORMANCE);
-         constexpr uint32_t totalSamplesPerWorkgroup = testBatchCount * workgroupSize;
-         constexpr uint32_t iteratationsPerThread = 4096; // internal to shader, set in CMakeLists.txt
-         constexpr uint32_t benchSamplesPerDispatch = totalSamplesPerWorkgroup * iteratationsPerThread;
+         constexpr uint32_t benchWorkgroupSize = NBL_BENCH_WORKGROUP_SIZE;
+         constexpr uint32_t totalThreadsPerDispatch = testBatchCount * benchWorkgroupSize;
+         constexpr uint32_t iterationsPerThread = NBL_BENCH_ITERS;
+         constexpr uint32_t benchSamplesPerDispatch = totalThreadsPerDispatch * iterationsPerThread;
 
          struct BenchEntry
          {
@@ -272,21 +346,37 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          {
             auto& entry = benchmarks.emplace_back();
             entry.name = name;
-            entry.bench.setup(createBenchmarkSetupData(shaderKey, testBatchCount, benchSamplesPerDispatch, inputSize, outputSize));
+
+            CSamplerBenchmark::SetupData data;
+            data.device = m_device;
+            data.api = m_api;
+            data.assetMgr = m_assetMgr;
+            data.logger = m_logger;
+            data.physicalDevice = m_physicalDevice;
+            data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            data.shaderKey = shaderKey;
+            data.dispatchGroupCount = testBatchCount;
+            data.samplesPerDispatch = benchSamplesPerDispatch;
+            data.inputBufferBytes = inputSize;
+            data.outputBufferBytes = outputSize;
+            entry.bench.setup(data);
          };
 
-         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), sizeof(LinearInputValues) * totalSamplesPerWorkgroup, sizeof(LinearTestResults) * totalSamplesPerWorkgroup);
-         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), sizeof(BilinearInputValues) * totalSamplesPerWorkgroup, sizeof(BilinearTestResults) * totalSamplesPerWorkgroup);
-         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), sizeof(BoxMullerTransformInputValues) * totalSamplesPerWorkgroup, sizeof(BoxMullerTransformTestResults) * totalSamplesPerWorkgroup);
-         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), sizeof(UniformHemisphereInputValues) * totalSamplesPerWorkgroup, sizeof(UniformHemisphereTestResults) * totalSamplesPerWorkgroup);
-         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), sizeof(UniformSphereInputValues) * totalSamplesPerWorkgroup, sizeof(UniformSphereTestResults) * totalSamplesPerWorkgroup);
-         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), sizeof(ConcentricMappingInputValues) * totalSamplesPerWorkgroup, sizeof(ConcentricMappingTestResults) * totalSamplesPerWorkgroup);
-         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), sizeof(PolarMappingInputValues) * totalSamplesPerWorkgroup, sizeof(PolarMappingTestResults) * totalSamplesPerWorkgroup);
-         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), sizeof(ProjectedHemisphereInputValues) * totalSamplesPerWorkgroup, sizeof(ProjectedHemisphereTestResults) * totalSamplesPerWorkgroup);
-         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), sizeof(ProjectedSphereInputValues) * totalSamplesPerWorkgroup, sizeof(ProjectedSphereTestResults) * totalSamplesPerWorkgroup);
-         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), sizeof(SphericalRectangleInputValues) * totalSamplesPerWorkgroup, sizeof(SphericalRectangleTestResults) * totalSamplesPerWorkgroup);
-         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), sizeof(SphericalTriangleInputValues) * totalSamplesPerWorkgroup, sizeof(SphericalTriangleTestResults) * totalSamplesPerWorkgroup);
-         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), sizeof(ProjectedSphericalTriangleInputValues) * totalSamplesPerWorkgroup, sizeof(ProjectedSphericalTriangleTestResults) * totalSamplesPerWorkgroup);
+         // Bench shaders don't read input (hardcoded values) and write a single uint32_t per thread via RWByteAddressBuffer
+         constexpr size_t benchInputBytes = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
+         constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
+         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
 
          // Print all pipeline reports first
          for (auto& entry : benchmarks)

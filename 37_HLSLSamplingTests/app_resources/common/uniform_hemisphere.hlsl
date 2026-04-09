@@ -18,7 +18,9 @@ struct UniformHemisphereTestResults
 	float32_t2 inverted;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
-	float32_t roundtripError;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+	float32_t2 roundtripError;
 	float32_t jacobianProduct;
 };
 
@@ -31,14 +33,15 @@ struct UniformHemisphereTestExecutor
 			sampling::UniformHemisphere<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
 		{
 			sampling::UniformHemisphere<float32_t>::cache_type cache;
 			output.inverted = sampler.generateInverse(output.generated);
 			output.backwardPdf = sampler.backwardPdf(output.generated);
+			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
-		float32_t2 diff = input.u - output.inverted;
-		output.roundtripError = nbl::hlsl::length(diff);
+		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
 		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };

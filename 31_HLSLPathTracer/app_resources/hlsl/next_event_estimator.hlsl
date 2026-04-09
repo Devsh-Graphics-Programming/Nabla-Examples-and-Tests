@@ -259,7 +259,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         sphR0.origin = rect.offset;
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
-        scalar_type solidAngle = sphR0.solidAngle(ray.origin);
+        scalar_type solidAngle = sphR0.solidAngle(ray.origin).value;
         if (solidAngle > numeric_limits<scalar_type>::min)
             pdf = 1.f / solidAngle;
         else
@@ -281,7 +281,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
         vector3_type L = hlsl::promote<vector3_type>(0.0);
-        scalar_type solidAngle = sphR0.solidAngle(origin);
+        scalar_type solidAngle = sphR0.solidAngle(origin).value;
 
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0, origin);
         typename sampling::SphericalRectangle<scalar_type>::cache_type cache;

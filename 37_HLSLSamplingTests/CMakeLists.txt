@@ -1,5 +1,6 @@
 set(NBL_INCLUDE_SEARCH_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 include(common RESULT_VARIABLE RES)
@@ -10,21 +11,21 @@ endif()
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
 set(DEPENDS
-    app_resources/test_compile.comp.hlsl
-    app_resources/linear_test.comp.hlsl
-    app_resources/uniform_hemisphere_test.comp.hlsl
-    app_resources/uniform_sphere_test.comp.hlsl
-    app_resources/projected_hemisphere_test.comp.hlsl
-    app_resources/projected_sphere_test.comp.hlsl
-    app_resources/spherical_triangle.comp.hlsl
-    app_resources/concentric_mapping_test.comp.hlsl
-    app_resources/polar_mapping_test.comp.hlsl
-    app_resources/bilinear_test.comp.hlsl
-    app_resources/box_muller_transform_test.comp.hlsl
-    app_resources/projected_spherical_triangle_test.comp.hlsl
-    app_resources/spherical_rectangle_test.comp.hlsl
-    app_resources/alias_table_test.comp.hlsl
-    app_resources/cumulative_probability_test.comp.hlsl
+    app_resources/shaders/test_compile.comp.hlsl
+    app_resources/shaders/linear_test.comp.hlsl
+    app_resources/shaders/uniform_hemisphere_test.comp.hlsl
+    app_resources/shaders/uniform_sphere_test.comp.hlsl
+    app_resources/shaders/projected_hemisphere_test.comp.hlsl
+    app_resources/shaders/projected_sphere_test.comp.hlsl
+    app_resources/shaders/spherical_triangle.comp.hlsl
+    app_resources/shaders/concentric_mapping_test.comp.hlsl
+    app_resources/shaders/polar_mapping_test.comp.hlsl
+    app_resources/shaders/bilinear_test.comp.hlsl
+    app_resources/shaders/box_muller_transform_test.comp.hlsl
+    app_resources/shaders/projected_spherical_triangle_test.comp.hlsl
+    app_resources/shaders/spherical_rectangle_test.comp.hlsl
+    app_resources/shaders/alias_table_test.comp.hlsl
+    app_resources/shaders/cumulative_probability_test.comp.hlsl
     app_resources/common/linear.hlsl
     app_resources/common/uniform_hemisphere.hlsl
     app_resources/common/uniform_sphere.hlsl
@@ -44,23 +45,25 @@ set(DEPENDS
 list(TRANSFORM DEPENDS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
 target_sources(${EXECUTABLE_NAME} PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/CLinearTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformHemisphereTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CUniformSphereTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedHemisphereTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphereTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalTriangleTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CConcentricMappingTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CPolarMappingTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CBilinearTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CBoxMullerTransformTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CProjectedSphericalTriangleTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CSphericalRectangleTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CDiscreteTableTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CAliasTableGPUTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CCumulativeProbabilityGPUTester.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CSamplerBenchmark.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CDiscreteSamplerBenchmark.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CLinearTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CUniformHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CUniformSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CProjectedHemisphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CProjectedSphereTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CSphericalTriangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CConcentricMappingTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CPolarMappingTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CBilinearTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CBoxMullerTransformTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CProjectedSphericalTriangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CSphericalRectangleTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CDiscreteTableTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CAliasTableGPUTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CCumulativeProbabilityGPUTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/SamplerTestHelpers.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/property/CSamplerPropertyTester.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CSamplerBenchmark.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CDiscreteSamplerBenchmark.h"
     ${DEPENDS}
 )
 
@@ -84,140 +87,150 @@ endif()
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
-set(JSON [=[
+set(NBL_BENCH_ITERS 2048)
+set(NBL_BENCH_WORKGROUP_SIZE 96)
+
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE
+    NBL_BENCH_ITERS=${NBL_BENCH_ITERS}
+    NBL_BENCH_WORKGROUP_SIZE=${NBL_BENCH_WORKGROUP_SIZE}
+)
+
+set(BENCH_OPTS "\"-DBENCH_ITERS=${NBL_BENCH_ITERS}\", \"-DWORKGROUP_SIZE=${NBL_BENCH_WORKGROUP_SIZE}\"")
+
+set(JSON "
 [
   {
-    "INPUT": "app_resources/test_compile.comp.hlsl",
-    "KEY": "shader"
+    \"INPUT\": \"app_resources/shaders/test_compile.comp.hlsl\",
+    \"KEY\": \"shader\"
   },
   {
-    "INPUT": "app_resources/linear_test.comp.hlsl",
-    "KEY": "linear_test"
+    \"INPUT\": \"app_resources/shaders/linear_test.comp.hlsl\",
+    \"KEY\": \"linear_test\"
   },
   {
-    "INPUT": "app_resources/linear_test.comp.hlsl",
-    "KEY": "linear_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"] /* ALSO SET IN main.cpp and CDiscreteSamplerBenchmark.h */
+    \"INPUT\": \"app_resources/shaders/linear_test.comp.hlsl\",
+    \"KEY\": \"linear_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
-    "KEY": "uniform_hemisphere_test"
+    \"INPUT\": \"app_resources/shaders/uniform_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_hemisphere_test\"
   },
   {
-    "INPUT": "app_resources/uniform_hemisphere_test.comp.hlsl",
-    "KEY": "uniform_hemisphere_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/uniform_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_hemisphere_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
-    "KEY": "uniform_sphere_test"
+    \"INPUT\": \"app_resources/shaders/uniform_sphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_sphere_test\"
   },
   {
-    "INPUT": "app_resources/uniform_sphere_test.comp.hlsl",
-    "KEY": "uniform_sphere_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/uniform_sphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_sphere_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
-    "KEY": "projected_hemisphere_test"
+    \"INPUT\": \"app_resources/shaders/projected_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"projected_hemisphere_test\"
   },
   {
-    "INPUT": "app_resources/projected_hemisphere_test.comp.hlsl",
-    "KEY": "projected_hemisphere_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/projected_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"projected_hemisphere_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
-    "KEY": "projected_sphere_test"
+    \"INPUT\": \"app_resources/shaders/projected_sphere_test.comp.hlsl\",
+    \"KEY\": \"projected_sphere_test\"
   },
   {
-    "INPUT": "app_resources/projected_sphere_test.comp.hlsl",
-    "KEY": "projected_sphere_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/projected_sphere_test.comp.hlsl\",
+    \"KEY\": \"projected_sphere_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/spherical_triangle.comp.hlsl",
-    "KEY": "spherical_triangle"
+    \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
+    \"KEY\": \"spherical_triangle\"
   },
   {
-    "INPUT": "app_resources/spherical_triangle.comp.hlsl",
-    "KEY": "spherical_triangle_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
+    \"KEY\": \"spherical_triangle_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/concentric_mapping_test.comp.hlsl",
-    "KEY": "concentric_mapping_test"
+    \"INPUT\": \"app_resources/shaders/concentric_mapping_test.comp.hlsl\",
+    \"KEY\": \"concentric_mapping_test\"
   },
   {
-    "INPUT": "app_resources/concentric_mapping_test.comp.hlsl",
-    "KEY": "concentric_mapping_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/concentric_mapping_test.comp.hlsl\",
+    \"KEY\": \"concentric_mapping_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/polar_mapping_test.comp.hlsl",
-    "KEY": "polar_mapping_test"
+    \"INPUT\": \"app_resources/shaders/polar_mapping_test.comp.hlsl\",
+    \"KEY\": \"polar_mapping_test\"
   },
   {
-    "INPUT": "app_resources/polar_mapping_test.comp.hlsl",
-    "KEY": "polar_mapping_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/polar_mapping_test.comp.hlsl\",
+    \"KEY\": \"polar_mapping_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/bilinear_test.comp.hlsl",
-    "KEY": "bilinear_test"
+    \"INPUT\": \"app_resources/shaders/bilinear_test.comp.hlsl\",
+    \"KEY\": \"bilinear_test\"
   },
   {
-    "INPUT": "app_resources/bilinear_test.comp.hlsl",
-    "KEY": "bilinear_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/bilinear_test.comp.hlsl\",
+    \"KEY\": \"bilinear_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/box_muller_transform_test.comp.hlsl",
-    "KEY": "box_muller_transform_test"
+    \"INPUT\": \"app_resources/shaders/box_muller_transform_test.comp.hlsl\",
+    \"KEY\": \"box_muller_transform_test\"
   },
   {
-    "INPUT": "app_resources/box_muller_transform_test.comp.hlsl",
-    "KEY": "box_muller_transform_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/box_muller_transform_test.comp.hlsl\",
+    \"KEY\": \"box_muller_transform_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/projected_spherical_triangle_test.comp.hlsl",
-    "KEY": "projected_spherical_triangle_test"
+    \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_triangle_test\"
   },
   {
-    "INPUT": "app_resources/projected_spherical_triangle_test.comp.hlsl",
-    "KEY": "projected_spherical_triangle_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_triangle_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/spherical_rectangle_test.comp.hlsl",
-    "KEY": "spherical_rectangle_test"
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_test\"
   },
   {
-    "INPUT": "app_resources/spherical_rectangle_test.comp.hlsl",
-    "KEY": "spherical_rectangle_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/alias_table_test.comp.hlsl",
-    "KEY": "alias_table_test"
+    \"INPUT\": \"app_resources/shaders/alias_table_test.comp.hlsl\",
+    \"KEY\": \"alias_table_test\"
   },
   {
-    "INPUT": "app_resources/alias_table_test.comp.hlsl",
-    "KEY": "alias_table_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/alias_table_test.comp.hlsl\",
+    \"KEY\": \"alias_table_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
-    "INPUT": "app_resources/cumulative_probability_test.comp.hlsl",
-    "KEY": "cumulative_probability_test"
+    \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
+    \"KEY\": \"cumulative_probability_test\"
   },
   {
-    "INPUT": "app_resources/cumulative_probability_test.comp.hlsl",
-    "KEY": "cumulative_probability_bench",
-    "COMPILE_OPTIONS": ["-DBENCH_ITERS=4096"]
+    \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
+    \"KEY\": \"cumulative_probability_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   }
 ]
-]=])
+")
 
 NBL_CREATE_NSC_COMPILE_RULES(
   TARGET ${EXECUTABLE_NAME}SPIRV

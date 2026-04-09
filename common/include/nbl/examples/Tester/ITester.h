@@ -100,7 +100,7 @@ class ITester
          if (!inputBuff)
             logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-         inputBuff->setObjectDebugName("emulated_float64_t output buffer");
+         inputBuff->setObjectDebugName("ITester input buffer");
 
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = inputBuff->getMemoryReqs();
          reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -134,7 +134,7 @@ class ITester
          if (!outputBuff)
             logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-         outputBuff->setObjectDebugName("emulated_float64_t output buffer");
+         outputBuff->setObjectDebugName("ITester output buffer");
 
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
          reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -258,16 +258,17 @@ class ITester
    void dispatchGpuTests(const core::vector<InputTestValues>& input, core::vector<TestResults>& output)
    {
       // Update input buffer
-      if (!m_inputBufferAllocation.memory->map({0ull, m_inputBufferAllocation.memory->getAllocationSize()}, video::IDeviceMemoryAllocation::EMCAF_READ))
+      if (!m_inputBufferAllocation.memory->map({0ull, m_inputBufferAllocation.memory->getAllocationSize()}, video::IDeviceMemoryAllocation::EMCAF_WRITE))
          logFail("Failed to map the Device Memory!\n");
-
-      const video::ILogicalDevice::MappedMemoryRange memoryRange(m_inputBufferAllocation.memory.get(), 0ull, m_inputBufferAllocation.memory->getAllocationSize());
-      if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-         m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
       assert(m_testIterationCount == input.size());
       const size_t inputDataSize = sizeof(InputTestValues) * m_testIterationCount;
       std::memcpy(static_cast<InputTestValues*>(m_inputBufferAllocation.memory->getMappedPointer()), input.data(), inputDataSize);
+
+      // Flush CPU writes to device-visible memory for non-coherent allocations
+      const video::ILogicalDevice::MappedMemoryRange inputMemoryRange(m_inputBufferAllocation.memory.get(), 0ull, m_inputBufferAllocation.memory->getAllocationSize());
+      if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+         m_device->flushMappedMemoryRanges(1, &inputMemoryRange);
 
       m_inputBufferAllocation.memory->unmap();
 
@@ -383,9 +384,27 @@ class ITester
       }
 
       std::stringstream maxErrors;
+      constexpr const char* componentNames[] = {"x", "y", "z", "w"};
       for (const auto& error : m_maxErrors)
       {
-         maxErrors << "Max Error nbl::hlsl::" << error.first << " rel: " << error.second.rel << " abs: " << error.second.abs << "\n";
+         const auto& e = error.second;
+         const uint32_t totalComponents = e.rows * e.cols;
+         maxErrors << "Max Error nbl::hlsl::" << error.first << ":\n";
+         if (totalComponents == 1)
+         {
+            maxErrors << "  rel: " << e.rel[0] << " abs: " << e.abs[0] << "\n";
+         }
+         else if (e.rows == 1)
+         {
+            for (uint32_t i = 0; i < e.cols; ++i)
+               maxErrors << "  " << componentNames[i] << " rel: " << e.rel[i] << " abs: " << e.abs[i] << "\n";
+         }
+         else
+         {
+            for (uint32_t r = 0; r < e.rows; ++r)
+               for (uint32_t c = 0; c < e.cols; ++c)
+                  maxErrors << "  [" << r << "][" << c << "] rel: " << e.rel[r * e.cols + c] << " abs: " << e.abs[r * e.cols + c] << "\n";
+         }
       }
       if (const auto str = maxErrors.str(); !str.empty())
          m_logger->log("Max Errors \n %s", system::ILogger::ELL_ERROR, str.c_str());

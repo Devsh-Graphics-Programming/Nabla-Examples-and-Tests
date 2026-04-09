@@ -22,6 +22,10 @@ struct ProjectedSphericalTriangleTestResults
 	float32_t3 generated;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
+	float32_t backwardPdfAtGenerated;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+	float32_t backwardWeightAtGenerated;
 };
 
 struct ProjectedSphericalTriangleTestExecutor
@@ -37,13 +41,17 @@ struct ProjectedSphericalTriangleTestExecutor
 			sampling::ProjectedSphericalTriangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
-		// Test backwardPdf at the triangle centroid: a deterministic interior point computed
+		// Test backwardPdf/Weight at the triangle centroid: a deterministic interior point computed
 		// from only basic arithmetic + sqrt (IEEE 754 exact), so CPU and GPU agree bit-exactly.
 		// Using output.generated would amplify generate's transcendental FP errors through
-		// generateInverse's acos, producing ~0.005-0.01 CPU/GPU divergence.
+		// generateInverse's acos, producing CPU/GPU divergence.
 		const float32_t3 center = nbl::hlsl::normalize(input.vertex0 + input.vertex1 + input.vertex2);
 		output.backwardPdf = sampler.backwardPdf(center);
+		output.backwardWeight = sampler.backwardWeight(center);
+		output.backwardPdfAtGenerated = sampler.backwardPdf(output.generated);
+		output.backwardWeightAtGenerated = sampler.backwardWeight(output.generated);
 	}
 };
 

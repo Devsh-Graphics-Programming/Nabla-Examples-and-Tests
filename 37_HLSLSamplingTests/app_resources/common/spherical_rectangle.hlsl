@@ -19,8 +19,11 @@ struct SphericalRectangleInputValues
 struct SphericalRectangleTestResults
 {
 	float32_t2 generated;
-   float32_t forwardPdf;
+	float32_t forwardPdf;
 	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+	float32_t2 extents;
 };
 
 struct SphericalRectangleTestExecutor
@@ -35,12 +38,15 @@ struct SphericalRectangleTestExecutor
 		shapes::SphericalRectangle<float32_t> rect = shapes::SphericalRectangle<float32_t>::create(compressed);
 		sampling::SphericalRectangle<float32_t> sampler = sampling::SphericalRectangle<float32_t>::create(rect, input.observer);
 
+		output.extents = rect.extents;
 		{
 			sampling::SphericalRectangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-         output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
+		output.backwardWeight = sampler.backwardWeight(output.generated);
 	}
 };
 

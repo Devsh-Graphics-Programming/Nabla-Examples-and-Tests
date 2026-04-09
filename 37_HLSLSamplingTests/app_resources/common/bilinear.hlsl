@@ -17,6 +17,8 @@ struct BilinearTestResults
 	float32_t2 generated;
 	float32_t backwardPdf;
 	float32_t forwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
 };
 
 struct BilinearTestExecutor
@@ -28,10 +30,12 @@ struct BilinearTestExecutor
 			sampling::Bilinear<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
 
 		{
 			output.backwardPdf = sampler.backwardPdf(output.generated);
+			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
 	}
 };

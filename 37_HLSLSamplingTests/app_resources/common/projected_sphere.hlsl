@@ -18,6 +18,8 @@ struct ProjectedSphereTestResults
 	float32_t forwardPdf;
 	float32_t3 modifiedU;
 	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
 };
 
 struct ProjectedSphereTestExecutor
@@ -31,9 +33,11 @@ struct ProjectedSphereTestExecutor
 			output.generated = sampler.generate(_sample, cache);
 			output.cachedPdf = sampler.forwardPdf(_sample, cache);
 			output.forwardPdf = sampler.forwardPdf(_sample, cache);
+			output.forwardWeight = sampler.forwardWeight(_sample, cache);
 			output.modifiedU = _sample;
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
+		output.backwardWeight = sampler.backwardWeight(output.generated);
 	}
 };
 

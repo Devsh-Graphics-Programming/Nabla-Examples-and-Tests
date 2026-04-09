@@ -15,9 +15,10 @@ struct LinearInputValues
 struct LinearTestResults
 {
 	float32_t generated;
-	float32_t generateInversed;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
 };
 
 struct LinearTestExecutor
@@ -29,10 +30,12 @@ struct LinearTestExecutor
 			sampling::Linear<float32_t>::cache_type cache;
 			output.generated = _sampler.generate(input.u, cache);
 			output.forwardPdf = _sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = _sampler.forwardWeight(input.u, cache);
 		}
 
 		{
 			output.backwardPdf = _sampler.backwardPdf(output.generated);
+			output.backwardWeight = _sampler.backwardWeight(output.generated);
 		}
 	}
 };
