@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "CCameraPathMetadata.hpp"
 #include "CCameraTargetRelativeUtilities.hpp"
 #include "CCameraVirtualEventUtilities.hpp"
 #include "ICamera.hpp"
@@ -87,8 +88,8 @@ struct SCameraPathDefaults final
     static constexpr double ExactStateTolerance = ICamera::TinyScalarEpsilon;
     static constexpr double ExactAngleToleranceDeg = ExactStateTolerance * 180.0 / hlsl::numbers::pi<double>;
     static constexpr double AngleToleranceDeg = ICamera::DefaultAngularToleranceDeg;
-    static inline constexpr std::string_view Identifier = "Target-relative Path Rig";
-    static inline constexpr std::string_view Description = "Adjust a target-relative path rig with s/u/v/roll state";
+    static inline constexpr std::string_view Identifier = SCameraPathRigMetadata::Identifier;
+    static inline constexpr std::string_view Description = SCameraPathRigMetadata::DefaultModelDescription;
 
     struct SLimits final
     {

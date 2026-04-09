@@ -904,8 +904,8 @@
 			outError = "Camera text utilities smoke failed for Dolly Zoom label.";
 			return false;
 		}
-        if (CCameraTextUtilities::getCameraTypeDescription(ICamera::CameraKind::Path) != std::string(nbl::core::SCameraPathDefaults::Description))
-		{
+        if (CCameraTextUtilities::getCameraTypeDescription(ICamera::CameraKind::Path) != std::string(nbl::core::SCameraPathRigMetadata::KindDescription))
+        {
 			outError = "Camera text utilities smoke failed for Path description.";
 			return false;
 		}

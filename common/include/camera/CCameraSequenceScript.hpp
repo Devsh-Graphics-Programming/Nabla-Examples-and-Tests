@@ -14,6 +14,7 @@
 
 #include "CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
+#include "CCameraPathUtilities.hpp"
 #include "CCameraTargetRelativeUtilities.hpp"
 #include "IPlanarProjection.hpp"
 
@@ -66,6 +67,58 @@ struct CCameraSequenceContinuitySettings
 //! Deltas stay camera-domain and avoid binding the authored file to any specific input device or consumer.
 struct CCameraSequenceGoalDelta
 {
+    struct SPathDelta final
+    {
+        SCameraPathDelta value = {};
+        bool hasS = false;
+        bool hasU = false;
+        bool hasV = false;
+        bool hasRoll = false;
+
+        inline bool hasAny() const
+        {
+            return hasS || hasU || hasV || hasRoll;
+        }
+
+        inline void setSDeltaDeg(const double valueDeg)
+        {
+            value.s = static_cast<hlsl::float64_t>(hlsl::radians(valueDeg));
+            hasS = true;
+        }
+
+        inline void setUDelta(const double valueScalar)
+        {
+            value.u = static_cast<hlsl::float64_t>(valueScalar);
+            hasU = true;
+        }
+
+        inline void setVDelta(const double valueScalar)
+        {
+            value.v = static_cast<hlsl::float64_t>(valueScalar);
+            hasV = true;
+        }
+
+        inline void setRollDeltaDeg(const double valueDeg)
+        {
+            value.roll = static_cast<hlsl::float64_t>(hlsl::radians(valueDeg));
+            hasRoll = true;
+        }
+
+        inline SCameraPathDelta buildAppliedDelta() const
+        {
+            SCameraPathDelta delta = {};
+            if (hasS)
+                delta.s = value.s;
+            if (hasU)
+                delta.u = value.u;
+            if (hasV)
+                delta.v = value.v;
+            if (hasRoll)
+                delta.roll = value.roll;
+            return delta;
+        }
+    };
+
     bool hasPositionOffset = false;
     hlsl::float64_t3 positionOffset = hlsl::float64_t3(0.0);
 
@@ -82,17 +135,7 @@ struct CCameraSequenceGoalDelta
     bool hasOrbitDistanceDelta = false;
     float orbitDistanceDelta = 0.f;
 
-    bool hasPathSDeltaDeg = false;
-    double pathSDeltaDeg = 0.0;
-
-    bool hasPathUDelta = false;
-    double pathUDelta = 0.0;
-
-    bool hasPathVDelta = false;
-    double pathVDelta = 0.0;
-
-    bool hasPathRollDeltaDeg = false;
-    double pathRollDeltaDeg = 0.0;
+    SPathDelta pathDelta = {};
 
     bool hasDynamicBaseFovDelta = false;
     float dynamicBaseFovDelta = 0.f;
@@ -317,7 +360,7 @@ struct CCameraSequenceScriptUtilities final
 
         const bool hasPoseDelta = delta.hasPositionOffset || delta.hasRotationEulerDegOffset;
         const bool hasSphericalDelta = delta.hasTargetOffset || delta.hasOrbitUDeltaDeg || delta.hasOrbitVDeltaDeg || delta.hasOrbitDistanceDelta;
-        const bool hasPathDelta = delta.hasPathSDeltaDeg || delta.hasPathUDelta || delta.hasPathVDelta || delta.hasPathRollDeltaDeg;
+        const bool hasPathDelta = delta.pathDelta.hasAny();
 
         if (hasPoseDelta && (hasSphericalDelta || hasPathDelta))
         {
@@ -370,7 +413,7 @@ struct CCameraSequenceScriptUtilities final
                 goal.orbitDistance += delta.orbitDistanceDelta;
         }
 
-        if (delta.hasPathSDeltaDeg || delta.hasPathUDelta || delta.hasPathVDelta || delta.hasPathRollDeltaDeg)
+        if (delta.pathDelta.hasAny())
         {
             if (!goal.hasPathState)
             {
@@ -379,12 +422,11 @@ struct CCameraSequenceScriptUtilities final
                 return false;
             }
 
-            SCameraPathDelta pathDelta = {};
-            pathDelta.s = delta.hasPathSDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathSDeltaDeg)) : hlsl::float64_t(0.0);
-            pathDelta.u = delta.hasPathUDelta ? static_cast<hlsl::float64_t>(delta.pathUDelta) : hlsl::float64_t(0.0);
-            pathDelta.v = delta.hasPathVDelta ? static_cast<hlsl::float64_t>(delta.pathVDelta) : hlsl::float64_t(0.0);
-            pathDelta.roll = delta.hasPathRollDeltaDeg ? static_cast<hlsl::float64_t>(hlsl::radians(delta.pathRollDeltaDeg)) : hlsl::float64_t(0.0);
-            if (!CCameraPathUtilities::tryApplyPathStateDelta(goal.pathState, pathDelta, CCameraPathUtilities::makeDefaultPathLimits(), goal.pathState))
+            if (!CCameraPathUtilities::tryApplyPathStateDelta(
+                    goal.pathState,
+                    delta.pathDelta.buildAppliedDelta(),
+                    CCameraPathUtilities::makeDefaultPathLimits(),
+                    goal.pathState))
             {
                 if (error)
                     *error = "Sequence keyframe path deltas produced an invalid path state.";

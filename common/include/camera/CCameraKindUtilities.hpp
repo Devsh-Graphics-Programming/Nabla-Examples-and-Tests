@@ -4,7 +4,8 @@
 #include <array>
 #include <string_view>
 
-#include "CCameraPathUtilities.hpp"
+#include "CCameraPathMetadata.hpp"
+#include "ICamera.hpp"
 
 namespace nbl::core
 {
@@ -127,8 +128,8 @@ private:
         },
         {
             .kind = ICamera::CameraKind::Path,
-            .label = "Path Rig",
-            .description = SCameraPathDefaults::Description,
+            .label = SCameraPathRigMetadata::KindLabel,
+            .description = SCameraPathRigMetadata::KindDescription,
             .interactionFamily = ECameraInteractionFamily::Path
         }
     }};

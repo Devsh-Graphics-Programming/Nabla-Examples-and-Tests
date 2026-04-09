@@ -3,6 +3,7 @@
 
 #include <limits>
 
+#include "SCameraRigPose.hpp"
 #include "CCameraVirtualEventUtilities.hpp"
 
 namespace nbl::core
@@ -14,13 +15,6 @@ struct SCameraTargetRelativeState final
     hlsl::float64_t3 target = hlsl::float64_t3(0.0);
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
     float distance = ICamera::SphericalMinDistance;
-};
-
-//! Shared reconstructed camera pose used by target-relative and path rigs.
-struct SCameraRigPose
-{
-    hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
 };
 
 //! Pose reconstructed from a target-relative orbit state.

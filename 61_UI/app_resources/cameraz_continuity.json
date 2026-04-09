@@ -532,17 +532,17 @@
         {
           "time": 1.5,
           "delta": {
-            "path_angle_delta_deg": 42.0,
-            "path_radius_delta": -3.5,
-            "path_height_delta": 1.0
+            "path_s_delta_deg": 42.0,
+            "path_u_delta": -3.5,
+            "path_v_delta": 1.0
           }
         },
         {
           "time": 4.0,
           "delta": {
-            "path_angle_delta_deg": 115.0,
-            "path_radius_delta": -8.0,
-            "path_height_delta": 2.2
+            "path_s_delta_deg": 115.0,
+            "path_u_delta": -8.0,
+            "path_v_delta": 2.2
           }
         }
       ],

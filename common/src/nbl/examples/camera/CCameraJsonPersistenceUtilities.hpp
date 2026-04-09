@@ -67,14 +67,6 @@ inline void deserializeGoalJson(const Json& entry, core::CCameraGoal& goal)
         goal.pathState.roll = entry.contains("path_roll") ? entry["path_roll"].get<double>() : 0.0;
         goal.hasPathState = true;
     }
-    else if (entry.contains("path_angle") && entry.contains("path_radius") && entry.contains("path_height"))
-    {
-        goal.pathState.s = entry["path_angle"].get<double>();
-        goal.pathState.u = entry["path_radius"].get<double>();
-        goal.pathState.v = entry["path_height"].get<double>();
-        goal.pathState.roll = entry.contains("path_roll") ? entry["path_roll"].get<double>() : 0.0;
-        goal.hasPathState = true;
-    }
     if (entry.contains("dynamic_base_fov"))
     {
         goal.dynamicPerspectiveState.baseFov = entry["dynamic_base_fov"].get<float>();

@@ -187,38 +187,19 @@ bool deserializeSequenceGoalDeltaJson(const json_t& root, nbl::core::CCameraSequ
     }
     if (root.contains("path_s_delta_deg"))
     {
-        out.pathSDeltaDeg = root["path_s_delta_deg"].get<double>();
-        out.hasPathSDeltaDeg = true;
-    }
-    else if (root.contains("path_angle_delta_deg"))
-    {
-        out.pathSDeltaDeg = root["path_angle_delta_deg"].get<double>();
-        out.hasPathSDeltaDeg = true;
+        out.pathDelta.setSDeltaDeg(root["path_s_delta_deg"].get<double>());
     }
     if (root.contains("path_u_delta"))
     {
-        out.pathUDelta = root["path_u_delta"].get<double>();
-        out.hasPathUDelta = true;
-    }
-    else if (root.contains("path_radius_delta"))
-    {
-        out.pathUDelta = root["path_radius_delta"].get<double>();
-        out.hasPathUDelta = true;
+        out.pathDelta.setUDelta(root["path_u_delta"].get<double>());
     }
     if (root.contains("path_v_delta"))
     {
-        out.pathVDelta = root["path_v_delta"].get<double>();
-        out.hasPathVDelta = true;
-    }
-    else if (root.contains("path_height_delta"))
-    {
-        out.pathVDelta = root["path_height_delta"].get<double>();
-        out.hasPathVDelta = true;
+        out.pathDelta.setVDelta(root["path_v_delta"].get<double>());
     }
     if (root.contains("path_roll_delta_deg"))
     {
-        out.pathRollDeltaDeg = root["path_roll_delta_deg"].get<double>();
-        out.hasPathRollDeltaDeg = true;
+        out.pathDelta.setRollDeltaDeg(root["path_roll_delta_deg"].get<double>());
     }
     if (root.contains("dynamic_base_fov_delta"))
     {
@@ -263,7 +244,6 @@ bool deserializeSequenceKeyframeJson(const json_t& root, nbl::core::CCameraSeque
         root.contains("distance") || root.contains("orbit_u") || root.contains("orbit_v") ||
         root.contains("orbit_distance") || root.contains("path_s") || root.contains("path_u") ||
         root.contains("path_v") || root.contains("path_roll") ||
-        root.contains("path_angle") || root.contains("path_radius") || root.contains("path_height") ||
         root.contains("dynamic_base_fov") || root.contains("dynamic_reference_distance"))
     {
         nbl::system::deserializePresetJson(root, out.absolutePreset);
