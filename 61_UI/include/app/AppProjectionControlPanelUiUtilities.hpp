@@ -1,6 +1,7 @@
 #ifndef _NBL_THIS_EXAMPLE_APP_PROJECTION_CONTROL_PANEL_UI_UTILITIES_HPP_
 #define _NBL_THIS_EXAMPLE_APP_PROJECTION_CONTROL_PANEL_UI_UTILITIES_HPP_
 
+#include <cmath>
 #include <string>
 
 #include "app/AppViewportBindingUtilities.hpp"
@@ -303,11 +304,15 @@ inline void drawBoundCameraSection(
     if (camera.tryGetSphericalTargetState(sphericalState))
     {
         float distance = sphericalState.distance;
+        const float uiMaxDistance =
+            std::isfinite(sphericalState.maxDistance) ?
+            sphericalState.maxDistance :
+            std::max(SCameraAppControlPanelRangeDefaults::ConstraintMaxDistanceMax, sphericalState.distance * 2.0f);
         ImGui::SliderFloat(
             "Distance",
             &distance,
             sphericalState.minDistance,
-            sphericalState.maxDistance,
+            uiMaxDistance,
             "%.4f",
             ImGuiSliderFlags_Logarithmic);
         CCameraControlPanelUiUtilities::drawHoverHint("Current orbit distance");

@@ -14,14 +14,16 @@
 namespace nbl::core
 {
 
-/// @brief Best-effort absolute layer built on top of the event-only camera core.
+/// @brief Goal capture, compatibility analysis, and goal application helper.
 ///
-/// It captures typed camera state into `CCameraGoal`, analyzes compatibility,
-/// and tries to apply goals back to cameras using typed hooks and virtual-event replay.
+/// The solver captures canonical state into `CCameraGoal`, compares a goal
+/// against one target camera, applies typed fragments directly when the camera
+/// exposes them, and builds virtual-event replay when a typed fragment must be
+/// approximated through `manipulate(...)`.
 class CCameraGoalSolver
 {
 public:
-    /// @brief Detailed capture result for tooling code.
+    /// @brief Detailed result returned by one goal-capture attempt.
     struct SCaptureResult
     {
         bool hasCamera = false;
@@ -45,7 +47,7 @@ public:
         uint32_t missingGoalStateMask = ICamera::GoalStateNone;
     };
 
-    /// @brief Outcome of a best-effort goal apply attempt.
+    /// @brief Outcome of one goal-application attempt.
     struct SApplyResult
     {
         enum class EStatus : uint8_t
@@ -271,7 +273,7 @@ public:
                     else
                     {
                         absoluteChanged = absoluteChanged || afterState.distance != beforeDistance;
-                        exact = exact && hlsl::abs(static_cast<double>(afterState.distance - desiredDistance)) <= ICamera::ScalarTolerance;
+                        exact = exact && hlsl::abs(static_cast<double>(afterState.distance - desiredDistance)) <= SCameraToolingThresholds::ScalarTolerance;
                     }
                 }
             }
@@ -333,10 +335,10 @@ public:
                 }
                 else
                 {
-                    const bool dynamicChanged = !hlsl::CCameraMathUtilities::nearlyEqualScalar(beforeState.baseFov, afterState.baseFov, static_cast<float>(ICamera::ScalarTolerance)) ||
-                        !hlsl::CCameraMathUtilities::nearlyEqualScalar(beforeState.referenceDistance, afterState.referenceDistance, static_cast<float>(ICamera::ScalarTolerance));
-                    const bool dynamicExact = hlsl::CCameraMathUtilities::nearlyEqualScalar(afterState.baseFov, canonicalTarget.dynamicPerspectiveState.baseFov, static_cast<float>(ICamera::ScalarTolerance)) &&
-                        hlsl::CCameraMathUtilities::nearlyEqualScalar(afterState.referenceDistance, canonicalTarget.dynamicPerspectiveState.referenceDistance, static_cast<float>(ICamera::ScalarTolerance));
+                    const bool dynamicChanged = !hlsl::CCameraMathUtilities::nearlyEqualScalar(beforeState.baseFov, afterState.baseFov, static_cast<float>(SCameraToolingThresholds::ScalarTolerance)) ||
+                        !hlsl::CCameraMathUtilities::nearlyEqualScalar(beforeState.referenceDistance, afterState.referenceDistance, static_cast<float>(SCameraToolingThresholds::ScalarTolerance));
+                    const bool dynamicExact = hlsl::CCameraMathUtilities::nearlyEqualScalar(afterState.baseFov, canonicalTarget.dynamicPerspectiveState.baseFov, static_cast<float>(SCameraToolingThresholds::ScalarTolerance)) &&
+                        hlsl::CCameraMathUtilities::nearlyEqualScalar(afterState.referenceDistance, canonicalTarget.dynamicPerspectiveState.referenceDistance, static_cast<float>(SCameraToolingThresholds::ScalarTolerance));
 
                     absoluteChanged = absoluteChanged || dynamicChanged;
                     exact = exact && dynamicExact;
@@ -389,8 +391,8 @@ private:
     {
         static constexpr double UnitScale = 1.0;
         static inline const hlsl::float64_t3 UnitAxisDenominator = hlsl::float64_t3(UnitScale);
-        static inline const hlsl::float64_t3 ScalarToleranceVec = hlsl::float64_t3(ICamera::ScalarTolerance);
-        static inline const hlsl::float64_t3 AngularToleranceDegVec = hlsl::float64_t3(ICamera::DefaultAngularToleranceDeg);
+        static inline const hlsl::float64_t3 ScalarToleranceVec = hlsl::float64_t3(SCameraToolingThresholds::ScalarTolerance);
+        static inline const hlsl::float64_t3 AngularToleranceDegVec = hlsl::float64_t3(SCameraToolingThresholds::DefaultAngularToleranceDeg);
     };
 
     inline void appendYawPitchRollEvents(
@@ -434,7 +436,7 @@ private:
     inline double getMoveMagnitudeDenominator(const ICamera* camera) const
     {
         const double moveScale = camera->getMoveSpeedScale();
-        return ICamera::VirtualTranslationStep * (moveScale == 0.0 ? SGoalSolverDefaults::UnitScale : moveScale);
+        return SCameraRuntimeTraits::VirtualTranslationStep * (moveScale == 0.0 ? SGoalSolverDefaults::UnitScale : moveScale);
     }
 
     inline double getRotationMagnitudeDenominator(const ICamera* camera) const
@@ -481,7 +483,7 @@ private:
         if (!computePoseMismatch(camera, target, beforePosDelta, beforeRotDeltaDeg))
             return false;
 
-        if (beforePosDelta <= ICamera::DefaultPositionTolerance && beforeRotDeltaDeg <= ICamera::DefaultAngularToleranceDeg)
+        if (beforePosDelta <= SCameraToolingThresholds::DefaultPositionTolerance && beforeRotDeltaDeg <= SCameraToolingThresholds::DefaultAngularToleranceDeg)
         {
             outExact = true;
             return true;
@@ -496,9 +498,9 @@ private:
         if (!computePoseMismatch(camera, target, afterPosDelta, afterRotDeltaDeg))
             return false;
 
-        outChanged = !hlsl::CCameraMathUtilities::isNearlyZeroScalar(afterPosDelta - beforePosDelta, static_cast<double>(ICamera::TinyScalarEpsilon)) ||
-            !hlsl::CCameraMathUtilities::isNearlyZeroScalar(afterRotDeltaDeg - beforeRotDeltaDeg, static_cast<double>(ICamera::TinyScalarEpsilon));
-        outExact = afterPosDelta <= ICamera::DefaultPositionTolerance && afterRotDeltaDeg <= ICamera::DefaultAngularToleranceDeg;
+        outChanged = !hlsl::CCameraMathUtilities::isNearlyZeroScalar(afterPosDelta - beforePosDelta, static_cast<double>(SCameraToolingThresholds::TinyScalarEpsilon)) ||
+            !hlsl::CCameraMathUtilities::isNearlyZeroScalar(afterRotDeltaDeg - beforeRotDeltaDeg, static_cast<double>(SCameraToolingThresholds::TinyScalarEpsilon));
+        outExact = afterPosDelta <= SCameraToolingThresholds::DefaultPositionTolerance && afterRotDeltaDeg <= SCameraToolingThresholds::DefaultAngularToleranceDeg;
         return true;
     }
 
@@ -514,9 +516,9 @@ private:
             out,
             delta,
             policy.translateOrbit ? getMoveMagnitudeDenominator(camera) : getRotationMagnitudeDenominator(camera),
-            ICamera::DefaultAngularToleranceDeg,
-            ICamera::VirtualTranslationStep,
-            ICamera::ScalarTolerance,
+            SCameraToolingThresholds::DefaultAngularToleranceDeg,
+            SCameraRuntimeTraits::VirtualTranslationStep,
+            SCameraToolingThresholds::ScalarTolerance,
             policy);
         return !out.empty();
     }

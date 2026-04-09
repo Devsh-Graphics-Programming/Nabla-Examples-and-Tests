@@ -11,11 +11,12 @@ This README focuses on what `61_UI` adds on top of the shared layer.
 
 - exercise all current camera kinds in one visible scene
 - validate the shared input, goal, preset, playback, follow, and scripted layers
+- validate `referenceFrame` behavior across all camera kinds
 - provide a manual playground for camera behavior
 - provide CI-oriented smoke and continuity coverage
 
-It is intentionally not the source of truth for camera semantics.
-Its job is to consume the shared camera API and expose it through one concrete, testable app.
+It does not define camera semantics.
+It consumes the shared camera API and exposes it through one concrete, testable app.
 
 ## What `61_UI` owns locally
 
@@ -24,6 +25,7 @@ The shared camera layer stops at reusable camera-domain APIs.
 
 - scene setup and demo geometry
 - planar / window routing
+- explicit render-window selection for planar editing
 - ImGui control panel
 - transform editor and gizmo glue
 - screenshot capture
@@ -63,7 +65,7 @@ These are exposed through the active planar / viewport configuration in the UI.
 
 `61_UI` exposes one tracked target in the default scene.
 
-Important rule:
+Tracked-target rule:
 
 - the reusable tracked subject is `core::CTrackedTarget`
 - it owns its own gimbal
@@ -82,6 +84,8 @@ and not around a scene-node or mesh id.
 
 The default scene uses:
 
+- `Free`
+  with `LookAtTarget`
 - `Orbit`, `Arcball`, `Turntable`, `TopDown`, `Isometric`, `DollyZoom`, `Path Rig`
   with `OrbitTarget`
 - `Chase`, `Dolly`
@@ -101,6 +105,7 @@ Manual runtime and scripted continuity both drive the same shared follow layer.
 Purpose:
 
 - validate basic camera selection and movement
+- validate `referenceFrame` application for every runtime camera kind
 - validate shared helpers in a short, cheap run
 
 ### Continuity
@@ -109,6 +114,7 @@ Purpose:
 
 - validate smooth frame-to-frame motion
 - validate follow lock while the tracked target moves
+- validate typed restore and replay paths against the same shared camera semantics
 - provide a readable visual-debug showcase
 
 The continuity asset is a compact authored camera-sequence script.
@@ -116,7 +122,7 @@ It is no longer a giant committed frame dump.
 
 ## Shared pieces consumed directly by `61_UI`
 
-`61_UI` consumes the shared stack directly rather than carrying private copies of camera logic:
+`61_UI` consumes the shared stack directly:
 
 - [`CCameraInputBindingUtilities.hpp`](../common/include/camera/CCameraInputBindingUtilities.hpp)
 - [`CCameraPresetFlow.hpp`](../common/include/camera/CCameraPresetFlow.hpp)
@@ -128,7 +134,20 @@ It is no longer a giant committed frame dump.
 - [`CCameraSequenceScriptedBuilder.hpp`](../common/include/camera/CCameraSequenceScriptedBuilder.hpp)
 - [`CCameraScriptedCheckRunner.hpp`](../common/include/camera/CCameraScriptedCheckRunner.hpp)
 
-That means `61_UI` does not own a private scripting model, private follow math, or private camera restore logic.
+`61_UI` does not define a private scripting model, private follow math, or private camera restore logic.
+
+## Reference-frame and gizmo validation
+
+`61_UI` is also the concrete harness for the shared `referenceFrame` seam used by ImGuizmo and other pose-driven tools.
+
+The current smoke coverage checks:
+
+- rigid reference application for `FPS` and `Free`
+- legal-state projection from `referenceFrame` for all target-relative cameras
+- typed `Path Rig` projection through the active path model
+- restore back to baseline after reference-frame application
+
+`61_UI` is also the app used to exercise world-space and local-space gizmo semantics end-to-end against the shared camera API.
 
 ## Local build and run
 
@@ -143,7 +162,7 @@ cmake --preset user-configure-dynamic-msvc
 Build:
 
 ```powershell
-cmake --build build/dynamic/examples_tests/61_UI --config Debug --target 61_ui -- /m:1
+cmake --build build/dynamic/examples_tests/61_UI --config Debug --target 61_ui -- /m
 ```
 
 Run tests:

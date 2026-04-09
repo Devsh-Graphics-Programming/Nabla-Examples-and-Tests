@@ -22,8 +22,8 @@ struct SCameraConstraintDefaults final
     static constexpr float YawMaxDeg = 180.0f;
     static constexpr float RollMinDeg = -180.0f;
     static constexpr float RollMaxDeg = 180.0f;
-    static constexpr float MinDistance = ICamera::SphericalMinDistance;
-    static constexpr float MaxDistance = ICamera::SphericalMaxDistance;
+    static constexpr float MinDistance = SCameraTargetRelativeTraits::MinDistance;
+    static constexpr float MaxDistance = SCameraTargetRelativeTraits::DefaultMaxDistance;
 };
 
 /// @brief Reusable constraint settings for post-manipulation camera clamping.
@@ -90,7 +90,7 @@ public:
         }
 
         const auto worldDelta = CCameraVirtualEventUtilities::collectSignedTranslationDelta({ events.data(), count });
-        if (hlsl::CCameraMathUtilities::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
+        if (hlsl::CCameraMathUtilities::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(SCameraToolingThresholds::TinyScalarEpsilon)))
         {
             events = std::move(filtered);
             count = static_cast<uint32_t>(events.size());

@@ -22,12 +22,10 @@ namespace nbl::system
 
 /// @brief Runtime state for authored scripted checks.
 ///
-/// The state is intentionally small:
-///
-/// - authored check data stays in `CCameraScriptedInputCheck`
-/// - the runner only remembers where the next check starts
-/// - baseline and step references are maintained here so consumers do not have to
-///   keep duplicating the same bookkeeping
+/// This state stores:
+/// - the index of the next authored check to evaluate
+/// - one baseline pose reference
+/// - one step pose reference
 struct CCameraScriptedCheckRuntimeState
 {
     struct SPoseReference final : core::SCameraRigPose

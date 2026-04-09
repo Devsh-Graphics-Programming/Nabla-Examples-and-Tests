@@ -9,18 +9,18 @@
 namespace nbl::core
 {
 
-/// @brief Canonical target-relative orbit state shared by spherical cameras, follow, and goal solving.
+/// @brief Canonical target-relative orbit state used by spherical cameras, follow, and goal solving.
 struct SCameraTargetRelativeState final
 {
     hlsl::float64_t3 target = hlsl::float64_t3(0.0);
     hlsl::float64_t2 orbitUv = hlsl::float64_t2(0.0);
-    float distance = ICamera::SphericalMinDistance;
+    float distance = SCameraTargetRelativeTraits::MinDistance;
 };
 
 /// @brief Pose reconstructed from a target-relative orbit state.
 struct SCameraTargetRelativePose final : SCameraRigPose
 {
-    hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance);
+    hlsl::float64_t appliedDistance = static_cast<hlsl::float64_t>(SCameraTargetRelativeTraits::MinDistance);
 };
 
 /// @brief Derived basis for target-relative orbit rigs.
@@ -44,6 +44,7 @@ struct SCameraTargetRelativeDelta final
     }
 };
 
+/// @brief Mapping policy describing how a target-relative delta is converted into virtual events.
 struct SCameraTargetRelativeEventPolicy final
 {
     bool translateOrbit = false;
@@ -55,7 +56,7 @@ struct SCameraTargetRelativeEventPolicy final
     };
 };
 
-/// @brief Shared authored/default constants for target-relative rigs.
+/// @brief Default constants and event policies used by target-relative rigs.
 struct SCameraTargetRelativeRigDefaults final
 {
     static constexpr float InitialDistance = 1.0f;
@@ -106,6 +107,7 @@ struct SCameraTargetRelativeRigDefaults final
     };
 };
 
+/// @brief Helpers for converting between target-relative state, pose, basis, and virtual-event deltas.
 struct CCameraTargetRelativeUtilities final
 {
     static inline bool tryBuildTargetRelativeStateFromPosition(

@@ -13,11 +13,11 @@
 namespace nbl::core
 {
 
-/// @brief Target-relative camera that supports planar target translation plus bounded arcball orbiting.
+/// @brief Target-relative camera with planar target translation and bounded arcball orbiting.
 ///
-/// The camera keeps a target position, orbit angles, and distance inherited from
-/// `CSphericalTargetCamera`. Translation moves the target in the view plane while
-/// rotation changes the orbit around that target with a symmetric pitch limit.
+/// The runtime state is inherited from `CSphericalTargetCamera`. Translation
+/// moves the target in the current view plane. Rotation updates orbit yaw and
+/// pitch under a symmetric pitch limit.
 class CArcballCamera final : public CSphericalTargetCamera
 {
 public:

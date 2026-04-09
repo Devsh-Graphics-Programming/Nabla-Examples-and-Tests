@@ -42,7 +42,7 @@ public:
         const double value,
         const CVirtualGimbalEvent::VirtualEventType positive,
         const CVirtualGimbalEvent::VirtualEventType negative,
-        const double tolerance = static_cast<double>(ICamera::TinyScalarEpsilon))
+        const double tolerance = static_cast<double>(SCameraToolingThresholds::TinyScalarEpsilon))
     {
         if (!hlsl::CCameraMathUtilities::isFiniteScalar(value) || hlsl::CCameraMathUtilities::isNearlyZeroScalar(value, tolerance))
             return;
@@ -61,7 +61,7 @@ public:
         const CVirtualGimbalEvent::VirtualEventType positive,
         const CVirtualGimbalEvent::VirtualEventType negative)
     {
-        if (!hlsl::CCameraMathUtilities::isFiniteScalar(denominator) || hlsl::CCameraMathUtilities::isNearlyZeroScalar(denominator, static_cast<double>(ICamera::TinyScalarEpsilon)))
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(denominator) || hlsl::CCameraMathUtilities::isNearlyZeroScalar(denominator, static_cast<double>(SCameraToolingThresholds::TinyScalarEpsilon)))
             return;
 
         appendSignedVirtualEvent(events, value / denominator, positive, negative, tolerance);
@@ -116,7 +116,7 @@ public:
         std::vector<CVirtualGimbalEvent>& events,
         const hlsl::float64_t3& localDelta,
         const hlsl::float64_t3& denominators = hlsl::float64_t3(1.0),
-        const hlsl::float64_t3& tolerances = hlsl::float64_t3(ICamera::TinyScalarEpsilon))
+        const hlsl::float64_t3& tolerances = hlsl::float64_t3(SCameraToolingThresholds::TinyScalarEpsilon))
     {
         appendScaledVirtualAxisEvents(
             events,
@@ -132,7 +132,7 @@ public:
         const hlsl::camera_quaternion_t<hlsl::float64_t>& orientation,
         const hlsl::float64_t3& worldDelta,
         const hlsl::float64_t3& denominators = hlsl::float64_t3(1.0),
-        const hlsl::float64_t3& tolerances = hlsl::float64_t3(ICamera::TinyScalarEpsilon))
+        const hlsl::float64_t3& tolerances = hlsl::float64_t3(SCameraToolingThresholds::TinyScalarEpsilon))
     {
         appendLocalTranslationEvents(
             events,

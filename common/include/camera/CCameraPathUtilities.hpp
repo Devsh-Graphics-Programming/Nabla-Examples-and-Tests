@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -80,9 +81,9 @@ struct SCameraCanonicalPathState final
 /// @brief Comparison tolerances used when matching two path states.
 struct SCameraPathComparisonThresholds final
 {
-    double sToleranceDeg = ICamera::DefaultAngularToleranceDeg;
-    double rollToleranceDeg = ICamera::DefaultAngularToleranceDeg;
-    double scalarTolerance = ICamera::ScalarTolerance;
+    double sToleranceDeg = SCameraToolingThresholds::DefaultAngularToleranceDeg;
+    double rollToleranceDeg = SCameraToolingThresholds::DefaultAngularToleranceDeg;
+    double scalarTolerance = SCameraToolingThresholds::ScalarTolerance;
 };
 
 /// @brief Result of updating the path distance while preserving the rest of the path state.
@@ -92,14 +93,14 @@ struct SCameraPathDistanceUpdateResult final
     hlsl::float64_t appliedDistance = 0.0;
 };
 
-/// @brief Shared default constants used by the built-in `Path Rig` model.
+/// @brief Default constants used by the built-in `Path Rig` model.
 struct SCameraPathDefaults final
 {
-    static constexpr double MinU = static_cast<double>(ICamera::SphericalMinDistance);
-    static constexpr double ScalarTolerance = ICamera::ScalarTolerance;
-    static constexpr double ExactStateTolerance = ICamera::TinyScalarEpsilon;
+    static constexpr double MinU = static_cast<double>(SCameraTargetRelativeTraits::MinDistance);
+    static constexpr double ScalarTolerance = SCameraToolingThresholds::ScalarTolerance;
+    static constexpr double ExactStateTolerance = SCameraToolingThresholds::TinyScalarEpsilon;
     static constexpr double ExactAngleToleranceDeg = ExactStateTolerance * 180.0 / hlsl::numbers::pi<double>;
-    static constexpr double AngleToleranceDeg = ICamera::DefaultAngularToleranceDeg;
+    static constexpr double AngleToleranceDeg = SCameraToolingThresholds::DefaultAngularToleranceDeg;
     static inline constexpr std::string_view Identifier = SCameraPathRigMetadata::Identifier;
     static inline constexpr std::string_view Description = SCameraPathRigMetadata::DefaultModelDescription;
     static inline constexpr ICamera::PathStateLimits Limits = {};
@@ -128,11 +129,14 @@ struct SCameraPathControlContext final
     SCameraPathLimits limits = SCameraPathDefaults::Limits;
 };
 
-/// @brief Callback bundle defining how a concrete `Path Rig` model behaves.
+/// @brief Callback bundle defining path-state resolution, input response, evaluation, and distance updates.
 ///
-/// The model is intentionally split into state resolution, control law,
-/// integration, canonical evaluation, and distance updates so the runtime camera
-/// can stay event-driven while tooling still works with a typed path state.
+/// A concrete `Path Rig` model provides:
+/// - state resolution from target position, world position, and optional typed input
+/// - one control law turning accumulated runtime motion into `SCameraPathDelta`
+/// - one state integrator
+/// - one canonical evaluator producing pose and target-relative view data
+/// - one distance-update rule for typed helpers that adjust distance directly
 struct SCameraPathModel final
 {
     using resolve_state_t = std::function<bool(
@@ -168,7 +172,7 @@ struct SCameraPathModel final
 /// @brief Shared state, comparison, and model-building helpers for `Path Rig`.
 struct CCameraPathUtilities final
 {
-    /// @brief Build the default path state used by the shared built-in model.
+    /// @brief Build the default path state used by the built-in model.
     static inline ICamera::PathState makeDefaultPathState(const double minU = SCameraPathDefaults::MinU)
     {
         return {
@@ -191,7 +195,7 @@ struct CCameraPathUtilities final
         };
     }
 
-    /// @brief Return the shared default path-state limits.
+    /// @brief Return the default path-state limits used when a camera does not expose custom ones.
     static inline constexpr SCameraPathLimits makeDefaultPathLimits()
     {
         return SCameraPathDefaults::Limits;
@@ -206,32 +210,29 @@ struct CCameraPathUtilities final
             hlsl::CCameraMathUtilities::isFiniteScalar(state.roll);
     }
 
-    /// @brief Check whether every scalar stored in the path limits is finite.
-    static inline bool isPathLimitsFinite(const SCameraPathLimits& limits)
+    /// @brief Check whether the path limits can be sanitized into a valid numeric domain.
+    static inline bool isPathLimitsWellFormed(const SCameraPathLimits& limits)
     {
         return hlsl::CCameraMathUtilities::isFiniteScalar(limits.minU) &&
             hlsl::CCameraMathUtilities::isFiniteScalar(limits.minDistance) &&
-            hlsl::CCameraMathUtilities::isFiniteScalar(limits.maxDistance);
+            !std::isnan(static_cast<double>(limits.maxDistance));
     }
 
-    /// @brief Clamp and normalize path-state limits into the valid shared domain.
+    /// @brief Clamp and normalize path-state limits into a valid numeric domain.
     static inline bool sanitizePathLimits(SCameraPathLimits& limits)
     {
-        if (!isPathLimitsFinite(limits))
+        if (!isPathLimitsWellFormed(limits))
             return false;
 
-        limits.minU = std::clamp(
-            limits.minU,
-            0.0,
-            static_cast<double>(ICamera::SphericalMaxDistance));
-        limits.minDistance = std::clamp(
+        limits.minU = std::max(limits.minU, 0.0);
+        limits.minDistance = std::max<hlsl::float64_t>(
             std::max<hlsl::float64_t>(limits.minDistance, static_cast<hlsl::float64_t>(limits.minU)),
-            static_cast<hlsl::float64_t>(ICamera::SphericalMinDistance),
-            static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance));
-        limits.maxDistance = std::clamp(
-            limits.maxDistance,
-            limits.minDistance,
-            static_cast<hlsl::float64_t>(ICamera::SphericalMaxDistance));
+            static_cast<hlsl::float64_t>(SCameraTargetRelativeTraits::MinDistance));
+
+        if (!std::isfinite(static_cast<double>(limits.maxDistance)))
+            limits.maxDistance = std::numeric_limits<hlsl::float64_t>::infinity();
+        else
+            limits.maxDistance = std::max(limits.maxDistance, limits.minDistance);
         return true;
     }
 

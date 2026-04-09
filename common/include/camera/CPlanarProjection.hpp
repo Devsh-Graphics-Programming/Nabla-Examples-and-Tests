@@ -8,8 +8,8 @@ namespace nbl::core
 {
 	/// @brief Range-backed concrete implementation of `IPlanarProjection`.
 	///
-	/// The template owns a caller-selected contiguous container of planar projection
-	/// entries and keeps their viewport-local binding layouts together with the camera.
+	/// The template owns a caller-selected contiguous container of planar
+	/// projection entries together with their viewport-local binding layouts.
 	template<ContiguousGeneralPurposeRangeOf<IPlanarProjection::CProjection> ProjectionsRange>
 	class CPlanarProjection : public IPlanarProjection
 	{

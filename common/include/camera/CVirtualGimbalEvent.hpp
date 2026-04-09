@@ -11,12 +11,14 @@
 namespace nbl::core
 {
 
-/// @brief Shared semantic camera command.
+/// @brief One semantic camera command passed to `ICamera::manipulate(...)`.
 ///
-/// Input processors and scripted tools emit these events.
-/// Camera implementations consume them through `ICamera::manipulate(...)`.
+/// `type` selects the command family. `magnitude` stores the non-negative
+/// scalar amount for that command. Input binders, scripted playback, replay
+/// helpers, and gizmo-driven tools all use the same event representation.
 struct CVirtualGimbalEvent
 {
+    /// @brief Bitmask identifiers for semantic movement, rotation, and scale commands.
     enum VirtualEventType : uint32_t
     {
         None = 0,
@@ -49,11 +51,15 @@ struct CVirtualGimbalEvent
         All = Translate | Rotate | Scale
     };
 
+    /// @brief Scalar type used to encode one event magnitude.
     using manipulation_encode_t = hlsl::float64_t;
 
+    /// @brief Semantic event identifier.
     VirtualEventType type = None;
+    /// @brief Non-negative scalar amount associated with `type`.
     manipulation_encode_t magnitude = {};
 
+    /// @brief Convert one event identifier to its stable string form.
     static constexpr std::string_view virtualEventToString(VirtualEventType event)
     {
         switch (event)
@@ -84,6 +90,7 @@ struct CVirtualGimbalEvent
         }
     }
 
+    /// @brief Convert one stable string identifier back to an event identifier.
     static constexpr VirtualEventType stringToVirtualEvent(std::string_view event)
     {
         if (event == "MoveForward") return MoveForward;
@@ -111,21 +118,25 @@ struct CVirtualGimbalEvent
         return None;
     }
 
+    /// @brief Return whether `event` belongs to the translation subset.
     static constexpr bool isTranslationEvent(const VirtualEventType event)
     {
         return event != None && (event & Translate) == event;
     }
 
+    /// @brief Return whether `event` belongs to the rotation subset.
     static constexpr bool isRotationEvent(const VirtualEventType event)
     {
         return event != None && (event & Rotate) == event;
     }
 
+    /// @brief Return whether `event` belongs to the scale subset.
     static constexpr bool isScaleEvent(const VirtualEventType event)
     {
         return event != None && (event & Scale) == event;
     }
 
+    /// @brief Table listing every individual event bit in declaration order.
     static inline constexpr auto VirtualEventsTypeTable = []()
     {
         std::array<VirtualEventType, EventsCount> output;

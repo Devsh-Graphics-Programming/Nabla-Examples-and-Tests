@@ -189,8 +189,8 @@
 		nbl::core::SCameraTargetRelativePose pose = {};
 		if (!nbl::core::CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(
 				desiredState,
-				ICamera::SphericalMinDistance,
-				ICamera::SphericalMaxDistance,
+				nbl::core::SCameraTargetRelativeTraits::MinDistance,
+				nbl::core::SCameraTargetRelativeTraits::DefaultMaxDistance,
 				pose) ||
 			!nbl::core::CCameraGoalUtilities::applyCanonicalTargetRelativeGoal(outExpectedGoal, desiredState))
 		{

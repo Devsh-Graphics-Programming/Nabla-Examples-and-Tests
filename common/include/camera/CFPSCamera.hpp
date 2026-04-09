@@ -12,7 +12,11 @@
 namespace nbl::core
 {
 
-/// @brief Free-position camera that keeps the view upright and exposes only yaw/pitch rotation.
+/// @brief Free-position camera with world-space translation and yaw/pitch rotation.
+///
+/// The runtime state consists of position plus an upright orientation derived
+/// from yaw and pitch. Reference-frame application rejects arbitrary roll and
+/// rebuilds the legal FPS orientation from the extracted forward axis.
 class CFPSCamera final : public ICamera
 { 
 public:

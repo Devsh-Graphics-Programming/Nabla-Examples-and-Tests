@@ -11,7 +11,7 @@ namespace nbl::core
 {
 
 /// @brief Shared playback cursor state for camera keyframe tracks.
-/// The cursor is intentionally transport-only so consumers can own higher-level playback policy.
+/// The cursor stores playback state only: playing flag, looping mode, speed, and current time.
 struct CCameraPlaybackCursor
 {
     bool playing = false;
@@ -21,7 +21,7 @@ struct CCameraPlaybackCursor
 };
 
 /// @brief Outcome of advancing a playback cursor against a keyframe track.
-/// This separates raw time stepping from higher-level consumer policy and UI feedback.
+/// This result reports how time changed during one advance step.
 struct SCameraPlaybackAdvanceResult
 {
     bool hasTrack = false;

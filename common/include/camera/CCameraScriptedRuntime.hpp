@@ -20,9 +20,8 @@ namespace nbl::system
 
 /// @brief Shared scripted runtime payload used by camera-sequence consumers.
 ///
-/// The compact authored sequence remains camera-domain. A concrete runtime may still expand it
-/// into low-level per-frame events and checks, but those expanded payloads live in this shared
-/// header rather than inside one consumer.
+/// This type stores the expanded per-frame events and checks produced from a
+/// compact authored camera sequence.
 struct CCameraScriptedInputEvent
 {
     enum class Type : uint8_t
@@ -124,8 +123,8 @@ struct CCameraScriptedInputEvent
 struct CCameraScriptedCheckDefaults final
 {
     static constexpr float VirtualEventTolerance = 1e-3f;
-    static constexpr float PositionTolerance = static_cast<float>(core::ICamera::DefaultPositionTolerance);
-    static constexpr float EulerToleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg);
+    static constexpr float PositionTolerance = static_cast<float>(core::SCameraToolingThresholds::DefaultPositionTolerance);
+    static constexpr float EulerToleranceDeg = static_cast<float>(core::SCameraToolingThresholds::DefaultAngularToleranceDeg);
     static constexpr float FollowScreenToleranceNdc = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
 };
 

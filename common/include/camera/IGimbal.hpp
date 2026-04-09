@@ -19,9 +19,10 @@ namespace nbl::core
 
     /// @brief Generic world-space gimbal used by runtime cameras and tracked targets.
     ///
-    /// The gimbal owns position, orientation, scale, and an orthonormal local basis.
-    /// It also provides the shared `accumulate(...)` helper that turns semantic
-    /// `CVirtualGimbalEvent` batches into translation, rotation, and scale impulses.
+    /// The gimbal stores position, orientation, scale, and an orthonormal local
+    /// basis. It also exposes `accumulate(...)`, which converts one batch of
+    /// semantic `CVirtualGimbalEvent` values into translation, rotation, and
+    /// scale impulses for a single manipulation step.
     template<typename T>
     requires is_any_of_v<T, hlsl::float32_t, hlsl::float64_t>
     class IGimbal

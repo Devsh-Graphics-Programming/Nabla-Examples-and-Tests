@@ -63,12 +63,12 @@ struct SCameraFollowRegressionThresholds
 {
     static inline constexpr float DefaultClipWEpsilon = 1e-5f;
     static inline constexpr float DefaultProjectedNdcTolerance = 0.03f;
-    static inline constexpr float DefaultLockAngleToleranceDeg = static_cast<float>(core::ICamera::DefaultAngularToleranceDeg);
-    static inline constexpr double DefaultDistanceTolerance = core::ICamera::ScalarTolerance;
-    static inline constexpr double DefaultTargetTolerance = core::ICamera::TinyScalarEpsilon;
-    static inline constexpr double DefaultPositionTolerance = core::ICamera::DefaultPositionTolerance;
-    static inline constexpr double DefaultRotationToleranceDeg = core::ICamera::DefaultAngularToleranceDeg;
-    static inline constexpr double DefaultScalarTolerance = core::ICamera::ScalarTolerance;
+    static inline constexpr float DefaultLockAngleToleranceDeg = static_cast<float>(core::SCameraToolingThresholds::DefaultAngularToleranceDeg);
+    static inline constexpr double DefaultDistanceTolerance = core::SCameraToolingThresholds::ScalarTolerance;
+    static inline constexpr double DefaultTargetTolerance = core::SCameraToolingThresholds::TinyScalarEpsilon;
+    static inline constexpr double DefaultPositionTolerance = core::SCameraToolingThresholds::DefaultPositionTolerance;
+    static inline constexpr double DefaultRotationToleranceDeg = core::SCameraToolingThresholds::DefaultAngularToleranceDeg;
+    static inline constexpr double DefaultScalarTolerance = core::SCameraToolingThresholds::ScalarTolerance;
 
     float clipWEpsilon = DefaultClipWEpsilon;
     float projectedNdcTolerance = DefaultProjectedNdcTolerance;

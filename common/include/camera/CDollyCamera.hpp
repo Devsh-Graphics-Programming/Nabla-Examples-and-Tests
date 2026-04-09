@@ -9,11 +9,11 @@
 namespace nbl::core
 {
 
-/// @brief Target-relative camera that translates the tracked target in the full local camera frame.
+/// @brief Target-relative camera that translates the target in the full local camera basis.
 ///
-/// Unlike the chase camera, dolly translation preserves the full local basis,
-/// which makes the target move along the current right/up/forward frame while the
-/// camera keeps looking back at it from the maintained spherical offset.
+/// Translation uses the current right/up/forward basis. Rotation updates orbit
+/// yaw and pitch while the camera pose is rebuilt from the maintained
+/// target-relative offset.
 class CDollyCamera final : public CSphericalTargetCamera
 {
 public:

@@ -21,24 +21,25 @@
 namespace nbl::core
 {
 
-/// @brief Compact authored camera-sequence format shared by playback, scripting, and validation tooling.
+/// @brief Compact authored camera-sequence format shared by playback, scripting, and validation helpers.
 ///
 /// The authored file describes:
 ///
 /// - which camera kind a segment targets
-/// - which reusable projection presentations should be shown
-/// - which keyframed camera goals should be sampled over time
-/// - which tracked-target poses should be sampled over time
-/// - which continuity thresholds and capture points should be generated
+/// - which reusable projection presentations are shown
+/// - which keyframed camera goals are sampled over time
+/// - which tracked-target poses are sampled over time
+/// - which continuity thresholds and capture points are generated
 ///
-/// The format intentionally does not store:
+/// The format does not store:
 ///
 /// - per-frame low-level event dumps
 /// - runtime-specific window actions as authored source data
 /// - ImGuizmo transforms as the primary authored primitive
 ///
-/// A consumer may expand the compact sequence into its own runtime event/check representation, but
-/// the authored source of truth stays camera-domain and reusable.
+/// Consumers may expand the compact sequence into runtime events and per-frame
+/// checks. The authored data remains camera-domain data and is not a device- or
+/// UI-specific event dump.
 
 /// @brief Authored projection view request for camera-sequence playback.
 struct CCameraSequencePresentation
@@ -258,7 +259,9 @@ struct CCameraSequenceSegment
 };
 
 /// @brief Top-level reusable camera-sequence script.
-/// Consumers are expected to expand this compact description into their own runtime playback/check pipeline.
+///
+/// This type stores the compact authored description that is later expanded
+/// into runtime playback and check payloads.
 struct CCameraSequenceScript
 {
     bool enabled = true;
@@ -360,7 +363,7 @@ struct CCameraSequenceScriptUtilities final
 
         std::sort(fractions.begin(), fractions.end());
         fractions.erase(std::unique(fractions.begin(), fractions.end(),
-            [](const float lhs, const float rhs) { return hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs, rhs, static_cast<float>(ICamera::ScalarTolerance)); }),
+            [](const float lhs, const float rhs) { return hlsl::CCameraMathUtilities::nearlyEqualScalar(lhs, rhs, static_cast<float>(SCameraToolingThresholds::ScalarTolerance)); }),
             fractions.end());
     }
 
@@ -579,7 +582,7 @@ struct CCameraSequenceScriptUtilities final
     normalized.reserve(outTrack.keyframes.size());
     for (const auto& keyframe : outTrack.keyframes)
     {
-        if (!normalized.empty() && hlsl::CCameraMathUtilities::nearlyEqualScalar(normalized.back().time, keyframe.time, static_cast<float>(ICamera::ScalarTolerance)))
+        if (!normalized.empty() && hlsl::CCameraMathUtilities::nearlyEqualScalar(normalized.back().time, keyframe.time, static_cast<float>(SCameraToolingThresholds::ScalarTolerance)))
             normalized.back() = keyframe;
         else
             normalized.emplace_back(keyframe);
@@ -614,7 +617,7 @@ struct CCameraSequenceScriptUtilities final
             if (time > rhs.time)
                 continue;
 
-            const auto span = std::max(static_cast<float>(ICamera::ScalarTolerance), rhs.time - lhs.time);
+            const auto span = std::max(static_cast<float>(SCameraToolingThresholds::ScalarTolerance), rhs.time - lhs.time);
             const auto alpha = std::clamp((time - lhs.time) / span, 0.f, 1.f);
             outPose.position = lhs.pose.position + (rhs.pose.position - lhs.pose.position) * static_cast<double>(alpha);
             outPose.orientation = hlsl::CCameraMathUtilities::slerpQuaternion(lhs.pose.orientation, rhs.pose.orientation, static_cast<hlsl::float64_t>(alpha));

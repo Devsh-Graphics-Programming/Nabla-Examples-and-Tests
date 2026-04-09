@@ -9,11 +9,11 @@
 namespace nbl::core
 {
 
-/// @brief Target-relative camera that slides the target on the ground plane while chasing it from behind.
+/// @brief Target-relative camera with planar target translation on the ground plane.
 ///
-/// The camera keeps a bounded orbit around the target, but translation is resolved
-/// in the planar forward/right frame so the tracked subject can be moved across a
-/// horizontal surface without changing the follow style.
+/// Translation is resolved in a planar forward/right frame derived from the
+/// current orbit basis. Rotation updates orbit yaw and pitch. Distance remains
+/// clamped to the chase-camera limits.
 class CChaseCamera final : public CSphericalTargetCamera
 {
 public:

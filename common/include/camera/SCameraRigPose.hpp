@@ -11,10 +11,8 @@ namespace nbl::core
 
 /// @brief Canonical camera pose consisting of world-space position and orientation.
 ///
-/// This is the smallest pose transport shared by the typed tooling layer. It is
-/// intentionally independent from any concrete camera model so goals, follow,
-/// path evaluation, playback, and scripted validation can exchange poses without
-/// reaching into camera-specific runtime state.
+/// This type stores only pose data. Higher-level types add target-relative,
+/// dynamic-perspective, or path-specific state around it.
 struct SCameraRigPose
 {
     /// @brief Camera origin in world space.

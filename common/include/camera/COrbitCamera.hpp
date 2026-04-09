@@ -8,10 +8,10 @@
 namespace nbl::core
 {
 
-/// @brief Target-relative camera that interprets translation input as orbit-angle and distance changes.
+/// @brief Target-relative camera with state `(target, orbitUv, distance)`.
 ///
-/// This is the simplest spherical-target camera in the stack. It keeps the target
-/// fixed and adjusts only orbit yaw, orbit pitch, and camera distance.
+/// Runtime input updates only orbit yaw, orbit pitch, and camera distance.
+/// The target position remains unchanged during `manipulate(...)`.
 class COrbitCamera final : public CSphericalTargetCamera
 {
 public:

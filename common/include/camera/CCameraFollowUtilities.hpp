@@ -15,10 +15,10 @@
 namespace nbl::core
 {
 
-/// @brief Reusable tracked-target and follow helpers layered on top of the shared camera API.
+/// @brief Reusable tracked-target and follow helpers.
 ///
-/// The tracked subject owns its own gimbal. Follow stays outside `ICamera` and maps
-/// a camera plus tracked target into a `CCameraGoal`.
+/// The tracked subject owns its own gimbal. Follow code reads that pose and
+/// maps one camera plus one tracked target into a `CCameraGoal`.
 class CTrackedTarget
 {
 public:
@@ -83,14 +83,15 @@ private:
 
 /// @brief Follow policy layered on top of a tracked target gimbal.
 ///
-/// The modes are intentionally explicit because `follow` is not one behavior:
+/// Each mode defines how tracked-target motion updates the camera:
 ///
-/// - `OrbitTarget` keeps a target-relative orbit/path rig and re-centers the tracked target
-/// - `LookAtTarget` keeps the camera world position and only rotates the view toward the target
-/// - `KeepWorldOffset` keeps a world-space camera offset from the target and locks the view onto it
-/// - `KeepLocalOffset` keeps a target-local camera offset and locks the view onto it
+/// - `OrbitTarget` rewrites target-relative camera state so the tracked target becomes the camera target
+/// - `LookAtTarget` preserves camera position and rebuilds orientation toward the tracked target
+/// - `KeepWorldOffset` places the camera at `trackedTarget.position + worldOffset` and looks at the target
+/// - `KeepLocalOffset` transforms `localOffset` by the tracked-target local frame and looks at the target
 ///
-/// The tracked target remains the source of truth. The camera does not own the tracked subject.
+/// The tracked target provides pose data. The camera reads that data and does
+/// not own the tracked subject.
 enum class ECameraFollowMode : uint8_t
 {
     Disabled,
@@ -121,7 +122,7 @@ struct SCameraFollowConfig
 /// a `CCameraGoal` that can then be applied through the shared goal solver.
 struct CCameraFollowUtilities final
 {
-    /// @brief Return whether the follow mode keeps the camera view locked onto the target.
+    /// @brief Return whether the follow mode rebuilds camera orientation toward the tracked target.
     static inline constexpr bool cameraFollowModeLocksViewToTarget(const ECameraFollowMode mode)
     {
         switch (mode)
@@ -265,12 +266,12 @@ struct CCameraFollowUtilities final
     {
         const auto toTarget = trackedTarget.getGimbal().getPosition() - cameraGimbal.getPosition();
         const auto targetDistance = hlsl::length(toTarget);
-        if (!hlsl::CCameraMathUtilities::isFiniteScalar(targetDistance) || targetDistance <= ICamera::TinyScalarEpsilon)
+        if (!hlsl::CCameraMathUtilities::isFiniteScalar(targetDistance) || targetDistance <= SCameraToolingThresholds::TinyScalarEpsilon)
             return false;
 
         const auto forward = cameraGimbal.getZAxis();
         const auto forwardLength = hlsl::length(forward);
-        if (!hlsl::CCameraMathUtilities::isFiniteVec3(forward) || !hlsl::CCameraMathUtilities::isFiniteScalar(forwardLength) || forwardLength <= ICamera::TinyScalarEpsilon)
+        if (!hlsl::CCameraMathUtilities::isFiniteVec3(forward) || !hlsl::CCameraMathUtilities::isFiniteScalar(forwardLength) || forwardLength <= SCameraToolingThresholds::TinyScalarEpsilon)
             return false;
 
         const auto forwardDirection = forward / forwardLength;

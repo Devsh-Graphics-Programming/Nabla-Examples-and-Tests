@@ -9,8 +9,8 @@ namespace nbl::core
 
 /// @brief Linear projection wrapper for one camera-facing planar viewport.
 ///
-/// The projection owns viewport-local binding layout storage, while runtime input
-/// processing is expected to happen through `CGimbalInputBinder`.
+/// The projection stores viewport-local binding layouts. Runtime input
+/// processing is handled by `CGimbalInputBinder`.
 class IPlanarProjection : public ILinearProjection
 {
 public:

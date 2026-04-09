@@ -89,7 +89,7 @@ public:
     static inline bool applyCanonicalTargetRelativeGoal(CCameraGoal& goal, const SCameraTargetRelativeState& state)
     {
         SCameraTargetRelativePose pose = {};
-        if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(state, ICamera::SphericalMinDistance, ICamera::SphericalMaxDistance, pose))
+        if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(state, SCameraTargetRelativeTraits::MinDistance, SCameraTargetRelativeTraits::DefaultMaxDistance, pose))
             return false;
 
         applyCanonicalTargetRelativeGoalFields(goal, state, pose);
@@ -149,8 +149,8 @@ public:
         if (!CCameraTargetRelativeUtilities::tryBuildTargetRelativeStateFromPosition(
                 targetPosition,
                 position,
-                ICamera::SphericalMinDistance,
-                ICamera::SphericalMaxDistance,
+                SCameraTargetRelativeTraits::MinDistance,
+                SCameraTargetRelativeTraits::DefaultMaxDistance,
                 state))
         {
             return false;

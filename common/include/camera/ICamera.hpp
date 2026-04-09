@@ -8,47 +8,42 @@
 #include <optional>
 #include <utility>
 
+#include "CCameraTraits.hpp"
 #include "IGimbal.hpp"
 
 namespace nbl::core
 {
 
-/// @brief Shared camera interface.
+/// @brief Shared runtime camera interface.
 ///
-/// The hot runtime path is event-only: cameras consume `CVirtualGimbalEvent`
-/// streams through `manipulate(...)`. Optional typed state hooks exist only for
-/// tooling features such as capture, compatibility analysis, presets, and playback.
+/// `ICamera` consumes batches of `CVirtualGimbalEvent` values and updates one
+/// camera pose stored in `CGimbal`. A `CVirtualGimbalEvent` identifies one
+/// semantic command such as `MoveForward`, `PanLeft`, or `RollRight` and carries
+/// one scalar magnitude for that command.
+///
+/// Keyboard input, mouse input, ImGuizmo interaction, scripted playback,
+/// preset replay, follow helpers, and goal solving all drive cameras through
+/// the same `manipulate(...)` entry point.
+///
+/// The optional typed hooks expose camera-family state for code that needs
+/// capture, restore, compatibility analysis, persistence, or validation.
 class ICamera : virtual public core::IReferenceCounted
 { 
 public:
-    /// @brief Shared lower bound used by spherical and path rigs for valid camera distance.
-    static inline constexpr float SphericalMinDistance = 0.1f;
-    /// @brief Shared upper bound used by spherical and path rigs for valid camera distance.
-    static inline constexpr float SphericalMaxDistance = 10000.f;
-    /// @brief Base runtime translation magnitude represented by a unit virtual move event.
-    static inline constexpr double VirtualTranslationStep = 0.01;
-    /// @brief Default multiplier applied to virtual translation magnitudes.
-    static inline constexpr double DefaultMoveSpeedScale = VirtualTranslationStep;
-    /// @brief Default multiplier applied to virtual rotation magnitudes.
-    static inline constexpr double DefaultRotationSpeedScale = 0.003;
-    /// @brief Shared scalar epsilon used by typed tooling comparisons.
-    static inline constexpr double ScalarTolerance = 1e-6;
-    /// @brief Very small epsilon used when exact replay helpers need stricter comparisons.
-    static inline constexpr double TinyScalarEpsilon = 1e-9;
-    /// @brief Default world-space position tolerance used by pose comparisons.
-    static inline constexpr double DefaultPositionTolerance = 2.0 * ScalarTolerance;
-    /// @brief Default angular tolerance in degrees used by pose and state comparisons.
-    static inline constexpr double DefaultAngularToleranceDeg = 0.1;
-
-    /// @brief Camera-local multipliers applied when translating virtual events into motion.
+    /// @brief Camera-local multipliers applied when semantic virtual events are converted into motion.
+    ///
+    /// The shared runtime traits define the base unit magnitude of a virtual
+    /// event. Concrete cameras multiply those base units by this per-camera
+    /// configuration before applying them to their own state model.
     struct SMotionConfig
     {
-        /// @brief Camera-local scales applied by implementations to virtual motion magnitude.
-        double moveSpeedScale = DefaultMoveSpeedScale;
-        double rotationSpeedScale = DefaultRotationSpeedScale;
+        /// @brief Camera-local scale applied to virtual translation magnitudes.
+        double moveSpeedScale = SCameraRuntimeTraits::DefaultMoveSpeedScale;
+        /// @brief Camera-local scale applied to virtual rotation magnitudes.
+        double rotationSpeedScale = SCameraRuntimeTraits::DefaultRotationSpeedScale;
     };
 
-    /// @brief Stable runtime camera-family identifier used by tooling, metadata, and default presets.
+    /// @brief Stable camera-family identifier used by metadata, presets, follow, and scripted helpers.
     enum class CameraKind : uint8_t
     {
         Unknown,
@@ -73,7 +68,7 @@ public:
         DynamicPerspectiveFov = core::createBitmask({ 1 })
     };
 
-    /// @brief Typed goal-state fragments that tooling may capture from or apply to a camera.
+    /// @brief Typed state fragments that helper layers may capture from or apply to a camera.
     enum GoalStateMask : uint32_t
     {
         GoalStateNone = 0u,
@@ -82,11 +77,13 @@ public:
         GoalStatePath = core::createBitmask({ 2 })
     };
 
-    /// @brief Canonical spherical-target state shared by orbit-like cameras.
+    /// @brief Canonical target-relative state reported by spherical camera families.
     ///
     /// The state stores the tracked target position, orbit angles in `orbitUv`,
     /// and distance limits needed by tooling that wants to capture or reapply a
     /// target-relative camera pose without going through free-form setters.
+    /// `maxDistance` is an optional upper bound and may be infinite when the
+    /// active camera family does not impose a finite cap.
     struct SphericalTargetState
     {
         /// @brief Tracked target position in world space.
@@ -97,11 +94,11 @@ public:
         float distance = 0.f;
         /// @brief Lowest distance that remains valid for the current camera.
         float minDistance = 0.f;
-        /// @brief Highest distance that remains valid for the current camera.
-        float maxDistance = 0.f;
+        /// @brief Highest distance that remains valid for the current camera, or infinity when unbounded.
+        float maxDistance = SCameraTargetRelativeTraits::DefaultMaxDistance;
     };
 
-    /// @brief Typed authored state used by cameras with derived perspective behavior.
+    /// @brief Typed perspective state reported by cameras with derived FOV behavior.
     struct DynamicPerspectiveState
     {
         /// @brief Authored reference FOV in degrees.
@@ -111,22 +108,25 @@ public:
     };
 
     /// @brief Limits constraining reusable `PathState` coordinates for `Path Rig` cameras.
+    ///
+    /// These limits are part of the typed path-model surface. They are not
+    /// global engine rules. A concrete `Path Rig` instance may expose an
+    /// unbounded `maxDistance` by returning infinity.
     struct PathStateLimits
     {
         /// @brief Minimal valid `u` coordinate after path-state sanitization.
-        double minU = static_cast<double>(SphericalMinDistance);
+        double minU = static_cast<double>(SCameraTargetRelativeTraits::MinDistance);
         /// @brief Minimal valid radial distance derived from the `(u, v)` pair.
-        hlsl::float64_t minDistance = static_cast<hlsl::float64_t>(SphericalMinDistance);
-        /// @brief Maximal valid radial distance derived from the `(u, v)` pair.
-        hlsl::float64_t maxDistance = static_cast<hlsl::float64_t>(SphericalMaxDistance);
+        hlsl::float64_t minDistance = static_cast<hlsl::float64_t>(SCameraTargetRelativeTraits::MinDistance);
+        /// @brief Maximal valid radial distance derived from the `(u, v)` pair, or infinity when unbounded.
+        hlsl::float64_t maxDistance = static_cast<hlsl::float64_t>(SCameraTargetRelativeTraits::DefaultMaxDistance);
     };
 
     /// @brief Parametric path-rig state used by the `Path Rig` camera kind.
     ///
-    /// The default shared model interprets `(s, u, v, roll)` as angular progress,
-    /// radial component, vertical component, and view-axis roll around a target.
-    /// Concrete path models may reuse the same coordinates differently, while the
-    /// hot runtime path still stays event-only through `manipulate(...)`.
+    /// The built-in path model interprets `(s, u, v, roll)` as path progress,
+    /// lateral shape coordinates, and roll around the local forward axis.
+    /// Other path models may map the same coordinates onto different geometry.
     struct PathState
     {
         /// @brief Primary path-progress coordinate interpreted by the active path model.
@@ -138,13 +138,13 @@ public:
         /// @brief Roll around the path-model forward axis, expressed in radians.
         double roll = 0.0;
 
-        /// @brief Pack the state into one four-component vector for math helpers and persistence tooling.
+        /// @brief Pack the state into one four-component vector.
         inline hlsl::float64_t4 asVector() const
         {
             return hlsl::float64_t4(s, u, v, roll);
         }
 
-        /// @brief Project the state onto the shared translation-style view used by replay helpers.
+        /// @brief Project the state onto the translation-style representation used by replay helpers.
         inline hlsl::float64_t3 asTranslationVector() const
         {
             return hlsl::float64_t3(u, v, s);
@@ -173,7 +173,11 @@ public:
         }
     };
 
-    /// @brief Gimbal that models the camera pose and cached view matrix in world space.
+    /// @brief Gimbal that stores the runtime camera pose and cached world-to-view transform.
+    ///
+    /// Camera implementations own one `CGimbal` instance and update it after
+    /// applying their internal state model. The gimbal stores world-space
+    /// position, orientation, and the cached view matrix derived from them.
     class CGimbal : public IGimbal<hlsl::float64_t>
     {
     public:
@@ -248,9 +252,18 @@ public:
     /// @brief Return the mutable gimbal backing the runtime camera pose.
 	virtual const CGimbal& getGimbal() = 0u;
 
-    /// @brief Consume virtual events only.
+    /// @brief Apply one frame of semantic virtual events and an optional rigid reference-frame anchor.
     ///
-    /// Raw input binding and absolute goal solving live outside `ICamera`.
+    /// `virtualEvents` stores one frame of semantic movement, rotation, and
+    /// scale commands. Translation commands use `Move*`, rotation commands use
+    /// `Tilt*`, `Pan*`, and `Roll*`, and scale commands use `Scale*`. Cameras
+    /// interpret only the subset advertised by `getAllowedVirtualEvents()`.
+    ///
+    /// `referenceFrame` is an optional rigid world-space transform used as the
+    /// anchor for this manipulation step. Free-like cameras may apply it
+    /// directly as pose input. Constrained cameras may first resolve it into
+    /// their own typed legal state and then apply event deltas in that state
+    /// space.
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame = nullptr) = 0;
     /// @brief Apply one frame of virtual events while temporarily overriding the camera-local motion scales.
     inline bool manipulateWithMotionScales(std::span<const CVirtualGimbalEvent> virtualEvents, const hlsl::float64_t4x4* referenceFrame, const double moveScale, const double rotationScale)
@@ -265,13 +278,17 @@ public:
     }
 
     /// @brief Return the semantic virtual-event mask accepted by this camera kind.
+    ///
+    /// Input binders, scripted replay, and restore helpers use this mask to
+    /// decide which `CVirtualGimbalEvent` categories may be passed to
+    /// `manipulate(...)`.
 	virtual uint32_t getAllowedVirtualEvents() const = 0u;
 
     /// @brief Return the stable camera-family identifier for this concrete runtime camera.
     virtual CameraKind getKind() const = 0;
     /// @brief Return the optional typed capabilities exposed by this camera implementation.
     virtual uint32_t getCapabilities() const { return None; }
-    /// @brief Return the typed goal-state fragments that tooling may safely use with this camera.
+    /// @brief Return the typed goal-state fragments that helper layers may safely use with this camera.
     virtual uint32_t getGoalStateMask() const
     {
         uint32_t mask = GoalStateNone;
@@ -379,12 +396,12 @@ public:
     /// @brief Return the effective world-space translation represented by a unit virtual move event.
     inline double getScaledVirtualTranslationMagnitude() const
     {
-        return VirtualTranslationStep * getMoveSpeedScale();
+        return SCameraRuntimeTraits::VirtualTranslationStep * getMoveSpeedScale();
     }
     /// @brief Return the raw translation magnitude before applying the camera-local move scale.
     inline double getUnscaledVirtualTranslationMagnitude() const
     {
-        return VirtualTranslationStep;
+        return SCameraRuntimeTraits::VirtualTranslationStep;
     }
     /// @brief Scale one scalar translation magnitude through the active move scale.
     inline double scaleVirtualTranslation(const double magnitude) const

@@ -19,14 +19,14 @@ using SCameraManipulationDelta = hlsl::SCameraPoseDelta<hlsl::float64_t>;
 
 struct SCameraSmokeComparisonThresholds final
 {
-    static constexpr double TinyScalarEpsilon = core::ICamera::TinyScalarEpsilon;
-    static constexpr double DefaultPositionTolerance = core::ICamera::DefaultPositionTolerance;
-    static constexpr double DefaultAngularToleranceDeg = core::ICamera::DefaultAngularToleranceDeg;
-    static constexpr double DefaultScalarTolerance = core::ICamera::ScalarTolerance;
-    static constexpr double StrictPositionTolerance = core::ICamera::ScalarTolerance;
-    static constexpr double StrictAngularToleranceDeg = core::ICamera::DefaultAngularToleranceDeg;
-    static constexpr double StrictScalarTolerance = core::ICamera::ScalarTolerance;
-    static constexpr double TrackTimeTolerance = core::ICamera::ScalarTolerance;
+    static constexpr double TinyScalarEpsilon = core::SCameraToolingThresholds::TinyScalarEpsilon;
+    static constexpr double DefaultPositionTolerance = core::SCameraToolingThresholds::DefaultPositionTolerance;
+    static constexpr double DefaultAngularToleranceDeg = core::SCameraToolingThresholds::DefaultAngularToleranceDeg;
+    static constexpr double DefaultScalarTolerance = core::SCameraToolingThresholds::ScalarTolerance;
+    static constexpr double StrictPositionTolerance = core::SCameraToolingThresholds::ScalarTolerance;
+    static constexpr double StrictAngularToleranceDeg = core::SCameraToolingThresholds::DefaultAngularToleranceDeg;
+    static constexpr double StrictScalarTolerance = core::SCameraToolingThresholds::ScalarTolerance;
+    static constexpr double TrackTimeTolerance = core::SCameraToolingThresholds::ScalarTolerance;
 };
 
 struct CCameraSmokeRegressionUtilities final

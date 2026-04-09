@@ -9,11 +9,10 @@
 namespace nbl::core
 {
 
-/// @brief Stable descriptive strings shared by the reusable `Path Rig` camera kind.
+/// @brief Stable descriptive strings used by the reusable `Path Rig` camera kind.
 ///
-/// These labels are intentionally kept outside the heavy path utility header so
-/// simple metadata consumers can describe the camera kind without pulling in the
-/// full path-model implementation.
+/// This metadata lives in a lightweight header so code that only needs labels
+/// or identifiers does not have to include the full path-model implementation.
 struct SCameraPathRigMetadata final
 {
     /// @brief User-facing camera kind label.

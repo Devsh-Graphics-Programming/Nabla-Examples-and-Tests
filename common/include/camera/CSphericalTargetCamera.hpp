@@ -7,9 +7,10 @@
 namespace nbl::core
 {
 
-/// @brief Common base for cameras orbiting or tracking a target with spherical coordinates.
+/// @brief Common base for target-relative cameras represented by target position, distance, and `orbitUv`.
 ///
-/// The shared state is target position, distance, and orbit angles stored in `orbitUv`.
+/// Derived cameras keep the same target-relative storage but apply different
+/// constraints and event policies in `manipulate(...)`.
 class CSphericalTargetCamera : public ICamera
 {
 public:
@@ -46,8 +47,8 @@ public:
     inline float getDistance() const { return m_distance; }
     inline const hlsl::float64_t2& getOrbitUv() const { return m_orbitUv; }
 
-    static inline constexpr float MinDistance = base_t::SphericalMinDistance;
-    static inline constexpr float MaxDistance = base_t::SphericalMaxDistance;
+    static inline constexpr float MinDistance = SCameraTargetRelativeTraits::MinDistance;
+    static inline constexpr float MaxDistance = SCameraTargetRelativeTraits::DefaultMaxDistance;
 
     virtual uint32_t getCapabilities() const override
     {
@@ -118,7 +119,7 @@ protected:
     {
         const auto basis = hlsl::CCameraMathUtilities::getQuaternionBasisMatrix(reference.orientation);
         const auto planarUp = hlsl::float64_t2(basis[1].x, basis[1].y);
-        constexpr auto Epsilon = static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon);
+        constexpr auto Epsilon = static_cast<hlsl::float64_t>(SCameraToolingThresholds::TinyScalarEpsilon);
         if (!hlsl::CCameraMathUtilities::isNearlyZeroVector(planarUp, Epsilon))
             return hlsl::atan2(planarUp.y, planarUp.x);
 
@@ -135,7 +136,7 @@ protected:
         const auto offset = hlsl::float64_t3(reference.frame[3]) - m_targetPosition;
         const auto distance = hlsl::length(offset);
         if (!hlsl::CCameraMathUtilities::isFiniteScalar(distance) ||
-            distance <= static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon))
+            distance <= static_cast<hlsl::float64_t>(SCameraToolingThresholds::TinyScalarEpsilon))
         {
             return false;
         }
@@ -191,7 +192,7 @@ protected:
 
     inline void applyPlanarTargetTranslation(const hlsl::float64_t3& deltaTranslation, const SphericalBasis& basis)
     {
-        if (!hlsl::CCameraMathUtilities::hasPlanarDeltaXY(deltaTranslation, static_cast<hlsl::float64_t>(base_t::TinyScalarEpsilon)))
+        if (!hlsl::CCameraMathUtilities::hasPlanarDeltaXY(deltaTranslation, static_cast<hlsl::float64_t>(SCameraToolingThresholds::TinyScalarEpsilon)))
             return;
 
         m_targetPosition += hlsl::CCameraMathUtilities::transformLocalVectorToWorldBasis(
