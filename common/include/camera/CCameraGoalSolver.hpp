@@ -411,7 +411,7 @@ private:
         if (!includeRoll)
             tolerances.z = std::numeric_limits<hlsl::float64_t>::infinity();
 
-        appendAngularAxisEvents(
+        CCameraVirtualEventUtilities::appendAngularAxisEvents(
             events,
             eulerRadians,
             hlsl::float64_t3(denominator),
@@ -593,7 +593,7 @@ private:
         const auto& gimbal = camera->getGimbal();
         const auto currentPos = gimbal.getPosition();
         const auto deltaWorld = target.position - currentPos;
-        appendWorldTranslationAsLocalEvents(
+        CCameraVirtualEventUtilities::appendWorldTranslationAsLocalEvents(
             out,
             gimbal.getOrientation(),
             deltaWorld,

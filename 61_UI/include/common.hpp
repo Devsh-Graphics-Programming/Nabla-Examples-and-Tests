@@ -189,12 +189,8 @@ using nbl::hlsl::float64_t4;
 using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
 using nbl::hlsl::getQuaternionEulerDegrees;
-using nbl::ui::describeApplyResult;
-using nbl::ui::describeGoalStateMask;
-using nbl::ui::getCameraFollowModeLabel;
-using nbl::ui::getCameraFollowModeDescription;
-using nbl::ui::getCameraTypeDescription;
-using nbl::ui::getCameraTypeLabel;
+using nbl::ui::CCameraInputBindingUtilities;
+using nbl::ui::CCameraTextUtilities;
 using nbl::hlsl::getCastedMatrix;
 using nbl::hlsl::getCastedVector;
 using nbl::hlsl::getMatrix3x4As4x4;
@@ -210,7 +206,5 @@ using nbl::hlsl::makeIdentityQuaternion;
 using nbl::hlsl::normalizeQuaternion;
 using nbl::core::CCameraFollowUtilities;
 using nbl::core::syncDynamicPerspectiveProjection;
-using nbl::ui::applyDefaultCameraInputBindingPreset;
-using nbl::ui::getDefaultCameraMouseMappingPreset;
 
 #endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_

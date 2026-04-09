@@ -257,7 +257,7 @@ void App::applyScriptedImguizmoInput(SScriptedFrameInputState& scriptedFrame, co
 	auto* camera = runtimeContext.viewport.camera;
 
 	CGimbalInputBinder imguizmoBinding;
-	applyDefaultCameraInputBindingPreset(imguizmoBinding, *camera);
+    CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(imguizmoBinding, *camera);
 	auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
 		.imguizmoEvents = { scriptedFrame.frameEvents.imguizmo.data(), scriptedFrame.frameEvents.imguizmo.size() }
 	});
@@ -301,7 +301,7 @@ void App::applyScriptedGoals(const CCameraScriptedFrameEvents& scriptedFrameEven
 				static_cast<unsigned long long>(m_realFrameIx),
 				result.succeeded() ? "inexact" : "failed",
 				result.exact ? 1 : 0,
-				describeApplyResult(result).c_str());
+                CCameraTextUtilities::describeApplyResult(result).c_str());
 		}
 	}
 

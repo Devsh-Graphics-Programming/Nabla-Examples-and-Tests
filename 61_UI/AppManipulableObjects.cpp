@@ -91,7 +91,7 @@ bool App::tryBuildManipulableObjectContext(const uint32_t objectIx, SManipulable
 	outContext.kind = SceneManipulatedObjectKind::Camera;
 	outContext.planarIx = planarIx;
 	outContext.camera = camera;
-	outContext.label = std::string(getCameraTypeLabel(camera)) + " Camera";
+    outContext.label = std::string(CCameraTextUtilities::getCameraTypeLabel(camera)) + " Camera";
 	outContext.transform = buildCameraManipulationTransform(*camera);
 	outContext.worldPosition = buildCameraWorldPosition(*camera);
 	return true;

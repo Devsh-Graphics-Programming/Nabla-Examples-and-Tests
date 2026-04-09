@@ -170,7 +170,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		const auto planarIx = resolveSequenceSegmentPlanarIx(segment);
 		if (!planarIx.has_value())
 		{
-			const auto kindLabel = segment.cameraKind != ICamera::CameraKind::Unknown ? std::string(getCameraTypeLabel(segment.cameraKind)) : std::string("Unknown");
+            const auto kindLabel = segment.cameraKind != ICamera::CameraKind::Unknown ? std::string(CCameraTextUtilities::getCameraTypeLabel(segment.cameraKind)) : std::string("Unknown");
 			return logFail(
 				"Sequence segment \"%s\" has ambiguous or missing camera match for kind \"%s\" identifier \"%s\".",
 				segment.name.c_str(),

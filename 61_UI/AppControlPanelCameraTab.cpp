@@ -100,11 +100,11 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		nbl::ui::drawCheckboxWithHint({ .label = "Enable follow", .value = &followConfig.enabled, .hint = "Apply tracked-target follow to the active planar camera" });
 
 		const char* followModeLabels[] = {
-			getCameraFollowModeLabel(ECameraFollowMode::Disabled),
-			getCameraFollowModeLabel(ECameraFollowMode::OrbitTarget),
-			getCameraFollowModeLabel(ECameraFollowMode::LookAtTarget),
-			getCameraFollowModeLabel(ECameraFollowMode::KeepWorldOffset),
-			getCameraFollowModeLabel(ECameraFollowMode::KeepLocalOffset)
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::Disabled),
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::OrbitTarget),
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::LookAtTarget),
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::KeepWorldOffset),
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::KeepLocalOffset)
 		};
 		int followModeIx = static_cast<int>(followConfig.mode);
 		if (ImGui::Combo("Mode", &followModeIx, followModeLabels, IM_ARRAYSIZE(followModeLabels)))

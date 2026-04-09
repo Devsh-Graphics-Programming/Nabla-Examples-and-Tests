@@ -216,7 +216,7 @@ struct CCameraTargetRelativeUtilities final
     {
         if (policy.translateOrbit)
         {
-            appendAngularAxisEvents(
+            CCameraVirtualEventUtilities::appendAngularAxisEvents(
                 events,
                 delta.orbitVector(),
                 hlsl::float64_t3(angularDenominator),
@@ -231,7 +231,7 @@ struct CCameraTargetRelativeUtilities final
         {
             if (policy.allowYaw)
             {
-                appendAngularDeltaEvent(
+                CCameraVirtualEventUtilities::appendAngularDeltaEvent(
                     events,
                     delta.orbitUv.x,
                     angularDenominator,
@@ -241,7 +241,7 @@ struct CCameraTargetRelativeUtilities final
             }
             if (policy.allowPitch)
             {
-                appendAngularDeltaEvent(
+                CCameraVirtualEventUtilities::appendAngularDeltaEvent(
                     events,
                     delta.orbitUv.y,
                     angularDenominator,
@@ -254,7 +254,7 @@ struct CCameraTargetRelativeUtilities final
         if (policy.distanceBinding.positive != CVirtualGimbalEvent::None &&
             policy.distanceBinding.negative != CVirtualGimbalEvent::None)
         {
-            appendScaledVirtualEvent(
+            CCameraVirtualEventUtilities::appendScaledVirtualEvent(
                 events,
                 delta.distance,
                 distanceDenominator,

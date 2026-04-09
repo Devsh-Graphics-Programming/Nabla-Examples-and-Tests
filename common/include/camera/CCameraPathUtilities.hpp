@@ -297,12 +297,12 @@ struct CCameraPathUtilities final
         const double angleToleranceDeg = SCameraPathDefaults::AngleToleranceDeg,
         const double scalarTolerance = SCameraPathDefaults::ScalarTolerance)
     {
-        appendLocalTranslationEvents(
+        CCameraVirtualEventUtilities::appendLocalTranslationEvents(
             events,
             delta.translationVector(),
             hlsl::float64_t3(moveDenominator),
             hlsl::float64_t3(scalarTolerance));
-        appendAngularDeltaEvent(
+        CCameraVirtualEventUtilities::appendAngularDeltaEvent(
             events,
             delta.angle,
             moveDenominator,

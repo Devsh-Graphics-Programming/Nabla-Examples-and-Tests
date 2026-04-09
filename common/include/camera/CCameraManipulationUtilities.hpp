@@ -86,7 +86,7 @@ inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::v
             filtered.emplace_back(ev);
     }
 
-    const auto worldDelta = collectSignedTranslationDelta({ events.data(), count });
+    const auto worldDelta = CCameraVirtualEventUtilities::collectSignedTranslationDelta({ events.data(), count });
     if (hlsl::isNearlyZeroVector(worldDelta, static_cast<hlsl::float64_t>(ICamera::TinyScalarEpsilon)))
     {
         events = std::move(filtered);
@@ -94,7 +94,7 @@ inline void remapTranslationEventsFromWorldToCameraLocal(ICamera* camera, std::v
         return;
     }
 
-    appendWorldTranslationAsLocalEvents(filtered, camera->getGimbal().getOrientation(), worldDelta);
+    CCameraVirtualEventUtilities::appendWorldTranslationAsLocalEvents(filtered, camera->getGimbal().getOrientation(), worldDelta);
 
     events = std::move(filtered);
     count = static_cast<uint32_t>(events.size());

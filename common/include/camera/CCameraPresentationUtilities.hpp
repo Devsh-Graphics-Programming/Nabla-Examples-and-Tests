@@ -85,10 +85,10 @@ inline SCameraGoalApplyPresentation makeGoalApplyPresentation(const core::SCamer
     SCameraGoalApplyPresentation presentation;
     static_cast<core::SCameraGoalApplyAnalysis&>(presentation) = analysis;
     presentation.badges = collectGoalApplyPresentationBadges(presentation);
-    presentation.sourceKindLabel = std::string(getCameraTypeLabel(presentation.goal.sourceKind));
-    presentation.goalStateLabel = describeGoalStateMask(presentation.goal.sourceGoalStateMask);
-    presentation.compatibilityLabel = describeGoalApplyCompatibility(analysis, targetCamera);
-    presentation.policyLabel = describeGoalApplyPolicy(analysis);
+    presentation.sourceKindLabel = std::string(CCameraTextUtilities::getCameraTypeLabel(presentation.goal.sourceKind));
+    presentation.goalStateLabel = CCameraTextUtilities::describeGoalStateMask(presentation.goal.sourceGoalStateMask);
+    presentation.compatibilityLabel = CCameraTextUtilities::describeGoalApplyCompatibility(analysis, targetCamera);
+    presentation.policyLabel = CCameraTextUtilities::describeGoalApplyPolicy(analysis);
     return presentation;
 }
 
@@ -115,7 +115,7 @@ inline SCameraCapturePresentation analyzeCapturePresentation(const core::CCamera
 {
     SCameraCapturePresentation presentation;
     static_cast<core::SCameraCaptureAnalysis&>(presentation) = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(solver, camera);
-    presentation.policyLabel = describeCameraCapturePolicy(presentation, camera);
+    presentation.policyLabel = CCameraTextUtilities::describeCameraCapturePolicy(presentation, camera);
     return presentation;
 }
 

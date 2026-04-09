@@ -38,7 +38,7 @@ CCameraGoalSolver::SApplyResult App::applyPresetFromUi(ICamera* camera, const Ca
 	const auto presetUi = analyzePresetForUi(camera, preset);
 	storeApplyStatusBanner(
 		m_presetAuthoring.applyBanner,
-		describeApplyResult(result) + " | " + presetUi.compatibilityLabel,
+        CCameraTextUtilities::describeApplyResult(result) + " | " + presetUi.compatibilityLabel,
 		result.succeeded(),
 		result.approximate());
 	return result;
@@ -63,7 +63,7 @@ void App::storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 	const auto& playbackAuthoring = m_playbackAuthoring;
 	storeApplyStatusBanner(
 		m_playbackAuthoring.applyBanner,
-		nbl::ui::describePresetApplySummary(
+        nbl::ui::CCameraTextUtilities::describePresetApplySummary(
 			summary,
 			playbackAuthoring.affectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
 		summary.succeeded(),

@@ -419,7 +419,7 @@ namespace
 			(requireChanged && !applyResult.changed()) ||
 			(requireExact && !applyResult.exact))
 		{
-			outError = std::string(failurePrefix) + ". " + describeApplyResult(applyResult);
+            outError = std::string(failurePrefix) + ". " + CCameraTextUtilities::describeApplyResult(applyResult);
 			return false;
 		}
 
@@ -443,7 +443,7 @@ namespace
 		if (restoreResult.succeeded() && nbl::system::comparePresetToCameraStateWithStrictThresholds(goalSolver, camera, preset))
 			return true;
 
-		outError = std::string(failurePrefix) + ". " + describeApplyResult(restoreResult);
+        outError = std::string(failurePrefix) + ". " + CCameraTextUtilities::describeApplyResult(restoreResult);
 		if (camera)
 			outError += " " + nbl::core::describePresetCameraMismatch(goalSolver, camera, preset);
 		return false;
@@ -603,7 +603,7 @@ namespace
 			}
 
 			CGimbalInputBinder inputBinder;
-			applyDefaultCameraInputBindingPreset(inputBinder, *camera);
+            CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 
 			const std::string cameraIdentifier(camera->getIdentifier());
 			const auto initialPreset = nbl::core::capturePreset(goalSolver, camera, "smoke-initial");
@@ -611,7 +611,7 @@ namespace
 			if (!initialCompatibility.exact || initialCompatibility.missingGoalStateMask != ICamera::GoalStateNone)
 			{
 				outError = "Preset compatibility smoke failed for camera \"" + cameraIdentifier +
-					"\". missing=" + describeGoalStateMask(initialCompatibility.missingGoalStateMask);
+                    "\". missing=" + CCameraTextUtilities::describeGoalStateMask(initialCompatibility.missingGoalStateMask);
 				return false;
 			}
 
@@ -782,7 +782,7 @@ namespace
 			nbl::system::SCameraManipulationDelta keyboardDelta = {};
 			for (const auto key : nbl::ui::SCameraInputBindingPhysicalGroups::KeyboardProbeCodes)
 			{
-				applyDefaultCameraInputBindingPreset(inputBinder, *camera);
+                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 				auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
 				if (keyboardEvents.empty())
 					continue;
@@ -798,9 +798,9 @@ namespace
 				return false;
 			}
 
-			const auto& mousePreset = getDefaultCameraMouseMappingPreset(*camera);
-			const bool hasMoveMapping = nbl::ui::hasMouseRelativeMovementBinding(mousePreset);
-			const bool hasScrollMapping = nbl::ui::hasMouseScrollBinding(mousePreset);
+            const auto& mousePreset = CCameraInputBindingUtilities::getDefaultCameraMouseMappingPreset(*camera);
+            const bool hasMoveMapping = nbl::ui::CCameraInputBindingUtilities::hasMouseRelativeMovementBinding(mousePreset);
+            const bool hasScrollMapping = nbl::ui::CCameraInputBindingUtilities::hasMouseScrollBinding(mousePreset);
 
 			nbl::system::SCameraManipulationDelta mouseMoveDelta = {};
 			if (hasMoveMapping)
@@ -816,7 +816,7 @@ namespace
 					return false;
 				}
 
-				applyDefaultCameraInputBindingPreset(inputBinder, *camera);
+                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 				auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
 				if (mouseMoveEvents.empty())
 				{
@@ -837,7 +837,7 @@ namespace
 				const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
 				auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
 
-				applyDefaultCameraInputBindingPreset(inputBinder, *camera);
+                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 				auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
 				if (mouseScrollEvents.empty())
 				{
@@ -882,7 +882,7 @@ namespace
 		if (compatibility.exact || compatibility.missingGoalStateMask != expectedMissingGoalStateMask)
 		{
 			outError = std::string("Cross-kind preset compatibility smoke failed for ") + label +
-				". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask);
+                ". missing=" + CCameraTextUtilities::describeGoalStateMask(compatibility.missingGoalStateMask);
 			return false;
 		}
 
@@ -890,7 +890,7 @@ namespace
 		const auto applyResult = nbl::core::applyPresetDetailed(goalSolver, targetCamera, sourcePreset);
 		if (!applyResult.succeeded() || !applyResult.approximate() || !applyResult.hasIssue(expectedIssue))
 		{
-			outError = std::string("Cross-kind preset smoke failed for ") + label + ". " + describeApplyResult(applyResult);
+            outError = std::string("Cross-kind preset smoke failed for ") + label + ". " + CCameraTextUtilities::describeApplyResult(applyResult);
 			return false;
 		}
 
@@ -919,7 +919,7 @@ namespace
 		if (!compatibility.exact || compatibility.missingGoalStateMask != ICamera::GoalStateNone)
 		{
 			outError = std::string("Exact cross-kind preset compatibility smoke failed for ") + label +
-				". missing=" + describeGoalStateMask(compatibility.missingGoalStateMask);
+                ". missing=" + CCameraTextUtilities::describeGoalStateMask(compatibility.missingGoalStateMask);
 			return false;
 		}
 
@@ -1111,7 +1111,7 @@ namespace
 		if (!editedApply.succeeded() || !editedApply.changed())
 		{
 			outError = std::string("Follow recapture smoke failed to apply edited preset for ") + std::string(label) +
-				". " + describeApplyResult(editedApply);
+                ". " + CCameraTextUtilities::describeApplyResult(editedApply);
 			return false;
 		}
 
@@ -1134,7 +1134,7 @@ namespace
 		if (!recapturedApply.succeeded())
 		{
 			outError = std::string("Follow recapture smoke failed to apply recaptured follow for ") + std::string(label) +
-				". " + describeApplyResult(recapturedApply);
+                ". " + CCameraTextUtilities::describeApplyResult(recapturedApply);
 			return false;
 		}
 

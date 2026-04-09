@@ -468,7 +468,7 @@ This test now runs on the compact authored sequence format rather than a large e
 auto camera = core::make_smart_refctd_ptr<COrbitCamera>(eye, target);
 
 CGimbalInputBinder binder;
-applyDefaultCameraInputBindingPreset(binder, *camera);
+CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(binder, *camera);
 
 auto collected = binder.collectVirtualEvents(timestamp, {
     .mouseEvents = { mouseEvents.data(), mouseEvents.size() },

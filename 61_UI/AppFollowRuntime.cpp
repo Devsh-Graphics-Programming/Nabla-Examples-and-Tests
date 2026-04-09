@@ -35,8 +35,8 @@ inline nbl::ui::SCameraScriptVisualDebugStatus buildScriptVisualDebugStatus(
 	const auto elapsedFrames = computeElapsedFrames(absoluteFrame, scriptedInput.visualPlanar);
 
 	nbl::ui::SCameraScriptVisualDebugStatus status = {};
-	status.cameraLabel = getCameraTypeLabel(&camera);
-	status.cameraHint = getCameraTypeDescription(&camera);
+    status.cameraLabel = CCameraTextUtilities::getCameraTypeLabel(&camera);
+    status.cameraHint = CCameraTextUtilities::getCameraTypeDescription(&camera);
 	status.cameraIndex = planarIx;
 	status.cameraCount = static_cast<uint32_t>(planarCount);
 	status.planarIndex = planarIx;
@@ -47,7 +47,7 @@ inline nbl::ui::SCameraScriptVisualDebugStatus buildScriptVisualDebugStatus(
 	status.absoluteFrame = absoluteFrame;
 	status.segmentLabel = scriptedInput.visualPlanar.segmentLabel;
 	status.followActive = scriptedInput.visualFollow.active;
-	status.followModeDescription = nbl::ui::getCameraFollowModeDescription(scriptedInput.visualFollow.mode);
+    status.followModeDescription = nbl::ui::CCameraTextUtilities::getCameraFollowModeDescription(scriptedInput.visualFollow.mode);
 	status.followLockValid = scriptedInput.visualFollow.lockValid;
 	status.followLockAngleDeg = scriptedInput.visualFollow.lockAngleDeg;
 	status.followTargetDistance = scriptedInput.visualFollow.targetDistance;

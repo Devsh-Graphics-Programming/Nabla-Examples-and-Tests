@@ -771,29 +771,29 @@
 			}
 		}
 
-		if (getCameraTypeLabel(ICamera::CameraKind::DollyZoom) != "Dolly Zoom")
+        if (CCameraTextUtilities::getCameraTypeLabel(ICamera::CameraKind::DollyZoom) != "Dolly Zoom")
 		{
 			outError = "Camera text utilities smoke failed for Dolly Zoom label.";
 			return false;
 		}
-		if (getCameraTypeDescription(ICamera::CameraKind::Path) != std::string(nbl::core::SCameraPathDefaults::Description))
+        if (CCameraTextUtilities::getCameraTypeDescription(ICamera::CameraKind::Path) != std::string(nbl::core::SCameraPathDefaults::Description))
 		{
 			outError = "Camera text utilities smoke failed for Path description.";
 			return false;
 		}
-		if (describeGoalStateMask(ICamera::GoalStateNone) != "Pose only")
+        if (CCameraTextUtilities::describeGoalStateMask(ICamera::GoalStateNone) != "Pose only")
 		{
 			outError = "Camera text utilities smoke failed for empty goal-state description.";
 			return false;
 		}
-		if (describeGoalStateMask(ICamera::GoalStateSphericalTarget | ICamera::GoalStateDynamicPerspective) != "Spherical target, Dynamic perspective")
+        if (CCameraTextUtilities::describeGoalStateMask(ICamera::GoalStateSphericalTarget | ICamera::GoalStateDynamicPerspective) != "Spherical target, Dynamic perspective")
 		{
 			outError = "Camera text utilities smoke failed for combined goal-state description.";
 			return false;
 		}
 
 		CCameraGoalSolver::SApplyResult defaultApplyResult;
-		const auto applyResultText = describeApplyResult(defaultApplyResult);
+        const auto applyResultText = CCameraTextUtilities::describeApplyResult(defaultApplyResult);
 		if (applyResultText.find("status=Unsupported") == std::string::npos || applyResultText.find("events=0") == std::string::npos)
 		{
 			outError = "Camera text utilities smoke failed for apply-result description.";
@@ -804,7 +804,7 @@
 		summary.targetCount = 2u;
 		summary.successCount = 2u;
 		summary.approximateCount = 1u;
-		const auto summaryText = nbl::ui::describePresetApplySummary(summary, "none");
+        const auto summaryText = nbl::ui::CCameraTextUtilities::describePresetApplySummary(summary, "none");
 		if (summaryText.find("targets=2") == std::string::npos || summaryText.find("approximate=1") == std::string::npos)
 		{
 			outError = "Camera text utilities smoke failed for preset-apply summary description.";
