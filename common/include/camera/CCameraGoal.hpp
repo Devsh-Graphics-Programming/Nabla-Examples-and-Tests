@@ -21,10 +21,8 @@ namespace nbl::core
 /**
 * Typed transport object for camera state used by capture, comparison, presets, and playback.
 */
-struct CCameraGoal
+struct CCameraGoal : SCameraRigPose
 {
-    hlsl::float64_t3 position = hlsl::float64_t3(0.0);
-    hlsl::camera_quaternion_t<hlsl::float64_t> orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float64_t>();
     ICamera::CameraKind sourceKind = ICamera::CameraKind::Unknown;
     uint32_t sourceCapabilities = ICamera::None;
     uint32_t sourceGoalStateMask = ICamera::GoalStateNone;
