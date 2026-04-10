@@ -5,6 +5,7 @@
 #include <span>
 
 #include "app/AppResourceUtilities.hpp"
+#include "nbl/system/ModuleLookupUtils.h"
 #include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
 
 namespace nbl::system
@@ -197,20 +198,28 @@ inline bool loadRequestedCameraConfigText(
         error);
 }
 
-inline path getSharedEnvmapDirectory(const path& localInputCWD)
+inline path getExamplesRuntimeDirectory()
 {
-    return resolveInputPath(
-        localInputCWD,
-        path(SCameraMountedResourcePaths::SharedEnvmapRelativeDirectory));
+    return (executableDirectory() / path(SCameraMountedResourcePaths::RuntimeRelativeDirectoryFromExecutable)).lexically_normal();
 }
 
-inline SCameraAppResourcePathCandidates<SCameraEnvmapResourcePaths::CandidateCount> makeSpaceEnvBlobCandidates(const path& localInputCWD)
+inline path getSharedEnvmapDirectory()
 {
-    return makeResourcePathCandidates<SCameraEnvmapResourcePaths::CandidateCount>(
-        localInputCWD,
-        path(SCameraMountedResourcePaths::MountedSharedEnvmapWorkingDirectory) /
-            path(SCameraEnvmapResourcePaths::SpaceEnvBlobCandidate),
-        EResourceLookupPolicy::MountedOnly);
+    return (getExamplesRuntimeDirectory() / path(SCameraMountedResourcePaths::SharedEnvmapChannelDirectory)).lexically_normal();
+}
+
+inline path getSpaceEnvBlobRelativePath()
+{
+    return path(SCameraEnvmapResourcePaths::SpaceEnvBlobDirectory) / path(SCameraEnvmapResourcePaths::SpaceEnvBlobCandidate);
+}
+
+inline SCameraAppResourcePathCandidates<SCameraEnvmapResourcePaths::CandidateCount> makeSpaceEnvBlobCandidates()
+{
+    SCameraAppResourcePathCandidates<SCameraEnvmapResourcePaths::CandidateCount> candidates = {};
+    const auto relativeBlobPath = getSpaceEnvBlobRelativePath();
+    candidates.appendUnique(path(SCameraMountedResourcePaths::MountedSharedEnvmapWorkingDirectory) / relativeBlobPath);
+    candidates.appendUnique(getSharedEnvmapDirectory() / relativeBlobPath);
+    return candidates;
 }
 
 } // namespace nbl::system

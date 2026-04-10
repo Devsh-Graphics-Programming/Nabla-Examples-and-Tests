@@ -1,4 +1,6 @@
 if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARGET Nabla::ext::ImGUI)
+	include("${NBL_ROOT_PATH}/cmake/nam/nam.cmake")
+
 	file(GLOB_RECURSE NBL_EXTRA_SOURCES CONFIGURE_DEPENDS
 		"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
@@ -24,6 +26,20 @@ if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARG
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
+
+	nam_add_channel_target(
+		TARGET ${EXECUTABLE_NAME}_envmaps
+		CHANNEL envmaps
+		MANIFEST_ROOT "${NBL_ROOT_PATH}/examples_tests/manifests"
+		REPO Devsh-Graphics-Programming/Nabla-Asset-Manifests
+		TAG envmaps
+		DESTINATION_ROOT "${NBL_ROOT_PATH}/examples_tests/runtime"
+		FLAT_RELEASE_ASSET_NAMES
+		ITEMS
+			space_spheremaps/LICENSE.txt
+			space_spheremaps/rich_blue_nebulae_1_8k.rgba16f.envblob
+	)
+	add_dependencies(${EXECUTABLE_NAME} ${EXECUTABLE_NAME}_envmaps)
 
 	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 	file(GLOB_RECURSE NBL_HLSL_SOURCES CONFIGURE_DEPENDS

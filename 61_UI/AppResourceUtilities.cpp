@@ -60,7 +60,7 @@ bool mountOptionalSharedEnvmapResources(
     if (!context)
         return false;
 
-    auto sharedEnvmapDirectory = getSharedEnvmapDirectory(context.localInputCWD);
+    auto sharedEnvmapDirectory = getSharedEnvmapDirectory();
     std::error_code ec;
     if (!std::filesystem::exists(sharedEnvmapDirectory, ec) || ec)
         return false;
@@ -84,7 +84,7 @@ bool loadPreferredSpaceEnvBlob(
     if (!context)
         return false;
 
-    const auto candidates = makeSpaceEnvBlobCandidates(context.localInputCWD);
+    const auto candidates = makeSpaceEnvBlobCandidates();
     return loadFirstCandidatePath(
         candidates.asSpan(),
         [&](const path& candidate) -> bool

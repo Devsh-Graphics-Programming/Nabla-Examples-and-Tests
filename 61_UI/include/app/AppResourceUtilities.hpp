@@ -25,7 +25,8 @@ struct SCameraMountedResourcePaths final
 {
     static constexpr std::string_view AppResourcesWorkingDirectory = "app_resources";
     static constexpr std::string_view MountedSharedEnvmapWorkingDirectory = "app_resources/shared_envmap";
-    static constexpr std::string_view SharedEnvmapRelativeDirectory = "../media/envmap";
+    static constexpr std::string_view RuntimeRelativeDirectoryFromExecutable = "../../runtime";
+    static constexpr std::string_view SharedEnvmapChannelDirectory = "envmaps";
 };
 
 struct SCameraConfigResourcePaths final
@@ -39,6 +40,7 @@ struct SCameraEnvmapResourcePaths final
     static constexpr uint32_t SpaceEnvBlobMagic = 0x31425645u;
     static constexpr uint32_t SpaceEnvBlobFormatRgba16Sfloat = 2u;
     static constexpr size_t CandidateCount = 2u;
+    static constexpr std::string_view SpaceEnvBlobDirectory = "space_spheremaps";
     static constexpr std::string_view SpaceEnvBlobCandidate = "rich_blue_nebulae_1_8k.rgba16f.envblob";
 };
 
