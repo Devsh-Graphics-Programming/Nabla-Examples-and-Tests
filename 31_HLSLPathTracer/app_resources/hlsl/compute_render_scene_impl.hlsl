@@ -121,7 +121,7 @@ void tracePixel(int32_t2 coords)
 
 #if PATH_TRACER_USE_RWMC
 	for (uint32_t i = 0; i < CascadeCount; ++i)
-		::cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.data[i], 1.0f);
+		::cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.__data[i], 1.0f);
 #else
 	::outImage[uint3(coords.x, coords.y, 0)] = float32_t4(accumulator.accumulation, 1.0);
 #endif
