@@ -32,6 +32,14 @@ void App::dequeueScriptedFrameInput(SScriptedFrameInputState& outFrame)
 			m_realFrameIx,
 			outFrame.frameEvents);
 	}
+	if (m_scriptedInput.enabled && m_scriptedInput.nextActionIndex < m_scriptedInput.actionEvents.size())
+	{
+		nbl::this_example::CCameraScriptedActionUtilities::dequeueFrameActions(
+			m_scriptedInput.actionEvents,
+			m_scriptedInput.nextActionIndex,
+			m_realFrameIx,
+			outFrame.actions);
+	}
 
 	nbl::ui::CCameraScriptedUiInputUtilities::appendScriptedUiInputEvents(
 		m_nextPresentationTimestamp,
@@ -45,16 +53,16 @@ void App::dequeueScriptedFrameInput(SScriptedFrameInputState& outFrame)
 		m_scriptedInput.visualPlanar.segmentLabel = outFrame.frameEvents.segmentLabels.back();
 }
 
-void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFrameEvents)
+void App::applyScriptedFrameActions(std::span<const nbl::this_example::CCameraScriptedActionEvent> scriptedActions)
 {
-	if (!(m_scriptedInput.enabled && !scriptedFrameEvents.actions.empty()))
+	if (!(m_scriptedInput.enabled && !scriptedActions.empty()))
 		return;
 
-	auto applyAction = [&](const CCameraScriptedInputEvent::ActionData& action) -> void
+	auto applyAction = [&](const nbl::this_example::CCameraScriptedActionEvent& action) -> void
 	{
-		switch (action.kind)
+		switch (static_cast<nbl::this_example::ECameraScriptedActionCode>(action.code))
 		{
-			case CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow:
+			case nbl::this_example::ECameraScriptedActionCode::SetActiveRenderWindow:
 			{
 				if (action.value < 0 || static_cast<size_t>(action.value) >= m_viewports.windowBindings.size())
 				{
@@ -64,7 +72,7 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 				m_viewports.activeRenderWindowIx = static_cast<uint32_t>(action.value);
 			} break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar:
+			case nbl::this_example::ECameraScriptedActionCode::SetActivePlanar:
 			{
 				if (action.value < 0)
 				{
@@ -86,7 +94,7 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 				m_scriptedInput.visualPlanar.startFrame = m_realFrameIx;
 			} break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::SetProjectionType:
+			case nbl::this_example::ECameraScriptedActionCode::SetProjectionType:
 			{
 				auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
 				const auto type = static_cast<IPlanarProjection::CProjection::ProjectionType>(action.value);
@@ -99,7 +107,7 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 				}
 			} break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::SetProjectionIndex:
+			case nbl::this_example::ECameraScriptedActionCode::SetProjectionIndex:
 			{
 				auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
 				auto& projections = m_planarProjections[binding.activePlanarIx]->getPlanarProjections();
@@ -115,15 +123,15 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 					static_cast<uint32_t>(action.value));
 			} break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow:
+			case nbl::this_example::ECameraScriptedActionCode::SetUseWindow:
 				m_viewports.useWindow = action.value != 0;
 				break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::SetLeftHanded:
+			case nbl::this_example::ECameraScriptedActionCode::SetLeftHanded:
 				m_viewports.windowBindings[m_viewports.activeRenderWindowIx].leftHandedProjection = action.value != 0;
 				break;
 
-			case CCameraScriptedInputEvent::ActionData::Kind::ResetActiveCamera:
+			case nbl::this_example::ECameraScriptedActionCode::ResetActiveCamera:
 			{
 				auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
 				if (binding.activePlanarIx >= m_planarProjections.size())
@@ -144,15 +152,15 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 		}
 	};
 
-	for (const auto& action : scriptedFrameEvents.actions)
+	for (const auto& action : scriptedActions)
 	{
-		if (action.kind == CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+		if (nbl::this_example::CCameraScriptedActionUtilities::hasCode(action, nbl::this_example::ECameraScriptedActionCode::SetActiveRenderWindow))
 			applyAction(action);
 	}
 
-	for (const auto& action : scriptedFrameEvents.actions)
+	for (const auto& action : scriptedActions)
 	{
-		if (action.kind != CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow)
+		if (!nbl::this_example::CCameraScriptedActionUtilities::hasCode(action, nbl::this_example::ECameraScriptedActionCode::SetActiveRenderWindow))
 			applyAction(action);
 	}
 
@@ -162,7 +170,7 @@ void App::applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFr
 			"[script] frame %llu actions=%zu",
 			ILogger::ELL_INFO,
 			static_cast<unsigned long long>(m_realFrameIx),
-			scriptedFrameEvents.actions.size());
+			scriptedActions.size());
 	}
 }
 

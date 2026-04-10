@@ -2,7 +2,7 @@
 
 inline float32_t4x4 buildModelManipulationTransform(const float32_t3x4& model)
 {
-	return hlsl::transpose(getMatrix3x4As4x4(model));
+	return hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(model));
 }
 
 inline float32_t3 extractWorldPosition(const float32_t4x4& transform)
@@ -17,7 +17,7 @@ inline float32_t4x4 buildCameraManipulationTransform(ICamera& camera)
 
 inline float32_t3 buildCameraWorldPosition(ICamera& camera)
 {
-	return getCastedVector<float32_t>(camera.getGimbal().getPosition());
+	return hlsl::CCameraMathUtilities::castVector<float32_t>(camera.getGimbal().getPosition());
 }
 
 inline float32_t4x4 buildFollowTargetTransform(const CTrackedTarget& trackedTarget)
@@ -27,7 +27,7 @@ inline float32_t4x4 buildFollowTargetTransform(const CTrackedTarget& trackedTarg
 
 inline float32_t3 buildFollowTargetWorldPosition(const CTrackedTarget& trackedTarget)
 {
-	return getCastedVector<float32_t>(trackedTarget.getGimbal().getPosition());
+	return hlsl::CCameraMathUtilities::castVector<float32_t>(trackedTarget.getGimbal().getPosition());
 }
 
 uint32_t App::getManipulableObjectCount() const

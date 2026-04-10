@@ -2,11 +2,11 @@
 
 #include "app/AppCameraConfigUtilities.hpp"
 #include "app/AppResourceUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp"
 
 void App::resetScriptedInputRuntimeState()
 {
 	m_scriptedInput.nextEventIndex = 0u;
+	m_scriptedInput.nextActionIndex = 0u;
 	m_scriptedInput.checkRuntime = {};
 	m_scriptedInput.nextCaptureIndex = 0u;
 	m_scriptedInput.failed = false;
@@ -19,11 +19,12 @@ void App::finalizeScriptedInputRuntimeState()
 }
 
 void App::applyParsedScriptedInput(
-	nbl::system::CCameraScriptedInputParseResult parsed,
+	nbl::this_example::CCameraScriptedInputParseResult parsed,
 	std::optional<CCameraSequenceScript>& pendingScriptedSequence)
 {
 	pendingScriptedSequence.reset();
 	m_scriptedInput.timeline.clear();
+	m_scriptedInput.actionEvents.clear();
 	resetScriptedInputRuntimeState();
 	m_scriptedInput.exclusive = false;
 	m_scriptedInput.hardFail = false;
@@ -78,6 +79,7 @@ void App::applyParsedScriptedInput(
 
 	pendingScriptedSequence = std::move(parsed.sequence);
 	m_scriptedInput.timeline = std::move(parsed.timeline);
+	m_scriptedInput.actionEvents = std::move(parsed.actionEvents);
 	finalizeScriptedInputRuntimeState();
 }
 
@@ -93,9 +95,9 @@ bool App::tryLoadConfiguredScriptedInput(
 		if (scriptedText.empty())
 			return true;
 
-		nbl::system::CCameraScriptedInputParseResult parsed = {};
+		nbl::this_example::CCameraScriptedInputParseResult parsed = {};
 		std::string scriptedInputParseError;
-		if (!nbl::system::readCameraScriptedInput(scriptedText, parsed, &scriptedInputParseError))
+		if (!nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::readCameraScriptedInput(scriptedText, parsed, &scriptedInputParseError))
 			return logFail("Camera sequence script parse failed: %s", scriptedInputParseError.c_str());
 
 		applyParsedScriptedInput(std::move(parsed), outPendingScriptedSequence);
@@ -150,13 +152,14 @@ std::optional<uint32_t> App::resolveSequenceSegmentPlanarIx(const CCameraSequenc
 bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 {
 	CCameraScriptedTimeline timeline;
+	std::vector<nbl::this_example::CCameraScriptedActionEvent> actionEvents;
 	resetScriptedInputRuntimeState();
 
 	const bool useWindowMode = nbl::core::CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence);
-	nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedActionEvent(
-		timeline,
+	nbl::this_example::CCameraScriptedActionUtilities::appendActionEvent(
+		actionEvents,
 		0u,
-		CCameraScriptedInputEvent::ActionData::Kind::SetUseWindow,
+		nbl::this_example::ECameraScriptedActionCode::SetUseWindow,
 		useWindowMode ? 1 : 0);
 
 	CCameraSequenceTrackedTargetPose referenceTrackedTargetPose = {};
@@ -207,8 +210,9 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		}
 
 		std::string buildError;
-		if (!nbl::system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
+		if (!nbl::this_example::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
 				timeline,
+				actionEvents,
 				frameCursor,
 				compiledSegment,
 				{
@@ -229,7 +233,9 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 	}
 
 	nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline, m_cliRuntime.disableScreenshotsCli);
+	nbl::this_example::CCameraScriptedActionUtilities::finalizeActionEvents(actionEvents);
 	m_scriptedInput.timeline = std::move(timeline);
+	m_scriptedInput.actionEvents = std::move(actionEvents);
 	return true;
 }
 

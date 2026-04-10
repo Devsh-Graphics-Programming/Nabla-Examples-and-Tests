@@ -23,7 +23,6 @@
 #include "nbl/ext/Cameras/CCameraKeyframeTrack.hpp"
 #include "nbl/ext/Cameras/CCameraPlaybackTimeline.hpp"
 #include "nbl/ext/Cameras/CCameraSequenceScript.hpp"
-#include "nbl/ext/Cameras/CCameraSequenceScriptedBuilder.hpp"
 #include "nbl/ext/Cameras/CCameraScriptedRuntime.hpp"
 #include "nbl/ext/Cameras/CCameraScriptedUiInputUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraScriptedCheckRunner.hpp"
@@ -35,6 +34,10 @@
 #include "nbl/ext/Cameras/CCameraKindUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraFollowUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
+#include "camera/CCameraConstraintUtilities.hpp"
+#include "camera/CCameraScriptedActionUtilities.hpp"
+#include "camera/CCameraScriptedRuntimePersistence.hpp"
+#include "camera/CCameraSequenceScriptedBuilder.hpp"
 #include "camera/CCameraControlPanelUiUtilities.hpp"
 #include "camera/CCameraScriptVisualDebugOverlayUtilities.hpp"
 #include "camera/CCameraViewportOverlayUtilities.hpp"
@@ -50,6 +53,20 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
+
+namespace nbl::this_example
+{
+
+template<typename Tout, typename Tin, uint32_t N, uint32_t M>
+inline hlsl::matrix<Tout, N, M> getCastedMatrix(const hlsl::matrix<Tin, N, M>& input)
+{
+	hlsl::matrix<Tout, N, M> output;
+	for (uint32_t i = 0u; i < N; ++i)
+		output[i] = hlsl::CCameraMathUtilities::castVector<Tout>(input[i]);
+	return output;
+}
+
+}
 
 namespace core = nbl::core;
 namespace asset = nbl::asset;
@@ -146,7 +163,6 @@ using nbl::core::CCameraSequenceTrackedTargetPose;
 using nbl::core::CCameraSequenceTrackedTargetTrack;
 using nbl::core::CCameraSequencePresentation;
 using nbl::core::CCameraSequenceContinuitySettings;
-using nbl::system::CCameraSequenceScriptedSegmentBuildInfo;
 using nbl::system::CCameraScriptedInputEvent;
 using nbl::system::CCameraScriptedInputCheck;
 using nbl::system::CCameraScriptedFrameEvents;
@@ -164,7 +180,15 @@ using nbl::system::SCameraFollowVisualMetrics;
 using nbl::ui::SCameraGoalApplyPresentation;
 using nbl::ui::SCameraGoalApplyPresentationBadges;
 using nbl::ui::SCameraCapturePresentation;
-using nbl::core::SCameraConstraintSettings;
+using nbl::this_example::ECameraScriptedActionCode;
+using nbl::this_example::CCameraConstraintUtilities;
+using nbl::this_example::CCameraScriptedActionUtilities;
+using nbl::this_example::CCameraScriptedActionEvent;
+using nbl::this_example::CCameraScriptedInputParseResult;
+using nbl::this_example::CCameraScriptedRuntimePersistenceUtilities;
+using nbl::this_example::CCameraSequenceScriptedSegmentBuildInfo;
+using nbl::this_example::CCameraSequenceScriptedBuilderUtilities;
+using nbl::this_example::SCameraConstraintSettings;
 using nbl::core::CCameraGoalSolver;
 using nbl::core::ECameraFollowMode;
 using nbl::ui::EPresetApplyPresentationFilter;
@@ -191,10 +215,7 @@ using nbl::ui::CCameraControlPanelUiUtilities;
 using nbl::ui::CCameraScriptVisualDebugOverlayUtilities;
 using nbl::ui::CCameraTextUtilities;
 using nbl::ui::CCameraViewportOverlayUtilities;
-using nbl::hlsl::getCastedMatrix;
-using nbl::hlsl::getCastedVector;
-using nbl::hlsl::getMatrix3x4As4x4;
-using nbl::hlsl::concatenateBFollowedByA;
+using nbl::this_example::getCastedMatrix;
 using nbl::hlsl::mul;
 using nbl::hlsl::camera_quaternion_t;
 using nbl::core::CCameraFollowUtilities;

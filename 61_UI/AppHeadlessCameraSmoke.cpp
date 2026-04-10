@@ -12,7 +12,6 @@
 #include "app/AppResourceUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraPathUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraPersistence.hpp"
-#include "nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp"
 #include "nbl/ext/Cameras/CCameraSmokeRegressionUtilities.hpp"
 #include "nlohmann/json.hpp"
 #include "AppHeadlessCameraSmokeHelpers.inl"

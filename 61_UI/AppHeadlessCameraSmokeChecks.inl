@@ -42,7 +42,7 @@
 					state.goalSolver,
 					state.orbitCamera,
 					state.initialPresets.path.value(),
-					CCameraGoalSolver::SApplyResult::MissingPathState,
+					CCameraGoalSolver::SApplyResult::EIssue::MissingPathState,
 					"Path->Orbit",
 					outError))
 			{
@@ -56,7 +56,7 @@
 					state.goalSolver,
 					state.orbitCamera,
 					state.initialPresets.dollyZoom.value(),
-					CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState,
+					CCameraGoalSolver::SApplyResult::EIssue::MissingDynamicPerspectiveState,
 					"DollyZoom->Orbit",
 					outError))
 			{
@@ -588,15 +588,15 @@
 
 		const auto sourcePresetSpan = std::span<const CameraPreset>(sourcePresets.data(), sourcePresets.size());
 
-		std::stringstream presetBuffer;
-		if (!nbl::system::writePresetCollection(presetBuffer, sourcePresetSpan))
+		const auto presetText = nbl::system::CCameraPersistenceUtilities::serializePresetCollection(sourcePresetSpan);
+		if (presetText.empty())
 		{
 			outError = "Preset persistence smoke failed to serialize preset collection.";
 			return false;
 		}
 
 		std::vector<CameraPreset> loadedPresets;
-		if (!nbl::system::readPresetCollection(presetBuffer, loadedPresets))
+		if (!nbl::system::CCameraPersistenceUtilities::deserializePresetCollection(presetText, loadedPresets))
 		{
 			outError = "Preset persistence smoke failed to deserialize preset collection.";
 			return false;
@@ -623,15 +623,15 @@
 		}
 		sourceTrack.selectedKeyframeIx = static_cast<int>(sourceTrack.keyframes.size()) - 1;
 
-		std::stringstream keyframeBuffer;
-		if (!nbl::system::writeKeyframeTrack(keyframeBuffer, sourceTrack))
+		const auto keyframeText = nbl::system::CCameraKeyframeTrackPersistenceUtilities::serializeKeyframeTrack(sourceTrack);
+		if (keyframeText.empty())
 		{
 			outError = "Keyframe persistence smoke failed to serialize track.";
 			return false;
 		}
 
 		CCameraKeyframeTrack loadedTrack;
-		if (!nbl::system::readKeyframeTrack(keyframeBuffer, loadedTrack))
+		if (!nbl::system::CCameraKeyframeTrackPersistenceUtilities::deserializeKeyframeTrack(keyframeText, loadedTrack))
 		{
 			outError = "Keyframe persistence smoke failed to deserialize track.";
 			return false;
@@ -668,14 +668,14 @@
 
 		auto& system = *state.system;
 
-		if (!nbl::system::savePresetCollectionToFile(system, presetFile, sourcePresetSpan))
+		if (!nbl::system::CCameraPersistenceUtilities::savePresetCollectionToFile(system, presetFile, sourcePresetSpan))
 		{
 			outError = "Preset persistence smoke failed to save preset collection file.";
 			return false;
 		}
 
 		std::vector<CameraPreset> fileLoadedPresets;
-		if (!nbl::system::loadPresetCollectionFromFile(system, presetFile, fileLoadedPresets))
+		if (!nbl::system::CCameraPersistenceUtilities::loadPresetCollectionFromFile(system, presetFile, fileLoadedPresets))
 		{
 			outError = "Preset persistence smoke failed to load preset collection file.";
 			return false;
@@ -691,14 +691,14 @@
 			return false;
 		}
 
-		if (!nbl::system::saveKeyframeTrackToFile(system, keyframeFile, sourceTrack))
+		if (!nbl::system::CCameraKeyframeTrackPersistenceUtilities::saveKeyframeTrackToFile(system, keyframeFile, sourceTrack))
 		{
 			outError = "Keyframe persistence smoke failed to save track file.";
 			return false;
 		}
 
 		CCameraKeyframeTrack fileLoadedTrack;
-		if (!nbl::system::loadKeyframeTrackFromFile(system, keyframeFile, fileLoadedTrack))
+		if (!nbl::system::CCameraKeyframeTrackPersistenceUtilities::loadKeyframeTrackFromFile(system, keyframeFile, fileLoadedTrack))
 		{
 			outError = "Keyframe persistence smoke failed to load track file.";
 			return false;
@@ -906,9 +906,11 @@
 		}
 
 		CCameraScriptedTimeline scriptedTimeline;
+		std::vector<nbl::this_example::CCameraScriptedActionEvent> actionEvents;
 		std::string runtimeBuildError;
-		if (!nbl::system::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
+		if (!nbl::this_example::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
 				scriptedTimeline,
+				actionEvents,
 				SCameraSmokeSequenceDefaults::StartFrame,
 				compiledSegment,
 				{
@@ -923,6 +925,7 @@
 			return false;
 		}
 		nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(scriptedTimeline);
+		nbl::this_example::CCameraScriptedActionUtilities::finalizeActionEvents(actionEvents);
 
 		if (scriptedTimeline.captureFrames != std::vector<uint64_t>(
 				SCameraSmokeSequenceDefaults::CaptureFrames.begin(),
@@ -961,15 +964,18 @@
 		}
 
 		size_t runtimeNextEventIndex = 0u;
+		size_t runtimeNextActionIndex = 0u;
 		CCameraScriptedFrameEvents runtimeBatch;
+		std::vector<nbl::this_example::CCameraScriptedActionEvent> runtimeActions;
 		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(scriptedTimeline.events, runtimeNextEventIndex, SCameraSmokeSequenceDefaults::StartFrame, runtimeBatch);
-		if (runtimeBatch.actions.size() != 10u || runtimeBatch.goals.size() != 1u ||
+		nbl::this_example::CCameraScriptedActionUtilities::dequeueFrameActions(actionEvents, runtimeNextActionIndex, SCameraSmokeSequenceDefaults::StartFrame, runtimeActions);
+		if (runtimeActions.size() != 10u || runtimeBatch.goals.size() != 1u ||
 			runtimeBatch.trackedTargetTransforms.size() != 1u || runtimeBatch.segmentLabels.size() != 1u)
 		{
 			outError = "Sequence runtime builder smoke produced wrong first-frame batch.";
 			return false;
 		}
-		if (runtimeBatch.actions.front().kind != CCameraScriptedInputEvent::ActionData::Kind::SetActiveRenderWindow ||
+		if (!nbl::this_example::CCameraScriptedActionUtilities::hasCode(runtimeActions.front(), nbl::this_example::ECameraScriptedActionCode::SetActiveRenderWindow) ||
 			runtimeBatch.segmentLabels.front() != "sequence_compile_smoke")
 		{
 			outError = "Sequence runtime builder smoke lost first-frame scripted payload.";
@@ -1440,7 +1446,7 @@
 				.pitchMinDeg = SCameraSmokeManipulationDefaults::PitchMinDeg,
 				.pitchMaxDeg = SCameraSmokeManipulationDefaults::PitchMaxDeg
 			};
-			if (!nbl::core::CCameraManipulationUtilities::applyCameraConstraints(state.goalSolver, state.freeCamera, freeConstraints))
+			if (!nbl::this_example::CCameraConstraintUtilities::applyCameraConstraints(state.goalSolver, state.freeCamera, freeConstraints))
 			{
 				outError = "Camera manipulation utilities smoke failed to clamp Free camera orientation.";
 				return false;
@@ -1483,7 +1489,7 @@
 					state.initialPresets.orbit->goal.distance * SCameraSmokeManipulationDefaults::OrbitClampMinScale),
 				.maxDistance = state.initialPresets.orbit->goal.distance * SCameraSmokeManipulationDefaults::OrbitClampMaxScale
 			};
-			if (!nbl::core::CCameraManipulationUtilities::applyCameraConstraints(state.goalSolver, state.orbitCamera, orbitConstraints))
+			if (!nbl::this_example::CCameraConstraintUtilities::applyCameraConstraints(state.goalSolver, state.orbitCamera, orbitConstraints))
 			{
 				outError = "Camera manipulation utilities smoke failed to clamp Orbit distance.";
 				return false;
@@ -1555,7 +1561,8 @@
 			outError = "Camera text utilities smoke failed for empty goal-state description.";
 			return false;
 		}
-        if (CCameraTextUtilities::describeGoalStateMask(ICamera::GoalStateSphericalTarget | ICamera::GoalStateDynamicPerspective) != "Spherical target, Dynamic perspective")
+        const ICamera::goal_state_flags_t combinedGoalStateMask = ICamera::goal_state_flags_t(ICamera::GoalStateSphericalTarget) | ICamera::goal_state_flags_t(ICamera::GoalStateDynamicPerspective);
+        if (CCameraTextUtilities::describeGoalStateMask(combinedGoalStateMask) != "Spherical target, Dynamic perspective")
 		{
 			outError = "Camera text utilities smoke failed for combined goal-state description.";
 			return false;

@@ -46,9 +46,23 @@ bool tryCaptureInitialPlanarPresets(
                 !captureAnalysis.hasCamera ? "missing camera" :
                 (!captureAnalysis.capturedGoal ? "capture failed" :
                 (!captureAnalysis.finiteGoal ? "non-finite goal" : "unknown"));
+            std::string goalDetails;
+            if (!captureAnalysis.finiteGoal)
+            {
+                const auto& goal = captureAnalysis.goal;
+                goalDetails =
+                    " position=(" + std::to_string(goal.position.x) + "," + std::to_string(goal.position.y) + "," + std::to_string(goal.position.z) + ")" +
+                    " orientation=(" + std::to_string(goal.orientation.data.x) + "," + std::to_string(goal.orientation.data.y) + "," + std::to_string(goal.orientation.data.z) + "," + std::to_string(goal.orientation.data.w) + ")" +
+                    " hasTarget=" + std::to_string(goal.hasTargetPosition) +
+                    " target=(" + std::to_string(goal.targetPosition.x) + "," + std::to_string(goal.targetPosition.y) + "," + std::to_string(goal.targetPosition.z) + ")" +
+                    " hasDistance=" + std::to_string(goal.hasDistance) +
+                    " distance=" + std::to_string(goal.distance) +
+                    " hasOrbit=" + std::to_string(goal.hasOrbitState) +
+                    " orbit=(" + std::to_string(goal.orbitUv.x) + "," + std::to_string(goal.orbitUv.y) + "," + std::to_string(goal.orbitDistance) + ")";
+            }
             outError =
                 "Failed to capture initial planar preset " + std::to_string(planarIx) +
-                " for camera kind \"" + kindLabel + "\": " + reason;
+                " for camera kind \"" + kindLabel + "\": " + reason + goalDetails;
             return false;
         }
 

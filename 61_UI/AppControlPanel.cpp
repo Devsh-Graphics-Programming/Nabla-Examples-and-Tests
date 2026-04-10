@@ -3,7 +3,7 @@
 
 bool App::savePresetsToFile(const nbl::system::path& path)
 {
-	return nbl::system::savePresetCollectionToFile(
+	return nbl::system::CCameraPersistenceUtilities::savePresetCollectionToFile(
 		*m_system,
 		path,
 		std::span<const CameraPreset>(m_presetAuthoring.presets.data(), m_presetAuthoring.presets.size()));
@@ -11,17 +11,17 @@ bool App::savePresetsToFile(const nbl::system::path& path)
 
 bool App::loadPresetsFromFile(const nbl::system::path& path)
 {
-	return nbl::system::loadPresetCollectionFromFile(*m_system, path, m_presetAuthoring.presets);
+	return nbl::system::CCameraPersistenceUtilities::loadPresetCollectionFromFile(*m_system, path, m_presetAuthoring.presets);
 }
 
 bool App::saveKeyframesToFile(const nbl::system::path& path)
 {
-	return nbl::system::saveKeyframeTrackToFile(*m_system, path, m_playbackAuthoring.keyframeTrack);
+	return nbl::system::CCameraKeyframeTrackPersistenceUtilities::saveKeyframeTrackToFile(*m_system, path, m_playbackAuthoring.keyframeTrack);
 }
 
 bool App::loadKeyframesFromFile(const nbl::system::path& path)
 {
-	if (!nbl::system::loadKeyframeTrackFromFile(*m_system, path, m_playbackAuthoring.keyframeTrack))
+	if (!nbl::system::CCameraKeyframeTrackPersistenceUtilities::loadKeyframeTrackFromFile(*m_system, path, m_playbackAuthoring.keyframeTrack))
 		return false;
 
 	clampPlaybackTimeToKeyframes();

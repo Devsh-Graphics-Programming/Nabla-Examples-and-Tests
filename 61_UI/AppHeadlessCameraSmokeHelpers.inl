@@ -328,11 +328,11 @@
 	{
 		switch (issue)
 		{
-			case CCameraGoalSolver::SApplyResult::MissingPathState:
+			case CCameraGoalSolver::SApplyResult::EIssue::MissingPathState:
 				return ICamera::GoalStatePath;
-			case CCameraGoalSolver::SApplyResult::MissingDynamicPerspectiveState:
+			case CCameraGoalSolver::SApplyResult::EIssue::MissingDynamicPerspectiveState:
 				return ICamera::GoalStateDynamicPerspective;
-			case CCameraGoalSolver::SApplyResult::MissingSphericalTargetState:
+			case CCameraGoalSolver::SApplyResult::EIssue::MissingSphericalTargetState:
 				return ICamera::GoalStateSphericalTarget;
 			default:
 				return ICamera::GoalStateNone;
@@ -548,7 +548,7 @@
 			{
 				const auto targetPosition = trackedTarget.getGimbal().getPosition();
 				const auto cameraPosition = camera ? camera->getGimbal().getPosition() : float64_t3(0.0);
-				const auto viewMatrix = camera ? hlsl::getMatrix3x4As4x4(camera->getGimbal().getViewMatrix()) : float64_t4x4(1.0);
+				const auto viewMatrix = camera ? hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(camera->getGimbal().getViewMatrix()) : float64_t4x4(1.0);
 				const auto targetView = hlsl::mul(viewMatrix, float64_t4(targetPosition, 1.0));
 				std::ostringstream oss;
 				oss << "Follow visual metrics smoke had projected center error for " << label
@@ -888,7 +888,7 @@
 		if (!targetCamera)
 			return true;
 
-		const uint32_t expectedMissingGoalStateMask = expectedMissingGoalStateMaskForIssue(expectedIssue);
+		const ICamera::goal_state_flags_t expectedMissingGoalStateMask(expectedMissingGoalStateMaskForIssue(expectedIssue));
         const auto compatibility = nbl::core::CCameraGoalAnalysisUtilities::analyzePresetApply(goalSolver, targetCamera, sourcePreset).compatibility;
 		if (compatibility.exact || compatibility.missingGoalStateMask != expectedMissingGoalStateMask)
 		{
@@ -1058,8 +1058,8 @@
 		std::string& outError)
 	{
 		const auto markerWorld = buildFollowTargetMarkerWorldForSmoke(trackedTarget);
-		const auto markerTransform = hlsl::transpose(getMatrix3x4As4x4(markerWorld));
-		const auto markerPosition = getCastedVector<float64_t>(float32_t3(markerTransform[3]));
+		const auto markerTransform = hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(markerWorld));
+		const auto markerPosition = hlsl::CCameraMathUtilities::castVector<float64_t>(float32_t3(markerTransform[3]));
 		const auto positionDelta = markerPosition - trackedTarget.getGimbal().getPosition();
 		const auto errorLength = length(positionDelta);
 		if (hlsl::CCameraMathUtilities::isFiniteScalar(errorLength) && errorLength <= CameraTinyScalarEpsilon)
@@ -1170,10 +1170,11 @@
 	inline bool verifyScriptedRuntimeFrameBatch(std::string* const outError)
 	{
 		CCameraScriptedTimeline timeline = {};
-		nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedActionEvent(
-			timeline,
+		std::vector<nbl::this_example::CCameraScriptedActionEvent> actionEvents;
+		nbl::this_example::CCameraScriptedActionUtilities::appendActionEvent(
+			actionEvents,
 			SCameraSmokeRuntimeDefaults::ActionFrame,
-			CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar,
+			nbl::this_example::ECameraScriptedActionCode::SetActivePlanar,
 			SCameraSmokeRuntimeDefaults::ActivePlanarValue);
 		{
 			CCameraGoal goal = {};
@@ -1189,19 +1190,23 @@
 			transform[3] = float64_t4(SCameraSmokeRuntimeDefaults::TrackedTargetPosition, 1.0);
 			nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(timeline, SCameraSmokeRuntimeDefaults::FollowFrame, transform);
 		}
+		nbl::this_example::CCameraScriptedActionUtilities::finalizeActionEvents(actionEvents);
 
 		size_t nextEventIndex = 0u;
+		size_t nextActionIndex = 0u;
 		CCameraScriptedFrameEvents batch;
+		std::vector<nbl::this_example::CCameraScriptedActionEvent> actions;
 		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::ActionFrame, batch);
-		if (nextEventIndex != 3u || batch.actions.size() != 1u || batch.goals.size() != 1u ||
+		nbl::this_example::CCameraScriptedActionUtilities::dequeueFrameActions(actionEvents, nextActionIndex, SCameraSmokeRuntimeDefaults::ActionFrame, actions);
+		if (nextEventIndex != 2u || actions.size() != 1u || batch.goals.size() != 1u ||
 			batch.segmentLabels.size() != 1u || !batch.mouse.empty() || !batch.keyboard.empty())
 		{
 			if (outError)
 				*outError = "Scripted runtime frame batch smoke failed for frame 3.";
 			return false;
 		}
-		if (batch.actions.front().kind != CCameraScriptedInputEvent::ActionData::Kind::SetActivePlanar ||
-			batch.actions.front().value != SCameraSmokeRuntimeDefaults::ActivePlanarValue ||
+		if (!nbl::this_example::CCameraScriptedActionUtilities::hasCode(actions.front(), nbl::this_example::ECameraScriptedActionCode::SetActivePlanar) ||
+			actions.front().value != SCameraSmokeRuntimeDefaults::ActivePlanarValue ||
 			batch.segmentLabels.front() != SCameraSmokeRuntimeDefaults::SegmentLabel)
 		{
 			if (outError)
@@ -1210,8 +1215,9 @@
 		}
 
 		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(timeline.events, nextEventIndex, SCameraSmokeRuntimeDefaults::FollowFrame, batch);
+		nbl::this_example::CCameraScriptedActionUtilities::dequeueFrameActions(actionEvents, nextActionIndex, SCameraSmokeRuntimeDefaults::FollowFrame, actions);
 		if (nextEventIndex != timeline.events.size() || batch.trackedTargetTransforms.size() != 1u ||
-			!batch.actions.empty() || !batch.goals.empty())
+			!actions.empty() || !batch.goals.empty())
 		{
 			if (outError)
 				*outError = "Scripted runtime frame batch smoke failed for frame 4.";
@@ -1230,10 +1236,10 @@
 
 	inline bool verifyScriptedRuntimeParser(std::string* const outError)
 	{
-		nbl::system::CCameraScriptedInputParseResult parsed;
+		nbl::this_example::CCameraScriptedInputParseResult parsed;
 		std::string parseError;
 		const std::string scriptText = makeScriptedRuntimeParserSmokeJson().dump();
-		if (!nbl::system::readCameraScriptedInput(scriptText, parsed, &parseError))
+		if (!nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::readCameraScriptedInput(scriptText, parsed, &parseError))
 		{
 			if (outError)
 				*outError = "Scripted runtime parser smoke failed to parse low-level runtime payload. " + parseError;
@@ -1248,7 +1254,7 @@
 				*outError = "Scripted runtime parser smoke lost top-level metadata.";
 			return false;
 		}
-		if (parsed.timeline.events.size() != 2u || parsed.timeline.checks.size() != 2u || parsed.timeline.captureFrames.size() != 1u)
+		if (parsed.timeline.events.size() != 1u || parsed.actionEvents.size() != 1u || parsed.timeline.checks.size() != 2u || parsed.timeline.captureFrames.size() != 1u)
 		{
 			if (outError)
 				*outError = "Scripted runtime parser smoke produced wrong payload counts.";
@@ -1262,11 +1268,14 @@
 		}
 
 		size_t nextEventIndex = 0u;
+		size_t nextActionIndex = 0u;
 		CCameraScriptedFrameEvents batch;
+		std::vector<nbl::this_example::CCameraScriptedActionEvent> actions;
 		nbl::system::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(parsed.timeline.events, nextEventIndex, SCameraSmokeRuntimeParserDefaults::EventFrame, batch);
-		if (batch.actions.size() != 1u ||
+		nbl::this_example::CCameraScriptedActionUtilities::dequeueFrameActions(parsed.actionEvents, nextActionIndex, SCameraSmokeRuntimeParserDefaults::EventFrame, actions);
+		if (actions.size() != 1u ||
 			batch.keyboard.size() != 1u ||
-			batch.actions.front().value != SCameraSmokeRuntimeParserDefaults::ActivePlanarValue)
+			actions.front().value != SCameraSmokeRuntimeParserDefaults::ActivePlanarValue)
 		{
 			if (outError)
 				*outError = "Scripted runtime parser smoke produced wrong frame-two batch.";

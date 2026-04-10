@@ -156,7 +156,7 @@ inline void applyCollectedVirtualEventsToCamera(
 		target->manipulate({ collectedVirtualEvents.events.data(), collectedVirtualEvents.totalCount() });
 	}
 
-	nbl::core::CCameraManipulationUtilities::applyCameraConstraints(goalSolver, target, cameraConstraints);
+	nbl::this_example::CCameraConstraintUtilities::applyCameraConstraints(goalSolver, target, cameraConstraints);
 	if (!scriptedInputEnabled)
 		refreshFollowOffsets(planarIx);
 	appendVirtualEventLog(target, planarIx, collectedVirtualEvents);

@@ -29,7 +29,7 @@ void App::prepareScriptedFrameState(SAppFrameUpdateState::SPreparedScriptedFrame
 	outState = {};
 	outState.skipCameraInput = m_playbackAuthoring.playback.playing && m_playbackAuthoring.playback.overrideInput;
 	dequeueScriptedFrameInput(outState.frame);
-	applyScriptedFrameActions(outState.frame.frameEvents);
+	applyScriptedFrameActions(outState.frame.actions);
 	ensureScriptedVisualPlanarState();
 }
 

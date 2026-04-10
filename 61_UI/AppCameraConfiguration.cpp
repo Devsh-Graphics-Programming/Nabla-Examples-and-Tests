@@ -9,7 +9,6 @@
 #include "app/AppResourceUtilities.hpp"
 #include "app/AppViewportBindingUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraPersistence.hpp"
-#include "nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp"
 
 bool App::initializeCameraConfiguration(const argparse::ArgumentParser& program)
 {

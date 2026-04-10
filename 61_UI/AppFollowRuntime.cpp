@@ -150,7 +150,7 @@ void App::resetFollowTargetToDefault()
 
 void App::snapFollowTargetToModel()
 {
-	const auto modelTransform = hlsl::transpose(getMatrix3x4As4x4(m_sceneInteraction.model));
+	const auto modelTransform = hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(m_sceneInteraction.model));
 	setFollowTargetTransform(getCastedMatrix<float64_t>(modelTransform));
 }
 

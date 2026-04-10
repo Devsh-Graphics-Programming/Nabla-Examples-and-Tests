@@ -14,12 +14,9 @@ void App::updateAuxSceneInstances(const size_t geometryCount)
 			float32_t3x4 gridWorld = float32_t3x4(1.0f);
 			gridWorld[0][0] = SCameraAppSceneDebugDefaults::GridExtent;
 			gridWorld[2][2] = SCameraAppSceneDebugDefaults::GridExtent;
-			hlsl::setTranslation(
-				gridWorld,
-				float32_t3(
-					-0.5f * SCameraAppSceneDebugDefaults::GridExtent,
-					SCameraAppSceneDebugDefaults::GridVerticalOffset,
-					-0.5f * SCameraAppSceneDebugDefaults::GridExtent));
+			gridWorld[0][3] = -0.5f * SCameraAppSceneDebugDefaults::GridExtent;
+			gridWorld[1][3] = SCameraAppSceneDebugDefaults::GridVerticalOffset;
+			gridWorld[2][3] = -0.5f * SCameraAppSceneDebugDefaults::GridExtent;
 			gridInstance.world = gridWorld;
 		}
 	}

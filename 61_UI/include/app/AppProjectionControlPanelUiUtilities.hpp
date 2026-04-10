@@ -322,8 +322,8 @@ inline void drawBoundCameraSection(
     if (ImGui::TreeNodeEx("World Data", flags))
     {
         auto& gimbal = camera.getGimbal();
-        const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-        const auto orientation = getCastedVector<float32_t>(gimbal.getOrientation().data);
+        const auto position = hlsl::CCameraMathUtilities::castVector<float32_t>(gimbal.getPosition());
+        const auto orientation = hlsl::CCameraMathUtilities::castVector<float32_t>(gimbal.getOrientation().data);
         const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
 
         addMatrixTableFn("Position", ("PositionTable_" + runtime.activePlanarIxString).c_str(), 1, 3, &position[0], false);

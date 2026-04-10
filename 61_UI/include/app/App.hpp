@@ -32,6 +32,10 @@ namespace nbl::system
 	struct SCameraAppResourceContext;
 	struct SCameraConfigCollections;
 	struct SCameraPlanarRuntimeBootstrap;
+}
+
+namespace nbl::this_example
+{
 	struct CCameraScriptedInputParseResult;
 }
 
@@ -231,11 +235,11 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		bool submitAndPresentFrame(const SFrameSubmissionContext& frameContext);
 		void resetScriptedInputRuntimeState();
 		void finalizeScriptedInputRuntimeState();
-		void applyParsedScriptedInput(nbl::system::CCameraScriptedInputParseResult parsed, std::optional<CCameraSequenceScript>& pendingScriptedSequence);
+		void applyParsedScriptedInput(nbl::this_example::CCameraScriptedInputParseResult parsed, std::optional<CCameraSequenceScript>& pendingScriptedSequence);
 		std::optional<uint32_t> resolveSequenceSegmentPlanarIx(const CCameraSequenceSegment& segment) const;
 		bool expandPendingScriptedSequence(const CCameraSequenceScript& sequence);
 		void dequeueScriptedFrameInput(SScriptedFrameInputState& outFrame);
-		void applyScriptedFrameActions(const CCameraScriptedFrameEvents& scriptedFrameEvents);
+		void applyScriptedFrameActions(std::span<const nbl::this_example::CCameraScriptedActionEvent> scriptedActions);
 		void ensureScriptedVisualPlanarState();
 		void updateScriptedMouseButtons(std::span<const SMouseEvent> scriptedMouse);
 		void appendScriptedInputEvents(const SScriptedFrameInputState& scriptedFrame, SCapturedUiEvents& capturedEvents);

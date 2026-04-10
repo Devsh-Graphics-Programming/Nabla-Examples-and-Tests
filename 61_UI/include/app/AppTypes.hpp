@@ -93,8 +93,8 @@ inline float32_t3x4 buildFollowTargetMarkerWorldTransform(
     const float markerScale)
 {
     const auto& targetGimbal = trackedTarget.getGimbal();
-    const auto position = getCastedVector<float32_t>(targetGimbal.getPosition());
-    const auto orientation = getCastedVector<float32_t>(targetGimbal.getOrientation().data);
+    const auto position = hlsl::CCameraMathUtilities::castVector<float32_t>(targetGimbal.getPosition());
+    const auto orientation = hlsl::CCameraMathUtilities::castVector<float32_t>(targetGimbal.getOrientation().data);
     const auto markerTransform = hlsl::CCameraMathUtilities::composeTransformMatrix(
         position,
         CCameraMathUtilities::makeQuaternionFromComponents<float32_t>(orientation.x, orientation.y, orientation.z, orientation.w),
@@ -314,7 +314,9 @@ struct SScriptedInputRuntimeState final
 	float visualTargetFps = 0.f;
 	float visualCameraHoldSeconds = 0.f;
 	CCameraScriptedTimeline timeline = {};
+	std::vector<CCameraScriptedActionEvent> actionEvents = {};
 	size_t nextEventIndex = 0u;
+	size_t nextActionIndex = 0u;
 	CCameraScriptedCheckRuntimeState checkRuntime = {};
 	size_t nextCaptureIndex = 0u;
 	std::string capturePrefix = "script";
@@ -509,6 +511,7 @@ struct CameraControlSettings final
 struct SScriptedFrameInputState final
 {
 	CCameraScriptedFrameEvents frameEvents = {};
+	std::vector<CCameraScriptedActionEvent> actions = {};
 	std::vector<SMouseEvent> mouse;
 	std::vector<SKeyboardEvent> keyboard;
 	std::vector<CVirtualGimbalEvent> imguizmoVirtualEvents;
@@ -517,6 +520,7 @@ struct SScriptedFrameInputState final
 	{
 		return !keyboard.empty() ||
 			!mouse.empty() ||
+			!actions.empty() ||
 			!frameEvents.imguizmo.empty() ||
 			!frameEvents.goals.empty() ||
 			!frameEvents.trackedTargetTransforms.empty();

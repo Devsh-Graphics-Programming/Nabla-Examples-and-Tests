@@ -130,8 +130,8 @@ It is no longer a giant committed frame dump.
 - [`CCameraFollowRegressionUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp)
 - [`CCameraSequenceScript.hpp`](../../include/nbl/ext/Cameras/CCameraSequenceScript.hpp)
 - [`CCameraScriptedRuntime.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedRuntime.hpp)
-- [`CCameraScriptedRuntimePersistence.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp)
-- [`CCameraSequenceScriptedBuilder.hpp`](../../include/nbl/ext/Cameras/CCameraSequenceScriptedBuilder.hpp)
+- [`CCameraScriptedRuntimePersistence.hpp`](include/camera/CCameraScriptedRuntimePersistence.hpp)
+- [`CCameraSequenceScriptedBuilder.hpp`](include/camera/CCameraSequenceScriptedBuilder.hpp)
 - [`CCameraScriptedCheckRunner.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedCheckRunner.hpp)
 
 `61_UI` does not define a private scripting model, private follow math, or private camera restore logic.
