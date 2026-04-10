@@ -9,12 +9,11 @@ using namespace nbl::hlsl;
 
 //using ConstevalParameters = workgroup::fft::ConstevalParameters<ElementsPerThreadLog2, WorkgroupSizeLog2, scalar_t>;
 
-//groupshared uint32_t sharedmem[ ConstevalParameters::SharedMemoryDWORDs];
+groupshared uint32_t sharedmem[4 * ((sizeof(complex_t<float32_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2) ];
 
 // Users MUST define this method for FFT to work
 //uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(uint32_t(ConstevalParameters::WorkgroupSize), 1, 1); }
 
-/*
 struct SharedMemoryAccessor 
 {
 	template <typename AccessType, typename IndexType>
@@ -35,7 +34,6 @@ struct SharedMemoryAccessor
 	}
 
 };
-*/
 
 // Almost a LegacyBdaAccessor, but since we need `uint32_t index` getter and setter it's the same as writing one ourselves
 
@@ -95,30 +93,65 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	InvocationElementsAccessor<ElementsPerThread / 2> loAcc;
 	InvocationElementsAccessor<ElementsPerThread / 2> hiAcc;
 
-	using IndexingUtils = workgroup2::FFTIndexingUtils<Radix2ElementsPerInvocationLog2, WorkgroupSizeLog2, ExtraPrimeFactor>;
+	// Set up the memory adaptor
+	SharedMemoryAccessor sharedmemAccessor;
+	//using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, WorkgroupSize>;
+	//adaptor_t sharedmemAdaptor;
+	//sharedmemAdaptor.accessor = sharedmemAccessor;
 
+	using ConstevalParameters = workgroup2::fft::ConstevalParameters<ElementsPerThread, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledChannelsPerRound, false, 0, float32_t>;
+	using FFT = workgroup2::FFT<false, ConstevalParameters>;
+	using IFFT = workgroup2::FFT<true, ConstevalParameters>;
+
+	// Invert last channel to ensure ping pong works
 	[unroll]
 	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
 	{
 		complex_t<float32_t> lo, hi;
-		accessor.get(glsl::gl_SubgroupInvocationID() + 2 * pair * SubgroupSize, lo);
+		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
 		loAcc.set(pair, lo);
-		accessor.get(glsl::gl_SubgroupInvocationID() + (2 * pair + 1) * SubgroupSize, hi);
+		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
 		hiAcc.set(pair, hi);
+		//printf("Pair %d is lo: %f, %f hi: %f, %f", pair, lo.real(), lo.imag(), hi.real(), hi.imag());
+		//printf("SharedmemSize: %d", 4 * ((sizeof(complex_t<float32_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2));
+		//printf("ShuffleRounds: %d", ConstevalParameters::ShuffleRounds);
 	}
-	//subgroup2::FFT<SubgroupSize, true, float32_t>::__call(0, ElementsPerThread / 2 - 1, loAcc, hiAcc);
-	//subgroup2::FFT<SubgroupSize, false, float32_t>::__call(0, ElementsPerThread / 2 - 1, loAcc, hiAcc);
-	//subgroup2::FFT<SubgroupSize, false, float32_t>::__callInterleaved<1, WorkgroupSize>(WorkgroupSize, 1, 0, ElementsPerThread / 2 - 1, loAcc, hiAcc);
-	//subgroup2::FFT<SubgroupSize, true, float32_t>::__callInterleaved<1, WorkgroupSize>(1, WorkgroupSize, 1, 0, ElementsPerThread / 2 - 1, loAcc, hiAcc);
+
+	FFT::__call(loAcc, hiAcc, sharedmemAccessor);
+	sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
+	IFFT::__call(loAcc, hiAcc, sharedmemAccessor);
 
 	[unroll]
 	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
 	{
 		complex_t<float32_t> lo, hi;
 		loAcc.get(pair, lo);
-		accessor.set(glsl::gl_SubgroupInvocationID() + 2 * pair * SubgroupSize, lo);
+		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
 		hiAcc.get(pair, hi);
-		accessor.set(glsl::gl_SubgroupInvocationID() + (2 * pair + 1) * SubgroupSize, hi);
+		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
 	}
-	
+
+	/*
+	[unroll]
+	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
+	{
+		complex_t<float32_t> lo, hi;
+		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
+		loAcc.set(pair, lo);
+		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
+		hiAcc.set(pair, hi);
+	}
+
+	Exchanger::__call(0, Channels - 1, loAcc, hiAcc, TestStride, sharedmemAdaptor, false);
+
+	[unroll]
+	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
+	{
+		complex_t<float32_t> lo, hi;
+		loAcc.get(pair, lo);
+		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
+		hiAcc.get(pair, hi);
+		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
+	}
+	*/
 }

@@ -31,6 +31,7 @@ void DIFOrderTester()
 	const uint32_t Radix2FFTSize = IndexingUtils::Radix2FFTSize;
 
 	// Check fast div correctness
+	if constexpr (ExtraPrimeFactor > 1)
 	{
 		bool correct = true;
 		for (auto idx = 0u; idx < FFTSize; idx++)
@@ -233,6 +234,34 @@ public:
 		{
 			auto* const inputPtr = reinterpret_cast<scalar_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
 			std::cout << "Begin array CPU\n";
+			for (auto channel = 0; channel < Channels; channel++)
+			{
+				std::cout << "Begin channel " << channel << "\n";
+				for (auto j = 0; j < complexElementCountPerChannel; j++)
+				{
+					//Random array
+
+					//scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+					//#define DIVIDE
+
+
+					//FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
+
+
+					scalar_t x = j > 0 ? 0.f : 1.f, y = 0;
+
+					// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
+
+
+					//scalar_t x = 1.f, y = 0.f;
+
+					inputPtr[2 * complexElementCountPerChannel * channel + 2 * j] = x;
+					inputPtr[2 * complexElementCountPerChannel * channel + 2 * j + 1] = y;
+					std::cout << "(" << x << ", " << y << "), ";
+				}
+				std::cout << "\nEnd channel " << channel << "\n";
+			}
+			/*
 			for (auto j = 0; j < complexElementCount; j++)
 			{
 				//Random array
@@ -254,6 +283,7 @@ public:
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
 			}
+			*/
 			std::cout << "\nEnd array CPU\n";
 			
 			// Always remember to flush!
@@ -354,6 +384,17 @@ public:
 
 				std::cout << "Begin array GPU\n";
 				scalar_t* const data = reinterpret_cast<scalar_t*>(const_cast<void*>(bufSrc));
+				for (auto channel = 0; channel < Channels; channel++)
+				{
+					std::cout << "Begin channel " << channel << "\n";
+					for (auto j = 0; j < complexElementCountPerChannel; j++)
+					{
+						std::cout << "(" << data[2 * complexElementCountPerChannel * channel + 2 * j] << ", " << data[2 * complexElementCountPerChannel * channel + 2 * j + 1] << "), ";
+					}
+					std::cout << "\nEnd channel " << channel << "\n";
+				}
+
+				/*
 				#ifdef DIVIDE
 				for (auto j = 0; j < complexElementCount; j++)
 				{
@@ -364,7 +405,8 @@ public:
 				{
 					std::cout << "(" << data[2 * j] << ", " << data[2 * j + 1] << "), ";
 				}
-				#endif			
+				#endif		
+				*/
 
 				std::cout << "\nEnd array GPU\n";
 			},
