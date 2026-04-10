@@ -1,7 +1,0 @@
-#ifndef _NBL_HLSL_PATHTRACER_RWMC_GLOBAL_SETTINGS_COMMON_INCLUDED_
-#define _NBL_HLSL_PATHTRACER_RWMC_GLOBAL_SETTINGS_COMMON_INCLUDED_
-#include "nbl/builtin/hlsl/cpp_compat.hlsl"
-
-NBL_CONSTEXPR uint32_t CascadeCount = 6u;
-
-#endif

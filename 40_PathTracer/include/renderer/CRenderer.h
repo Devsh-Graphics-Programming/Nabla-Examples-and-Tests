@@ -9,6 +9,7 @@
 #include "renderer/CSession.h"
 
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
+#include "nbl/examples/common/ScrambleSequence.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
@@ -88,8 +89,8 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
-			system::path sampleSequenceCache;
 			asset::IAssetManager* assMan;
+			nbl::examples::ScrambleSequence::SCreationParams sampleSequenceCreateParams;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -122,6 +123,9 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
+
+			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
+			core::smart_refctd_ptr<nbl::examples::ScrambleSequence> sampleSequence;
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
@@ -183,7 +187,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 #endif
 		};
 		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)),
-			m_frameIx(m_construction.semaphore->getCounterValue()) {}
+			m_frameIx(m_construction.semaphore->getCounterValue()), m_framesDispatched(0) {}
 		virtual inline ~CRenderer() {}
 
 		static core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader_impl(asset::IAssetManager* assMan, const core::string& key, system::logger_opt_ptr logger);
@@ -191,6 +195,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		SCachedCreationParams m_creation;
 		SCachedConstructionParams m_construction;
 		uint64_t m_frameIx;
+		uint32_t m_framesDispatched;
 };
 
 }

@@ -98,6 +98,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
 			// TODO: need union/superset
+			retval.rayTracingPositionFetch = true;
 			retval.shaderStorageImageReadWithoutFormat = true;
 			return retval;
 		}
@@ -186,8 +187,17 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.uploadQueue = getTransferUpQueue(),
 					.utilities = smart_refctd_ptr(m_utils)
 				},
-				"TODO Sample sequence cache",
-				m_assetMgr.get()
+				m_assetMgr.get(),
+                {
+					.queue = getGraphicsQueue(),
+					.utilities = smart_refctd_ptr(m_utils),
+					.system = smart_refctd_ptr(m_system),
+					.localOutputCWD = localOutputCWD,
+					.sharedOutputCWD = sharedOutputCWD,
+					.owenSamplerCachePath = "owen_sampler_buffer.bin",
+					.MaxBufferDimensions = SSensorUniforms::MaxBufferDimensions,
+					.MaxSamplesBuffer = SSensorUniforms::MaxSamplesBuffer,
+                }
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");
@@ -231,6 +241,9 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				});
 		#endif
 				m_api->endCapture();
+
+				if (!scene_daily_pt)
+					return logFail("Could not create scene");
 
 				// quick test code
 				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
@@ -425,9 +438,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				}
 				session = m_sessionQueue.front().get();
 				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
+				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session, this](SIntendedSubmitInfo& info)->bool
 					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+						const auto& params = m_renderer->getConstructionParams();
+						return session->init(info.getCommandBufferForRecording()->cmdbuf, smart_refctd_ptr(params.sampleSequence->buffer), smart_refctd_ptr(params.scrambleKey));
 					}
 				);
 				m_resolver->changeSession(std::move(m_sessionQueue.front()));

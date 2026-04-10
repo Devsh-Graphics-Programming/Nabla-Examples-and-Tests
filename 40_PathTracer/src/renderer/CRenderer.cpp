@@ -257,11 +257,129 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	// command buffers
 	for (uint8_t i=0; i<SConstructorParams::FramesInFlight; i++)
 	{
-		auto pool = device->createCommandPool(params.graphicsQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+		auto pool = device->createCommandPool(params.graphicsQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		if (pool)
 			pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,1,params.commandBuffers+i,smart_refctd_ptr(params.logger.get()));
 		if (checkNullObject(params.commandBuffers[i],"Graphics Command Buffer "+to_string(i)))
 			return nullptr;
+	}
+
+	{
+		// storage buffer with sobol sequence
+		params.sampleSequence = examples::ScrambleSequence::create(_params.sampleSequenceCreateParams);
+	}
+
+	{
+		// create scramble key filled with noise
+		asset::ICPUImage::SCreationParams info;
+		info.format = asset::E_FORMAT::EF_R32G32_UINT;
+		info.type = asset::ICPUImage::ET_2D;
+		info.extent.width = SSensorUniforms::ScrambleKeyTextureSize;
+		info.extent.height = SSensorUniforms::ScrambleKeyTextureSize;
+		info.extent.depth = 1u;
+		info.mipLevels = 1u;
+		info.arrayLayers = 1u;
+		info.samples = asset::ICPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+		info.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+		info.usage = asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_SAMPLED_BIT | asset::IImage::EUF_STORAGE_BIT;
+
+		auto scrambleMapCPU = ICPUImage::create(std::move(info));
+		const uint32_t texelFormatByteSize = getTexelOrBlockBytesize(scrambleMapCPU->getCreationParameters().format);
+		const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
+		auto texelBuffer = ICPUBuffer::create({ texelBufferSize });
+
+		core::RandomSampler rng(0xbadc0ffeu);
+		auto out = reinterpret_cast<uint32_t*>(texelBuffer->getPointer());
+		for (auto index = 0u; index < texelBufferSize / 4; index++) {
+			out[index] = rng.nextSample();
+		}
+
+		auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+		ICPUImage::SBufferCopy& region = regions->front();
+		region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = 1u;
+		region.bufferOffset = 0u;
+		region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(info.extent.width, texelFormatByteSize);
+		region.bufferImageHeight = 0u;
+		region.imageOffset = { 0u, 0u, 0u };
+		region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
+
+		scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+		// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+		scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
+
+		auto converter = CAssetConverter::create({ .device = device });
+		struct SInputs final : CAssetConverter::SInputs
+		{
+			// we also need to override this to have concurrent sharing
+			inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				if (familyIndices.size() > 1)
+					return familyIndices;
+				return {};
+			}
+
+			inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return image->getCreationParameters().mipLevels;
+			}
+			inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return 0b0u;
+			}
+
+			std::vector<uint32_t> familyIndices;
+		} inputs = {};
+		inputs.readCache = converter.get();
+		inputs.logger = logger.get();
+		{
+			const core::set<uint32_t> uniqueFamilyIndices = { params.graphicsQueue->getFamilyIndex(), params.computeQueue->getFamilyIndex() };
+			inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
+		}
+
+		auto cb = params.commandBuffers[0].get();
+		cb->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cb };
+		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = device->createSemaphore(0);
+		imgFillSemaphore->setObjectDebugName("Scramble Key Fill Semaphore");
+		SIntendedSubmitInfo transfer = {
+			.queue = params.graphicsQueue,
+			.waitSemaphores = {},
+			.prevCommandBuffers = {},
+			.scratchCommandBuffers = commandBufferInfo,
+			.scratchSemaphore = {
+				.semaphore = imgFillSemaphore.get(),
+				.value = 0,
+				// because of layout transitions
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			}
+		};
+
+		{
+			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			CAssetConverter::SConvertParams convparams = {};
+			convparams.transfer = &transfer;
+			convparams.utilities = params.utilities.get();
+			const ICPUImage* cpuImgs[] = { scrambleMapCPU.get() };
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = cpuImgs;
+			// assert that we don't need to provide patches
+			assert(cpuImgs[0]->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+			auto reservation = converter->reserve(inputs);
+
+			auto gpuImg = reservation.getGPUObjects<ICPUImage>().front().value;
+			if (!params.scrambleKey)
+				logger.log("Failed to convert scramble key image into an IGPUImage handle", ILogger::ELL_ERROR);
+
+			auto result = reservation.convert(convparams);
+			if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
+				logger.get()->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
+				std::exit(-1);
+			}
+
+			params.scrambleKey = gpuImg;
+		}
 	}
 
 	return core::smart_refctd_ptr<CRenderer>(new CRenderer(std::move(params)),core::dont_grab);
@@ -290,6 +408,8 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		params.sceneDS = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
 	}
 
+	auto* const cpuScene = _params.load.scene.get();
+
 	constexpr auto RenderModeCount = uint8_t(CSession::RenderMode::Count);
 	// create the pipelines
 	{
@@ -297,16 +417,20 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
 		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
 		IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
+		IGPURayTracingPipeline::SHitGroup hitShaders[RenderModeCount] = {};
 		{
 			for (uint8_t m=0; m<RenderModeCount; m++)
 			{
 				const auto* const shader = m_construction.shaders[m].get();
 				missShaders[m] = {.shader=shader,.entryPoint="miss"};
+				hitShaders[m].closestHit = { .shader = shader,.entryPoint = "closesthit" };
 				creationParams[m] = {
 					.layout = m_construction.renderingLayouts[m].get(),
 					.shaderGroups = {
 						.raygen = {.shader=shader,.entryPoint="raygen"},
-						.misses = {missShaders+m,1}
+						.misses = {missShaders+m,1},
+						.hits = {hitShaders+m,1}
+						// TODO: use Material Compiler to get callables for us
 					},
 					.cached = {
 						.flags = flags
@@ -320,13 +444,76 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 			return nullptr;
 		}
 	}
-	
-	// new cache if none provided
-	if (!converter)
-		converter = CAssetConverter::create({.device=device,.optimizer={}});
+
+	// TODO: make this configurable
+	constexpr bool movableInstances = false;
 
 	smart_refctd_ptr<IGPUBuffer> ubo;
+	core::vector<asset_cached_t<ICPUTopLevelAccelerationStructure>> TLASes;
 	{
+		// construct the TLASes
+		core::vector<smart_refctd_ptr<ICPUTopLevelAccelerationStructure>> tmpTLASes;
+		// main TLAS
+		{
+			using tlas_build_f = ICPUTopLevelAccelerationStructure::BUILD_FLAGS;
+			constexpr auto baseTLASFlags = tlas_build_f::PREFER_FAST_TRACE_BIT | tlas_build_f::ALLOW_COMPACTION_BIT;
+
+			auto& main = tmpTLASes.emplace_back();
+			main = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
+			{
+				auto& cpuInstances = cpuScene->getInstances();
+				// need to convert weird topologies to lists
+				for (auto i=0u; i<cpuInstances.size(); i++)
+				if (const auto* const targets=cpuInstances.getMorphTargets()[i].get(); targets)
+				for (auto& target : targets->getTargets())
+				{
+					auto* const collection = target.geoCollection.get();
+					for (auto& ref : *collection->getGeometries())
+					{
+                        const auto* geo = ref.geometry.get();
+                        if (geo->getPrimitiveType()!=IGeometryBase::EPrimitiveType::Polygon)
+                            continue;
+						ref.geometry = CPolygonGeometryManipulator::createTriangleListIndexing(static_cast<const ICPUPolygonGeometry*>(geo));
+					}
+				}
+				ICPUScene::CDefaultTLASExporter exporter(cpuInstances);
+				auto exported = exporter();
+				if (!exported)
+				{
+					m_creation.logger.log("Failed to convert TLAS instances!",ILogger::ELL_ERROR);
+					return nullptr;
+				}
+				if (!exported.allInstancesValid)
+					m_creation.logger.log("Some instances in the scene are invisible!",ILogger::ELL_ERROR);
+				for (auto& pair : exporter.m_blasCache)
+				{
+					using blas_build_f = ICPUBottomLevelAccelerationStructure::BUILD_FLAGS;
+					auto flags = pair.second->getBuildFlags();
+					flags |= blas_build_f::ALLOW_DATA_ACCESS;
+					pair.second->setBuildFlags(flags);
+				}
+				for (auto& instance : *exported.instances)
+				{
+					// TODO: for now, we need material compiler and knowing how we'll orgarnise our SBT
+					instance.getBase().instanceShaderBindingTableRecordOffset = 0;
+				}
+				main->setInstances(std::move(exported.instances));
+			}
+			// de-instancing and welding BLASes
+			{
+				// TODO: de-instancing step, need AS memory budget and a heuristic of which instances to eliminate (out of the ones we don't want to be movable)
+				// probably need OOBs of Geometry Collections, best heuristic would be "total surface of all intersections with other instances" divided by build memory.
+				// In the meantime can do own OBB/AABB surface area divded by build size.
+				// NOTE: can only "weld" BLASes which have the same build flags
+			}
+			{
+				auto flags = baseTLASFlags;
+				if (movableInstances)
+					flags |= tlas_build_f::ALLOW_UPDATE_BIT;
+				main->setBuildFlags(flags);
+			}
+		}
+
 		struct Buffers final
 		{
 			using render_mode_e = CSession::RenderMode;
@@ -376,7 +563,6 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				};
 				auto memRsc = core::make_smart_refctd_ptr<CVectorBacked>(hitHandles.size()+missHandles.size()+callableHandles.size()+1);
 				{
-					// TODO: move to material compiler
 					core::LinearAddressAllocatorST<uint32_t> allocator(nullptr,0,0,limits.shaderGroupBaseAlignment,0x7fff0000u);
 					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles)->SBufferRange<const IGPUBuffer>
 					{
@@ -394,8 +580,13 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 					auto& sbt = params.sbts[i];
 					sbt.raygen = copyShaderHandles({&pipeline->getRaygen(),1});
 					sbt.miss.range = copyShaderHandles(pipeline->getMissHandles());
+					// TODO: the material compiler with an RT pipeline backend should give 3 or 4 hitgroups depending on opacity and other funny things
+					// problem is that due to how TLAS instances and their Geometries call into hitgroups, we need to spam duplicates around the SBT
+					// also de-dup stuff that has the same hash (array of hitgroups) so two instances can happily point at the same material
 					sbt.hit.range = copyShaderHandles(pipeline->getHitHandles());
+					// TODO: material compiler will give us callables and we need to turn those into materials
 					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles());
+					// TODO: futhermore different rays (NEE vs BxDF) should use different SBTs using big offsets so it becomes a really funny mess 
 					sbt.miss.stride = sbt.hit.stride = sbt.callable.stride = handleSizeAligned;
 				}
 				auto& sbtBuff = tmpBuffers.sbts[i];
@@ -409,6 +600,10 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				sbtBuff->setContentHash(sbtBuff->computeContentHash());
 			}
 		}
+	
+		// new cache if none provided
+		if (!converter)
+			converter = CAssetConverter::create({.device=device,.optimizer={}});
 
 		// customized setup
 		struct MyInputs : CAssetConverter::SInputs
@@ -443,14 +638,12 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		} myalloc;
 		myalloc.device = device;
 		inputs.allocator = &myalloc;
-	
-		// TODO: construct the TLASes
-		core::vector<ICPUTopLevelAccelerationStructure*> tmpTLASes;
+
+		// assign inputs
 		{
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTLASes;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&tmpTLASes.front().get(),tmpTLASes.size()};
 		}
-		
 		CAssetConverter::SReserveResult reservation = converter->reserve(inputs);
 		{
 			bool success = true;
@@ -473,6 +666,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				}
 			};
 			check.template operator()<ICPUBuffer>(tmpBuffers);
+			check.template operator()<ICPUTopLevelAccelerationStructure>({&tmpTLASes.front().get(),tmpTLASes.size()});
 			if (!success)
 				return nullptr;
 		}
@@ -547,11 +741,22 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 			cvtParam.finalUser = m_creation.graphicsQueue->getFamilyIndex();
 			
 			auto future = reservation.convert(cvtParam);
+			// release the memory
+			{
+				for (auto& tmpTLAS : tmpTLASes)
+				{
+					IAsset* const asAsset = tmpTLAS.get();
+					IPreHashed::discardDependantsContents({&asAsset,1});
+				}
+				tmpTLASes.clear();
+				tmpBuffers = {};
+			}
 			if (future.copy()!=IQueue::RESULT::SUCCESS)
 			{
 				inputs.logger.log("Failed to await `CAssetConverter::SReserveResult::convert(...)` submission semaphore!",ILogger::ELL_ERROR);
 				return nullptr;
 			}
+
 
 			const auto buffers = reservation.getGPUObjects<ICPUBuffer>();
 			ubo = buffers[0].value;
@@ -567,6 +772,10 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				setSBTBuffer(params.sbts[i].hit);
 				setSBTBuffer(params.sbts[i].callable);
 			}
+
+			const bool success = reservation.moveGPUObjects<ICPUTopLevelAccelerationStructure>(TLASes);
+			assert(success);
+			params.TLAS = TLASes[0].value;
 		}
 	}
 
@@ -575,7 +784,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		vector<IGPUDescriptorSet::SDescriptorInfo> infos;
 		vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
 		auto* const ds = params.sceneDS->getDescriptorSet();
-		auto addWrite = [&](const uint32_t binding, IGPUDescriptorSet::SDescriptorInfo&& info)->void
+		auto addWrite = [&](const uint32_t binding)->void
 		{
 			writes.emplace_back() = {
 				.dstSet = ds,
@@ -584,11 +793,16 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				.count = 1,
 				.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(infos.size())
 			};
-			infos.push_back(std::move(info));
 		};
-		addWrite(SceneDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(SSceneUniforms),.buffer=std::move(ubo)});
+		addWrite(SceneDSBindings::UBO);
+		infos.push_back(SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(SSceneUniforms),.buffer=std::move(ubo)});
 		// TODO: Envmap
-		// TODO: TLASes
+		{
+			addWrite(SceneDSBindings::TLASes);
+			infos.reserve(infos.size()+TLASes.size());
+			for (auto& tlas : TLASes)
+				infos.emplace_back().desc = tlas.value;
+		}
 		// TODO: Samplers
 		// TODO: Sampled Images
 		// TODO: Envmap PDF
@@ -620,6 +834,9 @@ auto CRenderer::render(CSession* session) -> SSubmit
 		return {};
 	const auto& sessionParams = session->getConstructionParams();
 	auto* const device = getDevice();
+
+	// TODO: reset m_framesDispatched to 0 every time camera moves considerable amount
+	m_framesDispatched++;
 
 	if (m_frameIx>=SCachedConstructionParams::FramesInFlight)
 	{
@@ -653,6 +870,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 			case CSession::RenderMode::Debug:
 			{
 				SDebugPushConstants pc = {sessionResources.currentSensorState};
+				pc.sensorDynamics.rcpFramesDispatched = 1.0 / float(m_framesDispatched);
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}

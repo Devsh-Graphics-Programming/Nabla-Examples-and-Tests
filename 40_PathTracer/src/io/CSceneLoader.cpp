@@ -216,17 +216,18 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				{
 					auto absoluteTransform = float32_t3x4(_sensor.transform.matrix);
 					{
+						// TODO: reenable this check once sampling refactor pr merge to use the special relativeApproxCompare that switches to abs diff when one of the values is 0
 						orientationT = transpose(float32_t3x3(absoluteTransform));
-						// check orthogonality
-						constexpr float DiffThresh = 0.00001f;
-						if (!testing::relativeApproxCompare(dot(orientationT[0],orientationT[1]),0.f,DiffThresh) || 
-							!testing::relativeApproxCompare(dot(orientationT[0],orientationT[2]),0.f,DiffThresh) || 
-							!testing::relativeApproxCompare(dot(orientationT[1],orientationT[2]),0.f,DiffThresh))
-						{
-							logger.log("Sensor %s (%d-th in XML) has a transformation involving skew!",ILogger::ELL_ERROR,id,i);
-							constants = {};
-							continue;
-						}
+						//// check orthogonality
+						//constexpr float DiffThresh = 0.00001f;
+						//if (!testing::relativeApproxCompare(dot(orientationT[0],orientationT[1]),0.f,DiffThresh) || 
+						//	!testing::relativeApproxCompare(dot(orientationT[0],orientationT[2]),0.f,DiffThresh) || 
+						//	!testing::relativeApproxCompare(dot(orientationT[1],orientationT[2]),0.f,DiffThresh))
+						//{
+						//	logger.log("Sensor %s (%d-th in XML) has a transformation involving skew!",ILogger::ELL_ERROR,id,i);
+						//	constants = {};
+						//	continue;
+						//}
 						// check invertibility
 						const float det = determinant(orientationT);
 						if (hlsl::abs(det)<hlsl::numeric_limits<float32_t>::min)

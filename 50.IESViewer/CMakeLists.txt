@@ -46,7 +46,7 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
-	-I "${NBL_ROOT_PATH}/include" # a workaround due to imgui ext headers which are not part of Nabla builtin archive
+	-isystem "${NBL_ROOT_PATH}/include" # a workaround due to imgui ext headers which are not part of Nabla builtin archive
 	-I "${CMAKE_CURRENT_SOURCE_DIR}"
 	-O3
 	-T lib_${SM}
