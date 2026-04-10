@@ -150,6 +150,13 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
     Shape<T, PST_TRIANGLE> tri;
 };
 
+// Projected solid angle NEE for triangles using "Practical Warps":
+// bilinear warp over vertex NdotL + spherical triangle sampling.
+// The bilinear PDF (rcpSolidAngle * bilinearPdf) approximates NdotL/PSA well
+// for small/far triangles, but underestimates it at grazing angles because
+// vertex NdotL interpolation doesn't follow the true NdotL on the surface.
+// This makes the NEE MIS weight weaker than ideal at grazing, causing fireflies
+// when the BRDF sampler struggles to hit the light.
 template<typename T>
 struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
@@ -316,10 +323,81 @@ struct EffectivePolygonMethod<PST_SPHERE, PPM>
     NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
 };
 
-template<>
-struct EffectivePolygonMethod<PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+
+// Projected solid angle NEE for rectangles using "Practical Warps":
+// bilinear warp over 4-corner NdotL + spherical rectangle sampling.
+// Same grazing-angle limitations as the triangle variant -- see comments
+// in projected_spherical_triangle.hlsl and projected_spherical_rectangle.hlsl.
+template<typename T>
+struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
-    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    static ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
+    {
+        ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> retval;
+        retval.rect = rect;
+        return retval;
+    }
+
+    template<typename Ray>
+    scalar_type deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        matrix<scalar_type, 3, 3> rectNormalBasis;
+        vector<T, 2> rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
+        sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, ray.origin, ray.normalAtOrigin, ray.wasBSDFAtOrigin);
+        // Reconstruct normalized [0,1]^2 position on the rectangle from the ray direction
+        const vector3_type N = rect.getNormalTimesArea();
+        const scalar_type t = hlsl::dot<vector3_type>(N, rect.offset - ray.origin) / hlsl::dot<vector3_type>(N, ray.direction);
+        const vector3_type hitPoint = ray.origin + ray.direction * t;
+        const vector3_type localHit = hitPoint - rect.offset;
+        const vector<T, 2> p = vector<T, 2>(hlsl::dot(localHit, rectNormalBasis[0]) / rectExtents.x, hlsl::dot(localHit, rectNormalBasis[1]) / rectExtents.y);
+        const scalar_type pdf = psr.backwardPdf(p);
+        return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
+    }
+
+    template<class Aniso>
+    vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    {
+        const vector3_type N = rect.getNormalTimesArea();
+        const vector3_type origin2origin = rect.offset - origin;
+
+        matrix<scalar_type, 3, 3> rectNormalBasis;
+        vector<T, 2> rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
+        vector3_type L = hlsl::promote<vector3_type>(0.0);
+
+        sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, origin, interaction.getN(), interaction.isMaterialBSDF());
+        typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
+        vector<T, 2> sphUv = psr.generate(xi.xy, cache);
+        const scalar_type solidAngle = psr.sphrect.solidAngle;
+        if (solidAngle > numeric_limits<scalar_type>::min)
+        {
+            vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
+            L = sph_sample - origin;
+            const bool invalid = hlsl::all(hlsl::abs(L) < hlsl::promote<vector3_type>(numeric_limits<scalar_type>::min));
+            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<vector3_type>(0.0), invalid);
+            pdf = hlsl::mix(psr.forwardPdf(xi.xy, cache), bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity), invalid);
+        }
+        else
+            pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
+
+        newRayMaxT = hlsl::dot<vector3_type>(N, origin2origin) / hlsl::dot<vector3_type>(N, L);
+        return L;
+    }
+
+    Shape<T, PST_RECTANGLE> rect;
 };
 
 

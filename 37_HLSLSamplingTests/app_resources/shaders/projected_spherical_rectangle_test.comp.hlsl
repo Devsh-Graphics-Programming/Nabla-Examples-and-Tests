@@ -1,0 +1,48 @@
+#pragma shader_stage(compute)
+
+#include "../common/projected_spherical_rectangle.hlsl"
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+
+#ifdef BENCH_ITERS
+[[vk::binding(1, 0)]] RWByteAddressBuffer benchOutput;
+#else
+[[vk::binding(0, 0)]] RWStructuredBuffer<ProjectedSphericalRectangleInputValues> inputTestValues;
+[[vk::binding(1, 0)]] RWStructuredBuffer<ProjectedSphericalRectangleTestResults> outputTestValues;
+#endif
+
+#ifndef WORKGROUP_SIZE
+#define WORKGROUP_SIZE 64
+#endif
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+[shader("compute")] void
+main()
+{
+   const uint32_t invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+#ifdef BENCH_ITERS
+   // Perturb rectangle origin by invID so the sampler is non-uniform across threads.
+   const float32_t perturbation = float32_t(invID) * 1.0e-7f;
+   shapes::CompressedSphericalRectangle<float32_t> compressed;
+   compressed.origin = float32_t3(perturbation, perturbation, -2.0f);
+   compressed.right = float32_t3(1.0f, 0.0f, 0.0f);
+   compressed.up = float32_t3(0.0f, 1.0f, 0.0f);
+   shapes::SphericalRectangle<float32_t> rect = shapes::SphericalRectangle<float32_t>::create(compressed);
+   sampling::ProjectedSphericalRectangle<float32_t> sampler = sampling::ProjectedSphericalRectangle<float32_t>::create(rect, float32_t3(perturbation, 0.0f, 0.0f), float32_t3(0.0f, 0.0f, perturbation + 0.5), false);
+
+   nbl::hlsl::Xoroshiro64Star rng = nbl::hlsl::Xoroshiro64Star::construct(uint32_t2(invID, 0u));
+   const float32_t toFloat = asfloat(0x2f800004u);
+   uint32_t acc = 0u;
+   for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
+   {
+      float32_t2 u = float32_t2(rng(), rng()) * toFloat;
+      sampling::ProjectedSphericalRectangle<float32_t>::cache_type cache;
+      float32_t2 generated = sampler.generate(u, cache);
+      acc ^= asuint(generated.x) ^ asuint(generated.y);
+      acc ^= asuint(sampler.forwardPdf(u, cache));
+   }
+   benchOutput.Store(invID * 4u, acc);
+#else
+   ProjectedSphericalRectangleTestExecutor executor;
+   executor(inputTestValues[invID], outputTestValues[invID]);
+#endif
+}

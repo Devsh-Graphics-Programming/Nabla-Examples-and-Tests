@@ -3,7 +3,9 @@
 
 #include <nbl/builtin/hlsl/sampling/uniform_spheres.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
+#include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
+#include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
 
 // ============================================================================
 // Declarative field verification helpers
@@ -270,7 +272,9 @@ inline void makeEquilateralTriangle(float64_t theta, nbl::hlsl::float32_t3 verts
       static_cast<float>(st * std::sin(2.0 * twoPiOver3)), ct);
 }
 
-// Monte Carlo estimate of projected solid angle: E[dot(L, normal)] * solidAngle.
+// Monte Carlo estimate of projected solid angle: E[abs(dot(L, normal))] * solidAngle.
+// Uses abs() to match the BSDF projected solid angle formula (which uses abs so that
+// triangles straddling the horizon contribute positively from both hemispheres).
 // Samples L uniformly from the spherical triangle.
 inline float64_t mcEstimatePSA(const nbl::hlsl::shapes::SphericalTriangle<nbl::hlsl::float32_t>& shape, nbl::hlsl::float32_t3 normal, uint32_t N, std::mt19937& rng)
 {
@@ -283,9 +287,40 @@ inline float64_t mcEstimatePSA(const nbl::hlsl::shapes::SphericalTriangle<nbl::h
       float32_t2 u(uDist(rng), uDist(rng));
       typename sampling::SphericalTriangle<float32_t>::cache_type cache;
       float32_t3 L = sampler.generate(u, cache);
-      sum += static_cast<float64_t>(dot(normal, L));
+      sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
    }
    return sum / static_cast<float64_t>(N) * static_cast<float64_t>(shape.solid_angle);
+}
+
+// Monte Carlo estimate of projected solid angle for a rectangle: E[abs(dot(L, normal))] * solidAngle.
+// Uses abs() to match the BSDF projected solid angle formula.
+// Samples uniformly from the spherical rectangle, reconstructs world-space direction.
+inline float64_t mcEstimatePSA(
+   const nbl::hlsl::shapes::SphericalRectangle<nbl::hlsl::float32_t>& shape,
+   const nbl::hlsl::float32_t3& observer,
+   const nbl::hlsl::float32_t3& normal,
+   uint32_t N, std::mt19937& rng)
+{
+   using namespace nbl::hlsl;
+   auto sampler = sampling::SphericalRectangle<float32_t>::create(shape, observer);
+   if (sampler.solidAngle <= 0.0f || !std::isfinite(sampler.solidAngle))
+      return 0.0;
+
+   std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
+   float64_t sum = 0.0;
+   for (uint32_t i = 0; i < N; i++)
+   {
+      float32_t2 u(uDist(rng), uDist(rng));
+      typename sampling::SphericalRectangle<float32_t>::cache_type cache;
+      float32_t2 gen = sampler.generate(u, cache);
+      // Reconstruct world-space direction from rectangle offset
+      float32_t3 worldPt = shape.origin
+         + shape.basis[0] * gen.x
+         + shape.basis[1] * gen.y;
+      float32_t3 L = normalize(worldPt - observer);
+      sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+   }
+   return sum / static_cast<float64_t>(N) * static_cast<float64_t>(sampler.solidAngle);
 }
 
 // Bundles seed + rng + failCount for randomized property tests.
@@ -321,6 +356,149 @@ struct SeededTestContext
       return true;
    }
 };
+
+// Generic PSA vs MC comparison.
+// ConfigGen: void(std::mt19937& rng, uint32_t index, float64_t& formulaPSA, float64_t& mcPSA, InfoLogger& info)
+//   Must set formulaPSA and mcPSA for config `index`, or set both to 0 to skip.
+//   `info` is a callable: void(nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL) that logs
+//   sampler/shape details for the current config. Called on mismatch.
+// When diagnostic=true, failures log at ELL_WARNING instead of ELL_ERROR (non-hard-fail).
+template<typename ConfigGen>
+inline bool testPSAVersusMonteCarlo(
+   nbl::system::ILogger* logger,
+   const char* tag,
+   const char* label,
+   ConfigGen configGenerator,
+   uint32_t numConfigs,
+   float64_t relTol,
+   float64_t absTol,
+   bool diagnostic = false)
+{
+   const auto failLevel = diagnostic ? nbl::system::ILogger::ELL_WARNING : nbl::system::ILogger::ELL_ERROR;
+   SeededTestContext ctx;
+
+   for (uint32_t c = 0; c < numConfigs; c++)
+   {
+      float64_t formulaPSA = 0.0, mcPSA = 0.0;
+      std::function<void(nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL)> logInfo =
+         [](nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL) {};
+      configGenerator(ctx.rng, c, formulaPSA, mcPSA, logInfo);
+
+      if (mcPSA == 0.0 && formulaPSA == 0.0)
+         continue;
+
+      const float64_t absErr = std::abs(formulaPSA - mcPSA);
+      const float64_t relErr = (std::abs(mcPSA) > 1e-10) ? absErr / std::abs(mcPSA) : 0.0;
+
+      if (relErr > relTol && absErr > absTol)
+      {
+         ctx.failCount++;
+         if (ctx.failCount <= 5)
+         {
+            logger->log("  [%s] %s mismatch: formula=%f expected(MC)=%f relErr=%e absErr=%e config %u",
+               failLevel, tag, label, formulaPSA, mcPSA, relErr, absErr, c);
+            logInfo(logger, failLevel);
+         }
+      }
+   }
+
+   if (ctx.failCount == 0)
+      logger->log("  [%s] %s PASSED (%u configs, relTol=%e absTol=%e)",
+         nbl::system::ILogger::ELL_PERFORMANCE, tag, label, numConfigs, relTol, absTol);
+   else
+   {
+      logger->log("  [%s] %s FAILED (%u/%u configs exceeded tolerance, relTol=%e absTol=%e)",
+         failLevel, tag, label, ctx.failCount, numConfigs, relTol, absTol);
+      if (diagnostic)
+         logger->log("  [%s] reproduce with seed=%u (diagnostic only, not a hard failure)",
+            nbl::system::ILogger::ELL_WARNING, tag, ctx.seed);
+   }
+
+   return diagnostic ? true : ctx.finalize(logger, tag);
+}
+
+// ============================================================================
+// Rectangle generators for property tests.
+// Signature: void(std::mt19937&, CompressedSphericalRectangle&, float32_t3& observer)
+// ============================================================================
+
+inline void generateRandomRectangle(std::mt19937& rng,
+   nbl::hlsl::shapes::CompressedSphericalRectangle<nbl::hlsl::float32_t>& compressed,
+   nbl::hlsl::float32_t3& observer)
+{
+   using namespace nbl::hlsl;
+   std::uniform_real_distribution<float> sizeDist(0.5f, 4.0f);
+   std::uniform_real_distribution<float> offsetDist(-1.0f, 1.0f);
+   std::uniform_real_distribution<float> distDist(1.0f, 5.0f);
+
+   float32_t3 normal = generateRandomUnitVector(rng);
+   float32_t3 t1, t2;
+   buildTangentFrame(normal, t1, t2);
+
+   const float width = sizeDist(rng);
+   const float height = sizeDist(rng);
+   const float dist = distDist(rng);
+
+   observer = float32_t3(offsetDist(rng), offsetDist(rng), offsetDist(rng));
+   compressed.origin = observer - normal * dist + t1 * offsetDist(rng) + t2 * offsetDist(rng);
+   compressed.right = t1 * width;
+   compressed.up = t2 * height;
+}
+
+// Stress rectangles: ill-conditioned geometries that exercise edge cases.
+//  - Extreme aspect ratio (10:1 to 20:1)
+//  - Grazing angle (observer nearly in the rectangle plane)
+//  - Observer near corner (most of the rectangle off to one side)
+inline void generateStressRectangle(std::mt19937& rng,
+   nbl::hlsl::shapes::CompressedSphericalRectangle<nbl::hlsl::float32_t>& compressed,
+   nbl::hlsl::float32_t3& observer)
+{
+   using namespace nbl::hlsl;
+   std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
+   std::uniform_int_distribution<int> caseDist(0, 2);
+
+   float32_t3 normal = generateRandomUnitVector(rng);
+   float32_t3 t1, t2;
+   buildTangentFrame(normal, t1, t2);
+
+   switch (caseDist(rng))
+   {
+      case 0: // Extreme aspect ratio
+      {
+         const float longSide = 3.0f + uDist(rng) * 5.0f;
+         const float shortSide = 0.1f + uDist(rng) * 0.2f;
+         const float dist = 1.5f + uDist(rng) * 2.0f;
+         observer = float32_t3(0.0f, 0.0f, 0.0f);
+         compressed.origin = -normal * dist - t1 * (longSide * 0.5f) - t2 * (shortSide * 0.5f);
+         compressed.right = t1 * longSide;
+         compressed.up = t2 * shortSide;
+         break;
+      }
+      case 1: // Grazing angle (observer nearly in the rectangle plane)
+      {
+         const float width = 1.0f + uDist(rng) * 2.0f;
+         const float height = 1.0f + uDist(rng) * 2.0f;
+         const float normalDist = 0.05f + uDist(rng) * 0.15f;
+         const float tangentOffset = 0.5f + uDist(rng) * 1.0f;
+         observer = float32_t3(0.0f, 0.0f, 0.0f);
+         compressed.origin = -normal * normalDist + t1 * tangentOffset - t2 * (height * 0.5f);
+         compressed.right = t1 * width;
+         compressed.up = t2 * height;
+         break;
+      }
+      default: // Observer near corner
+      {
+         const float width = 2.0f + uDist(rng) * 3.0f;
+         const float height = 2.0f + uDist(rng) * 3.0f;
+         const float dist = 0.5f + uDist(rng) * 1.0f;
+         observer = float32_t3(0.0f, 0.0f, 0.0f);
+         compressed.origin = -normal * dist - t1 * (0.05f + uDist(rng) * 0.1f) - t2 * (0.05f + uDist(rng) * 0.1f);
+         compressed.right = t1 * width;
+         compressed.up = t2 * height;
+         break;
+      }
+   }
+}
 
 // Create a shapes::SphericalTriangle from three unit sphere vertices
 inline nbl::hlsl::shapes::SphericalTriangle<nbl::hlsl::float32_t> createSphericalTriangleShape(nbl::hlsl::float32_t3 v0, nbl::hlsl::float32_t3 v1, nbl::hlsl::float32_t3 v2)
@@ -402,6 +580,69 @@ inline void logTriangleInfo(nbl::system::ILogger* logger, nbl::hlsl::float32_t3 
       ILogger::ELL_ERROR,
       to_string(v0).c_str(), to_string(v1).c_str(), to_string(v2).c_str(),
       to_string(normal).c_str(), to_string(shape.solid_angle).c_str());
+}
+
+inline void logRectInfo(
+   nbl::system::ILogger* logger,
+   const nbl::hlsl::shapes::CompressedSphericalRectangle<nbl::hlsl::float32_t>& compressed,
+   const nbl::hlsl::float32_t3& observer,
+   float solidAngle)
+{
+   using namespace nbl::system;
+   using namespace nbl::hlsl;
+   const float width = length(compressed.right);
+   const float height = length(compressed.up);
+   const float32_t3 normal = normalize(cross(compressed.right, compressed.up));
+   const float dist = length(compressed.origin - observer);
+   logger->log("    origin=%s right=%s up=%s observer=%s",
+      ILogger::ELL_ERROR,
+      to_string(compressed.origin).c_str(),
+      to_string(compressed.right).c_str(),
+      to_string(compressed.up).c_str(),
+      to_string(observer).c_str());
+   logger->log("    extents=(%s, %s) normal=%s dist=%s solidAngle=%s",
+      ILogger::ELL_ERROR,
+      to_string(width).c_str(),
+      to_string(height).c_str(),
+      to_string(normal).c_str(),
+      to_string(dist).c_str(),
+      to_string(solidAngle).c_str());
+}
+
+// Check if at least one rectangle corner has positive NdotL with the given normal.
+// Uses the rect-local frame (basis * (origin - observer)) to compute corner directions.
+inline bool anyRectCornerAboveHorizon(
+   const nbl::hlsl::shapes::SphericalRectangle<nbl::hlsl::float32_t>& shape,
+   const nbl::hlsl::float32_t3& observer,
+   const nbl::hlsl::float32_t3& normal)
+{
+   using namespace nbl::hlsl;
+   const float32_t3 r0 = mul(shape.basis, shape.origin - observer);
+   const float32_t3 localN = mul(shape.basis, normal);
+   const float32_t3 v0 = normalize(r0);
+   const float32_t3 v1 = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
+   const float32_t3 v2 = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
+   const float32_t3 v3 = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
+   return dot(localN, v0) > 0.0f || dot(localN, v1) > 0.0f ||
+          dot(localN, v2) > 0.0f || dot(localN, v3) > 0.0f;
+}
+
+// True if all rectangle corners have positive NdotL with the given normal.
+// The PSA formula with abs() is only exact when the entire shape is on one side of the horizon.
+inline bool allRectCornersAboveHorizon(
+   const nbl::hlsl::shapes::SphericalRectangle<nbl::hlsl::float32_t>& shape,
+   const nbl::hlsl::float32_t3& observer,
+   const nbl::hlsl::float32_t3& normal)
+{
+   using namespace nbl::hlsl;
+   const float32_t3 r0 = mul(shape.basis, shape.origin - observer);
+   const float32_t3 localN = mul(shape.basis, normal);
+   const float32_t3 v0 = normalize(r0);
+   const float32_t3 v1 = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
+   const float32_t3 v2 = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
+   const float32_t3 v3 = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
+   return dot(localN, v0) > 0.0f && dot(localN, v1) > 0.0f &&
+          dot(localN, v2) > 0.0f && dot(localN, v3) > 0.0f;
 }
 
 #endif

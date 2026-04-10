@@ -36,7 +36,16 @@ static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY 
 			return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
 		}
 	case ELG_RECTANGLE:
-		return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
+		switch (requestedMethod)
+		{
+		case EPM_AREA:
+			return { EPM_AREA, EPM_AREA, persistentWorkGroups ? "mainPersistentArea" : "mainArea" };
+		case EPM_SOLID_ANGLE:
+			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, persistentWorkGroups ? "mainPersistentSolidAngle" : "mainSolidAngle" };
+		case EPM_PROJECTED_SOLID_ANGLE:
+		default:
+			return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
+		}
 	default:
 		return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
 	}

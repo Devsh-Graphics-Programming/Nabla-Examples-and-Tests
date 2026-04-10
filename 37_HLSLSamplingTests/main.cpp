@@ -21,6 +21,7 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/box_muller_transform.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
+#include "nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/alias_table.hlsl"
 #include "nbl/builtin/hlsl/sampling/cumulative_probability.hlsl"
@@ -40,6 +41,7 @@ using namespace nbl::examples;
 #include "tests/CSphericalTriangleTester.h"
 #include "tests/CBoxMullerTransformTester.h"
 #include "tests/CProjectedSphericalTriangleTester.h"
+#include "tests/CProjectedSphericalRectangleTester.h"
 #include "tests/CSphericalRectangleTester.h"
 #include "tests/CDiscreteTableTester.h"
 #include "tests/CAliasTableGPUTester.h"
@@ -122,6 +124,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphere<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::SphericalTriangle<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalRectangle<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::SphericalRectangle<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
@@ -138,6 +141,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphere<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalTriangle<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalRectangle<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
@@ -152,6 +156,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphere<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalTriangle<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalRectangle<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalRectangle<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
@@ -209,9 +214,10 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          runSamplerTest.operator()<CConcentricMappingTester>("ConcentricMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()), "ConcentricMappingTestLog.txt");
          runSamplerTest.operator()<CPolarMappingTester>("PolarMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()), "PolarMappingTestLog.txt");
          runSamplerTest.operator()<CBoxMullerTransformTester>("BoxMullerTransform sampler", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()), "BoxMullerTransformTestLog.txt");
-         runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
          runSamplerTest.operator()<CSphericalTriangleTester>("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()), "SphericalTriangleTestLog.txt");
          runSamplerTest.operator()<CProjectedSphericalTriangleTester>("ProjectedSphericalTriangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()), "ProjectedSphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalRectangleTester>("ProjectedSphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_test">(m_device.get()), "ProjectedSphericalRectangleTestLog.txt");
       }
 
       if constexpr (true)
@@ -276,6 +282,9 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          CSamplerPropertyTester<SphericalRectanglePropertyConfig> sphRectProps(m_logger.get());
          pass &= sphRectProps.run();
 
+         CSamplerPropertyTester<ProjectedSphericalRectanglePropertyConfig> projSphRectProps(m_logger.get());
+         pass &= projSphRectProps.run();
+
          // Stress tests: extreme coefficient ratios
          CSamplerPropertyTester<LinearStressConfig> linearStress(m_logger.get());
          pass &= linearStress.run();
@@ -314,6 +323,12 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 
          CSphericalRectangleGenerateTester sphRectGenTester(m_logger.get());
          pass &= sphRectGenTester.run();
+
+         CProjectedSphericalRectangleGenerateTester projRectGenTester(m_logger.get());
+         pass &= projRectGenTester.run();
+
+         CProjectedSphericalRectangleGeometricTester projRectGeoTester(m_logger.get());
+         pass &= projRectGeoTester.run();
 
          CProjectedSphericalTriangleGeometricTester pstTester(m_logger.get());
          pass &= pstTester.run();
@@ -375,6 +390,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
          addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
          addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
          addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
          addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
 

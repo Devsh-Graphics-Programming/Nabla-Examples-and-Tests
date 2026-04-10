@@ -2192,7 +2192,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return persistentWorkGroups ?
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>() :
 						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.linear")>();
-				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
+				return persistentWorkGroups ?
+					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.persistent")>() :
+					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.linear")>();
 			default:
 				return nullptr;
 			}
