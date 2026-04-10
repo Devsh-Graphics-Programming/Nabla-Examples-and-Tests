@@ -285,8 +285,6 @@ SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSi
     // unproject
     if (sensor.orthoCam)
     {
-        if (all(uint32_t2(0,0)==spirv::LaunchIdKHR.xy))
-            printf("%f %f %f\n%f %f %f\n",sensor.ndcToRay[0].x, sensor.ndcToRay[0].y, sensor.ndcToRay[0].z, sensor.ndcToRay[1].x, sensor.ndcToRay[1].y, sensor.ndcToRay[1].z);
         const float32_t3 viewOrigin = float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC),0.f);
         retval.ray.origin = hlsl::math::linalg::promoted_mul(sensor.invView,viewOrigin);
         retval.ray.direction.setDirection(float32_t3(0,0,-1));
