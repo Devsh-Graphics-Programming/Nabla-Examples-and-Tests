@@ -336,8 +336,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 						{
 							const auto& ortho = _sensor.orthographic;
 							// extract and negate the scale from the 
-							ndc[0] = float32_t3(scaleRcp.x,0.f,0.f);
-							ndc[1] = float32_t3(0.f,scaleRcp.y*float(constants.height)/float(constants.width),0.f);
+							ndc[0] = float32_t3(1.f/scaleRcp.x,0.f,0.f);
+							ndc[1] = float32_t3(0.f,1.f/scaleRcp.y*float(constants.height)/float(constants.width),0.f);
 						}
 						break;
 					case mts_sensor_t::Type::SPHERICAL:

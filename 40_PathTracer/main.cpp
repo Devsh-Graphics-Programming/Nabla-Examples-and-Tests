@@ -218,7 +218,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				m_api->startCapture();
 				auto scene_daily_pt = m_renderer->createScene({
 						.load = m_sceneLoader->load({
-						.relPath = sharedInputCWD/"mitsuba/ditt/render_2160p.xml",
+						.relPath = sharedInputCWD/"Ditt-Reference-Scenes/test_scenes/twosided-ceiling-ortho/242_render_0_2.xml",
 						.workingDirectory = localOutputCWD 
 					}),
 					.converter = nullptr

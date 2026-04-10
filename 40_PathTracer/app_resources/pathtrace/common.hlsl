@@ -273,7 +273,6 @@ struct SPrimaryRay
     float32_t tMin;
 };
 
-// TODO: handle orthogonal cameras
 SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi)
 {
     using namespace nbl::hlsl;
@@ -281,13 +280,32 @@ SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSi
     // stochastic reconstruction filter
     const float16_t stddev = _static_cast<float16_t>(1.2);
     const float32_t3 adjNDC = float32_t3(path_tracing::GaussianFilter<float16_t>::create(stddev, stddev).sample(xi) * pixelSizeNDC + ndc, -1.f);
-    // unproject
-    const float32_t3 viewDir = hlsl::normalize(float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC),-1.0));
+
     SPrimaryRay retval;
-    // camera origin
-    retval.ray.origin = hlsl::transpose(sensor.invView)[3];
-    retval.ray.direction.setDirection(viewDir);
-    retval.tMin = sensor.nearClip / hlsl::abs(viewDir.z);
+    // unproject
+    if (sensor.orthoCam)
+    {
+        if (all(uint32_t2(0,0)==spirv::LaunchIdKHR.xy))
+            printf("%f %f %f\n%f %f %f\n",sensor.ndcToRay[0].x, sensor.ndcToRay[0].y, sensor.ndcToRay[0].z, sensor.ndcToRay[1].x, sensor.ndcToRay[1].y, sensor.ndcToRay[1].z);
+        const float32_t3 viewOrigin = float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC),0.f);
+        retval.ray.origin = hlsl::math::linalg::promoted_mul(sensor.invView,viewOrigin);
+        retval.ray.direction.setDirection(float32_t3(0,0,-1));
+        retval.tMin = sensor.nearClip;
+    }
+    else
+    {
+        retval.ray.origin = hlsl::transpose(sensor.invView)[3];
+        float32_t3 viewDir;
+        if (spirv::LaunchSizeKHR.z != 6u)
+            viewDir = float32_t3(hlsl::mul(sensor.ndcToRay, adjNDC), -1.0);
+        else
+        {
+            // TODO: handle cubemap cameras 
+        }
+        viewDir = hlsl::normalize(viewDir);
+        retval.tMin = sensor.nearClip / hlsl::abs(viewDir.z);
+        retval.ray.direction.setDirection(viewDir);
+    }
     // rotate and scale with camera 
     retval.ray.direction = retval.ray.direction.transform(hlsl::math::linalg::truncate<3,3,3,4>(sensor.invView));
     // TODO: fix this later introduce `transformOrthonormal` and `transform`
