@@ -1221,7 +1221,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				pc.invMVP = invMVP;
-				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+				pc.setLightMatrix(hlsl::float32_t4x3(m_lightModelMatrix));
 				pc.sampleCount = guiControlled.spp;
 				guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 				pc.depth = guiControlled.depth;
