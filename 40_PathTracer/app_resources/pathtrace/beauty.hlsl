@@ -149,7 +149,7 @@ struct [raypayload] BeautyPayload
     {
         closestRet.geometricNormal = 45.f;
     }
-    inline bool hasMissed() {return closestRet.geometricNormal[0]>1.f;}
+    inline bool hasMissed() {return closestRet.geometricNormal[0]>44.f;}
 
     SClosestHitRetval closestRet : read(caller) : write(caller,closesthit);
 };
@@ -171,7 +171,6 @@ enum E_SBT_OFFSETS : uint16_t
 void raygen()
 {
     const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
-
     const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
     
     // Take n samples per frame
