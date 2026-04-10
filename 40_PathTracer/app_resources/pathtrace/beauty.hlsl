@@ -176,10 +176,11 @@ void raygen()
     
     // Take n samples per frame
     // TODO: establish min/max - adaptive sampling
-    uint16_t samplesThisFrame = unpacked16BitPC.maxSppPerDispatch;
-    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,samplesThisFrame,uint16_t(pc.sensorDynamics.keepAccumulating));
-    // took 64k-1 spp
-    if (samplingInfo.rcpNewSampleCount==0.f)
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,unpacked16BitPC.maxSppPerDispatch,uint16_t(pc.sensorDynamics.keepAccumulating),pc.sensorDynamics.maxSPP);
+    // took max samples
+    const uint16_t endSample = samplingInfo.newSampleCount;
+    const uint16_t samplesThisFrame = endSample-samplingInfo.firstSample;
+    if (samplesThisFrame==0)
         return;
     // weight for non RWMC contribution
     const float16_t newSamplesOverTotal = _static_cast<float16_t>(_static_cast<float32_t>(samplesThisFrame)*samplingInfo.rcpNewSampleCount);
@@ -190,14 +191,11 @@ void raygen()
     aovs.clear();
     // some weird DXC and SPIR-V Tools Bug, lets try to move stuff out to temporaries and only use those
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
-    const uint16_t endSample = samplingInfo.newSampleCount;
     const bool keepAccumulating = samplingInfo.firstSample;
     [[loop]] for (uint16_t sampleIndex=samplingInfo.firstSample; sampleIndex!=endSample; )
     {
         // For RWMC to work, every sample must be splatted individually
         spectral_t color;
-
-        const uint16_t PrimaryRayRandTripletsUsed = 2;
 
         using namespace nbl::hlsl::bxdf;
         using namespace nbl::hlsl::material_compiler3::backends::default_upt;
@@ -256,8 +254,6 @@ void raygen()
             float32_t otherTechniqueHeuristic = 0.f;
             SAOVThroughputs aovThroughput;
             aovThroughput.clear(rcpSamplesThisFrame);
-            // [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
-            const uint16_t RandDimTriplesPerDepth = 3;
             [[loop]] for (uint16_t depth=1; true; depth++) // ideally peel this loop once
             {
                 // TODO: get the material ID and UVs

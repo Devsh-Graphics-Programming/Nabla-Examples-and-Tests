@@ -15,8 +15,8 @@ namespace this_example
 	
 #define MAX_SPP_LOG2 15
 NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSPPLog2 = MAX_SPP_LOG2;
-// need to be able to count (represent) both 0 and Max
-NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSPP = (0x1u << MaxSPPLog2) - 1;
+// need to be able to count (represent) both 0 and Max, but the count needs to be PoT because Sobol Sequence
+NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSPP = 0x1u << (MaxSPPLog2 - 1);
 struct SSensorDynamics
 {
 	// assuming input will be ndc = [-1,1]^2 x {-1}

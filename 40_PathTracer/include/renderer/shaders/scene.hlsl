@@ -16,8 +16,8 @@ struct SSceneUniforms
 
 		//
 		uint64_t pSampleSequence;
-		uint16_t sequenceSamplesLog2 : 5;
-		uint16_t lastSequencePathDepth : 11;
+		uint16_t sequenceSamplesLog2 : 5;  // TODO: make this compile time constant - Spec Constant?
+		uint16_t lastSequencePathDepth : 11; // TODO: what do we even need this for ? Also coult be a spec constant
 		static_assert(MaxPathDepthLog2<=11);
 		uint16_t unused1[3];
 		//hlsl::float16_t envmapScale;

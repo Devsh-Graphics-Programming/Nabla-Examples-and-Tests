@@ -45,9 +45,10 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	auto* const assMan = _params.assMan;
 	auto sequenceFuture = std::async(std::launch::async,[assMan](std::string&& cachePath)->auto
 		{
+			// TODO: resize the Sample Sequence after every scene load, smaller sequence has better caching properties
 			return nbl::examples::CCachedOwenScrambledSequence::create({
 				.cachePath=std::move(cachePath),.assMan=assMan,.header={
-					.maxSamplesLog2=12,.maxDimensions=96
+					.maxSamplesLog2=MaxSPPLog2,.maxDimensions=(RandDimTriplesPerDepth*((0x1u<<SSceneUniforms::SInit::MaxPathDepthLog2)-1)+PrimaryRayRandTripletsUsed)*3
 				}
 			});
 		},_params.sequenceCachePath

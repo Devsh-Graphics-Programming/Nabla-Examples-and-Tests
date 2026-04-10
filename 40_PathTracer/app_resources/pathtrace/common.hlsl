@@ -234,24 +234,26 @@ struct SPixelSamplingInfo
 	uint16_t newSampleCount;
 	uint16_t firstSample;
 };
-SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newSamplesThisPixel, const uint16_t dontClear)
+SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newSamplesThisPixel, const uint16_t dontClear, const uint16_t maxSamples)
 {
 	SPixelSamplingInfo retval;
 	// 
-	retval.firstSample = _static_cast<uint16_t>(gSampleCount[coord])*dontClear;
+    const uint16_t oldSampleCount = _static_cast<uint16_t>(gSampleCount[coord]);
+	retval.firstSample = oldSampleCount*dontClear;
 	// setup randgen
 	{
 		retval.randgen.pSampleBuffer = gScene.init.pSampleSequence;
 		// TODO: experiment with storing every dimension scramble in the texture to not pollute the ray payload
+        // TODO: experiment with truncating the sequence to a fixed number of dimensions, and using the scramble, sampleIndex and rank keys as xoroshiro64 seed and use simple RNG for last dimensions
 		retval.randgen.rng = scramble_state_t::construct(gScrambleKey[uint16_t3(coord.xy & uint16_t(511), 0)]);
 		retval.randgen.sequenceSamplesLog2 = gScene.init.sequenceSamplesLog2; // TODO: make this compile time constant - Spec Constant?
 	}
 	//
-	retval.newSampleCount = retval.firstSample+newSamplesThisPixel;
-    if (newSamplesThisPixel!=0 || dontClear==0) // whether this pays off depends on ratio of pixels with 0 spp in a dispatch
+	retval.newSampleCount = hlsl::min(retval.firstSample+newSamplesThisPixel,maxSamples);
+    if (retval.newSampleCount!=oldSampleCount) // whether this pays off depends on ratio of pixels with 0 spp in a dispatch
     	gSampleCount[coord] = retval.newSampleCount;
 	// handle overflow properly
-	retval.rcpNewSampleCount = hlsl::select(retval.newSampleCount>retval.firstSample,1.f/float32_t(retval.newSampleCount),0.f);
+	retval.rcpNewSampleCount = 1.f/float32_t(retval.newSampleCount);
 	return retval;
 }
 

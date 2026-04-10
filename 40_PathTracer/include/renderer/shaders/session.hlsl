@@ -10,6 +10,10 @@ namespace nbl
 {
 namespace this_example
 {
+// [0].xyz for subpixel jitter and stochastic opacity anyhit, [1].xy for DoF and motion Blur
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t PrimaryRayRandTripletsUsed = 2;
+// [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t RandDimTriplesPerDepth = 3;
 
 struct SSensorUniforms
 {

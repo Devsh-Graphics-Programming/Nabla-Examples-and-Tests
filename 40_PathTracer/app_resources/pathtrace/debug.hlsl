@@ -16,7 +16,7 @@ void raygen()
 {
     const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
     
-    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,1,uint16_t(pc.sensorDynamics.keepAccumulating));
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,1,uint16_t(pc.sensorDynamics.keepAccumulating),256);
     // took 64k-1 spp
     if (samplingInfo.rcpNewSampleCount==0.f)
         return;
