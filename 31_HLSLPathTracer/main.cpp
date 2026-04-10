@@ -2,18 +2,16 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-
-#include "nbl/examples/examples.hpp"
-#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
-
 #include "argparse/argparse.hpp"
 #include "nbl/examples/examples.hpp"
+#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
 #include "nbl/this_example/path_tracer_pipeline_state.hpp"
 #include "nbl/this_example/path_tracer_ui.hpp"
 #include "nbl/this_example/render_variant_info.hpp"
 #include "nbl/this_example/transform.hpp"
 #include "nbl/this_example/render_variant_strings.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/ScreenShot/ScreenShot.h"
 
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 
@@ -23,11 +21,12 @@
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
 #include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
 #include "nbl/system/ModuleLookupUtils.h"
-#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdlib>
 #include <deque>
@@ -64,6 +63,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static constexpr size_t BinaryToggleCount = 2ull;
 		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
+		static constexpr bool UsePersistentWorkGroups = true;
+		static constexpr uint32_t CiFramesBeforeCapture = 3u;
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 
@@ -145,6 +146,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (!parseCommandLine())
 				return false;
+			applyEarlyCommandLineOverrides();
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
 			{
@@ -392,14 +394,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				const auto startupGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
-				if (!ensureRenderShaderLoaded(startupGeometry, guiControlled.usePersistentWorkGroups, guiControlled.useRWMC))
+				if (!ensureRenderShaderLoaded(startupGeometry, UsePersistentWorkGroups, guiControlled.useRWMC))
 					return logFail("Failed to load current precompiled compute shader variant");
 				if (guiControlled.useRWMC && !ensureResolveShaderLoaded())
 					return logFail("Failed to load precompiled resolve compute shader");
 
 				ensureRenderPipeline(
 					startupGeometry,
-					guiControlled.usePersistentWorkGroups,
+					UsePersistentWorkGroups,
 					guiControlled.useRWMC,
 					static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
 				);
@@ -408,13 +410,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 				{
-					for (const auto persistentWorkGroups : { false, true })
+					for (const auto rwmc : { false, true })
 					{
-						for (const auto rwmc : { false, true })
-						{
-							if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), persistentWorkGroups, rwmc))
-								return logFail("Failed to load precompiled compute shader variant");
-						}
+						if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), UsePersistentWorkGroups, rwmc))
+							return logFail("Failed to load precompiled compute shader variant");
 					}
 				}
 				if (!ensureResolveShaderLoaded())
@@ -617,7 +616,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					if (!useCascadeCreationParameters)
 					{
 						imgInfo.arrayLayers = 1u;
-						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_SAMPLED_BIT;
 					}
 					else
 					{
@@ -834,7 +833,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const float panelMargin = 10.f;
 					const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
 					const auto requestedMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
-					const auto currentVariant = getRenderVariantInfo(currentGeometry, guiControlled.usePersistentWorkGroups, requestedMethod);
+					const auto currentVariant = getRenderVariantInfo(currentGeometry, UsePersistentWorkGroups, requestedMethod);
 					const size_t readyRenderPipelines = getReadyRenderPipelineCount();
 					const size_t totalRenderPipelines = getKnownRenderPipelineCount();
 					const size_t readyTotalPipelines = readyRenderPipelines + (m_resolvePipelineState.pipeline ? 1ull : 0ull);
@@ -871,17 +870,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "spp", &guiControlled.spp, 1, (0x1u<<MaxSamplesLog2)-1 },
 						{ "depth", &guiControlled.depth, 1, (0x1u<<MaxDepthLog2)-1 },
 					};
-					const this_example::pt_ui::SCheckboxRow renderCheckboxRows[] = {
-						{ "persistent WG", &guiControlled.usePersistentWorkGroups },
-					};
 					const this_example::pt_ui::SCheckboxRow rwmcCheckboxRows[] = {
 						{ "enable", &guiControlled.useRWMC },
 					};
 					const this_example::pt_ui::SFloatSliderRow rwmcFloatRows[] = {
-						{ "start", &guiControlled.rwmcParams.start, 0.2f, 16.0f, "%.3f" },
-						{ "base", &guiControlled.rwmcParams.base, 1.001f, 16.0f, "%.3f" },
-						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.01f, 32.0f, "%.3f" },
-						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 128.0f, "%.3f" },
+						{ "start", &guiControlled.rwmcParams.start, 0.2f, 128.0f, "%.3f" },
+						{ "base", &guiControlled.rwmcParams.base, 1.001f, 32.0f, "%.3f" },
+						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.01f, 1024.0f, "%.3f" },
+						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f" },
 					};
 					const this_example::pt_ui::STextRow diagnosticsRows[] = {
 						{ "geometry", system::to_string(currentGeometry) },
@@ -915,7 +911,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						this_example::pt_ui::calcMaxTextWidth(cameraFloatRows, [](const auto& row) { return row.label; }),
 						this_example::pt_ui::calcMaxTextWidth(renderComboRows, [](const auto& row) { return row.label; }),
 						this_example::pt_ui::calcMaxTextWidth(renderIntRows, [](const auto& row) { return row.label; }),
-						this_example::pt_ui::calcMaxTextWidth(renderCheckboxRows, [](const auto& row) { return row.label; }),
 						this_example::pt_ui::calcMaxTextWidth(rwmcCheckboxRows, [](const auto& row) { return row.label; }),
 						this_example::pt_ui::calcMaxTextWidth(rwmcFloatRows, [](const auto& row) { return row.label; }),
 						this_example::pt_ui::calcMaxTextWidth(diagnosticsRows, [](const auto& row) { return row.label; })
@@ -992,8 +987,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 										this_example::pt_ui::comboRow(row);
 									for (const auto& row : renderIntRows)
 										this_example::pt_ui::sliderIntRow(row);
-									for (const auto& row : renderCheckboxRows)
-										this_example::pt_ui::checkboxRow(row);
 									ImGui::EndTable();
 								}
 							}
@@ -1007,6 +1000,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 										this_example::pt_ui::checkboxRow(row);
 									for (const auto& row : rwmcFloatRows)
 										this_example::pt_ui::sliderFloatRow(row);
+									ImGui::TableNextRow();
+									ImGui::TableSetColumnIndex(0);
+									ImGui::TextUnformatted("defaults");
+									ImGui::TableSetColumnIndex(1);
+									ImGui::SetNextItemWidth(-FLT_MIN);
+									ImGui::PushID("rwmc_defaults");
+									if (ImGui::Button("Reset RWMC"))
+										resetRWMCParamsToDefaults();
+									ImGui::PopID();
 									ImGui::EndTable();
 								}
 							}
@@ -1115,6 +1117,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 			}
 			m_showUI = true;
+			if (m_commandLine.ciMode)
+				m_showUI = false;
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
@@ -1123,11 +1127,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_camera.mapKeysToArrows();
 
 			// set initial rwmc settings
-			
-			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			guiControlled.rwmcParams.base = 8.0f;
-			guiControlled.rwmcParams.minReliableLuma = 1.0f;
-			guiControlled.rwmcParams.kappa = 5.0f;
+			resetRWMCParamsToDefaults();
+			applyLateCommandLineOverrides();
 
 			// do this as late as possible
 			{
@@ -1220,17 +1221,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				pc.invMVP = invMVP;
-				{
-					const auto matT = hlsl::float32_t4x3(m_lightModelMatrix);
-					pc.lightX = matT[0];
-					pc.lightY = matT[1];
-					// Z had a length and a direction, can point colinear or opposite cross product
-					const auto recon = hlsl::cross(matT[0], matT[1]);
-					pc.lightZscale = hlsl::sign(hlsl::dot(recon,matT[2]))*hlsl::length(matT[2])/hlsl::length(recon);
-					pc.lightPos = matT[3];
-					assert(pc.lightMatrix()==hlsl::transpose(matT));
-				}
+				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
 				pc.sampleCount = guiControlled.spp;
+				guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 				pc.depth = guiControlled.depth;
 				pc.sequenceSampleCountLog2 = m_sequenceSamplesLog2;
 				if (guiControlled.useRWMC)
@@ -1241,6 +1234,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			};
 			updatePathtracerPushConstants();
 			bool producedRenderableOutput = false;
+			bool dispatchedRwmcPathTrace = false;
 
 			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1299,9 +1293,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			{
 				// TODO: shouldn't it be computed only at initialization stage and on window resize?
-				const uint32_t dispatchSize = guiControlled.usePersistentWorkGroups ?
-					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize) :
-					1 + (WindowDimensions.x * WindowDimensions.y - 1) / RenderWorkgroupSize;
+				const uint32_t dispatchSize =
+					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize);
 
 				IGPUComputePipeline* pipeline = pickPTPipeline();
 				if (pipeline)
@@ -1314,13 +1307,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
 
 					cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					dispatchedRwmcPathTrace = guiControlled.useRWMC;
 					producedRenderableOutput = !guiControlled.useRWMC;
 				}
 			}
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
 			// TODO: create this and every other barrier once outside of the loop?
-			if(guiControlled.useRWMC)
+			if(guiControlled.useRWMC && dispatchedRwmcPathTrace)
 			{
 				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 						{
@@ -1373,6 +1367,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					m_startupLog.loggedFirstRenderDispatch = true;
 				}
 			}
+			maybeQueueCiScreenshotRequest();
 
 			// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1493,10 +1488,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						updateGUIDescriptorSet();
 
+						bool submitSucceeded = false;
 						m_api->startCapture();
 						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
 							m_realFrameIx--;
+						else
+							submitSucceeded = true;
 						m_api->endCapture();
+
+						if (submitSucceeded && rendered[0].semaphore)
+							maybeSaveSceneScreenshot(queue, rendered[0]);
 					}
 				}
 
@@ -1505,7 +1506,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					logStartupEvent("first_render_submit");
 					m_startupLog.loggedFirstRenderSubmit = true;
 				}
-				if (m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.started)
+				if (!m_commandLine.ciMode && m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.started)
 				{
 					kickoffPipelineWarmup();
 				}
@@ -1518,6 +1519,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool keepRunning() override
 		{
+			if (m_exitRequested)
+				return false;
 			if (m_surface->irrecoverable())
 				return false;
 
@@ -1562,8 +1565,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
-				const auto& io = ImGui::GetIO();
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+				if (!m_commandLine.ciMode)
+				{
+					const auto& io = ImGui::GetIO();
+					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 					{
 						if (!io.WantCaptureMouse)
 							m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
@@ -1591,6 +1596,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (e.timeStamp < previousEventTimestamp)
 								continue;
 
+							if (e.keyCode == ui::EKC_F12)
+								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
+									requestSceneScreenshot(getNextSceneScreenshotPath(), false);
+
 							if (e.keyCode == ui::EKC_H)
 								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
 									m_showUI = !m_showUI;
@@ -1599,6 +1608,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							capturedEvents.keyboard.emplace_back(e);
 						}
 					}, m_logger.get());
+				}
+				else
+				{
+					mouse.consumeEvents([&](const IMouseEventChannel::range_t&) -> void {}, m_logger.get());
+					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t&) -> void {}, m_logger.get());
+				}
 			}
 			m_camera.endInputProcessing(nextPresentationTimestamp);
 
@@ -1653,15 +1668,123 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_logger->log("PATH_TRACER_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
 		}
 
+		static std::string normalizeCliToken(std::string value)
+		{
+			std::string normalized;
+			normalized.reserve(value.size());
+			for (const auto ch : value)
+			{
+				if (ch == '-' || ch == '_' || std::isspace(static_cast<unsigned char>(ch)))
+					continue;
+				normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+			}
+			return normalized;
+		}
+
+		static std::optional<E_LIGHT_GEOMETRY> parseGeometryOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "sphere" || normalized == "elgsphere")
+				return ELG_SPHERE;
+			if (normalized == "triangle" || normalized == "elgtriangle")
+				return ELG_TRIANGLE;
+			if (normalized == "rectangle" || normalized == "quad" || normalized == "elgrectangle")
+				return ELG_RECTANGLE;
+			return std::nullopt;
+		}
+
+		static std::optional<E_POLYGON_METHOD> parseMethodOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "area" || normalized == "epmarea")
+				return EPM_AREA;
+			if (normalized == "solidangle" || normalized == "epmsolidangle")
+				return EPM_SOLID_ANGLE;
+			if (normalized == "projectedsolidangle" || normalized == "projected" || normalized == "epmprojectedsolidangle")
+				return EPM_PROJECTED_SOLID_ANGLE;
+			return std::nullopt;
+		}
+
+		void applyEarlyCommandLineOverrides()
+		{
+			if (m_commandLine.geometryOverride.has_value())
+				guiControlled.PTPipeline = static_cast<int>(m_commandLine.geometryOverride.value());
+			if (m_commandLine.methodOverride.has_value())
+				guiControlled.polygonMethod = static_cast<int>(m_commandLine.methodOverride.value());
+			if (m_commandLine.sppOverride.has_value())
+				guiControlled.spp = m_commandLine.sppOverride.value();
+			if (m_commandLine.depthOverride.has_value())
+				guiControlled.depth = m_commandLine.depthOverride.value();
+			if (m_commandLine.rwmcOverride.has_value())
+				guiControlled.useRWMC = m_commandLine.rwmcOverride.value();
+		}
+
+		void applyLateCommandLineOverrides()
+		{
+			if (m_commandLine.rwmcStartOverride.has_value())
+				guiControlled.rwmcParams.start = m_commandLine.rwmcStartOverride.value();
+			if (m_commandLine.rwmcBaseOverride.has_value())
+				guiControlled.rwmcParams.base = m_commandLine.rwmcBaseOverride.value();
+			if (m_commandLine.rwmcMinReliableLumaOverride.has_value())
+				guiControlled.rwmcParams.minReliableLuma = m_commandLine.rwmcMinReliableLumaOverride.value();
+			if (m_commandLine.rwmcKappaOverride.has_value())
+				guiControlled.rwmcParams.kappa = m_commandLine.rwmcKappaOverride.value();
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
+		void resetRWMCParamsToDefaults()
+		{
+			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+			guiControlled.rwmcParams.base = 8.0f;
+			guiControlled.rwmcParams.minReliableLuma = 1.0f;
+			guiControlled.rwmcParams.kappa = 1.0f;
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
 		bool parseCommandLine()
 		{
 			argparse::ArgumentParser parser("31_hlslpathtracer");
+			parser.add_argument("--ci")
+				.help("Run in CI mode: save a scene screenshot and exit.")
+				.default_value(false)
+				.implicit_value(true);
+			parser.add_argument("--ci-screenshot")
+				.nargs(1)
+				.help("Override the CI scene screenshot output path");
 			parser.add_argument("--pipeline-cache-dir")
 				.nargs(1)
 				.help("Override the PATH_TRACER pipeline cache root directory");
 			parser.add_argument("--clear-pipeline-cache")
 				.help("Clear the PATH_TRACER cache root before startup")
 				.flag();
+			parser.add_argument("--shader")
+				.nargs(1)
+				.help("Select startup geometry: sphere, triangle, rectangle");
+			parser.add_argument("--method")
+				.nargs(1)
+				.help("Select startup method: area, solid-angle, projected-solid-angle");
+			parser.add_argument("--spp")
+				.scan<'i', int>()
+				.help("Override startup samples per pixel");
+			parser.add_argument("--depth")
+				.scan<'i', int>()
+				.help("Override startup path depth");
+			parser.add_argument("--rwmc")
+				.help("Enable RWMC at startup")
+				.default_value(false)
+				.implicit_value(true);
+			parser.add_argument("--rwmc-start")
+				.scan<'g', float>()
+				.help("Override RWMC start threshold");
+			parser.add_argument("--rwmc-base")
+				.scan<'g', float>()
+				.help("Override RWMC base");
+			parser.add_argument("--rwmc-min-reliable")
+				.scan<'g', float>()
+				.help("Override RWMC minimum reliable luma");
+			parser.add_argument("--rwmc-kappa")
+				.scan<'g', float>()
+				.help("Override RWMC kappa");
 
 			try
 			{
@@ -1673,11 +1796,152 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return false;
 			}
 
+			m_commandLine.ciMode = parser.get<bool>("--ci");
+			m_commandLine.ciScreenshotPath = localOutputCWD / "31_hlslpathtracer_ci.png";
+			if (parser.present("--ci-screenshot"))
+				m_commandLine.ciScreenshotPath = path(parser.get<std::string>("--ci-screenshot"));
 			m_commandLine.pipelineCacheDirOverride.reset();
 			if (parser.present("--pipeline-cache-dir"))
 				m_commandLine.pipelineCacheDirOverride = path(parser.get<std::string>("--pipeline-cache-dir"));
 			m_commandLine.clearPipelineCache = parser.get<bool>("--clear-pipeline-cache");
+			m_commandLine.geometryOverride.reset();
+			if (parser.present("--shader"))
+			{
+				const auto geometryValue = parser.get<std::string>("--shader");
+				m_commandLine.geometryOverride = parseGeometryOverride(geometryValue);
+				if (!m_commandLine.geometryOverride.has_value())
+				{
+					m_logger->log("Unknown --shader value: %s", ILogger::ELL_ERROR, geometryValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.methodOverride.reset();
+			if (parser.present("--method"))
+			{
+				const auto methodValue = parser.get<std::string>("--method");
+				m_commandLine.methodOverride = parseMethodOverride(methodValue);
+				if (!m_commandLine.methodOverride.has_value())
+				{
+					m_logger->log("Unknown --method value: %s", ILogger::ELL_ERROR, methodValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.sppOverride.reset();
+			if (parser.present("--spp"))
+			{
+				const auto spp = parser.get<int>("--spp");
+				if (spp < 1 || spp > static_cast<int>((0x1u << MaxSamplesLog2) - 1u))
+				{
+					m_logger->log("Invalid --spp value: %d", ILogger::ELL_ERROR, spp);
+					return false;
+				}
+				m_commandLine.sppOverride = spp;
+			}
+			m_commandLine.depthOverride.reset();
+			if (parser.present("--depth"))
+			{
+				const auto depth = parser.get<int>("--depth");
+				if (depth < 1 || depth > static_cast<int>((0x1u << MaxDepthLog2) - 1u))
+				{
+					m_logger->log("Invalid --depth value: %d", ILogger::ELL_ERROR, depth);
+					return false;
+				}
+				m_commandLine.depthOverride = depth;
+			}
+			m_commandLine.rwmcOverride.reset();
+			if (parser.is_used("--rwmc"))
+				m_commandLine.rwmcOverride = parser.get<bool>("--rwmc");
+			m_commandLine.rwmcStartOverride.reset();
+			if (parser.present("--rwmc-start"))
+				m_commandLine.rwmcStartOverride = parser.get<float>("--rwmc-start");
+			m_commandLine.rwmcBaseOverride.reset();
+			if (parser.present("--rwmc-base"))
+				m_commandLine.rwmcBaseOverride = parser.get<float>("--rwmc-base");
+			m_commandLine.rwmcMinReliableLumaOverride.reset();
+			if (parser.present("--rwmc-min-reliable"))
+				m_commandLine.rwmcMinReliableLumaOverride = parser.get<float>("--rwmc-min-reliable");
+			m_commandLine.rwmcKappaOverride.reset();
+			if (parser.present("--rwmc-kappa"))
+				m_commandLine.rwmcKappaOverride = parser.get<float>("--rwmc-kappa");
 			return true;
+		}
+
+		void requestExit()
+		{
+			m_exitRequested = true;
+		}
+
+		void requestSceneScreenshot(path outputPath, const bool exitAfterCapture)
+		{
+			m_sceneScreenshotRequested = true;
+			m_sceneScreenshotExitAfterCapture = exitAfterCapture;
+			m_pendingSceneScreenshotPath = std::move(outputPath);
+		}
+
+		path getNextSceneScreenshotPath()
+		{
+			return localOutputCWD / ("31_hlslpathtracer_scene_" + std::to_string(m_sceneScreenshotCounter++) + ".png");
+		}
+
+		void maybeQueueCiScreenshotRequest()
+		{
+			if (!m_commandLine.ciMode || m_ciScreenshotCaptured || m_sceneScreenshotRequested || !m_startupLog.hasPathtraceOutput)
+				return;
+
+			++m_ciRenderableFrameCounter;
+			if (m_ciRenderableFrameCounter < CiFramesBeforeCapture)
+				return;
+
+			requestSceneScreenshot(m_commandLine.ciScreenshotPath, true);
+		}
+
+		void maybeSaveSceneScreenshot(IQueue* const queue, const IQueue::SSubmitInfo::SSemaphoreInfo& rendered)
+		{
+			if (!m_sceneScreenshotRequested || !m_pendingSceneScreenshotPath.has_value() || !rendered.semaphore)
+				return;
+
+			const ISemaphore::SWaitInfo waitInfo[] =
+			{
+				{
+					.semaphore = rendered.semaphore,
+					.value = rendered.value
+				}
+			};
+			if (m_device->blockForSemaphores(waitInfo) != ISemaphore::WAIT_RESULT::SUCCESS)
+			{
+				m_logger->log("Scene screenshot failed: could not wait for rendered frame.", ILogger::ELL_ERROR);
+				m_sceneScreenshotRequested = false;
+				m_pendingSceneScreenshotPath.reset();
+				if (m_sceneScreenshotExitAfterCapture)
+					requestExit();
+				return;
+			}
+
+			const auto screenshotPath = std::move(*m_pendingSceneScreenshotPath);
+			m_pendingSceneScreenshotPath.reset();
+			m_sceneScreenshotRequested = false;
+
+			const bool ok = ext::ScreenShot::createScreenShot(
+				m_device.get(),
+				queue,
+				nullptr,
+				m_outImgView.get(),
+				m_assetMgr.get(),
+				screenshotPath,
+				asset::IImage::LAYOUT::READ_ONLY_OPTIMAL,
+				asset::ACCESS_FLAGS::SHADER_READ_BITS);
+
+			if (ok)
+				m_logger->log("Scene screenshot saved to \"%s\".", ILogger::ELL_INFO, screenshotPath.string().c_str());
+			else
+				m_logger->log("Scene screenshot failed to save.", ILogger::ELL_ERROR);
+
+			if (m_sceneScreenshotExitAfterCapture)
+			{
+				m_ciScreenshotCaptured = true;
+				requestExit();
+			}
+			m_sceneScreenshotExitAfterCapture = false;
 		}
 
 		static std::string hashToHex(const core::blake3_hash_t& hash)
@@ -1774,6 +2038,16 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			core::blake3_hasher hasher;
 			hasher << std::string_view(shader ? shader->getFilepathHint() : std::string_view{});
 			hasher << std::string_view(entryPoint);
+			if (shader)
+			{
+				if (const auto* const content = shader->getContent())
+				{
+					auto contentHash = content->getContentHash();
+					if (contentHash == ICPUBuffer::INVALID_HASH)
+						contentHash = content->computeContentHash();
+					hasher << contentHash;
+				}
+			}
 			return getSpirvCacheDir() / (hashToHex(static_cast<core::blake3_hash_t>(hasher)) + ".spv");
 		}
 
@@ -1978,12 +2252,18 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (hasValidatedSpirvMarker(content))
 			{
-				m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
+				}
 				return true;
 			}
 
-			if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
-				return false;
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
+					return false;
+			}
 
 			saveValidatedSpirvMarker(content);
 			return true;
@@ -2056,7 +2336,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!preparedShader)
 			{
 				const core::set entryPoints = { asset::ISPIRVEntryPointTrimmer::EntryPoint{ .name = entryPoint, .stage = hlsl::ShaderStage::ESS_COMPUTE } };
-				const auto result = m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				const auto result = [&]()
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					return m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				}();
 				if (!result)
 				{
 					m_logger->log("Failed to prepare trimmed PATH_TRACER shader for %s. Falling back to the original module.", ILogger::ELL_WARNING, entryPoint);
@@ -2187,6 +2471,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
 		{
+			(void)persistentWorkGroups;
 			switch (geometry)
 			{
 			case ELG_SPHERE:
@@ -2195,17 +2480,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
 			case ELG_TRIANGLE:
 				if (rwmc)
-					return persistentWorkGroups ?
-						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>() :
-						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.linear")>();
-				return persistentWorkGroups ?
-					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>() :
-					loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.linear")>();
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>();
 			case ELG_RECTANGLE:
 				if (rwmc)
-					return persistentWorkGroups ?
-						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>() :
-						loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.linear")>();
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>();
 				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
 			default:
 				return nullptr;
@@ -2214,8 +2493,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		struct SCommandLineOptions
 		{
+			bool ciMode = false;
+			path ciScreenshotPath;
 			std::optional<path> pipelineCacheDirOverride;
 			bool clearPipelineCache = false;
+			std::optional<E_LIGHT_GEOMETRY> geometryOverride;
+			std::optional<E_POLYGON_METHOD> methodOverride;
+			std::optional<int> sppOverride;
+			std::optional<int> depthOverride;
+			std::optional<bool> rwmcOverride;
+			std::optional<float> rwmcStartOverride;
+			std::optional<float> rwmcBaseOverride;
+			std::optional<float> rwmcMinReliableLumaOverride;
+			std::optional<float> rwmcKappaOverride;
 		};
 
 		size_t getRunningPipelineBuildCount() const
@@ -2229,7 +2519,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			bool seen[ELG_COUNT][BinaryToggleCount][BinaryToggleCount][EPM_COUNT] = {};
 			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 			{
-				for (auto persistentWorkGroups = 0u; persistentWorkGroups < BinaryToggleCount; ++persistentWorkGroups)
+				for (const auto persistentWorkGroups : { UsePersistentWorkGroups })
 				{
 					for (auto rwmc = 0u; rwmc < BinaryToggleCount; ++rwmc)
 					{
@@ -2465,54 +2755,61 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			const auto currentMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
 			const auto enqueueRenderVariants = [this, currentGeometry](const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD preferredMethod) -> void
 			{
-				const auto enqueueForMethods = [this, geometry](const std::initializer_list<E_POLYGON_METHOD> methods, const bool preferPersistent, const bool preferRWMC) -> void
+				const auto enqueueForMethods = [this, geometry](const std::initializer_list<E_POLYGON_METHOD> methods, const bool preferRWMC) -> void
 				{
-					const bool persistentOrder[2] = { preferPersistent, !preferPersistent };
 					const bool rwmcOrder[2] = { preferRWMC, !preferRWMC };
 					for (const auto method : methods)
 					{
-						for (const auto persistentWorkGroups : persistentOrder)
+						for (const auto rwmc : rwmcOrder)
 						{
-							for (const auto rwmc : rwmcOrder)
-							{
-								enqueueWarmupJob({
-									.type = SWarmupJob::E_TYPE::Render,
-									.geometry = geometry,
-									.persistentWorkGroups = persistentWorkGroups,
-									.rwmc = rwmc,
-									.method = method
-								});
-							}
+							enqueueWarmupJob({
+								.type = SWarmupJob::E_TYPE::Render,
+								.geometry = geometry,
+								.persistentWorkGroups = UsePersistentWorkGroups,
+								.rwmc = rwmc,
+								.method = method
+							});
 						}
 					}
 				};
 
-				const bool preferPersistent = geometry == currentGeometry ? guiControlled.usePersistentWorkGroups : false;
 				const bool preferRWMC = geometry == currentGeometry ? guiControlled.useRWMC : false;
 				switch (geometry)
 				{
 				case ELG_SPHERE:
-					enqueueForMethods({ EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+					enqueueForMethods({ EPM_SOLID_ANGLE }, preferRWMC);
 					break;
 				case ELG_TRIANGLE:
 				{
 					switch (preferredMethod)
 					{
 					case EPM_AREA:
-						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
 						break;
 					case EPM_SOLID_ANGLE:
-						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
 						break;
 					case EPM_PROJECTED_SOLID_ANGLE:
 					default:
-						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_AREA, EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_AREA, EPM_SOLID_ANGLE }, preferRWMC);
 						break;
 					}
 					break;
 				}
 				case ELG_RECTANGLE:
-					enqueueForMethods({ EPM_SOLID_ANGLE }, preferPersistent, preferRWMC);
+					switch (preferredMethod)
+					{
+					case EPM_AREA:
+						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_SOLID_ANGLE:
+						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_PROJECTED_SOLID_ANGLE:
+					default:
+						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_SOLID_ANGLE, EPM_AREA }, preferRWMC);
+						break;
+					}
 					break;
 				default:
 					break;
@@ -2546,7 +2843,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			return ensureRenderPipeline(
 				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
-				guiControlled.usePersistentWorkGroups,
+				UsePersistentWorkGroups,
 				guiControlled.useRWMC,
 				static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
 			);
@@ -2604,6 +2901,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		Camera m_camera;
 		bool m_showUI;
+		bool m_exitRequested = false;
+		bool m_sceneScreenshotRequested = false;
+		bool m_sceneScreenshotExitAfterCapture = false;
+		bool m_ciScreenshotCaptured = false;
+		uint32_t m_ciRenderableFrameCounter = 0u;
+		uint64_t m_sceneScreenshotCounter = 0ull;
+		std::optional<path> m_pendingSceneScreenshotPath;
 
 		video::CDumbPresentationOracle m_oracle;
 
@@ -2620,7 +2924,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			int spp = 32;
 			int depth = 3;
 			rwmc::SResolveParameters::SCreateParams rwmcParams;
-			bool usePersistentWorkGroups = false;
 			bool useRWMC = false;
 		};
 		GUIControllables guiControlled;
