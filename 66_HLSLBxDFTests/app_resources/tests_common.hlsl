@@ -339,6 +339,9 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
         bxdf::reflection::SLambertian<iso_config_t> child_brdf;
         base_t::bxdf.nested_brdf = child_brdf;
         base_t::bxdf.shadingNormal = _rc.N2;
+        float32_t3 T, B;
+        math::frisvad<float32_t3>(_rc.N2, T, B);
+        base_t::bxdf.shadingBasis = float32_t3x3(T, B, _rc.N2);
 #ifndef __HLSL_VERSION
         base_t::name = "Microfacet-based normals BRDF (lambertian)";
 #endif

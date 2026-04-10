@@ -12,8 +12,8 @@ struct TestJacobian : TestBxDF<BxDF>
 
     TestResult compute()
     {
-        aniso_cache cache, dummy;
-        iso_cache isocache, dummy_iso;
+        typename BxDF::anisocache_type cache, dummy;
+        typename BxDF::isocache_type isocache, dummy_iso;
 
         // avoid cases where ux or uy might end up outside the input domain when eps is added
         if (!checkLt<float32_t3>(base_t::rc.u, hlsl::promote<float32_t3>(1.0-base_t::rc.eps)))
@@ -25,10 +25,9 @@ struct TestJacobian : TestBxDF<BxDF>
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
         {
-            typename BxDF::anisocache_type _cache;
-            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, _cache);
-            sx = base_t::bxdf.generate(base_t::isointer, ux.xy, _cache);
-            sy = base_t::bxdf.generate(base_t::isointer, uy.xy, _cache);
+            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, cache);
+            sx = base_t::bxdf.generate(base_t::isointer, ux.xy, cache);
+            sy = base_t::bxdf.generate(base_t::isointer, uy.xy, cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
@@ -47,10 +46,9 @@ struct TestJacobian : TestBxDF<BxDF>
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
         {
-            typename BxDF::anisocache_type _cache;
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, _cache);
-            sx = base_t::bxdf.generate(base_t::anisointer, ux, _cache);
-            sy = base_t::bxdf.generate(base_t::anisointer, uy, _cache);
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+            sx = base_t::bxdf.generate(base_t::anisointer, ux, cache);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy, cache);
         }
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
@@ -74,8 +72,7 @@ struct TestJacobian : TestBxDF<BxDF>
 
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
-            typename BxDF::anisocache_type _cache;
-            sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, _cache);
+            sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, cache);
             Li = base_t::bxdf.evalAndWeight(s, base_t::isointer);
             transmitted = base_t::isointer.getNdotV() * s.getNdotL() < 0.f;
         }
