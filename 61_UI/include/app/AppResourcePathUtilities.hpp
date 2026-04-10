@@ -5,7 +5,7 @@
 #include <span>
 
 #include "app/AppResourceUtilities.hpp"
-#include "camera/CCameraFileUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
 
 namespace nbl::system
 {

@@ -5,7 +5,7 @@
 #include <span>
 
 #include "app/AppTypes.hpp"
-#include "camera/CCameraFollowRegressionUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
 
 namespace nbl::ui
 {

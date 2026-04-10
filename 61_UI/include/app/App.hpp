@@ -22,7 +22,7 @@
 #include "keysmapping.hpp"
 #include "app/AppTypes.hpp"
 #include "app/AppViewportBindingUtilities.hpp"
-#include "camera/CCubeProjection.hpp"
+#include "nbl/ext/Cameras/CCubeProjection.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"

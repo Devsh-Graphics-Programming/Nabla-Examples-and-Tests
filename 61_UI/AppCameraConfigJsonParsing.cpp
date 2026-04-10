@@ -7,17 +7,17 @@
 
 #include "keysmapping.hpp"
 #include "nlohmann/json.hpp"
-#include "camera/CArcballCamera.hpp"
-#include "camera/CChaseCamera.hpp"
-#include "camera/CDollyCamera.hpp"
-#include "camera/CDollyZoomCamera.hpp"
-#include "camera/CFPSCamera.hpp"
-#include "camera/CFreeLockCamera.hpp"
-#include "camera/CIsometricCamera.hpp"
-#include "camera/COrbitCamera.hpp"
-#include "camera/CPathCamera.hpp"
-#include "camera/CTopDownCamera.hpp"
-#include "camera/CTurntableCamera.hpp"
+#include "nbl/ext/Cameras/CArcballCamera.hpp"
+#include "nbl/ext/Cameras/CChaseCamera.hpp"
+#include "nbl/ext/Cameras/CDollyCamera.hpp"
+#include "nbl/ext/Cameras/CDollyZoomCamera.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CFreeLockCamera.hpp"
+#include "nbl/ext/Cameras/CIsometricCamera.hpp"
+#include "nbl/ext/Cameras/COrbitCamera.hpp"
+#include "nbl/ext/Cameras/CPathCamera.hpp"
+#include "nbl/ext/Cameras/CTopDownCamera.hpp"
+#include "nbl/ext/Cameras/CTurntableCamera.hpp"
 
 namespace nbl::system
 {

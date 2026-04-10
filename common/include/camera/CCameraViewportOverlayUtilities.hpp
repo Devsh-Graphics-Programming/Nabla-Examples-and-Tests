@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <string>
 
-#include "CCameraFollowRegressionUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
 #include "imgui/imgui.h"
 
 namespace nbl::ui

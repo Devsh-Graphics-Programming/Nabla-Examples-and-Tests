@@ -5,7 +5,7 @@
 #include <limits>
 
 #include "app/AppResourcePathUtilities.hpp"
-#include "camera/CCameraFileUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
 
 inline bool parseSpaceEnvBlobBytes(
     std::span<const uint8_t> blobBytes,

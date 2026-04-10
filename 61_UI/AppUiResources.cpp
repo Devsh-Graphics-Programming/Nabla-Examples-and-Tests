@@ -123,16 +123,14 @@ bool App::initializeUiResources()
 	params.transfer = getTransferUpQueue();
 	params.utilities = m_utils;
 
-	const auto vertexKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_vertex">(m_device.get());
-	const auto fragmentKey = nbl::this_example::builtin::build::get_spirv_key<"imgui_fragment">(m_device.get());
-	auto vertexShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), vertexKey);
-	auto fragmentShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), fragmentKey);
-	if (!vertexShader || !fragmentShader)
+	const auto imguiKey = nbl::this_example::builtin::build::get_spirv_key<"imgui.unified">(m_device.get());
+	auto imguiShader = nbl::system::loadPrecompiledShaderFromAppResources(*m_assetMgr, m_logger.get(), imguiKey);
+	if (!imguiShader)
 		return logFail("Failed to load precompiled ImGui shaders.");
 
 	params.spirv = nbl::ext::imgui::UI::SCreationParameters::PrecompiledShaders{
-		.vertex = std::move(vertexShader),
-		.fragment = std::move(fragmentShader)
+		.vertex = imguiShader,
+		.fragment = std::move(imguiShader)
 	};
 
 	m_ui.manager = nbl::ext::imgui::UI::create(std::move(params));

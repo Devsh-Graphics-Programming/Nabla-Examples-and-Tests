@@ -1,5 +1,5 @@
 #include "app/App.hpp"
-#include "camera/CCameraPersistence.hpp"
+#include "nbl/ext/Cameras/CCameraPersistence.hpp"
 
 bool App::savePresetsToFile(const nbl::system::path& path)
 {

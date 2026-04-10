@@ -1,6 +1,6 @@
 # 61_UI Cameraz
 
-`61_UI` is the full runnable integration and validation target for the shared camera stack documented in [`../common/include/camera/README.md`](../common/include/camera/README.md).
+`61_UI` is the full runnable integration and validation target for the shared camera stack documented in [`../../include/nbl/ext/Cameras/README.md`](../../include/nbl/ext/Cameras/README.md).
 
 If you want the reusable API design, start there first.
 This README focuses on what `61_UI` adds on top of the shared layer.
@@ -124,15 +124,15 @@ It is no longer a giant committed frame dump.
 
 `61_UI` consumes the shared stack directly:
 
-- [`CCameraInputBindingUtilities.hpp`](../common/include/camera/CCameraInputBindingUtilities.hpp)
-- [`CCameraPresetFlow.hpp`](../common/include/camera/CCameraPresetFlow.hpp)
-- [`CCameraFollowUtilities.hpp`](../common/include/camera/CCameraFollowUtilities.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](../common/include/camera/CCameraFollowRegressionUtilities.hpp)
-- [`CCameraSequenceScript.hpp`](../common/include/camera/CCameraSequenceScript.hpp)
-- [`CCameraScriptedRuntime.hpp`](../common/include/camera/CCameraScriptedRuntime.hpp)
-- [`CCameraScriptedRuntimePersistence.hpp`](../common/include/camera/CCameraScriptedRuntimePersistence.hpp)
-- [`CCameraSequenceScriptedBuilder.hpp`](../common/include/camera/CCameraSequenceScriptedBuilder.hpp)
-- [`CCameraScriptedCheckRunner.hpp`](../common/include/camera/CCameraScriptedCheckRunner.hpp)
+- [`CCameraInputBindingUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraInputBindingUtilities.hpp)
+- [`CCameraPresetFlow.hpp`](../../include/nbl/ext/Cameras/CCameraPresetFlow.hpp)
+- [`CCameraFollowUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowUtilities.hpp)
+- [`CCameraFollowRegressionUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp)
+- [`CCameraSequenceScript.hpp`](../../include/nbl/ext/Cameras/CCameraSequenceScript.hpp)
+- [`CCameraScriptedRuntime.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedRuntime.hpp)
+- [`CCameraScriptedRuntimePersistence.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp)
+- [`CCameraSequenceScriptedBuilder.hpp`](../../include/nbl/ext/Cameras/CCameraSequenceScriptedBuilder.hpp)
+- [`CCameraScriptedCheckRunner.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedCheckRunner.hpp)
 
 `61_UI` does not define a private scripting model, private follow math, or private camera restore logic.
 

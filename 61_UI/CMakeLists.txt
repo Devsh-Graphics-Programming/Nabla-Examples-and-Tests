@@ -1,49 +1,15 @@
-if(NBL_BUILD_IMGUI AND NBL_EXT_FRUSTUM_LIB)
-	set(NBL_EXTRA_SOURCES
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppCameraConfigUtilities.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppCameraConfigJsonParsing.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppCameraPlanarRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppCameraConfiguration.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppCameraUiState.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppFollowRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppManipulableObjects.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppDebugSceneRendererResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppFrameCapture.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppFrameRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppSceneDebugInstances.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppSceneRenderPasses.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanel.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelCameraTab.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelPlaybackTab.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelPresetsTab.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelProjectionTab.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelStatusTab.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelTabs.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppControlPanelUtilityTabs.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppPresentationResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppPresetPlayback.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppHeadlessCameraSmoke.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppInputRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppUiInputCapture.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppScriptedInitialization.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppScriptedInputRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppScriptedValidation.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppImGuiListen.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppInit.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppResourceBootstrap.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppTextResourceUtilities.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppResourceUtilities.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppSceneResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppSceneFramebufferResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppSpaceEnvironmentResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppTransformEditor.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppUiResources.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppUiRuntime.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppUpdate.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppViewportGizmos.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppViewportWindows.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/AppWorkLoop.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/keysmapping.cpp"
+if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARGET Nabla::ext::ImGUI)
+	file(GLOB_RECURSE NBL_EXTRA_SOURCES CONFIGURE_DEPENDS
+		"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/*.inl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/*.inl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/*.inl"
 	)
 
 	set(NBL_INCLUDE_SERACH_DIRECTORIES
@@ -51,60 +17,41 @@ if(NBL_BUILD_IMGUI AND NBL_EXT_FRUSTUM_LIB)
 	)
 
 	list(APPEND NBL_LIBRARIES
-		imtestengine
-		imguizmo
-		"${NBL_EXT_IMGUI_UI_LIB}"
+		argparse
+		Nabla::ext::ImGUI
 		Nabla::ext::FullScreenTriangle
-		"${NBL_EXT_FRUSTUM_LIB}"
+		Nabla::ext::Cameras
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
-	if(NBL_EMBED_BUILTIN_RESOURCES)
-		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-		set(RESOURCE_DIR "app_resources")
-
-		get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-		get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
-		get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
-		
-		file(GLOB_RECURSE BUILTIN_RESOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}" CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${RESOURCE_DIR}/*")
-		foreach(RES_FILE ${BUILTIN_RESOURCE_FILES})
-			LIST_BUILTIN_RESOURCE(RESOURCES_TO_EMBED "${RES_FILE}")
-		endforeach()
-
-		ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
-
-		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
-	endif()
-
 	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+	file(GLOB_RECURSE NBL_HLSL_SOURCES CONFIGURE_DEPENDS
+		"${CMAKE_CURRENT_SOURCE_DIR}/app_resources/*.hlsl"
+	)
+	target_sources(${EXECUTABLE_NAME} PRIVATE ${NBL_HLSL_SOURCES})
+	set_source_files_properties(${NBL_HLSL_SOURCES} PROPERTIES HEADER_FILE_ONLY ON)
+
+	set(SM 6_7)
 
 	set(JSON [=[
 [
 	{
-		"INPUT": "app_resources/imgui_vertex.hlsl",
-		"KEY": "imgui_vertex",
-		"COMPILE_OPTIONS": ["-T", "vs_6_7", "-E", "VSMain", "-O3"]
-	},
-	{
-		"INPUT": "app_resources/imgui_fragment.hlsl",
-		"KEY": "imgui_fragment",
-		"COMPILE_OPTIONS": ["-T", "ps_6_7", "-E", "PSMain", "-O3"]
+		"INPUT": "app_resources/imgui.unified.hlsl",
+		"KEY": "imgui.unified"
 	},
 	{
 		"INPUT": "app_resources/sky_env_fragment.hlsl",
-		"KEY": "sky_env_fragment",
-		"COMPILE_OPTIONS": ["-T", "ps_6_7", "-E", "main", "-O3"]
+		"KEY": "sky_env_fragment"
 	}
 ]
 ]=])
 	string(CONFIGURE "${JSON}" JSON)
 
 	set(COMPILE_OPTIONS
+		-isystem "${NBL_ROOT_PATH}/include"
 		-I "${CMAKE_CURRENT_SOURCE_DIR}"
-		-I "${NBL_ROOT_PATH}/include"
-		-I "${NBL_ROOT_PATH}/include/nbl/ext/ImGui/builtin/hlsl"
+		-T lib_${SM}
 	)
 
 	NBL_CREATE_NSC_COMPILE_RULES(
@@ -126,9 +73,6 @@ if(NBL_BUILD_IMGUI AND NBL_EXT_FRUSTUM_LIB)
 		BIND ${OUTPUT_DIRECTORY}
 		BUILTINS ${KEYS}
 	)
-
-	add_dependencies(${EXECUTABLE_NAME} argparse)
-	target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 
 	enable_testing()
 

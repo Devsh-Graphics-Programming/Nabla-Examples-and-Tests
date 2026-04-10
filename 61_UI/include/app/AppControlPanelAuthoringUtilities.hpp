@@ -5,7 +5,7 @@
 #include <string_view>
 
 #include "camera/CCameraControlPanelUiUtilities.hpp"
-#include "camera/CCameraPresentationUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraPresentationUtilities.hpp"
 
 namespace nbl::ui
 {

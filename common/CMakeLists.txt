@@ -10,11 +10,6 @@
 
 nbl_create_ext_library_project(ExamplesAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/pch.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/include" "" "")
 
-target_sources(${LIB_NAME} PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/camera/CCameraPersistence.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/camera/CCameraScriptedRuntimePersistence.cpp"
-)
-
 set_target_properties(${LIB_NAME} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
 target_precompile_headers(${LIB_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/nbl/examples/PCH.hpp")
 

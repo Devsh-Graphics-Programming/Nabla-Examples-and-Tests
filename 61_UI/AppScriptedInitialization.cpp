@@ -2,7 +2,7 @@
 
 #include "app/AppCameraConfigUtilities.hpp"
 #include "app/AppResourceUtilities.hpp"
-#include "camera/CCameraScriptedRuntimePersistence.hpp"
+#include "nbl/ext/Cameras/CCameraScriptedRuntimePersistence.hpp"
 
 void App::resetScriptedInputRuntimeState()
 {
