@@ -1933,7 +1933,7 @@ private:
             float32_t3 normal = generateRandomUnitVector(rng);
             formulaPSA = static_cast<float64_t>(shape.projectedSolidAngle(observer, normal));
             mcPSA = mcEstimatePSA(shape, observer, normal, mcSamples, rng);
-            logInfo = [&](system::ILogger* logger, system::ILogger::E_LOG_LEVEL level)
+            logInfo = [compressed, observer, normal, saValue = sa.value](system::ILogger* logger, system::ILogger::E_LOG_LEVEL level)
             {
                using nbl::system::to_string;
                const float width = length(compressed.right);
@@ -1942,7 +1942,7 @@ private:
                   level, to_string(compressed.origin).c_str(),
                   to_string(width).c_str(), to_string(height).c_str(),
                   to_string(observer).c_str(), to_string(normal).c_str(),
-                  to_string(sa.value).c_str());
+                  to_string(saValue).c_str());
             };
          },
          numConfigs, relTol, absTol, true);
