@@ -129,18 +129,11 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 			[this]() -> void {
 				ImGuiIO& io = ImGui::GetIO();
 
-				m_camera.setProjectionMatrix([&]()
-					{
-						static hlsl::float32_t4x4 projection;
-
-						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
-							core::radians(m_cameraSetting.fov),
-							io.DisplaySize.x / io.DisplaySize.y,
-							m_cameraSetting.zNear,
-							m_cameraSetting.zFar);
-
-						return projection;
-					}());
+				m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
+					core::radians(m_cameraSetting.fov),
+					io.DisplaySize.x / io.DisplaySize.y,
+					m_cameraSetting.zNear,
+					m_cameraSetting.zFar);
 
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::BeginFrame();
@@ -197,8 +190,8 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
 				auto& selectedInstance = m_renderer->getInstance(m_selectedMesh);
 
-				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(m_camera.getViewMatrix()));
-				imguizmoM16InOut.projection = hlsl::transpose(m_camera.getProjectionMatrix());
+				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH())));
+				imguizmoM16InOut.projection = hlsl::transpose(m_cameraProjection);
 				imguizmoM16InOut.projection[1][1] *= -1.f; // Flip y coordinates. https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 				imguizmoM16InOut.model = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(selectedInstance.world));
 				{
@@ -212,8 +205,6 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 			//
 			if (!reloadModel())
 				return false;
-
-			m_camera.mapKeysToArrows();
 
 			onAppInitializedFinish();
 			return true;
@@ -242,8 +233,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
     inline void update(const std::chrono::microseconds nextPresentationTimestamp)
     {
-      m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
-      m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
+      CCameraSimpleFPSUtilities::applySpeedSettings(*m_camera, {m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
 
       static std::chrono::microseconds previousEventTimestamp{};
 
@@ -254,34 +244,30 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
       {
         std::vector<SMouseEvent> mouse{};
         std::vector<SKeyboardEvent> keyboard{};
+        std::vector<SMouseEvent> cameraMouse{};
+        std::vector<SKeyboardEvent> cameraKeyboard{};
       } capturedEvents;
 
-      m_camera.beginInputProcessing(nextPresentationTimestamp);
       {
         const auto& io = ImGui::GetIO();
+				bool reload = false;
         m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
           {
-            if (!io.WantCaptureMouse)
-              m_camera.mouseProcess(events); // don't capture the events, only let m_camera handle them with its impl
-
-            for (const auto& e : events) // here capture
+            for (const auto& e : events)
             {
               if (e.timeStamp < previousEventTimestamp)
                 continue;
 
               previousEventTimestamp = e.timeStamp;
               capturedEvents.mouse.emplace_back(e);
-
+              if (!io.WantCaptureMouse)
+                capturedEvents.cameraMouse.emplace_back(e);
             }
           }, m_logger.get());
 
-				bool reload = false;
         m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
           {
-            if (!io.WantCaptureKeyboard)
-              m_camera.keyboardProcess(events); // don't capture the events, only let m_camera handle them with its impl
-
-            for (const auto& e : events) // here capture
+            for (const auto& e : events)
             {
               if (e.timeStamp < previousEventTimestamp)
                 continue;
@@ -290,12 +276,21 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
               previousEventTimestamp = e.timeStamp;
               capturedEvents.keyboard.emplace_back(e);
+              if (!io.WantCaptureKeyboard)
+                capturedEvents.cameraKeyboard.emplace_back(e);
             }
           }, m_logger.get());
 				if (reload) reloadModel();
 
       }
-      m_camera.endInputProcessing(nextPresentationTimestamp);
+      const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(
+        capturedEvents.cameraMouse,
+        capturedEvents.cameraKeyboard,
+        nextPresentationTimestamp,
+        m_cameraInputRuntime,
+        m_cameraInputConfig);
+      if (!virtualEvents.empty())
+        m_camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 
       const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
       const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -357,8 +352,8 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				}
 
 				// draw scene
-				float32_t3x4 viewMatrix = m_camera.getViewMatrix();
-				float32_t4x4 viewProjMatrix = m_camera.getConcatenatedMatrix();
+				float32_t3x4 viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+				float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 
  				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 
@@ -666,13 +661,19 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				{
 					const auto measure = hlsl::length(diagonal);
 					const auto aspectRatio = float(m_window->getWidth())/float(m_window->getHeight());
-					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix(1.2f,aspectRatio,distance*measure*0.1f,measure*4.0f));
-					m_camera.setMoveSpeed(measure*0.04);
+					m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(1.2f,aspectRatio,distance*measure*0.1f,measure*4.0f);
+					m_cameraSetting.moveSpeed = measure*0.04f;
 				}
 				const auto pos = bound.maxVx+diagonal*distance;
-				m_camera.setPosition(vectorSIMDf(pos.x,pos.y,pos.z));
 				const auto center = (bound.minVx+bound.maxVx)*0.5f;
-				m_camera.setTarget(vectorSIMDf(center.x,center.y,center.z));
+				m_camera = CCameraSimpleFPSUtilities::createFromLookAt(
+					hlsl::float64_t3(pos.x, pos.y, pos.z),
+					hlsl::float64_t3(center.x, center.y, center.z),
+					{m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
+				if (!m_camera)
+					return false;
+				ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
+				m_cameraInputRuntime.binder = &m_cameraInputBinder;
 			}
 
 			// TODO: write out the geometry
@@ -714,7 +715,11 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
       float camXAngle = 32.f / 180.f * 3.14159f;
 
     } m_cameraSetting;
-		Camera m_camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), hlsl::float32_t4x4());
+		core::smart_refctd_ptr<core::CFPSCamera> m_camera;
+		ui::CGimbalInputBinder m_cameraInputBinder;
+		CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
+		CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
+		hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 		// mutables
 		std::string m_modelPath;
 

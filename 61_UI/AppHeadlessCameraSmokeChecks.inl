@@ -1391,8 +1391,109 @@
 			}
 		}
 
-		if (state.initialPresets.free.has_value() && state.freeCamera)
+		if (state.fpsCamera)
 		{
+			const auto baselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.fpsCamera, "fps-motion-scale-baseline");
+			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS motion-scale smoke failed to restore baseline before test", outError))
+				return false;
+
+			nbl::ui::CGimbalInputBinder inputBinder;
+			nbl::ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
+				inputBinder,
+				ICamera::CameraKind::FPS,
+				CVirtualGimbalEvent::All);
+
+			const auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
+			const auto keyboardMagnitude = std::find_if(
+				keyboardEvents.begin(),
+				keyboardEvents.end(),
+				[](const CVirtualGimbalEvent& event) { return event.type == CVirtualGimbalEvent::MoveForward; });
+			if (keyboardMagnitude == keyboardEvents.end())
+			{
+				outError = "FPS motion-scale smoke failed to collect MoveForward event.";
+				return false;
+			}
+
+			const auto baselinePosition = state.fpsCamera->getGimbal().getPosition();
+			const auto baselineForward = state.fpsCamera->getGimbal().getZAxis();
+			const auto expectedPositionDelta =
+				baselineForward * state.fpsCamera->scaleVirtualTranslation(static_cast<double>(keyboardMagnitude->magnitude));
+			if (!state.fpsCamera->manipulate({ keyboardEvents.data(), keyboardEvents.size() }))
+			{
+				outError = "FPS motion-scale smoke failed to apply collected keyboard events.";
+				return false;
+			}
+
+			const auto actualPositionDelta = state.fpsCamera->getGimbal().getPosition() - baselinePosition;
+			if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+			{
+				outError = "FPS motion-scale smoke ignored camera-local translation scaling.";
+				return false;
+			}
+
+			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS motion-scale smoke failed to restore baseline after test", outError))
+				return false;
+		}
+
+		if (state.freeCamera)
+		{
+			const auto freeBaselinePreset = nbl::core::CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.freeCamera, "free-motion-scale-baseline");
+			if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline before test", outError))
+				return false;
+
+			{
+				std::array<CVirtualGimbalEvent, 1u> translationEvents = {{
+					{ CVirtualGimbalEvent::MoveForward, 2.0 }
+				}};
+				const auto baselinePosition = state.freeCamera->getGimbal().getPosition();
+				const auto baselineForward = state.freeCamera->getGimbal().getZAxis();
+				const auto expectedPositionDelta =
+					baselineForward * state.freeCamera->scaleVirtualTranslation(translationEvents[0].magnitude);
+				if (!state.freeCamera->manipulate({ translationEvents.data(), translationEvents.size() }))
+				{
+					outError = "Free motion-scale smoke failed to apply translation event.";
+					return false;
+				}
+
+				const auto actualPositionDelta = state.freeCamera->getGimbal().getPosition() - baselinePosition;
+				if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+				{
+					outError = "Free motion-scale smoke ignored camera-local translation scaling.";
+					return false;
+				}
+
+				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline after translation test", outError))
+					return false;
+			}
+
+			{
+				std::array<CVirtualGimbalEvent, 1u> rotationEvents = {{
+					{ CVirtualGimbalEvent::PanRight, 2.0 }
+				}};
+				const auto baselineForward = state.freeCamera->getGimbal().getZAxis();
+				const auto baselineUp = state.freeCamera->getGimbal().getYAxis();
+				const auto expectedForward = hlsl::CCameraMathUtilities::rotateVectorByQuaternion(
+					hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(
+						hlsl::normalize(baselineUp),
+						state.freeCamera->scaleVirtualRotation(rotationEvents[0].magnitude)),
+					baselineForward);
+				if (!state.freeCamera->manipulate({ rotationEvents.data(), rotationEvents.size() }))
+				{
+					outError = "Free motion-scale smoke failed to apply rotation event.";
+					return false;
+				}
+
+				const auto actualForward = state.freeCamera->getGimbal().getZAxis();
+				if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
+				{
+					outError = "Free motion-scale smoke ignored camera-local rotation scaling.";
+					return false;
+				}
+
+				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline after rotation test", outError))
+					return false;
+			}
+
 			CameraPreset orientedPreset = state.initialPresets.free.value();
 			orientedPreset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
 			const auto orientResult = nbl::core::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
