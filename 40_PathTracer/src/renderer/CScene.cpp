@@ -37,16 +37,16 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 
 	// fill uniforms
 	{
-		const uint16_t maxPathDepth = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth,1,0x1u<<SSensorUniforms::MaxPathDepthLog2);
+		const uint16_t maxPathDepth = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth,1,m_construction.renderer->getConstructionParams().getSequenceMaxPathDepth());
 		const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth,1,maxPathDepth);
 		params.uniforms = {
 			.rcpPixelSize = promote<float32_t2>(1.f)/float32_t2(renderSize),
-			.splatting = {}, // TODO
+			.splatting = hlsl::rwmc::SPackedSplattingParameters::create(mutDefaults.cascadeLuminanceBase,mutDefaults.cascadeLuminanceStart,constants.cascadeCount),
 			.renderSize = renderSize,
-			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
-			.hideEnvironment = mutDefaults.hideEnvironment,
 			.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
-			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1)
+			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1),
+			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
+			.hideEnvironment = mutDefaults.hideEnvironment
 		};
 	}
 

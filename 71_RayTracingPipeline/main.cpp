@@ -95,10 +95,10 @@ public:
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
-		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!device_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(m_system)))
 			return false;
 
 		// Load Custom Shader
@@ -353,7 +353,7 @@ public:
 
 		}
 
-		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 
 		if (!createIndirectBuffer())
 			return logFail("Could not create indirect buffer");

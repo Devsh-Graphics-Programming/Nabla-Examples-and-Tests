@@ -188,16 +188,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.utilities = smart_refctd_ptr(m_utils)
 				},
 				m_assetMgr.get(),
-                {
-					.queue = getGraphicsQueue(),
-					.utilities = smart_refctd_ptr(m_utils),
-					.system = smart_refctd_ptr(m_system),
-					.localOutputCWD = localOutputCWD,
-					.sharedOutputCWD = sharedOutputCWD,
-					.owenSamplerCachePath = "owen_sampler_buffer.bin",
-					.MaxBufferDimensions = SSensorUniforms::MaxBufferDimensions,
-					.MaxSamplesBuffer = SSensorUniforms::MaxSamplesBuffer,
-                }
+				(sharedOutputCWD/nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string()
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");
@@ -227,7 +218,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				m_api->startCapture();
 				auto scene_daily_pt = m_renderer->createScene({
 						.load = m_sceneLoader->load({
-						.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
+						.relPath = sharedInputCWD/"mitsuba/ditt/render_2160p.xml",
 						.workingDirectory = localOutputCWD 
 					}),
 					.converter = nullptr
@@ -264,11 +255,11 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
 					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
 				}
-				sensors.erase(sensors.begin());
+//				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
-							{.mode=CSession::RenderMode::Debug},&sensor
+							{.mode=CSession::RenderMode::Beauty},&sensor
 						})
 					);
 			}
@@ -426,26 +417,35 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline void workLoopBody() override
 		{
 			CSession* session;
-			volatile bool skip = false; // skip using the debugger
-			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 			{
-				skip = false;
-				if (m_sessionQueue.empty())
+				bool sameSession = true;
+				volatile bool skip = false; // skip using the debugger
+				for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 				{
-					if (!m_args.headless)
-						handleInputs();
-					return;
-				}
-				session = m_sessionQueue.front().get();
-				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session, this](SIntendedSubmitInfo& info)->bool
+					skip = false;
+					if (m_sessionQueue.empty())
 					{
-						const auto& params = m_renderer->getConstructionParams();
-						return session->init(info.getCommandBufferForRecording()->cmdbuf, smart_refctd_ptr(params.sampleSequence->buffer), smart_refctd_ptr(params.scrambleKey));
+						if (!m_args.headless)
+							handleInputs();
+						return;
 					}
-				);
-				m_resolver->changeSession(std::move(m_sessionQueue.front()));
-				m_sessionQueue.pop();
+					session = m_sessionQueue.front().get();
+					// init
+					m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session,this](SIntendedSubmitInfo& info)->bool
+						{
+							return session->init(info);
+						}
+					);
+					m_resolver->changeSession(std::move(m_sessionQueue.front()));
+					sameSession = false;
+					m_sessionQueue.pop();
+				}
+				// TODO: camera movement and UI update
+				if (sameSession)
+				{
+					// no update right now
+					session->update(session->getActiveResources().prevSensorState);
+				}
 			}
 
 			m_api->startCapture();

@@ -12,9 +12,9 @@ struct SRenderVariantInfo
 	const char* entryPoint;
 };
 
-static constexpr const char* getDefaultRenderEntryPointName(const bool persistentWorkGroups)
+static constexpr const char* getDefaultRenderEntryPointName(const bool)
 {
-	return persistentWorkGroups ? "mainPersistent" : "main";
+	return "mainPersistent";
 }
 
 static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const E_POLYGON_METHOD requestedMethod)
@@ -28,9 +28,9 @@ static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY 
 		switch (requestedMethod)
 		{
 		case EPM_AREA:
-			return { EPM_AREA, EPM_AREA, persistentWorkGroups ? "mainPersistentArea" : "mainArea" };
+			return { EPM_AREA, EPM_AREA, "mainPersistentArea" };
 		case EPM_SOLID_ANGLE:
-			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, persistentWorkGroups ? "mainPersistentSolidAngle" : "mainSolidAngle" };
+			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, "mainPersistentSolidAngle" };
 		case EPM_PROJECTED_SOLID_ANGLE:
 		default:
 			return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
@@ -39,9 +39,9 @@ static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY 
 		switch (requestedMethod)
 		{
 		case EPM_AREA:
-			return { EPM_AREA, EPM_AREA, persistentWorkGroups ? "mainPersistentArea" : "mainArea" };
+			return { EPM_AREA, EPM_AREA, "mainPersistentArea" };
 		case EPM_SOLID_ANGLE:
-			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, persistentWorkGroups ? "mainPersistentSolidAngle" : "mainSolidAngle" };
+			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, "mainPersistentSolidAngle" };
 		case EPM_PROJECTED_SOLID_ANGLE:
 		default:
 			return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };

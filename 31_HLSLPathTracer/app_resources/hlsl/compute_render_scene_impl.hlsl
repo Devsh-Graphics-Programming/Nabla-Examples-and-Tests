@@ -24,7 +24,7 @@ using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_con
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
 
 using payload_type = Payload<float>;
-using randgen_type = RandomUniformND<Xoroshiro64Star, 3>;
+using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
 using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
 
 #if PATH_TRACER_USE_RWMC
@@ -87,7 +87,7 @@ void tracePixel(int32_t2 coords)
 	}
 
 	scene_type scene;
-	scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
+	scene.updateLight(renderPushConstants.getLightMatrix());
 
 	typename variant_types::raygen_type rayGen;
 	rayGen.pixOffsetParam = pixOffsetParam;
@@ -96,7 +96,9 @@ void tracePixel(int32_t2 coords)
 	rayGen.invMVP = renderPushConstants.invMVP;
 
 	pathtracer.scene = scene;
-	pathtracer.randGen = randgen_type::create(::scramblebuf[coords].rg, renderPushConstants.pSampleSequence);
+	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
+	pathtracer.randGen.rng = Xoroshiro64Star::construct(scramblebuf[coords].rg);
+	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
 	pathtracer.nee.lights = lights;
 	pathtracer.materialSystem.bxdfs = bxdfs;
 	pathtracer.bxdfPdfThreshold = 0.0001;
@@ -109,7 +111,7 @@ void tracePixel(int32_t2 coords)
 	accumulator_type accumulator = accumulator_type::create();
 #endif
 
-	for (int i = 0; i < renderPushConstants.sampleCount; ++i)
+	for (uint32_t i = 0u; i < renderPushConstants.sampleCount; ++i)
 	{
 		const float32_t3 uvw = pathtracer.randGen(0u, i);
 		typename variant_types::ray_type ray = rayGen.generate(uvw);
@@ -119,7 +121,7 @@ void tracePixel(int32_t2 coords)
 
 #if PATH_TRACER_USE_RWMC
 	for (uint32_t i = 0; i < CascadeCount; ++i)
-		::cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.data[i], 1.0f);
+		::cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.__data[i], 1.0f);
 #else
 	::outImage[uint3(coords.x, coords.y, 0)] = float32_t4(accumulator.accumulation, 1.0);
 #endif
