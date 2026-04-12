@@ -13,7 +13,7 @@ using namespace nbl::hlsl;
 using namespace nbl::ui;
 using namespace nbl::video;
 
-constexpr auto SessionImageWritingStages = PIPELINE_STAGE_FLAGS::CLEAR_BIT|PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+constexpr auto SessionImageWritingStages = PIPELINE_STAGE_FLAGS::COPY_BIT|PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
 
 constexpr IGPURenderpass::SCreationParams::SSubpassDependency CWindowPresenter::Dependencies[3] =
 {
@@ -22,11 +22,12 @@ constexpr IGPURenderpass::SCreationParams::SSubpassDependency CWindowPresenter::
 		.dstSubpass = 0,
 		.memoryBarrier =
 		{
+			// would we need some bits here to sync against the acquire? https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/12066#issuecomment-4222646404
 			.srcStageMask = SessionImageWritingStages,
-			.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT|ACCESS_FLAGS::STORAGE_WRITE_BIT,
-			// fragment shader that draws them
-			.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-			.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
+			.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT|ACCESS_FLAGS::SHADER_WRITE_BITS,
+			// fragment shader that draws them, also barrier the CLEAR (or potential CLEAR with DONT_CARE) against the layout transition
+			.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT|PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT|ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 		}
 	},
 	{
@@ -37,7 +38,7 @@ constexpr IGPURenderpass::SCreationParams::SSubpassDependency CWindowPresenter::
 			// the output to swapchain image
 			.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 			.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-			// we only worry about next compute dispatch not overwriting our presented image
+			// we only worry about next compute dispatch not overwriting the image we're presenting
 			.dstStageMask = SessionImageWritingStages,
 			// but there are no writes from present to make available to it
 			.dstAccessMask = ACCESS_FLAGS::NONE
@@ -237,7 +238,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		winMgr->show(window);
 
 	m_pushConstants.layer = 0; // TODO: cubemaps and RWMC debug
-	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::Albedo);
+	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::RWMCCascades);
 
 	auto acquireResult = m_construction.surface->acquireNextImage();
 	*p_currentImageAcquire = {.semaphore=acquireResult.semaphore,.value=acquireResult.acquireCount};

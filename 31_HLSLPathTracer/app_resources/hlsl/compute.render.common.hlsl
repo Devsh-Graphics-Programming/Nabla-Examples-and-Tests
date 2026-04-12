@@ -16,15 +16,20 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+//
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
-#if PATH_TRACER_ENABLE_PERSISTENT
+//
 #include "nbl/builtin/hlsl/morton.hlsl"
-#endif
+//
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+//
 #include "nbl/builtin/hlsl/path_tracing/basic_ray_gen.hlsl"
 #include "nbl/builtin/hlsl/path_tracing/unidirectional.hlsl"
+
+#include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
+
 #include "render_common.hlsl"
 
 #if PATH_TRACER_USE_RWMC
@@ -53,7 +58,6 @@
 #endif
 
 #include "example_common.hlsl"
-#include "rand_gen.hlsl"
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"

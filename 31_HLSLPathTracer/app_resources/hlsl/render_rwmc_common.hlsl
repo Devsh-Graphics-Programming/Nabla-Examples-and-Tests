@@ -10,5 +10,8 @@ struct RenderRWMCPushConstants
 	RenderPushConstants renderPushConstants;
 	nbl::hlsl::rwmc::SPackedSplattingParameters splattingParameters;
 };
+#ifndef __HLSL_VERSION
+static_assert(sizeof(RenderRWMCPushConstants)<=128,"Nabla Core Profile Guarantees only minimum of 128 bytes");
+#endif
 
 #endif
