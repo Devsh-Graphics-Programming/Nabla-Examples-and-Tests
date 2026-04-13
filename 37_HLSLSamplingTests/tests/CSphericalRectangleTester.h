@@ -49,24 +49,34 @@ private:
 	{
 		bool pass = true;
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
-			FieldCheck{"SphericalRectangle::generate",       &R::generated,      5e-5, 5e-3},
-			FieldCheck{"SphericalRectangle::forwardPdf",     &R::forwardPdf,     1e-5, 5e-4},
-			FieldCheck{"SphericalRectangle::backwardPdf",    &R::backwardPdf,    1e-5, 5e-4},
-			FieldCheck{"SphericalRectangle::forwardWeight",  &R::forwardWeight,  1e-5, 5e-4},
-			FieldCheck{"SphericalRectangle::backwardWeight", &R::backwardWeight, 1e-5, 5e-4});
+			FieldCheck{"SphericalRectangle::generate",              &R::generated,      5e-5, 5e-3},
+			FieldCheck{"SphericalRectangle::generateSurfaceOffset", &R::surfaceOffset,  5e-5, 5e-3},
+			FieldCheck{"SphericalRectangle::forwardPdf",            &R::forwardPdf,     1e-5, 5e-4},
+			FieldCheck{"SphericalRectangle::backwardPdf",           &R::backwardPdf,    1e-5, 5e-4},
+			FieldCheck{"SphericalRectangle::forwardWeight",         &R::forwardWeight,  1e-5, 5e-4},
+			FieldCheck{"SphericalRectangle::backwardWeight",        &R::backwardWeight, 1e-5, 5e-4});
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"SphericalRectangle::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"SphericalRectangle::backwardPdf", &R::backwardPdf});
 		pass &= verifyTestValue("SphericalRectangle::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
 		pass &= verifyTestValue("SphericalRectangle::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 
-		// Sample must land inside the rectangle
-		if (actual.generated.x < 0.0f || actual.generated.x > actual.extents.x ||
-			actual.generated.y < 0.0f || actual.generated.y > actual.extents.y)
+		// surfaceOffset must land inside the rectangle
+		if (actual.surfaceOffset.x < 0.0f || actual.surfaceOffset.x > actual.extents.x ||
+			actual.surfaceOffset.y < 0.0f || actual.surfaceOffset.y > actual.extents.y)
 		{
 			pass = false;
-			printTestFail("SphericalRectangle::generate (inside rect bounds)", actual.extents, actual.generated, iteration, seed, testType, 0.0, 0.0);
+			printTestFail("SphericalRectangle::generateSurfaceOffset (inside rect bounds)", actual.extents, actual.surfaceOffset, iteration, seed, testType, 0.0, 0.0);
 		}
+
+		// generate must be unit length
+		{
+			const float dirLen = nbl::hlsl::length(actual.generated);
+			pass &= verifyTestValue("SphericalRectangle::generate (unit length)", dirLen, 1.0f, iteration, seed, testType, 1e-5, 1e-4);
+		}
+
+		// generate must agree with generateSurfaceOffset (reference direction from normalized local point)
+		pass &= verifyTestValue("SphericalRectangle::generate vs generateSurfaceOffset", actual.generated, actual.referenceDirection, iteration, seed, testType, 5e-5, 5e-3);
 
 		if (!pass && iteration < m_inputs.size())
 			logFailedInput(m_logger.get(), m_inputs[iteration]);

@@ -288,18 +288,17 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
         vector3_type L = hlsl::promote<vector3_type>(0.0);
-        scalar_type solidAngle = sphR0.solidAngle(origin).value;
 
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0, origin);
-        typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
-        vector<T, 2> sphUv = ssph.generate(xi.xy, cache);
-        if (solidAngle > numeric_limits<scalar_type>::min)
+        if ( ssph.solidAngle > numeric_limits<scalar_type>::min)
         {
-            vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
-            L = sph_sample - origin;
-            const bool invalid = hlsl::all(hlsl::abs(L) < hlsl::promote<vector3_type>(numeric_limits<scalar_type>::min));
-            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<vector3_type>(0.0), invalid);
-            pdf = hlsl::mix(1.f / solidAngle, bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity), invalid);
+            typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
+            const vector3_type localDir = ssph.generate(xi.xy, cache);
+            // not sure if generate() can produce NaN/inf when solidAngle > min
+            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
+            // transform local direction to world space
+            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
+            pdf = ssph.forwardPdf(xi.xy, cache);
         }
         else
             pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
@@ -379,16 +378,16 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         vector3_type L = hlsl::promote<vector3_type>(0.0);
 
         sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, origin, interaction.getN(), interaction.isMaterialBSDF());
-        typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
-        vector<T, 2> sphUv = psr.generate(xi.xy, cache);
         const scalar_type solidAngle = psr.sphrect.solidAngle;
         if (solidAngle > numeric_limits<scalar_type>::min)
         {
-            vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
-            L = sph_sample - origin;
-            const bool invalid = hlsl::all(hlsl::abs(L) < hlsl::promote<vector3_type>(numeric_limits<scalar_type>::min));
-            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<vector3_type>(0.0), invalid);
-            pdf = hlsl::mix(psr.forwardPdf(xi.xy, cache), bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity), invalid);
+            typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
+            const vector3_type localDir = psr.generate(xi.xy, cache);
+            // not sure if generate() can produce NaN/inf when solidAngle > min
+            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
+            // transform local direction to world space
+            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
+            pdf = psr.forwardPdf(xi.xy, cache);
         }
         else
             pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);

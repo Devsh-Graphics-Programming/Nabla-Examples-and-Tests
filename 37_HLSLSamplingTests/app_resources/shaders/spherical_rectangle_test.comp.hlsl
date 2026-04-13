@@ -36,8 +36,8 @@ main()
    {
       float32_t2 u = float32_t2(rng(), rng()) * toFloat;
       sampling::SphericalRectangle<float32_t>::cache_type cache;
-      float32_t2 generated = sampler.generate(u, cache);
-      acc ^= asuint(generated.x) ^ asuint(generated.y);
+      float32_t3 generated = sampler.generate(u, cache);
+      acc ^= asuint(generated.x) ^ asuint(generated.y) ^ asuint(generated.z);
       acc ^= asuint(sampler.forwardPdf(u, cache));
    }
    benchOutput.Store(invID * 4u, acc);

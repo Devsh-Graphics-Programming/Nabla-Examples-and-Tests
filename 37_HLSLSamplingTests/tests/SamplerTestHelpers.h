@@ -312,7 +312,7 @@ inline float64_t mcEstimatePSA(
    {
       float32_t2 u(uDist(rng), uDist(rng));
       typename sampling::SphericalRectangle<float32_t>::cache_type cache;
-      float32_t2 gen = sampler.generate(u, cache);
+      float32_t2 gen = sampler.generateSurfaceOffset(u, cache);
       // Reconstruct world-space direction from rectangle offset
       float32_t3 worldPt = shape.origin
          + shape.basis[0] * gen.x
