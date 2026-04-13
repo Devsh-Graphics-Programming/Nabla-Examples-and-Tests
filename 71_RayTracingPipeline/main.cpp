@@ -1224,7 +1224,7 @@ private:
 				inst.base.instanceCustomIndex = i;
 				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;
 				inst.base.mask = 0xFF;
-				inst.transform = isProceduralInstance ? hlsl::float32_t3x4() : cpuObjects[i].transform;
+				inst.transform = isProceduralInstance ? hlsl::float32_t3x4(1.0) : cpuObjects[i].transform;
 
 				instance->instance = inst;
 			}
