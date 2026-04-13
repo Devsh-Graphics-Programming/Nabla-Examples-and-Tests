@@ -369,6 +369,25 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
 };
 
 template<>
+struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>>
+{
+    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf.nested_brdf.ndf = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>::ndf_type::create(_rc.alpha.x);
+        base_t::bxdf.nested_brdf.fresnel = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>::fresnel_type::create(_rc.eta,_rc.etak);
+        base_t::bxdf.shadingNormal = _rc.N2;
+        float32_t3 T, B;
+        math::frisvad<float32_t3>(_rc.N2, T, B);
+        base_t::bxdf.shadingBasis = float32_t3x3(T, B, _rc.N2);
+#ifndef __HLSL_VERSION
+        base_t::name = "Microfacet-based normals BRDF (GGX isotropic)";
+#endif
+    }
+};
+
+template<>
 struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
 {
    using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
