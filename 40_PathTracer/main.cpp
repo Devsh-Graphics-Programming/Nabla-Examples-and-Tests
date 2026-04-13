@@ -97,7 +97,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
-			// TODO: need union/superset
+			// TODO: need union/superset so Renderer can slap it in
+			retval.rayTracingInvocationReorder = true;
 			retval.rayTracingPositionFetch = true;
 			retval.shaderStorageImageReadWithoutFormat = true;
 			return retval;
