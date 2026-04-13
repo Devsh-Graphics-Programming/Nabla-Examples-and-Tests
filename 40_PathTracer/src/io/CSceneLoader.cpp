@@ -192,6 +192,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 			const bool isSpherical = _sensor.type==mts_sensor_t::SPHERICAL;
 			const auto& base = _sensor.base;
 			const auto& film = _sensor.film;
+			const float Emin = hlsl::isnan(film.rfilter.Emin) ? 0.05f:film.rfilter.Emin;
 			auto& constants = sensors[i].constants;
 			{
 				constants.bloomFilePath = std::filesystem::path(film.denoiserBloomFilePath);
@@ -383,8 +384,16 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				mutableDefaults.nearClip = base.nearClip;
 				mutableDefaults.farClip = base.farClip;
 				//
-				mutableDefaults.cascadeLuminanceBase = film.cascadeLuminanceBase;
-				mutableDefaults.cascadeLuminanceStart = film.cascadeLuminanceStart;
+				const auto& rfliter = film.rfilter;
+				mutableDefaults.cascadeLuminanceBase = hlsl::isnan(film.cascadeLuminanceBase) ? rfliter.Emin:film.cascadeLuminanceBase;
+				// gets replaced by the N-th root of the ratio of Maximum Emitter Radiance's luminance over cascadeLuminanceBase, where N is cascadeCount-1
+				if (hlsl::isnan(film.cascadeLuminanceStart))
+				{
+					const float maxRadiance = 1000.f; // TODO: take from the emitter list!
+					mutableDefaults.cascadeLuminanceStart = pow(maxRadiance/mutableDefaults.cascadeLuminanceBase,1.f/float(constants.cascadeCount-1));
+				}
+				else
+					mutableDefaults.cascadeLuminanceStart = film.cascadeLuminanceStart;
 				//
 				integrator.visit([&mutableDefaults](auto& var)->void
 					{
@@ -394,6 +403,11 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				);
 				integrator.visit([&mutableDefaults](auto& var)->void
 					{
+						if constexpr (std::is_base_of_v<CElementIntegrator::DirectIllumination,std::remove_reference_t<decltype(var)>>)
+						{
+							mutableDefaults.maxPathDepth = 2;
+							mutableDefaults.russianRouletteDepth = 2;
+						}
 						if constexpr (std::is_base_of_v<CElementIntegrator::MonteCarloTracingBase,std::remove_reference_t<decltype(var)>>)
 						{
 							mutableDefaults.maxPathDepth = var.maxPathDepth;
@@ -514,7 +528,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					logger.log("Sensor %s (%d-th in XML) is SPHERICAL, zoom speed gets ignored!",ILogger::ELL_WARNING,id,i);
 				dynamicDefaults.samplesNeeded = _sensor.sampler.sampleCount;
 				dynamicDefaults.kappa = constants.cascadeCount<2 ? 0.f:film.rfilter.kappa;
-				dynamicDefaults.Emin = film.rfilter.Emin;
+				dynamicDefaults.Emin = Emin;
 				if (film.envmapRegularizationFactor>0.f)
 					logger.log("Sensor %s (%d-th in XML) `envmapRegularizationFactor=%f` is deprecated and ignored, we do MIS now",ILogger::ELL_WARNING,id,i,film.envmapRegularizationFactor);
 			}
