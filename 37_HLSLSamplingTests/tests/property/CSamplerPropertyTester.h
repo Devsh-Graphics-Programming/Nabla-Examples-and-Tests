@@ -1636,7 +1636,7 @@ class CRectangleGenerateTester
             {
                float32_t2 u(uDist(ctx.rng), uDist(ctx.rng));
                typename sampler_type::cache_type cache;
-               float32_t2 gen = sampler.generate(u, cache);
+               float32_t2 gen = sampler.generateSurfaceOffset(u, cache);
                const float coord = cutAlongX ? gen.x : gen.y;
                if (coord < cutThreshold)
                   countInSub++;
@@ -1715,7 +1715,7 @@ class CRectangleGenerateTester
             {
                float32_t2 u(uDist(ctx.rng), uDist(ctx.rng));
                typename sampler_type::cache_type cache;
-               float32_t2 gen = sampler.generate(u, cache);
+               float32_t2 gen = sampler.generateSurfaceOffset(u, cache);
                float32_t3 dir = reconstructDirection(compressed, shape.extents, observer, gen);
                sum += static_cast<float64_t>(dot(dir, N));
             }
@@ -1779,7 +1779,7 @@ class CRectangleGenerateTester
          {
             float32_t2 u(uDist(ctx.rng), uDist(ctx.rng));
             typename sampler_type::cache_type cache;
-            float32_t2 gen = sampler.generate(u, cache);
+            float32_t2 gen = sampler.generateSurfaceOffset(u, cache);
 
             if (gen.x < -1e-5f || gen.x > extX + 1e-5f || gen.y < -1e-5f || gen.y > extY + 1e-5f)
             {

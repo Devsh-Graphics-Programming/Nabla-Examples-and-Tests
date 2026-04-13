@@ -138,8 +138,8 @@ void main()
     const float32_t3 srObserver = float32_t3(0.0, 0.0, 0.0);
     sampling::SphericalRectangle<float32_t> sphRect = sampling::SphericalRectangle<float32_t>::create(shapeRect, srObserver);
     sampling::SphericalRectangle<float32_t>::cache_type sphRectCache;
-    float32_t2 srSample = sphRect.generate(u2, sphRectCache);
-    acc.xy += srSample;
+    float32_t3 srSample = sphRect.generate(u2, sphRectCache);
+    acc.xyz += srSample;
     acc.x += sphRect.forwardPdf(u2, sphRectCache);
     acc.x += sphRect.forwardWeight(u2, sphRectCache);
     acc.x += sphRect.backwardPdf(srSample);

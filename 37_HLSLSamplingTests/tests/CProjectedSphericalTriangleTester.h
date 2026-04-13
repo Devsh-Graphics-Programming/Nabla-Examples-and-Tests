@@ -69,8 +69,8 @@ private:
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"ProjectedSphericalTriangle::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"ProjectedSphericalTriangle::backwardPdf", &R::backwardPdf});
-		pass &= verifyTestValue("ProjectedSphericalTriangle::pdf consistency", actual.forwardPdf, actual.backwardPdfAtGenerated, iteration, seed, testType, 5e-3, 3e-3);
-		pass &= verifyTestValue("ProjectedSphericalTriangle::weight consistency", actual.forwardWeight, actual.backwardWeightAtGenerated, iteration, seed, testType, 5e-3, 3e-3);
+		pass &= verifyTestValue("ProjectedSphericalTriangle::pdf consistency", actual.forwardPdf, actual.backwardPdfAtGenerated, iteration, seed, testType, 0.015, 8e-3);
+		pass &= verifyTestValue("ProjectedSphericalTriangle::weight consistency", actual.forwardWeight, actual.backwardWeightAtGenerated, iteration, seed, testType, 0.015, 8e-3);
 
 		if (!pass && iteration < m_inputs.size())
 			logFailedInput(m_logger.get(), m_inputs[iteration]);

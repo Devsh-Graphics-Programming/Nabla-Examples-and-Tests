@@ -18,7 +18,9 @@ struct SphericalRectangleInputValues
 
 struct SphericalRectangleTestResults
 {
-	float32_t2 generated;
+	float32_t3 generated;
+	float32_t2 surfaceOffset;
+	float32_t3 referenceDirection;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t forwardWeight;
@@ -44,6 +46,15 @@ struct SphericalRectangleTestExecutor
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
 			output.forwardWeight = sampler.forwardWeight(input.u, cache);
+		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.surfaceOffset = sampler.generateSurfaceOffset(input.u, cache);
+		}
+		// reference direction: reconstruct local 3D point from surfaceOffset and normalize
+		{
+			const float32_t3 localPoint = sampler.r0 + float32_t3(output.surfaceOffset.x, output.surfaceOffset.y, float32_t(0));
+			output.referenceDirection = nbl::hlsl::normalize(localPoint);
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 		output.backwardWeight = sampler.backwardWeight(output.generated);

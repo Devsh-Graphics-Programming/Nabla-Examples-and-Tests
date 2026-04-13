@@ -20,7 +20,9 @@ struct ProjectedSphericalRectangleInputValues
 
 struct ProjectedSphericalRectangleTestResults
 {
-	float32_t2 generated;
+	float32_t3 generated;
+	float32_t2 surfaceOffset;
+	float32_t3 referenceDirection;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t forwardWeight;
@@ -48,6 +50,15 @@ struct ProjectedSphericalRectangleTestExecutor
 			output.generated = sampler.generate(input.u, cache);
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
 			output.forwardWeight = sampler.forwardWeight(input.u, cache);
+		}
+		{
+			sampling::ProjectedSphericalRectangle<float32_t>::cache_type offsetCache;
+			output.surfaceOffset = sampler.generateSurfaceOffset(input.u, offsetCache);
+		}
+		// reference direction: reconstruct local 3D point from surfaceOffset and normalize
+		{
+			const float32_t3 localPoint = sampler.sphrect.r0 + float32_t3(output.surfaceOffset.x, output.surfaceOffset.y, float32_t(0));
+			output.referenceDirection = nbl::hlsl::normalize(localPoint);
 		}
 		// Test backwardPdf/Weight at the rect center: a deterministic interior point
 		// that avoids amplifying generate's FP errors through backward evaluation.

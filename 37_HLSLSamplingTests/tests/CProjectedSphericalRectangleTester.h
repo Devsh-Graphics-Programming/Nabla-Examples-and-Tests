@@ -64,24 +64,34 @@ class CProjectedSphericalRectangleTester final : public ITester<ProjectedSpheric
    {
       bool pass = true;
       VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
-         FieldCheck {"ProjectedSphericalRectangle::generate", &R::generated, 5e-1, 5e-3},
-         FieldCheck {"ProjectedSphericalRectangle::forwardPdf", &R::forwardPdf, 5e-2, 1e-4},
-         FieldCheck {"ProjectedSphericalRectangle::backwardPdf", &R::backwardPdf, 5e-2, 1e-4},
-         FieldCheck {"ProjectedSphericalRectangle::forwardWeight", &R::forwardWeight, 5e-2, 1e-4},
-         FieldCheck {"ProjectedSphericalRectangle::backwardWeight", &R::backwardWeight, 5e-2, 1e-4});
+         FieldCheck {"ProjectedSphericalRectangle::generate",              &R::generated,     5e-1, 5e-3},
+         FieldCheck {"ProjectedSphericalRectangle::generateSurfaceOffset", &R::surfaceOffset, 5e-1, 5e-3},
+         FieldCheck {"ProjectedSphericalRectangle::forwardPdf",            &R::forwardPdf,    5e-2, 1e-4},
+         FieldCheck {"ProjectedSphericalRectangle::backwardPdf",           &R::backwardPdf,   5e-2, 1e-4},
+         FieldCheck {"ProjectedSphericalRectangle::forwardWeight",         &R::forwardWeight, 5e-2, 1e-4},
+         FieldCheck {"ProjectedSphericalRectangle::backwardWeight",        &R::backwardWeight,5e-2, 1e-4});
       VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
          PdfCheck {"ProjectedSphericalRectangle::forwardPdf", &R::forwardPdf},
          PdfCheck {"ProjectedSphericalRectangle::backwardPdf", &R::backwardPdf});
       pass &= verifyTestValue("ProjectedSphericalRectangle::pdf consistency", actual.forwardPdf, actual.backwardPdfAtGenerated, iteration, seed, testType, 5e-3, 1e-4);
       pass &= verifyTestValue("ProjectedSphericalRectangle::weight consistency", actual.forwardWeight, actual.backwardWeightAtGenerated, iteration, seed, testType, 5e-3, 1e-4);
 
-      // Sample must land inside the rectangle
-      if (actual.generated.x < 0.0f || actual.generated.x > actual.extents.x ||
-         actual.generated.y < 0.0f || actual.generated.y > actual.extents.y)
+      // surfaceOffset must land inside the rectangle
+      if (actual.surfaceOffset.x < 0.0f || actual.surfaceOffset.x > actual.extents.x ||
+         actual.surfaceOffset.y < 0.0f || actual.surfaceOffset.y > actual.extents.y)
       {
          pass = false;
-         printTestFail("SphericalRectangle::generate (inside rect bounds)", actual.extents, actual.generated, iteration, seed, testType, 0.0, 0.0);
+         printTestFail("ProjectedSphericalRectangle::generateSurfaceOffset (inside rect bounds)", actual.extents, actual.surfaceOffset, iteration, seed, testType, 0.0, 0.0);
       }
+
+      // generate must be unit length
+      {
+         const float dirLen = nbl::hlsl::length(actual.generated);
+         pass &= verifyTestValue("ProjectedSphericalRectangle::generate (unit length)", dirLen, 1.0f, iteration, seed, testType, 1e-5, 1e-4);
+      }
+
+      // generate must agree with generateSurfaceOffset (reference direction from normalized local point)
+      pass &= verifyTestValue("ProjectedSphericalRectangle::generate vs generateSurfaceOffset", actual.generated, actual.referenceDirection, iteration, seed, testType, 5e-5, 5e-3);
 
       if (!pass && iteration < m_inputs.size())
          logFailedInput(m_logger.get(), m_inputs[iteration]);
@@ -145,10 +155,10 @@ struct ProjectedSphericalRectanglePropertyConfig
    static void logSamplerInfo(nbl::system::ILogger* logger, const sampler_type& s)
    {
       using nbl::system::to_string;
-      logger->log("    r0=%s r1=%s solidAngle=%s rcpSolidAngle=%s rcpProjSolidAngle=%s",
+      logger->log("    r0=%s extents=%s solidAngle=%s rcpSolidAngle=%s rcpProjSolidAngle=%s",
          nbl::system::ILogger::ELL_ERROR,
          to_string(s.sphrect.r0).c_str(),
-         to_string(s.sphrect.r1).c_str(),
+         to_string(s.sphrect.extents).c_str(),
          to_string(s.sphrect.solidAngle).c_str(),
          to_string(s.rcpSolidAngle).c_str(),
          to_string(s.rcpProjSolidAngle).c_str());
@@ -192,10 +202,10 @@ struct ProjectedSphericalRectangleGrazingConfig
    static void logSamplerInfo(nbl::system::ILogger* logger, const sampler_type& s)
    {
       using nbl::system::to_string;
-      logger->log("    r0=%s r1=%s solidAngle=%s rcpSolidAngle=%s rcpProjSolidAngle=%s",
+      logger->log("    r0=%s extents=%s solidAngle=%s rcpSolidAngle=%s rcpProjSolidAngle=%s",
          nbl::system::ILogger::ELL_ERROR,
          to_string(s.sphrect.r0).c_str(),
-         to_string(s.sphrect.r1).c_str(),
+         to_string(s.sphrect.extents).c_str(),
          to_string(s.sphrect.solidAngle).c_str(),
          to_string(s.rcpSolidAngle).c_str(),
          to_string(s.rcpProjSolidAngle).c_str());
