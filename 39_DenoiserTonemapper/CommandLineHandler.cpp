@@ -31,9 +31,12 @@ CommandLineHandler::CommandLineHandler(core::vector<std::string> argv, IAssetMan
 		return;
 	}
 	
-	auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am,fs);
-	mitsubaLoader->initialize();
-	am->addAssetLoader(std::move(mitsubaLoader));
+	if (am && fs)
+	{
+		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am,fs);
+		mitsubaLoader->initialize();
+		am->addAssetLoader(std::move(mitsubaLoader));
+	}
 
 	core::vector<std::array<std::string, PROPER_CMD_ARGUMENTS_AMOUNT>> argvMappedList;
 
@@ -379,6 +382,11 @@ nbl::core::matrix3x4SIMD CommandLineHandler::getCameraTransform(uint64_t id)
 	{
 		case PATH_TO_MITSUBA_SCENE:
 		{
+			if (!assetManager)
+			{
+				os::Printer::log("ERROR (" + std::to_string(__LINE__) + " line): Couldn't resolve CAMERA_TRANSFORM from Mitsuba metadata because the asset manager is not available! Id of input stride: " + std::to_string(id), ELL_ERROR);
+				exit(-3);
+			}
 			return getMatrixFromFile();
 		}
 		case CAMERA_MATRIX_VALUES:
