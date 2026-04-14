@@ -29,6 +29,8 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	params.cropOffsets = {mutDefaults.cropOffsetX,mutDefaults.cropOffsetY};
 	params.cropResolution = {mutDefaults.cropWidth,mutDefaults.cropHeight};
 	params.type = raygen.getType();
+	params.outputFilePath = dynDefaults.outputFilePath;
+	params.postProcess = dynDefaults.postProc;
 	
 	const uint16_t2 renderSize(constants.width,constants.height);
 	assert(all(params.cropOffsets<renderSize));

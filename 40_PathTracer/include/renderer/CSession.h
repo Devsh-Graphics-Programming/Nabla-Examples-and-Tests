@@ -95,13 +95,26 @@ class CSession final : public core::IReferenceCounted
 		// TODO: figure this out
 		inline float getProgress() const
 		{
-			return 0.f;
+			if (m_params.initDynamics.maxSPP==0u)
+				return 1.f;
+			return core::min(1.f,static_cast<float>(m_samplesDispatched)/static_cast<float>(m_params.initDynamics.maxSPP));
+		}
+
+		inline uint32_t getSamplesDispatched() const
+		{
+			return m_samplesDispatched;
+		}
+
+		inline void noteSamplesDispatched(const uint32_t spp)
+		{
+			m_samplesDispatched = core::min<uint32_t>(m_params.initDynamics.maxSPP,m_samplesDispatched+spp);
 		}
 
 		//
 		inline void deinit()
 		{
 			m_active = {};
+			m_samplesDispatched = 0u;
 		}
 
 		//
@@ -115,6 +128,8 @@ class CSession final : public core::IReferenceCounted
 			hlsl::uint16_t2 cropOffsets;
 			hlsl::uint16_t2 cropResolution;
 			sensor_type_e type;
+			system::path outputFilePath = {};
+			sensor_t::SDynamic::SPostProcess postProcess = {};
 		};
 		inline const SConstructionParams& getConstructionParams() const {return m_params;}
 
@@ -124,6 +139,7 @@ class CSession final : public core::IReferenceCounted
 
 		const SConstructionParams m_params;
 		SActiveResources m_active = {};
+		uint32_t m_samplesDispatched = 0u;
 };
 
 }

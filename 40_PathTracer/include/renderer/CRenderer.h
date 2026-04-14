@@ -21,6 +21,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 {
 		friend struct SSubmitInfo;
     public:
+		constexpr static uint32_t BeautySamplesPerDispatch = 3u;
 		//
 		constexpr static video::SPhysicalDeviceFeatures RequiredDeviceFeatures()
 		{
@@ -142,7 +143,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		{
 			public:
 				inline SSubmit() {}
-				inline SSubmit(CRenderer* _renderer, video::IGPUCommandBuffer* _cb) : renderer(_renderer), cb(_cb) {assert(operator bool());}
+				inline SSubmit(CRenderer* _renderer, CSession* _session, video::IGPUCommandBuffer* _cb) : renderer(_renderer), session(_session), cb(_cb) {assert(operator bool());}
 
 				inline operator bool() const {return cb;}
 				inline operator video::IGPUCommandBuffer*() const {return cb;}
@@ -153,6 +154,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 				asset::PIPELINE_STAGE_FLAGS stageMask = asset::PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
 			private:
 				CRenderer* renderer = nullptr;
+				CSession* session = nullptr;
 				video::IGPUCommandBuffer* cb = nullptr;
 		};
 		SSubmit render(CSession* session);

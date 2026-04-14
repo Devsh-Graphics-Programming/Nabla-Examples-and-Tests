@@ -95,7 +95,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 					params.arrayLayers = layers;
 					params.flags |= extraFlags;
 					using image_usage_e = IGPUImage::E_USAGE_FLAGS;
-					params.usage = image_usage_e::EUF_TRANSFER_DST_BIT|extraUsages;
+					params.usage = image_usage_e::EUF_TRANSFER_DST_BIT|image_usage_e::EUF_TRANSFER_SRC_BIT|extraUsages;
 					viewFormats.set(format);
 					if (viewFormats.count()>1)
 					{
@@ -353,6 +353,7 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 
 	if (success)
 	{
+		m_samplesDispatched = 0u;
 		m_active.currentSensorState = newVal;
 		m_active.currentSensorState.keepAccumulating = false;
 		m_active.prevSensorState = m_active.currentSensorState;

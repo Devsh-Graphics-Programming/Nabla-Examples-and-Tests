@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
-#define _NBL_THIS_EXAMPLE_C_BASIC_RWMC_RESOLVER_H_INCLUDED_
+#define _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
 
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"

@@ -798,7 +798,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 				SBeautyPushConstants pc = {.sensorDynamics=sessionResources.currentSensorState};
 				// TODOs
 				pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later LumaConversionCoeffs
-				pc.__16BitData.maxSppPerDispatch = 3;
+				pc.__16BitData.maxSppPerDispatch = BeautySamplesPerDispatch;
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}
@@ -861,7 +861,7 @@ auto CRenderer::render(CSession* session) -> SSubmit
 	success = success && cb->traceRays(scene->getSBT(mode),renderSize.x,renderSize.y,sessionParams.type!=CSession::sensor_type_e::Env ? 1:6);
 
 	if (success)
-		return SSubmit(this,cb);
+		return SSubmit(this,session,cb);
 	else
 		return {};
 }
@@ -893,6 +893,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo CRenderer::SSubmit::operator()(std::span<con
 		renderer->m_frameIx--;
 		return {};
 	}
+	if (session && session->getConstructionParams().mode==CSession::RenderMode::Beauty)
+		session->noteSamplesDispatched(CRenderer::BeautySamplesPerDispatch);
 	return rendered[0];
 }
 
