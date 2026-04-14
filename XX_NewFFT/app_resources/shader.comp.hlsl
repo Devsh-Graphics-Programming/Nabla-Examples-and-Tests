@@ -118,8 +118,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	}
 
 	FFT::__call(loAcc, hiAcc, sharedmemAccessor);
-	sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
-	IFFT::__call(loAcc, hiAcc, sharedmemAccessor);
+	//sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
+	//IFFT::__call(loAcc, hiAcc, sharedmemAccessor);
 
 	[unroll]
 	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)

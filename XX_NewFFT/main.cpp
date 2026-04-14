@@ -120,6 +120,22 @@ public:
 	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	inline core::smart_refctd_ptr<IShader> createShader(const std::string& includeMainName)
+	{
+		auto HLSLShader = core::make_smart_refctd_ptr<IShader>(("#include \"" + includeMainName + "\"\n").c_str(),
+			IShader::E_CONTENT_TYPE::ECT_HLSL,
+			includeMainName);
+		assert(HLSLShader);
+
+#ifndef _NBL_DEBUG
+		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+		return m_device->compileShader({ HLSLShader.get(), opt.get() });
+#else 
+		return m_device->compileShader({ HLSLShader.get() });
+#endif
+	}
+
 	// we stuff all our work here because its a "single shot" app
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
