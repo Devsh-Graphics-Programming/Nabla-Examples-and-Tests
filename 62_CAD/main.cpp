@@ -1467,20 +1467,52 @@ public:
 	}
 	
 	bool runUnitTests() {
-		
+		auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+		auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+
+		Hatch::Segment segment1;
+		segment1.originalBezier = &bezier1;
+		segment1.t_start = 0.60907690910425261;
+		segment1.t_end = 1.0;
+		Hatch::Segment segment2;
+		segment2.originalBezier = &bezier2;
+		segment2.t_start = 0.0;
+		segment2.t_end = 1.0;
+
 		{
-			// Test case: Problematic beziers
-			auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
-			auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+			const auto intersections = segment1.intersect(segment2);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			auto bezier1Clone = bezier1;
+			bezier1Clone.splitFromMinToMax(0.60907690910425261, 1.0);
 
 			Hatch::Segment segment1;
-			segment1.originalBezier = &bezier1;
-			segment1.t_start = 0.60907690910425261;
+			segment1.originalBezier = &bezier1Clone;
+			segment1.t_start = 0.0;
 			segment1.t_end = 1.0;
-			Hatch::Segment segment2;
-			segment2.originalBezier = &bezier2;
-			segment2.t_start = 0.0;
-			segment2.t_end = 1.0;
 
 			const auto intersections = segment2.intersect(segment1);
 			std::vector<double> workingIntersections;
@@ -1506,8 +1538,6 @@ public:
 		lastTime = now;
 		if (!m_paused)
 			m_timeElapsed += dt;
-		printf(std::format("m_timeElapsed: {}\n", m_timeElapsed).c_str());
-		printf(std::format("m_hatchDebugStep: {}\n", m_hatchDebugStep).c_str());
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
@@ -2110,13 +2140,13 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
 			}
 
-
 			// Edge case with error
-			if (true)
+			if (false)
 			{ 
 				std::vector<Hatch::QuadraticBezier> beziers;
 
-				beziers.push_back(Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266)));
+				auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+				beziers.push_back(bezier1);
 				beziers.push_back(Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031)));
 
 				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(-80, 50), float32_t2(-80, 100), float32_t2(-30, 100)));
@@ -2134,9 +2164,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
 			}
 
-
-
-			if (false)
+			if (true)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
