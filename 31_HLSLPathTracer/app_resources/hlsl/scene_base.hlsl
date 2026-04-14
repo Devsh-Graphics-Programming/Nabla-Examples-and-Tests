@@ -61,7 +61,7 @@ using spectral_t = vector<float, 3>;
 using bxdfnode_type = BxDFNode<spectral_t>;
 
 static const bxdfnode_type bxdfs[SceneBase::SCENE_BXDF_COUNT] = {
-    bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
+    bxdfnode_type::create(MaterialType::NORMAL_MAPPED_DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
     bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
     bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
     bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),

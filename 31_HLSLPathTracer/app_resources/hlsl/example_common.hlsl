@@ -269,7 +269,16 @@ enum MaterialType : uint32_t
     DIELECTRIC,
     IRIDESCENT_CONDUCTOR,
     IRIDESCENT_DIELECTRIC,
+    NORMAL_MAPPED_DIFFUSE,
     EMISSIVE
+};
+
+struct TexAccessor
+{
+    void get(NBL_REF_ARG(float32_t3) value, const float32_t2 uv)
+    {
+        value = normalMap.SampleLevel(normalSampler, uv, 0.f).rgb;
+    }
 };
 
 template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)
@@ -290,6 +299,7 @@ struct BxDFNode
     using scalar_type = typename vector_traits<Spectrum>::scalar_type;
     using vector2_type = vector<scalar_type, 2>;
     using params_type = SBxDFCreationParams<scalar_type, spectral_type>;
+    using normals_accessor = TexAccessor;
 
     // for diffuse bxdfs
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) albedo)
@@ -350,6 +360,7 @@ struct BxDFNode
     spectral_type albedo;   // also stores radiance for emissive
     uint32_t materialType;
     params_type params;
+    normals_accessor normals;
 };
 
 
@@ -598,12 +609,14 @@ struct PTIsotropicInteraction
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return bxdf::PathOrigin::PO_SENSOR; }
     spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return luminosityContributionHint; }
     bool isMaterialBSDF() NBL_CONST_MEMBER_FUNC { return b_isMaterialBSDF; }
+    vector<scalar_type, 2> getIntersectUV() NBL_CONST_MEMBER_FUNC { return uv; }
 
     RayDirInfo V;
     vector3_type N;
     scalar_type NdotV;
     scalar_type NdotV2;
     bool b_isMaterialBSDF;
+    vector<scalar_type, 2> uv;
 
     spectral_type luminosityContributionHint;
 };
@@ -661,6 +674,7 @@ struct PTAnisotropicInteraction
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return isotropic.getPathOrigin(); }
     spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return isotropic.getLuminosityContributionHint(); }
     bool isMaterialBSDF() NBL_CONST_MEMBER_FUNC { return isotropic.isMaterialBSDF(); }
+    vector<scalar_type, 2> getIntersectUV() NBL_CONST_MEMBER_FUNC { return isotropic.getIntersectUV(); }
     isotropic_interaction_type getIsotropic() NBL_CONST_MEMBER_FUNC { return isotropic; }
 
     vector3_type getT() NBL_CONST_MEMBER_FUNC { return T; }
@@ -727,14 +741,15 @@ struct PTIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum NBL_
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;
 };
 
-template<class IsoCache, class AnisoCache, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class IridescentDielectricBxDF>
+template<class IsoCache, class AnisoCache, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class IridescentDielectricBxDF, class NormalMappedDiffuseBxDF>
 struct PTMaterialSystemCache
 {
-    using this_t = PTMaterialSystemCache<IsoCache, AnisoCache, DiffuseBxDF, ConductorBxDF, DielectricBxDF, IridescentConductorBxDF, IridescentDielectricBxDF>;
+    using this_t = PTMaterialSystemCache<IsoCache, AnisoCache, DiffuseBxDF, ConductorBxDF, DielectricBxDF, IridescentConductorBxDF, IridescentDielectricBxDF, NormalMappedDiffuseBxDF>;
     using anisocache_type = AnisoCache;
     using isocache_type = IsoCache;
 
     anisocache_type aniso_cache;
+    bool sampleIsShadowed;
 
     // TODO: union or serialize somehow?
     DiffuseBxDF diffuseBxDF;
@@ -742,6 +757,7 @@ struct PTMaterialSystemCache
     DielectricBxDF dielectricBxDF;
     IridescentConductorBxDF iridescentConductorBxDF;
     IridescentDielectricBxDF iridescentDielectricBxDF;
+    NormalMappedDiffuseBxDF normalMappedDiffuseBxDF;
 };
 
 #endif

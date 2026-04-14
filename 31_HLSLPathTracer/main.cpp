@@ -43,6 +43,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
+		static inline std::string NormalMapFilePath = "app_resources/normals.png";
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
 		    "SPHERE_LIGHT",
@@ -228,7 +229,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return gpuDS;
 					};
 
-				std::array<ICPUDescriptorSetLayout::SBinding, 4> descriptorSetBindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 5> descriptorSetBindings = {};
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSetBindings[0] = {
@@ -258,6 +259,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				descriptorSetBindings[3] = {
 					.binding = 3u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSetBindings[4] = {
+					.binding = 4u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -519,7 +528,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			}
 
 			// load CPUImages and convert to GPUImages
-			smart_refctd_ptr<IGPUImage> envMap, scrambleMap;
+			smart_refctd_ptr<IGPUImage> envMap, scrambleMap, normalMap;
 			{
 				auto convertImgCPU2GPU = [&](std::span<ICPUImage*> cpuImgs) {
 					auto queue = getGraphicsQueue();
@@ -603,9 +612,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					envMap = gpuImgs[0].value;
 					scrambleMap = gpuImgs[1].value;
+					normalMap = gpuImgs[2].value;
 				};
 
-				smart_refctd_ptr<ICPUImage> envMapCPU, scrambleMapCPU;
+				smart_refctd_ptr<ICPUImage> envMapCPU, scrambleMapCPU, normalMapCPU;
 				{
 					IAssetLoader::SAssetLoadParams lp;
 					lp.workingDirectory = this->sharedInputCWD;
@@ -663,8 +673,23 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
 					scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 				}
+				{
+					IAssetLoader::SAssetLoadParams lp;
+					lp.workingDirectory = this->sharedInputCWD;
+					SAssetBundle bundle = m_assetMgr->getAsset(NormalMapFilePath, lp);
+					if (bundle.getContents().empty()) {
+						m_logger->log("Couldn't load normal map.", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
 
-				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get() };
+					normalMapCPU = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
+					if (!normalMapCPU) {
+						m_logger->log("Couldn't load normal map.", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
+				};
+
+				std::array<ICPUImage*, 3> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get(), normalMapCPU.get() };
 				convertImgCPU2GPU(cpuImgs);
 			}
 
@@ -728,6 +753,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_scrambleView = createHDRIImageView(scrambleMap);
 				m_scrambleView->setObjectDebugName("Scramble Map View");
 
+				normalMap->setObjectDebugName("Normal Map");
+				m_normalMapView = createHDRIImageView(normalMap);
+				m_normalMapView->setObjectDebugName("Normal Map View");
+
 				auto outImg = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
 				outImg->setObjectDebugName("Output Image");
 				m_outImgView = createHDRIImageView(outImg, 1, IGPUImageView::ET_2D_ARRAY);
@@ -782,8 +811,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ECO_ALWAYS
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
+				ISampler::SParams samplerParams2 = {
+					ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+					ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+					ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+					ISampler::ETBC_FLOAT_OPAQUE_BLACK, 
+					ISampler::ETF_LINEAR,
+					ISampler::ETF_LINEAR,
+					ISampler::ESMM_LINEAR,
+					0u,
+					false,
+					ECO_ALWAYS
+				};
+				auto sampler2 = m_device->createSampler(samplerParams2);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 				writeDSInfos[1].desc = m_cascadeView;
@@ -798,8 +840,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				writeDSInfos[4].desc = m_outImgView;
 				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[5].desc = m_normalMapView;
+				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+				writeDSInfos[5].info.combinedImageSampler.sampler = sampler2;
+				writeDSInfos[5].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet.get(),
 					.binding = 2,
@@ -834,6 +880,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_descriptorSet.get(),
+					.binding = 4,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -1484,7 +1537,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		// pathtracer resources
-		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
+		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView, m_normalMapView;
 		//smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 		smart_refctd_ptr<ScrambleSequence> m_scrambleSequence;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;

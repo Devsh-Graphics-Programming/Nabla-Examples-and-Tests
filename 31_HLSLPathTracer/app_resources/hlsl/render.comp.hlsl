@@ -40,6 +40,9 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(2, 0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D<float3> normalMap;
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState normalSampler;
+
 #include "example_common.hlsl"
 #include "rand_gen.hlsl"
 #include "intersector.hlsl"
@@ -93,13 +96,14 @@ using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_confi
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
+using normal_mapped_diffuse_bxdf_type = bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t> >;
 
 using payload_type = Payload<float>;
 using ray_type = Ray<payload_type,POLYGON_METHOD>;
 using randgen_type = RandomUniformND<Xoroshiro64Star,3>;
 using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
-using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
+using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, normal_mapped_diffuse_bxdf_type, scene_type>;
 using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
