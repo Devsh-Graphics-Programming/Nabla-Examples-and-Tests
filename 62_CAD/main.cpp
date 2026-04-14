@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -1463,6 +1463,38 @@ public:
 		
 		m_timeElapsed = 0.0;
 		
+		return runUnitTests();
+	}
+	
+	bool runUnitTests() {
+		
+		{
+			// Test case: Problematic beziers
+			auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+			auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+
+			Hatch::Segment segment1;
+			segment1.originalBezier = &bezier1;
+			segment1.t_start = 0.60907690910425261;
+			segment1.t_end = 1.0;
+			Hatch::Segment segment2;
+			segment2.originalBezier = &bezier2;
+			segment2.t_start = 0.0;
+			segment2.t_end = 1.0;
+
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+
 		return true;
 	}
 
@@ -1472,7 +1504,11 @@ public:
 		auto now = std::chrono::high_resolution_clock::now();
 		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
-		m_timeElapsed += dt;
+		if (!m_paused)
+			m_timeElapsed += dt;
+		printf(std::format("m_timeElapsed: {}\n", m_timeElapsed).c_str());
+		printf(std::format("m_hatchDebugStep: {}\n", m_hatchDebugStep).c_str());
+
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
 			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
@@ -1495,6 +1531,10 @@ public:
 				{
 					auto ev = *eventIt;
 
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_SPACE)
+					{
+						m_paused = !m_paused;
+					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
 					{
 						m_hatchDebugStep++;
@@ -2034,7 +2074,69 @@ protected:
 					}
 				}
 			}
+				// AABB min: -26.147000126427482, 67.5952967012224 max: -14.008327645716157, 75 curve min: (-23.66172331906528, 67.59529670122238), (-25.148890988995984, 71.05311908436158), (-26.147000126427482, 74.99999999999999) curve max (-19.538680545266217, 67.5952967012224), (-17.191793292625924, 71.71593754774594), (-14.008327645716157, 75)
+				// AABB min: 13.546881003228414, 67.5952967012224 max: 67.29368372726526, 75 curve min: (13.546881003228414, 67.5952967012224), (14.322210597936007, 71.2976483506112), (15.097540192643596, 75) curve max (67.29368372726526, 67.5952967012224), (64.94679647462496, 71.71593754774594), (61.76333082771519, 75)
+				// AABB min: 67.29368372726528, 67.5952967012224 max: 80.22103946537251, 75 curve min: (67.29368372726528, 67.59529670122238), (68.78085139719599, 71.05311908436158), (69.77896053462749, 74.99999999999999) curve max (78.83283290719265, 67.5952967012224), (79.33364802690113, 71.49093650999265), (80.22103946537251, 75)
+				// AABB min: 76.87458763560674, 67.5952967012224 max: 177.53520668460732, 75 curve min: (80.21579382498352, 67.5952967012224), (78.54519073029513, 71.2976483506112), (76.87458763560674, 75) curve max (177.53520668460732, 67.5952967012224), (177.03439156489884, 71.49093650999265), (176.14700012642749, 75)
+			// Edge case with error
+			if (false)
+			{ 
+				std::vector<Hatch::QuadraticBezier> beziers;
+
+
+				// AABB Min (-73.62165542247857, 56.59034982153938) Max (12.377142243473191, 62.00956354193665) Intersection results: nan nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(-73.44733750247572, 56.59034982153938), float32_t2(-73.61271545300754, 59.22173769120762), float32_t2(-73.62165542247857, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(11.242275225057192, 56.59034982153937), float32_t2(11.809708734265191, 59.29995668173801), float32_t2(12.377142243473191, 62.00956354193664)));
+				// AABB Min (19.119801595116574, 56.59034982153938) Max (25.168553058388575, 62.00956354193665) Intersection results: nan nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(22.681879731429156, 56.59034982153938), float32_t2(23.147667708594597, 59.407749921217274), float32_t2(23.829042164718565, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(25.168553058388575, 56.59034982153937), float32_t2(22.144177326752576, 59.29995668173801), float32_t2(19.119801595116574, 62.00956354193665)));
+				// AABB Min (26.203004871714374, 56.59034982153938) Max (65.70417727140652, 62.00956354193665) Intersection results: nan nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(26.203004871714374, 56.59034982153938), float32_t2(26.368382822246197, 59.22173769120762), float32_t2(26.37732279171723, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(64.16262452123478, 56.59034982153937), float32_t2(64.93340089632065, 59.29995668173801), float32_t2(65.70417727140652, 62.00956354193665)));
+				// AABB Min (71.0935173060303, 56.59034982153938) Max (77.66106983027971, 62.00956354193665) Intersection results: 1 nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(71.0935173060303, 56.59034982153937), float32_t2(71.86429368087045, 59.29995668173801), float32_t2(72.6350700557106, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(77.66106983027971, 56.59034982153938), float32_t2(76.43842054244132, 59.29995668173801), float32_t2(75.21577125460293, 62.00956354193665)));
+				// AABB Min (50.82193081673952, 56.59034982153938) Max (105.82703742688895, 62.00956354193665) Intersection results: nan nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(78.32448412181422, 56.59034982153938), float32_t2(61.86360060907823, 56.59034982153938), float32_t2(50.82193081673952, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(78.32448412181422, 56.59034982153938), float32_t2(94.78536763455023, 56.59034982153938), float32_t2(105.82703742688895, 62.00956354193665)));
+				// AABB Min (82.73623055971314, 56.59034982153938) Max (120.66915202494238, 62.00956354193665) Intersection results: nan nan
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(85.18152913462511, 56.59034982153938), float32_t2(83.95887984716913, 59.29995668173801), float32_t2(82.73623055971314, 62.00956354193665)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(120.66915202494238, 56.59034982153938), float32_t2(120.20336404777694, 59.407749921217274), float32_t2(119.52198959165298, 62.00956354193665)));
+
+
+				CPolyline polyline;
+				polyline.addQuadBeziers(beziers);
+				Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+				drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+			}
+
+
+			// Edge case with error
 			if (true)
+			{ 
+				std::vector<Hatch::QuadraticBezier> beziers;
+
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266)));
+				beziers.push_back(Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031)));
+
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(-80, 50), float32_t2(-80, 100), float32_t2(-30, 100)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(10.57862250293831, 53.421277252750265), float32_t2(13.399095090687645, 66.88958983695893), float32_t2(16.219567678436977, 80.35790242116761)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(20, 50), float32_t2(20, 100), float32_t2(-30, 100)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(33.790930823955804, 33.17058030384207), float32_t2(33.790930823955804, 83.17058030384206), float32_t2(83.79093082395578, 83.17058030384207)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(66.2090691760442, 66.82941969615793), float32_t2(16.209069176044196, 66.82941969615793), float32_t2(16.209069176044196, 116.82941969615793)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(86.82566526205497, 52.94665364824511), float32_t2(81.68322098624964, 64.34321882099741), float32_t2(76.54077671044429, 75.73978399374971)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(133.79093082395582, 33.17058030384207), float32_t2(133.79093082395582, 83.17058030384206), float32_t2(83.79093082395583, 83.17058030384207)));
+				// beziers.push_back(Hatch::QuadraticBezier(float32_t2(66.2090691760442, 66.82941969615793), float32_t2(116.2090691760442, 66.82941969615793), float32_t2(116.2090691760442, 116.82941969615793)));
+
+				CPolyline polyline;
+				polyline.addQuadBeziers(beziers);
+				Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+				drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+			}
+
+
+
+			if (false)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -3960,7 +4062,8 @@ protected:
 	clock_t::time_point start;
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 
-	double m_timeElapsed = 0.0;
+	bool m_paused = true;
+	double m_timeElapsed = 1170236713;
 	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
@@ -4035,7 +4138,7 @@ protected:
 	#endif
 	
 	// Example Specific Settings:
-	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	uint32_t m_hatchDebugStep = 0;// 401; // setting for CASE_2
 	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 
