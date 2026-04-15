@@ -177,13 +177,100 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 
       m_logger->log("All sampling concept tests passed.", ILogger::ELL_INFO);
 
+      // ======================================================================
+      // GPU throughput benchmarks
+      // ======================================================================
+      const uint32_t testBatchCount = 1024;
+
+      if constexpr (DoBenchmark)
+      {
+         constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
+         constexpr uint32_t totalThreadsPerDispatch = testBatchCount * benchWorkgroupSize;
+         constexpr uint32_t iterationsPerThread = BENCH_ITERS;
+         constexpr uint32_t benchSamplesPerDispatch = totalThreadsPerDispatch * iterationsPerThread;
+
+         struct BenchEntry
+         {
+            CSamplerBenchmark bench;
+            std::string name;
+         };
+         std::vector<BenchEntry> benchmarks;
+
+         auto addBench = [&](const char* name, const std::string& shaderKey, size_t inputSize, size_t outputSize)
+         {
+            auto& entry = benchmarks.emplace_back();
+            entry.name = name;
+
+            CSamplerBenchmark::SetupData data;
+            data.device = m_device;
+            data.api = m_api;
+            data.assetMgr = m_assetMgr;
+            data.logger = m_logger;
+            data.physicalDevice = m_physicalDevice;
+            data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            data.shaderKey = shaderKey;
+            data.dispatchGroupCount = testBatchCount;
+            data.samplesPerDispatch = benchSamplesPerDispatch;
+            data.inputBufferBytes = inputSize;
+            data.outputBufferBytes = outputSize;
+            entry.bench.setup(data);
+         };
+
+         // Bench shaders don't read input (hardcoded values) and write a single uint32_t per thread via RWByteAddressBuffer
+         constexpr size_t benchInputBytes = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
+         constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
+         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+
+         // Print all pipeline reports first
+         for (auto& entry : benchmarks)
+            entry.bench.logPipelineReport(entry.name);
+
+         // Discrete sampler benchmark: alias table vs cumulative probability (BDA)
+         {
+            CDiscreteSamplerBenchmark::SetupData dsData;
+            dsData.device = m_device;
+            dsData.api = m_api;
+            dsData.assetMgr = m_assetMgr;
+            dsData.logger = m_logger;
+            dsData.physicalDevice = m_physicalDevice;
+            dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
+            dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
+            dsData.dispatchGroupCount = testBatchCount;
+            dsData.tableSize = 1024;
+
+            CDiscreteSamplerBenchmark discreteBench;
+            discreteBench.setup(dsData);
+
+            // Then run all benchmarks here so the reports are at the top of the log, followed by timings
+            constexpr uint32_t warmupDispatches = 500;
+            constexpr uint32_t benchDispatches = 5000;
+            m_logger->log("=== GPU Sampler Benchmarks (%u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
+               ILogger::ELL_PERFORMANCE, benchDispatches, totalThreadsPerDispatch, iterationsPerThread);
+            for (auto& entry : benchmarks)
+               entry.bench.run(entry.name, warmupDispatches, benchDispatches);
+
+            discreteBench.run(warmupDispatches, benchDispatches);
+         }
+      }
+
       // ================================================================
       // Runtime CPU/GPU comparison tests using ITester harness
       // ================================================================
       bool pass = true;
-      const uint32_t workgroupSize = 64;
-      const uint32_t testBatchCount = 1024;
-
+      const uint32_t workgroupSize = WORKGROUP_SIZE;
 
       // generic lambda to run a GPU sampler test
       auto runSamplerTest = [&]<typename Tester>(const char* testName, auto spirvKey, const char* logFile)
@@ -337,90 +424,6 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             m_logger->log("All geometry tests PASSED.", ILogger::ELL_INFO);
          else
             m_logger->log("Some geometry tests FAILED.", ILogger::ELL_ERROR);
-      }
-
-      // ======================================================================
-      // GPU throughput benchmarks (500 warmup + 5000 timed dispatches each)
-      // ======================================================================
-      if constexpr (DoBenchmark)
-      {
-         m_logger->log("=== GPU Sampler Benchmarks ===", ILogger::ELL_PERFORMANCE);
-         constexpr uint32_t benchWorkgroupSize = NBL_BENCH_WORKGROUP_SIZE;
-         constexpr uint32_t totalThreadsPerDispatch = testBatchCount * benchWorkgroupSize;
-         constexpr uint32_t iterationsPerThread = NBL_BENCH_ITERS;
-         constexpr uint32_t benchSamplesPerDispatch = totalThreadsPerDispatch * iterationsPerThread;
-
-         struct BenchEntry
-         {
-            CSamplerBenchmark bench;
-            std::string name;
-         };
-         std::vector<BenchEntry> benchmarks;
-
-         auto addBench = [&](const char* name, const std::string& shaderKey, size_t inputSize, size_t outputSize)
-         {
-            auto& entry = benchmarks.emplace_back();
-            entry.name = name;
-
-            CSamplerBenchmark::SetupData data;
-            data.device = m_device;
-            data.api = m_api;
-            data.assetMgr = m_assetMgr;
-            data.logger = m_logger;
-            data.physicalDevice = m_physicalDevice;
-            data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            data.shaderKey = shaderKey;
-            data.dispatchGroupCount = testBatchCount;
-            data.samplesPerDispatch = benchSamplesPerDispatch;
-            data.inputBufferBytes = inputSize;
-            data.outputBufferBytes = outputSize;
-            entry.bench.setup(data);
-         };
-
-         // Bench shaders don't read input (hardcoded values) and write a single uint32_t per thread via RWByteAddressBuffer
-         constexpr size_t benchInputBytes = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
-         constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
-         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-
-         // Print all pipeline reports first
-         for (auto& entry : benchmarks)
-            entry.bench.logPipelineReport(entry.name);
-
-         // Discrete sampler benchmark: alias table vs cumulative probability (BDA)
-         {
-            CDiscreteSamplerBenchmark::SetupData dsData;
-            dsData.device = m_device;
-            dsData.api = m_api;
-            dsData.assetMgr = m_assetMgr;
-            dsData.logger = m_logger;
-            dsData.physicalDevice = m_physicalDevice;
-            dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
-            dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
-            dsData.dispatchGroupCount = testBatchCount;
-            dsData.tableSize = 1024;
-
-            CDiscreteSamplerBenchmark discreteBench;
-            discreteBench.setup(dsData);
-
-            // Then run all benchmarks here so the reports are at the top of the log, followed by timings
-            for (auto& entry : benchmarks)
-               entry.bench.run(entry.name);
-
-            discreteBench.run();
-         }
       }
 
       return pass;

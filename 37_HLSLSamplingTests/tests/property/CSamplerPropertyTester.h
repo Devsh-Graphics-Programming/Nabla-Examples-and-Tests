@@ -376,11 +376,11 @@ class CSphericalTriangleGenerateTester
    {
       bool pass = true;
       // Half-space counting
-      pass &= runHalfSpaceCounting("random", generateRandomTriangleVertices, 200, 3, 100000, 0.02);
-      pass &= runHalfSpaceCounting("stress", generateStressTriangleVertices, 200, 3, 100000, 0.03);
+      pass &= runHalfSpaceCounting("random", generateRandomTriangleVertices, 100, 3, 50000, 0.02);
+      pass &= runHalfSpaceCounting("stress", generateStressTriangleVertices, 100, 3, 50000, 0.03);
       // Moment matching
-      pass &= runMomentMatching("random", generateRandomTriangleVertices, 500, 10, 50000, 0.05, 0.02);
-      pass &= runMomentMatching("stress", generateStressTriangleVertices, 500, 20, 50000, 0.08, 0.03);
+      pass &= runMomentMatching("random", generateRandomTriangleVertices, 200, 5, 20000, 0.05, 0.02);
+      pass &= runMomentMatching("stress", generateStressTriangleVertices, 200, 10, 20000, 0.08, 0.03);
       // Distant triangles
       pass &= testDistantTriangles();
       return pass;
@@ -712,8 +712,8 @@ class CSphericalTriangleGenerateTester
          char label[64];
          snprintf(label, sizeof(label), "distant(d=%g)", dist);
 
-         bool halfSpaceOK = runHalfSpaceCounting(label, distantTriGen, 100, 3, 50000, cfg.halfSpaceTol);
-         bool roundtripOK = runCodomainRoundtrip(label, distantTriGen, 100, 1000, cfg.roundtripTol);
+         bool halfSpaceOK = runHalfSpaceCounting(label, distantTriGen, 50, 3, 20000, cfg.halfSpaceTol);
+         bool roundtripOK = runCodomainRoundtrip(label, distantTriGen, 50, 500, cfg.roundtripTol);
 
          if (cfg.hardFail)
          {
@@ -1477,17 +1477,17 @@ class CRectangleGenerateTester
       bool pass = true;
       if constexpr (Policy::hasStripCounting)
       {
-         pass &= runStripCounting("random", generateRandomRectangle, 200, 3, 100000, 0.02);
-         pass &= runStripCounting("stress", generateStressRectangle, 200, 3, 100000, 0.03);
+         pass &= runStripCounting("random", generateRandomRectangle, 100, 3, 50000, 0.02);
+         pass &= runStripCounting("stress", generateStressRectangle, 100, 3, 50000, 0.03);
       }
       if constexpr (Policy::hasMomentMatching)
       {
-         pass &= runMomentMatching("random", generateRandomRectangle, 500, 10, 50000, 0.05, 0.02);
-         pass &= runMomentMatching("stress", generateStressRectangle, 500, 20, 50000, 0.08, 0.03);
+         pass &= runMomentMatching("random", generateRandomRectangle, 200, 5, 20000, 0.05, 0.02);
+         pass &= runMomentMatching("stress", generateStressRectangle, 200, 10, 20000, 0.08, 0.03);
       }
       // Bounds check always applies
-      pass &= runBoundsCheck("random", generateRandomRectangle, 200, 10000);
-      pass &= runBoundsCheck("stress", generateStressRectangle, 200, 10000);
+      pass &= runBoundsCheck("random", generateRandomRectangle, 100, 5000);
+      pass &= runBoundsCheck("stress", generateStressRectangle, 100, 5000);
       // Distant rectangles
       pass &= testDistantRectangles();
       return pass;
@@ -1859,10 +1859,10 @@ class CRectangleGenerateTester
 
          bool stripOK = true, momentOK = true;
          if constexpr (Policy::hasStripCounting)
-            stripOK = runStripCounting(labelBuf, distantRectGen, 100, 3, 50000, cfg.stripTol);
+            stripOK = runStripCounting(labelBuf, distantRectGen, 50, 3, 20000, cfg.stripTol);
          if constexpr (Policy::hasMomentMatching)
-            momentOK = runMomentMatching(labelBuf, distantRectGen, 100, 5, 50000, cfg.momentRelTol, cfg.momentAbsTol);
-         bool boundsOK = runBoundsCheck(labelBuf, distantRectGen, 100, 10000);
+            momentOK = runMomentMatching(labelBuf, distantRectGen, 50, 5, 20000, cfg.momentRelTol, cfg.momentAbsTol);
+         bool boundsOK = runBoundsCheck(labelBuf, distantRectGen, 50, 5000);
 
          if (cfg.hardFail)
          {

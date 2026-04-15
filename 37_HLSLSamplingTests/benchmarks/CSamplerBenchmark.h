@@ -24,7 +24,7 @@ public:
 		uint32_t computeFamilyIndex;
 		std::string shaderKey;
 		uint32_t dispatchGroupCount;  // workgroup count = testBatchCount
-		uint32_t samplesPerDispatch;  // dispatchGroupCount * WorkgroupSize (BenchIters is internal to the shader)
+		uint32_t samplesPerDispatch;  // dispatchGroupCount * WorkgroupSize * benchIters
 		size_t inputBufferBytes;      // sizeof(InputType) * samplesPerDispatch
 		size_t outputBufferBytes;     // sizeof(ResultType) * samplesPerDispatch
 	};
@@ -209,13 +209,13 @@ public:
 		const float64_t timestampPeriod = float64_t(m_physicalDevice->getLimits().timestampPeriodInNanoSeconds);
 		const float64_t elapsed_ns      = float64_t(timestamps[1] - timestamps[0]) * timestampPeriod;
 		const uint64_t total_samples    = uint64_t(benchmarkIterations) * uint64_t(m_samplesPerDispatch);
-		const float64_t ns_per_sample   = elapsed_ns / float64_t(total_samples);
-		const float64_t msamples_per_s = (float64_t(total_samples) / elapsed_ns) * 1e3;
-		const float64_t elapsed_ms = elapsed_ns * 1e-6;
+		const float64_t ps_per_sample   = elapsed_ns * 1e3 / float64_t(total_samples);
+		const float64_t gsamples_per_s  = float64_t(total_samples) / elapsed_ns;
+		const float64_t elapsed_ms      = elapsed_ns * 1e-6;
 
-		m_logger->log("[Benchmark] %-28s: %9.5f ns/sample  |  %10.2f MSamples/s  |  %10.3f ms total",
+		m_logger->log("[Benchmark] %-28s: %9.3f ps/sample  |  %10.3f GSamples/s  |  %10.3f ms total",
 			system::ILogger::ELL_PERFORMANCE,
-			samplerName.c_str(), ns_per_sample, msamples_per_s, elapsed_ms);
+			samplerName.c_str(), ps_per_sample, gsamples_per_s, elapsed_ms);
 	}
 
 private:

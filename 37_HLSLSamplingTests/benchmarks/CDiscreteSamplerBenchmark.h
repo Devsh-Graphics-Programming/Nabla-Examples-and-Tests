@@ -100,7 +100,7 @@ class CDiscreteSamplerBenchmark
          return buf;
       };
 
-      const uint32_t totalThreads = m_dispatchGroupCount * NBL_BENCH_WORKGROUP_SIZE;
+      const uint32_t totalThreads = m_dispatchGroupCount * WORKGROUP_SIZE;
 
       // Alias table buffers
       m_aliasProbBuf = createBdaBuffer(aliasProb.data(), N * sizeof(float));
@@ -199,7 +199,10 @@ class CDiscreteSamplerBenchmark
 
    void run(uint32_t warmupIterations = 500, uint32_t benchmarkIterations = 5000)
    {
-      m_logger->log("=== GPU Discrete Sampler Benchmark (N=%u) ===", system::ILogger::ELL_PERFORMANCE, m_tableSize);
+      constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
+      const uint32_t totalThreads = m_dispatchGroupCount * benchWorkgroupSize;
+      m_logger->log("=== GPU Discrete Sampler Benchmark (N=%u, %u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
+         system::ILogger::ELL_PERFORMANCE, m_tableSize, benchmarkIterations, totalThreads, BENCH_ITERS);
 
       runSingle("AliasTable", m_aliasPipeline, m_aliasPplnLayout, true, warmupIterations, benchmarkIterations);
       runSingle("CumulativeProbability", m_cumProbPipeline, m_cumProbPplnLayout, false, warmupIterations, benchmarkIterations);
@@ -284,17 +287,17 @@ class CDiscreteSamplerBenchmark
          core::bitflag(video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
       m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, timestamps, sizeof(uint64_t), flags);
 
-      constexpr uint32_t benchIters = NBL_BENCH_ITERS;
-      constexpr uint32_t benchWorkgroupSize = NBL_BENCH_WORKGROUP_SIZE;
+      constexpr uint32_t benchIters = BENCH_ITERS;
+      constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
       const float64_t timestampPeriod = float64_t(m_physicalDevice->getLimits().timestampPeriodInNanoSeconds);
       const float64_t elapsed_ns = float64_t(timestamps[1] - timestamps[0]) * timestampPeriod;
       const uint64_t totalThreads = uint64_t(m_dispatchGroupCount) * uint64_t(benchWorkgroupSize);
       const uint64_t totalSamples = uint64_t(benchmarkIterations) * totalThreads * uint64_t(benchIters);
-      const float64_t ns_per_sample = elapsed_ns / float64_t(totalSamples);
-      const float64_t msamples_per_s = (float64_t(totalSamples) / elapsed_ns) * 1e3;
+      const float64_t ps_per_sample = elapsed_ns * 1e3 / float64_t(totalSamples);
+      const float64_t gsamples_per_s = float64_t(totalSamples) / elapsed_ns;
       const float64_t elapsed_ms = elapsed_ns * 1e-6;
 
-      m_logger->log("[Benchmark] %-28s: %9.5f ns/sample  |  %10.2f MSamples/s  |  %10.3f ms total", system::ILogger::ELL_PERFORMANCE, name, ns_per_sample, msamples_per_s, elapsed_ms);
+      m_logger->log("[Benchmark] %-28s: %9.3f ps/sample  |  %10.3f GSamples/s  |  %10.3f ms total", system::ILogger::ELL_PERFORMANCE, name, ps_per_sample, gsamples_per_s, elapsed_ms);
    }
 
    core::smart_refctd_ptr<video::ILogicalDevice> m_device;
