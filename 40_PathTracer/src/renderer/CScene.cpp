@@ -57,7 +57,8 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 		.nearClip = mutDefaults.nearClip,
 		.tMax = mutDefaults.farClip,
 		.minSPP = core::min(dynDefaults.samplesNeeded,16), // for later enhancement
-		.maxSPP = dynDefaults.samplesNeeded
+		.maxSPP = dynDefaults.samplesNeeded,
+		.orthoCam = mutDefaults.raygen.getType()==decltype(mutDefaults.raygen)::Type::Ortho
 	};
 
 	//

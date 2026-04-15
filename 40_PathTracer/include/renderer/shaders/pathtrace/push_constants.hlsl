@@ -27,7 +27,7 @@ struct SSensorDynamics
 	// we can adaptively sample per-pixel, but some bounds need to be kept
 	uint32_t minSPP : MAX_SPP_LOG2;
 	uint32_t maxSPP : MAX_SPP_LOG2;
-	uint32_t unused : 1;
+	uint32_t orthoCam : 1;
 	uint32_t keepAccumulating : 1;
 };
 #undef MAX_SPP_LOG2
