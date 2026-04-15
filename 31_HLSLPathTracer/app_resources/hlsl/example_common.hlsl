@@ -7,6 +7,7 @@
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
+#include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -278,6 +279,7 @@ struct TexAccessor
     void get(NBL_REF_ARG(float32_t3) value, const float32_t2 uv)
     {
         value = normalMap.SampleLevel(normalSampler, uv, 0.f).rgb;
+        value = colorspace::oetf::sRGB(value);  // get image out of srgb color space
     }
 };
 

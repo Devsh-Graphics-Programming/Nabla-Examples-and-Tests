@@ -170,20 +170,10 @@ struct MaterialSystem
                 _cache.normalMappedDiffuseBxDF.shadingBasis = interaction.getToTangentSpace();
                 typename normal_mapped_diffuse_op_type::bxdf_type nested_brdf;
                 _cache.normalMappedDiffuseBxDF.nested_brdf = nested_brdf;
+
                 anisotropic_interaction_type interaction_Np = _cache.normalMappedDiffuseBxDF.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                 value_weight_type ret = _cache.normalMappedDiffuseBxDF.evalAndWeight(_sample, interaction_Np.isotropic);
                 ret._value *= bxdfs[matID.id].albedo;
-                
-                // vector3_type localN;
-                // bxdfs[matID.id].normals.get(localN, interaction.getIntersectUV());
-                // localN = hlsl::promote<vector3_type>(2.0) * localN - hlsl::promote<vector3_type>(1.0);
-                // localN = hlsl::normalize(hlsl::mul(interaction.getFromTangentSpace(), localN));
-                // ret._value = hlsl::promote<vector3_type>(0.5) * localN + hlsl::promote<vector3_type>(0.5);
-
-                // vector3_type localN;
-                // bxdfs[matID.id].normals.get(localN, interaction.getIntersectUV());
-                // ret._value = localN;
-
                 return ret;
             }
             default:
@@ -322,17 +312,6 @@ struct MaterialSystem
                     cache.sampleIsShadowed = _cache.sampleIsShadowed;
                     quotient_weight_type ret = _cache.normalMappedDiffuseBxDF.quotientAndWeight(_sample, interaction_Np.isotropic, cache);
                     ret._quotient *= bxdfs[matID.id].albedo;
-
-                    // vector3_type localN;
-                    // bxdfs[matID.id].normals.get(localN, interaction.getIntersectUV());
-                    // localN = hlsl::promote<vector3_type>(2.0) * localN - hlsl::promote<vector3_type>(1.0);
-                    // localN = hlsl::normalize(hlsl::mul(interaction.getFromTangentSpace(), localN));
-                    // ret._quotient = hlsl::promote<vector3_type>(0.5) * localN + hlsl::promote<vector3_type>(0.5);
-
-                    // vector3_type localN;
-                    // bxdfs[matID.id].normals.get(localN, interaction.getIntersectUV());
-                    // ret._quotient = localN;
-
                     return ret;
                 }
                 default:
