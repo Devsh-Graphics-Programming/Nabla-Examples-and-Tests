@@ -318,7 +318,6 @@ struct SClosestHitRetval
         retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
     #endif
     #undef POSITION_RECON_METHOD
-        // TODO: Check this actually works
         {
             [[vk::ext_storage_class(spv::StorageClassHitObjectAttributeEXT)]] float32_t2 tmp;
             spirv::hitObjectGetAttributesEXT(hitObject,tmp);
@@ -351,7 +350,6 @@ enum E_SBT_OFFSETS : uint16_t
 [[vk::push_constant]] SBeautyPushConstants pc;
 
 // TODO: do a function with MIS to do envmap lighting
-
 
 [shader("raygeneration")]
 void raygen()
@@ -441,7 +439,8 @@ void raygen()
 
                 // TODO: preserve spread metrics
                 ray_dir_info_t V;
-                V.setDirection(spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
+                // minus because of transmission
+                V.setDirection(-spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
 
                 SClosestHitRetval closestInfo = SClosestHitRetval::create(hitObject);
                 const float32_t GdotV = hlsl::dot(V.getDirection(),closestInfo.geometricNormal);
