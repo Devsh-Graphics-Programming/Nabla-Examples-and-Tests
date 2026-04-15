@@ -41,10 +41,10 @@ static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY 
 		case EPM_AREA:
 			return { EPM_AREA, EPM_AREA, "mainPersistentArea" };
 		case EPM_SOLID_ANGLE:
-			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
+			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, "mainPersistentSolidAngle" };
 		case EPM_PROJECTED_SOLID_ANGLE:
 		default:
-			return { EPM_SOLID_ANGLE, EPM_SOLID_ANGLE, defaultEntryPoint };
+			return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };
 		}
 	default:
 		return { EPM_PROJECTED_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE, defaultEntryPoint };

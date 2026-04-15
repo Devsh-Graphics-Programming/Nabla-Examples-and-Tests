@@ -87,9 +87,9 @@ public:
         }
         try
         {
-            testconfigs = json::parse(f);
+            testconfigs = ::json::parse(f);
         }
-        catch (json::parse_error& ex)
+        catch (::json::parse_error& ex)
         {
             m_logger->log("parse_error.%d failed to parse config file at byte %u: %s", ILogger::ELL_ERROR, ex.id, ex.byte, ex.what());
             return false;
@@ -393,7 +393,7 @@ private:
                 const float exAB = acos(a) + acos(b);
                 angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
                 angle_adder.addAngle(b, Sin(b));
-                float res = angle_adder.getSumofArccos();
+                float res = angle_adder.getSumOfArccos();
                 bool twoAnglesAcos = testing::relativeApproxCompare<float>(res, exAB, 1e-3);
                 pass &= twoAnglesAcos;
                 if (!twoAnglesAcos)
@@ -404,7 +404,7 @@ private:
                 angle_adder.addAngle(b, Sin(b));
                 angle_adder.addAngle(c, Sin(c));
                 angle_adder.addAngle(d, Sin(d));
-                res = angle_adder.getSumofArccos();
+                res = angle_adder.getSumOfArccos();
                 bool fourAnglesAcos = testing::relativeApproxCompare<float>(res, exABCD, 1e-3);
                 pass &= fourAnglesAcos;
                 if (!fourAnglesAcos)
@@ -496,7 +496,7 @@ private:
         m_assetMgr->writeAsset(filename, wp);
     }
 
-    json testconfigs;
+    ::json testconfigs;
 };
 
 NBL_MAIN_FUNC(HLSLBxDFTests)
