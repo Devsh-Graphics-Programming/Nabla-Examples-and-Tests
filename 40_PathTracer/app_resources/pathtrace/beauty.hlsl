@@ -49,156 +49,6 @@ struct CCascades
     }
 };
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace spirv
-{
-// https://github.com/microsoft/DirectXShaderCompiler/issues/6958
-//[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-//[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-using HitObjectEXT = vk::SpirvOpaqueType<spv::OpTypeHitObjectEXT>;
-
-template<typename T NBL_FUNC_REQUIRES(is_same_v<T,uint32_t>)
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpReorderThreadWithHintEXT)]]
-void reorderThreadWithHintEXT(T hint, T bits);
-
-template<typename T NBL_FUNC_REQUIRES(is_same_v<T,uint32_t>)
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpReorderThreadWithHitObjectEXT)]]
-void reorderThreadWithHitObjectEXT([[vk::ext_reference]] HitObjectEXT hitObject, T hint, T bits);
-
-template <typename PayloadT>
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectTraceRayEXT)]]
-void hitObjectTraceRayEXT([[vk::ext_reference]] HitObjectEXT hitObject, AccelerationStructureKHR AS, uint32_t rayFlags, uint32_t cullMask, uint32_t sbtOffset, uint32_t sbtStride, uint32_t missIndex, float32_t3 rayOrigin, float32_t rayTmin, float32_t3 rayDirection, float32_t rayTmax, [[vk::ext_reference]] PayloadT payload);
-
-template <typename PayloadT>
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectTraceRayEXT)]]
-void hitObjectTraceRayEXT([[vk::ext_reference]] HitObjectEXT hitObject, RaytracingAccelerationStructure AS, uint32_t rayFlags, uint32_t cullMask, uint32_t sbtOffset, uint32_t sbtStride, uint32_t missIndex, float32_t3 rayOrigin, float32_t rayTmin, float32_t3 rayDirection, float32_t rayTmax, [[vk::ext_reference]] PayloadT payload);
-
-// TODO:
-// OpHitObjectTraceRayMotionEXT
-// OpHitObjectRecordFromQueryEXT
-// OpHitObjectRecordMissEXT
-// OpHitObjectRecordMissMotionEXT 
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectRecordEmptyEXT)]]
-void hitObjectRecordEmptyEXT([[vk::ext_reference]] HitObjectEXT hitObject);
- 
-// TODO:
-// OpHitObjectExecuteShaderEXT
-// OpHitObjectGetCurrentTimeEXT
-
-template<typename HitAttributeT>
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetAttributesEXT)]]
-void hitObjectGetAttributesEXT([[vk::ext_reference]] HitObjectEXT hitObject, [[vk::ext_reference]] HitAttributeT attribs);
-
-// OpHitObjectGetHitKindEXT
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetPrimitiveIndexEXT)]]
-uint32_t hitObjectGetPrimitiveIndexEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetGeometryIndexEXT)]]
-uint32_t hitObjectGetGeometryIndexEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetInstanceIdEXT)]]
-uint32_t hitObjectGetInstanceIdEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetInstanceCustomIndexEXT)]]
-uint32_t hitObjectGetInstanceCustomIndexEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetObjectRayOriginEXT)]]
-float32_t3 hitObjectGetObjectRayOriginEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetObjectRayDirectionEXT)]]
-float32_t3 hitObjectGetObjectRayDirectionEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetWorldRayDirectionEXT)]]
-float32_t3 hitObjectGetWorldRayDirectionEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetWorldRayOriginEXT)]]
-float32_t3 hitObjectGetWorldRayOriginEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetObjectToWorldEXT)]]
-float32_t4x3 hitObjectGetObjectToWorldEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetWorldToObjectEXT)]]
-float32_t4x3 hitObjectGetWorldToObjectEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-// the syntax to declare a function returning an Array in HLSL is insane
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetIntersectionTriangleVertexPositionsEXT)]]
-[[vk::ext_capability(spv::CapabilityRayQueryPositionFetchKHR)]]
-[[vk::ext_extension("SPV_KHR_ray_tracing_position_fetch")]]
-float32_t3 hitObjectGetIntersectionTriangleVertexPositionsEXT([[vk::ext_reference]] HitObjectEXT hitObject)[3];
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetRayTMaxEXT)]]
-float32_t hitObjectGetRayTMaxEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectGetRayTMinEXT)]]
-float32_t hitObjectGetRayTMinEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-// TODO: OpHitObjectGetRayFlagsEXT
-// TODO: OpHitObjectGetShaderBindingTableRecordIndexEXT
-// TODO: OpHitObjectSetShaderBindingTableRecordIndexEXT
-// TODO: OpHitObjectGetShaderRecordBufferHandleEXT
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectIsEmptyEXT)]]
-bool hitObjectIsEmptyEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectIsHitEXT)]]
-bool hitObjectIsHitEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-
-[[vk::ext_capability(spv::CapabilityShaderInvocationReorderEXT)]]
-[[vk::ext_extension("SPV_EXT_shader_invocation_reorder")]]
-[[vk::ext_instruction(spv::OpHitObjectIsMissEXT)]]
-bool hitObjectIsMissEXT([[vk::ext_reference]] HitObjectEXT hitObject);
-}
-}
-}
-
-
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
 // Most examples which multiply alpha in anyhit are super misleading, because:
@@ -265,24 +115,6 @@ struct[raypayload] SAnyHitRetval
     // can use additional `float16` to store BxDF mixture weights or other things so they don't need recomputing/re-fetching during shading
 };
 
-// TODO: move back to `common.hlsl`
-inline float32_t3 reconstructGeometricNormal(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
-{
-    using namespace nbl::hlsl;
-
-    const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
-
-    // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
-    const float32_t3 geometricNormal = hlsl::cross(vertices[1]-vertices[0],vertices[2]-vertices[0]);
-
-    // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
-    // this would require a normalization before the matrix multiplication, making everything slower
-    const float32_t4x3 w2o = spirv::hitObjectGetWorldToObjectEXT(hitObject);
-    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(w2o));
-    // normalization also needs to be done in full floats because length squared can easily be over 64k
-    return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
-}
-
 
 // Because SER based on Material ID will probably greatly benefit us, the shading needs to happen in Raygen Shader or ClosestHit executed directly by Raygen
 // Lets examine what happens in the 3 options of Shading with SER Hit Objects:
@@ -340,6 +172,7 @@ struct SClosestHitRetval
     float32_t3 geometricNormal;
 };
 
+// TODO: move to shared C++ and HLSL header
 enum E_SBT_OFFSETS : uint16_t
 {
     ESBTO_PATH,
@@ -349,7 +182,23 @@ enum E_SBT_OFFSETS : uint16_t
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 
-// TODO: do a function with MIS to do envmap lighting
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float32_t MISWeightThreshold = hlsl::numeric_limits<float32_t>::min;
+//
+SEnvSample handleEnvmapHit(const float32_t3 L, const float otherTechniqueHeuristic
+)
+{
+    SEnvSample _sample = sampleEnv(L); // TODO: L might need to have a spread factor
+    if (otherTechniqueHeuristic>MISWeightThreshold)
+    {
+        const float neePdf = (hlsl::dot(L,sunDir)>sunConeHalfAngleCos  ? 1.f:0.f)/(2.0 * numbers::pi<float32_t> *(1.0 - sunConeHalfAngleCos));
+        const float weightRatio = neePdf*otherTechniqueHeuristic;
+        // compute NEE MIS backward weight
+        // assert not inf
+        // apply MIS to adjust _sample.color
+        _sample.color /= (1.f+weightRatio*weightRatio);
+    }
+    return _sample;
+}
 
 [shader("raygeneration")]
 void raygen()
@@ -417,7 +266,7 @@ void raygen()
         // TODO: Possible SER point
         if (spirv::hitObjectIsMissEXT(hitObject))
         {
-            const SEnvSample _sample = sampleEnv(spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
+            const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),0.f);
             color = _sample.color;
             aovs = aovs + _sample.aov * rcpSamplesThisFrame;
             transparency += rcpSamplesThisFrame;
@@ -464,14 +313,13 @@ void raygen()
                 aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
                 aovThroughput = nextThroughput;
 
-                const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
                 // TODO: handle emission and do NEE MIS for any emission found on current hit
                 if (false)
                 {
                     // get emission stream
                     float16_t3 emission = float16_t3(0,0,0);
                     // compute emission
-                    if (otherTechniqueHeuristic>WeightThreshold)
+                    if (otherTechniqueHeuristic>MISWeightThreshold)
                     {
                         // compute NEE MIS backward weight on the contribution color
                         // assert not inf
@@ -597,18 +445,9 @@ void raygen()
                         payload.init(randBRDF.z);
                         spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,0u,newRayOrigin,tMin,L,hlsl::numeric_limits<float32_t>::max,payload);
                         // TODO: do something with the payload's reported transparency
-                        if (spirv::hitObjectIsMissEXT(hitObject)) // TODO: factor out into an inlineable function
+                        if (spirv::hitObjectIsMissEXT(hitObject))
                         {
-                            SEnvSample _sample = sampleEnv(spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
-                            if (otherTechniqueHeuristic>WeightThreshold)
-                            {
-                                const float neePdf = (hlsl::dot(L,sunDir)>sunConeHalfAngleCos  ? 1.f:0.f)/(2.0 * numbers::pi<float32_t> *(1.0 - sunConeHalfAngleCos));
-                                const float weightRatio = neePdf*otherTechniqueHeuristic;
-                                // compute NEE MIS backward weight
-                                // assert not inf
-                                // apply MIS to adjust _sample.color
-                                _sample.color /= (1.f+weightRatio*weightRatio);
-                            }
+                            const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),otherTechniqueHeuristic);
                             color += _sample.color*throughput;
                             aovs = aovs + _sample.aov*aovThroughput;
                             transparency += aovThroughput.transparency;

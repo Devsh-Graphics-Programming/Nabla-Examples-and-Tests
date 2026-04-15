@@ -257,7 +257,6 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 	return retval;
 }
 
-// TODO: split into RayDir 
 // raygen functions
 struct SRay
 {
@@ -430,9 +429,6 @@ struct SArbitraryOutputValues
     //float16_t3or4 motion;
 };
 
-// accumulated color
-using accum_t = float16_t3;
-
 // only callable from closestHit
 inline float32_t3 reconstructGeometricNormal()
 {
@@ -447,6 +443,22 @@ inline float32_t3 reconstructGeometricNormal()
     // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
     // this would require a normalization before the matrix multiplication, making everything slower/
     const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(float32_t4x3(spirv::WorldToObjectKHR)));
+    // normalization also needs to be done in full floats because length squared can easily be over 64k
+    return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
+}
+inline float32_t3 reconstructGeometricNormal(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
+{
+    using namespace nbl::hlsl;
+
+    const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+
+    // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
+    const float32_t3 geometricNormal = hlsl::cross(vertices[1]-vertices[0],vertices[2]-vertices[0]);
+
+    // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
+    // this would require a normalization before the matrix multiplication, making everything slower
+    const float32_t4x3 w2o = spirv::hitObjectGetWorldToObjectEXT(hitObject);
+    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(w2o));
     // normalization also needs to be done in full floats because length squared can easily be over 64k
     return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 }
@@ -494,6 +506,9 @@ struct MaxContributionEstimator
     // The idea is that the throughput weights scale HDR world-referenced throughput into a Probability value
     float16_t3 throughputWeights;
 };
+
+// accumulated color
+using accum_t = float16_t3;
 
 //
 struct SEnvSample
