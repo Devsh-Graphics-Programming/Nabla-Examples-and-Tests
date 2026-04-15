@@ -465,7 +465,7 @@ struct MaxContributionEstimator
     }
 
     // notCulled instead of culled because of NaN handling
-    inline bool notCulled(NBL_REF_ARG(float32_t3) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
+    inline bool surviveRussianRoulette(NBL_REF_ARG(float32_t3) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
     {
         // recompute after previous hit
         const float16_t surviveProb = hlsl::dot(float16_t3(throughput),throughputWeights);
@@ -473,8 +473,12 @@ struct MaxContributionEstimator
         // skipRussianRoulette = skipRussianRoulette && ...;
         // cull really low throughput paths (adds bias)
         const float16_t RelativeLumaThroughputThreshold = hlsl::numeric_limits<float16_t>::min;
+        if (surviveProb<RelativeLumaThroughputThreshold)
+            return false;
+        if (skipRussianRoulette)
+            return true;
         // < instead of <= very important for handling zero probability, note that nextULP correction doesn't need to be applied because we use unclamped probability here
-        if (surviveProb>RelativeLumaThroughputThreshold && (skipRussianRoulette || xi<surviveProb))
+        const bool retval = xi<surviveProb;
         {
             const float16_t UnityFp16 = 1;
             // now apply the clamp
@@ -483,9 +487,8 @@ struct MaxContributionEstimator
             xi *= rcpSurvivalProb;
             // apply to throughput
             throughput *= rcpSurvivalProb;
-            return true;
         }
-        return false;
+        return retval;
     }
 
     // The idea is that the throughput weights scale HDR world-referenced throughput into a Probability value
@@ -501,15 +504,16 @@ struct SEnvSample
 // tmp stuff
 const static float32_t sunConeHalfAngleCos = 0.99999;
 const static float32_t3 sunDir = normalize(float32_t3(1,1,1));
+const static accum_t skyColor = accum_t(0.5f, 0.5f, 1.f);
+const static accum_t sunColor = accum_t(10000, 10000, 10000);
 //
 SEnvSample sampleEnv(const float32_t3 raydir)
 {
     SEnvSample retval;
     // TODO: sample the envmap texture
-    retval.color = float16_t3(0.5f,0.5f,1.f);
-    const accum_t sunColor = accum_t(1000, 1000, 1000);
-//    if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
-//        retval.color = sunColor;
+    retval.color = skyColor;
+    if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
+        retval.color = sunColor;
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
     retval.aov.albedo = hlsl::min(retval.color,float16_t3(1,1,1));
     retval.aov.normal = -hlsl::normalize(float16_t3(raydir));

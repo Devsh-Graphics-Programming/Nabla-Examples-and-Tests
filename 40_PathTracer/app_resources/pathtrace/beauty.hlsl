@@ -391,6 +391,7 @@ void raygen()
         using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
         using light_sample_t = bxdf_config_t::sample_type;
         using quotient_pdf_type = bxdf_config_t::quotient_pdf_type;
+        using spectral_type = bxdf_config_t::spectral_type;
         // a little bit of persistent state
         spirv::HitObjectEXT hitObject;
         {
@@ -462,14 +463,14 @@ void raygen()
                 // already premultiplied by next throughput complement
                 aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
                 aovThroughput = nextThroughput;
-                
+
+                const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
                 // TODO: handle emission and do NEE MIS for any emission found on current hit
                 if (false)
                 {
                     // get emission stream
                     float16_t3 emission = float16_t3(0,0,0);
                     // compute emission
-                    const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
                     if (otherTechniqueHeuristic>WeightThreshold)
                     {
                         // compute NEE MIS backward weight on the contribution color
@@ -480,13 +481,25 @@ void raygen()
                     color += emission*throughput;
                 }
 
+                // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
+
                 // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
                 if (depth==lastPathDepth)
                     break;
                 
+                // TODO: embed a bit in the material stream whether:
+                // 1. anisotropic interaction is needed
+                // 2. whether luma contribution hint is needed
+                isotropic_interaction_t interaction = isotropic_interaction_t::create(V,shadingNormal,throughput);
+
+                using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+                brdf_t::SCreationParams cParams;
+                cParams.A = 0.f;
+                const brdf_t diffuse = brdf_t::create(cParams);
+                
                 // get next random number, compensate for the triplets ray generation used
                 const uint16_t sequenceProtoDim = (depth-uint16_t(1))*RandDimTriplesPerDepth+PrimaryRayRandTripletsUsed;
-                float32_t3 randVec = randgen(sequenceProtoDim,sampleIndex);
+                float32_t3 randBRDF = randgen(sequenceProtoDim,sampleIndex);
 
                 // TODO: start at 0 or numeric_limits::min?
                 const float32_t tMin = 0.f;
@@ -498,7 +511,7 @@ void raygen()
 
                 // perform NEE
                 const float32_t neeProb = 1.f;
-                if (false) // whether to perform NEE at all for this material
+                if (true) // whether to perform NEE at all for this material with `randBRDF.z`
                 {
                     float32_t3 randNEE = randgen(sequenceProtoDim+uint16_t(1),sampleIndex);
                     // choose regular lights or envmap
@@ -506,7 +519,7 @@ void raygen()
                     // TODO: SER point, top bits are NEE kind (none, regular light, envmap, then use bits of NEE random number and current position)
 
                     // perform the NEE sampling
-                    float32_t3 L;//light_sample_t L;
+                    light_sample_t L;
                     float32_t pdf;
                     float32_t tMax;
                     {
@@ -514,53 +527,53 @@ void raygen()
                         const float32_t cosTheta2 = cosTheta * cosTheta;
                         const float32_t sinTheta = hlsl::sqrt(1.0 - cosTheta2);
 
-                        L = sunDir * cosTheta;
+                        float32_t3 R = sunDir * cosTheta;
 
                         float32_t phi = 2.0 * numbers::pi<float32_t> *randNEE.y;
                         float32_t3 X, Y;
                         math::frisvad<float32_t3>(sunDir, X, Y);
 
-                        L += (X * hlsl::cos(phi) + Y * hlsl::sin(phi)) * sinTheta;
+                        R += (X * hlsl::cos(phi) + Y * hlsl::sin(phi)) * sinTheta;
 
                         pdf = 1.0 / (2.0 * numbers::pi<float32_t> * (1.0 - sunConeHalfAngleCos));
                         tMax = hlsl::numeric_limits<float16_t>::max;
+
+                        ray_dir_info_t tmp;
+                        tmp.setDirection(R);
+                        L = light_sample_t::create(tmp,shadingNormal);
                     }
 
-                    // compute BxDF eval value, another layer of culling
-#if 0
-                    // trace shadow rays only for contributing samples
+                    // compute BxDF value, another layer of culling
+                    const spectral_type bxdfValue = diffuse.eval(L,interaction);
+                    const spectral_type emitterQuotient = sunColor/pdf;
+                    spectral_type contrib = throughput*bxdfValue*emitterQuotient;
+                    // trace shadow rays only for contributing samples, can also apply russian roulette here!
+                    if (contribEstimator.surviveRussianRoulette(contrib,false,randNEE.z))
                     {
                        // TODO: another possible SER point before casting shadow rays
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
-                        payload.init(tMax);
+                        payload.init(randNEE.z,tMax);
+                        const float32_t3 dir = L.getL().getDirection();
+                        // Still use the `RayFlagsSkipClosestHitShaderKHRMask` mask because we want the hit info not be filled out in the hit object
                         // TODO: change to ESBTO_NEE when ready
-                        spirv::traceRayKHR(gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,newRayOrigin,tMin,L,tMax,payload);
-
-                        if (false)
+                        spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,newRayOrigin,tMin,dir,tMax,payload);
+                        
+                        if (spirv::hitObjectIsMissEXT(hitObject))
                         {
-                            // apply everything
+                            // we only have area lights so always apply MIS, the PDF is finite
+                            const float bxdfWeight = diffuse.pdf(L,interaction);
+                            const float weightRatio = bxdfWeight/pdf;
+                            // MIS balance heuristic
+                            color += contrib/(1.f+weightRatio*weightRatio);
                         }
                     }
-#endif
                 }
                 
                 // TODO: perform shading
                 light_sample_t bxdfSample;
                 {
-                    // TODO: embed a bit in the material stream whether:
-                    // 1. anisotropic interaction is needed
-                    // 2. whether luma contribution hint is needed
-                    isotropic_interaction_t interaction = isotropic_interaction_t::create(V,shadingNormal,throughput);
-
-                    // TODO: SER point, top bits are material Flags and ID geting executed
-
-                    using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
-                    brdf_t::SCreationParams cParams;
-                    cParams.A = 0.f;
-                    const brdf_t diffuse = brdf_t::create(cParams);
-
                     //
-                    bxdfSample = diffuse.generate(interaction,randVec.xy);
+                    bxdfSample = diffuse.generate(interaction,randBRDF.xy);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
                     const quotient_pdf_type qAp = diffuse.quotient_and_pdf(bxdfSample,interaction);
                     const float forwardWeight = qAp.pdf;
@@ -575,23 +588,26 @@ void raygen()
                 }
 
                 // to keep path depths equal for NEE and BxDF sampling, we 
-                if (contribEstimator.notCulled(throughput,depth<=lastNoRussianRouletteDepth,randVec.z))
+                if (contribEstimator.surviveRussianRoulette(throughput,depth<=lastNoRussianRouletteDepth,randBRDF.z))
                 {
                     // continue the path
                     {
                         const float32_t3 L = bxdfSample.getL().getDirection();
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
-                        payload.init(randVec.z);
+                        payload.init(randBRDF.z);
                         spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,0u,newRayOrigin,tMin,L,hlsl::numeric_limits<float32_t>::max,payload);
                         // TODO: do something with the payload's reported transparency
                         if (spirv::hitObjectIsMissEXT(hitObject)) // TODO: factor out into an inlineable function
                         {
                             SEnvSample _sample = sampleEnv(spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
-                            if (otherTechniqueHeuristic>0.f)
+                            if (otherTechniqueHeuristic>WeightThreshold)
                             {
+                                const float neePdf = (hlsl::dot(L,sunDir)>sunConeHalfAngleCos  ? 1.f:0.f)/(2.0 * numbers::pi<float32_t> *(1.0 - sunConeHalfAngleCos));
+                                const float weightRatio = neePdf*otherTechniqueHeuristic;
                                 // compute NEE MIS backward weight
                                 // assert not inf
                                 // apply MIS to adjust _sample.color
+                                _sample.color /= (1.f+weightRatio*weightRatio);
                             }
                             color += _sample.color*throughput;
                             aovs = aovs + _sample.aov*aovThroughput;
