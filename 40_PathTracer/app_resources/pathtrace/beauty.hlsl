@@ -49,6 +49,7 @@ struct CCascades
     }
 };
 
+// TODO: move this to material_compiler3
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
 // Most examples which multiply alpha in anyhit are super misleading, because:
@@ -102,7 +103,7 @@ struct[raypayload] SAnyHitRetval
             rayT = spirv::RayTmaxKHR;
             transparency = _transparency;
         }
-        // TODO: call accept Hit intrinsic
+        // Note that `spirv::terminateRayKHR` is NOT the correct instruction to call (it terminates ray prematurely without considering anything else)
     }
     // 
     
@@ -479,10 +480,4 @@ void raygen()
     }
 }
 
-
-[shader("closesthit")]
-void closestHit(inout SAnyHitRetval payload, in BuiltInTriangleIntersectionAttributes attribs)
-{
-}
-
-// TODO: Anyhit transparency
+// TODO: Anyhit transparency will come from the Material Compiler
