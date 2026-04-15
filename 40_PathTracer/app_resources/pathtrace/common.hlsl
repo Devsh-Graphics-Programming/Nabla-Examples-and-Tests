@@ -454,11 +454,12 @@ inline float32_t3 reconstructGeometricNormal(NBL_REF_ARG(spirv::HitObjectEXT) hi
 
     // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
     const float32_t3 geometricNormal = hlsl::cross(vertices[1]-vertices[0],vertices[2]-vertices[0]);
-
     // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
     // this would require a normalization before the matrix multiplication, making everything slower
-    const float32_t4x3 w2o = spirv::hitObjectGetWorldToObjectEXT(hitObject);
-    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(w2o));
+  
+    // This is Inverse Transpose of ObjectToWorld matrix
+    // Note that SPIR-V gives tranposed matrices already vs our row-major feeding SSBO and BDA, as well as contrary to maths (an affine matrix should be 3x4 not 4x3)
+    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,4,3>(spirv::hitObjectGetWorldToObjectEXT(hitObject));
     // normalization also needs to be done in full floats because length squared can easily be over 64k
     return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 }

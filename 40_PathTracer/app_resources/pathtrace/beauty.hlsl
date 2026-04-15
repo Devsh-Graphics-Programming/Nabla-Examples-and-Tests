@@ -133,29 +133,29 @@ struct SClosestHitRetval
     static inline SClosestHitRetval create(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
     {
         SClosestHitRetval retval;
-        // Which method of barycentric interpolation is more precise? Pick your poison!
-    #define POSITION_RECON_METHOD 0
-    #if POSITION_RECON_METHOD!=0
-        // compute worldspace hit position
-        const float32_t3 vertices[3] = spirv::HitTriangleVertexPositionsKHR;
-    #if POSITION_RECON_METHOD!=2
-        // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
-        const float32_t3 modelSpacePos = vertices[0] + (vertices[1]-vertices[0]) * attribs.barycentrics[0] + (vertices[2] - vertices[0]) * attribs.barycentrics[1];
-    #else
-        // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
-        const float32_t modelSpacePos = vertices[0] * (1.f-attribs.barycentrics.u-attribs.barycentrics.v) + vertices[1] * attribs.barycentrics.u + vertices[2] * attribs.barycentrics.v;
-    #endif
-        retval.hitPos = math::linalg::promoted_mul(spirv::ObjectToWorldKHR,modelSpacePos);
-    #else
-        // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
-        retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
-    #endif
-    #undef POSITION_RECON_METHOD
         {
             [[vk::ext_storage_class(spv::StorageClassHitObjectAttributeEXT)]] float32_t2 tmp;
             spirv::hitObjectGetAttributesEXT(hitObject,tmp);
             retval.barycentrics = tmp;
         }
+        // Which method of barycentric interpolation is more precise? Pick your poison!
+    #define POSITION_RECON_METHOD 0
+    #if POSITION_RECON_METHOD!=0
+        // compute worldspace hit position
+        const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+    #if POSITION_RECON_METHOD!=2
+        // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
+        const float32_t3 modelSpacePos = vertices[0] + (vertices[1]-vertices[0]) * retval.barycentrics[0] + (vertices[2] - vertices[0]) * retval.barycentrics[1];
+    #else
+        // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
+        const float32_t3 modelSpacePos = vertices[0] * (1.f-retval.barycentrics[0]-retval.barycentrics[1]) + vertices[1] * retval.barycentrics[0] + vertices[2] * retval.barycentrics[1];
+    #endif
+        retval.hitPos = math::linalg::promoted_mul(hlsl::transpose(spirv::hitObjectGetObjectToWorldEXT(hitObject)),modelSpacePos);
+    #else
+        // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
+        retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
+    #endif
+    #undef POSITION_RECON_METHOD
         retval.instancedGeometryID = spirv::hitObjectGetInstanceCustomIndexEXT(hitObject) + spirv::hitObjectGetGeometryIndexEXT(hitObject);
         retval.primitiveID = spirv::hitObjectGetPrimitiveIndexEXT(hitObject);
         retval.geometricNormal = reconstructGeometricNormal(hitObject);
