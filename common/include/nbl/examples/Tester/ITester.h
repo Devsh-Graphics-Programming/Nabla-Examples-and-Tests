@@ -174,12 +174,25 @@ public:
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
+    /**
+    * @brief Runs tests and verifies their results using a randomly generated seed for test value generation.
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
     bool performTestsAndVerifyResults(const std::string& logFileName)
     {
         reloadSeed();
         return performTestsAndVerifyResults_impl(logFileName);
     }
 
+    /**
+    * @brief Runs tests and verifies their results using a user-provided seed for test value generation.
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @param seed Custom seed used for generating test values, ensures deterministic and reproducible results
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
     bool performTestsAndVerifyResults(const std::string& logFileName, const uint32_t seed)
     {
         reloadSeed(seed);
