@@ -514,14 +514,14 @@ using accum_t = float16_t3;
 //
 struct SEnvSample
 {
-    accum_t color;
+    float32_t3 color;
     SArbitraryOutputValues aov;
 };
 // tmp stuff
 const static float32_t sunConeHalfAngleCos = 0.99999;
 const static float32_t3 sunDir = normalize(float32_t3(1,1,1));
-const static accum_t skyColor = accum_t(0.5f, 0.5f, 1.f);
-const static accum_t sunColor = accum_t(10000, 10000, 10000);
+const static float32_t3 skyColor = float32_t3(0.5f, 0.5f, 1.f);
+const static float32_t3 sunColor = float32_t3(10000, 10000, 10000);
 //
 SEnvSample sampleEnv(const float32_t3 raydir)
 {
@@ -531,7 +531,7 @@ SEnvSample sampleEnv(const float32_t3 raydir)
     if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
         retval.color = sunColor;
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
-    retval.aov.albedo = hlsl::min(retval.color,float16_t3(1,1,1));
+    retval.aov.albedo = hlsl::min(retval.color,float32_t3(1,1,1));
     retval.aov.normal = -hlsl::normalize(float16_t3(raydir));
     return retval;
 }

@@ -196,7 +196,7 @@ SEnvSample handleEnvmapHit(const float32_t3 L, const float otherTechniqueHeurist
         // compute NEE MIS backward weight
         // assert not inf
         // apply MIS to adjust _sample.color
-        _sample.color /= (1.f+weightRatio*weightRatio);
+        _sample.color /= 1.f+weightRatio*weightRatio;
     }
     return _sample;
 }
@@ -268,7 +268,7 @@ void raygen()
         if (spirv::hitObjectIsMissEXT(hitObject))
         {
             const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),0.f);
-            color = _sample.color;
+            color = float16_t3(_sample.color);
             aovs = aovs + _sample.aov * rcpSamplesThisFrame;
             transparency += rcpSamplesThisFrame;
         }
@@ -425,12 +425,12 @@ void raygen()
                     bxdfSample = diffuse.generate(interaction,randBRDF.xy);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
                     const quotient_pdf_type qAp = diffuse.quotient_and_pdf(bxdfSample,interaction);
-                    const float forwardWeight = qAp.pdf;
+                    const float forwardWeight = qAp.pdf();
                     if (forwardWeight<0.00000001f)
                         break;
 
                     const float32_t3 albedo = float32_t3(0.8,0.7,0.5);
-                    throughput = throughput * qAp.quotient * albedo;
+                    throughput = throughput * qAp.quotient() * albedo;
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f/forwardWeight;
@@ -449,7 +449,7 @@ void raygen()
                         if (spirv::hitObjectIsMissEXT(hitObject))
                         {
                             const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),otherTechniqueHeuristic);
-                            color += _sample.color*throughput;
+                            color += float16_t3(_sample.color*throughput);
                             aovs = aovs + _sample.aov*aovThroughput;
                             transparency += aovThroughput.transparency;
                             break;
