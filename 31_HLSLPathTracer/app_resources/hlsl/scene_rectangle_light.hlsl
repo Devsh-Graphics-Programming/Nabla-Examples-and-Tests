@@ -71,6 +71,14 @@ struct SceneRectangleLight : SceneBase
         interaction_type interaction = interaction_type::create(V, N);
         interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * rayIntersected.getPayloadThroughput();
         interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
+
+        // sphere shading normal same as unit vec from origin
+        // TODO: might want to account for sphere rotation, but this example doesn't have any
+        vector<scalar_type, 2> sphUV;
+        sphUV.x = 0.5 - hlsl::atan2(N.z, N.x) * numbers::inv_pi<scalar_type> * 0.5;
+        sphUV.y = 0.5 - hlsl::asin(N.y) * numbers::inv_pi<scalar_type>;
+        interaction.uv = sphUV;
+
         intersection.aniso_interaction = Intersection::interaction_type::create(interaction);
         return intersection;
     }
