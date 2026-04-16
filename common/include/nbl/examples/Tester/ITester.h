@@ -174,40 +174,29 @@ public:
         m_queue = m_device->getQueue(m_queueFamily, 0);
     }
 
+    /**
+    * @brief Runs tests and verifies their results using a randomly generated seed for test value generation.
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
     bool performTestsAndVerifyResults(const std::string& logFileName)
     {
-        m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
-        if (!m_logFile.is_open())
-            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
-
-        core::vector<InputTestValues> inputTestValues;
-        core::vector<TestResults> exceptedTestResults;
-
-        inputTestValues.reserve(m_testIterationCount);
-        exceptedTestResults.reserve(m_testIterationCount);
-
-        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
-        for (int i = 0; i < m_testIterationCount; ++i)
-        {
-            // Set input thest values that will be used in both CPU and GPU tests
-            InputTestValues testInput = generateInputTestValues();
-            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-            TestResults expected = determineExpectedResults(testInput);
-
-            inputTestValues.push_back(testInput);
-            exceptedTestResults.push_back(expected);
-        }
-
-        core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
-        core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
-
-        bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
-
-        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
         reloadSeed();
+        return performTestsAndVerifyResults_impl(logFileName);
+    }
 
-        m_logFile.close();
-        return pass;
+    /**
+    * @brief Runs tests and verifies their results using a user-provided seed for test value generation.
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @param seed Custom seed used for generating test values, ensures deterministic and reproducible results
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
+    bool performTestsAndVerifyResults(const std::string& logFileName, const uint32_t seed)
+    {
+        reloadSeed(seed);
+        return performTestsAndVerifyResults_impl(logFileName);
     }
 
     virtual ~ITester()
@@ -228,7 +217,6 @@ protected:
     ITester(const uint32_t testBatchCount)
         : m_testBatchCount(testBatchCount), m_testIterationCount(testBatchCount * m_WorkgroupSize)
     {
-        reloadSeed();
     };
 
     virtual bool verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
@@ -355,6 +343,41 @@ private:
         exit(-1);
     }
 
+    bool performTestsAndVerifyResults_impl(const std::string& logFileName)
+    {
+        m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
+        if (!m_logFile.is_open())
+            m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
+        core::vector<InputTestValues> inputTestValues;
+        core::vector<TestResults> exceptedTestResults;
+
+        inputTestValues.reserve(m_testIterationCount);
+        exceptedTestResults.reserve(m_testIterationCount);
+
+        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
+        for (int i = 0; i < m_testIterationCount; ++i)
+        {
+            // Set input thest values that will be used in both CPU and GPU tests
+            InputTestValues testInput = generateInputTestValues();
+            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
+            TestResults expected = determineExpectedResults(testInput);
+
+            inputTestValues.push_back(testInput);
+            exceptedTestResults.push_back(expected);
+        }
+
+        core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
+        core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
+
+        bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+
+        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+
+        m_logFile.close();
+        return pass;
+    }
+
     core::vector<TestResults> performCpuTests(const core::vector<InputTestValues>& inputTestValues)
     {
         core::vector<TestResults> output(m_testIterationCount);
@@ -402,6 +425,12 @@ private:
         std::random_device rd;
         m_seed = rd();
         m_mersenneTwister = std::mt19937(m_seed);
+    }
+
+    void reloadSeed(uint32_t seed)
+    {
+        m_seed = seed;
+        m_mersenneTwister = std::mt19937(seed);
     }
 
     template<typename T>
