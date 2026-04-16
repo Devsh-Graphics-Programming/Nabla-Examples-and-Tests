@@ -274,6 +274,54 @@ enum MaterialType : uint32_t
     EMISSIVE
 };
 
+// based on 3D gradient noise by Inigo Quilez: https://www.shadertoy.com/view/Xsl3Dl
+struct GradientNoise
+{
+    static float32_t3 __hash(const float32_t3 p)
+    {
+        float32_t3 ret;
+        ret.x = hlsl::dot(p, float32_t3(127.1,311.7, 74.7));
+        ret.y = hlsl::dot(p, float32_t3(269.5,183.3,246.1));
+        ret.z = hlsl::dot(p, float32_t3(113.5,271.9,124.6));
+        return -1.0 + 2.0 * hlsl::fract(hlsl::sin(ret) * 43758.5453123);
+    }
+
+    float32_t operator()(const float32_t3 p)
+    {
+        float32_t3 i = hlsl::floor(p);
+        float32_t3 f = hlsl::fract(p);
+        float32_t3 u = f * f * (3.0 - 2.0 * f);
+
+        return hlsl::mix(hlsl::mix(hlsl::mix(hlsl::dot(__hash(i + float32_t3(0.0,0.0,0.0)), f - float32_t3(0.0,0.0,0.0)), 
+                            hlsl::dot(__hash(i + float32_t3(1.0,0.0,0.0)), f - float32_t3(1.0,0.0,0.0)), u.x),
+                        hlsl::mix(hlsl::dot(__hash(i + float32_t3(0.0,1.0,0.0)), f - float32_t3(0.0,1.0,0.0)), 
+                            hlsl::dot(__hash(i + float32_t3(1.0,1.0,0.0)), f - float32_t3(1.0,1.0,0.0)), u.x), u.y),
+                    hlsl::mix(hlsl::mix(hlsl::dot(__hash(i + float32_t3(0.0,0.0,1.0)), f - float32_t3(0.0,0.0,1.0)), 
+                            hlsl::dot(__hash(i + float32_t3(1.0,0.0,1.0)), f - float32_t3(1.0,0.0,1.0) ), u.x),
+                        hlsl::mix(hlsl::dot(__hash(i + float32_t3(0.0,1.0,1.0)), f - float32_t3(0.0,1.0,1.0)), 
+                            hlsl::dot(__hash(i + float32_t3(1.0,1.0,1.0)), f - float32_t3(1.0,1.0,1.0)), u.x), u.y), u.z);
+    }
+};
+
+struct NoiseAccessor
+{
+    // noise value as height -> normal
+    void get(NBL_REF_ARG(float32_t3) value, const float32_t3 pos, const float32_t3 offset_dir1, const float32_t3 offset_dir2)
+    {
+        GradientNoise noise;
+        const float offset_stride = 1.0;
+        const float noise_scale = 150.0;
+        const float bump_strength = 2.0;
+
+        float h00 = noise(pos * noise_scale);
+        float h01 = noise(pos * noise_scale + offset_dir1 * offset_stride);
+        float h10 = noise(pos * noise_scale + offset_dir2 * offset_stride);
+        float32_t2 Hxy = float32_t2(h00 - h01, h00 - h10);
+        float32_t3 bump = float32_t3(Hxy * bump_strength, 1.0);
+        value = hlsl::normalize(bump) * 0.5 + 0.5;
+    }
+};
+
 struct TexAccessor
 {
     void get(NBL_REF_ARG(float32_t3) value, const float32_t2 uv)
@@ -301,7 +349,7 @@ struct BxDFNode
     using scalar_type = typename vector_traits<Spectrum>::scalar_type;
     using vector2_type = vector<scalar_type, 2>;
     using params_type = SBxDFCreationParams<scalar_type, spectral_type>;
-    using normals_accessor = TexAccessor;
+    using normals_accessor = NoiseAccessor;
 
     // for diffuse bxdfs
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) albedo)
