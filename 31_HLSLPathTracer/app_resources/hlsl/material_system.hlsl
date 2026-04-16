@@ -241,7 +241,7 @@ struct MaterialSystem
                 case MaterialType::DIFFUSE:
                 {
                     quotient_pdf_type ret = _cache.diffuseBxDF.quotient_and_pdf(_sample, interaction.isotropic);
-                    ret.quotient *= bxdfs[matID.id].albedo;
+                    ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
                 case MaterialType::CONDUCTOR:

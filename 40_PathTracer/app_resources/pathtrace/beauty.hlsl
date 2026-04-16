@@ -49,7 +49,7 @@ struct CCascades
     }
 };
 
-
+// TODO: move this to material_compiler3
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 // 
 // Most examples which multiply alpha in anyhit are super misleading, because:
@@ -89,8 +89,9 @@ struct CCascades
 struct[raypayload] SAnyHitRetval
 {
     // before sending the ray by the caller
-    inline void init(float32_t tMax = hlsl::numeric_limits<float32_t>::max)
+    inline void init(const float32_t _xi, float32_t tMax = hlsl::numeric_limits<float32_t>::max)
     {
+        xi = _xi;
         rayT = tMax;
     }
     // call in AnyHit instead of AcceptHit
@@ -102,7 +103,7 @@ struct[raypayload] SAnyHitRetval
             rayT = spirv::RayTmaxKHR;
             transparency = _transparency;
         }
-        // TODO: call accept Hit intrinsic
+        // Note that `spirv::terminateRayKHR` is NOT the correct instruction to call (it terminates ray prematurely without considering anything else)
     }
     // 
     
@@ -114,7 +115,6 @@ struct[raypayload] SAnyHitRetval
     float16_t transparency : read(caller) : write(anyhit);
     // can use additional `float16` to store BxDF mixture weights or other things so they don't need recomputing/re-fetching during shading
 };
-
 
 
 // Because SER based on Material ID will probably greatly benefit us, the shading needs to happen in Raygen Shader or ClosestHit executed directly by Raygen
@@ -130,6 +130,38 @@ struct[raypayload] SAnyHitRetval
 //      Should use NO_NULL_CLOSEST_HIT and NO_NULL_MISS_SHADERS 
 struct SClosestHitRetval
 {
+    static inline SClosestHitRetval create(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
+    {
+        SClosestHitRetval retval;
+        {
+            [[vk::ext_storage_class(spv::StorageClassHitObjectAttributeEXT)]] float32_t2 tmp;
+            spirv::hitObjectGetAttributesEXT(hitObject,tmp);
+            retval.barycentrics = tmp;
+        }
+        // Which method of barycentric interpolation is more precise? Pick your poison!
+    #define POSITION_RECON_METHOD 0
+    #if POSITION_RECON_METHOD!=0
+        // compute worldspace hit position
+        const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+    #if POSITION_RECON_METHOD!=2
+        // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
+        const float32_t3 modelSpacePos = vertices[0] + (vertices[1]-vertices[0]) * retval.barycentrics[0] + (vertices[2] - vertices[0]) * retval.barycentrics[1];
+    #else
+        // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
+        const float32_t3 modelSpacePos = vertices[0] * (1.f-retval.barycentrics[0]-retval.barycentrics[1]) + vertices[1] * retval.barycentrics[0] + vertices[2] * retval.barycentrics[1];
+    #endif
+        retval.hitPos = math::linalg::promoted_mul(hlsl::transpose(spirv::hitObjectGetObjectToWorldEXT(hitObject)),modelSpacePos);
+    #else
+        // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
+        retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
+    #endif
+    #undef POSITION_RECON_METHOD
+        retval.instancedGeometryID = spirv::hitObjectGetInstanceCustomIndexEXT(hitObject) + spirv::hitObjectGetGeometryIndexEXT(hitObject);
+        retval.primitiveID = spirv::hitObjectGetPrimitiveIndexEXT(hitObject);
+        retval.geometricNormal = reconstructGeometricNormal(hitObject);
+        return retval;
+    }
+
     float32_t3 hitPos;
     // to interpolate our vertex attributes
     float32_t2 barycentrics;
@@ -141,20 +173,7 @@ struct SClosestHitRetval
     float32_t3 geometricNormal;
 };
 
-
-// This payload will eventually not be needed with SER, and only the one below will be used
-struct [raypayload] BeautyPayload
-{
-    inline void markAsMissed()
-    {
-        closestRet.geometricNormal = 45.f;
-    }
-    inline bool hasMissed() {return closestRet.geometricNormal[0]>44.f;}
-
-    SClosestHitRetval closestRet : read(caller) : write(caller,closesthit);
-};
-
-
+// TODO: move to shared C++ and HLSL header
 enum E_SBT_OFFSETS : uint16_t
 {
     ESBTO_PATH,
@@ -164,8 +183,23 @@ enum E_SBT_OFFSETS : uint16_t
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 
-// TODO: do a function with MIS to do envmap lighting
-
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float32_t MISWeightThreshold = hlsl::numeric_limits<float32_t>::min;
+//
+SEnvSample handleEnvmapHit(const float32_t3 L, const float otherTechniqueHeuristic
+)
+{
+    SEnvSample _sample = sampleEnv(L); // TODO: L might need to have a spread factor
+    if (otherTechniqueHeuristic>MISWeightThreshold)
+    {
+        const float neePdf = (hlsl::dot(L,sunDir)>sunConeHalfAngleCos  ? 1.f:0.f)/(2.0 * numbers::pi<float32_t> *(1.0 - sunConeHalfAngleCos));
+        const float weightRatio = neePdf*otherTechniqueHeuristic;
+        // compute NEE MIS backward weight
+        // assert not inf
+        // apply MIS to adjust _sample.color
+        _sample.color /= 1.f+weightRatio*weightRatio;
+    }
+    return _sample;
+}
 
 [shader("raygeneration")]
 void raygen()
@@ -175,12 +209,16 @@ void raygen()
     
     // Take n samples per frame
     // TODO: establish min/max - adaptive sampling
-    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,unpacked16BitPC.maxSppPerDispatch,uint16_t(pc.sensorDynamics.keepAccumulating),pc.sensorDynamics.maxSPP);
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID,unpacked16BitPC.maxSppPerDispatch,uint16_t(pc.sensorDynamics.keepAccumulating),_static_cast<uint16_t>(pc.sensorDynamics.maxSPP));
     // took max samples
     const uint16_t endSample = samplingInfo.newSampleCount;
     const uint16_t samplesThisFrame = endSample-samplingInfo.firstSample;
     if (samplesThisFrame==0)
         return;
+
+    // TODO: possible SER point if doing variable spp
+    //spirv::reorderThreadWithHintEXT<uint32_t>(hlsl::min<uint32_t>(samplesThisFrame,1),1);
+
     // weight for non RWMC contribution
     const float16_t newSamplesOverTotal = _static_cast<float16_t>(_static_cast<float32_t>(samplesThisFrame)*samplingInfo.rcpNewSampleCount);
     const float16_t rcpSamplesThisFrame = float16_t(1)/_static_cast<float16_t>(samplesThisFrame);
@@ -203,11 +241,9 @@ void raygen()
         using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
         using light_sample_t = bxdf_config_t::sample_type;
         using quotient_pdf_type = bxdf_config_t::quotient_pdf_type;
+        using spectral_type = bxdf_config_t::spectral_type;
         // a little bit of persistent state
-        SRay ray;
-        // trace primary ray
-        bool missed;
-        SClosestHitRetval closestInfo;
+        spirv::HitObjectEXT hitObject;
         {
             // fetch random variable from memory
             const float32_t3 randVec = randgen(0u,sampleIndex);
@@ -217,31 +253,26 @@ void raygen()
             const float32_t2 pixelSizeNDC = promote<float32_t2>(2.f)/float32_t2(spirv::LaunchSizeKHR.xy);
             const float32_t2 NDC = float32_t2(launchID.xy)*pixelSizeNDC - promote<float32_t2>(1.f);
             const SPrimaryRay primary = genPrimaryRay(pc.sensorDynamics,pixelSizeNDC,NDC,float16_t2(randVec.xy));
-            ray = primary.ray;
+            const SRay ray = primary.ray;
 
-            // TODO: possible SER point if doing variable spp
+            // TODO: possible SER point, sorting by ray direction
+            //spirv::reorderThreadWithHintEXT<uint32_t>(,);
 
-            const float32_t3 rayDir = ray.direction.getDirection();
-
-            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] BeautyPayload payload;
-            // TODO: when doing anyhit opacity pass `randVec.z` into the payload
-            payload.markAsMissed();
-            spirv::traceRayKHR(gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,ESBTO_PATH,ray.origin,primary.tMin,rayDir,pc.sensorDynamics.tMax,payload);
-
-            //
-            missed = payload.hasMissed();
-            if (missed)
-            {
-                const SEnvSample _sample = sampleEnv(rayDir);
-                color = _sample.color;
-                aovs = aovs + _sample.aov * rcpSamplesThisFrame;
-                transparency += rcpSamplesThisFrame;
-            }
-            else // TODO: erase the `missed` variable and setup the struct in "wasAHit"
-                closestInfo = payload.closestRet;
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
+            const float tMax = pc.sensorDynamics.tMax;
+            payload.init(randVec.z,tMax);
+            spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,0u,ray.origin,primary.tMin,ray.direction.getDirection(),tMax,payload);
+            // TODO: do something with the payload's reported transparency
         }
-        // trace further rays
-        if (!missed)
+        // TODO: Possible SER point
+        if (spirv::hitObjectIsMissEXT(hitObject))
+        {
+            const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),0.f);
+            color = float16_t3(_sample.color);
+            aovs = aovs + _sample.aov * rcpSamplesThisFrame;
+            transparency += rcpSamplesThisFrame;
+        }
+        else // trace further rays
         {
             //
             MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
@@ -257,7 +288,12 @@ void raygen()
             {
                 // TODO: get the material ID and UVs
 
-                ray_dir_info_t V = ray.direction.transmit();
+                // TODO: preserve spread metrics
+                ray_dir_info_t V;
+                // minus because of transmission
+                V.setDirection(-spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
+
+                SClosestHitRetval closestInfo = SClosestHitRetval::create(hitObject);
                 const float32_t GdotV = hlsl::dot(V.getDirection(),closestInfo.geometricNormal);
                 // TODO: only for twosided materials
                 closestInfo.geometricNormal *= sign(GdotV);
@@ -277,15 +313,14 @@ void raygen()
                 // already premultiplied by next throughput complement
                 aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
                 aovThroughput = nextThroughput;
-                
+
                 // TODO: handle emission and do NEE MIS for any emission found on current hit
                 if (false)
                 {
                     // get emission stream
                     float16_t3 emission = float16_t3(0,0,0);
                     // compute emission
-                    const float32_t WeightThreshold = hlsl::numeric_limits<float32_t>::min;
-                    if (otherTechniqueHeuristic>WeightThreshold)
+                    if (otherTechniqueHeuristic>MISWeightThreshold)
                     {
                         // compute NEE MIS backward weight on the contribution color
                         // assert not inf
@@ -295,26 +330,37 @@ void raygen()
                     color += emission*throughput;
                 }
 
+                // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
+
                 // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
                 if (depth==lastPathDepth)
                     break;
                 
+                // TODO: embed a bit in the material stream whether:
+                // 1. anisotropic interaction is needed
+                // 2. whether luma contribution hint is needed
+                isotropic_interaction_t interaction = isotropic_interaction_t::create(V,shadingNormal,throughput);
+
+                using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+                brdf_t::SCreationParams cParams;
+                cParams.A = 0.f;
+                const brdf_t diffuse = brdf_t::create(cParams);
+                
                 // get next random number, compensate for the triplets ray generation used
                 const uint16_t sequenceProtoDim = (depth-uint16_t(1))*RandDimTriplesPerDepth+PrimaryRayRandTripletsUsed;
-                float32_t3 randVec = randgen(sequenceProtoDim,sampleIndex);
+                float32_t3 randBRDF = randgen(sequenceProtoDim,sampleIndex);
 
                 // TODO: start at 0 or numeric_limits::min?
                 const float32_t tMin = 0.f;
                 // should the offset be the same for NEE and Path Continuation?
-                {
-                    const float32_t3 originMagnitude = max(abs(closestInfo.hitPos),abs(ray.origin));
-                    // TODO: should probably also take `tMax` of found hit into account
-                    ray.origin = closestInfo.hitPos+closestInfo.geometricNormal*hlsl::max(hlsl::max(hlsl::exp2(8.f),originMagnitude.x),hlsl::max(originMagnitude.y,originMagnitude.z))*hlsl::exp2(-20.f);
-                }
+                const float32_t3 originMagnitude = max(abs(closestInfo.hitPos),abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+                // TODO: should probably also take `tMax` of found hit into account
+                const float offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f),originMagnitude.x),hlsl::max(originMagnitude.y,originMagnitude.z))*hlsl::exp2(-20.f);
+                const float32_t3 newRayOrigin = closestInfo.hitPos+closestInfo.geometricNormal*offsetMagnitude;
 
                 // perform NEE
                 const float32_t neeProb = 1.f;
-                if (false) // whether to perform NEE at all for this material
+                if (true) // whether to perform NEE at all for this material with `randBRDF.z`
                 {
                     float32_t3 randNEE = randgen(sequenceProtoDim+uint16_t(1),sampleIndex);
                     // choose regular lights or envmap
@@ -322,7 +368,7 @@ void raygen()
                     // TODO: SER point, top bits are NEE kind (none, regular light, envmap, then use bits of NEE random number and current position)
 
                     // perform the NEE sampling
-                    float32_t3 L;//light_sample_t L;
+                    light_sample_t L;
                     float32_t pdf;
                     float32_t tMax;
                     {
@@ -330,85 +376,80 @@ void raygen()
                         const float32_t cosTheta2 = cosTheta * cosTheta;
                         const float32_t sinTheta = hlsl::sqrt(1.0 - cosTheta2);
 
-                        L = sunDir * cosTheta;
+                        float32_t3 R = sunDir * cosTheta;
 
                         float32_t phi = 2.0 * numbers::pi<float32_t> *randNEE.y;
                         float32_t3 X, Y;
                         math::frisvad<float32_t3>(sunDir, X, Y);
 
-                        L += (X * hlsl::cos(phi) + Y * hlsl::sin(phi)) * sinTheta;
+                        R += (X * hlsl::cos(phi) + Y * hlsl::sin(phi)) * sinTheta;
 
                         pdf = 1.0 / (2.0 * numbers::pi<float32_t> * (1.0 - sunConeHalfAngleCos));
                         tMax = hlsl::numeric_limits<float16_t>::max;
+
+                        ray_dir_info_t tmp;
+                        tmp.setDirection(R);
+                        L = light_sample_t::create(tmp,shadingNormal);
                     }
 
-                    // compute BxDF eval value, another layer of culling
-
-                    // trace shadow rays only for contributing samples
+                    // compute BxDF value, another layer of culling
+                    const spectral_type bxdfValue = diffuse.eval(L,interaction);
+                    const spectral_type emitterQuotient = sunColor/pdf;
+                    spectral_type contrib = throughput*bxdfValue*emitterQuotient;
+                    // trace shadow rays only for contributing samples, can also apply russian roulette here!
+                    if (contribEstimator.surviveRussianRoulette(contrib,false,randNEE.z))
                     {
                        // TODO: another possible SER point before casting shadow rays
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
-                        payload.init(tMax);
+                        payload.init(randNEE.z,tMax);
+                        const float32_t3 dir = L.getL().getDirection();
+                        // Still use the `RayFlagsSkipClosestHitShaderKHRMask` mask because we want the hit info not be filled out in the hit object
                         // TODO: change to ESBTO_NEE when ready
-                        spirv::traceRayKHR(gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,ray.origin,tMin,L,tMax,payload);
-
-                        if (false)
+                        spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsTerminateOnFirstHitKHRMask|spv::RayFlagsSkipClosestHitShaderKHRMask,0xff,ESBTO_PATH,0u,ESBTO_PATH,newRayOrigin,tMin,dir,tMax,payload);
+                        
+                        if (spirv::hitObjectIsMissEXT(hitObject))
                         {
-                            // apply everything
+                            // we only have area lights so always apply MIS, the PDF is finite
+                            const float bxdfWeight = diffuse.pdf(L,interaction);
+                            const float weightRatio = bxdfWeight/pdf;
+                            // MIS balance heuristic
+                            color += contrib/(1.f+weightRatio*weightRatio);
                         }
                     }
                 }
                 
                 // TODO: perform shading
+                light_sample_t bxdfSample;
                 {
-                    // TODO: embed a bit in the material stream whether:
-                    // 1. anisotropic interaction is needed
-                    // 2. whether luma contribution hint is needed
-                    isotropic_interaction_t interaction = isotropic_interaction_t::create(V,shadingNormal,throughput);
-
-                    // TODO: SER point, top bits are material Flags and ID geting executed
-
-                    using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
-                    brdf_t::SCreationParams cParams;
-                    cParams.A = 0.f;
-                    const brdf_t diffuse = brdf_t::create(cParams);
-
                     //
-                    const light_sample_t _sample = diffuse.generate(interaction,randVec.xy);
+                    bxdfSample = diffuse.generate(interaction,randBRDF.xy);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
-                    const quotient_pdf_type qAp = diffuse.quotient_and_pdf(_sample,interaction);
-                    const float forwardWeight = qAp.pdf;
+                    const quotient_pdf_type qAp = diffuse.quotient_and_pdf(bxdfSample,interaction);
+                    const float forwardWeight = qAp.pdf();
                     if (forwardWeight<0.00000001f)
                         break;
-                    ray.direction = _sample.getL();
 
                     const float32_t3 albedo = float32_t3(0.8,0.7,0.5);
-                    throughput = throughput * qAp.quotient * albedo;
+                    throughput = throughput * qAp.quotient() * albedo;
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f/forwardWeight;
                 }
 
                 // to keep path depths equal for NEE and BxDF sampling, we 
-                if (contribEstimator.notCulled(throughput,depth<=lastNoRussianRouletteDepth,randVec.z))
+                if (contribEstimator.surviveRussianRoulette(throughput,depth<=lastNoRussianRouletteDepth,randBRDF.z))
                 {
                     // continue the path
                     {
-                        const float32_t3 L = ray.direction.getDirection();
-                        // TODO: when doing anyhit opacity pass `randVec.z` into the payload
-                        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] BeautyPayload payload;
-                        payload.markAsMissed();
-                        spirv::traceRayKHR(gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,ESBTO_PATH,ray.origin,tMin,L,hlsl::numeric_limits<float16_t>::max,payload);
-                        if (payload.hasMissed())
+                        const float32_t3 L = bxdfSample.getL().getDirection();
+                        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
+                        payload.init(randBRDF.z);
+                        spirv::hitObjectTraceRayEXT(hitObject,gTLASes[0],spv::RayFlagsMaskNone,0xff,ESBTO_PATH,0u,0u,newRayOrigin,tMin,L,hlsl::numeric_limits<float32_t>::max,payload);
+                        // TODO: do something with the payload's reported transparency
+                        if (spirv::hitObjectIsMissEXT(hitObject))
                         {
-                            SEnvSample _sample = sampleEnv(L);
-                            if (otherTechniqueHeuristic>0.f)
-                            {
-                                // compute NEE MIS backward weight
-                                // assert not inf
-                                // apply MIS to adjust _sample.color
-                            }
-                            color += _sample.color*throughput;
+                            const SEnvSample _sample = handleEnvmapHit(spirv::hitObjectGetWorldRayDirectionEXT(hitObject),otherTechniqueHeuristic);
+                            color += float16_t3(_sample.color*throughput);
                             aovs = aovs + _sample.aov*aovThroughput;
                             transparency += aovThroughput.transparency;
                             break;
@@ -439,34 +480,4 @@ void raygen()
     }
 }
 
-
-[shader("closesthit")]
-void closestHit(inout BeautyPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
-{
-    SClosestHitRetval closestHitReturn;
-    // Which method of barycentric interpolation is more precise? Pick your poison!
-#define POSITION_RECON_METHOD 0
-#if POSITION_RECON_METHOD!=0
-    // compute worldspace hit position
-    const float32_t3 vertices[3] = spirv::HitTriangleVertexPositionsKHR;
-#if POSITION_RECON_METHOD!=2
-    // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
-    const float32_t3 modelSpacePos = vertices[0] + (vertices[1]-vertices[0]) * attribs.barycentrics[0] + (vertices[2] - vertices[0]) * attribs.barycentrics[1];
-#else
-    // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
-    const float32_t modelSpacePos = vertices[0] * (1.f-attribs.barycentrics.u-attribs.barycentrics.v) + vertices[1] * attribs.barycentrics.u + vertices[2] * attribs.barycentrics.v;
-#endif
-    closestHitReturn.hitPos = math::linalg::promoted_mul(spirv::ObjectToWorldKHR,modelSpacePos);
-#else
-    // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
-    closestHitReturn.hitPos = spirv::WorldRayOriginKHR + spirv::WorldRayDirectionKHR * spirv::RayTmaxKHR;
-#endif
-#undef POSITION_RECON_METHOD
-    closestHitReturn.barycentrics = attribs.barycentrics;
-    closestHitReturn.instancedGeometryID = spirv::InstanceCustomIndexKHR + spirv::RayGeometryIndexKHR;
-    closestHitReturn.primitiveID = spirv::PrimitiveId;
-    closestHitReturn.geometricNormal = reconstructGeometricNormal();
-    payload.closestRet = closestHitReturn;
-}
-
-// TODO: Anyhit transparency
+// TODO: Anyhit transparency will come from the Material Compiler

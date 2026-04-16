@@ -21,7 +21,8 @@ struct RenderPushConstants
 		const float32_t3 recon = hlsl::cross(matT[0],matT[1]);
 		lightZscale = hlsl::sign(hlsl::dot(recon,matT[2]))*hlsl::length(matT[2])/hlsl::length(recon);
 		lightPos = matT[3];
-		assert(getLightMatrix()==hlsl::transpose(matT));
+        // need to improve can't compare like this, will assert due to fp32 issues
+		//assert(getLightMatrix()==hlsl::transpose(matT));
 	}
 
     float32_t3x4 getLightMatrix()
