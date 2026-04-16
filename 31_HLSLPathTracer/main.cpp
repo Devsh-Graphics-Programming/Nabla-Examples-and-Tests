@@ -874,10 +874,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "enable", &guiControlled.useRWMC },
 					};
 					const this_example::pt_ui::SFloatSliderRow rwmcFloatRows[] = {
-						{ "start", &guiControlled.rwmcParams.start, 0.2f, 128.0f, "%.3f" },
-						{ "base", &guiControlled.rwmcParams.base, 1.001f, 32.0f, "%.3f" },
-						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.01f, 1024.0f, "%.3f" },
-						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f, "%.3f" },
+						{ "start", &guiControlled.rwmcParams.start, 0.1f, 2.0f, "%.3f" },
+						{ "base", &guiControlled.rwmcParams.base, 1.001f, 3.0f, "%.3f" },
+						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.005f, 2.0f, "%.3f" },
+						{ "kappa", &guiControlled.rwmcParams.kappa, 0.5f, 256.0f, "%.3f" },
 					};
 					const this_example::pt_ui::STextRow diagnosticsRows[] = {
 						{ "geometry", system::to_string(currentGeometry) },
