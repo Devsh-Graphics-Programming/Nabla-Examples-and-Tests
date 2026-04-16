@@ -877,7 +877,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						{ "start", &guiControlled.rwmcParams.start, 0.1f, 2.0f, "%.3f" },
 						{ "base", &guiControlled.rwmcParams.base, 1.001f, 3.0f, "%.3f" },
 						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.005f, 2.0f, "%.3f" },
-						{ "kappa", &guiControlled.rwmcParams.kappa, 0.5f, 256.0f, "%.3f" },
+						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 8.0f, "%.3f" },
 					};
 					const this_example::pt_ui::STextRow diagnosticsRows[] = {
 						{ "geometry", system::to_string(currentGeometry) },
@@ -1734,10 +1734,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		void resetRWMCParamsToDefaults()
 		{
-			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			guiControlled.rwmcParams.base = 8.0f;
-			guiControlled.rwmcParams.minReliableLuma = 1.0f;
-			guiControlled.rwmcParams.kappa = 1.0f;
+			guiControlled.rwmcParams.base = 2.5f;
+			// scale up by 2 to take into account that sampling makes PDF be small and quotient to grow
+			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence)/pow(guiControlled.rwmcParams.base,CascadeCount)*2.f;
+			guiControlled.rwmcParams.minReliableLuma = 0.25f;
+			guiControlled.rwmcParams.kappa = 3.0f;
 			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
 		}
 
