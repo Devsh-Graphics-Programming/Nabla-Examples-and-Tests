@@ -246,6 +246,7 @@ template<typename T>
 struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
 {
     using scalar_type = T;
+    using vector2_type = vector<T, 2>;
     using vector3_type = vector<T, 3>;
 
     static ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
@@ -262,48 +263,56 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         matrix<scalar_type, 3, 3> rectNormalBasis;
         vector<T, 2> rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
+
         shapes::SphericalRectangle<scalar_type> sphR0;
         sphR0.origin = rect.offset;
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
-        scalar_type solidAngle = sphR0.solidAngle(ray.origin).value;
-        if (solidAngle > numeric_limits<scalar_type>::min)
-            pdf = 1.f / solidAngle;
-        else
-            pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
-        return pdf;
+
+        // 1.f/0.f gives infinity no special checks needed
+        return 1.f / sphR0.solidAngle(ray.origin).value;
     }
 
     template<class Aniso>
     vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
-        const vector3_type N = rect.getNormalTimesArea();
-        const vector3_type origin2origin = rect.offset - origin;
-
         matrix<scalar_type, 3, 3> rectNormalBasis;
         vector<T, 2> rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
+
         shapes::SphericalRectangle<scalar_type> sphR0;
         sphR0.origin = rect.offset;
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
-        vector3_type L = hlsl::promote<vector3_type>(0.0);
 
+        //
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0, origin);
-        if ( ssph.solidAngle > numeric_limits<scalar_type>::min)
+        typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
+        
+        const vector3_type origin2origin = rect.offset - origin;
+        vector3_type L = hlsl::promote<vector3_type>(0.0);
+        const bool FastVersion = true;
+        if (FastVersion)
         {
-            typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
-            const vector3_type localDir = ssph.generate(xi.xy, cache);
-            // not sure if generate() can produce NaN/inf when solidAngle > min
-            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
-            // transform local direction to world space
-            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
-            pdf = ssph.forwardPdf(xi.xy, cache);
+            // actually the slowest
+            //L = ssph.generate(xi.xy, cache);
+            //newRayMaxT = ssph.computeHitT(L);
+
+            // fastest
+            const vector3_type localL = ssph.generateNormalizedLocal(xi.xy,cache,newRayMaxT);
+            L = hlsl::mul(hlsl::transpose(ssph.basis),localL);
         }
         else
-            pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
+        {
+            L = ssph.generateUnnormalized(xi.xy,cache);
+            const scalar_type rcpLen = hlsl::rsqrt(hlsl::dot(L,L));
+            newRayMaxT = 1.f / rcpLen;
+            L *= rcpLen;
+        }
+        // prevent self intersections against the emitter
+        newRayMaxT -= 0.0001f;
 
-        newRayMaxT = hlsl::dot<vector3_type>(N, origin2origin) / hlsl::dot<vector3_type>(N, L);
+        pdf = ssph.forwardPdf(xi.xy,cache);
         return L;
     }
 
@@ -322,7 +331,7 @@ struct EffectivePolygonMethod<PST_SPHERE, PPM>
     NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
 };
 
-
+#if 0
 // Projected solid angle NEE for rectangles using "Practical Warps":
 // bilinear warp over 4-corner NdotL + spherical rectangle sampling.
 // Same grazing-angle limitations as the triangle variant -- see comments
@@ -398,7 +407,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 
     Shape<T, PST_RECTANGLE> rect;
 };
-
+#endif
 
 template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
 struct NextEventEstimator
