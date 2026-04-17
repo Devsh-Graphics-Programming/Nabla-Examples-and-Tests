@@ -1,11 +1,11 @@
 # EX40 Path Tracer CLI
 
-`40_PathTracer` now exposes a proper `argparse`-based CLI while keeping the legacy `ditt` launch flow used by Jenkins for the old pair:
+`40_PathTracer` now exposes a proper `argparse`-based CLI while keeping the old `ditt` launch flow used by Jenkins for the old pair:
 
 - `22.RaytracedAO`
 - `39.DenoiserTonemapper`
 
-The legacy discovery came from the old `ditt` Jenkins and helper scripts:
+The current wiring comes from the old `ditt` Jenkins and helper scripts:
 
 - `tests/22.RaytracedAO/Jenkinsfile` builds and runs the renderer plus denoiser
 - `tests/22.RaytracedAO/test.py` launches the renderer with `-SCENE=... -PROCESS_SENSORS RenderAllThenTerminate 0`
@@ -13,7 +13,7 @@ The legacy discovery came from the old `ditt` Jenkins and helper scripts:
 
 ## Supported workflows
 
-`--process-sensors` accepts the same high-level modes as the legacy renderer:
+`--process-sensors` accepts the same high-level modes as the old renderer:
 
 | Mode | Behavior |
 | --- | --- |
@@ -38,9 +38,9 @@ Examples:
 40_pathtracer.exe --scene "..\media\mitsuba\my scene.zip" --scene-entry "shots\camera_a.xml" --defer-denoise --output-dir renders
 ```
 
-## Legacy compatibility
+## Ditt Compatibility
 
-The following legacy flags are translated to the new parser before validation:
+The following `ditt` flags are translated to the new parser before validation:
 
 - `-SCENE=...`
 - `-PROCESS_SENSORS <mode> [id]`

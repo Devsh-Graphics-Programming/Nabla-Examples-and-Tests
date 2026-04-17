@@ -5,6 +5,8 @@
 #ifndef _DENOISER_TONEMAPPER_APP_INPUT_PARSER_
 #define _DENOISER_TONEMAPPER_APP_INPUT_PARSER_
 
+#include "nabla.h"
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,8 +30,15 @@ struct DenoiserTonemapperInvocation
 	std::string output = {};
 };
 
-std::vector<DenoiserTonemapperInvocation> parseDenoiserTonemapperInvocations(
-	const std::vector<std::string>& arguments,
-	std::string& errorMessage);
+class DenoiserTonemapperInputParser final
+{
+	public:
+		static constexpr const char* ProgramName = "denoisertonemapper";
+
+		static nbl::core::vector<std::string> collectInputArguments(int argc, char* argv[]);
+		static std::vector<DenoiserTonemapperInvocation> parseInvocations(
+			const std::vector<std::string>& arguments,
+			std::string& errorMessage);
+};
 
 #endif

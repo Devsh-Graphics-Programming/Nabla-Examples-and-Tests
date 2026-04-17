@@ -5,6 +5,10 @@
 #ifndef _DENOISER_TONEMAPPER_APP_STUB_
 #define _DENOISER_TONEMAPPER_APP_STUB_
 
-int runStubApp(int argc, char* argv[]);
+class DenoiserTonemapperStubApp final
+{
+	public:
+		static int run(int argc, char* argv[]);
+};
 
 #endif

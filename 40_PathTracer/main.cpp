@@ -295,7 +295,7 @@ std::string makeGenericPathString(const path& input)
 	return input.generic_string();
 }
 
-std::vector<std::string> normalizeLegacyArguments(const nbl::core::vector<std::string>& rawArguments)
+std::vector<std::string> normalizeCompatibleArguments(const nbl::core::vector<std::string>& rawArguments)
 {
 	if (rawArguments.empty())
 		return {};
@@ -517,7 +517,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 	{
 		m_runtimeConfig = loadRuntimeConfig();
 
-		auto normalizedArguments = normalizeLegacyArguments(argv);
+		auto normalizedArguments = normalizeCompatibleArguments(argv);
 		if (normalizedArguments.empty())
 		{
 			std::fprintf(stderr,"Failed to parse arguments: no arguments are available.\n");
@@ -525,7 +525,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		}
 
 		argparse::ArgumentParser parser("40_pathtracer","1.0");
-		parser.add_description("Path tracer CLI with legacy ditt compatibility for Mitsuba scenes and sensor batch processing.");
+		parser.add_description("Path tracer CLI with ditt-compatible Mitsuba scene loading and sensor batch processing.");
 		parser.add_argument("--scene")
 			.help("Path to a Mitsuba XML file or a ZIP archive.");
 		parser.add_argument("--scene-entry")
@@ -563,7 +563,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		const auto sceneValue = parser.present("--scene");
 		if (!sceneValue.has_value())
 		{
-			std::fprintf(stderr,"Scene path is required. Use --scene or legacy -SCENE=...\n");
+			std::fprintf(stderr,"Scene path is required. Use --scene or -SCENE=...\n");
 			return false;
 		}
 

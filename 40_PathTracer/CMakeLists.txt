@@ -11,6 +11,7 @@ set(NBL_LIBRARIES
 	Nabla::ext::FullScreenTriangle
     imguizmo
 	"${NBL_EXT_IMGUI_UI_LIB}"
+	argparse
 )
 set(NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
@@ -22,8 +23,6 @@ set(NBL_EXAMPLE_SOURCES
 )
 nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
-add_dependencies(${EXECUTABLE_NAME} argparse)
-target_include_directories(${EXECUTABLE_NAME} PRIVATE $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 target_compile_definitions(${EXECUTABLE_NAME} PRIVATE PATH_TRACER_RUNTIME_CONFIG_FILENAME="pt.$<LOWER_CASE:$<CONFIG>>.json")
 
 if(NOT TARGET Nabla::examples::denoiserTonemapper)

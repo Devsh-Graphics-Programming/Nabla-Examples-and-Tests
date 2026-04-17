@@ -13,12 +13,12 @@
 
 int main(int argc, char* argv[])
 {
-	return runStubApp(argc, argv);
+	return DenoiserTonemapperStubApp::run(argc, argv);
 }
 
 #else
 
-#include "AppBootstrap.hpp"
+#include "AppInputParser.hpp"
 #include "CommandLineHandler.hpp"
 #include "nbl/asset/filters/dithering/CPrecomputedDither.h"
 
@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
 	auto compiler = am->getGLSLCompiler();
 	auto filesystem = device->getFileSystem();
 
-	auto cmdHandler = CommandLineHandler(getInputArguments(argc, argv), am, device->getFileSystem());
+	auto cmdHandler = CommandLineHandler(DenoiserTonemapperInputParser::collectInputArguments(argc, argv), am, device->getFileSystem());
 
 	if (check_error(!cmdHandler.getStatus(),"Could not parse input commands!"))
 		return error_code;
