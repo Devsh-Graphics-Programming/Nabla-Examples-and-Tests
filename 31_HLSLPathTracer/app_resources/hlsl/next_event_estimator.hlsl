@@ -177,9 +177,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
         sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st, ray.normalAtOrigin, ray.wasBSDFAtOrigin);
-        const scalar_type pdf = pst.backwardPdf(L);
-        // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
-        return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
+        return pst.backwardWeight(L);
     }
 
     template<class Aniso>
@@ -331,7 +329,6 @@ struct EffectivePolygonMethod<PST_SPHERE, PPM>
     NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
 };
 
-#if 0
 // Projected solid angle NEE for rectangles using "Practical Warps":
 // bilinear warp over 4-corner NdotL + spherical rectangle sampling.
 // Same grazing-angle limitations as the triangle variant -- see comments
@@ -361,21 +358,12 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
         sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, ray.origin, ray.normalAtOrigin, ray.wasBSDFAtOrigin);
-        // Reconstruct normalized [0,1]^2 position on the rectangle from the ray direction
-        const vector3_type N = rect.getNormalTimesArea();
-        const scalar_type t = hlsl::dot<vector3_type>(N, rect.offset - ray.origin) / hlsl::dot<vector3_type>(N, ray.direction);
-        const vector3_type hitPoint = ray.origin + ray.direction * t;
-        const vector3_type localHit = hitPoint - rect.offset;
-        const vector<T, 2> p = vector<T, 2>(hlsl::dot(localHit, rectNormalBasis[0]) / rectExtents.x, hlsl::dot(localHit, rectNormalBasis[1]) / rectExtents.y);
-        const scalar_type pdf = psr.backwardPdf(p);
-        return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
+        return psr.backwardWeight(ray.direction);
     }
 
     template<class Aniso>
     vector3_type generate_and_pdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
-        const vector3_type N = rect.getNormalTimesArea();
-        const vector3_type origin2origin = rect.offset - origin;
 
         matrix<scalar_type, 3, 3> rectNormalBasis;
         vector<T, 2> rectExtents;
@@ -384,30 +372,40 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         sphR0.origin = rect.offset;
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
-        vector3_type L = hlsl::promote<vector3_type>(0.0);
 
         sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, origin, interaction.getN(), interaction.isMaterialBSDF());
-        const scalar_type solidAngle = psr.sphrect.solidAngle;
-        if (solidAngle > numeric_limits<scalar_type>::min)
+        typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
+        
+        const vector3_type origin2origin = rect.offset - origin;
+        vector3_type L = hlsl::promote<vector3_type>(0.0);
+        const bool FastVersion = true;
+        if (FastVersion)
         {
-            typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
-            const vector3_type localDir = psr.generate(xi.xy, cache);
-            // not sure if generate() can produce NaN/inf when solidAngle > min
-            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
-            // transform local direction to world space
-            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
-            pdf = psr.forwardPdf(xi.xy, cache);
+            // actually the slowest
+            //L = psr.generate(xi.xy, cache);
+            //newRayMaxT = psr.sphrect.computeHitT(L);
+
+            // fastest
+            const vector3_type localL = psr.generateNormalizedLocal(xi.xy,cache,newRayMaxT);
+            // hopefully CSE kicks in for the `UsePdfAsWeight==true`
+            L = hlsl::mul(hlsl::transpose(psr.sphrect.basis),localL);
         }
         else
-            pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
-
-        newRayMaxT = hlsl::dot<vector3_type>(N, origin2origin) / hlsl::dot<vector3_type>(N, L);
+        {
+            L = psr.generateUnnormalized(xi.xy,cache);
+            const scalar_type rcpLen = hlsl::rsqrt(hlsl::dot(L,L));
+            newRayMaxT = 1.f / rcpLen;
+            L *= rcpLen;
+        }
+        // prevent self intersections against the emitter
+        newRayMaxT -= 0.0001f;
+        
+        pdf = psr.forwardPdf(xi.xy,cache);
         return L;
     }
 
     Shape<T, PST_RECTANGLE> rect;
 };
-#endif
 
 template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
 struct NextEventEstimator
