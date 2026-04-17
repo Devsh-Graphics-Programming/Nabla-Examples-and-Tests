@@ -67,6 +67,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		static constexpr uint32_t CiFramesBeforeCapture = 3u;
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
+		static inline std::string DefaultNormalMapFile = "app_resources/normals.png";
 
 	public:
 		inline HLSLComputePathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -607,7 +608,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				{
 					IAssetLoader::SAssetLoadParams lp;
 					lp.workingDirectory = this->sharedInputCWD;
-					SAssetBundle bundle = m_assetMgr->getAsset(NormalMapFilePath, lp);
+					SAssetBundle bundle = m_assetMgr->getAsset(DefaultNormalMapFile, lp);
 					if (bundle.getContents().empty()) {
 						m_logger->log("Couldn't load normal map.", ILogger::ELL_ERROR);
 						std::exit(-1);

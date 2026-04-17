@@ -57,6 +57,9 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
 #endif
 
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D<float3> normalMap;
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState normalSampler;
+
 #include "example_common.hlsl"
 #include "intersector.hlsl"
 #include "material_system.hlsl"

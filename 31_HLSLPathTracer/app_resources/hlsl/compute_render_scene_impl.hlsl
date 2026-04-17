@@ -22,10 +22,11 @@ using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_confi
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
+using normal_mapped_diffuse_bxdf_type = bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t> >;
 
 using payload_type = Payload<float>;
 using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
-using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
+using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, normal_mapped_diffuse_bxdf_type, scene_type>;
 
 #if PATH_TRACER_USE_RWMC
 using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_t3, CascadeCount> >;
