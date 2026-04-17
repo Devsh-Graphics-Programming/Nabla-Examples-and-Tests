@@ -6,6 +6,7 @@
 #include "nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
+#include "nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 

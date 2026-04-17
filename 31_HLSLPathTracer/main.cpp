@@ -2,17 +2,43 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "argparse/argparse.hpp"
 #include "nbl/examples/examples.hpp"
+#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
+#include "nbl/this_example/path_tracer_pipeline_state.hpp"
+#include "nbl/this_example/path_tracer_ui.hpp"
+#include "nbl/this_example/render_variant_info.hpp"
 #include "nbl/this_example/transform.hpp"
+#include "nbl/this_example/render_variant_strings.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/ScreenShot/ScreenShot.h"
+
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
+
 #include "nbl/this_example/common.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "nbl/builtin/hlsl/sampling/quantized_sequence.hlsl"
-#include "nbl/examples/common/ScrambleSequence.hpp"
+#include "nbl/asset/utils/ISPIRVEntryPointTrimmer.h"
+#include "nbl/system/ModuleLookupUtils.h"
 #include "app_resources/hlsl/render_common.hlsl"
 #include "app_resources/hlsl/render_rwmc_common.hlsl"
 #include "app_resources/hlsl/resolve_common.hlsl"
+
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <cstdlib>
+#include <deque>
+#include <filesystem>
+#include <fstream>
+#include <future>
+#include <mutex>
+#include <optional>
+#include <thread>
+
+#include "nlohmann/json.hpp"
+
 
 using namespace nbl;
 using namespace core;
@@ -22,6 +48,8 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace nbl::examples;
+using namespace nbl::this_example;
+namespace cached_pipeline_state = nbl::examples::common;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
@@ -31,33 +59,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
-		enum E_LIGHT_GEOMETRY : uint8_t
-		{
-			ELG_SPHERE,
-			ELG_TRIANGLE,
-			ELG_RECTANGLE,
-			ELG_COUNT
-		};
-
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
+		static constexpr size_t BinaryToggleCount = 2ull;
+		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
+		static constexpr bool UsePersistentWorkGroups = true;
+		static constexpr uint32_t CiFramesBeforeCapture = 3u;
+		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
-		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::string NormalMapFilePath = "app_resources/normals.png";
-		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
-		    "SPHERE_LIGHT",
-		    "TRIANGLE_LIGHT",
-		    "RECTANGLE_LIGHT"
-		};
-		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
-		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
-
-		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
-			"ELG_SPHERE",
-			"ELG_TRIANGLE",
-			"ELG_RECTANGLE"
-		};
 
 	public:
 		inline HLSLComputePathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -65,14 +74,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool isComputeOnly() const override { return false; }
 
-		inline video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		inline core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
 		{
-			video::SPhysicalDeviceLimits retval = device_base_t::getRequiredDeviceLimits();
-			retval.storagePushConstant16 = true;
-			return retval;
+			return core::bitflag(system::ILogger::ELL_INFO) | system::ILogger::ELL_WARNING | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_ERROR;
 		}
 
-	    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+		inline video::SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
 		{
 			auto retval = device_base_t::getPreferredDeviceFeatures();
 			retval.pipelineExecutableInfo = true;
@@ -109,6 +116,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			m_startupBeganAt = clock_t::now();
+
 			// Init systems
 			{
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -124,7 +133,20 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
+			
+			auto sequenceFuture = std::async(std::launch::async,[this]()->auto
+				{
+					return CCachedOwenScrambledSequence::create({
+						.cachePath = (sharedOutputCWD/CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string(),
+						.assMan = m_assetMgr.get(),
+						.header = {.maxSamplesLog2 = MaxSamplesLog2,.maxDimensions = 0x6u<<MaxDepthLog2}
+					});
+				}
+			);
 
+			if (!parseCommandLine())
+				return false;
+			applyEarlyCommandLineOverrides();
 			// Create renderpass and init surface
 			nbl::video::IGPURenderpass* renderpass;
 			{
@@ -167,7 +189,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
 					return logFail("Could not create Window & Surface or initialize the Surface!");
 			}
-
 			// Create command pool and buffers
 			{
 				auto gQueue = getGraphicsQueue();
@@ -178,7 +199,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), MaxFramesInFlight }))
 					return logFail("Couldn't create Command Buffer!");
 			}
-
+			{
+				m_scratchSemaphore = m_device->createSemaphore(0);
+				if (!m_scratchSemaphore)
+					return logFail("Could not create Scratch Semaphore");
+				m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
+				m_intendedSubmit.queue = getGraphicsQueue();
+				m_intendedSubmit.waitSemaphores = {};
+				m_intendedSubmit.scratchCommandBuffers = {};
+				m_intendedSubmit.scratchSemaphore = {
+					.semaphore = m_scratchSemaphore.get(),
+					.value = 0,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
+			}
+			initializePipelineCache();
 			ISampler::SParams samplerParams = {
 				.AnisotropicFilter = 0
 			};
@@ -299,202 +334,98 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				}
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
-				// Create Shaders
-				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.workingDirectory = localInputCWD;
-					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-					{
-						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
-					// The down-cast should not fail!
-					assert(source);
-
-					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-					CHLSLCompiler::SOptions options = {};
-					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
-					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-					options.preprocessorOptions.logger = m_logger.get();
-					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-					
-					core::vector<IShaderCompiler::SMacroDefinition> defines;
-					defines.reserve(3);
-					if (!defineMacro.empty())
-						defines.push_back({ defineMacro, "" });
-					if(persistentWorkGroups)
-						defines.push_back({ "PERSISTENT_WORKGROUPS", "1" });
-					if(rwmc)
-						defines.push_back({ "RWMC_ENABLED", "" });
-
-					options.preprocessorOptions.extraDefines = defines;
-
-					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
-					
-					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
-					if (!shader)
-					{
-						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
-						std::exit(-1);
-					}
-
-					return shader;
-				};
-
 				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
-				const bool pipelineExecutableInfo = m_device->getEnabledFeatures().pipelineExecutableInfo;
-				auto getComputePipelineCreationParams = [deviceMinSubgroupSize, pipelineExecutableInfo](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
-				{
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = pipelineLayout;
-					params.shader.shader = shader;
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.cached.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
-					if (pipelineExecutableInfo)
-					{
-						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
-						params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
-					}
-					return params;
-				};
+				m_requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
 
-				// Create compute pipelines
-				{
-					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++)
-					{
-						const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(RenderPushConstants)
-						};
-						auto ptPipelineLayout = m_device->createPipelineLayout(
-							{ &pcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout),
-							nullptr,
-							nullptr,
-							nullptr
-						);
-						if (!ptPipelineLayout)
-							return logFail("Failed to create Pathtracing pipeline layout");
-
-						const nbl::asset::SPushConstantRange rwmcPcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(RenderRWMCPushConstants)
-						};
-						auto rwmcPtPipelineLayout = m_device->createPipelineLayout(
-							{ &rwmcPcRange, 1 },
-							core::smart_refctd_ptr(gpuDescriptorSetLayout),
-							nullptr,
-							nullptr,
-							nullptr
-						);
-						if (!rwmcPtPipelineLayout)
-							return logFail("Failed to create RWMC Pathtracing pipeline layout");
-
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
-								return logFail("Failed to create HLSL compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPipelines[index]->getExecutableInfo());
-								m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
-								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPersistentWGPipelines[index]->getExecutableInfo());
-								m_logger->log("%s PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-
-						// rwmc pipelines
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPipelinesRWMC[index]->getExecutableInfo());
-								m_logger->log("%s RWMC Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
-
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
-
-							if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-							{
-								auto report = system::to_string(m_PTHLSLPersistentWGPipelinesRWMC[index]->getExecutableInfo());
-								m_logger->log("%s RWMC PersistentWG Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, shaderNames[index], report.c_str());
-							}
-						}
-					}
-				}
-
-				// Create resolve pipelines
 				{
 					const nbl::asset::SPushConstantRange pcRange = {
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.offset = 0,
-							.size = sizeof(ResolvePushConstants)
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(RenderPushConstants)
 					};
+					m_renderPipelineLayout = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						core::smart_refctd_ptr(gpuDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr
+					);
+					if (!m_renderPipelineLayout)
+						return logFail("Failed to create Pathtracing pipeline layout");
+				}
 
-					auto pipelineLayout = m_device->createPipelineLayout(
+				{
+					const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(RenderRWMCPushConstants)
+					};
+					m_rwmcRenderPipelineLayout = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						core::smart_refctd_ptr(gpuDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr
+					);
+					if (!m_rwmcRenderPipelineLayout)
+						return logFail("Failed to create RWMC Pathtracing pipeline layout");
+				}
+
+				{
+					const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0u,
+						.size = sizeof(ResolvePushConstants)
+					};
+					m_resolvePipelineState.layout = m_device->createPipelineLayout(
 						{ &pcRange, 1 },
 						core::smart_refctd_ptr(gpuDescriptorSetLayout)
 					);
-
-					if (!pipelineLayout) {
+					if (!m_resolvePipelineState.layout)
 						return logFail("Failed to create resolve pipeline layout");
-					}
+				}
 
+				const auto ensureRenderShaderLoaded = [this](const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc) -> bool
+				{
+					auto& shaderSlot = m_renderPipelines.getShaders(persistentWorkGroups, rwmc)[geometry];
+					if (shaderSlot)
+						return true;
+					shaderSlot = loadRenderShader(geometry, persistentWorkGroups, rwmc);
+					return static_cast<bool>(shaderSlot);
+				};
+				const auto ensureResolveShaderLoaded = [this]() -> bool
+				{
+					if (m_resolvePipelineState.shader)
+						return true;
+					m_resolvePipelineState.shader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.resolve")>();
+					return static_cast<bool>(m_resolvePipelineState.shader);
+				};
+
+				const auto startupGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+				if (!ensureRenderShaderLoaded(startupGeometry, UsePersistentWorkGroups, guiControlled.useRWMC))
+					return logFail("Failed to load current precompiled compute shader variant");
+				if (guiControlled.useRWMC && !ensureResolveShaderLoaded())
+					return logFail("Failed to load precompiled resolve compute shader");
+
+				ensureRenderPipeline(
+					startupGeometry,
+					UsePersistentWorkGroups,
+					guiControlled.useRWMC,
+					static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
+				);
+				if (guiControlled.useRWMC)
+					ensureResolvePipeline();
+
+				for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+				{
+					for (const auto rwmc : { false, true })
 					{
-						auto shader = loadAndCompileHLSLShader(ResolveShaderPath);
-						auto params = getComputePipelineCreationParams(shader.get(), pipelineLayout.get());
-
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePipeline))
-							return logFail("Failed to create HLSL resolve compute pipeline!\n");
-
-						if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-						{
-							auto report = system::to_string(m_resolvePipeline->getExecutableInfo());
-							m_logger->log("Resolve Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
-						}
+						if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), UsePersistentWorkGroups, rwmc))
+							return logFail("Failed to load precompiled compute shader variant");
 					}
 				}
+				if (!ensureResolveShaderLoaded())
+					return logFail("Failed to load precompiled resolve compute shader");
 
 				// Create graphics pipeline
 				{
@@ -503,8 +434,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					if (!fsTriProtoPPln)
 						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-					// Load Fragment Shader
-					auto fragmentShader = loadAndCompileHLSLShader(PresentShaderPath);
+					auto fragmentShader = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>();
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
@@ -520,9 +450,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						nullptr,
 						nullptr
 					);
-					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
+					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass(), 0u, {}, hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT, m_pipelineCache.object.get());
 					if (!m_presentPipeline)
 						return logFail("Could not create Graphics Pipeline!");
+					m_pipelineCache.dirty = true;
 
 				}
 			}
@@ -709,7 +640,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					if (!useCascadeCreationParameters)
 					{
 						imgInfo.arrayLayers = 1u;
-						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_SAMPLED_BIT;
 					}
 					else
 					{
@@ -766,21 +697,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				cascade->setObjectDebugName("Cascade");
 				m_cascadeView = createHDRIImageView(cascade, CascadeCount, IGPUImageView::ET_2D_ARRAY);
 				m_cascadeView->setObjectDebugName("Cascade View");
-			}
-
-			// create sequence buffer
-			{
-				ScrambleSequence::SCreationParams params = {
-					.queue = getGraphicsQueue(),
-						.utilities = smart_refctd_ptr(m_utils),
-						.system = smart_refctd_ptr(m_system),
-						.localOutputCWD = localOutputCWD,
-						.sharedOutputCWD = sharedOutputCWD,
-						.owenSamplerCachePath = OwenSamplerFilePath,
-						.MaxBufferDimensions = MaxBufferDimensions,
-						.MaxSamplesBuffer = MaxSamplesBuffer,
-				};
-				m_scrambleSequence = ScrambleSequence::create(params);
 			}
 
 			// Update Descriptors
@@ -917,15 +833,23 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
 				params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 				params.assetManager = m_assetMgr;
-				params.pipelineCache = nullptr;
+				params.pipelineCache = m_pipelineCache.object;
 				params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.streamingBuffer = nullptr;
 				params.subpassIx = 0u;
 				params.transfer = getTransferUpQueue();
 				params.utilities = m_utils;
+				params.spirv = nbl::ext::imgui::UI::SCreationParameters::PrecompiledShaders{
+					.vertex = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>(),
+					.fragment = loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.misc")>()
+				};
+				if (!params.spirv->vertex || !params.spirv->fragment)
+					return logFail("Failed to load precompiled ImGui shaders");
 				{
 					m_ui.manager = ext::imgui::UI::create(std::move(params));
+					if (m_ui.manager)
+						m_pipelineCache.dirty = true;
 
 					// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 					const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
@@ -954,41 +878,237 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
 					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), aspectRatio, guiControlled.zNear, guiControlled.zFar));
 
-					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
-					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
+					const ImGuiViewport* viewport = ImGui::GetMainViewport();
+					const ImVec2 viewportPos = viewport->Pos;
+					const ImVec2 viewportSize = viewport->Size;
+					const ImGuiStyle& style = ImGui::GetStyle();
+					const float panelMargin = 10.f;
+					const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+					const auto requestedMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
+					const auto currentVariant = getRenderVariantInfo(currentGeometry, UsePersistentWorkGroups, requestedMethod);
+					const size_t readyRenderPipelines = getReadyRenderPipelineCount();
+					const size_t totalRenderPipelines = getKnownRenderPipelineCount();
+					const size_t readyTotalPipelines = readyRenderPipelines + (m_resolvePipelineState.pipeline ? 1ull : 0ull);
+					const size_t totalKnownPipelines = totalRenderPipelines + 1ull;
+					const size_t runningPipelineBuilds = getRunningPipelineBuildCount();
+					const size_t queuedPipelineBuilds = m_pipelineCache.warmup.queue.size();
+					const bool warmupInProgress = m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.loggedComplete;
+					const char* const effectiveEntryPoint = currentVariant.entryPoint;
+					const auto& shaderNames = this_example::getLightGeometryNamePointers();
+					const auto& polygonMethodNames = this_example::getPolygonMethodNamePointers();
+					const std::string pipelineStatusText = !m_startupLog.hasPathtraceOutput ?
+						"Building pipeline..." :
+						(warmupInProgress ?
+							("Warmup " + std::to_string(readyTotalPipelines) + "/" + std::to_string(totalKnownPipelines)) :
+							"All pipelines ready");
+					const std::string cacheStateText = m_pipelineCache.loadedFromDisk ? "loaded from disk" : "cold start";
+					const std::string trimCacheText = std::to_string(m_pipelineCache.trimmedShaders.loadedFromDiskCount + m_pipelineCache.trimmedShaders.generatedCount) + " ready";
+					const std::string parallelismText = std::to_string(m_pipelineCache.warmup.budget);
+					const std::string renderStateText = this_example::pt_ui::makeReadyText(readyTotalPipelines, totalKnownPipelines);
+					const std::string warmupStateText = this_example::pt_ui::makeRunQueueText(runningPipelineBuilds, queuedPipelineBuilds);
+					const std::string cursorText = "cursor " + std::to_string(static_cast<int>(io.MousePos.x)) + " " + std::to_string(static_cast<int>(io.MousePos.y));
+					const this_example::pt_ui::SFloatSliderRow cameraFloatRows[] = {
+						{ "move", &guiControlled.moveSpeed, 0.1f, 10.f, "%.2f" },
+						{ "rotate", &guiControlled.rotateSpeed, 0.1f, 10.f, "%.2f" },
+						{ "fov", &guiControlled.fov, 20.f, 150.f, "%.0f" },
+						{ "zNear", &guiControlled.zNear, 0.1f, 100.f, "%.2f" },
+						{ "zFar", &guiControlled.zFar, 110.f, 10000.f, "%.0f" },
+					};
+					const this_example::pt_ui::SComboRow renderComboRows[] = {
+						{ "shader", &guiControlled.PTPipeline, shaderNames.data(), static_cast<int>(shaderNames.size()) },
+						{ "method", &guiControlled.polygonMethod, polygonMethodNames.data(), static_cast<int>(polygonMethodNames.size()) },
+					};
+					const this_example::pt_ui::SIntSliderRow renderIntRows[] = {
+						{ "spp", &guiControlled.spp, 1, (0x1u<<MaxSamplesLog2)-1 },
+						{ "depth", &guiControlled.depth, 1, (0x1u<<MaxDepthLog2)-1 },
+					};
+					const this_example::pt_ui::SCheckboxRow rwmcCheckboxRows[] = {
+						{ "enable", &guiControlled.useRWMC },
+					};
+					const this_example::pt_ui::SFloatSliderRow rwmcFloatRows[] = {
+						{ "start", &guiControlled.rwmcParams.start, 0.1f, 2.0f, "%.3f" },
+						{ "base", &guiControlled.rwmcParams.base, 1.001f, 3.0f, "%.3f" },
+						{ "min rel.", &guiControlled.rwmcParams.minReliableLuma, 0.005f, 2.0f, "%.3f" },
+						{ "kappa", &guiControlled.rwmcParams.kappa, 0.1f, 8.0f, "%.3f" },
+					};
+					const this_example::pt_ui::STextRow diagnosticsRows[] = {
+						{ "geometry", system::to_string(currentGeometry) },
+						{ "req. method", system::to_string(requestedMethod) },
+						{ "eff. method", system::to_string(currentVariant.effectiveMethod) },
+						{ "entrypoint", effectiveEntryPoint },
+						{ "config", std::string(BuildConfigName) },
+						{ "cache", cacheStateText },
+						{ "trim cache", trimCacheText },
+						{ "parallel", parallelismText },
+						{ "render", renderStateText },
+						{ "run/queue", warmupStateText },
+					};
+					const char* const standaloneTexts[] = {
+						"PATH_TRACER",
+						"Home camera  End light",
+						pipelineStatusText.c_str(),
+						cursorText.c_str(),
+					};
+					const char* const sliderPreviewTexts[] = {
+						"10000.000",
+						"1024.000",
+						effectiveEntryPoint,
+						BuildConfigName.data(),
+						cacheStateText.c_str(),
+						renderStateText.c_str(),
+						warmupStateText.c_str(),
+					};
+					const float maxStandaloneTextWidth = this_example::pt_ui::calcMaxTextWidth(standaloneTexts, [](const char* text) { return text; });
+					const float maxLabelTextWidth = std::max({
+						this_example::pt_ui::calcMaxTextWidth(cameraFloatRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(renderComboRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(renderIntRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(rwmcCheckboxRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(rwmcFloatRows, [](const auto& row) { return row.label; }),
+						this_example::pt_ui::calcMaxTextWidth(diagnosticsRows, [](const auto& row) { return row.label; })
+					});
+					const float comboPreviewWidth = std::max(
+						this_example::pt_ui::calcMaxTextWidth(shaderNames, [](const char* text) { return text; }),
+						this_example::pt_ui::calcMaxTextWidth(polygonMethodNames, [](const char* text) { return text; })
+					);
+					const float sliderPreviewWidth = this_example::pt_ui::calcMaxTextWidth(sliderPreviewTexts, [](const char* text) { return text; });
+					const float tableLabelColumnWidth = std::ceil(maxLabelTextWidth + style.FramePadding.x * 2.f + style.CellPadding.x * 2.f);
+					const float tableValueColumnMinWidth =
+						std::ceil(std::max(comboPreviewWidth, sliderPreviewWidth) + style.FramePadding.x * 2.f + style.ItemInnerSpacing.x + ImGui::GetFrameHeight() + 18.f);
+					const float sectionTableWidth = tableLabelColumnWidth + tableValueColumnMinWidth + style.CellPadding.x * 4.f + style.ItemSpacing.x;
+					const float contentWidth = std::max(maxStandaloneTextWidth, sectionTableWidth);
+					const float panelWidth = std::min(
+						std::ceil(contentWidth + style.WindowPadding.x * 2.f),
+						std::max(0.f, viewportSize.x - panelMargin * 2.f)
+					);
+					const float panelMaxHeight = ImMax(300.0f, viewportSize.y * 0.84f);
+					ImGui::SetNextWindowPos(ImVec2(viewportPos.x + panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always);
+					ImGui::SetNextWindowSizeConstraints(ImVec2(panelWidth, 0.0f), ImVec2(panelWidth, panelMaxHeight));
+					ImGui::SetNextWindowBgAlpha(0.72f);
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(5.f, 5.f));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 4.f);
+					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.f, 2.f));
+					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.10f, 0.13f, 0.88f));
+					ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.32f, 0.39f, 0.47f, 0.65f));
+					ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.28f, 0.36f, 0.92f));
+					ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.24f, 0.36f, 0.46f, 0.96f));
+					ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.28f, 0.42f, 0.54f, 1.0f));
 
-					// create a window and insert the inspector
-					ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
-					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-					ImGui::Begin("Controls");
+					const ImGuiWindowFlags panelFlags =
+						ImGuiWindowFlags_NoDecoration |
+						ImGuiWindowFlags_NoMove |
+						ImGuiWindowFlags_NoSavedSettings |
+						ImGuiWindowFlags_NoNav |
+						ImGuiWindowFlags_AlwaysAutoResize |
+						ImGuiWindowFlags_NoResize;
 
-					ImGui::SameLine();
+					if (ImGui::Begin("Path Tracer Controls", nullptr, panelFlags))
+					{
+						ImGui::TextUnformatted("PATH_TRACER");
+						ImGui::Separator();
+						ImGui::TextDisabled("Home camera  End light");
+						if (!m_startupLog.hasPathtraceOutput)
+							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Building pipeline...");
+						else if (warmupInProgress)
+							ImGui::TextColored(ImVec4(0.83f, 0.86f, 0.90f, 1.0f), "Warmup %zu/%zu", readyTotalPipelines, totalKnownPipelines);
+						else
+							ImGui::TextDisabled("All pipelines ready");
+						ImGui::Dummy(ImVec2(0.f, 2.f));
 
-					ImGui::Text("Camera");
+						if (ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen))
+						{
+							if (ImGui::CollapsingHeader("Camera"))
+							{
+								if (this_example::pt_ui::beginSectionTable("##camera_controls_table"))
+								{
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
+									for (const auto& row : cameraFloatRows)
+										this_example::pt_ui::sliderFloatRow(row);
+									ImGui::EndTable();
+								}
+							}
 
-					ImGui::Text("Press Home to reset camera.");
-					ImGui::Text("Press End to reset light.");
+							if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen))
+							{
+								if (this_example::pt_ui::beginSectionTable("##render_controls_table"))
+								{
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
+									for (const auto& row : renderComboRows)
+										this_example::pt_ui::comboRow(row);
+									for (const auto& row : renderIntRows)
+										this_example::pt_ui::sliderIntRow(row);
+									ImGui::EndTable();
+								}
+							}
 
-					ImGui::SliderFloat("Move speed", &guiControlled.moveSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Rotate speed", &guiControlled.rotateSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Fov", &guiControlled.fov, 20.f, 150.f);
-					ImGui::SliderFloat("zNear", &guiControlled.zNear, 0.1f, 100.f);
-					ImGui::SliderFloat("zFar", &guiControlled.zFar, 110.f, 10000.f);
-					ImGui::Combo("Shader", &guiControlled.PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
-					ImGui::SliderInt("SPP", &guiControlled.spp, 1, MaxSamplesBuffer);
-					ImGui::SliderInt("Depth", &guiControlled.depth, 1, MaxBufferDimensions / 4);
-					ImGui::Checkbox("Persistent WorkGroups", &guiControlled.usePersistentWorkGroups);
+							if (ImGui::CollapsingHeader("RWMC", ImGuiTreeNodeFlags_DefaultOpen))
+							{
+								if (this_example::pt_ui::beginSectionTable("##rwmc_controls_table"))
+								{
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
+									for (const auto& row : rwmcCheckboxRows)
+										this_example::pt_ui::checkboxRow(row);
+									for (const auto& row : rwmcFloatRows)
+										this_example::pt_ui::sliderFloatRow(row);
+									ImGui::TableNextRow();
+									ImGui::TableSetColumnIndex(0);
+									ImGui::TextUnformatted("defaults");
+									ImGui::TableSetColumnIndex(1);
+									ImGui::SetNextItemWidth(-FLT_MIN);
+									ImGui::PushID("rwmc_defaults");
+									if (ImGui::Button("Reset RWMC"))
+										resetRWMCParamsToDefaults();
+									ImGui::PopID();
+									ImGui::EndTable();
+								}
+							}
 
-					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
+							if (ImGui::CollapsingHeader("Diagnostics"))
+							{
+								if (this_example::pt_ui::beginSectionTable("##diagnostics_controls_table"))
+								{
+									this_example::pt_ui::setupSectionTable(tableLabelColumnWidth);
+									for (const auto& row : diagnosticsRows)
+										this_example::pt_ui::textRow(row);
+									ImGui::EndTable();
+								}
+							}
 
-					ImGui::Text("\nRWMC settings:");
-					ImGui::Checkbox("Enable RWMC", &guiControlled.useRWMC);
-					ImGui::SliderFloat("start", &guiControlled.rwmcParams.start, 1.0f, 32.0f);
-					ImGui::SliderFloat("base", &guiControlled.rwmcParams.base, 1.0f, 32.0f);
-					ImGui::SliderFloat("minReliableLuma", &guiControlled.rwmcParams.minReliableLuma, 0.1f, 1024.0f);
-					ImGui::SliderFloat("kappa", &guiControlled.rwmcParams.kappa, 0.1f, 1024.0f);
-
+							ImGui::Dummy(ImVec2(0.f, 2.f));
+							ImGui::Separator();
+							ImGui::TextDisabled("%s", cursorText.c_str());
+						}
+					}
 					ImGui::End();
+
+					if (!m_startupLog.hasPathtraceOutput || warmupInProgress)
+					{
+						ImGui::SetNextWindowPos(ImVec2(viewportPos.x + viewportSize.x - panelMargin, viewportPos.y + panelMargin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+						ImGui::SetNextWindowBgAlpha(0.62f);
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.f, 10.f));
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.f);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.07f, 0.09f, 0.12f, 0.90f));
+						const ImGuiWindowFlags overlayFlags =
+							ImGuiWindowFlags_NoDecoration |
+							ImGuiWindowFlags_NoSavedSettings |
+							ImGuiWindowFlags_NoMove |
+							ImGuiWindowFlags_NoNav |
+							ImGuiWindowFlags_AlwaysAutoResize |
+							ImGuiWindowFlags_NoInputs;
+						if (ImGui::Begin("##path_tracer_status_overlay", nullptr, overlayFlags))
+						{
+							ImGui::TextUnformatted(pipelineStatusText.c_str());
+							ImGui::Text("Run %zu  Queue %zu", runningPipelineBuilds, queuedPipelineBuilds);
+							ImGui::Text("Cache: %s", m_pipelineCache.loadedFromDisk ? "disk" : "cold");
+						}
+						ImGui::End();
+						ImGui::PopStyleColor(1);
+						ImGui::PopStyleVar(2);
+					}
+					ImGui::PopStyleColor(5);
+					ImGui::PopStyleVar(5);
 				}
 			);
 
@@ -1049,6 +1169,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 			}
 			m_showUI = true;
+			if (m_commandLine.ciMode)
+				m_showUI = false;
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
@@ -1057,11 +1179,18 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_camera.mapKeysToArrows();
 
 			// set initial rwmc settings
-			
-			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			guiControlled.rwmcParams.base = 8.0f;
-			guiControlled.rwmcParams.minReliableLuma = 1.0f;
-			guiControlled.rwmcParams.kappa = 5.0f;
+			resetRWMCParamsToDefaults();
+			applyLateCommandLineOverrides();
+
+			// do this as late as possible
+			{
+				auto sequence = sequenceFuture.get();
+				m_sequenceSamplesLog2 = sequence->getHeader().maxSamplesLog2;
+				auto* const seqBufferCPU = sequence->getBuffer();
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=getGraphicsQueue()},IGPUBuffer::SCreationParams{seqBufferCPU->getCreationParams()},seqBufferCPU->getPointer()).move_into(m_sequenceBuffer);
+				m_sequenceBuffer->setObjectDebugName("Low Discrepancy Sequence");
+			}
+
 			return true;
 		}
 
@@ -1088,6 +1217,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline void workLoopBody() override
 		{
+			pollPendingPipelines();
+			pumpPipelineWarmup();
+			if (!m_startupLog.loggedFirstFrameLoop)
+			{
+				logStartupEvent("first_frame_loop");
+				m_startupLog.loggedFirstFrameLoop = true;
+			}
+
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
 			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 			// We block for semaphores for 2 reasons here:
@@ -1134,25 +1271,22 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
 				const float32_t4x4 invMVP = hlsl::inverse(modelViewProjectionMatrix);
 
+				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				pc.invMVP = invMVP;
+				pc.setLightMatrix(hlsl::float32_t4x3(m_lightModelMatrix));
+				pc.sampleCount = guiControlled.spp;
+				guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+				pc.depth = guiControlled.depth;
+				pc.sequenceSampleCountLog2 = m_sequenceSamplesLog2;
 				if (guiControlled.useRWMC)
 				{
-					rwmcPushConstants.renderPushConstants.invMVP = invMVP;
-					rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					rwmcPushConstants.renderPushConstants.depth = guiControlled.depth;
-					rwmcPushConstants.renderPushConstants.sampleCount = guiControlled.rwmcParams.sampleCount = guiControlled.spp;
-					rwmcPushConstants.renderPushConstants.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
+					rwmcPushConstants.renderPushConstants = pc;
 					rwmcPushConstants.splattingParameters = rwmc::SPackedSplattingParameters::create(guiControlled.rwmcParams.base, guiControlled.rwmcParams.start, CascadeCount);
-				}
-				else
-				{
-					pc.invMVP = invMVP;
-					pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
-					pc.sampleCount = guiControlled.spp;
-					pc.depth = guiControlled.depth;
-					pc.pSampleSequence = m_scrambleSequence->buffer->getDeviceAddress();
 				}
 			};
 			updatePathtracerPushConstants();
+			bool producedRenderableOutput = false;
+			bool dispatchedRwmcPathTrace = false;
 
 			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1211,25 +1345,28 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			{
 				// TODO: shouldn't it be computed only at initialization stage and on window resize?
-				const uint32_t dispatchSize = guiControlled.usePersistentWorkGroups ?
-					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize) :
-					1 + (WindowDimensions.x * WindowDimensions.y - 1) / RenderWorkgroupSize;
+				const uint32_t dispatchSize =
+					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, RenderWorkgroupSize);
 
 				IGPUComputePipeline* pipeline = pickPTPipeline();
+				if (pipeline)
+				{
+					cmdbuf->bindComputePipeline(pipeline);
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
 
-				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
+					const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
+					const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
 
-				const uint32_t pushConstantsSize = guiControlled.useRWMC ? sizeof(RenderRWMCPushConstants) : sizeof(RenderPushConstants);
-				const void* pushConstantsPtr = guiControlled.useRWMC ? reinterpret_cast<const void*>(&rwmcPushConstants) : reinterpret_cast<const void*>(&pc);
-				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, pushConstantsSize, pushConstantsPtr);
-
-				cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					dispatchedRwmcPathTrace = guiControlled.useRWMC;
+					producedRenderableOutput = !guiControlled.useRWMC;
+				}
 			}
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
 			// TODO: create this and every other barrier once outside of the loop?
-			if(guiControlled.useRWMC)
+			if(guiControlled.useRWMC && dispatchedRwmcPathTrace)
 			{
 				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 						{
@@ -1259,16 +1396,30 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					(m_window->getHeight() + ResolveWorkgroupSizeY - 1) / ResolveWorkgroupSizeY
 				);
 
-				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
+				IGPUComputePipeline* pipeline = ensureResolvePipeline();
+				if (pipeline)
+				{
+					resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
 
-				resolvePushConstants.resolveParameters = rwmc::SResolveParameters::create(guiControlled.rwmcParams);
+					cmdbuf->bindComputePipeline(pipeline);
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(ResolvePushConstants), &resolvePushConstants);
 
-				cmdbuf->bindComputePipeline(pipeline);
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet.get());
-				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
-
-				cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
+					cmdbuf->dispatch(dispatchSize.x, dispatchSize.y, 1u);
+					producedRenderableOutput = true;
+				}
 			}
+
+			if (producedRenderableOutput)
+			{
+				m_startupLog.hasPathtraceOutput = true;
+				if (!m_startupLog.loggedFirstRenderDispatch)
+				{
+					logStartupEvent("first_render_dispatch");
+					m_startupLog.loggedFirstRenderDispatch = true;
+				}
+			}
+			maybeQueueCiScreenshotRequest();
 
 			// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
 			{
@@ -1334,9 +1485,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
-				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
-				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				if (m_startupLog.hasPathtraceOutput)
+				{
+					cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
+					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
+					ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				}
 
 				if (m_showUI)
 				{
@@ -1386,12 +1540,29 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						updateGUIDescriptorSet();
 
+						bool submitSucceeded = false;
 						m_api->startCapture();
 						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
 							m_realFrameIx--;
+						else
+							submitSucceeded = true;
 						m_api->endCapture();
+
+						if (submitSucceeded && rendered[0].semaphore)
+							maybeSaveSceneScreenshot(queue, rendered[0]);
 					}
 				}
+
+				if (producedRenderableOutput && !m_startupLog.loggedFirstRenderSubmit)
+				{
+					logStartupEvent("first_render_submit");
+					m_startupLog.loggedFirstRenderSubmit = true;
+				}
+				if (!m_commandLine.ciMode && m_startupLog.hasPathtraceOutput && !m_pipelineCache.warmup.started)
+				{
+					kickoffPipelineWarmup();
+				}
+				maybeCheckpointPipelineCache();
 
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
@@ -1400,6 +1571,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool keepRunning() override
 		{
+			if (m_exitRequested)
+				return false;
 			if (m_surface->irrecoverable())
 				return false;
 
@@ -1408,6 +1581,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool onAppTerminated() override
 		{
+			waitForPendingPipelines();
+			savePipelineCache();
 			return device_base_t::onAppTerminated();
 		}
 
@@ -1442,8 +1617,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
-				const auto& io = ImGui::GetIO();
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+				if (!m_commandLine.ciMode)
+				{
+					const auto& io = ImGui::GetIO();
+					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 					{
 						if (!io.WantCaptureMouse)
 							m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
@@ -1471,6 +1648,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							if (e.timeStamp < previousEventTimestamp)
 								continue;
 
+							if (e.keyCode == ui::EKC_F12)
+								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
+									requestSceneScreenshot(getNextSceneScreenshotPath(), false);
+
 							if (e.keyCode == ui::EKC_H)
 								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
 									m_showUI = !m_showUI;
@@ -1479,6 +1660,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							capturedEvents.keyboard.emplace_back(e);
 						}
 					}, m_logger.get());
+				}
+				else
+				{
+					mouse.consumeEvents([&](const IMouseEventChannel::range_t&) -> void {}, m_logger.get());
+					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t&) -> void {}, m_logger.get());
+				}
 			}
 			m_camera.endInputProcessing(nextPresentationTimestamp);
 
@@ -1500,16 +1687,1219 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		}
 	
 	private:
+		template<core::StringLiteral ShaderKey>
+		smart_refctd_ptr<IShader> loadPrecompiledShader()
+		{
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = "app_resources";
+
+			const auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key, lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+			{
+				m_logger->log("Could not load precompiled shader: %s", ILogger::ELL_ERROR, key.c_str());
+				return nullptr;
+			}
+
+			auto shader = IAsset::castDown<IShader>(assets[0]);
+			if (!shader)
+			{
+				m_logger->log("Failed to cast %s asset to IShader!", ILogger::ELL_ERROR, key.c_str());
+				return nullptr;
+			}
+
+			shader->setFilePathHint(std::string(std::string_view(ShaderKey.value)));
+			return shader;
+		}
+
+		void logStartupEvent(const char* const eventName)
+		{
+			const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_startupBeganAt).count();
+			m_logger->log("PATH_TRACER_STARTUP %s_ms=%lld", ILogger::ELL_INFO, eventName, static_cast<long long>(elapsedMs));
+		}
+
+		static std::string normalizeCliToken(std::string value)
+		{
+			std::string normalized;
+			normalized.reserve(value.size());
+			for (const auto ch : value)
+			{
+				if (ch == '-' || ch == '_' || std::isspace(static_cast<unsigned char>(ch)))
+					continue;
+				normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+			}
+			return normalized;
+		}
+
+		static std::optional<E_LIGHT_GEOMETRY> parseGeometryOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "sphere" || normalized == "elgsphere")
+				return ELG_SPHERE;
+			if (normalized == "triangle" || normalized == "elgtriangle")
+				return ELG_TRIANGLE;
+			if (normalized == "rectangle" || normalized == "quad" || normalized == "elgrectangle")
+				return ELG_RECTANGLE;
+			return std::nullopt;
+		}
+
+		static std::optional<E_POLYGON_METHOD> parseMethodOverride(const std::string& value)
+		{
+			const auto normalized = normalizeCliToken(value);
+			if (normalized == "area" || normalized == "epmarea")
+				return EPM_AREA;
+			if (normalized == "solidangle" || normalized == "epmsolidangle")
+				return EPM_SOLID_ANGLE;
+			if (normalized == "projectedsolidangle" || normalized == "projected" || normalized == "epmprojectedsolidangle")
+				return EPM_PROJECTED_SOLID_ANGLE;
+			return std::nullopt;
+		}
+
+		void applyEarlyCommandLineOverrides()
+		{
+			if (m_commandLine.geometryOverride.has_value())
+				guiControlled.PTPipeline = static_cast<int>(m_commandLine.geometryOverride.value());
+			if (m_commandLine.methodOverride.has_value())
+				guiControlled.polygonMethod = static_cast<int>(m_commandLine.methodOverride.value());
+			if (m_commandLine.sppOverride.has_value())
+				guiControlled.spp = m_commandLine.sppOverride.value();
+			if (m_commandLine.depthOverride.has_value())
+				guiControlled.depth = m_commandLine.depthOverride.value();
+			if (m_commandLine.rwmcOverride.has_value())
+				guiControlled.useRWMC = m_commandLine.rwmcOverride.value();
+		}
+
+		void applyLateCommandLineOverrides()
+		{
+			if (m_commandLine.rwmcStartOverride.has_value())
+				guiControlled.rwmcParams.start = m_commandLine.rwmcStartOverride.value();
+			if (m_commandLine.rwmcBaseOverride.has_value())
+				guiControlled.rwmcParams.base = m_commandLine.rwmcBaseOverride.value();
+			if (m_commandLine.rwmcMinReliableLumaOverride.has_value())
+				guiControlled.rwmcParams.minReliableLuma = m_commandLine.rwmcMinReliableLumaOverride.value();
+			if (m_commandLine.rwmcKappaOverride.has_value())
+				guiControlled.rwmcParams.kappa = m_commandLine.rwmcKappaOverride.value();
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
+		void resetRWMCParamsToDefaults()
+		{
+			guiControlled.rwmcParams.base = 2.5f;
+			// scale up by 2 to take into account that sampling makes PDF be small and quotient to grow
+			guiControlled.rwmcParams.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence)/pow(guiControlled.rwmcParams.base,CascadeCount)*2.f;
+			guiControlled.rwmcParams.minReliableLuma = 0.25f;
+			guiControlled.rwmcParams.kappa = 3.0f;
+			guiControlled.rwmcParams.sampleCount = guiControlled.spp;
+		}
+
+		bool parseCommandLine()
+		{
+			argparse::ArgumentParser parser("31_hlslpathtracer");
+			parser.add_argument("--ci")
+				.help("Run in CI mode: save a scene screenshot and exit.")
+				.default_value(false)
+				.implicit_value(true);
+			parser.add_argument("--ci-screenshot")
+				.nargs(1)
+				.help("Override the CI scene screenshot output path");
+			parser.add_argument("--pipeline-cache-dir")
+				.nargs(1)
+				.help("Override the PATH_TRACER pipeline cache root directory");
+			parser.add_argument("--clear-pipeline-cache")
+				.help("Clear the PATH_TRACER cache root before startup")
+				.flag();
+			parser.add_argument("--shader")
+				.nargs(1)
+				.help("Select startup geometry: sphere, triangle, rectangle");
+			parser.add_argument("--method")
+				.nargs(1)
+				.help("Select startup method: area, solid-angle, projected-solid-angle");
+			parser.add_argument("--spp")
+				.scan<'i', int>()
+				.help("Override startup samples per pixel");
+			parser.add_argument("--depth")
+				.scan<'i', int>()
+				.help("Override startup path depth");
+			parser.add_argument("--rwmc")
+				.help("Enable RWMC at startup")
+				.default_value(false)
+				.implicit_value(true);
+			parser.add_argument("--rwmc-start")
+				.scan<'g', float>()
+				.help("Override RWMC start threshold");
+			parser.add_argument("--rwmc-base")
+				.scan<'g', float>()
+				.help("Override RWMC base");
+			parser.add_argument("--rwmc-min-reliable")
+				.scan<'g', float>()
+				.help("Override RWMC minimum reliable luma");
+			parser.add_argument("--rwmc-kappa")
+				.scan<'g', float>()
+				.help("Override RWMC kappa");
+
+			try
+			{
+				parser.parse_args({ argv.data(), argv.data() + argv.size() });
+			}
+			catch (const std::exception& e)
+			{
+				m_logger->log("Failed to parse arguments: %s", ILogger::ELL_ERROR, e.what());
+				return false;
+			}
+
+			m_commandLine.ciMode = parser.get<bool>("--ci");
+			m_commandLine.ciScreenshotPath = localOutputCWD / "31_hlslpathtracer_ci.png";
+			if (parser.present("--ci-screenshot"))
+				m_commandLine.ciScreenshotPath = path(parser.get<std::string>("--ci-screenshot"));
+			m_commandLine.pipelineCacheDirOverride.reset();
+			if (parser.present("--pipeline-cache-dir"))
+				m_commandLine.pipelineCacheDirOverride = path(parser.get<std::string>("--pipeline-cache-dir"));
+			m_commandLine.clearPipelineCache = parser.get<bool>("--clear-pipeline-cache");
+			m_commandLine.geometryOverride.reset();
+			if (parser.present("--shader"))
+			{
+				const auto geometryValue = parser.get<std::string>("--shader");
+				m_commandLine.geometryOverride = parseGeometryOverride(geometryValue);
+				if (!m_commandLine.geometryOverride.has_value())
+				{
+					m_logger->log("Unknown --shader value: %s", ILogger::ELL_ERROR, geometryValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.methodOverride.reset();
+			if (parser.present("--method"))
+			{
+				const auto methodValue = parser.get<std::string>("--method");
+				m_commandLine.methodOverride = parseMethodOverride(methodValue);
+				if (!m_commandLine.methodOverride.has_value())
+				{
+					m_logger->log("Unknown --method value: %s", ILogger::ELL_ERROR, methodValue.c_str());
+					return false;
+				}
+			}
+			m_commandLine.sppOverride.reset();
+			if (parser.present("--spp"))
+			{
+				const auto spp = parser.get<int>("--spp");
+				if (spp < 1 || spp > static_cast<int>((0x1u << MaxSamplesLog2) - 1u))
+				{
+					m_logger->log("Invalid --spp value: %d", ILogger::ELL_ERROR, spp);
+					return false;
+				}
+				m_commandLine.sppOverride = spp;
+			}
+			m_commandLine.depthOverride.reset();
+			if (parser.present("--depth"))
+			{
+				const auto depth = parser.get<int>("--depth");
+				if (depth < 1 || depth > static_cast<int>((0x1u << MaxDepthLog2) - 1u))
+				{
+					m_logger->log("Invalid --depth value: %d", ILogger::ELL_ERROR, depth);
+					return false;
+				}
+				m_commandLine.depthOverride = depth;
+			}
+			m_commandLine.rwmcOverride.reset();
+			if (parser.is_used("--rwmc"))
+				m_commandLine.rwmcOverride = parser.get<bool>("--rwmc");
+			m_commandLine.rwmcStartOverride.reset();
+			if (parser.present("--rwmc-start"))
+				m_commandLine.rwmcStartOverride = parser.get<float>("--rwmc-start");
+			m_commandLine.rwmcBaseOverride.reset();
+			if (parser.present("--rwmc-base"))
+				m_commandLine.rwmcBaseOverride = parser.get<float>("--rwmc-base");
+			m_commandLine.rwmcMinReliableLumaOverride.reset();
+			if (parser.present("--rwmc-min-reliable"))
+				m_commandLine.rwmcMinReliableLumaOverride = parser.get<float>("--rwmc-min-reliable");
+			m_commandLine.rwmcKappaOverride.reset();
+			if (parser.present("--rwmc-kappa"))
+				m_commandLine.rwmcKappaOverride = parser.get<float>("--rwmc-kappa");
+			return true;
+		}
+
+		void requestExit()
+		{
+			m_exitRequested = true;
+		}
+
+		void requestSceneScreenshot(path outputPath, const bool exitAfterCapture)
+		{
+			m_sceneScreenshotRequested = true;
+			m_sceneScreenshotExitAfterCapture = exitAfterCapture;
+			m_pendingSceneScreenshotPath = std::move(outputPath);
+		}
+
+		path getNextSceneScreenshotPath()
+		{
+			return localOutputCWD / ("31_hlslpathtracer_scene_" + std::to_string(m_sceneScreenshotCounter++) + ".png");
+		}
+
+		void maybeQueueCiScreenshotRequest()
+		{
+			if (!m_commandLine.ciMode || m_ciScreenshotCaptured || m_sceneScreenshotRequested || !m_startupLog.hasPathtraceOutput)
+				return;
+
+			++m_ciRenderableFrameCounter;
+			if (m_ciRenderableFrameCounter < CiFramesBeforeCapture)
+				return;
+
+			requestSceneScreenshot(m_commandLine.ciScreenshotPath, true);
+		}
+
+		void maybeSaveSceneScreenshot(IQueue* const queue, const IQueue::SSubmitInfo::SSemaphoreInfo& rendered)
+		{
+			if (!m_sceneScreenshotRequested || !m_pendingSceneScreenshotPath.has_value() || !rendered.semaphore)
+				return;
+
+			const ISemaphore::SWaitInfo waitInfo[] =
+			{
+				{
+					.semaphore = rendered.semaphore,
+					.value = rendered.value
+				}
+			};
+			if (m_device->blockForSemaphores(waitInfo) != ISemaphore::WAIT_RESULT::SUCCESS)
+			{
+				m_logger->log("Scene screenshot failed: could not wait for rendered frame.", ILogger::ELL_ERROR);
+				m_sceneScreenshotRequested = false;
+				m_pendingSceneScreenshotPath.reset();
+				if (m_sceneScreenshotExitAfterCapture)
+					requestExit();
+				return;
+			}
+
+			const auto screenshotPath = std::move(*m_pendingSceneScreenshotPath);
+			m_pendingSceneScreenshotPath.reset();
+			m_sceneScreenshotRequested = false;
+
+			const bool ok = ext::ScreenShot::createScreenShot(
+				m_device.get(),
+				queue,
+				nullptr,
+				m_outImgView.get(),
+				m_assetMgr.get(),
+				screenshotPath,
+				asset::IImage::LAYOUT::READ_ONLY_OPTIMAL,
+				asset::ACCESS_FLAGS::SHADER_READ_BITS);
+
+			if (ok)
+				m_logger->log("Scene screenshot saved to \"%s\".", ILogger::ELL_INFO, screenshotPath.string().c_str());
+			else
+				m_logger->log("Scene screenshot failed to save.", ILogger::ELL_ERROR);
+
+			if (m_sceneScreenshotExitAfterCapture)
+			{
+				m_ciScreenshotCaptured = true;
+				requestExit();
+			}
+			m_sceneScreenshotExitAfterCapture = false;
+		}
+
+		static std::string hashToHex(const core::blake3_hash_t& hash)
+		{
+			static constexpr char digits[] = "0123456789abcdef";
+			static constexpr size_t HexCharsPerByte = 2ull;
+			static constexpr uint32_t HighNibbleBitOffset = 4u;
+			static constexpr uint8_t NibbleMask = 0xfu;
+			const auto hashByteCount = sizeof(hash.data);
+			std::string retval;
+			retval.resize(hashByteCount * HexCharsPerByte);
+			for (size_t i = 0ull; i < hashByteCount; ++i)
+			{
+				const auto hexOffset = i * HexCharsPerByte;
+				retval[hexOffset] = digits[(hash.data[i] >> HighNibbleBitOffset) & NibbleMask];
+				retval[hexOffset + 1ull] = digits[hash.data[i] & NibbleMask];
+			}
+			return retval;
+		}
+
+		path getDefaultPipelineCacheDir() const
+		{
+			if (const auto* localAppData = std::getenv("LOCALAPPDATA"); localAppData && localAppData[0] != '\0')
+				return path(localAppData) / "nabla/examples/31_HLSLPathTracer/pipeline/cache";
+			return localOutputCWD / "pipeline/cache";
+		}
+
+		path getRuntimeConfigPath() const
+		{
+			return system::executableDirectory() / RuntimeConfigFilename;
+		}
+
+		std::optional<path> tryGetPipelineCacheDirFromRuntimeConfig() const
+		{
+			const auto configPath = getRuntimeConfigPath();
+			if (!m_system->exists(configPath, IFile::ECF_READ))
+				return std::nullopt;
+
+			std::ifstream input(configPath);
+			if (!input.is_open())
+				return std::nullopt;
+
+			nlohmann::json json;
+			try
+			{
+				input >> json;
+			}
+			catch (const std::exception& e)
+			{
+				m_logger->log("Failed to parse PATH_TRACER runtime config %s: %s", ILogger::ELL_WARNING, configPath.string().c_str(), e.what());
+				return std::nullopt;
+			}
+
+			const auto cacheRootIt = json.find("cache_root");
+			if (cacheRootIt == json.end() || !cacheRootIt->is_string())
+				return std::nullopt;
+
+			const auto cacheRoot = cacheRootIt->get<std::string>();
+			if (cacheRoot.empty())
+				return std::nullopt;
+
+			const path relativeRoot(cacheRoot);
+			if (relativeRoot.is_absolute())
+			{
+				m_logger->log("Ignoring absolute cache_root in %s", ILogger::ELL_WARNING, configPath.string().c_str());
+				return std::nullopt;
+			}
+
+			return (configPath.parent_path() / relativeRoot).lexically_normal();
+		}
+
+		path getPipelineCacheRootDir() const
+		{
+			if (m_commandLine.pipelineCacheDirOverride.has_value())
+				return m_commandLine.pipelineCacheDirOverride.value();
+			if (const auto runtimeConfigDir = tryGetPipelineCacheDirFromRuntimeConfig(); runtimeConfigDir.has_value())
+				return runtimeConfigDir.value();
+			return getDefaultPipelineCacheDir();
+		}
+
+		path getPipelineCacheBlobPath() const
+		{
+			const auto key = m_device->getPipelineCacheKey();
+			return getPipelineCacheRootDir() / "blob" / BuildConfigName / (std::string(key.deviceAndDriverUUID) + ".bin");
+		}
+
+		path getSpirvCacheDir() const
+		{
+			return getPipelineCacheRootDir() / "spirv" / BuildConfigName;
+		}
+
+		path getTrimmedShaderCachePath(const IShader* shader, const char* const entryPoint) const
+		{
+			core::blake3_hasher hasher;
+			hasher << std::string_view(shader ? shader->getFilepathHint() : std::string_view{});
+			hasher << std::string_view(entryPoint);
+			if (shader)
+			{
+				if (const auto* const content = shader->getContent())
+				{
+					auto contentHash = content->getContentHash();
+					if (contentHash == ICPUBuffer::INVALID_HASH)
+						contentHash = content->computeContentHash();
+					hasher << contentHash;
+				}
+			}
+			return getSpirvCacheDir() / (hashToHex(static_cast<core::blake3_hash_t>(hasher)) + ".spv");
+		}
+
+		path getValidatedSpirvMarkerPath(const ICPUBuffer* spirvBuffer) const
+		{
+			auto contentHash = spirvBuffer->getContentHash();
+			if (contentHash == ICPUBuffer::INVALID_HASH)
+				contentHash = spirvBuffer->computeContentHash();
+			return getSpirvCacheDir() / (hashToHex(contentHash) + ".hash");
+		}
+
+		size_t getBackgroundPipelineBuildBudget() const
+		{
+			static constexpr uint32_t ReservedForegroundThreadCount = 1u;
+			const auto concurrency = std::thread::hardware_concurrency();
+			if (concurrency > ReservedForegroundThreadCount)
+				return static_cast<size_t>(concurrency - ReservedForegroundThreadCount);
+			return ReservedForegroundThreadCount;
+		}
+
+		bool ensureCacheDirectoryExists(const path& dir, const char* const description)
+		{
+			if (dir.empty() || m_system->isDirectory(dir))
+				return true;
+
+			if (m_system->createDirectory(dir) || m_system->isDirectory(dir))
+				return true;
+
+			m_logger->log("Failed to create %s %s", ILogger::ELL_WARNING, description, dir.string().c_str());
+			return false;
+		}
+
+		bool finalizeCacheFile(const path& tempPath, const path& finalPath, const char* const description)
+		{
+			m_system->deleteFile(finalPath);
+			const auto ec = m_system->moveFileOrDirectory(tempPath, finalPath);
+			if (!ec)
+				return true;
+
+			m_system->deleteFile(tempPath);
+			m_logger->log("Failed to finalize %s %s", ILogger::ELL_WARNING, description, finalPath.string().c_str());
+			return false;
+		}
+
+		void initializePipelineCache()
+		{
+			m_pipelineCache.blobPath = getPipelineCacheBlobPath();
+			m_pipelineCache.trimmedShaders.rootDir = getSpirvCacheDir();
+			m_pipelineCache.trimmedShaders.validationDir = getSpirvCacheDir();
+			if (!m_pipelineCache.trimmedShaders.trimmer)
+				m_pipelineCache.trimmedShaders.trimmer = core::make_smart_refctd_ptr<asset::ISPIRVEntryPointTrimmer>();
+			const auto pipelineCacheRootDir = getPipelineCacheRootDir();
+			std::error_code ec;
+			m_pipelineCache.loadedBytes = 0ull;
+			m_pipelineCache.loadedFromDisk = false;
+			m_pipelineCache.clearedOnStartup = m_commandLine.clearPipelineCache;
+			m_pipelineCache.newlyReadyPipelinesSinceLastSave = 0ull;
+			m_pipelineCache.checkpointedAfterFirstSubmit = false;
+			m_pipelineCache.lastSaveAt = clock_t::now();
+			if (m_commandLine.clearPipelineCache)
+			{
+				if (m_system->isDirectory(pipelineCacheRootDir) && !m_system->deleteDirectory(pipelineCacheRootDir))
+					m_logger->log("Failed to clear pipeline cache directory %s", ILogger::ELL_WARNING, pipelineCacheRootDir.string().c_str());
+				else
+					m_logger->log("PATH_TRACER_PIPELINE_CACHE clear root=%s", ILogger::ELL_INFO, pipelineCacheRootDir.string().c_str());
+			}
+			ensureCacheDirectoryExists(m_pipelineCache.blobPath.parent_path(), "pipeline cache directory");
+			ensureCacheDirectoryExists(m_pipelineCache.trimmedShaders.rootDir, "trimmed shader cache directory");
+			ensureCacheDirectoryExists(m_pipelineCache.trimmedShaders.validationDir, "validated shader cache directory");
+
+			std::vector<uint8_t> initialData;
+			{
+				std::ifstream input(m_pipelineCache.blobPath, std::ios::binary | std::ios::ate);
+				if (input.is_open())
+				{
+					const auto size = input.tellg();
+					if (size > 0)
+					{
+						initialData.resize(static_cast<size_t>(size));
+						input.seekg(0, std::ios::beg);
+						input.read(reinterpret_cast<char*>(initialData.data()), static_cast<std::streamsize>(initialData.size()));
+						if (!input)
+							initialData.clear();
+					}
+				}
+			}
+
+			std::span<const uint8_t> initialDataSpan = {};
+			if (!initialData.empty())
+			{
+				initialDataSpan = { initialData.data(), initialData.size() };
+				m_pipelineCache.loadedBytes = initialData.size();
+				m_pipelineCache.loadedFromDisk = true;
+			}
+
+			m_pipelineCache.object = m_device->createPipelineCache(initialDataSpan);
+			if (!m_pipelineCache.object && !initialData.empty())
+			{
+				m_logger->log("Pipeline cache blob at %s was rejected. Falling back to empty cache.", ILogger::ELL_WARNING, m_pipelineCache.blobPath.string().c_str());
+				m_pipelineCache.object = m_device->createPipelineCache(std::span<const uint8_t>{});
+			}
+			if (!m_pipelineCache.object)
+			{
+				m_logger->log("Failed to create PATH_TRACER pipeline cache.", ILogger::ELL_WARNING);
+				return;
+			}
+
+			m_pipelineCache.object->setObjectDebugName("PATH_TRACER Pipeline Cache");
+			m_logger->log("PATH_TRACER pipeline cache path: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+			m_logger->log("PATH_TRACER trimmed shader cache path: %s", ILogger::ELL_INFO, m_pipelineCache.trimmedShaders.rootDir.string().c_str());
+			m_logger->log("PATH_TRACER validated shader cache path: %s", ILogger::ELL_INFO, m_pipelineCache.trimmedShaders.validationDir.string().c_str());
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE init clear=%u loaded_from_disk=%u loaded_bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				m_pipelineCache.clearedOnStartup ? 1u : 0u,
+				m_pipelineCache.loadedFromDisk ? 1u : 0u,
+				m_pipelineCache.loadedBytes,
+				m_pipelineCache.blobPath.string().c_str()
+			);
+			if (!initialData.empty())
+				m_logger->log("Loaded PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+		}
+
+		smart_refctd_ptr<IShader> tryLoadTrimmedShaderFromDisk(const IShader* sourceShader, const char* const entryPoint)
+		{
+			const auto cachePath = getTrimmedShaderCachePath(sourceShader, entryPoint);
+			std::ifstream input(cachePath, std::ios::binary | std::ios::ate);
+			if (!input.is_open())
+				return nullptr;
+
+			const auto size = input.tellg();
+			if (size <= 0)
+				return nullptr;
+
+			std::vector<uint8_t> bytes(static_cast<size_t>(size));
+			input.seekg(0, std::ios::beg);
+			input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+			if (!input)
+				return nullptr;
+
+			auto buffer = ICPUBuffer::create({ { bytes.size() }, bytes.data() });
+			if (!buffer)
+				return nullptr;
+			buffer->setContentHash(buffer->computeContentHash());
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				m_pipelineCache.trimmedShaders.loadedBytes += bytes.size();
+				++m_pipelineCache.trimmedShaders.loadedFromDiskCount;
+			}
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE load entrypoint=%s bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				entryPoint,
+				bytes.size(),
+				cachePath.string().c_str()
+			);
+			return core::make_smart_refctd_ptr<IShader>(std::move(buffer), IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(sourceShader->getFilepathHint()));
+		}
+
+		bool hasValidatedSpirvMarker(const ICPUBuffer* spirvBuffer) const
+		{
+			return m_system->exists(getValidatedSpirvMarkerPath(spirvBuffer), IFile::ECF_READ);
+		}
+
+		void saveValidatedSpirvMarker(const ICPUBuffer* spirvBuffer)
+		{
+			const auto markerPath = getValidatedSpirvMarkerPath(spirvBuffer);
+			if (!ensureCacheDirectoryExists(markerPath.parent_path(), "validated shader cache directory"))
+				return;
+
+			auto tempPath = markerPath;
+			tempPath += ".tmp";
+			{
+				std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+				if (!output.is_open())
+				{
+					m_logger->log("Failed to open validated shader marker temp file %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+				output << "ok\n";
+				output.flush();
+				if (!output)
+				{
+					output.close();
+					m_system->deleteFile(tempPath);
+					m_logger->log("Failed to write validated shader marker %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+			}
+
+			finalizeCacheFile(tempPath, markerPath, "validated shader marker");
+		}
+
+		bool ensurePreparedShaderValidated(const smart_refctd_ptr<IShader>& preparedShader)
+		{
+			if (!preparedShader)
+				return false;
+
+			auto* const content = preparedShader->getContent();
+			if (!content)
+				return false;
+
+			if (hasValidatedSpirvMarker(content))
+			{
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					m_pipelineCache.trimmedShaders.trimmer->markValidated(content);
+				}
+				return true;
+			}
+
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				if (!m_pipelineCache.trimmedShaders.trimmer->ensureValidated(content, m_logger.get()))
+					return false;
+			}
+
+			saveValidatedSpirvMarker(content);
+			return true;
+		}
+
+		void saveTrimmedShaderToDisk(const IShader* shader, const char* const entryPoint, const path& cachePath)
+		{
+			const auto* content = shader->getContent();
+			if (!content || !content->getPointer() || cachePath.empty())
+				return;
+
+			if (!ensureCacheDirectoryExists(cachePath.parent_path(), "trimmed shader cache directory"))
+				return;
+
+			auto tempPath = cachePath;
+			tempPath += ".tmp";
+			{
+				std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+				if (!output.is_open())
+				{
+					m_logger->log("Failed to open trimmed shader cache temp file %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+				output.write(reinterpret_cast<const char*>(content->getPointer()), static_cast<std::streamsize>(content->getSize()));
+				output.flush();
+				if (!output)
+				{
+					output.close();
+					m_system->deleteFile(tempPath);
+					m_logger->log("Failed to write trimmed shader cache blob to %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+			}
+
+			if (!finalizeCacheFile(tempPath, cachePath, "trimmed shader cache blob"))
+				return;
+
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				m_pipelineCache.trimmedShaders.savedBytes += content->getSize();
+				++m_pipelineCache.trimmedShaders.savedToDiskCount;
+			}
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE save entrypoint=%s bytes=%zu path=%s",
+				ILogger::ELL_INFO,
+				entryPoint,
+				content->getSize(),
+				cachePath.string().c_str()
+			);
+		}
+
+		smart_refctd_ptr<IShader> getPreparedShaderForEntryPoint(const smart_refctd_ptr<IShader>& shaderModule, const char* const entryPoint)
+		{
+			if (!shaderModule || shaderModule->getContentType() != IShader::E_CONTENT_TYPE::ECT_SPIRV)
+				return shaderModule;
+
+			const auto cachePath = getTrimmedShaderCachePath(shaderModule.get(), entryPoint);
+			const auto cacheKey = cachePath.string();
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				const auto found = m_pipelineCache.trimmedShaders.runtimeShaders.find(cacheKey);
+				if (found != m_pipelineCache.trimmedShaders.runtimeShaders.end())
+					return found->second;
+			}
+
+			const auto startedAt = clock_t::now();
+			auto preparedShader = tryLoadTrimmedShaderFromDisk(shaderModule.get(), entryPoint);
+			bool cameFromDisk = static_cast<bool>(preparedShader);
+			bool wasTrimmed = false;
+			if (!preparedShader)
+			{
+				const core::set entryPoints = { asset::ISPIRVEntryPointTrimmer::EntryPoint{ .name = entryPoint, .stage = hlsl::ShaderStage::ESS_COMPUTE } };
+				const auto result = [&]()
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					return m_pipelineCache.trimmedShaders.trimmer->trim(shaderModule->getContent(), entryPoints, nullptr);
+				}();
+				if (!result)
+				{
+					m_logger->log("Failed to prepare trimmed PATH_TRACER shader for %s. Falling back to the original module.", ILogger::ELL_WARNING, entryPoint);
+					return shaderModule;
+				}
+				if (result.spirv)
+				{
+					result.spirv->setContentHash(result.spirv->computeContentHash());
+					preparedShader = core::make_smart_refctd_ptr<IShader>(core::smart_refctd_ptr(result.spirv), IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(shaderModule->getFilepathHint()));
+				}
+				else
+					preparedShader = shaderModule;
+
+				saveTrimmedShaderToDisk(preparedShader.get(), entryPoint, cachePath);
+				{
+					std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+					++m_pipelineCache.trimmedShaders.generatedCount;
+				}
+				wasTrimmed = (preparedShader != shaderModule);
+			}
+
+			if (!ensurePreparedShaderValidated(preparedShader))
+			{
+				m_logger->log("Prepared PATH_TRACER shader for %s is not valid SPIR-V", ILogger::ELL_ERROR, entryPoint);
+				return nullptr;
+			}
+
+			{
+				std::lock_guard lock(m_pipelineCache.trimmedShaders.mutex);
+				const auto [it, inserted] = m_pipelineCache.trimmedShaders.runtimeShaders.emplace(cacheKey, preparedShader);
+				if (!inserted)
+					preparedShader = it->second;
+			}
+
+			const auto wallMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - startedAt).count();
+			m_logger->log(
+				"PATH_TRACER_SHADER_CACHE ready entrypoint=%s wall_ms=%lld from_disk=%u trimmed=%u",
+				ILogger::ELL_INFO,
+				entryPoint,
+				static_cast<long long>(wallMs),
+				cameFromDisk ? 1u : 0u,
+				wasTrimmed ? 1u : 0u
+			);
+			return preparedShader;
+		}
+
+		void savePipelineCache()
+		{
+			if (!m_pipelineCache.object || !m_pipelineCache.dirty || m_pipelineCache.blobPath.empty())
+				return;
+
+			const auto saveStartedAt = clock_t::now();
+			auto cpuCache = m_pipelineCache.object->convertToCPUCache();
+			if (!cpuCache)
+				return;
+
+			const auto& entries = cpuCache->getEntries();
+			const auto found = entries.find(m_device->getPipelineCacheKey());
+			if (found == entries.end() || !found->second.bin || found->second.bin->empty())
+				return;
+
+			if (!ensureCacheDirectoryExists(m_pipelineCache.blobPath.parent_path(), "pipeline cache directory"))
+				return;
+
+			auto tempPath = m_pipelineCache.blobPath;
+			tempPath += ".tmp";
+			{
+				std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+				if (!output.is_open())
+				{
+					m_logger->log("Failed to open pipeline cache temp file %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+				output.write(reinterpret_cast<const char*>(found->second.bin->data()), static_cast<std::streamsize>(found->second.bin->size()));
+				output.flush();
+				if (!output)
+				{
+					output.close();
+					m_system->deleteFile(tempPath);
+					m_logger->log("Failed to write pipeline cache blob to %s", ILogger::ELL_WARNING, tempPath.string().c_str());
+					return;
+				}
+			}
+
+			if (!finalizeCacheFile(tempPath, m_pipelineCache.blobPath, "pipeline cache blob"))
+				return;
+
+			m_pipelineCache.dirty = false;
+			m_pipelineCache.savedBytes = found->second.bin->size();
+			m_pipelineCache.newlyReadyPipelinesSinceLastSave = 0ull;
+			m_pipelineCache.lastSaveAt = clock_t::now();
+			const auto saveElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - saveStartedAt).count();
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE save bytes=%zu wall_ms=%lld path=%s",
+				ILogger::ELL_INFO,
+				m_pipelineCache.savedBytes,
+				static_cast<long long>(saveElapsedMs),
+				m_pipelineCache.blobPath.string().c_str()
+			);
+			m_logger->log("Saved PATH_TRACER pipeline cache blob: %s", ILogger::ELL_INFO, m_pipelineCache.blobPath.string().c_str());
+		}
+
+		void maybeCheckpointPipelineCache()
+		{
+			if (!m_pipelineCache.object || !m_pipelineCache.dirty)
+				return;
+
+			if (m_startupLog.loggedFirstRenderSubmit && !m_pipelineCache.checkpointedAfterFirstSubmit)
+			{
+				savePipelineCache();
+				m_pipelineCache.checkpointedAfterFirstSubmit = true;
+				return;
+			}
+
+			if (!m_pipelineCache.warmup.started || m_pipelineCache.warmup.loggedComplete)
+				return;
+
+			static constexpr size_t WarmupCheckpointThreshold = 4ull;
+			if (m_pipelineCache.newlyReadyPipelinesSinceLastSave < WarmupCheckpointThreshold)
+				return;
+
+			const auto elapsedSinceLastSave = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.lastSaveAt).count();
+			if (elapsedSinceLastSave < 1000ll)
+				return;
+
+			savePipelineCache();
+		}
+
+		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
+		{
+			(void)persistentWorkGroups;
+			switch (geometry)
+			{
+			case ELG_SPHERE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
+			case ELG_TRIANGLE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>();
+			case ELG_RECTANGLE:
+				if (rwmc)
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>();
+				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
+			default:
+				return nullptr;
+			}
+		}
+
+		struct SCommandLineOptions
+		{
+			bool ciMode = false;
+			path ciScreenshotPath;
+			std::optional<path> pipelineCacheDirOverride;
+			bool clearPipelineCache = false;
+			std::optional<E_LIGHT_GEOMETRY> geometryOverride;
+			std::optional<E_POLYGON_METHOD> methodOverride;
+			std::optional<int> sppOverride;
+			std::optional<int> depthOverride;
+			std::optional<bool> rwmcOverride;
+			std::optional<float> rwmcStartOverride;
+			std::optional<float> rwmcBaseOverride;
+			std::optional<float> rwmcMinReliableLumaOverride;
+			std::optional<float> rwmcKappaOverride;
+		};
+
+		size_t getRunningPipelineBuildCount() const
+		{
+			return cached_pipeline_state::getRunningPipelineBuildCount(m_renderPipelines, m_resolvePipelineState);
+		}
+
+		size_t getKnownRenderPipelineCount() const
+		{
+			size_t count = 0ull;
+			bool seen[ELG_COUNT][BinaryToggleCount][BinaryToggleCount][EPM_COUNT] = {};
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				for (const auto persistentWorkGroups : { UsePersistentWorkGroups })
+				{
+					for (auto rwmc = 0u; rwmc < BinaryToggleCount; ++rwmc)
+					{
+						for (auto method = 0u; method < EPM_COUNT; ++method)
+						{
+							const auto pipelineMethod = static_cast<size_t>(getRenderVariantInfo(
+								static_cast<E_LIGHT_GEOMETRY>(geometry),
+								static_cast<bool>(persistentWorkGroups),
+								static_cast<E_POLYGON_METHOD>(method)
+							).pipelineMethod);
+							if (seen[geometry][persistentWorkGroups][rwmc][pipelineMethod])
+								continue;
+							seen[geometry][persistentWorkGroups][rwmc][pipelineMethod] = true;
+							++count;
+						}
+					}
+				}
+			}
+			return count;
+		}
+
+		size_t getReadyRenderPipelineCount() const
+		{
+			return cached_pipeline_state::getReadyRenderPipelineCount(m_renderPipelines);
+		}
+
+		void enqueueWarmupJob(const SWarmupJob& job)
+		{
+			for (const auto& existing : m_pipelineCache.warmup.queue)
+			{
+				if (existing.type != job.type)
+					continue;
+				if (existing.type == SWarmupJob::E_TYPE::Resolve)
+					return;
+				if (
+					existing.geometry == job.geometry &&
+					existing.persistentWorkGroups == job.persistentWorkGroups &&
+					existing.rwmc == job.rwmc &&
+					getRenderVariantInfo(existing.geometry, existing.persistentWorkGroups, existing.method).pipelineMethod ==
+					getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod
+				)
+					return;
+			}
+			m_pipelineCache.warmup.queue.push_back(job);
+		}
+
+		bool launchWarmupJobIfNeeded(const SWarmupJob& job)
+		{
+			if (job.type == SWarmupJob::E_TYPE::Resolve)
+			{
+				if (m_resolvePipelineState.pipeline || m_resolvePipelineState.pendingPipeline.valid())
+					return false;
+				ensureResolvePipeline();
+				return m_resolvePipelineState.pendingPipeline.valid();
+			}
+
+			auto& pipelines = m_renderPipelines.getPipelines(job.persistentWorkGroups, job.rwmc);
+			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(job.persistentWorkGroups, job.rwmc);
+			const auto methodIx = static_cast<size_t>(getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod);
+			if (pipelines[job.geometry][methodIx] || pendingPipelines[job.geometry][methodIx].valid())
+				return false;
+
+			ensureRenderPipeline(job.geometry, job.persistentWorkGroups, job.rwmc, job.method);
+			return pendingPipelines[job.geometry][methodIx].valid();
+		}
+
+		void pumpPipelineWarmup()
+		{
+			if (!m_pipelineCache.warmup.started)
+				return;
+
+			while (!m_pipelineCache.warmup.queue.empty() && getRunningPipelineBuildCount() < m_pipelineCache.warmup.budget)
+			{
+				const auto job = m_pipelineCache.warmup.queue.front();
+				m_pipelineCache.warmup.queue.pop_front();
+				if (launchWarmupJobIfNeeded(job))
+					++m_pipelineCache.warmup.launchedJobs;
+				else
+					++m_pipelineCache.warmup.skippedJobs;
+			}
+
+			if (!m_pipelineCache.warmup.loggedComplete && m_pipelineCache.warmup.queue.empty() && getRunningPipelineBuildCount() == 0ull)
+			{
+				m_pipelineCache.warmup.loggedComplete = true;
+				const auto warmupElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - m_pipelineCache.warmup.beganAt).count();
+				const auto readyRenderPipelines = getReadyRenderPipelineCount();
+				const auto totalRenderPipelines = getKnownRenderPipelineCount();
+				m_logger->log(
+					"PATH_TRACER_PIPELINE_CACHE warmup_complete wall_ms=%lld queued_jobs=%zu launched_jobs=%zu skipped_jobs=%zu max_parallel=%zu ready_render=%zu total_render=%zu resolve_ready=%u",
+					ILogger::ELL_INFO,
+					static_cast<long long>(warmupElapsedMs),
+					m_pipelineCache.warmup.queuedJobs,
+					m_pipelineCache.warmup.launchedJobs,
+					m_pipelineCache.warmup.skippedJobs,
+					m_pipelineCache.warmup.budget,
+					readyRenderPipelines,
+					totalRenderPipelines,
+					m_resolvePipelineState.pipeline ? 1u : 0u
+				);
+				logStartupEvent("pipeline_warmup_complete");
+				savePipelineCache();
+			}
+		}
+
+		pipeline_future_t requestComputePipelineBuild(smart_refctd_ptr<IShader> shaderModule, IGPUPipelineLayout* const pipelineLayout, const char* const entryPoint)
+		{
+			if (!shaderModule)
+				return {};
+
+			return std::async(
+				std::launch::async,
+				[
+					this,
+					device = m_device,
+					pipelineCache = m_pipelineCache.object,
+					shader = std::move(shaderModule),
+					layout = smart_refctd_ptr<IGPUPipelineLayout>(pipelineLayout),
+					requiredSubgroupSize = m_requiredSubgroupSize,
+					logger = m_logger.get(),
+					entryPointName = std::string(entryPoint),
+					cacheLoadedFromDisk = m_pipelineCache.loadedFromDisk
+				]() -> smart_refctd_ptr<IGPUComputePipeline>
+				{
+					const auto startedAt = clock_t::now();
+					auto preparedShader = getPreparedShaderForEntryPoint(shader, entryPointName.c_str());
+					if (!preparedShader)
+						return nullptr;
+					smart_refctd_ptr<IGPUComputePipeline> pipeline;
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = layout.get();
+					params.shader.shader = preparedShader.get();
+					params.shader.entryPoint = entryPointName.c_str();
+					params.shader.entries = nullptr;
+					params.cached.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = requiredSubgroupSize;
+					if (!device->createComputePipelines(pipelineCache.get(), { &params, 1 }, &pipeline))
+					{
+						if (logger)
+							logger->log("Failed to create precompiled path tracing pipeline for %s", ILogger::ELL_ERROR, entryPointName.c_str());
+						return nullptr;
+					}
+					if (logger)
+					{
+						const auto wallMs = std::chrono::duration_cast<std::chrono::milliseconds>(clock_t::now() - startedAt).count();
+						logger->log(
+							"PATH_TRACER_PIPELINE_BUILD entrypoint=%s wall_ms=%lld cache_loaded_from_disk=%u",
+							ILogger::ELL_INFO,
+							entryPointName.c_str(),
+							static_cast<long long>(wallMs),
+							cacheLoadedFromDisk ? 1u : 0u
+						);
+					}
+					return pipeline;
+				}
+			);
+		}
+
+		void pollPendingPipeline(pipeline_future_t& future, smart_refctd_ptr<IGPUComputePipeline>& pipeline)
+		{
+			if (cached_pipeline_state::pollPendingPipeline(future, pipeline))
+			{
+				m_pipelineCache.dirty = true;
+				++m_pipelineCache.newlyReadyPipelinesSinceLastSave;
+			}
+		}
+
+		void pollPendingPipelines()
+		{
+			cached_pipeline_state::pollPendingPipelines(
+				m_renderPipelines,
+				m_resolvePipelineState,
+				m_pipelineCache.dirty,
+				m_pipelineCache.newlyReadyPipelinesSinceLastSave
+			);
+		}
+
+		void waitForPendingPipelines()
+		{
+			cached_pipeline_state::waitForPendingPipelines(
+				m_renderPipelines,
+				m_resolvePipelineState,
+				m_pipelineCache.dirty,
+				m_pipelineCache.newlyReadyPipelinesSinceLastSave
+			);
+		}
+
+		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
+		{
+			auto& pipelines = m_renderPipelines.getPipelines(persistentWorkGroups, rwmc);
+			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(persistentWorkGroups, rwmc);
+			const auto variantInfo = getRenderVariantInfo(geometry, persistentWorkGroups, polygonMethod);
+			const auto methodIx = static_cast<size_t>(variantInfo.pipelineMethod);
+			auto& pipeline = pipelines[geometry][methodIx];
+			auto& future = pendingPipelines[geometry][methodIx];
+
+			pollPendingPipeline(future, pipeline);
+			if (pipeline)
+				return pipeline.get();
+
+			if (!future.valid())
+			{
+				const auto& shaders = m_renderPipelines.getShaders(persistentWorkGroups, rwmc);
+				auto* const layout = rwmc ? m_rwmcRenderPipelineLayout.get() : m_renderPipelineLayout.get();
+				future = requestComputePipelineBuild(shaders[geometry], layout, variantInfo.entryPoint);
+			}
+
+			return nullptr;
+		}
+
+		IGPUComputePipeline* ensureResolvePipeline()
+		{
+			pollPendingPipeline(m_resolvePipelineState.pendingPipeline, m_resolvePipelineState.pipeline);
+			if (m_resolvePipelineState.pipeline)
+				return m_resolvePipelineState.pipeline.get();
+
+			if (!m_resolvePipelineState.pendingPipeline.valid())
+				m_resolvePipelineState.pendingPipeline = requestComputePipelineBuild(m_resolvePipelineState.shader, m_resolvePipelineState.layout.get(), "resolve");
+
+			return nullptr;
+		}
+
+		void kickoffPipelineWarmup()
+		{
+			m_pipelineCache.warmup.started = true;
+			m_pipelineCache.warmup.queue.clear();
+			m_pipelineCache.warmup.loggedComplete = false;
+			m_pipelineCache.warmup.beganAt = clock_t::now();
+			m_pipelineCache.warmup.budget = getBackgroundPipelineBuildBudget();
+			m_pipelineCache.warmup.queuedJobs = 0ull;
+			m_pipelineCache.warmup.launchedJobs = 0ull;
+			m_pipelineCache.warmup.skippedJobs = 0ull;
+			const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
+			const auto currentMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
+			const auto enqueueRenderVariants = [this, currentGeometry](const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD preferredMethod) -> void
+			{
+				const auto enqueueForMethods = [this, geometry](const std::initializer_list<E_POLYGON_METHOD> methods, const bool preferRWMC) -> void
+				{
+					const bool rwmcOrder[2] = { preferRWMC, !preferRWMC };
+					for (const auto method : methods)
+					{
+						for (const auto rwmc : rwmcOrder)
+						{
+							enqueueWarmupJob({
+								.type = SWarmupJob::E_TYPE::Render,
+								.geometry = geometry,
+								.persistentWorkGroups = UsePersistentWorkGroups,
+								.rwmc = rwmc,
+								.method = method
+							});
+						}
+					}
+				};
+
+				const bool preferRWMC = geometry == currentGeometry ? guiControlled.useRWMC : false;
+				switch (geometry)
+				{
+				case ELG_SPHERE:
+					enqueueForMethods({ EPM_SOLID_ANGLE }, preferRWMC);
+					break;
+				case ELG_TRIANGLE:
+				{
+					switch (preferredMethod)
+					{
+					case EPM_AREA:
+						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_SOLID_ANGLE:
+						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_PROJECTED_SOLID_ANGLE:
+					default:
+						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_AREA, EPM_SOLID_ANGLE }, preferRWMC);
+						break;
+					}
+					break;
+				}
+				case ELG_RECTANGLE:
+					switch (preferredMethod)
+					{
+					case EPM_AREA:
+						enqueueForMethods({ EPM_AREA, EPM_SOLID_ANGLE, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_SOLID_ANGLE:
+						enqueueForMethods({ EPM_SOLID_ANGLE, EPM_AREA, EPM_PROJECTED_SOLID_ANGLE }, preferRWMC);
+						break;
+					case EPM_PROJECTED_SOLID_ANGLE:
+					default:
+						enqueueForMethods({ EPM_PROJECTED_SOLID_ANGLE, EPM_SOLID_ANGLE, EPM_AREA }, preferRWMC);
+						break;
+					}
+					break;
+				default:
+					break;
+				}
+			};
+
+			enqueueRenderVariants(currentGeometry, currentMethod);
+			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
+			{
+				const auto geometryEnum = static_cast<E_LIGHT_GEOMETRY>(geometry);
+				if (geometryEnum == currentGeometry)
+					continue;
+				enqueueRenderVariants(geometryEnum, currentMethod);
+			}
+			enqueueWarmupJob({ .type = SWarmupJob::E_TYPE::Resolve });
+			m_pipelineCache.warmup.queuedJobs = m_pipelineCache.warmup.queue.size();
+			const auto logicalConcurrency = std::thread::hardware_concurrency();
+			m_logger->log(
+				"PATH_TRACER_PIPELINE_CACHE warmup_start queued_jobs=%zu max_parallel=%zu logical_threads=%u current_geometry=%u current_method=%u",
+				ILogger::ELL_INFO,
+				m_pipelineCache.warmup.queuedJobs,
+				m_pipelineCache.warmup.budget,
+				logicalConcurrency,
+				static_cast<uint32_t>(currentGeometry),
+				static_cast<uint32_t>(currentMethod)
+			);
+			pumpPipelineWarmup();
+		}
 
 		IGPUComputePipeline* pickPTPipeline()
 		{
-			IGPUComputePipeline* pipeline;
-			if (guiControlled.useRWMC)
-				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[guiControlled.PTPipeline].get() : m_PTHLSLPipelinesRWMC[guiControlled.PTPipeline].get();
-			else
-				pipeline = guiControlled.usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelines[guiControlled.PTPipeline].get() : m_PTHLSLPipelines[guiControlled.PTPipeline].get();
-
-			return pipeline;
+			return ensureRenderPipeline(
+				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
+				UsePersistentWorkGroups,
+				guiControlled.useRWMC,
+				static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
+			);
 		}
 
 	private:
@@ -1518,12 +2908,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelines;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelines;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelinesRWMC;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelinesRWMC;
-		smart_refctd_ptr<IGPUComputePipeline> m_resolvePipeline;
+		SRenderPipelineStorage<BinaryToggleCount> m_renderPipelines;
+		smart_refctd_ptr<IGPUPipelineLayout> m_renderPipelineLayout;
+		smart_refctd_ptr<IGPUPipelineLayout> m_rwmcRenderPipelineLayout;
+		SResolvePipelineState m_resolvePipelineState;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
+		IPipelineBase::SUBGROUP_SIZE m_requiredSubgroupSize = IPipelineBase::SUBGROUP_SIZE::UNKNOWN;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
@@ -1538,10 +2928,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// pathtracer resources
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView, m_normalMapView;
-		//smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
-		smart_refctd_ptr<ScrambleSequence> m_scrambleSequence;
+		smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
+		uint8_t m_sequenceSamplesLog2;
 
 		// sync
 		smart_refctd_ptr<ISemaphore> m_semaphore;
@@ -1564,10 +2954,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		Camera m_camera;
 		bool m_showUI;
+		bool m_exitRequested = false;
+		bool m_sceneScreenshotRequested = false;
+		bool m_sceneScreenshotExitAfterCapture = false;
+		bool m_ciScreenshotCaptured = false;
+		uint32_t m_ciRenderableFrameCounter = 0u;
+		uint64_t m_sceneScreenshotCounter = 0ull;
+		std::optional<path> m_pendingSceneScreenshotPath;
 
 		video::CDumbPresentationOracle m_oracle;
 
-		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+		uint16_t gcIndex = {};
 
 		struct GUIControllables
 		{
@@ -1576,10 +2973,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			float camYAngle = 165.f / 180.f * 3.14159f;
 			float camXAngle = 32.f / 180.f * 3.14159f;
 			int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+			int polygonMethod = EPM_PROJECTED_SOLID_ANGLE;
 			int spp = 32;
 			int depth = 3;
 			rwmc::SResolveParameters::SCreateParams rwmcParams;
-			bool usePersistentWorkGroups = false;
 			bool useRWMC = false;
 		};
 		GUIControllables guiControlled;
@@ -1592,7 +2989,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		};
 		TransformRequestParams m_transformParams;
 
-		bool m_firstFrame = true;
+		clock_t::time_point m_startupBeganAt = clock_t::now();
+		SCommandLineOptions m_commandLine;
+		SStartupLogState m_startupLog;
+		SPipelineCacheState m_pipelineCache;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 

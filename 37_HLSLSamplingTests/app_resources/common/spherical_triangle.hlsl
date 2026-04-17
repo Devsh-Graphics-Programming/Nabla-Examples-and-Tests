@@ -18,10 +18,11 @@ struct SphericalTriangleTestResults
 {
 	float32_t3 generated;
 	float32_t2 inverted;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
-	float32_t roundtripError;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+	float32_t2 roundtripError;
 	float32_t jacobianProduct;
 	// Minimum signed distance to a triangle edge (sin of angular distance to nearest great circle).
 	// Positive = inside, negative = outside. Allows tolerance at boundaries.
@@ -35,28 +36,17 @@ struct SphericalTriangleTestExecutor
 {
 	void operator()(NBL_CONST_REF_ARG(SphericalTriangleInputValues) input, NBL_REF_ARG(SphericalTriangleTestResults) output)
 	{
-		shapes::SphericalTriangle<float32_t> shape;
-		shape.vertices[0] = input.vertex0;
-		shape.vertices[1] = input.vertex1;
-		shape.vertices[2] = input.vertex2;
-		shape.cos_sides = float32_t3(
-			nbl::hlsl::dot(input.vertex1, input.vertex2),
-			nbl::hlsl::dot(input.vertex2, input.vertex0),
-			nbl::hlsl::dot(input.vertex0, input.vertex1));
-		float32_t3 csc_sides2 = float32_t3(1.0, 1.0, 1.0) - shape.cos_sides * shape.cos_sides;
-		shape.csc_sides = float32_t3(
-			nbl::hlsl::rsqrt(csc_sides2.x),
-			nbl::hlsl::rsqrt(csc_sides2.y),
-			nbl::hlsl::rsqrt(csc_sides2.z));
+		const float32_t3 verts[3] = { input.vertex0, input.vertex1, input.vertex2 };
+		shapes::SphericalTriangle<float32_t> shape = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(verts);
 
-		sampling::SphericalTriangle<float32_t> sampler = sampling::SphericalTriangle<float32_t>::create(shape);
+		sampling::SphericalTriangle<float32_t, true> sampler = sampling::SphericalTriangle<float32_t, true>::create(shape);
 
 		// Forward: u -> v
 		{
 			sampling::SphericalTriangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
-			output.forwardPdf = sampler.forwardPdf(cache);
+			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
 
 		// Inverse: v -> u'
@@ -64,10 +54,10 @@ struct SphericalTriangleTestExecutor
 			output.inverted = sampler.generateInverse(output.generated);
 			// Backward: evaluate pdf at generated point (no cache needed)
 			output.backwardPdf = sampler.backwardPdf(output.generated);
+			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
 		// Roundtrip error: ||u - u'||
-		float32_t2 diff = input.u - output.inverted;
-		output.roundtripError = nbl::hlsl::length(diff);
+		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
 
 		// Jacobian product: (1/forwardPdf) * backwardPdf should equal 1 for bijective samplers
 		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;

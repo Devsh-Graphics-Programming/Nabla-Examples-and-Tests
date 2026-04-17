@@ -5,11 +5,12 @@
 #define _NBL_THIS_EXAMPLE_C_RENDERER_H_INCLUDED_
 
 
+#include "nbl/examples/common/CCachedOwenScrambledSequence.hpp"
+
 #include "renderer/CScene.h"
 #include "renderer/CSession.h"
 
 #include "renderer/shaders/pathtrace/push_constants.hlsl"
-#include "nbl/examples/common/ScrambleSequence.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
@@ -54,16 +55,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 
 		struct SCachedCreationParams
 		{
-			//! Brief guideline to good path depth limits
-			// Want to see stuff with indirect lighting on the other side of a pane of glass
-			// 5 = glass frontface->glass backface->diffuse surface->diffuse surface->light
-			// Want to see through a glass box, vase, or office 
-			// 7 = glass frontface->glass backface->glass frontface->glass backface->diffuse surface->diffuse surface->light
-			// pick higher numbers for better GI and less bias
-			static inline constexpr uint32_t DefaultPathDepth = 8u;
-			// TODO: Upload only a subsection of the sample sequence to the GPU, so we can use more samples without trashing VRAM
-			static inline constexpr uint32_t MaxFreeviewSamples = 0x10000u;
-
 			inline operator bool() const
 			{
 				if (!graphicsQueue || !computeQueue || !uploadQueue)
@@ -90,7 +81,7 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		struct SCreationParams : SCachedCreationParams
 		{
 			asset::IAssetManager* assMan;
-			nbl::examples::ScrambleSequence::SCreationParams sampleSequenceCreateParams;
+			std::string sequenceCachePath;
 		};
 		static core::smart_refctd_ptr<CRenderer> create(SCreationParams&& _params);
 
@@ -106,6 +97,11 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		struct SCachedConstructionParams
 		{
 			constexpr static inline uint8_t FramesInFlight = 3;
+
+			// TODO: Some Constant to Tell us how many dimensions each path vertex consumes
+			inline auto getSequenceMaxPathDepth() const {return sequenceHeader.maxDimensions/3;}
+
+
 			core::smart_refctd_ptr<video::ISemaphore> semaphore;
 
 			// per pipeline UBO for other pipelines
@@ -124,8 +120,16 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 			//
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FramesInFlight];
 
-			core::smart_refctd_ptr<video::IGPUImage> scrambleKey;
-			core::smart_refctd_ptr<nbl::examples::ScrambleSequence> sampleSequence;
+			//
+			core::smart_refctd_ptr<video::IGPUBuffer> sobolSequence;
+			//! Brief guideline to good path depth limits
+			// Want to see stuff with indirect lighting on the other side of a pane of glass
+			// 5 = glass frontface->glass backface->diffuse surface->diffuse surface->light
+			// Want to see through a glass box, vase, or office 
+			// 7 = glass frontface->glass backface->glass frontface->glass backface->diffuse surface->diffuse surface->light
+			// pick higher numbers for better GI and less bias
+			// TODO: Upload only a subsection of the sample sequence to the GPU, so we can use more samples without trashing VRAM
+			examples::CCachedOwenScrambledSequence::SCacheHeader sequenceHeader = {};
 		};
 		//
 		inline const SCachedConstructionParams& getConstructionParams() const {return m_construction;}
@@ -156,38 +160,13 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
     protected:
 		struct SConstructorParams : SCachedCreationParams, SCachedConstructionParams
 		{
-
-			// Each Atom of the sample sequence provides 3N dimensions (3 for BxDF, 3 for NEE, etc.)
-			// Then Atoms are ordered by sampleID, then dimension (cache will be fully trashed by tracing TLASes until next bounce) 
-#if 0	
-			// semi persistent data
-			struct SampleSequence
-			{
-				public:
-					static inline constexpr auto QuantizedDimensionsBytesize = sizeof(uint64_t);
-					SampleSequence() : bufferView() {}
-
-					// one less because first path vertex uses a different sequence 
-					static inline uint32_t computeQuantizedDimensions(uint32_t maxPathDepth) {return (maxPathDepth-1)*SAMPLING_STRATEGY_COUNT;}
-					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount);
-
-					// from cache
-					void createBufferView(nbl::video::IVideoDriver* driver, nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer>&& buff);
-					// regenerate
-					nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> createBufferView(nbl::video::IVideoDriver* driver, uint32_t quantizedDimensions, uint32_t sampleCount);
-
-					auto getBufferView() const {return bufferView;}
-
-				private:
-					nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
-			} sampleSequence;
-		
+#if 0		
 			// Resources used for envmap sampling
 			nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 #endif
 		};
 		inline CRenderer(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)),
-			m_frameIx(m_construction.semaphore->getCounterValue()), m_framesDispatched(0) {}
+			m_frameIx(m_construction.semaphore->getCounterValue()) {}
 		virtual inline ~CRenderer() {}
 
 		static core::smart_refctd_ptr<asset::IShader> loadPrecompiledShader_impl(asset::IAssetManager* assMan, const core::string& key, system::logger_opt_ptr logger);
@@ -195,7 +174,6 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		SCachedCreationParams m_creation;
 		SCachedConstructionParams m_construction;
 		uint64_t m_frameIx;
-		uint32_t m_framesDispatched;
 };
 
 }

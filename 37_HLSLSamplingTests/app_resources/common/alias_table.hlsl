@@ -2,35 +2,18 @@
 #define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_ALIAS_TABLE_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include "array_accessor.hlsl"
 #include <nbl/builtin/hlsl/sampling/alias_table.hlsl>
 
 using namespace nbl::hlsl;
 
 NBL_CONSTEXPR uint32_t AliasTestTableSize = 4;
 
-// Fixed-size array accessors for HLSL/C++ dual compilation
-struct AliasTestProbAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t data[4];
-};
+using AliasTestProbAccessor = ArrayAccessor<float32_t, AliasTestTableSize>;
+using AliasTestAliasAccessor = ArrayAccessor<uint32_t, AliasTestTableSize>;
+using AliasTestPdfAccessor = ArrayAccessor<float32_t, AliasTestTableSize>;
 
-struct AliasTestAliasAccessor
-{
-	using value_type = uint32_t;
-	uint32_t get(uint32_t i) { return data[i]; }
-	uint32_t data[4];
-};
-
-struct AliasTestPdfAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t data[4];
-};
-
-using AliasTestSampler = sampling::AliasTable<float32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
+using AliasTestSampler = sampling::AliasTable<float32_t, float32_t, uint32_t, AliasTestProbAccessor, AliasTestAliasAccessor, AliasTestPdfAccessor>;
 
 struct AliasTableInputValues
 {
@@ -76,9 +59,9 @@ struct AliasTableTestExecutor
 
 		AliasTestSampler::cache_type cache;
 		output.generatedIndex = sampler.generate(input.u, cache);
-		output.forwardPdf = sampler.forwardPdf(cache);
+		output.forwardPdf = sampler.forwardPdf(input.u, cache);
 		output.backwardPdf = sampler.backwardPdf(output.generatedIndex);
-		output.forwardWeight = sampler.forwardWeight(cache);
+		output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		output.backwardWeight = sampler.backwardWeight(output.generatedIndex);
 	}
 };
