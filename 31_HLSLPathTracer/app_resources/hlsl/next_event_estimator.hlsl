@@ -9,7 +9,6 @@ using namespace hlsl;
 template<typename T, ProceduralShapeType PST, NEEPolygonMethod PPM>
 struct ShapeSampling;
 
-// Sphere only supports solid angle
 template<typename T, NEEPolygonMethod PPM>
 struct ShapeSampling<T, PST_SPHERE, PPM>
 {
@@ -126,7 +125,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
     {
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
-        const scalar_type rcpProb = st.solidAngle();
+        const scalar_type rcpProb = st.solid_angle;
         // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0
         return rcpProb > numeric_limits<scalar_type>::min ? (1.0 / rcpProb) : numeric_limits<scalar_type>::max;
     }
@@ -141,7 +140,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
         typename sampling::SphericalTriangle<scalar_type>::cache_type cache;
         const vector3_type L = sst.generate(xi.xy, cache);
 
-        pdf = cache.pdf;
+        pdf = sst.forwardPdf(xi.xy, cache);
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);
@@ -151,6 +150,13 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_SOLID_ANGLE>
     Shape<T, PST_TRIANGLE> tri;
 };
 
+// Projected solid angle NEE for triangles using "Practical Warps":
+// bilinear warp over vertex NdotL + spherical triangle sampling.
+// The bilinear PDF (rcpSolidAngle * bilinearPdf) approximates NdotL/PSA well
+// for small/far triangles, but underestimates it at grazing angles because
+// vertex NdotL interpolation doesn't follow the true NdotL on the surface.
+// This makes the NEE MIS weight weaker than ideal at grazing, causing fireflies
+// when the BRDF sampler struggles to hit the light.
 template<typename T>
 struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 {
@@ -170,10 +176,7 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         const vector3_type L = ray.direction;
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, ray.origin);
-        sampling::ProjectedSphericalTriangle<scalar_type> pst;
-        pst.sphtri = sampling::SphericalTriangle<scalar_type>::create(st);
-        pst.receiverNormal = ray.normalAtOrigin;
-        pst.receiverWasBSDF = ray.wasBSDFAtOrigin;
+        sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st, ray.normalAtOrigin, ray.wasBSDFAtOrigin);
         const scalar_type pdf = pst.backwardPdf(L);
         // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
         return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
@@ -182,18 +185,14 @@ struct ShapeSampling<T, PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
     template<class Aniso>
     vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
     {
-        scalar_type rcpPdf;
         const vector3_type tri_vertices[3] = {tri.vertex0, tri.vertex1, tri.vertex2};
         shapes::SphericalTriangle<scalar_type> st = shapes::SphericalTriangle<scalar_type>::create(tri_vertices, origin);
-        sampling::ProjectedSphericalTriangle<scalar_type> pst;
-        pst.sphtri = sampling::SphericalTriangle<scalar_type>::create(st);
-        pst.receiverNormal = interaction.getN();
-        pst.receiverWasBSDF = interaction.isMaterialBSDF();
+        sampling::ProjectedSphericalTriangle<scalar_type> pst = sampling::ProjectedSphericalTriangle<scalar_type>::create(st, interaction.getN(), interaction.isMaterialBSDF());
 
-        typename sampling::ProjectedSphericalTriangle<scalar_type>::cache_type cache;
-        const vector3_type L = pst.generate(xi.xy, cache);
+        typename sampling::ProjectedSphericalTriangle<scalar_type>::cache_type pstCache;
+        const vector3_type L = pst.generate(xi.xy, pstCache);
 
-        pdf = cache.pdf;
+        pdf = pst.forwardPdf(xi.xy, pstCache);
 
         const vector3_type N = tri.getNormalTimesArea();
         newRayMaxT = hlsl::dot<vector3_type>(N, tri.vertex0 - origin) / hlsl::dot<vector3_type>(N, L);
@@ -267,7 +266,7 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         sphR0.origin = rect.offset;
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
-        scalar_type solidAngle = sphR0.solidAngle(ray.origin);
+        scalar_type solidAngle = sphR0.solidAngle(ray.origin).value;
         if (solidAngle > numeric_limits<scalar_type>::min)
             pdf = 1.f / solidAngle;
         else
@@ -289,18 +288,17 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
         sphR0.extents = rectExtents;
         sphR0.basis = rectNormalBasis;
         vector3_type L = hlsl::promote<vector3_type>(0.0);
-        scalar_type solidAngle = sphR0.solidAngle(origin);
 
         sampling::SphericalRectangle<scalar_type> ssph = sampling::SphericalRectangle<scalar_type>::create(sphR0, origin);
-        typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
-        vector<T, 2> sphUv = ssph.generate(xi.xy, cache);
-        if (solidAngle > numeric_limits<scalar_type>::min)
+        if ( ssph.solidAngle > numeric_limits<scalar_type>::min)
         {
-            vector3_type sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
-            L = sph_sample - origin;
-            const bool invalid = hlsl::all(hlsl::abs(L) < hlsl::promote<vector3_type>(numeric_limits<scalar_type>::min));
-            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<vector3_type>(0.0), invalid);
-            pdf = hlsl::mix(1.f / solidAngle, bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity), invalid);
+            typename sampling::SphericalRectangle<scalar_type>::cache_type cache;
+            const vector3_type localDir = ssph.generate(xi.xy, cache);
+            // not sure if generate() can produce NaN/inf when solidAngle > min
+            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
+            // transform local direction to world space
+            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
+            pdf = ssph.forwardPdf(xi.xy, cache);
         }
         else
             pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
@@ -312,10 +310,97 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_SOLID_ANGLE>
     Shape<T, PST_RECTANGLE> rect;
 };
 
-// PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_TRIANGLE
+template<ProceduralShapeType PST, NEEPolygonMethod PPM>
+struct EffectivePolygonMethod
+{
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM;
+};
+
+template<NEEPolygonMethod PPM>
+struct EffectivePolygonMethod<PST_SPHERE, PPM>
+{
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod value = PPM_SOLID_ANGLE;
+};
 
 
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM>
+// Projected solid angle NEE for rectangles using "Practical Warps":
+// bilinear warp over 4-corner NdotL + spherical rectangle sampling.
+// Same grazing-angle limitations as the triangle variant -- see comments
+// in projected_spherical_triangle.hlsl and projected_spherical_rectangle.hlsl.
+template<typename T>
+struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    static ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<T, PST_RECTANGLE>) rect)
+    {
+        ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> retval;
+        retval.rect = rect;
+        return retval;
+    }
+
+    template<typename Ray>
+    scalar_type deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        matrix<scalar_type, 3, 3> rectNormalBasis;
+        vector<T, 2> rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
+        sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, ray.origin, ray.normalAtOrigin, ray.wasBSDFAtOrigin);
+        // Reconstruct normalized [0,1]^2 position on the rectangle from the ray direction
+        const vector3_type N = rect.getNormalTimesArea();
+        const scalar_type t = hlsl::dot<vector3_type>(N, rect.offset - ray.origin) / hlsl::dot<vector3_type>(N, ray.direction);
+        const vector3_type hitPoint = ray.origin + ray.direction * t;
+        const vector3_type localHit = hitPoint - rect.offset;
+        const vector<T, 2> p = vector<T, 2>(hlsl::dot(localHit, rectNormalBasis[0]) / rectExtents.x, hlsl::dot(localHit, rectNormalBasis[1]) / rectExtents.y);
+        const scalar_type pdf = psr.backwardPdf(p);
+        return pdf < numeric_limits<scalar_type>::max ? pdf : numeric_limits<scalar_type>::max;
+    }
+
+    template<class Aniso>
+    vector3_type generateAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(Aniso) interaction, NBL_CONST_REF_ARG(vector3_type) xi)
+    {
+        const vector3_type N = rect.getNormalTimesArea();
+        const vector3_type origin2origin = rect.offset - origin;
+
+        matrix<scalar_type, 3, 3> rectNormalBasis;
+        vector<T, 2> rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+        shapes::SphericalRectangle<scalar_type> sphR0;
+        sphR0.origin = rect.offset;
+        sphR0.extents = rectExtents;
+        sphR0.basis = rectNormalBasis;
+        vector3_type L = hlsl::promote<vector3_type>(0.0);
+
+        sampling::ProjectedSphericalRectangle<scalar_type> psr = sampling::ProjectedSphericalRectangle<scalar_type>::create(sphR0, origin, interaction.getN(), interaction.isMaterialBSDF());
+        const scalar_type solidAngle = psr.sphrect.solidAngle;
+        if (solidAngle > numeric_limits<scalar_type>::min)
+        {
+            typename sampling::ProjectedSphericalRectangle<scalar_type>::cache_type cache;
+            const vector3_type localDir = psr.generate(xi.xy, cache);
+            // not sure if generate() can produce NaN/inf when solidAngle > min
+            assert(!hlsl::any(hlsl::isinf(localDir) || hlsl::isnan(localDir)));
+            // transform local direction to world space
+            L = localDir.x * rectNormalBasis[0] + localDir.y * rectNormalBasis[1] + localDir.z * rectNormalBasis[2];
+            pdf = psr.forwardPdf(xi.xy, cache);
+        }
+        else
+            pdf = bit_cast<scalar_type>(numeric_limits<scalar_type>::infinity);
+
+        newRayMaxT = hlsl::dot<vector3_type>(N, origin2origin) / hlsl::dot<vector3_type>(N, L);
+        return L;
+    }
+
+    Shape<T, PST_RECTANGLE> rect;
+};
+
+
+template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
 struct NextEventEstimator
 {
     using scalar_type = typename Ray::scalar_type;
@@ -332,7 +417,6 @@ struct NextEventEstimator
     using tolerance_method_type = Tolerance<scalar_type>;
 
     using shape_type = Shape<scalar_type, PST>;
-    using shape_sampling_type = ShapeSampling<scalar_type, PST, PPM>;
 
     struct SampleQuotientReturn
     {
@@ -352,24 +436,23 @@ struct NextEventEstimator
         object_handle_type getLightObjectID() NBL_CONST_MEMBER_FUNC { return lightObjectID; }
     };
     using sample_quotient_return_type = SampleQuotientReturn;
+    NBL_CONSTEXPR_STATIC_INLINE NEEPolygonMethod EffectivePPM = EffectivePolygonMethod<PST, PPM>::value;
+    using shape_sampling_type = ShapeSampling<scalar_type, PST, EffectivePPM>;
 
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type sphere = scene.getSphere(lightObjectID);
-        return shape_sampling_type::create(sphere);
+        return scene.getSphere(lightObjectID);
     }
     template<typename C=bool_constant<PST==PST_TRIANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_TRIANGLE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type tri = scene.getTriangle(lightObjectID);
-        return shape_sampling_type::create(tri);
+        return scene.getTriangle(lightObjectID);
     }
     template<typename C=bool_constant<PST==PST_RECTANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_RECTANGLE)
-    shape_sampling_type __getShapeSampling(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
+    shape_type __getShape(uint32_t lightObjectID, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const shape_type rect = scene.getRectangle(lightObjectID);
-        return shape_sampling_type::create(rect);
+        return scene.getRectangle(lightObjectID);
     }
 
     scalar_type deferredWeight(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
@@ -377,7 +460,8 @@ struct NextEventEstimator
         if (lightID.id == 0u)
             return scalar_type(0.0);    // env light pdf=0
         const light_type light = lights[0u];
-        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
+        const shape_type shape = __getShape(light.objectID.id, scene);
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
         return sampling.template deferredPdf<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
@@ -389,10 +473,11 @@ struct NextEventEstimator
         // use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
         // which caused frame times to increase from 16ms to 85ms
         const light_type light = lights[0u];
-        const shape_sampling_type sampling = __getShapeSampling(light.objectID.id, scene);
+        const shape_type shape = __getShape(light.objectID.id, scene);
 
         sample_quotient_return_type retval;
         scalar_type pdf, newRayMaxT;
+        const shape_sampling_type sampling = shape_sampling_type::create(shape);
         const vector3_type sampleL = sampling.template generateAndPdf<interaction_type>(pdf, newRayMaxT, origin, interaction, xi);
 
         const vector3_type N = interaction.getN();

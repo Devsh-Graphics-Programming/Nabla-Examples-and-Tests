@@ -15,12 +15,10 @@ struct LinearInputValues
 struct LinearTestResults
 {
 	float32_t generated;
-	float32_t generateInversed;
-	float32_t cachedPdf;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
-	float32_t roundtripError;
-	float32_t jacobianProduct;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
 };
 
 struct LinearTestExecutor
@@ -31,17 +29,14 @@ struct LinearTestExecutor
 		{
 			sampling::Linear<float32_t>::cache_type cache;
 			output.generated = _sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
-			output.forwardPdf = _sampler.forwardPdf(cache);
+			output.forwardPdf = _sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = _sampler.forwardWeight(input.u, cache);
 		}
 
 		{
-			sampling::Linear<float32_t>::cache_type cache;
-			output.generateInversed = _sampler.generateInverse(output.generated);
 			output.backwardPdf = _sampler.backwardPdf(output.generated);
+			output.backwardWeight = _sampler.backwardWeight(output.generated);
 		}
-		output.roundtripError = abs(input.u - output.generateInversed);
-		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };
 

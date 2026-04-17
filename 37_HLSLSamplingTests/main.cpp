@@ -13,6 +13,7 @@ using namespace nbl::examples;
 
 // sampling headers (HLSL/C++ compatible)
 #include "nbl/builtin/hlsl/sampling/concentric_mapping.hlsl"
+#include "nbl/builtin/hlsl/sampling/polar_mapping.hlsl"
 #include "nbl/builtin/hlsl/sampling/linear.hlsl"
 #include "nbl/builtin/hlsl/sampling/bilinear.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
@@ -20,6 +21,7 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/box_muller_transform.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
+#include "nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/alias_table.hlsl"
 #include "nbl/builtin/hlsl/sampling/cumulative_probability.hlsl"
@@ -28,411 +30,413 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/concepts.hlsl"
 
 // ITester-based testers
-#include "CLinearTester.h"
-#include "CBilinearTester.h"
-#include "CUniformHemisphereTester.h"
-#include "CUniformSphereTester.h"
-#include "CProjectedHemisphereTester.h"
-#include "CProjectedSphereTester.h"
-#include "CConcentricMappingTester.h"
-#include "CSphericalTriangleTester.h"
-#include "CBoxMullerTransformTester.h"
-#include "CProjectedSphericalTriangleTester.h"
-#include "CSphericalRectangleTester.h"
-#include "CDiscreteTableTester.h"
-#include "CAliasTableGPUTester.h"
-#include "CCumulativeProbabilityGPUTester.h"
+#include "tests/CLinearTester.h"
+#include "tests/CBilinearTester.h"
+#include "tests/CUniformHemisphereTester.h"
+#include "tests/CUniformSphereTester.h"
+#include "tests/CProjectedHemisphereTester.h"
+#include "tests/CProjectedSphereTester.h"
+#include "tests/CConcentricMappingTester.h"
+#include "tests/CPolarMappingTester.h"
+#include "tests/CSphericalTriangleTester.h"
+#include "tests/CBoxMullerTransformTester.h"
+#include "tests/CProjectedSphericalTriangleTester.h"
+#include "tests/CProjectedSphericalRectangleTester.h"
+#include "tests/CSphericalRectangleTester.h"
+#include "tests/CDiscreteTableTester.h"
+#include "tests/CAliasTableGPUTester.h"
+#include "tests/CCumulativeProbabilityGPUTester.h"
 
-#include "CSamplerBenchmark.h"
-#include "CDiscreteSamplerBenchmark.h"
+#include "benchmarks/CSamplerBenchmark.h"
+#include "benchmarks/CDiscreteSamplerBenchmark.h"
+#include "tests/property/CSamplerPropertyTester.h"
 
 constexpr bool DoBenchmark = true;
 
 class HLSLSamplingTests final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
-	using device_base_t = application_templates::MonoDeviceApplication;
-	using asset_base_t = BuiltinResourcesApplication;
+   using device_base_t = application_templates::MonoDeviceApplication;
+   using asset_base_t = BuiltinResourcesApplication;
 
-	// Helper to create pipeline setup data
-	template<typename Tester>
-	auto createSetupData(const std::string& shaderKey) -> typename Tester::PipelineSetupData
-	{
-		typename Tester::PipelineSetupData data;
-		data.device = m_device;
-		data.api = m_api;
-		data.assetMgr = m_assetMgr;
-		data.logger = m_logger;
-		data.physicalDevice = m_physicalDevice;
-		data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-		data.shaderKey = shaderKey;
-		return data;
-	}
+   public:
+   HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+      : system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-	CSamplerBenchmark::SetupData createBenchmarkSetupData(const std::string& shaderKey, uint32_t dispatchGroupCount, uint32_t samplesPerDispatch, size_t inputBufferBytes, size_t outputBufferBytes)
-	{
-		CSamplerBenchmark::SetupData data;
-		data.device = m_device;
-		data.api = m_api;
-		data.assetMgr = m_assetMgr;
-		data.logger = m_logger;
-		data.physicalDevice = m_physicalDevice;
-		data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-		data.shaderKey = shaderKey;
-		data.dispatchGroupCount = dispatchGroupCount;
-		data.samplesPerDispatch = samplesPerDispatch;
-		data.inputBufferBytes = inputBufferBytes;
-		data.outputBufferBytes = outputBufferBytes;
-		return data;
-	}
+   virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+   {
+      auto retval = device_base_t::getPreferredDeviceFeatures();
+      retval.pipelineExecutableInfo = true;
+      return retval;
+   }
 
-public:
-	HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-		: system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+   inline bool onAppInitialized(core::smart_refctd_ptr<ISystem>&& system) override
+   {
+      if (!device_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
+         return false;
 
-	inline bool onAppInitialized(core::smart_refctd_ptr<ISystem>&& system) override
-	{
-		if (!device_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
-			return false;
+      if (!asset_base_t::onAppInitialized(std::move(system)))
+         return false;
 
-		if (!asset_base_t::onAppInitialized(std::move(system)))
-			return false;
+      // test compile with dxc
+      {
+         IAssetLoader::SAssetLoadParams lp = {};
+         lp.logger = m_logger.get();
+         lp.workingDirectory = "app_resources";
+         auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+         auto bundle = m_assetMgr->getAsset(key.c_str(), lp);
 
-		// test compile with dxc
-		{
-			IAssetLoader::SAssetLoadParams lp = {};
-			lp.logger = m_logger.get();
-			lp.workingDirectory = "app_resources";
-			auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
-			auto bundle = m_assetMgr->getAsset(key.c_str(), lp);
+         const auto assets = bundle.getContents();
+         if (assets.empty())
+         {
+            m_logger->log("Could not load shader!", ILogger::ELL_ERROR);
+            return false;
+         }
 
-			const auto assets = bundle.getContents();
-			if (assets.empty())
-			{
-				m_logger->log("Could not load shader!", ILogger::ELL_ERROR);
-				return false;
-			}
+         auto shader = IAsset::castDown<IShader>(assets[0]);
+         if (!shader)
+         {
+            m_logger->log("compile shader test failed!", ILogger::ELL_ERROR);
+            return false;
+         }
 
-			auto shader = IAsset::castDown<IShader>(assets[0]);
-			if (!shader)
-			{
-				m_logger->log("compile shader test failed!", ILogger::ELL_ERROR);
-				return false;
-			}
+         m_logger->log("Shader compilation test passed.", ILogger::ELL_INFO);
+      }
 
-			m_logger->log("Shader compilation test passed.", ILogger::ELL_INFO);
-		}
+      // ================================================================
+      // Compile-time concept verification via static_assert
+      // ================================================================
 
-		// ================================================================
-		// Compile-time concept verification via static_assert
-		// ================================================================
+      // --- BasicSampler (level 1) --- generate(domain_type) -> codomain_type
+      // Note: all samplers almost satisfy BasicSampler, but they have cache parameters in generate().
+      static_assert(sampling::concepts::BasicSampler<sampling::ConcentricMapping<float32_t>>);
+      static_assert(sampling::concepts::BasicSampler<sampling::PolarMapping<float32_t>>);
+      static_assert(sampling::concepts::BasicSampler<TestAliasTable>);
+      static_assert(sampling::concepts::BasicSampler<TestCumulativeProbabilitySampler>);
 
-		// --- BasicSampler (level 1) --- generate(domain_type) -> codomain_type
-		// Note: all samplers almost satisfy BasicSampler, but they have cache parameters in generate().
-		static_assert(sampling::concepts::BasicSampler<sampling::ConcentricMapping<float32_t>>);
-		static_assert(sampling::concepts::BasicSampler<TestAliasTable>);
-		static_assert(sampling::concepts::BasicSampler<TestCumulativeProbabilitySampler>);
+      // --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(domain_type, cache_type) -> density_type
+      static_assert(sampling::concepts::TractableSampler<TestAliasTable>);
+      static_assert(sampling::concepts::TractableSampler<TestCumulativeProbabilitySampler>);
+      static_assert(sampling::concepts::TractableSampler<sampling::Linear<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::Bilinear<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::UniformHemisphere<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::UniformSphere<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ProjectedHemisphere<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphere<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::SphericalTriangle<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalRectangle<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::SphericalRectangle<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::BoxMullerTransform<float>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
+      static_assert(sampling::concepts::TractableSampler<sampling::PolarMapping<float32_t>>);
 
-		// --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(cache_type) -> density_type
-		static_assert(sampling::concepts::TractableSampler<TestAliasTable>);
-		static_assert(sampling::concepts::TractableSampler<TestCumulativeProbabilitySampler>);
-		static_assert(sampling::concepts::TractableSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::Bilinear<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphere<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::SphericalTriangle<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::ProjectedSphericalTriangle<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::SphericalRectangle<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::BoxMullerTransform<float>>);
-		static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
+      // --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
+      static_assert(sampling::concepts::ResamplableSampler<TestAliasTable>);
+      static_assert(sampling::concepts::ResamplableSampler<TestCumulativeProbabilitySampler>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::Linear<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::Bilinear<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::UniformHemisphere<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::UniformSphere<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedHemisphere<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphere<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalTriangle<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalRectangle<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::BoxMullerTransform<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
+      static_assert(sampling::concepts::ResamplableSampler<sampling::PolarMapping<float32_t>>);
 
-		// --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(cache_type), backwardWeight(codomain_type)
-		static_assert(sampling::concepts::ResamplableSampler<TestAliasTable>);
-		static_assert(sampling::concepts::ResamplableSampler<TestCumulativeProbabilitySampler>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::Bilinear<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphere<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalTriangle<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::ProjectedSphericalTriangle<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::BoxMullerTransform<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
-		static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
+      // --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::Bilinear<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformHemisphere<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformSphere<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedHemisphere<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphere<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalTriangle<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalRectangle<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalRectangle<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::PolarMapping<float32_t>>);
 
-		// --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(cache_type), backwardWeight(codomain_type)
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::Bilinear<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphere<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalTriangle<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalRectangle<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
-		static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
+      // --- BijectiveSampler (level 4) --- BackwardTractableSampler + generateInverse(codomain_type) -> domain_type
+      static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float, true>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::PolarMapping<float>>);
 
-		// --- BijectiveSampler (level 4) --- BackwardTractableSampler + generateInverse(codomain_type) -> domain_type
-		static_assert(sampling::concepts::BijectiveSampler<sampling::Linear<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::Bilinear<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedSphere<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float>>);
-		static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
+      // --- GenericReadAccessor for discrete samplers ---
+      static_assert(concepts::accessors::GenericReadAccessor<ReadOnlyAccessor<float>, float, uint32_t>);
+      static_assert(concepts::accessors::GenericReadAccessor<ArrayAccessor<float, 4>, float, uint32_t>);
+      static_assert(concepts::accessors::GenericReadAccessor<ArrayAccessor<uint32_t, 4>, uint32_t, uint32_t>);
 
-		m_logger->log("All sampling concept tests passed.", ILogger::ELL_INFO);
+      m_logger->log("All sampling concept tests passed.", ILogger::ELL_INFO);
 
-		// ================================================================
-		// Runtime CPU/GPU comparison tests using ITester harness
-		// ================================================================
-		bool pass = true;
-		const uint32_t workgroupSize = 64;
-		const uint32_t testBatchCount = 64; // 64 * workgroupSize = 4096 tests per sampler
+      // ======================================================================
+      // GPU throughput benchmarks
+      // ======================================================================
+      const uint32_t testBatchCount = 1024;
 
+      if constexpr (DoBenchmark)
+      {
+         constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
+         constexpr uint32_t totalThreadsPerDispatch = testBatchCount * benchWorkgroupSize;
+         constexpr uint32_t iterationsPerThread = BENCH_ITERS;
+         constexpr uint32_t benchSamplesPerDispatch = totalThreadsPerDispatch * iterationsPerThread;
 
-		// --- Sampler tests ---
-		{
-			m_logger->log("Running Linear sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CLinearTester>(nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()));
-			CLinearTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("LinearTestLog.txt");
-		}
-		{
-			m_logger->log("Running Bilinear sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CBilinearTester>(nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()));
-			CBilinearTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("BilinearTestLog.txt");
-		}
-		{
-			m_logger->log("Running UniformHemisphere sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CUniformHemisphereTester>(nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()));
-			CUniformHemisphereTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("UniformHemisphereTestLog.txt");
-		}
-		{
-			m_logger->log("Running UniformSphere sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CUniformSphereTester>(nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()));
-			CUniformSphereTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("UniformSphereTestLog.txt");
-		}
-		{
-			m_logger->log("Running ProjectedHemisphere sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CProjectedHemisphereTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()));
-			CProjectedHemisphereTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("ProjectedHemisphereTestLog.txt");
-		}
-		{
-			m_logger->log("Running ProjectedSphere sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CProjectedSphereTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()));
-			CProjectedSphereTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("ProjectedSphereTestLog.txt");
-		}
-		{
-			m_logger->log("Running ConcentricMapping sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CConcentricMappingTester>(nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()));
-			CConcentricMappingTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("ConcentricMappingTestLog.txt");
-		}
-		{
-			m_logger->log("Running BoxMullerTransform sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CBoxMullerTransformTester>(nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()));
-			CBoxMullerTransformTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("BoxMullerTransformTestLog.txt");
-		}
-		{
-			m_logger->log("Running ProjectedSphericalTriangle sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CProjectedSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()));
-			CProjectedSphericalTriangleTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("ProjectedSphericalTriangleTestLog.txt");
-		}
-		{
-			m_logger->log("Running SphericalRectangle sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CSphericalRectangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()));
-			CSphericalRectangleTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("SphericalRectangleTestLog.txt");
-		}
-		{
-			m_logger->log("Running SphericalTriangle tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CSphericalTriangleTester>(nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()));
-			CSphericalTriangleTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("SphericalTriangleTestLog.txt");
-		}
+         struct BenchEntry
+         {
+            CSamplerBenchmark bench;
+            std::string name;
+         };
+         std::vector<BenchEntry> benchmarks;
 
-		// --- Discrete table construction (CPU) ---
-		{
-			m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
-			CDiscreteTableTester tableTester(m_logger.get());
-			pass &= tableTester.run();
-		}
-		// --- Alias table sampler (GPU) ---
-		{
-			m_logger->log("Running AliasTable GPU sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CAliasTableGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()));
-			CAliasTableGPUTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("AliasTableTestLog.txt");
-		}
-		// --- Cumulative probability sampler (GPU) ---
-		{
-			m_logger->log("Running CumulativeProbability GPU sampler tests...", ILogger::ELL_INFO);
-			auto data = createSetupData<CCumulativeProbabilityGPUTester>(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()));
-			CCumulativeProbabilityGPUTester tester(testBatchCount, workgroupSize);
-			tester.setupPipeline(data);
-			pass &= tester.performTestsAndVerifyResults("CumulativeProbabilityTestLog.txt");
-		}
+         auto addBench = [&](const char* name, const std::string& shaderKey, size_t inputSize, size_t outputSize)
+         {
+            auto& entry = benchmarks.emplace_back();
+            entry.name = name;
 
-		if (pass)
-			m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
-		else
-			m_logger->log("Some sampling tests FAILED. Check log files for details.", ILogger::ELL_ERROR);
+            CSamplerBenchmark::SetupData data;
+            data.device = m_device;
+            data.api = m_api;
+            data.assetMgr = m_assetMgr;
+            data.logger = m_logger;
+            data.physicalDevice = m_physicalDevice;
+            data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            data.shaderKey = shaderKey;
+            data.dispatchGroupCount = testBatchCount;
+            data.samplesPerDispatch = benchSamplesPerDispatch;
+            data.inputBufferBytes = inputSize;
+            data.outputBufferBytes = outputSize;
+            entry.bench.setup(data);
+         };
 
-		// ======================================================================
-		// GPU throughput benchmarks (1000 warmup + 20000 timed dispatches each)
-		// ======================================================================
-		if constexpr (DoBenchmark)
-		{
-			m_logger->log("=== GPU Sampler Benchmarks ===", ILogger::ELL_PERFORMANCE);
-			constexpr uint32_t totalSamplesPerWorkgroup = testBatchCount * workgroupSize;
-			constexpr uint32_t iteratationsPerThread = 4096; // internal to shader, set in CMakeLists.txt
-			constexpr uint32_t benchSamplesPerDispatch = totalSamplesPerWorkgroup * iteratationsPerThread;
+         // Bench shaders don't read input (hardcoded values) and write a single uint32_t per thread via RWByteAddressBuffer
+         constexpr size_t benchInputBytes = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
+         constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
+         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
 
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(LinearInputValues) * totalSamplesPerWorkgroup,
-					sizeof(LinearTestResults) * totalSamplesPerWorkgroup));
-				bench.run("Linear");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(BilinearInputValues) * totalSamplesPerWorkgroup,
-					sizeof(BilinearTestResults) * totalSamplesPerWorkgroup));
-				bench.run("Bilinear");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(BoxMullerTransformInputValues) * totalSamplesPerWorkgroup,
-					sizeof(BoxMullerTransformTestResults) * totalSamplesPerWorkgroup));
-				bench.run("BoxMullerTransform");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(UniformHemisphereInputValues) * totalSamplesPerWorkgroup,
-					sizeof(UniformHemisphereTestResults) * totalSamplesPerWorkgroup));
-				bench.run("UniformHemisphere");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(UniformSphereInputValues) * totalSamplesPerWorkgroup,
-					sizeof(UniformSphereTestResults) * totalSamplesPerWorkgroup));
-				bench.run("UniformSphere");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(ProjectedHemisphereInputValues) * totalSamplesPerWorkgroup,
-					sizeof(ProjectedHemisphereTestResults) * totalSamplesPerWorkgroup));
-				bench.run("ProjectedHemisphere");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(ProjectedSphereInputValues) * totalSamplesPerWorkgroup,
-					sizeof(ProjectedSphereTestResults) * totalSamplesPerWorkgroup));
-				bench.run("ProjectedSphere");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(SphericalRectangleInputValues) * totalSamplesPerWorkgroup,
-					sizeof(SphericalRectangleTestResults) * totalSamplesPerWorkgroup));
-				bench.run("SphericalRectangle");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(SphericalTriangleInputValues) * totalSamplesPerWorkgroup,
-					sizeof(SphericalTriangleTestResults) * totalSamplesPerWorkgroup));
-				bench.run("SphericalTriangle");
-			}
-			{
-				CSamplerBenchmark bench;
-				bench.setup(createBenchmarkSetupData(
-					nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()),
-					testBatchCount, benchSamplesPerDispatch,
-					sizeof(ProjectedSphericalTriangleInputValues) * totalSamplesPerWorkgroup,
-					sizeof(ProjectedSphericalTriangleTestResults) * totalSamplesPerWorkgroup));
-				bench.run("ProjectedSphericalTriangle");
-			}
-			// Discrete sampler benchmark: alias table vs cumulative probability (BDA)
-			{
-				CDiscreteSamplerBenchmark::SetupData dsData;
-				dsData.device = m_device;
-				dsData.api = m_api;
-				dsData.assetMgr = m_assetMgr;
-				dsData.logger = m_logger;
-				dsData.physicalDevice = m_physicalDevice;
-				dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-				dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
-				dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
-				dsData.dispatchGroupCount = testBatchCount;
-				dsData.tableSize = 1024;
+         // Print all pipeline reports first
+         for (auto& entry : benchmarks)
+            entry.bench.logPipelineReport(entry.name);
 
-				CDiscreteSamplerBenchmark discreteBench;
-				discreteBench.setup(dsData);
-				discreteBench.run();
-			}
-		}
+         // Discrete sampler benchmark: alias table vs cumulative probability (BDA)
+         {
+            CDiscreteSamplerBenchmark::SetupData dsData;
+            dsData.device = m_device;
+            dsData.api = m_api;
+            dsData.assetMgr = m_assetMgr;
+            dsData.logger = m_logger;
+            dsData.physicalDevice = m_physicalDevice;
+            dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+            dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
+            dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
+            dsData.dispatchGroupCount = testBatchCount;
+            dsData.tableSize = 1024;
 
-		return pass;
-	}
+            CDiscreteSamplerBenchmark discreteBench;
+            discreteBench.setup(dsData);
 
-	void workLoopBody() override {}
+            // Then run all benchmarks here so the reports are at the top of the log, followed by timings
+            constexpr uint32_t warmupDispatches = 500;
+            constexpr uint32_t benchDispatches = 5000;
+            m_logger->log("=== GPU Sampler Benchmarks (%u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
+               ILogger::ELL_PERFORMANCE, benchDispatches, totalThreadsPerDispatch, iterationsPerThread);
+            for (auto& entry : benchmarks)
+               entry.bench.run(entry.name, warmupDispatches, benchDispatches);
 
-	bool keepRunning() override { return false; }
+            discreteBench.run(warmupDispatches, benchDispatches);
+         }
+      }
 
-	bool onAppTerminated() override
-	{
-		return device_base_t::onAppTerminated();
-	}
+      // ================================================================
+      // Runtime CPU/GPU comparison tests using ITester harness
+      // ================================================================
+      bool pass = true;
+      const uint32_t workgroupSize = WORKGROUP_SIZE;
+
+      // generic lambda to run a GPU sampler test
+      auto runSamplerTest = [&]<typename Tester>(const char* testName, auto spirvKey, const char* logFile)
+      {
+         m_logger->log("Running %s tests...", ILogger::ELL_INFO, testName);
+         typename Tester::PipelineSetupData data;
+         data.device = m_device;
+         data.api = m_api;
+         data.assetMgr = m_assetMgr;
+         data.logger = m_logger;
+         data.physicalDevice = m_physicalDevice;
+         data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+         data.shaderKey = spirvKey;
+         Tester tester(testBatchCount, workgroupSize);
+         tester.setupPipeline(data);
+         pass &= tester.performTestsAndVerifyResults(logFile);
+      };
+
+      // --- Sampler tests ---
+      if constexpr (true)
+      {
+         runSamplerTest.operator()<CLinearTester>("Linear sampler", nbl::this_example::builtin::build::get_spirv_key<"linear_test">(m_device.get()), "LinearTestLog.txt");
+         runSamplerTest.operator()<CBilinearTester>("Bilinear sampler", nbl::this_example::builtin::build::get_spirv_key<"bilinear_test">(m_device.get()), "BilinearTestLog.txt");
+         runSamplerTest.operator()<CUniformHemisphereTester>("UniformHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_test">(m_device.get()), "UniformHemisphereTestLog.txt");
+         runSamplerTest.operator()<CUniformSphereTester>("UniformSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_test">(m_device.get()), "UniformSphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedHemisphereTester>("ProjectedHemisphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_test">(m_device.get()), "ProjectedHemisphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphereTester>("ProjectedSphere sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_test">(m_device.get()), "ProjectedSphereTestLog.txt");
+         runSamplerTest.operator()<CConcentricMappingTester>("ConcentricMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_test">(m_device.get()), "ConcentricMappingTestLog.txt");
+         runSamplerTest.operator()<CPolarMappingTester>("PolarMapping sampler", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_test">(m_device.get()), "PolarMappingTestLog.txt");
+         runSamplerTest.operator()<CBoxMullerTransformTester>("BoxMullerTransform sampler", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_test">(m_device.get()), "BoxMullerTransformTestLog.txt");
+         runSamplerTest.operator()<CSphericalTriangleTester>("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle">(m_device.get()), "SphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalTriangleTester>("ProjectedSphericalTriangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_test">(m_device.get()), "ProjectedSphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CSphericalRectangleTester>("SphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_test">(m_device.get()), "SphericalRectangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalRectangleTester>("ProjectedSphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_test">(m_device.get()), "ProjectedSphericalRectangleTestLog.txt");
+      }
+
+      if constexpr (true)
+      {
+         // --- Discrete table construction (CPU) ---
+         {
+            m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
+            CDiscreteTableTester tableTester(m_logger.get());
+            pass &= tableTester.run();
+         }
+
+         // --- GPU table sampler tests ---
+         runSamplerTest.operator()<CAliasTableGPUTester>("AliasTable GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()), "AliasTableTestLog.txt");
+         runSamplerTest.operator()<CCumulativeProbabilityGPUTester>("CumulativeProbability GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()), "CumulativeProbabilityTestLog.txt");
+      }
+      if (pass)
+         m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
+      else
+         m_logger->log("Some sampling tests FAILED. Check log files for details.", ILogger::ELL_ERROR);
+
+      // ================================================================
+      // CPU-only mathematical property tests (PDF normalization, consistency)
+      // ================================================================
+      if constexpr (true)
+      {
+         m_logger->log("Running sampler property tests (CPU)...", ILogger::ELL_INFO);
+         m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
+
+         CSamplerPropertyTester<LinearPropertyConfig> linearProps(m_logger.get());
+         pass &= linearProps.run();
+
+         CSamplerPropertyTester<BilinearPropertyConfig> bilinearProps(m_logger.get());
+         pass &= bilinearProps.run();
+
+         CSamplerPropertyTester<UniformHemispherePropertyConfig> uniformHemiProps(m_logger.get());
+         pass &= uniformHemiProps.run();
+
+         CSamplerPropertyTester<UniformSpherePropertyConfig> uniformSphereProps(m_logger.get());
+         pass &= uniformSphereProps.run();
+
+         CSamplerPropertyTester<ProjectedHemispherePropertyConfig> projHemiProps(m_logger.get());
+         pass &= projHemiProps.run();
+
+         CSamplerPropertyTester<ProjectedSpherePropertyConfig> projSphereProps(m_logger.get());
+         pass &= projSphereProps.run();
+
+         CSamplerPropertyTester<ConcentricMappingPropertyConfig> concentricProps(m_logger.get());
+         pass &= concentricProps.run();
+
+         CSamplerPropertyTester<PolarMappingPropertyConfig> polarProps(m_logger.get());
+         pass &= polarProps.run();
+
+         CSamplerPropertyTester<BoxMullerTransformPropertyConfig> boxMullerProps(m_logger.get());
+         pass &= boxMullerProps.run();
+
+         CSamplerPropertyTester<SphericalTrianglePropertyConfig> sphTriProps(m_logger.get());
+         pass &= sphTriProps.run();
+
+         CSamplerPropertyTester<ProjectedSphericalTrianglePropertyConfig> projSphTriProps(m_logger.get());
+         pass &= projSphTriProps.run();
+
+         CSamplerPropertyTester<SphericalRectanglePropertyConfig> sphRectProps(m_logger.get());
+         pass &= sphRectProps.run();
+
+         CSamplerPropertyTester<ProjectedSphericalRectanglePropertyConfig> projSphRectProps(m_logger.get());
+         pass &= projSphRectProps.run();
+
+         // Stress tests: extreme coefficient ratios
+         CSamplerPropertyTester<LinearStressConfig> linearStress(m_logger.get());
+         pass &= linearStress.run();
+
+         CSamplerPropertyTester<BilinearStressConfig> bilinearStress(m_logger.get());
+         pass &= bilinearStress.run();
+
+         CSamplerPropertyTester<BilinearPSTPatternConfig> bilinearPST(m_logger.get());
+         pass &= bilinearPST.run();
+
+         CSamplerPropertyTester<SphericalTriangleStressConfig> sphTriStress(m_logger.get());
+         pass &= sphTriStress.run();
+
+         // Grazing angle tests
+         CSamplerPropertyTester<ProjectedSphericalTriangleGrazingConfig> grazingProps(m_logger.get());
+         pass &= grazingProps.run();
+
+         if (pass)
+            m_logger->log("All sampler property tests PASSED.", ILogger::ELL_INFO);
+         else
+            m_logger->log("Some sampler property tests FAILED.", ILogger::ELL_ERROR);
+      }
+
+      // ================================================================
+      // Solid angle accuracy and small triangle convergence tests (CPU-only)
+      // ================================================================
+      {
+         m_logger->log("Running geometry tests (CPU)...", ILogger::ELL_INFO);
+         m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
+
+         CSolidAngleAccuracyTester solidAngleTester(m_logger.get());
+         pass &= solidAngleTester.run();
+
+         CSphericalTriangleGenerateTester sphTriGenTester(m_logger.get());
+         pass &= sphTriGenTester.run();
+
+         CSphericalRectangleGenerateTester sphRectGenTester(m_logger.get());
+         pass &= sphRectGenTester.run();
+
+         CProjectedSphericalRectangleGenerateTester projRectGenTester(m_logger.get());
+         pass &= projRectGenTester.run();
+
+         CProjectedSphericalRectangleGeometricTester projRectGeoTester(m_logger.get());
+         pass &= projRectGeoTester.run();
+
+         CProjectedSphericalTriangleGeometricTester pstTester(m_logger.get());
+         pass &= pstTester.run();
+
+         if (pass)
+            m_logger->log("All geometry tests PASSED.", ILogger::ELL_INFO);
+         else
+            m_logger->log("Some geometry tests FAILED.", ILogger::ELL_ERROR);
+      }
+
+      return pass;
+   }
+
+   void workLoopBody() override {}
+
+   bool keepRunning() override { return false; }
+
+   bool onAppTerminated() override
+   {
+      return device_base_t::onAppTerminated();
+   }
 };
 
 NBL_MAIN_FUNC(HLSLSamplingTests)

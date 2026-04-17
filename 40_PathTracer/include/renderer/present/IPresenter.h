@@ -152,6 +152,7 @@ class IPresenter : public core::IReferenceCounted, public core::InterfaceUnmovab
 				{
 					.semaphore = const_cast<ISemaphore*>(m_currentImageAcquire.semaphore),
 					.value = m_currentImageAcquire.value,
+					// the subpass from-external dependency has some bits, so seems I don't need anything here to sync with the timeline sema signalled by acquire 
 					.stageMask = PIPELINE_STAGE_FLAGS::NONE
 				},
 				extraSubmitWait

@@ -1,3 +1,6 @@
+// TODO: needs fixing from merge with compute_render_scene_impl.hlsl
+
+
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"

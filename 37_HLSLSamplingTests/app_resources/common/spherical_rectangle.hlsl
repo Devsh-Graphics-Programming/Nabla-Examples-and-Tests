@@ -18,10 +18,14 @@ struct SphericalRectangleInputValues
 
 struct SphericalRectangleTestResults
 {
-	float32_t2 generated;
-	float32_t cachedPdf;
-	float32_t pdf; // forwardPdf(u)
+	float32_t3 generated;
+	float32_t2 surfaceOffset;
+	float32_t3 referenceDirection;
+	float32_t forwardPdf;
 	float32_t backwardPdf;
+	float32_t forwardWeight;
+	float32_t backwardWeight;
+	float32_t2 extents;
 };
 
 struct SphericalRectangleTestExecutor
@@ -36,13 +40,24 @@ struct SphericalRectangleTestExecutor
 		shapes::SphericalRectangle<float32_t> rect = shapes::SphericalRectangle<float32_t>::create(compressed);
 		sampling::SphericalRectangle<float32_t> sampler = sampling::SphericalRectangle<float32_t>::create(rect, input.observer);
 
+		output.extents = rect.extents;
 		{
 			sampling::SphericalRectangle<float32_t>::cache_type cache;
 			output.generated = sampler.generate(input.u, cache);
-			output.cachedPdf = cache.pdf;
-			output.pdf = sampler.forwardPdf(cache);
+			output.forwardPdf = sampler.forwardPdf(input.u, cache);
+			output.forwardWeight = sampler.forwardWeight(input.u, cache);
+		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.surfaceOffset = sampler.generateSurfaceOffset(input.u, cache);
+		}
+		// reference direction: reconstruct local 3D point from surfaceOffset and normalize
+		{
+			const float32_t3 localPoint = sampler.r0 + float32_t3(output.surfaceOffset.x, output.surfaceOffset.y, float32_t(0));
+			output.referenceDirection = nbl::hlsl::normalize(localPoint);
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
+		output.backwardWeight = sampler.backwardWeight(output.generated);
 	}
 };
 

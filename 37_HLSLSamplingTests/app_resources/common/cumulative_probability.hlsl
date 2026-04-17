@@ -1,31 +1,16 @@
 #ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_CUMULATIVE_PROBABILITY_INCLUDED_
 #define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_CUMULATIVE_PROBABILITY_INCLUDED_
 
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include "array_accessor.hlsl"
 #include <nbl/builtin/hlsl/sampling/cumulative_probability.hlsl>
 
 using namespace nbl::hlsl;
 
 NBL_CONSTEXPR uint32_t CumProbTestTableSize = 4;
 
-// Fixed-size array accessors for HLSL/C++ dual compilation
-// Needs value_type + operator[] for upper_bound compatibility
-struct CumProbTestAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t operator[](uint32_t i) { return data[i]; }
-	float32_t data[3]; // N-1 stored entries
-};
+using CumProbTestAccessor = ArrayAccessor<float32_t, CumProbTestTableSize - 1>;
 
-struct CumProbTestPdfAccessor
-{
-	using value_type = float32_t;
-	float32_t get(uint32_t i) { return data[i]; }
-	float32_t data[4];
-};
-
-using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, CumProbTestAccessor, CumProbTestPdfAccessor>;
+using CumProbTestSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, CumProbTestAccessor>;
 
 struct CumProbInputValues
 {
@@ -53,19 +38,13 @@ struct CumProbTestExecutor
 		cumProbAcc.data[1] = 0.3f;
 		cumProbAcc.data[2] = 0.6f;
 
-		CumProbTestPdfAccessor pdfAcc;
-		pdfAcc.data[0] = 0.1f;
-		pdfAcc.data[1] = 0.2f;
-		pdfAcc.data[2] = 0.3f;
-		pdfAcc.data[3] = 0.4f;
-
-		CumProbTestSampler sampler = CumProbTestSampler::create(cumProbAcc, pdfAcc, CumProbTestTableSize);
+		CumProbTestSampler sampler = CumProbTestSampler::create(cumProbAcc, CumProbTestTableSize);
 
 		CumProbTestSampler::cache_type cache;
 		output.generatedIndex = sampler.generate(input.u, cache);
-		output.forwardPdf = sampler.forwardPdf(cache);
+		output.forwardPdf = sampler.forwardPdf(input.u, cache);
 		output.backwardPdf = sampler.backwardPdf(output.generatedIndex);
-		output.forwardWeight = sampler.forwardWeight(cache);
+		output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		output.backwardWeight = sampler.backwardWeight(output.generatedIndex);
 	}
 };

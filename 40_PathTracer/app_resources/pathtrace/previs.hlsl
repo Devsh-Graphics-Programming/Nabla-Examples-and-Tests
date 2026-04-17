@@ -20,7 +20,7 @@ void raygen()
 }
 
 [shader("closesthit")]
-void closesthit(inout PrevisPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+void closestHit(inout PrevisPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
 }
 

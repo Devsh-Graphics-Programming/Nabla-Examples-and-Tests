@@ -5,7 +5,10 @@
 
 using namespace nbl::hlsl;
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 64;
+#ifndef WORKGROUP_SIZE
+#define WORKGROUP_SIZE 64
+#endif
+NBL_CONSTEXPR uint32_t WorkgroupSize = WORKGROUP_SIZE;
 
 struct AliasTablePushConstants
 {
@@ -18,10 +21,9 @@ struct AliasTablePushConstants
 
 struct CumProbPushConstants
 {
-	uint64_t cumProbAddress;	// float cumProb[N-1]	
-	uint64_t pdfAddress;		// float pdf[N]
+	uint64_t cumProbAddress;	// float cumProb[N-1]
 	uint64_t outputAddress;		// uint32_t acc[threadCount]
-	uint32_t tableSize;			// N		
+	uint32_t tableSize;			// N
 };
 
 #endif
