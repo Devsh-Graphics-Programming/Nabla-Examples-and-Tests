@@ -240,7 +240,7 @@ void raygen()
         using ray_dir_info_t = bxdf_config_t::ray_dir_info_type;
         using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
         using light_sample_t = bxdf_config_t::sample_type;
-        using quotient_pdf_type = bxdf_config_t::quotient_pdf_type;
+        using quotient_weight_type = bxdf_config_t::quotient_weight_type;
         using spectral_type = bxdf_config_t::spectral_type;
         // a little bit of persistent state
         spirv::HitObjectEXT hitObject;
@@ -424,13 +424,13 @@ void raygen()
                     //
                     bxdfSample = diffuse.generate(interaction,randBRDF.xy);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
-                    const quotient_pdf_type qAp = diffuse.quotient_and_pdf(bxdfSample,interaction);
-                    const float forwardWeight = qAp.pdf();
+                    const quotient_weight_type qAw = diffuse.quotient_and_pdf(bxdfSample,interaction);
+                    const float forwardWeight = qAw.weight();
                     if (forwardWeight<0.00000001f)
                         break;
 
                     const float32_t3 albedo = float32_t3(0.8,0.7,0.5);
-                    throughput = throughput * qAp.quotient() * albedo;
+                    throughput = throughput * qAw.quotient() * albedo;
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f/forwardWeight;

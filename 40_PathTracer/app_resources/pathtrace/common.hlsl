@@ -157,8 +157,8 @@ struct BxDFConfig
     using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
     using sample_type = bxdf::SLightSample<ray_dir_info_type>;
 
-    // TODO: change to conform to PR 1001 later
-    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
+    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
+    using value_weight_type = sampling::value_and_weight<spectral_type,scalar_type>;
 };
 }
 }

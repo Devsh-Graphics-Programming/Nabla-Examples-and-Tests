@@ -115,33 +115,6 @@ void tracePixel(NBL_REF_ARG(typename SVariantTypes<PPM>::pathtracer_type) pathtr
 #endif
 }
 
-#if PATH_TRACER_ENABLE_LINEAR
-template<NEEPolygonMethod PPM>
-void runLinear(uint32_t3 threadID)
-{
-	uint32_t width, height, imageArraySize;
-	::outImage.GetDimensions(width, height, imageArraySize);
-
-	const RenderPushConstants renderPushConstants = getRenderPushConstants();
-	scene_type scene;
-	scene.updateLight(renderPushConstants.getLightMatrix());
-
-	using variant_types = SVariantTypes<PPM>;
-	typename variant_types::pathtracer_type pathtracer;
-	pathtracer.scene = scene;
-	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
-	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
-	pathtracer.nee.lights = lights;
-	pathtracer.materialSystem.bxdfs = bxdfs;
-	pathtracer.bxdfPdfThreshold = 0.0001;
-	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
-	pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
-
-	tracePixel<PPM>(pathtracer, int32_t2(threadID.x % width, threadID.x / width));
-}
-#endif
-
-#if PATH_TRACER_ENABLE_PERSISTENT
 template<NEEPolygonMethod PPM>
 void runPersistent()
 {
@@ -175,5 +148,4 @@ void runPersistent()
 		tracePixel<PPM>(pathtracer, wgCoords * int32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
 	}
 }
-#endif
 }
