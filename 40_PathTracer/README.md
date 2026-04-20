@@ -1,19 +1,10 @@
 # EX40 Path Tracer CLI
 
-`40_PathTracer` now exposes a proper `argparse`-based CLI while keeping the old `ditt` launch flow used by Jenkins for the old pair:
-
-- `22.RaytracedAO`
-- `39.DenoiserTonemapper`
-
-The current wiring comes from the old `ditt` Jenkins and helper scripts:
-
-- `tests/22.RaytracedAO/Jenkinsfile` builds and runs the renderer plus denoiser
-- `tests/22.RaytracedAO/test.py` launches the renderer with `-SCENE=... -PROCESS_SENSORS RenderAllThenTerminate 0`
-- `22.RaytracedAO/denoiser_hook.bat` shows the old denoiser CLI shape
+`40_PathTracer` exposes an `argparse`-based CLI for scripted Mitsuba scene rendering. It also accepts the `ditt` launcher flags used by the old Jenkins flow, so automation can move to EX40 without shell glue or a separate postprocess executable.
 
 ## Supported workflows
 
-`--process-sensors` accepts the same high-level modes as the old renderer:
+`--process-sensors` accepts:
 
 | Mode | Behavior |
 | --- | --- |
@@ -24,10 +15,10 @@ The current wiring comes from the old `ditt` Jenkins and helper scripts:
 
 `--sensor` defaults to `0`.
 
-## New CLI
+## CLI
 
 ```text
-40_pathtracer.exe --scene <scene.xml|scene.zip> [--scene-entry <scene.xml>] [--process-sensors <mode>] [--sensor <id>] [--headless] [--defer-denoise] [--output-dir <dir>] [--denoiser-exe <path>]
+40_pathtracer.exe --scene <scene.xml|scene.zip> [--scene-entry <scene.xml>] [--process-sensors <mode>] [--sensor <id>] [--headless] [--defer-denoise] [--output-dir <dir>]
 ```
 
 Examples:
@@ -40,7 +31,7 @@ Examples:
 
 ## Ditt Compatibility
 
-The following `ditt` flags are translated to the new parser before validation:
+The following flags are translated before `argparse` validation:
 
 - `-SCENE=...`
 - `-PROCESS_SENSORS <mode> [id]`
@@ -53,7 +44,7 @@ Examples:
 ```bat
 40_pathtracer.exe -SCENE=..\media\mitsuba\kitchen.zip scene.xml -PROCESS_SENSORS RenderAllThenTerminate 0
 40_pathtracer.exe -SCENE="..\media\mitsuba\my good kitchen.zip scene.xml" -PROCESS_SENSORS RenderSensorThenInteractive 1
-40_pathtracer.exe -SCENE="..\media\mitsuba\extraced folder\scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2 -DEFER_DENOISE
+40_pathtracer.exe -SCENE="..\media\mitsuba\extracted folder\scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2 -DEFER_DENOISE
 ```
 
 ## Outputs
@@ -63,6 +54,7 @@ For every completed sensor render the example emits a JSON record to stdout:
 ```json
 {
   "output_tonemap": "Render_scene_Sensor_0.exr",
+  "output_rwmc_cascades": "Render_scene_Sensor_0_rwmc_cascades.exr",
   "output_albedo": "Render_scene_Sensor_0_albedo.exr",
   "output_normal": "Render_scene_Sensor_0_normal.exr",
   "output_denoised": "Render_scene_Sensor_0_denoised.exr"
@@ -74,20 +66,14 @@ The record is wrapped in:
 - `[JSON]`
 - `[ENDJSON]`
 
-This matches the old CI convention from `tests/22.RaytracedAO/test.py`.
+`output_tonemap` keeps the old CI key name. The current implementation exports the rendered RWMC cascade view as the final screenshot, exports the AOV resources separately, and writes `output_denoised` through the internal postprocess hook.
 
-## Denoiser
+## Postprocess Hook
 
-Perspective renders export raw beauty, albedo and normal EXRs and then invoke `39_DenoiserTonemapper`.
+EX40 does not launch an external denoiser. The finalization step lives inside the example.
 
-- Immediate mode: denoise right after the sensor finishes.
-- Deferred mode: queue denoise jobs and execute them during shutdown with `--defer-denoise`.
-- `--denoiser-exe` overrides the executable path explicitly.
+- Immediate mode runs finalization after each sensor finishes.
+- Deferred mode queues finalization until shutdown with `--defer-denoise` or `-DEFER_DENOISE`.
+- Current finalization is a no-op copy from `output_tonemap` to `output_denoised`.
 
-Each build generates a runtime config next to the executable:
-
-- `bin/config/pt.debug.json`
-- `bin/config/pt.release.json`
-- `bin/config/pt.relwithdebinfo.json`
-
-The generated JSON stores CLI defaults under a `cli` object. `--denoiser-exe` is emitted there as a path relative to the `config` directory, so the path stays config-aware without relying on the current working directory.
+This keeps the CLI and JSON shape ready for the denoise, tonemap, bloom and Beauty resolve work without adding another executable boundary.

@@ -16,20 +16,13 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
-#include <cstdlib>
 #include <deque>
 #include <filesystem>
-#include <fstream>
+#include <iostream>
 #include <optional>
-#include <sstream>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
 #include <vector>
-
-#ifdef _WIN32
-#include <Windows.h>
-#endif
 
 
 using namespace nbl::core;
@@ -46,10 +39,6 @@ using nlohmann_json = nlohmann::json;
 namespace
 {
 
-constexpr std::string_view RuntimeConfigDirectoryName = "config";
-constexpr std::string_view DefaultBloomFile = "../../media/kernels/physical_flare_512.exr";
-constexpr std::string_view DefaultTonemapperArgs = "ACES=0.4,0.8";
-
 enum class SensorWorkflow : uint8_t
 {
 	RenderAllThenInteractive,
@@ -65,32 +54,26 @@ struct AppArguments
 	SensorWorkflow workflow = SensorWorkflow::RenderAllThenInteractive;
 	uint32_t sensor = 0u;
 	bool headless = false;
-	bool deferDenoise = false;
+	bool deferPostProcess = false;
 	path outputDir = {};
-	path denoiserExe = {};
-};
-
-struct RuntimeConfig
-{
-	path path = {};
-	bool denoiserStubMode = false;
-	std::unordered_map<std::string, nlohmann_json> cli = {};
 };
 
 struct ExportOutputs
 {
 	path tonemap = {};
+	path rwmcCascades = {};
 	path albedo = {};
 	path normal = {};
 	path denoised = {};
 
 	std::string tonemapDisplay = {};
+	std::string rwmcCascadesDisplay = {};
 	std::string albedoDisplay = {};
 	std::string normalDisplay = {};
 	std::string denoisedDisplay = {};
 };
 
-struct DenoiseJob
+struct PostProcessJob
 {
 	ExportOutputs outputs = {};
 	CSceneLoader::SLoadResult::SSensor::SDynamic::SPostProcess postProcess = {};
@@ -153,134 +136,6 @@ std::optional<SensorWorkflow> parseSensorWorkflow(std::string_view rawValue)
 		return SensorWorkflow::InteractiveAtSensor;
 	return std::nullopt;
 }
-
-std::optional<std::string> jsonPrimitiveToString(const nlohmann_json& value)
-{
-	if (value.is_string())
-		return value.get<std::string>();
-	if (value.is_boolean())
-		return value.get<bool>() ? "true" : "false";
-	if (value.is_number_integer())
-		return std::to_string(value.get<long long>());
-	if (value.is_number_unsigned())
-		return std::to_string(value.get<unsigned long long>());
-	if (value.is_number_float())
-	{
-		std::ostringstream stream;
-		stream << value.get<double>();
-		return stream.str();
-	}
-	return std::nullopt;
-}
-
-bool isSupportedCliConfigValue(const nlohmann_json& value)
-{
-	if (value.is_boolean() || value.is_string() || value.is_number())
-		return true;
-	if (!value.is_array())
-		return false;
-
-	for (const auto& element : value)
-	{
-		if (!element.is_boolean() && !element.is_string() && !element.is_number())
-			return false;
-	}
-	return true;
-}
-
-std::string quoteForCommand(std::string_view input)
-{
-	std::string escaped;
-	escaped.reserve(input.size()+2u);
-	escaped.push_back('"');
-	for (const char c : input)
-	{
-		if (c=='\"')
-			escaped += "\\\"";
-		else
-			escaped.push_back(c);
-	}
-	escaped.push_back('"');
-	return escaped;
-}
-
-#ifdef _WIN32
-std::wstring widenAscii(std::string_view input)
-{
-	return std::wstring(input.begin(),input.end());
-}
-
-std::wstring quoteWindowsArgument(std::wstring_view input)
-{
-	std::wstring escaped;
-	escaped.reserve(input.size()+2u);
-	escaped.push_back(L'"');
-	size_t backslashCount = 0u;
-	for (const wchar_t c : input)
-	{
-		if (c==L'\\')
-		{
-			++backslashCount;
-			continue;
-		}
-
-		if (c==L'"')
-		{
-			escaped.append(backslashCount*2u+1u,L'\\');
-			escaped.push_back(L'"');
-			backslashCount = 0u;
-			continue;
-		}
-
-		if (backslashCount)
-		{
-			escaped.append(backslashCount,L'\\');
-			backslashCount = 0u;
-		}
-		escaped.push_back(c);
-	}
-
-	if (backslashCount)
-		escaped.append(backslashCount*2u,L'\\');
-	escaped.push_back(L'"');
-	return escaped;
-}
-
-int executeProcess(const path& executable, const std::vector<std::string>& arguments)
-{
-	std::wstring commandLine = quoteWindowsArgument(executable.wstring());
-	for (const auto& argument : arguments)
-	{
-		commandLine.push_back(L' ');
-		commandLine += quoteWindowsArgument(widenAscii(argument));
-	}
-
-	STARTUPINFOW startupInfo = {};
-	startupInfo.cb = sizeof(startupInfo);
-	PROCESS_INFORMATION processInfo = {};
-	std::vector<wchar_t> mutableCommandLine(commandLine.begin(),commandLine.end());
-	mutableCommandLine.push_back(L'\0');
-
-	if (!CreateProcessW(executable.c_str(),mutableCommandLine.data(),nullptr,nullptr,FALSE,0,nullptr,nullptr,&startupInfo,&processInfo))
-		return -1;
-
-	WaitForSingleObject(processInfo.hProcess,INFINITE);
-	DWORD exitCode = static_cast<DWORD>(-1);
-	GetExitCodeProcess(processInfo.hProcess,&exitCode);
-	CloseHandle(processInfo.hThread);
-	CloseHandle(processInfo.hProcess);
-	return static_cast<int>(exitCode);
-}
-#else
-int executeProcess(const path& executable, const std::vector<std::string>& arguments)
-{
-	std::ostringstream command;
-	command << quoteForCommand(executable.string());
-	for (const auto& argument : arguments)
-		command << ' ' << quoteForCommand(argument);
-	return std::system(command.str().c_str());
-}
-#endif
 
 path appendBeforeExtension(path input, std::string_view suffix)
 {
@@ -419,78 +274,6 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,j.dump(4).c_str());
 	}
 
-	RuntimeConfig loadRuntimeConfig() const
-	{
-		RuntimeConfig config;
-		config.path = getRuntimeConfigPath();
-
-		if (!std::filesystem::exists(config.path))
-			return config;
-
-		std::ifstream input(config.path, std::ios::binary);
-		if (!input.is_open())
-		{
-			std::fprintf(stderr,"Failed to open runtime config \"%s\"\n", config.path.string().c_str());
-			return config;
-		}
-
-		nlohmann_json root;
-		try
-		{
-			input >> root;
-		}
-		catch (const std::exception& e)
-		{
-			std::fprintf(stderr,"Failed to parse runtime config \"%s\": %s\n", config.path.string().c_str(), e.what());
-			return config;
-		}
-
-		if (!root.is_object())
-		{
-			std::fprintf(stderr,"Ignoring runtime config \"%s\" because the root JSON value is not an object.\n", config.path.string().c_str());
-			return config;
-		}
-
-		const auto cliIt = root.find("cli");
-		if (const auto stubIt = root.find("denoiserStubMode"); stubIt!=root.end())
-		{
-			if (stubIt->is_boolean())
-				config.denoiserStubMode = stubIt->get<bool>();
-			else
-				std::fprintf(stderr,"Ignoring runtime config entry \"denoiserStubMode\" because it is not a boolean.\n");
-		}
-
-		if (cliIt==root.end())
-			return config;
-		if (!cliIt->is_object())
-		{
-			std::fprintf(stderr,"Ignoring runtime config \"%s\" because \"cli\" is not an object.\n", config.path.string().c_str());
-			return config;
-		}
-
-		for (const auto& [key,value] : cliIt->items())
-		{
-			if (key.rfind("--",0u)!=0u)
-			{
-				std::fprintf(stderr,"Ignoring runtime config entry \"%s\" because only long CLI flags are supported.\n", key.c_str());
-				continue;
-			}
-			if (!isSupportedCliConfigValue(value))
-			{
-				std::fprintf(stderr,"Ignoring runtime config entry \"%s\" because only bool, string, number and arrays of primitive values are supported.\n", key.c_str());
-				continue;
-			}
-			config.cli.emplace(key,value);
-		}
-
-		return config;
-	}
-
-	path getRuntimeConfigPath() const
-	{
-		return executableDirectory()/RuntimeConfigDirectoryName/PATH_TRACER_RUNTIME_CONFIG_FILENAME;
-	}
-
 	path resolvePathAgainstCurrentWorkingDirectory(const path& candidate) const
 	{
 		if (candidate.empty() || candidate.is_absolute())
@@ -498,25 +281,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		return (std::filesystem::current_path()/candidate).lexically_normal();
 	}
 
-	path resolvePathAgainstRuntimeConfig(const path& candidate) const
-	{
-		if (candidate.empty() || candidate.is_absolute())
-			return candidate;
-		return (m_runtimeConfig.path.parent_path()/candidate).lexically_normal();
-	}
-
-	std::optional<std::string> getRuntimeCliStringValue(std::string_view key) const
-	{
-		const auto found = m_runtimeConfig.cli.find(std::string(key));
-		if (found==m_runtimeConfig.cli.end())
-			return std::nullopt;
-		return jsonPrimitiveToString(found->second);
-	}
-
 	bool parseCommandLine()
 	{
-		m_runtimeConfig = loadRuntimeConfig();
-
 		auto normalizedArguments = normalizeCompatibleArguments(argv);
 		if (normalizedArguments.empty())
 		{
@@ -542,13 +308,11 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			.default_value(false)
 			.implicit_value(true);
 		parser.add_argument("--defer-denoise")
-			.help("Queue denoise jobs and run them during shutdown.")
+			.help("Queue internal postprocess finalization until shutdown.")
 			.default_value(false)
 			.implicit_value(true);
 		parser.add_argument("--output-dir")
 			.help("Prefix directory for relative film output paths.");
-		parser.add_argument("--denoiser-exe")
-			.help("Override the denoisertonemapper executable path. Values loaded from runtime config resolve against the config directory.");
 
 		try
 		{
@@ -581,15 +345,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		m_args.workflow = workflow.value();
 		m_args.sensor = parser.get<uint32_t>("--sensor");
 		m_args.headless = parser.get<bool>("--headless");
-		m_args.deferDenoise = parser.get<bool>("--defer-denoise");
+		m_args.deferPostProcess = parser.get<bool>("--defer-denoise");
 
 		if (const auto outputDir = parser.present("--output-dir"); outputDir.has_value())
 			m_args.outputDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(outputDir.value()));
-
-		if (const auto denoiserExe = parser.present("--denoiser-exe"); denoiserExe.has_value())
-			m_args.denoiserExe = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(denoiserExe.value()));
-		else if (const auto configuredDenoiser = getRuntimeCliStringValue("--denoiser-exe"); configuredDenoiser.has_value())
-			m_args.denoiserExe = resolvePathAgainstRuntimeConfig(path(configuredDenoiser.value()));
 
 		return true;
 	}
@@ -802,11 +561,13 @@ public:
 
 		ExportOutputs outputs;
 		outputs.tonemap = outputFile;
+		outputs.rwmcCascades = appendBeforeExtension(outputFile,"_rwmc_cascades");
 		outputs.albedo = appendBeforeExtension(outputFile,"_albedo");
 		outputs.normal = appendBeforeExtension(outputFile,"_normal");
 		outputs.denoised = appendBeforeExtension(outputFile,"_denoised");
 
 		outputs.tonemapDisplay = makeDisplayPath(outputs.tonemap);
+		outputs.rwmcCascadesDisplay = makeDisplayPath(outputs.rwmcCascades);
 		outputs.albedoDisplay = makeDisplayPath(outputs.albedo);
 		outputs.normalDisplay = makeDisplayPath(outputs.normal);
 		outputs.denoisedDisplay = makeDisplayPath(outputs.denoised);
@@ -842,29 +603,23 @@ public:
 		);
 	}
 
-	bool writePlaceholderExport(const path& destination, std::string_view label) const
+	bool copyOutputFile(const path& source, const path& destination) const
 	{
 		if (!ensureParentDirectoryExists(destination))
 			return false;
 
-		std::ofstream output(destination, std::ios::binary | std::ios::trunc);
-		if (!output.is_open())
+		std::error_code ec;
+		std::filesystem::copy_file(source,destination,std::filesystem::copy_options::overwrite_existing,ec);
+		if (ec)
+		{
+			m_logger->log("Failed to copy \"%s\" to \"%s\": %s",ILogger::ELL_ERROR,source.string().c_str(),destination.string().c_str(),ec.message().c_str());
 			return false;
-
-		output << "stub-exr-placeholder\n";
-		output << label << "\n";
-		return output.good();
+		}
+		return true;
 	}
 
 	bool exportCompletedSession(const CSession& session, const ExportOutputs& outputs)
 	{
-		if (m_runtimeConfig.denoiserStubMode)
-		{
-			return writePlaceholderExport(outputs.tonemap,"tonemap") &&
-				writePlaceholderExport(outputs.albedo,"albedo") &&
-				writePlaceholderExport(outputs.normal,"normal");
-		}
-
 		const auto& immutables = session.getActiveResources().immutables;
 
 		const auto* const tonemapView = immutables.rwmcCascades.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -874,6 +629,8 @@ public:
 			return false;
 		}
 		if (!exportImageView(tonemapView,outputs.tonemap))
+			return false;
+		if (!exportImageView(tonemapView,outputs.rwmcCascades))
 			return false;
 
 		const auto* const albedoView = immutables.albedo.getView(E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
@@ -908,52 +665,16 @@ public:
 		return m_device->blockForSemaphores({&waitInfo,&waitInfo+1})==ISemaphore::WAIT_RESULT::SUCCESS;
 	}
 
-	bool runDenoiserJob(const DenoiseJob& job)
+	bool runPostProcessJob(const PostProcessJob& job)
 	{
-		const auto configPath = getRuntimeConfigPath();
-		if (m_args.denoiserExe.empty())
-		{
-			m_logger->log("Denoiser executable is not configured. Use --denoiser-exe or update \"%s\".",ILogger::ELL_ERROR,configPath.string().c_str());
-			return false;
-		}
-		if (!std::filesystem::exists(m_args.denoiserExe))
-		{
-			m_logger->log("Denoiser executable not found at \"%s\". Override with --denoiser-exe or update \"%s\".",ILogger::ELL_ERROR,m_args.denoiserExe.string().c_str(),configPath.string().c_str());
-			return false;
-		}
-
-		const auto& postProcess = job.postProcess;
-		const auto bloomFile = postProcess.bloomFilePath.empty() ? path(DefaultBloomFile) : postProcess.bloomFilePath;
-		const auto tonemapper = postProcess.tonemapperArgs.empty() ? std::string(DefaultTonemapperArgs) : postProcess.tonemapperArgs;
-
-		std::vector<std::string> denoiserArguments = {
-			"-COLOR_FILE=" + job.outputs.tonemap.string(),
-			"-ALBEDO_FILE=" + job.outputs.albedo.string(),
-			"-NORMAL_FILE=" + job.outputs.normal.string(),
-			"-CAMERA_TRANSFORM=1,0,0,0,1,0,0,0,1",
-			"-TONEMAPPER=" + tonemapper,
-			"-BLOOM_INTENSITY=" + std::to_string(postProcess.bloomIntensity),
-			"-BLOOM_RELATIVE_SCALE=" + std::to_string(postProcess.bloomScale),
-			"-BLOOM_PSF_FILE=" + bloomFile.string(),
-			"-DENOISER_BLEND_FACTOR=0.0",
-			"-DENOISER_EXPOSURE_BIAS=0.0",
-			"-OUTPUT=" + job.outputs.denoised.string()
-		};
-
-		const int exitCode = executeProcess(m_args.denoiserExe,denoiserArguments);
-		if (exitCode!=0)
-		{
-			m_logger->log("Denoiser exited with code %d for \"%s\"",ILogger::ELL_ERROR,exitCode,job.outputs.tonemap.string().c_str());
-			return false;
-		}
-
-		return true;
+		return copyOutputFile(job.outputs.tonemap,job.outputs.denoised);
 	}
 
 	void emitOutputJson(const ExportOutputs& outputs) const
 	{
 		nlohmann_json payload = {
 			{"output_tonemap",outputs.tonemapDisplay},
+			{"output_rwmc_cascades",outputs.rwmcCascadesDisplay},
 			{"output_albedo",outputs.albedoDisplay},
 			{"output_normal",outputs.normalDisplay},
 			{"output_denoised",outputs.denoisedDisplay}
@@ -972,13 +693,13 @@ public:
 		if (!exportCompletedSession(*session,outputs))
 			return false;
 
-		const DenoiseJob job = {
+		const PostProcessJob job = {
 			.outputs = outputs,
 			.postProcess = session->getConstructionParams().postProcess
 		};
-		if (m_args.deferDenoise)
-			m_deferredDenoiseJobs.push_back(job);
-		else if (!runDenoiserJob(job))
+		if (m_args.deferPostProcess)
+			m_deferredPostProcessJobs.push_back(job);
+		else if (!runPostProcessJob(job))
 			return false;
 
 		emitOutputJson(outputs);
@@ -986,14 +707,14 @@ public:
 		return true;
 	}
 
-	bool flushDeferredDenoiseJobs()
+	bool flushDeferredPostProcessJobs()
 	{
-		for (const auto& job : m_deferredDenoiseJobs)
+		for (const auto& job : m_deferredPostProcessJobs)
 		{
-			if (!runDenoiserJob(job))
+			if (!runPostProcessJob(job))
 				return false;
 		}
-		m_deferredDenoiseJobs.clear();
+		m_deferredPostProcessJobs.clear();
 		return true;
 	}
 
@@ -1195,7 +916,7 @@ public:
 
 	bool onAppTerminated() override
 	{
-		if (!flushDeferredDenoiseJobs())
+		if (!flushDeferredPostProcessJobs())
 			return false;
 		return device_base_t::onAppTerminated();
 	}
@@ -1206,10 +927,9 @@ public:
 
 private:
 	AppArguments m_args = {};
-	RuntimeConfig m_runtimeConfig = {};
 	bool m_exitRequested = false;
 	const CSession* m_lastFinalizedSession = nullptr;
-	std::deque<DenoiseJob> m_deferredDenoiseJobs = {};
+	std::deque<PostProcessJob> m_deferredPostProcessJobs = {};
 
 	smart_refctd_ptr<InputSystem> m_inputSystem;
 	InputSystem::ChannelReader<IMouseEventChannel> m_mouse;

@@ -7,18 +7,6 @@
 #include <cstdio>
 #include <nabla.h>
 
-#if defined(NBL_DENOISER_TONEMAPPER_EXE_STUB_MODE)
-
-#include "AppStub.hpp"
-
-int main(int argc, char* argv[])
-{
-	return DenoiserTonemapperStubApp::run(argc, argv);
-}
-
-#else
-
-#include "AppInputParser.hpp"
 #include "CommandLineHandler.hpp"
 #include "nbl/asset/filters/dithering/CPrecomputedDither.h"
 
@@ -106,7 +94,28 @@ int main(int argc, char* argv[])
 	auto compiler = am->getGLSLCompiler();
 	auto filesystem = device->getFileSystem();
 
-	auto cmdHandler = CommandLineHandler(DenoiserTonemapperInputParser::collectInputArguments(argc, argv), am, device->getFileSystem());
+	auto getArgvFetchedList = [&]()
+	{
+		core::vector<std::string> arguments;
+		arguments.reserve(PROPER_CMD_ARGUMENTS_AMOUNT);
+		arguments.emplace_back(argv[0]);
+		if (argc>1)
+		{
+			os::Printer::log("Guess input from Commandline arguments",ELL_INFORMATION);
+			for (auto i = 1ul; i < argc; ++i)
+				arguments.emplace_back(argv[i]);
+		}
+		else
+		{
+			os::Printer::log("No arguments provided, running demo mode from ../exampleInputArguments.txt", ELL_INFORMATION);
+			arguments.emplace_back("-batch");
+			arguments.emplace_back("../exampleInputArguments.txt");
+		}
+
+		return arguments;
+	};
+	
+	auto cmdHandler = CommandLineHandler(getArgvFetchedList(), am, device->getFileSystem());
 
 	if (check_error(!cmdHandler.getStatus(),"Could not parse input commands!"))
 		return error_code;
@@ -1801,5 +1810,3 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 
 	return 0;
 }
-
-#endif
