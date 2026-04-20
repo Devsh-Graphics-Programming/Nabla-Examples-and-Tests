@@ -13,14 +13,15 @@ using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
-using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
-using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
-using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
+using quotient_weight_t = sampling::quotient_and_weight<float32_t3, float>;
 
 using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
 using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;
-using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
-using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_cache, spectral_t>;
+
+using iso_mc_cache = bxdf::SIsotropicMicrofacetCache<float>;
+using aniso_mc_cache = bxdf::SAnisotropicMicrofacetCache<iso_mc_cache>;
+using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_mc_cache, spectral_t>;
+using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_mc_cache, spectral_t>;
 
 [numthreads(64,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -56,7 +57,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     iso_interaction isointer = iso_interaction::create(V, N);
     aniso_interaction anisointer = aniso_interaction::create(isointer, T, B);
-    aniso_cache cache;
 
     float3 L = float3(0,0,0);
     float3 q = float3(0,0,0);
@@ -68,40 +68,43 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = orenNayarBRDF.generate(anisointer, u.xy, _ocache);
     L += s.L.direction;
 
-    quotient_pdf_t qp = orenNayarBRDF.quotientAndWeight(s, isointer, _ocache);
+    quotient_weight_t qp = orenNayarBRDF.quotientAndWeight(s, isointer, _ocache);
     L -= qp.quotient();
 
-    s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
-    L += s.L.direction;
+    {
+        aniso_mc_cache cache;
 
-    qp = beckmannAnisoBRDF.quotientAndWeight(s, anisointer, cache);
-    L -= qp.quotient();
+        s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
+        L += s.L.direction;
 
-    s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
-    L += s.L.direction;
+        qp = beckmannAnisoBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
 
-    qp = iridBRDF.quotientAndWeight(s, anisointer, cache);
-    L -= qp.quotient();
+        s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
+        L += s.L.direction;
 
-    qp = ggxAnisoBRDF.quotientAndWeight(s, anisointer, cache);
-    L -= qp.quotient();
+        qp = iridBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
 
-    typename bxdf::transmission::SLambertian<iso_config_t>::anisocache_type _tlcache;
-    s = lambertianBSDF.generate(anisointer, u, _tlcache);
-    L += s.L.direction;
+        qp = ggxAnisoBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
 
-    typename bxdf::transmission::SThinSmoothDielectric<iso_config_t>::anisocache_type _tscache;
-    s = thinSmoothDielectricBSDF.generate(anisointer, u, _tscache);
-    L += s.L.direction;
+        typename bxdf::transmission::SLambertian<iso_config_t>::anisocache_type _tlcache;
+        s = lambertianBSDF.generate(anisointer, u, _tlcache);
+        L += s.L.direction;
 
-    qp = thinSmoothDielectricBSDF.quotientAndWeight(s, isointer, _tscache);
-    L -= qp.quotient();
+        typename bxdf::transmission::SThinSmoothDielectric<iso_config_t>::anisocache_type _tscache;
+        s = thinSmoothDielectricBSDF.generate(anisointer, u, _tscache);
+        L += s.L.direction;
 
-    s = ggxAnisoBSDF.generate(anisointer, u, cache);
-    L += s.L.direction;
+        qp = thinSmoothDielectricBSDF.quotientAndWeight(s, isointer, _tscache);
+        L -= qp.quotient();
 
-    qp = ggxAnisoBSDF.quotientAndWeight(s, anisointer, cache);
-    L -= qp.quotient();
+        s = ggxAnisoBSDF.generate(anisointer, u, cache);
+        L += s.L.direction;
 
+        qp = ggxAnisoBSDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
+    }
     buff[ID.x] = L;
 }
