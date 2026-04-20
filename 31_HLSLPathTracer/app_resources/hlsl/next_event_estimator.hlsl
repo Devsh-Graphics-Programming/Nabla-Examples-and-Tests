@@ -506,8 +506,13 @@ struct NextEventEstimator
 
             // Nasty little experiement where we lie about MIS weights to use BxDF samples more
             // Logic is that as the light slowly takes up an entire hemisphere, it becomes a uniform distribution and BxDF without MIS will be better
-            if (false && PPM != PPM_AREA)
-                weight -= 0.5/numbers::pi<scalar_type>;
+            if (false)
+            {
+                if (PPM==PPM_SOLID_ANGLE)
+                    weight -= 0.5f/numbers::pi<scalar_type>;
+                else if (PPM==PPM_APPROX_PROJECTED_SOLID_ANGLE) // NOTE: if lying about MIS weight and rescaling Proj SA to SA by factor of 2, use same weight as SA
+                    weight -= 1.f/numbers::pi<scalar_type>;
+            }
 
             newRayMaxT *= tolerance_method_type::getEnd(ray.depth);
             pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
