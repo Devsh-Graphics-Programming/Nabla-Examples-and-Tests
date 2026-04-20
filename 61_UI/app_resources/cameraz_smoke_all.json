@@ -1,0 +1,1209 @@
+{
+  "enabled": true,
+  "log": true,
+  "exclusive": true,
+  "hard_fail": true,
+  "enableActiveCameraMovement": true,
+  "capture_prefix": "camera_smoke",
+  "capture_frames": [
+    64
+  ],
+  "events": [
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_use_window",
+      "value": true
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 0
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 0
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 0,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 1,
+      "type": "imguizmo",
+      "translation": [
+        4.0,
+        2.12,
+        1.0
+      ],
+      "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 3,
+      "type": "imguizmo",
+      "translation": [
+        4.030594,
+        2.16456,
+        1.03
+      ],
+      "rotation_deg": [
+        0.0,
+        8.0,
+        5.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 1
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": false
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 1
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 6,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 7,
+      "type": "imguizmo",
+      "translation": [
+        4.051537,
+        2.103537,
+        1.1
+      ],
+      "rotation_deg": [
+        0.0,
+        19.0,
+        11.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 9,
+      "type": "imguizmo",
+      "translation": [
+        4.069324,
+        2.153283,
+        1.13
+      ],
+      "rotation_deg": [
+        0.0,
+        27.0,
+        16.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 2
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 2
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 12,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 13,
+      "type": "imguizmo",
+      "translation": [
+        4.078836,
+        2.058665,
+        1.2
+      ],
+      "rotation_deg": [
+        0.0,
+        38.0,
+        22.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 15,
+      "type": "imguizmo",
+      "translation": [
+        4.080867,
+        2.106864,
+        1.23
+      ],
+      "rotation_deg": [
+        0.0,
+        46.0,
+        27.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 3
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": false
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 3
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 18,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 19,
+      "type": "imguizmo",
+      "translation": [
+        4.069057,
+        1.997696,
+        1.3
+      ],
+      "rotation_deg": [
+        0.0,
+        57.0,
+        33.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 21,
+      "type": "imguizmo",
+      "translation": [
+        4.054996,
+        2.037824,
+        1.33
+      ],
+      "rotation_deg": [
+        0.0,
+        65.0,
+        38.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 4
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 4
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 24,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 25,
+      "type": "imguizmo",
+      "translation": [
+        4.026799,
+        1.937359,
+        1.4
+      ],
+      "rotation_deg": [
+        0.0,
+        76.0,
+        44.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 27,
+      "type": "imguizmo",
+      "translation": [
+        3.998977,
+        1.963986,
+        1.43
+      ],
+      "rotation_deg": [
+        0.0,
+        84.0,
+        49.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 5
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": false
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 5
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 30,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 31,
+      "type": "imguizmo",
+      "translation": [
+        3.971937,
+        1.89421,
+        1.5
+      ],
+      "rotation_deg": [
+        0.0,
+        95.0,
+        55.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 33,
+      "type": "imguizmo",
+      "translation": [
+        3.934965,
+        1.903731,
+        1.53
+      ],
+      "rotation_deg": [
+        0.0,
+        103.0,
+        60.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 6
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 6
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 36,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 37,
+      "type": "imguizmo",
+      "translation": [
+        3.930274,
+        1.880088,
+        1.6
+      ],
+      "rotation_deg": [
+        0.0,
+        114.0,
+        66.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 39,
+      "type": "imguizmo",
+      "translation": [
+        3.890281,
+        1.871215,
+        1.63
+      ],
+      "rotation_deg": [
+        0.0,
+        122.0,
+        71.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 7
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": false
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 7
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 42,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 43,
+      "type": "imguizmo",
+      "translation": [
+        3.921404,
+        1.898869,
+        1.7
+      ],
+      "rotation_deg": [
+        0.0,
+        133.0,
+        77.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 45,
+      "type": "imguizmo",
+      "translation": [
+        3.885019,
+        1.872802,
+        1.73
+      ],
+      "rotation_deg": [
+        0.0,
+        141.0,
+        82.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 8
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 8
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 48,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 49,
+      "type": "imguizmo",
+      "translation": [
+        3.949499,
+        1.945398,
+        1.8
+      ],
+      "rotation_deg": [
+        0.0,
+        152.0,
+        88.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 51,
+      "type": "imguizmo",
+      "translation": [
+        3.922753,
+        1.905666,
+        1.83
+      ],
+      "rotation_deg": [
+        0.0,
+        160.0,
+        93.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 9
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": false
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 9
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 54,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 55,
+      "type": "imguizmo",
+      "translation": [
+        4.001345,
+        2.006909,
+        1.9
+      ],
+      "rotation_deg": [
+        0.0,
+        171.0,
+        99.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 57,
+      "type": "imguizmo",
+      "translation": [
+        3.988672,
+        1.95889,
+        1.93
+      ],
+      "rotation_deg": [
+        0.0,
+        179.0,
+        104.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 10
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "perspective"
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 1
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_active_planar",
+      "value": 10
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_projection_type",
+      "value": "orthographic"
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_left_handed",
+      "value": true
+    },
+    {
+      "frame": 60,
+      "type": "action",
+      "action": "set_active_render_window",
+      "value": 0
+    },
+    {
+      "frame": 61,
+      "type": "imguizmo",
+      "translation": [
+        4.052559,
+        2.066525,
+        2.0
+      ],
+      "rotation_deg": [
+        0.0,
+        190.0,
+        110.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "frame": 63,
+      "type": "imguizmo",
+      "translation": [
+        4.056059,
+        2.016717,
+        2.03
+      ],
+      "rotation_deg": [
+        0.0,
+        198.0,
+        115.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "frame": 0,
+      "kind": "baseline"
+    },
+    {
+      "frame": 1,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 3,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 6,
+      "kind": "baseline"
+    },
+    {
+      "frame": 7,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 9,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 12,
+      "kind": "baseline"
+    },
+    {
+      "frame": 13,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 15,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 18,
+      "kind": "baseline"
+    },
+    {
+      "frame": 19,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 21,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 24,
+      "kind": "baseline"
+    },
+    {
+      "frame": 25,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 27,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 30,
+      "kind": "baseline"
+    },
+    {
+      "frame": 31,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 33,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 36,
+      "kind": "baseline"
+    },
+    {
+      "frame": 37,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 39,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 42,
+      "kind": "baseline"
+    },
+    {
+      "frame": 43,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 45,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 48,
+      "kind": "baseline"
+    },
+    {
+      "frame": 49,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 51,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 54,
+      "kind": "baseline"
+    },
+    {
+      "frame": 55,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 57,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 60,
+      "kind": "baseline"
+    },
+    {
+      "frame": 61,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    },
+    {
+      "frame": 63,
+      "kind": "gimbal_step",
+      "min_pos_delta": 0.007,
+      "max_pos_delta": 12.0
+    }
+  ]
+}

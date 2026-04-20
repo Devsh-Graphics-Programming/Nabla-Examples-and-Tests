@@ -821,7 +821,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
 
 					const auto aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
-					m_camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), aspectRatio, guiControlled.zNear, guiControlled.zFar));
+				m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), aspectRatio, guiControlled.zNear, guiControlled.zFar);
 
 					const ImGuiViewport* viewport = ImGui::GetMainViewport();
 					const ImVec2 viewportPos = viewport->Pos;
@@ -1066,8 +1066,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGuizmo::SetID(0u);
 
-					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(1.f), m_camera.getViewMatrix()));
-					imguizmoM16InOut.projection = hlsl::transpose(m_camera.getProjectionMatrix());
+					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(1.f), hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH())));
+					imguizmoM16InOut.projection = hlsl::transpose(m_cameraProjection);
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 					m_transformParams.editTransformDecomposition = true;
@@ -1109,9 +1109,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			// Set Camera
 			{
-				core::vectorSIMDf cameraPosition(0, 5, -10);
+				const auto cameraPosition = hlsl::float64_t3(0.0, 5.0, -10.0);
 				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), WindowDimensions.x / WindowDimensions.y, guiControlled.zNear, guiControlled.zFar);
-				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
+				m_cameraProjection = proj;
+				m_camera = CCameraSimpleFPSUtilities::createFromLookAt(
+					cameraPosition,
+					hlsl::float64_t3(0.0, 0.0, 0.0),
+					{guiControlled.moveSpeed, guiControlled.rotateSpeed});
+				if (!m_camera)
+					return logFail("Could not initialize camera orientation!");
+				ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
+				m_cameraInputRuntime.binder = &m_cameraInputBinder;
 			}
 			m_showUI = true;
 			if (m_commandLine.ciMode)
@@ -1121,8 +1129,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
 			m_oracle.reportBeginFrameRecord();
-			m_camera.mapKeysToArrows();
-
 			// set initial rwmc settings
 			resetRWMCParamsToDefaults();
 			applyLateCommandLineOverrides();
@@ -1210,7 +1216,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			RenderPushConstants pc;
 			auto updatePathtracerPushConstants = [&]() -> void {
 				// disregard surface/swapchain transformation for now
-				const float32_t4x4 viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+				const float32_t4x4 viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH()));
 				const float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
 
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);
@@ -1533,8 +1539,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline void update()
 		{
-			m_camera.setMoveSpeed(guiControlled.moveSpeed);
-			m_camera.setRotateSpeed(guiControlled.rotateSpeed);
+			CCameraSimpleFPSUtilities::applySpeedSettings(*m_camera, {guiControlled.moveSpeed, guiControlled.rotateSpeed});
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
@@ -1558,9 +1563,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			{
 				std::vector<SMouseEvent> mouse{};
 				std::vector<SKeyboardEvent> keyboard{};
+				std::vector<SMouseEvent> cameraMouse{};
+				std::vector<SKeyboardEvent> cameraKeyboard{};
 			} capturedEvents;
 
-			m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
 				if (!m_commandLine.ciMode)
 				{
@@ -1568,7 +1574,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 					{
 						if (!io.WantCaptureMouse)
-							m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+							capturedEvents.cameraMouse.insert(capturedEvents.cameraMouse.end(), events.begin(), events.end());
 
 						for (const auto& e : events) // here capture
 						{
@@ -1583,10 +1589,10 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						}
 					}, m_logger.get());
 				
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 					{
 						if (!io.WantCaptureKeyboard)
-							m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+							capturedEvents.cameraKeyboard.insert(capturedEvents.cameraKeyboard.end(), events.begin(), events.end());
 
 						for (const auto& e : events) // here capture
 						{
@@ -1612,7 +1618,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t&) -> void {}, m_logger.get());
 				}
 			}
-			m_camera.endInputProcessing(nextPresentationTimestamp);
+			const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(
+				capturedEvents.cameraMouse,
+				capturedEvents.cameraKeyboard,
+				nextPresentationTimestamp,
+				m_cameraInputRuntime,
+				m_cameraInputConfig);
+			if (!virtualEvents.empty())
+				m_camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 
 			const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -2889,7 +2902,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 		} m_ui;
 
-		Camera m_camera;
+		core::smart_refctd_ptr<core::CFPSCamera> m_camera;
+		ui::CGimbalInputBinder m_cameraInputBinder;
+		CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
+		CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
+		hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 		bool m_showUI;
 		bool m_exitRequested = false;
 		bool m_sceneScreenshotRequested = false;

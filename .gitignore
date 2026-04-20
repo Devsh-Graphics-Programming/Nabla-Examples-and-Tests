@@ -13,3 +13,5 @@ compiled.spv
 */.vscode/*
 */__main__.py
 tmp
+/tmp/rtSamples.bin
+/runtime/
