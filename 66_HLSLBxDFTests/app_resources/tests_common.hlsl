@@ -24,14 +24,16 @@ using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
-using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
-using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
-using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
+using quotient_weight_t = sampling::quotient_and_weight<float32_t3, float>;
+using value_weight_t = sampling::value_and_weight<float32_t3, float>;
 
 using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
 using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;
-using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
-using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_cache, spectral_t>;
+
+using iso_mc_cache = bxdf::SIsotropicMicrofacetCache<float>;
+using aniso_mc_cache = bxdf::SAnisotropicMicrofacetCache<iso_mc_cache>;
+using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_mc_cache, spectral_t>;
+using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_mc_cache, spectral_t>;
 
 using bool32_t3 = hlsl::vector<bool, 3>;
 
@@ -628,7 +630,8 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
     using anisotropic_interaction_type = reciprocity_test_impl::SAnisotropic<isotropic_interaction_type>;
     using sample_type = LS;
     using spectral_type = Spectrum;
-    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
+    using value_weight_type = sampling::value_and_weight<spectral_type, scalar_type>;
     using isocache_type = MicrofacetCache;
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;
 };
@@ -636,7 +639,7 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
 
 using rectest_iso_interaction = reciprocity_test_impl::SIsotropic<ray_dir_info_t, spectral_t>;
 using rectest_aniso_interaction = reciprocity_test_impl::SAnisotropic<rectest_iso_interaction>;
-using rectest_iso_microfacet_config_t = reciprocity_test_impl::CustomIsoMicrofacetConfiguration<sample_t, rectest_iso_interaction, iso_cache, spectral_t>;
-using rectest_aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, rectest_aniso_interaction, aniso_cache, spectral_t>;
+using rectest_iso_microfacet_config_t = reciprocity_test_impl::CustomIsoMicrofacetConfiguration<sample_t, rectest_iso_interaction, iso_mc_cache, spectral_t>;
+using rectest_aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, rectest_aniso_interaction, aniso_mc_cache, spectral_t>;
 
 #endif

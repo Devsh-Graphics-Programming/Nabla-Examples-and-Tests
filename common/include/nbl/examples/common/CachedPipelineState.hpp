@@ -14,7 +14,8 @@ namespace nbl::examples::common
 {
 using pipeline_future_t = std::future<core::smart_refctd_ptr<video::IGPUComputePipeline>>;
 
-template<size_t GeometryCount, size_t MethodCount, size_t BinaryToggleCount = 2ull>
+// TODO: WHY IS THIS EXAMPLE 31 SPECIFIC THING IN COMMON HEADERS !? !? !? 
+template<size_t GeometryCount, size_t MethodCount>
 struct SRenderPipelineStorage
 {
 	using shader_array_t = std::array<core::smart_refctd_ptr<asset::IShader>, GeometryCount>;
@@ -23,43 +24,45 @@ struct SRenderPipelineStorage
 	using pipeline_array_t = std::array<pipeline_method_array_t, GeometryCount>;
 	using pipeline_future_array_t = std::array<pipeline_future_method_array_t, GeometryCount>;
 
-	std::array<std::array<shader_array_t, BinaryToggleCount>, BinaryToggleCount> shaders = {};
-	std::array<std::array<pipeline_array_t, BinaryToggleCount>, BinaryToggleCount> pipelines = {};
-	std::array<std::array<pipeline_future_array_t, BinaryToggleCount>, BinaryToggleCount> pendingPipelines = {};
+	// TODO: Binary Toggle Count is Semantically awful, use an enum + special count value
+	constexpr static inline size_t BinaryToggleCount = 2;
+	std::array<shader_array_t, BinaryToggleCount> shaders = {};
+	std::array<pipeline_array_t, BinaryToggleCount> pipelines = {};
+	std::array<pipeline_future_array_t, BinaryToggleCount> pendingPipelines = {};
 
 	static constexpr size_t boolToIndex(const bool value)
 	{
 		return static_cast<size_t>(value);
 	}
 
-	shader_array_t& getShaders(const bool persistentWorkGroups, const bool rwmc)
+	shader_array_t& getShaders(const bool rwmc)
 	{
-		return shaders[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return shaders[boolToIndex(rwmc)];
 	}
 
-	const shader_array_t& getShaders(const bool persistentWorkGroups, const bool rwmc) const
+	const shader_array_t& getShaders(const bool rwmc) const
 	{
-		return shaders[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return shaders[boolToIndex(rwmc)];
 	}
 
-	pipeline_array_t& getPipelines(const bool persistentWorkGroups, const bool rwmc)
+	pipeline_array_t& getPipelines(const bool rwmc)
 	{
-		return pipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return pipelines[boolToIndex(rwmc)];
 	}
 
-	const pipeline_array_t& getPipelines(const bool persistentWorkGroups, const bool rwmc) const
+	const pipeline_array_t& getPipelines(const bool rwmc) const
 	{
-		return pipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return pipelines[boolToIndex(rwmc)];
 	}
 
-	pipeline_future_array_t& getPendingPipelines(const bool persistentWorkGroups, const bool rwmc)
+	pipeline_future_array_t& getPendingPipelines(const bool rwmc)
 	{
-		return pendingPipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return pendingPipelines[boolToIndex(rwmc)];
 	}
 
-	const pipeline_future_array_t& getPendingPipelines(const bool persistentWorkGroups, const bool rwmc) const
+	const pipeline_future_array_t& getPendingPipelines(const bool rwmc) const
 	{
-		return pendingPipelines[boolToIndex(rwmc)][boolToIndex(persistentWorkGroups)];
+		return pendingPipelines[boolToIndex(rwmc)];
 	}
 };
 
@@ -82,7 +85,6 @@ struct SWarmupJob
 
 	E_TYPE type = E_TYPE::Render;
 	GeometryType geometry = {};
-	bool persistentWorkGroups = false;
 	bool rwmc = false;
 	MethodType method = {};
 };
@@ -130,6 +132,7 @@ struct SPipelineCacheState
 
 struct SStartupLogState
 {
+	// TODO: WHY IS THIS EX 31 SPECIFIC THING IN COMMON?
 	bool hasPathtraceOutput = false;
 	bool loggedFirstFrameLoop = false;
 	bool loggedFirstRenderDispatch = false;
@@ -157,25 +160,23 @@ inline bool waitForPendingPipeline(PipelineFuture& future, PipelinePtr& pipeline
 	return static_cast<bool>(pipeline);
 }
 
-template<size_t GeometryCount, size_t MethodCount, size_t BinaryToggleCount>
+// TODO: THIS IS ALL EX31 SPECIFIC, why is it here!?
+template<size_t GeometryCount, size_t MethodCount>
 inline size_t getRunningPipelineBuildCount(
-	const SRenderPipelineStorage<GeometryCount, MethodCount, BinaryToggleCount>& renderStorage,
+	const SRenderPipelineStorage<GeometryCount, MethodCount>& renderStorage,
 	const SResolvePipelineState& resolveState)
 {
 	size_t count = 0ull;
 	for (const auto rwmc : { false, true })
 	{
-		for (const auto persistentWorkGroups : { false, true })
+		const auto& futures = renderStorage.getPendingPipelines(rwmc);
+		const auto& pipelines = renderStorage.getPipelines(rwmc);
+		for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
 		{
-			const auto& futures = renderStorage.getPendingPipelines(persistentWorkGroups, rwmc);
-			const auto& pipelines = renderStorage.getPipelines(persistentWorkGroups, rwmc);
-			for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
+			for (size_t method = 0ull; method < MethodCount; ++method)
 			{
-				for (size_t method = 0ull; method < MethodCount; ++method)
-				{
-					if (futures[geometry][method].valid() && !pipelines[geometry][method])
-						++count;
-				}
+				if (futures[geometry][method].valid() && !pipelines[geometry][method])
+					++count;
 			}
 		}
 	}
@@ -184,50 +185,44 @@ inline size_t getRunningPipelineBuildCount(
 	return count;
 }
 
-template<size_t GeometryCount, size_t MethodCount, size_t BinaryToggleCount>
-inline size_t getReadyRenderPipelineCount(const SRenderPipelineStorage<GeometryCount, MethodCount, BinaryToggleCount>& renderStorage)
+template<size_t GeometryCount, size_t MethodCount>
+inline size_t getReadyRenderPipelineCount(const SRenderPipelineStorage<GeometryCount, MethodCount>& renderStorage)
 {
 	size_t count = 0ull;
 	for (const auto rwmc : { false, true })
 	{
-		for (const auto persistentWorkGroups : { false, true })
+		const auto& pipelines = renderStorage.getPipelines(rwmc);
+		for (const auto& perGeometry : pipelines)
 		{
-			const auto& pipelines = renderStorage.getPipelines(persistentWorkGroups, rwmc);
-			for (const auto& perGeometry : pipelines)
+			for (const auto& pipeline : perGeometry)
 			{
-				for (const auto& pipeline : perGeometry)
-				{
-					if (pipeline)
-						++count;
-				}
+				if (pipeline)
+					++count;
 			}
 		}
 	}
 	return count;
 }
 
-template<size_t GeometryCount, size_t MethodCount, size_t BinaryToggleCount>
+template<size_t GeometryCount, size_t MethodCount>
 inline void pollPendingPipelines(
-	SRenderPipelineStorage<GeometryCount, MethodCount, BinaryToggleCount>& renderStorage,
+	SRenderPipelineStorage<GeometryCount, MethodCount>& renderStorage,
 	SResolvePipelineState& resolveState,
 	bool& dirty,
 	size_t& newlyReadyPipelinesSinceLastSave)
 {
 	for (const auto rwmc : { false, true })
 	{
-		for (const auto persistentWorkGroups : { false, true })
+		auto& pendingPipelines = renderStorage.getPendingPipelines(rwmc);
+		auto& pipelines = renderStorage.getPipelines(rwmc);
+		for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
 		{
-			auto& pendingPipelines = renderStorage.getPendingPipelines(persistentWorkGroups, rwmc);
-			auto& pipelines = renderStorage.getPipelines(persistentWorkGroups, rwmc);
-			for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
+			for (size_t method = 0ull; method < MethodCount; ++method)
 			{
-				for (size_t method = 0ull; method < MethodCount; ++method)
+				if (pollPendingPipeline(pendingPipelines[geometry][method], pipelines[geometry][method]))
 				{
-					if (pollPendingPipeline(pendingPipelines[geometry][method], pipelines[geometry][method]))
-					{
-						dirty = true;
-						++newlyReadyPipelinesSinceLastSave;
-					}
+					dirty = true;
+					++newlyReadyPipelinesSinceLastSave;
 				}
 			}
 		}
@@ -240,28 +235,25 @@ inline void pollPendingPipelines(
 	}
 }
 
-template<size_t GeometryCount, size_t MethodCount, size_t BinaryToggleCount>
+template<size_t GeometryCount, size_t MethodCount>
 inline void waitForPendingPipelines(
-	SRenderPipelineStorage<GeometryCount, MethodCount, BinaryToggleCount>& renderStorage,
+	SRenderPipelineStorage<GeometryCount, MethodCount>& renderStorage,
 	SResolvePipelineState& resolveState,
 	bool& dirty,
 	size_t& newlyReadyPipelinesSinceLastSave)
 {
 	for (const auto rwmc : { false, true })
 	{
-		for (const auto persistentWorkGroups : { false, true })
+		auto& pendingPipelines = renderStorage.getPendingPipelines(rwmc);
+		auto& pipelines = renderStorage.getPipelines(rwmc);
+		for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
 		{
-			auto& pendingPipelines = renderStorage.getPendingPipelines(persistentWorkGroups, rwmc);
-			auto& pipelines = renderStorage.getPipelines(persistentWorkGroups, rwmc);
-			for (size_t geometry = 0ull; geometry < GeometryCount; ++geometry)
+			for (size_t method = 0ull; method < MethodCount; ++method)
 			{
-				for (size_t method = 0ull; method < MethodCount; ++method)
+				if (waitForPendingPipeline(pendingPipelines[geometry][method], pipelines[geometry][method]))
 				{
-					if (waitForPendingPipeline(pendingPipelines[geometry][method], pipelines[geometry][method]))
-					{
-						dirty = true;
-						++newlyReadyPipelinesSinceLastSave;
-					}
+					dirty = true;
+					++newlyReadyPipelinesSinceLastSave;
 				}
 			}
 		}
