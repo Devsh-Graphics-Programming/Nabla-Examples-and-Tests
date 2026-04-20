@@ -5,8 +5,10 @@
 #include "argparse/argparse.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 #include "nbl/examples/examples.hpp"
+#include "nbl/asset/filters/CSwizzleAndConvertImageFilter.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
+#include "io/RuntimeConfig.h"
 #include "renderer/CRenderer.h"
 #include "renderer/resolve/CBasicRWMCResolver.h"
 #include "renderer/present/CWindowPresenter.h"
@@ -17,6 +19,7 @@
 #include <cctype>
 #include <cstdio>
 #include <deque>
+#include <execution>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -61,16 +64,26 @@ struct AppArguments
 struct ExportOutputs
 {
 	path tonemap = {};
+	path tonemapPng = {};
 	path rwmcCascades = {};
+	path rwmcCascadesPng = {};
 	path albedo = {};
+	path albedoPng = {};
 	path normal = {};
+	path normalPng = {};
 	path denoised = {};
+	path denoisedPng = {};
 
 	std::string tonemapDisplay = {};
+	std::string tonemapPngDisplay = {};
 	std::string rwmcCascadesDisplay = {};
+	std::string rwmcCascadesPngDisplay = {};
 	std::string albedoDisplay = {};
+	std::string albedoPngDisplay = {};
 	std::string normalDisplay = {};
+	std::string normalPngDisplay = {};
 	std::string denoisedDisplay = {};
+	std::string denoisedPngDisplay = {};
 };
 
 struct PostProcessJob
@@ -142,6 +155,12 @@ path appendBeforeExtension(path input, std::string_view suffix)
 	auto stem = input.stem().string();
 	stem += suffix;
 	input.replace_filename(stem + input.extension().string());
+	return input;
+}
+
+path replaceExtension(path input, const path& extension)
+{
+	input.replace_extension(extension);
 	return input;
 }
 
@@ -284,6 +303,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 	bool parseCommandLine()
 	{
 		auto normalizedArguments = normalizeCompatibleArguments(argv);
+		if (!applyRuntimeConfigDefaults(normalizedArguments))
+			return false;
 		if (normalizedArguments.empty())
 		{
 			std::fprintf(stderr,"Failed to parse arguments: no arguments are available.\n");
@@ -432,7 +453,8 @@ public:
 
 		m_resolver = CBasicRWMCResolver::create({
 			{},
-			m_renderer.get()
+			m_renderer.get(),
+			m_assetMgr.get()
 		});
 		if (!m_resolver)
 			return logFail("Failed to create CBasicRWMCResolver");
@@ -561,16 +583,26 @@ public:
 
 		ExportOutputs outputs;
 		outputs.tonemap = outputFile;
+		outputs.tonemapPng = replaceExtension(outputFile,".png");
 		outputs.rwmcCascades = appendBeforeExtension(outputFile,"_rwmc_cascades");
+		outputs.rwmcCascadesPng = replaceExtension(outputs.rwmcCascades,".png");
 		outputs.albedo = appendBeforeExtension(outputFile,"_albedo");
+		outputs.albedoPng = replaceExtension(outputs.albedo,".png");
 		outputs.normal = appendBeforeExtension(outputFile,"_normal");
+		outputs.normalPng = replaceExtension(outputs.normal,".png");
 		outputs.denoised = appendBeforeExtension(outputFile,"_denoised");
+		outputs.denoisedPng = replaceExtension(outputs.denoised,".png");
 
 		outputs.tonemapDisplay = makeDisplayPath(outputs.tonemap);
+		outputs.tonemapPngDisplay = makeDisplayPath(outputs.tonemapPng);
 		outputs.rwmcCascadesDisplay = makeDisplayPath(outputs.rwmcCascades);
+		outputs.rwmcCascadesPngDisplay = makeDisplayPath(outputs.rwmcCascadesPng);
 		outputs.albedoDisplay = makeDisplayPath(outputs.albedo);
+		outputs.albedoPngDisplay = makeDisplayPath(outputs.albedoPng);
 		outputs.normalDisplay = makeDisplayPath(outputs.normal);
+		outputs.normalPngDisplay = makeDisplayPath(outputs.normalPng);
 		outputs.denoisedDisplay = makeDisplayPath(outputs.denoised);
+		outputs.denoisedPngDisplay = makeDisplayPath(outputs.denoisedPng);
 		return outputs;
 	}
 
@@ -584,23 +616,152 @@ public:
 		return !ec;
 	}
 
-	bool exportImageView(const IGPUImageView* view, const path& destination) const
+	bool writeImageView(const ICPUImageView* view, const path& destination) const
 	{
 		if (!view)
 			return false;
 		if (!ensureParentDirectoryExists(destination))
 			return false;
 
-		return nbl::ext::ScreenShot::createScreenShot(
+		IAssetWriter::SAssetWriteParams writeParams(const_cast<ICPUImageView*>(view),EWF_NONE,0.f,0u,nullptr,nullptr,logger_opt_ptr(m_logger.get()));
+		if (!m_assetMgr->writeAsset(destination.string(),writeParams))
+		{
+			m_logger->log("Failed to write \"%s\"",ILogger::ELL_ERROR,destination.string().c_str());
+			return false;
+		}
+		return true;
+	}
+
+	smart_refctd_ptr<ICPUImageView> makeImageView(smart_refctd_ptr<ICPUImage>&& image) const
+	{
+		if (!image)
+			return nullptr;
+
+		const auto& params = image->getCreationParameters();
+		ICPUImageView::SCreationParams viewParams = {};
+		viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+		viewParams.image = std::move(image);
+		viewParams.format = params.format;
+		switch (params.type)
+		{
+			case ICPUImage::ET_1D:
+				viewParams.viewType = params.arrayLayers>1u ? ICPUImageView::ET_1D_ARRAY:ICPUImageView::ET_1D;
+				break;
+			case ICPUImage::ET_2D:
+				viewParams.viewType = params.arrayLayers>1u ? ICPUImageView::ET_2D_ARRAY:ICPUImageView::ET_2D;
+				break;
+			default:
+				viewParams.viewType = ICPUImageView::ET_3D;
+				break;
+		}
+		viewParams.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
+		viewParams.subresourceRange.baseArrayLayer = 0u;
+		viewParams.subresourceRange.layerCount = params.arrayLayers;
+		viewParams.subresourceRange.baseMipLevel = 0u;
+		viewParams.subresourceRange.levelCount = params.mipLevels;
+		return ICPUImageView::create(std::move(viewParams));
+	}
+
+	smart_refctd_ptr<ICPUImage> createPngPreviewImage(const ICPUImageView* sourceView) const
+	{
+		if (!sourceView)
+			return nullptr;
+
+		constexpr auto OutputFormat = E_FORMAT::EF_R8G8B8A8_SRGB;
+		const auto& sourceViewParams = sourceView->getCreationParameters();
+		auto sourceImage = sourceViewParams.image;
+		if (!sourceImage)
+			return nullptr;
+
+		const auto& sourceSubresource = sourceViewParams.subresourceRange;
+		const auto sourceMipLevel = sourceSubresource.baseMipLevel;
+		const auto sourceBaseLayer = sourceSubresource.baseArrayLayer;
+		const auto sourceExtent = sourceImage->getMipSize(sourceMipLevel);
+		const uint32_t width = sourceExtent.x;
+		const uint32_t height = sourceExtent.y;
+		if (width==0u || height==0u)
+			return nullptr;
+
+		IImage::SCreationParams imageParams = {};
+		imageParams.type = IImage::ET_2D;
+		imageParams.format = OutputFormat;
+		imageParams.extent = {width,height,1u};
+		imageParams.mipLevels = 1u;
+		imageParams.arrayLayers = 1u;
+		imageParams.samples = IImage::ESCF_1_BIT;
+		imageParams.usage = IImage::EUF_SAMPLED_BIT;
+		auto outputImage = ICPUImage::create(std::move(imageParams));
+		if (!outputImage)
+			return nullptr;
+
+		auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
+		auto& region = regions->front();
+		region.bufferOffset = 0u;
+		region.bufferRowLength = width;
+		region.bufferImageHeight = height;
+		region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = 1u;
+		region.imageExtent = {width,height,1u};
+		region.imageOffset = {0u,0u,0u};
+
+		const auto outputPixelSize = getTexelOrBlockBytesize(OutputFormat);
+		const uint64_t outputSize = uint64_t(width)*uint64_t(height)*outputPixelSize;
+		auto outputBuffer = ICPUBuffer::create({outputSize});
+		if (!outputBuffer)
+			return nullptr;
+		outputImage->setBufferAndRegions(std::move(outputBuffer),std::move(regions));
+		using convert_filter_t = CSwizzleAndConvertImageFilter<EF_UNKNOWN,EF_UNKNOWN,DefaultSwizzle,IdentityDither,void,true>;
+		convert_filter_t::state_type state = {};
+		static_cast<DefaultSwizzle&>(state).swizzle = {
+			ICPUImageView::SComponentMapping::ES_R,
+			ICPUImageView::SComponentMapping::ES_G,
+			ICPUImageView::SComponentMapping::ES_B,
+			ICPUImageView::SComponentMapping::ES_ONE
+		};
+		state.inImage = sourceImage.get();
+		state.outImage = outputImage.get();
+		state.inOffset = {0,0,0};
+		state.inBaseLayer = sourceBaseLayer;
+		state.outOffset = {0,0,0};
+		state.outBaseLayer = 0u;
+		state.extent = {width,height,1u};
+		state.layerCount = 1u;
+		state.inMipLevel = sourceMipLevel;
+		state.outMipLevel = 0u;
+		if (!convert_filter_t::execute(nbl::core::execution::seq,&state))
+		{
+			m_logger->log("Failed to convert readback image to PNG preview format",ILogger::ELL_ERROR);
+			return nullptr;
+		}
+		return outputImage;
+	}
+
+	bool exportImageView(const IGPUImageView* view, const path& exrDestination, const path& pngDestination) const
+	{
+		if (!view)
+			return false;
+
+		auto cpuImageView = nbl::ext::ScreenShot::createScreenShot(
 			m_device.get(),
 			getGraphicsQueue()->getUnderlyingQueue(),
 			nullptr,
 			view,
-			m_assetMgr.get(),
-			destination,
-			IImage::LAYOUT::GENERAL,
-			ACCESS_FLAGS::SHADER_WRITE_BITS
+			ACCESS_FLAGS::SHADER_WRITE_BITS,
+			IImage::LAYOUT::GENERAL
 		);
+		if (!cpuImageView)
+		{
+			m_logger->log("Failed to read back image for export",ILogger::ELL_ERROR);
+			return false;
+		}
+		if (!writeImageView(cpuImageView.get(),exrDestination))
+			return false;
+
+		auto pngImage = createPngPreviewImage(cpuImageView.get());
+		auto pngImageView = makeImageView(std::move(pngImage));
+		return writeImageView(pngImageView.get(),pngDestination);
 	}
 
 	bool copyOutputFile(const path& source, const path& destination) const
@@ -622,15 +783,22 @@ public:
 	{
 		const auto& immutables = session.getActiveResources().immutables;
 
-		const auto* const tonemapView = immutables.rwmcCascades.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
+		const auto* const tonemapView = immutables.beauty.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
 		if (!tonemapView)
 		{
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(tonemapView,outputs.tonemap))
+		if (!exportImageView(tonemapView,outputs.tonemap,outputs.tonemapPng))
 			return false;
-		if (!exportImageView(tonemapView,outputs.rwmcCascades))
+
+		const auto* const rwmcCascadesView = immutables.rwmcCascades.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
+		if (!rwmcCascadesView)
+		{
+			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
+			return false;
+		}
+		if (!exportImageView(rwmcCascadesView,outputs.rwmcCascades,outputs.rwmcCascadesPng))
 			return false;
 
 		const auto* const albedoView = immutables.albedo.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -639,7 +807,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(albedoView,outputs.albedo))
+		if (!exportImageView(albedoView,outputs.albedo,outputs.albedoPng))
 			return false;
 
 		const auto* const normalView = immutables.normal.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -648,7 +816,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(normalView,outputs.normal))
+		if (!exportImageView(normalView,outputs.normal,outputs.normalPng))
 			return false;
 
 		return true;
@@ -667,17 +835,23 @@ public:
 
 	bool runPostProcessJob(const PostProcessJob& job)
 	{
-		return copyOutputFile(job.outputs.tonemap,job.outputs.denoised);
+		return copyOutputFile(job.outputs.tonemap,job.outputs.denoised) &&
+			copyOutputFile(job.outputs.tonemapPng,job.outputs.denoisedPng);
 	}
 
 	void emitOutputJson(const ExportOutputs& outputs) const
 	{
 		nlohmann_json payload = {
 			{"output_tonemap",outputs.tonemapDisplay},
+			{"output_tonemap_png",outputs.tonemapPngDisplay},
 			{"output_rwmc_cascades",outputs.rwmcCascadesDisplay},
+			{"output_rwmc_cascades_png",outputs.rwmcCascadesPngDisplay},
 			{"output_albedo",outputs.albedoDisplay},
+			{"output_albedo_png",outputs.albedoPngDisplay},
 			{"output_normal",outputs.normalDisplay},
-			{"output_denoised",outputs.denoisedDisplay}
+			{"output_normal_png",outputs.normalPngDisplay},
+			{"output_denoised",outputs.denoisedDisplay},
+			{"output_denoised_png",outputs.denoisedPngDisplay}
 		};
 		std::cout << "[JSON] " << payload.dump() << "\n[ENDJSON]\n";
 	}
@@ -826,8 +1000,19 @@ public:
 		}
 
 		IGPUCommandBuffer* const cb = deferredSubmit;
-		if (!m_args.headless || session->getProgress()>=1.f)
-			m_resolver->resolve(cb,nullptr);
+		const auto maxSPP = session->getConstructionParams().initDynamics.maxSPP;
+		const auto samplesAfterDispatch = session->getSamplesDispatched()+CRenderer::BeautySamplesPerDispatch;
+		const bool shouldResolve = !m_args.headless || maxSPP<=samplesAfterDispatch;
+		if (shouldResolve)
+		{
+			if (!m_resolver->resolve(cb,nullptr))
+			{
+				m_exitRequested = true;
+				m_api->endCapture();
+				return;
+			}
+			deferredSubmit.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		}
 		auto rendered = deferredSubmit({});
 		m_api->endCapture();
 

@@ -35,9 +35,10 @@ class CBasicRWMCResolver : public IResolver
 		};
 		struct SCreationParams : SCachedCreationParams
 		{
-			inline operator bool() const {return renderer;}
+			inline operator bool() const {return renderer && assMan;}
 
 			CRenderer* renderer;
+			asset::IAssetManager* assMan;
 		};
 		static core::smart_refctd_ptr<CBasicRWMCResolver> create(SCreationParams&& _params);
 

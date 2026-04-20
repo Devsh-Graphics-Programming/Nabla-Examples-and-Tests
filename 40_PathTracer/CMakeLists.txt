@@ -13,8 +13,25 @@ set(NBL_LIBRARIES
 	"${NBL_EXT_IMGUI_UI_LIB}"
 	argparse
 )
+
+set(PT_RUNTIME_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/bin/config/pt.$<LOWER_CASE:$<CONFIG>>.json")
+set_source_files_properties("${PT_RUNTIME_CONFIG_OUTPUT}" PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
+source_group("config" FILES "${PT_RUNTIME_CONFIG_OUTPUT}")
+set(PT_RUNTIME_CONFIG_JSON [=[
+{
+  "cli": {
+    "--output-dir": "../out/$<LOWER_CASE:$<CONFIG>>"
+  }
+}
+]=])
+file(GENERATE OUTPUT "${PT_RUNTIME_CONFIG_OUTPUT}" CONTENT "${PT_RUNTIME_CONFIG_JSON}")
+
 set(NBL_EXAMPLE_SOURCES
+    "${PT_RUNTIME_CONFIG_OUTPUT}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/resolve/rwmc.hlsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/io/RuntimeConfig.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/io/RuntimeConfig.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CRenderer.cpp"
@@ -43,6 +60,10 @@ set(JSON [=[
 	{
         "INPUT": "app_resources/present/default.hlsl",
         "KEY": "present_default",
+    },
+	{
+        "INPUT": "app_resources/resolve/rwmc.hlsl",
+        "KEY": "resolve_rwmc",
     }
 ]
 ]=])

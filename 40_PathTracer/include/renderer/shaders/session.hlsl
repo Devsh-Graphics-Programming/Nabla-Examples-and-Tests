@@ -40,7 +40,7 @@ struct SensorDSBindings
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t SampleCount = 2;
 	// R64_UINT with packing RGB14E6 or RGB14E7 and using rest for spp in the cascade
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t RWMCCascades = 3;
-	// RGB5E9
+	// RGBA16F
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Beauty = 4;
 	// RGBA16F
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t Albedo = 5;
@@ -83,7 +83,7 @@ struct SensorDSBindingCounts
 // could be uint16_t were it not for "Expected Sampled Type to be a 32-bit int, 64-bit int or 32-bit float scalar type for Vulkan environment"
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t> gSampleCount;
 [[vk::binding(SensorDSBindings::RWMCCascades,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gRWMCCascades;
-[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<uint32_t> gBeauty;
+[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<float32_t4> gBeauty;
 [[vk::binding(SensorDSBindings::Albedo,SessionDSIndex)]] RWTexture2DArray<float32_t4> gAlbedo;
 // thse two are snorm but stored as unorm, care needs to be taken to map:
 // [-1,1] <-> [0,1] but with 0 being exactly representable, so really [-1,1] <-> [1/1023,1]

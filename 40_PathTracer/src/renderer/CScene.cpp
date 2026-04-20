@@ -65,14 +65,14 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 
 	//
 	{
-		const auto reciprocalKappa = 1.f/dynDefaults.kappa;
+		hlsl::rwmc::SResolveParameters::SCreateParams resolveParams = {};
+		resolveParams.minReliableLuma = dynDefaults.Emin;
+		resolveParams.kappa = dynDefaults.kappa>0.f ? dynDefaults.kappa:1.f;
+		resolveParams.start = mutDefaults.cascadeLuminanceStart;
+		resolveParams.base = mutDefaults.cascadeLuminanceBase>0.f ? mutDefaults.cascadeLuminanceBase:1.f;
+		resolveParams.sampleCount = core::max<uint32_t>(dynDefaults.samplesNeeded,1u);
 		params.initResolveConstants = {
-			.rwmc = {
-				.initialEmin = dynDefaults.Emin,
-				.reciprocalBase = 1.f/mutDefaults.cascadeLuminanceBase,
-				.reciprocalKappa = reciprocalKappa,
-				.colorReliabilityFactor = hlsl::mix(mutDefaults.cascadeLuminanceBase,1.f,reciprocalKappa)
-			},
+			.resolveParameters = hlsl::rwmc::SResolveParameters::create(resolveParams),
 			.cascadeCount = constants.cascadeCount
 		};
 	}

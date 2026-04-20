@@ -54,10 +54,15 @@ For every completed sensor render the example emits a JSON record to stdout:
 ```json
 {
   "output_tonemap": "Render_scene_Sensor_0.exr",
+  "output_tonemap_png": "Render_scene_Sensor_0.png",
   "output_rwmc_cascades": "Render_scene_Sensor_0_rwmc_cascades.exr",
+  "output_rwmc_cascades_png": "Render_scene_Sensor_0_rwmc_cascades.png",
   "output_albedo": "Render_scene_Sensor_0_albedo.exr",
+  "output_albedo_png": "Render_scene_Sensor_0_albedo.png",
   "output_normal": "Render_scene_Sensor_0_normal.exr",
-  "output_denoised": "Render_scene_Sensor_0_denoised.exr"
+  "output_normal_png": "Render_scene_Sensor_0_normal.png",
+  "output_denoised": "Render_scene_Sensor_0_denoised.exr",
+  "output_denoised_png": "Render_scene_Sensor_0_denoised.png"
 }
 ```
 
@@ -66,7 +71,7 @@ The record is wrapped in:
 - `[JSON]`
 - `[ENDJSON]`
 
-`output_tonemap` keeps the old CI key name. The current implementation exports the rendered RWMC cascade view as the final screenshot, exports the AOV resources separately, and writes `output_denoised` through the internal postprocess hook.
+`output_tonemap` keeps the old CI key name. The current implementation resolves RWMC cascades into the `Beauty` image and exports that image as the final screenshot. `output_rwmc_cascades` is a debug export of the raw RWMC cascade resource, so it can match the final screenshot in single-cascade scenes. AOV resources are exported separately, and `output_denoised` is written through the internal postprocess hook. Each exported EXR also gets a PNG sibling with the same basename.
 
 ## Postprocess Hook
 
@@ -74,6 +79,6 @@ EX40 does not launch an external denoiser. The finalization step lives inside th
 
 - Immediate mode runs finalization after each sensor finishes.
 - Deferred mode queues finalization until shutdown with `--defer-denoise` or `-DEFER_DENOISE`.
-- Current finalization is a no-op copy from `output_tonemap` to `output_denoised`.
+- Current finalization is a no-op copy from `output_tonemap` to `output_denoised` for both EXR and PNG outputs.
 
-This keeps the CLI and JSON shape ready for the denoise, tonemap, bloom and Beauty resolve work without adding another executable boundary.
+This keeps the CLI and JSON shape ready for the denoise, tonemap and bloom work without adding another executable boundary.

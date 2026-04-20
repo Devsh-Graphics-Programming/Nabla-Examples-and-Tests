@@ -32,7 +32,7 @@ struct CCascades
     inline uint16_t3 __getCoord(const uint16_t cascadeIx)
     {
         uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
-        coord.z = coord.z*uint16_t(6)+cascadeIx;
+        coord.z = coord.z*(gSensor.lastCascadeIndex+uint16_t(1))+cascadeIx;
         return coord;
     }
 
@@ -299,6 +299,7 @@ void raygen()
                 closestInfo.geometricNormal *= sign(GdotV);
 
                 float32_t3 shadingNormal = closestInfo.geometricNormal;
+                const float32_t3 surfaceAlbedo = float32_t3(0.8,0.7,0.5);
 
                 // TODO: possible SER point based on NEE status, and material flags
 
@@ -306,7 +307,7 @@ void raygen()
                 SAOVThroughputs nextThroughput;
                 nextThroughput.clear(0.f);
                 SArbitraryOutputValues aovContrib;
-                aovContrib.albedo = float16_t3(1,1,1);
+                aovContrib.albedo = float16_t3(surfaceAlbedo);
                 aovContrib.normal = float16_t3(shadingNormal);
                 // obtain full next
                 nextThroughput = aovThroughput * nextThroughput;
@@ -431,8 +432,7 @@ void raygen()
                     if (forwardWeight<0.00000001f)
                         break;
 
-                    const float32_t3 albedo = float32_t3(0.8,0.7,0.5);
-                    throughput = throughput * qAw.quotient() * albedo;
+                    throughput = throughput * qAw.quotient() * surfaceAlbedo;
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f/forwardWeight;

@@ -165,8 +165,8 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		addImageWrite(SensorDSBindings::SampleCount,sampleCountView);
 		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R16G16B16A16_SFLOAT));
 		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
-		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
-		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
+		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_R16G16B16A16_SFLOAT);
+		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R16G16B16A16_SFLOAT]);
 		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_R16G16B16A16_SFLOAT);
 		auto albedoView = immutables.albedo.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
 		addImageWrite(SensorDSBindings::Albedo,albedoView);
@@ -190,7 +190,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			viewInfos[uint8_t(index_e::ScrambleKey)].desc = scrambleKeyView;
 			viewInfos[uint8_t(index_e::SampleCount)].desc = sampleCountView;
 			viewInfos[uint8_t(index_e::RWMCCascades)].desc = immutables.rwmcCascades.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
-			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32];
+			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
 			viewInfos[uint8_t(index_e::Albedo)].desc = albedoView;
 			viewInfos[uint8_t(index_e::Normal)].desc = normalView;
 			viewInfos[uint8_t(index_e::Motion)].desc = motionView;
