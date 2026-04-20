@@ -36,8 +36,8 @@ struct SceneBase
         static MatLightID createFromPacked(uint32_t packedID)
         {
             MatLightID retval;
-            retval.lightID.id = uint16_t(glsl::bitfieldExtract(packedID, 16, 16));
-            retval.matID.id = uint16_t(glsl::bitfieldExtract(packedID, 0, 16));
+            retval.lightID.id = _static_cast<uint16_t>(glsl::bitfieldExtract(packedID, 16, 16));
+            retval.matID.id = _static_cast<uint16_t>(glsl::bitfieldExtract(packedID, 0, 16));
             return retval;
         }
 

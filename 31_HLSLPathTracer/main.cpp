@@ -61,9 +61,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
-		static constexpr size_t BinaryToggleCount = 2ull;
 		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
-		static constexpr bool UsePersistentWorkGroups = true;
 		static constexpr uint32_t CiFramesBeforeCapture = 3u;
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
@@ -386,12 +384,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						return logFail("Failed to create resolve pipeline layout");
 				}
 
-				const auto ensureRenderShaderLoaded = [this](const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc) -> bool
+				const auto ensureRenderShaderLoaded = [this](const E_LIGHT_GEOMETRY geometry, const bool rwmc) -> bool
 				{
-					auto& shaderSlot = m_renderPipelines.getShaders(persistentWorkGroups, rwmc)[geometry];
+					auto& shaderSlot = m_renderPipelines.getShaders(rwmc)[geometry];
 					if (shaderSlot)
 						return true;
-					shaderSlot = loadRenderShader(geometry, persistentWorkGroups, rwmc);
+					shaderSlot = loadRenderShader(geometry, rwmc);
 					return static_cast<bool>(shaderSlot);
 				};
 				const auto ensureResolveShaderLoaded = [this]() -> bool
@@ -403,14 +401,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				const auto startupGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
-				if (!ensureRenderShaderLoaded(startupGeometry, UsePersistentWorkGroups, guiControlled.useRWMC))
+				if (!ensureRenderShaderLoaded(startupGeometry, guiControlled.useRWMC))
 					return logFail("Failed to load current precompiled compute shader variant");
 				if (guiControlled.useRWMC && !ensureResolveShaderLoaded())
 					return logFail("Failed to load precompiled resolve compute shader");
 
 				ensureRenderPipeline(
 					startupGeometry,
-					UsePersistentWorkGroups,
 					guiControlled.useRWMC,
 					static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
 				);
@@ -421,7 +418,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				{
 					for (const auto rwmc : { false, true })
 					{
-						if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), UsePersistentWorkGroups, rwmc))
+						if (!ensureRenderShaderLoaded(static_cast<E_LIGHT_GEOMETRY>(geometry), rwmc))
 							return logFail("Failed to load precompiled compute shader variant");
 					}
 				}
@@ -886,7 +883,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					const float panelMargin = 10.f;
 					const auto currentGeometry = static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline);
 					const auto requestedMethod = static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod);
-					const auto currentVariant = getRenderVariantInfo(currentGeometry, UsePersistentWorkGroups, requestedMethod);
+					const auto currentVariant = getRenderVariantInfo(currentGeometry, requestedMethod);
 					const size_t readyRenderPipelines = getReadyRenderPipelineCount();
 					const size_t totalRenderPipelines = getKnownRenderPipelineCount();
 					const size_t readyTotalPipelines = readyRenderPipelines + (m_resolvePipelineState.pipeline ? 1ull : 0ull);
@@ -2523,25 +2520,24 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			savePipelineCache();
 		}
 
-		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc)
+		smart_refctd_ptr<IShader> loadRenderShader(const E_LIGHT_GEOMETRY geometry, const bool rwmc)
 		{
-			(void)persistentWorkGroups;
 			switch (geometry)
 			{
-			case ELG_SPHERE:
-				if (rwmc)
-					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
-				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
-			case ELG_TRIANGLE:
-				if (rwmc)
-					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc.persistent")>();
-				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.persistent")>();
-			case ELG_RECTANGLE:
-				if (rwmc)
-					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc.persistent")>();
-				return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
-			default:
-				return nullptr;
+				case ELG_SPHERE:
+					if (rwmc)
+						return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere.rwmc")>();
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.sphere")>();
+				case ELG_TRIANGLE:
+					if (rwmc)
+						return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle.rwmc")>();
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.triangle")>();
+				case ELG_RECTANGLE:
+					if (rwmc)
+						return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle.rwmc")>();
+					return loadPrecompiledShader<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("pt.compute.rectangle")>();
+				default:
+					return nullptr;
 			}
 		}
 
@@ -2570,25 +2566,21 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		size_t getKnownRenderPipelineCount() const
 		{
 			size_t count = 0ull;
-			bool seen[ELG_COUNT][BinaryToggleCount][BinaryToggleCount][EPM_COUNT] = {};
+			bool seen[ELG_COUNT][2][EPM_COUNT] = {};
 			for (auto geometry = 0u; geometry < ELG_COUNT; ++geometry)
 			{
-				for (const auto persistentWorkGroups : { UsePersistentWorkGroups })
+				for (auto rwmc = 0u; rwmc < 2; ++rwmc)
 				{
-					for (auto rwmc = 0u; rwmc < BinaryToggleCount; ++rwmc)
+					for (auto method = 0u; method < EPM_COUNT; ++method)
 					{
-						for (auto method = 0u; method < EPM_COUNT; ++method)
-						{
-							const auto pipelineMethod = static_cast<size_t>(getRenderVariantInfo(
-								static_cast<E_LIGHT_GEOMETRY>(geometry),
-								static_cast<bool>(persistentWorkGroups),
-								static_cast<E_POLYGON_METHOD>(method)
-							).pipelineMethod);
-							if (seen[geometry][persistentWorkGroups][rwmc][pipelineMethod])
-								continue;
-							seen[geometry][persistentWorkGroups][rwmc][pipelineMethod] = true;
-							++count;
-						}
+						const auto pipelineMethod = static_cast<size_t>(getRenderVariantInfo(
+							static_cast<E_LIGHT_GEOMETRY>(geometry),
+							static_cast<E_POLYGON_METHOD>(method)
+						).pipelineMethod);
+						if (seen[geometry][rwmc][pipelineMethod])
+							continue;
+						seen[geometry][rwmc][pipelineMethod] = true;
+						++count;
 					}
 				}
 			}
@@ -2610,10 +2602,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return;
 				if (
 					existing.geometry == job.geometry &&
-					existing.persistentWorkGroups == job.persistentWorkGroups &&
 					existing.rwmc == job.rwmc &&
-					getRenderVariantInfo(existing.geometry, existing.persistentWorkGroups, existing.method).pipelineMethod ==
-					getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod
+					getRenderVariantInfo(existing.geometry, existing.method).pipelineMethod ==
+					getRenderVariantInfo(job.geometry, job.method).pipelineMethod
 				)
 					return;
 			}
@@ -2630,13 +2621,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				return m_resolvePipelineState.pendingPipeline.valid();
 			}
 
-			auto& pipelines = m_renderPipelines.getPipelines(job.persistentWorkGroups, job.rwmc);
-			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(job.persistentWorkGroups, job.rwmc);
-			const auto methodIx = static_cast<size_t>(getRenderVariantInfo(job.geometry, job.persistentWorkGroups, job.method).pipelineMethod);
+			auto& pipelines = m_renderPipelines.getPipelines(job.rwmc);
+			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(job.rwmc);
+			const auto methodIx = static_cast<size_t>(getRenderVariantInfo(job.geometry, job.method).pipelineMethod);
 			if (pipelines[job.geometry][methodIx] || pendingPipelines[job.geometry][methodIx].valid())
 				return false;
 
-			ensureRenderPipeline(job.geometry, job.persistentWorkGroups, job.rwmc, job.method);
+			ensureRenderPipeline(job.geometry, job.rwmc, job.method);
 			return pendingPipelines[job.geometry][methodIx].valid();
 		}
 
@@ -2760,11 +2751,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			);
 		}
 
-		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
+		IGPUComputePipeline* ensureRenderPipeline(const E_LIGHT_GEOMETRY geometry, const bool rwmc, const E_POLYGON_METHOD polygonMethod)
 		{
-			auto& pipelines = m_renderPipelines.getPipelines(persistentWorkGroups, rwmc);
-			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(persistentWorkGroups, rwmc);
-			const auto variantInfo = getRenderVariantInfo(geometry, persistentWorkGroups, polygonMethod);
+			auto& pipelines = m_renderPipelines.getPipelines(rwmc);
+			auto& pendingPipelines = m_renderPipelines.getPendingPipelines(rwmc);
+			const auto variantInfo = getRenderVariantInfo(geometry, polygonMethod);
 			const auto methodIx = static_cast<size_t>(variantInfo.pipelineMethod);
 			auto& pipeline = pipelines[geometry][methodIx];
 			auto& future = pendingPipelines[geometry][methodIx];
@@ -2775,7 +2766,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (!future.valid())
 			{
-				const auto& shaders = m_renderPipelines.getShaders(persistentWorkGroups, rwmc);
+				const auto& shaders = m_renderPipelines.getShaders(rwmc);
 				auto* const layout = rwmc ? m_rwmcRenderPipelineLayout.get() : m_renderPipelineLayout.get();
 				future = requestComputePipelineBuild(shaders[geometry], layout, variantInfo.entryPoint);
 			}
@@ -2819,7 +2810,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 							enqueueWarmupJob({
 								.type = SWarmupJob::E_TYPE::Render,
 								.geometry = geometry,
-								.persistentWorkGroups = UsePersistentWorkGroups,
 								.rwmc = rwmc,
 								.method = method
 							});
@@ -2897,7 +2887,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			return ensureRenderPipeline(
 				static_cast<E_LIGHT_GEOMETRY>(guiControlled.PTPipeline),
-				UsePersistentWorkGroups,
 				guiControlled.useRWMC,
 				static_cast<E_POLYGON_METHOD>(guiControlled.polygonMethod)
 			);
@@ -2909,7 +2898,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		SRenderPipelineStorage<BinaryToggleCount> m_renderPipelines;
+		SRenderPipelineStorage m_renderPipelines;
 		smart_refctd_ptr<IGPUPipelineLayout> m_renderPipelineLayout;
 		smart_refctd_ptr<IGPUPipelineLayout> m_rwmcRenderPipelineLayout;
 		SResolvePipelineState m_resolvePipelineState;

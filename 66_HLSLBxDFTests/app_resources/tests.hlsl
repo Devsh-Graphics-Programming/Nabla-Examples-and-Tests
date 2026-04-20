@@ -3,7 +3,8 @@
 
 #include "tests_common.hlsl"
 
-template<class BxDF, bool aniso = false>
+// Need to have a forwardPdf method for this test
+template<class BxDF, bool aniso = false> // TODO: require traits_t::TractablePdf
 struct TestJacobian : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
@@ -73,6 +74,7 @@ struct TestJacobian : TestBxDF<BxDF>
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
             sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, cache);
+            claimedPdf = base_t::bxdf.forwardPdf(s, base_t::isointer, cache);
             Li = base_t::bxdf.evalAndWeight(s, base_t::isointer);
             transmitted = base_t::isointer.getNdotV() * s.getNdotL() < 0.f;
         }
@@ -81,12 +83,14 @@ struct TestJacobian : TestBxDF<BxDF>
             NBL_IF_CONSTEXPR(aniso)
             {
                 sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::anisointer, cache);
+                claimedPdf = base_t::bxdf.forwardPdf(s, base_t::anisointer, cache);
                 Li = base_t::bxdf.evalAndWeight(s, base_t::anisointer, cache);
                 transmitted = cache.isTransmission();
             }
             else
             {
                 sampledLi = base_t::bxdf.quotientAndWeight(s, base_t::isointer, isocache);
+                claimedPdf = base_t::bxdf.forwardPdf(s, base_t::isointer, isocache);
                 Li = base_t::bxdf.evalAndWeight(s, base_t::isointer, isocache);
                 transmitted = isocache.isTransmission();
             }
@@ -112,16 +116,19 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (sampledLi.pdf() < 0.f)    // pdf should not be negative
+        if (!testing::relativeApproxCompare<float32_t3>(claimedPdf, sampledLi.weight(), 1e-4))
+            return BTR_ERROR_NEGATIVE_VAL; // TODO: add new error code
+
+        if (claimedPdf.pdf() < 0.f)    // pdf should not be negative
         {
 #ifndef __HLSL_VERSION
             if (verbose)
-                base_t::errMsg += std::format("pdf={}", sampledLi.pdf());
+                base_t::errMsg += std::format("pdf={}", sampledLi.weight());
 #endif
             return BTR_ERROR_NEGATIVE_VAL;
         }
 
-        if (sampledLi.pdf() < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
+        if (claimedPdf < bit_cast<float>(numeric_limits<float>::min))   // there's exceptional cases where pdf=0, so we check here to avoid adding all edge-cases, but quotient must be positive afterwards
             return BTR_NONE;
 
         if (checkLt<float32_t3>(Li.value(), hlsl::promote<float32_t3>(0.0)) || checkLt<float32_t3>(sampledLi.quotient(), hlsl::promote<float32_t3>(0.0)))
@@ -144,7 +151,7 @@ struct TestJacobian : TestBxDF<BxDF>
 		if (checkZero<float32_t3>(Li.value(), 1e-5) || checkZero<float32_t3>(sampledLi.quotient(), 1e-5))
             return BTR_NONE;
 
-        if (hlsl::isnan(sampledLi.pdf()))
+        if (hlsl::isnan(claimedPdf))
             return BTR_ERROR_GENERATED_SAMPLE_NAN_PDF;
 
         // get jacobian
@@ -154,7 +161,7 @@ struct TestJacobian : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (hlsl::isinf(sampledLi.pdf()))
+        if (hlsl::isinf(claimedPdf))
         {
             // if pdf is infinite then density is infinite and no differential area inbetween samples
             if (!checkZero<float>(det, numeric_limits<float>::min * base_t::rc.eps * base_t::rc.eps))
@@ -171,7 +178,7 @@ struct TestJacobian : TestBxDF<BxDF>
             return BTR_ERROR_JACOBIAN_TEST_FAIL;
         }
 
-        float32_t3 quo_pdf = sampledLi.value();
+        float32_t3 quo_pdf = sampledLi.quotient()*claimedPdf;
         if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.value(), 1e-4))
         {
 #ifndef __HLSL_VERSION
@@ -202,7 +209,8 @@ struct TestJacobian : TestBxDF<BxDF>
     }
 
     sample_t s, sx, sy;
-    quotient_pdf_t sampledLi;
+    quotient_weight_t sampledLi;
+    float claimedPdf;
     value_weight_t Li;
     bool transmitted;
     bool verbose;
@@ -220,8 +228,8 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     TestResult compute()
     {
-        aniso_cache cache, rec_cache;
-        iso_cache isocache, rec_isocache;
+        typename BxDF::anisocache_type cache, rec_cache;
+        typename BxDF::isocache_type isocache, rec_isocache;
 
         NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
@@ -286,11 +294,14 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_isointer.luminosityContributionHint = isointer.luminosityContributionHint;
         rec_anisointer = aniso_interaction_t::create(rec_isointer, base_t::rc.T, base_t::rc.B);
         rec_cache = cache;
-        rec_cache.iso_cache.VdotH = cache.iso_cache.getLdotH();
-        rec_cache.iso_cache.LdotH = cache.iso_cache.getVdotH();
         rec_isocache = isocache;
-        rec_isocache.VdotH = isocache.getLdotH();
-        rec_isocache.LdotH = isocache.getVdotH();
+        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+        {
+            rec_cache.iso_cache.VdotH = cache.iso_cache.getLdotH();
+            rec_cache.iso_cache.LdotH = cache.iso_cache.getVdotH();
+            rec_isocache.VdotH = isocache.getLdotH();
+            rec_isocache.LdotH = isocache.getVdotH();
+        }
         
         NBL_IF_CONSTEXPR(!traits_t::IsMicrofacet)
         {
@@ -330,10 +341,17 @@ struct TestReciprocity : TestBxDF<BxDF>
 
 #ifndef __HLSL_VERSION
         if (verbose)
-            base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}, VdotH: {}, LdotH: {}, NdotH: {}",
-                transmitted ? "true" : "false",
-                isointer.getNdotV(), s.getNdotL(),
-                aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH());
+        {
+            NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+                base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}, VdotH: {}, LdotH: {}, NdotH: {}",
+                    transmitted ? "true" : "false", isointer.getNdotV(), s.getNdotL(),
+                    aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH()
+                );
+            else
+                base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}",
+                    transmitted ? "true" : "false", isointer.getNdotV(), s.getNdotL()
+                );
+        }
 #endif
 
         return BTR_NONE;

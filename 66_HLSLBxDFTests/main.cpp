@@ -119,10 +119,6 @@ public:
         static_assert(bxdf::surface_interactions::Isotropic<aniso_interaction>);
         static_assert(bxdf::surface_interactions::Anisotropic<aniso_interaction>);
 
-        static_assert(bxdf::CreatableIsotropicMicrofacetCache<iso_cache>);
-        static_assert(bxdf::ReadableIsotropicMicrofacetCache<aniso_cache>);
-        static_assert(bxdf::AnisotropicMicrofacetCache<aniso_cache>);
-
         using ndf_beckmann_t = bxdf::ndf::Beckmann<float, false, bxdf::ndf::MTT_REFLECT>;
         static_assert(bxdf::ndf::NDF<ndf_beckmann_t>);
         using ndf_ggx_t = bxdf::ndf::GGX<float, true, bxdf::ndf::MTT_REFLECT_REFRACT>;
@@ -202,7 +198,7 @@ private:
             for (volatile bool repeat = true; IsDebuggerPresent() && repeat && error < BTR_NOBREAK; )
             {
                 repeat = false;
-                _NBL_DEBUG_BREAK_IF(true);
+//                _NBL_DEBUG_BREAK_IF(true);
                 failedFor.compute();
             }
 #endif
