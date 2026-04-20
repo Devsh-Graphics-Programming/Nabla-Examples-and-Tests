@@ -5,10 +5,10 @@
 #include "argparse/argparse.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 #include "nbl/examples/examples.hpp"
-#include "nbl/asset/filters/CSwizzleAndConvertImageFilter.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 #include "io/RuntimeConfig.h"
+#include "io/PathTracerReport.h"
 #include "renderer/CRenderer.h"
 #include "renderer/resolve/CBasicRWMCResolver.h"
 #include "renderer/present/CWindowPresenter.h"
@@ -21,12 +21,17 @@
 #include <deque>
 #include <execution>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
+#ifndef NBL_THIS_EXAMPLE_BUILD_CONFIG
+#define NBL_THIS_EXAMPLE_BUILD_CONFIG "unknown"
+#endif
 
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -54,36 +59,39 @@ struct AppArguments
 {
 	path scenePath = {};
 	std::optional<path> sceneEntry = std::nullopt;
+	path sceneListPath = {};
 	SensorWorkflow workflow = SensorWorkflow::RenderAllThenInteractive;
 	uint32_t sensor = 0u;
 	bool headless = false;
 	bool deferPostProcess = false;
 	path outputDir = {};
+	path reportDir = {};
+	path referenceDir = {};
+	PathTracerReport::SCompareSettings compare = {};
+};
+
+struct SceneJob
+{
+	path scenePath = {};
+	std::optional<path> sceneEntry = std::nullopt;
+	uint32_t sensor = 0u;
+	bool deferPostProcess = false;
+	PathTracerReport::SCompareSettings compare = {};
 };
 
 struct ExportOutputs
 {
 	path tonemap = {};
-	path tonemapPng = {};
 	path rwmcCascades = {};
-	path rwmcCascadesPng = {};
 	path albedo = {};
-	path albedoPng = {};
 	path normal = {};
-	path normalPng = {};
 	path denoised = {};
-	path denoisedPng = {};
 
 	std::string tonemapDisplay = {};
-	std::string tonemapPngDisplay = {};
 	std::string rwmcCascadesDisplay = {};
-	std::string rwmcCascadesPngDisplay = {};
 	std::string albedoDisplay = {};
-	std::string albedoPngDisplay = {};
 	std::string normalDisplay = {};
-	std::string normalPngDisplay = {};
 	std::string denoisedDisplay = {};
-	std::string denoisedPngDisplay = {};
 };
 
 struct PostProcessJob
@@ -136,6 +144,63 @@ bool hasZipExtension(const path& filePath)
 	return toLowerCopy(filePath.extension().string())==".zip";
 }
 
+void splitSceneArchiveEntry(std::string& sceneValue, std::optional<std::string>& sceneEntry)
+{
+	if (const auto lowered = toLowerCopy(sceneValue); lowered.find(".zip")!=std::string::npos)
+	{
+		const auto zipPos = lowered.find(".zip");
+		const size_t entryPos = sceneValue.find_first_not_of(" \t",zipPos+4u);
+		if (entryPos!=std::string::npos)
+		{
+			sceneEntry = trim(sceneValue.substr(entryPos));
+			sceneValue = trim(sceneValue.substr(0u,zipPos+4u));
+		}
+	}
+}
+
+std::vector<std::string> tokenizeSceneListLine(std::string_view line)
+{
+	std::vector<std::string> tokens;
+	std::string token;
+	bool quoted = false;
+	char quote = 0;
+
+	for (const char c : line)
+	{
+		if (quoted)
+		{
+			if (c==quote)
+				quoted = false;
+			else
+				token += c;
+			continue;
+		}
+
+		if (c=='\"' || c=='\'')
+		{
+			quoted = true;
+			quote = c;
+			continue;
+		}
+
+		if (std::isspace(static_cast<unsigned char>(c)))
+		{
+			if (!token.empty())
+			{
+				tokens.push_back(std::move(token));
+				token.clear();
+			}
+			continue;
+		}
+
+		token += c;
+	}
+
+	if (!token.empty())
+		tokens.push_back(std::move(token));
+	return tokens;
+}
+
 std::optional<SensorWorkflow> parseSensorWorkflow(std::string_view rawValue)
 {
 	const auto lowered = toLowerCopy(rawValue);
@@ -158,10 +223,25 @@ path appendBeforeExtension(path input, std::string_view suffix)
 	return input;
 }
 
-path replaceExtension(path input, const path& extension)
+std::string sanitizeReportName(std::string input)
 {
-	input.replace_extension(extension);
+	for (char& c : input)
+	{
+		const auto uc = static_cast<unsigned char>(c);
+		if (!std::isalnum(uc) && c!='_' && c!='-' && c!='.')
+			c = '_';
+	}
+	if (input.empty())
+		return "scene";
 	return input;
+}
+
+std::string sceneNameFromOutputPath(const path& outputPath)
+{
+	auto name = outputPath.stem().string();
+	if (name.rfind("Render_",0u)==0u)
+		name.erase(0u,std::char_traits<char>::length("Render_"));
+	return sanitizeReportName(name);
 }
 
 std::string makeGenericPathString(const path& input)
@@ -186,20 +266,9 @@ std::vector<std::string> normalizeCompatibleArguments(const nbl::core::vector<st
 		{
 			auto sceneValue = stripWrappingQuotes(token.substr(7u));
 			std::optional<std::string> sceneEntry = std::nullopt;
-			if (const auto lowered = toLowerCopy(sceneValue); lowered.find(".zip")!=std::string::npos)
-			{
-				const auto zipPos = lowered.find(".zip");
-				const size_t entryPos = sceneValue.find_first_not_of(" \t",zipPos+4u);
-				if (entryPos!=std::string::npos)
-				{
-					sceneEntry = trim(sceneValue.substr(entryPos));
-					sceneValue = trim(sceneValue.substr(0u,zipPos+4u));
-				}
-				else if (i+1u<rawArguments.size() && !isOptionToken(rawArguments[i+1u]))
-				{
-					sceneEntry = stripWrappingQuotes(rawArguments[++i]);
-				}
-			}
+			splitSceneArchiveEntry(sceneValue,sceneEntry);
+			if (sceneEntry==std::nullopt && hasZipExtension(path(sceneValue)) && i+1u<rawArguments.size() && !isOptionToken(rawArguments[i+1u]))
+				sceneEntry = stripWrappingQuotes(rawArguments[++i]);
 
 			normalized.push_back("--scene");
 			normalized.push_back(sceneValue);
@@ -282,15 +351,19 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		target["latestTagName"] = info.latestTagName;
 	}
 
-	void printGitInfos() const
+	std::string makeBuildInfoJson() const
 	{
 		nlohmann_json j;
 
 		auto& modules = j["modules"];
 		jsonizeGitInfo(modules["nabla"],nbl::gtml::nabla_git_info);
 		jsonizeGitInfo(modules["dxc"],nbl::gtml::dxc_git_info);
+		return j.dump(4);
+	}
 
-		m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,j.dump(4).c_str());
+	void printGitInfos() const
+	{
+		m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,m_buildInfoJson.c_str());
 	}
 
 	path resolvePathAgainstCurrentWorkingDirectory(const path& candidate) const
@@ -298,6 +371,181 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		if (candidate.empty() || candidate.is_absolute())
 			return candidate;
 		return (std::filesystem::current_path()/candidate).lexically_normal();
+	}
+
+	void normalizeSceneArchiveFallback(SceneJob& job) const
+	{
+		if (!hasZipExtension(job.scenePath) || std::filesystem::exists(job.scenePath))
+			return;
+
+		path unpackedDirectory = job.scenePath;
+		unpackedDirectory.replace_extension();
+		const path entry = job.sceneEntry.value_or(path("scene.xml"));
+		const path unpackedScene = (unpackedDirectory/entry).lexically_normal();
+		if (!std::filesystem::exists(unpackedScene))
+			return;
+
+		job.scenePath = unpackedScene;
+		job.sceneEntry = std::nullopt;
+	}
+
+	bool readOptionDouble(const std::vector<std::string>& tokens, size_t& index, std::string_view option, double& outValue) const
+	{
+		const auto& token = tokens[index];
+		std::string rawValue;
+		const std::string optionWithEquals = std::string(option)+"=";
+		if (token.rfind(optionWithEquals,0u)==0u)
+			rawValue = token.substr(optionWithEquals.size());
+		else
+		{
+			if (index+1u>=tokens.size())
+			{
+				std::fprintf(stderr,"Scene list option %s requires a value.\n",std::string(option).c_str());
+				return false;
+			}
+			rawValue = tokens[++index];
+		}
+
+		try
+		{
+			outValue = std::stod(rawValue);
+		}
+		catch (const std::exception&)
+		{
+			std::fprintf(stderr,"Scene list option %s has invalid value: %s\n",std::string(option).c_str(),rawValue.c_str());
+			return false;
+		}
+		return true;
+	}
+
+	bool parseSceneListJob(const std::vector<std::string>& tokens, const uint32_t lineNumber, SceneJob& job) const
+	{
+		job.sensor = m_args.sensor;
+		job.deferPostProcess = m_args.deferPostProcess;
+		job.compare = m_args.compare;
+
+		std::optional<std::string> sceneValue;
+		for (size_t i=0u; i<tokens.size(); ++i)
+		{
+			const auto& token = tokens[i];
+			using mode_t = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode;
+
+			if (token=="--abs")
+			{
+				job.compare.allowedErrorPixelMode = mode_t::AbsoluteCount;
+				continue;
+			}
+			if (token=="--rel")
+			{
+				job.compare.allowedErrorPixelMode = mode_t::RelativeToResolution;
+				continue;
+			}
+			if (token=="--errcount" || token.rfind("--errcount=",0u)==0u)
+			{
+				double value = 0.0;
+				if (!readOptionDouble(tokens,i,"--errcount",value))
+					return false;
+				if (job.compare.allowedErrorPixelMode==mode_t::AbsoluteCount)
+					job.compare.allowedErrorPixelCount = static_cast<uint64_t>(std::ceil(std::max(0.0,value)));
+				else
+					job.compare.allowedErrorPixelRatio = value;
+				continue;
+			}
+			if (token=="--errpixel" || token.rfind("--errpixel=",0u)==0u)
+			{
+				if (!readOptionDouble(tokens,i,"--errpixel",job.compare.errorThreshold))
+					return false;
+				continue;
+			}
+			if (token=="--errssim" || token.rfind("--errssim=",0u)==0u)
+			{
+				if (!readOptionDouble(tokens,i,"--errssim",job.compare.ssimErrorThreshold))
+					return false;
+				continue;
+			}
+			if (token=="--epsilon" || token.rfind("--epsilon=",0u)==0u)
+			{
+				if (!readOptionDouble(tokens,i,"--epsilon",job.compare.epsilon))
+					return false;
+				continue;
+			}
+			if (token=="-DEFER_DENOISE" || token=="--defer-denoise")
+			{
+				job.deferPostProcess = true;
+				continue;
+			}
+			if (token=="-TERMINATE")
+				continue;
+
+			if (isOptionToken(token))
+			{
+				std::fprintf(stderr,"Unsupported scene list option on line %u: %s\n",lineNumber,token.c_str());
+				return false;
+			}
+
+			if (!sceneValue.has_value())
+			{
+				sceneValue = token;
+				continue;
+			}
+			if (hasZipExtension(path(sceneValue.value())) && !job.sceneEntry.has_value())
+			{
+				job.sceneEntry = path(token);
+				continue;
+			}
+
+			std::fprintf(stderr,"Unexpected scene list token on line %u: %s\n",lineNumber,token.c_str());
+			return false;
+		}
+
+		if (!sceneValue.has_value())
+		{
+			std::fprintf(stderr,"Scene list line %u does not contain a scene path.\n",lineNumber);
+			return false;
+		}
+
+		std::optional<std::string> archiveEntry;
+		auto sceneText = sceneValue.value();
+		splitSceneArchiveEntry(sceneText,archiveEntry);
+		job.scenePath = resolvePathAgainstCurrentWorkingDirectory(path(stripWrappingQuotes(sceneText)));
+		if (archiveEntry.has_value())
+			job.sceneEntry = path(stripWrappingQuotes(archiveEntry.value()));
+		normalizeSceneArchiveFallback(job);
+		return true;
+	}
+
+	bool loadSceneList(path sceneListPath)
+	{
+		sceneListPath = resolvePathAgainstCurrentWorkingDirectory(sceneListPath);
+		std::ifstream file(sceneListPath);
+		if (!file)
+		{
+			std::fprintf(stderr,"Failed to open scene list: %s\n",sceneListPath.string().c_str());
+			return false;
+		}
+
+		std::string line;
+		uint32_t lineNumber = 0u;
+		while (std::getline(file,line))
+		{
+			++lineNumber;
+			const auto stripped = trim(line);
+			if (stripped.empty() || stripped.front()==';')
+				continue;
+
+			SceneJob job;
+			if (!parseSceneListJob(tokenizeSceneListLine(stripped),lineNumber,job))
+				return false;
+			m_sceneJobs.push_back(std::move(job));
+		}
+
+		if (m_sceneJobs.empty())
+		{
+			std::fprintf(stderr,"Scene list does not contain any runnable scenes: %s\n",sceneListPath.string().c_str());
+			return false;
+		}
+		m_args.sceneListPath = sceneListPath;
+		return true;
 	}
 
 	bool parseCommandLine()
@@ -315,6 +563,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		parser.add_description("Path tracer CLI with ditt-compatible Mitsuba scene loading and sensor batch processing.");
 		parser.add_argument("--scene")
 			.help("Path to a Mitsuba XML file or a ZIP archive.");
+		parser.add_argument("--scene-list")
+			.help("Text file with old CI scene lines to render into a single report.");
 		parser.add_argument("--scene-entry")
 			.help("Optional XML path inside a ZIP archive.");
 		parser.add_argument("--mode","--process-sensors")
@@ -334,6 +584,29 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			.implicit_value(true);
 		parser.add_argument("--output-dir")
 			.help("Prefix directory for relative film output paths.");
+		parser.add_argument("--report-dir")
+			.help("Directory for the self-contained HTML report bundle.");
+		parser.add_argument("--reference-dir")
+			.help("Optional directory with reference EXR files for native image comparison.");
+		parser.add_argument("--compare-error-threshold")
+			.help("Relative per-channel error threshold for native image comparison.")
+			.scan<'g',double>()
+			.default_value(0.05);
+		parser.add_argument("--compare-epsilon")
+			.help("Absolute epsilon used before relative image comparison.")
+			.scan<'g',double>()
+			.default_value(0.00001);
+		parser.add_argument("--compare-allowed-error-ratio")
+			.help("Allowed ratio of pixels that may exceed the native comparison threshold.")
+			.scan<'g',double>()
+			.default_value(0.0001);
+		parser.add_argument("--compare-allowed-error-count")
+			.help("Absolute allowed count of pixels that may exceed the native comparison threshold.")
+			.scan<'g',double>();
+		parser.add_argument("--compare-ssim-threshold")
+			.help("Maximum allowed SSIM difference for denoised output comparison.")
+			.scan<'g',double>()
+			.default_value(0.001);
 
 		try
 		{
@@ -344,17 +617,6 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			std::fprintf(stderr,"Failed to parse arguments: %s\n", e.what());
 			return false;
 		}
-
-		const auto sceneValue = parser.present("--scene");
-		if (!sceneValue.has_value())
-		{
-			std::fprintf(stderr,"Scene path is required. Use --scene or -SCENE=...\n");
-			return false;
-		}
-
-		m_args.scenePath = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(sceneValue.value()));
-		if (const auto sceneEntry = parser.present("--scene-entry"); sceneEntry.has_value())
-			m_args.sceneEntry = path(stripWrappingQuotes(sceneEntry.value()));
 
 		const auto workflowName = parser.get<std::string>("--process-sensors");
 		const auto workflow = parseSensorWorkflow(workflowName);
@@ -370,6 +632,45 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 
 		if (const auto outputDir = parser.present("--output-dir"); outputDir.has_value())
 			m_args.outputDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(outputDir.value()));
+		if (const auto reportDir = parser.present("--report-dir"); reportDir.has_value())
+			m_args.reportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(reportDir.value()));
+		if (const auto referenceDir = parser.present("--reference-dir"); referenceDir.has_value())
+			m_args.referenceDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(referenceDir.value()));
+		m_args.compare.errorThreshold = parser.get<double>("--compare-error-threshold");
+		m_args.compare.epsilon = parser.get<double>("--compare-epsilon");
+		m_args.compare.allowedErrorPixelRatio = parser.get<double>("--compare-allowed-error-ratio");
+		if (const auto allowedErrorCount = parser.present<double>("--compare-allowed-error-count"); allowedErrorCount.has_value())
+		{
+			m_args.compare.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::AbsoluteCount;
+			m_args.compare.allowedErrorPixelCount = static_cast<uint64_t>(std::ceil(std::max(0.0,allowedErrorCount.value())));
+		}
+		m_args.compare.ssimErrorThreshold = parser.get<double>("--compare-ssim-threshold");
+
+		const auto sceneValue = parser.present("--scene");
+		const auto sceneListValue = parser.present("--scene-list");
+		if (sceneValue.has_value() && sceneListValue.has_value())
+		{
+			std::fprintf(stderr,"Use either --scene or --scene-list, not both.\n");
+			return false;
+		}
+		if (!sceneValue.has_value() && !sceneListValue.has_value())
+		{
+			std::fprintf(stderr,"Scene path is required. Use --scene, --scene-list or -SCENE=...\n");
+			return false;
+		}
+
+		if (sceneListValue.has_value())
+			return loadSceneList(path(stripWrappingQuotes(sceneListValue.value())));
+
+		SceneJob job;
+		job.scenePath = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(sceneValue.value()));
+		if (const auto sceneEntry = parser.present("--scene-entry"); sceneEntry.has_value())
+			job.sceneEntry = path(stripWrappingQuotes(sceneEntry.value()));
+		job.sensor = m_args.sensor;
+		job.deferPostProcess = m_args.deferPostProcess;
+		job.compare = m_args.compare;
+		normalizeSceneArchiveFallback(job);
+		m_sceneJobs.push_back(std::move(job));
 
 		return true;
 	}
@@ -390,9 +691,102 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		return std::filesystem::current_path();
 	}
 
+	bool failSceneJob(const char* message)
+	{
+		m_lastSceneLoadError = message ? message:"Scene failed before render session was queued.";
+		return logFail(m_lastSceneLoadError.c_str());
+	}
+
+	std::string sceneNameForJob(const SceneJob& job) const
+	{
+		auto baseName = job.scenePath.stem().string();
+		if (baseName=="scene" && job.scenePath.has_parent_path())
+			baseName = job.scenePath.parent_path().filename().string();
+		return sanitizeReportName(baseName+"_Sensor_"+std::to_string(job.sensor));
+	}
+
+	void recordFailedSceneJob(const SceneJob& job)
+	{
+		if (!m_report)
+			return;
+
+		const auto sceneName = sceneNameForJob(job);
+		m_report->addSession(PathTracerReport::SSession{
+			.sceneName = sceneName,
+			.displayName = sceneName,
+			.scenePath = job.scenePath,
+			.sensorIndex = job.sensor,
+			.status = "failed",
+			.details = m_lastSceneLoadError.empty() ? "Scene failed before render session was queued.":m_lastSceneLoadError,
+			.compare = job.compare
+		});
+	}
+
 	bool shouldExitAfterQueue() const
 	{
 		return m_args.headless || m_args.workflow==SensorWorkflow::RenderAllThenTerminate;
+	}
+
+	std::string makePortableCommandLineArgument(std::string argument) const
+	{
+		if (argument.empty())
+			return argument;
+
+		const auto equals = argument.find('=');
+		if (equals!=std::string::npos && equals+1u<argument.size())
+			return argument.substr(0u,equals+1u)+makePortableCommandLineArgument(argument.substr(equals+1u));
+
+		const auto stripped = stripWrappingQuotes(argument);
+		path argumentPath = stripped;
+		if (!argumentPath.is_absolute())
+			return argument;
+
+		std::error_code ec;
+		auto relative = std::filesystem::relative(argumentPath,std::filesystem::current_path(),ec);
+		if (!ec && !relative.empty())
+			return relative.generic_string();
+		return argumentPath.filename().generic_string();
+	}
+
+	std::string makeCommandLine() const
+	{
+		std::string commandLine;
+		for (size_t i=0u; i<argv.size(); ++i)
+		{
+			std::string argument = i==0u ? path(argv[i]).filename().string():makePortableCommandLineArgument(argv[i]);
+			if (!commandLine.empty())
+				commandLine += ' ';
+			if (argument.find_first_of(" \t\"")!=std::string::npos)
+				commandLine += '"' + argument + '"';
+			else
+				commandLine += argument;
+		}
+		return commandLine;
+	}
+
+	path getReportDirectory() const
+	{
+		if (!m_args.reportDir.empty())
+			return m_args.reportDir;
+		if (!m_args.outputDir.empty())
+			return m_args.outputDir;
+		return localOutputCWD;
+	}
+
+	void createReport()
+	{
+		m_report = std::make_unique<PathTracerReport>(PathTracerReport::SCreationParams{
+			.reportDir = getReportDirectory(),
+			.referenceDir = m_args.referenceDir,
+			.workingDirectory = std::filesystem::current_path(),
+			.lowDiscrepancySequenceCachePath = sharedOutputCWD/nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename,
+			.commandLine = makeCommandLine(),
+			.buildConfig = NBL_THIS_EXAMPLE_BUILD_CONFIG,
+			.buildInfoJson = m_buildInfoJson,
+			.compare = m_args.compare,
+			.assetManager = m_assetMgr.get(),
+			.logger = m_logger.get()
+		});
 	}
 
 public:
@@ -415,7 +809,9 @@ public:
 		else if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
 
+		m_buildInfoJson = makeBuildInfoJson();
 		printGitInfos();
+		createReport();
 
 		if (!m_args.headless)
 		{
@@ -468,7 +864,42 @@ public:
 		if (!m_sceneLoader)
 			return logFail("Failed to create CSceneLoader");
 
-		return initializeSceneAndQueueSessions();
+		if (!loadNextSceneJob())
+			m_exitRequested = true;
+		return true;
+	}
+
+	bool loadNextSceneJob()
+	{
+		while (m_nextSceneJob<m_sceneJobs.size())
+		{
+			while (!m_sessionQueue.empty())
+				m_sessionQueue.pop();
+
+			if (m_resolver && m_resolver->getActiveSession())
+			{
+				if (m_device && m_device->waitIdle()!=IQueue::RESULT::SUCCESS)
+					return logFail("Failed to idle the device before loading the next scene.");
+				m_resolver->clearSession();
+			}
+			m_scene = {};
+
+			const auto job = m_sceneJobs[m_nextSceneJob++];
+			m_args.scenePath = job.scenePath;
+			m_args.sceneEntry = job.sceneEntry;
+			m_args.sensor = job.sensor;
+			m_args.deferPostProcess = job.deferPostProcess;
+			m_args.compare = job.compare;
+			m_lastFinalizedSession = nullptr;
+			m_lastSceneLoadError.clear();
+
+			m_logger->log("Starting scene job %u/%u",ILogger::ELL_INFO,static_cast<uint32_t>(m_nextSceneJob),static_cast<uint32_t>(m_sceneJobs.size()));
+			if (initializeSceneAndQueueSessions())
+				return true;
+			recordFailedSceneJob(job);
+		}
+
+		return false;
 	}
 
 	bool initializeSceneAndQueueSessions()
@@ -484,11 +915,11 @@ public:
 			.converter = nullptr
 		});
 		if (!m_scene)
-			return logFail("Could not create scene");
+			return failSceneJob("Could not create scene");
 
 		const auto sensors = m_scene->getSensors();
 		if (sensors.empty())
-			return logFail("Loaded scene does not expose any sensors.");
+			return failSceneJob("Loaded scene does not expose any sensors.");
 
 		uint32_t sensorIndex = m_args.sensor;
 		if (sensorIndex>=sensors.size())
@@ -517,13 +948,13 @@ public:
 				for (uint32_t index = sensorIndex; index < sensors.size(); ++index)
 				{
 					if (!enqueueSensor(index))
-						return logFail("Failed to queue render sessions");
+						return failSceneJob("Failed to queue render sessions");
 				}
 				break;
 			case SensorWorkflow::RenderSensorThenInteractive:
 			case SensorWorkflow::InteractiveAtSensor:
 				if (!enqueueSensor(sensorIndex))
-					return logFail("Failed to queue render sessions");
+					return failSceneJob("Failed to queue render sessions");
 				break;
 		}
 
@@ -583,26 +1014,16 @@ public:
 
 		ExportOutputs outputs;
 		outputs.tonemap = outputFile;
-		outputs.tonemapPng = replaceExtension(outputFile,".png");
 		outputs.rwmcCascades = appendBeforeExtension(outputFile,"_rwmc_cascades");
-		outputs.rwmcCascadesPng = replaceExtension(outputs.rwmcCascades,".png");
 		outputs.albedo = appendBeforeExtension(outputFile,"_albedo");
-		outputs.albedoPng = replaceExtension(outputs.albedo,".png");
 		outputs.normal = appendBeforeExtension(outputFile,"_normal");
-		outputs.normalPng = replaceExtension(outputs.normal,".png");
 		outputs.denoised = appendBeforeExtension(outputFile,"_denoised");
-		outputs.denoisedPng = replaceExtension(outputs.denoised,".png");
 
 		outputs.tonemapDisplay = makeDisplayPath(outputs.tonemap);
-		outputs.tonemapPngDisplay = makeDisplayPath(outputs.tonemapPng);
 		outputs.rwmcCascadesDisplay = makeDisplayPath(outputs.rwmcCascades);
-		outputs.rwmcCascadesPngDisplay = makeDisplayPath(outputs.rwmcCascadesPng);
 		outputs.albedoDisplay = makeDisplayPath(outputs.albedo);
-		outputs.albedoPngDisplay = makeDisplayPath(outputs.albedoPng);
 		outputs.normalDisplay = makeDisplayPath(outputs.normal);
-		outputs.normalPngDisplay = makeDisplayPath(outputs.normalPng);
 		outputs.denoisedDisplay = makeDisplayPath(outputs.denoised);
-		outputs.denoisedPngDisplay = makeDisplayPath(outputs.denoisedPng);
 		return outputs;
 	}
 
@@ -662,83 +1083,7 @@ public:
 		return ICPUImageView::create(std::move(viewParams));
 	}
 
-	smart_refctd_ptr<ICPUImage> createPngPreviewImage(const ICPUImageView* sourceView) const
-	{
-		if (!sourceView)
-			return nullptr;
-
-		constexpr auto OutputFormat = E_FORMAT::EF_R8G8B8A8_SRGB;
-		const auto& sourceViewParams = sourceView->getCreationParameters();
-		auto sourceImage = sourceViewParams.image;
-		if (!sourceImage)
-			return nullptr;
-
-		const auto& sourceSubresource = sourceViewParams.subresourceRange;
-		const auto sourceMipLevel = sourceSubresource.baseMipLevel;
-		const auto sourceBaseLayer = sourceSubresource.baseArrayLayer;
-		const auto sourceExtent = sourceImage->getMipSize(sourceMipLevel);
-		const uint32_t width = sourceExtent.x;
-		const uint32_t height = sourceExtent.y;
-		if (width==0u || height==0u)
-			return nullptr;
-
-		IImage::SCreationParams imageParams = {};
-		imageParams.type = IImage::ET_2D;
-		imageParams.format = OutputFormat;
-		imageParams.extent = {width,height,1u};
-		imageParams.mipLevels = 1u;
-		imageParams.arrayLayers = 1u;
-		imageParams.samples = IImage::ESCF_1_BIT;
-		imageParams.usage = IImage::EUF_SAMPLED_BIT;
-		auto outputImage = ICPUImage::create(std::move(imageParams));
-		if (!outputImage)
-			return nullptr;
-
-		auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
-		auto& region = regions->front();
-		region.bufferOffset = 0u;
-		region.bufferRowLength = width;
-		region.bufferImageHeight = height;
-		region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0u;
-		region.imageSubresource.baseArrayLayer = 0u;
-		region.imageSubresource.layerCount = 1u;
-		region.imageExtent = {width,height,1u};
-		region.imageOffset = {0u,0u,0u};
-
-		const auto outputPixelSize = getTexelOrBlockBytesize(OutputFormat);
-		const uint64_t outputSize = uint64_t(width)*uint64_t(height)*outputPixelSize;
-		auto outputBuffer = ICPUBuffer::create({outputSize});
-		if (!outputBuffer)
-			return nullptr;
-		outputImage->setBufferAndRegions(std::move(outputBuffer),std::move(regions));
-		using convert_filter_t = CSwizzleAndConvertImageFilter<EF_UNKNOWN,EF_UNKNOWN,DefaultSwizzle,IdentityDither,void,true>;
-		convert_filter_t::state_type state = {};
-		static_cast<DefaultSwizzle&>(state).swizzle = {
-			ICPUImageView::SComponentMapping::ES_R,
-			ICPUImageView::SComponentMapping::ES_G,
-			ICPUImageView::SComponentMapping::ES_B,
-			ICPUImageView::SComponentMapping::ES_ONE
-		};
-		state.inImage = sourceImage.get();
-		state.outImage = outputImage.get();
-		state.inOffset = {0,0,0};
-		state.inBaseLayer = sourceBaseLayer;
-		state.outOffset = {0,0,0};
-		state.outBaseLayer = 0u;
-		state.extent = {width,height,1u};
-		state.layerCount = 1u;
-		state.inMipLevel = sourceMipLevel;
-		state.outMipLevel = 0u;
-		if (!convert_filter_t::execute(nbl::core::execution::seq,&state))
-		{
-			m_logger->log("Failed to convert readback image to PNG preview format",ILogger::ELL_ERROR);
-			return nullptr;
-		}
-		return outputImage;
-	}
-
-	bool exportImageView(const IGPUImageView* view, const path& exrDestination, const path& pngDestination) const
+	bool exportImageView(const IGPUImageView* view, const path& exrDestination) const
 	{
 		if (!view)
 			return false;
@@ -756,12 +1101,7 @@ public:
 			m_logger->log("Failed to read back image for export",ILogger::ELL_ERROR);
 			return false;
 		}
-		if (!writeImageView(cpuImageView.get(),exrDestination))
-			return false;
-
-		auto pngImage = createPngPreviewImage(cpuImageView.get());
-		auto pngImageView = makeImageView(std::move(pngImage));
-		return writeImageView(pngImageView.get(),pngDestination);
+		return writeImageView(cpuImageView.get(),exrDestination);
 	}
 
 	bool copyOutputFile(const path& source, const path& destination) const
@@ -789,7 +1129,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(tonemapView,outputs.tonemap,outputs.tonemapPng))
+		if (!exportImageView(tonemapView,outputs.tonemap))
 			return false;
 
 		const auto* const rwmcCascadesView = immutables.rwmcCascades.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -798,7 +1138,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(rwmcCascadesView,outputs.rwmcCascades,outputs.rwmcCascadesPng))
+		if (!exportImageView(rwmcCascadesView,outputs.rwmcCascades))
 			return false;
 
 		const auto* const albedoView = immutables.albedo.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -807,7 +1147,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(albedoView,outputs.albedo,outputs.albedoPng))
+		if (!exportImageView(albedoView,outputs.albedo))
 			return false;
 
 		const auto* const normalView = immutables.normal.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
@@ -816,7 +1156,7 @@ public:
 			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
-		if (!exportImageView(normalView,outputs.normal,outputs.normalPng))
+		if (!exportImageView(normalView,outputs.normal))
 			return false;
 
 		return true;
@@ -835,25 +1175,41 @@ public:
 
 	bool runPostProcessJob(const PostProcessJob& job)
 	{
-		return copyOutputFile(job.outputs.tonemap,job.outputs.denoised) &&
-			copyOutputFile(job.outputs.tonemapPng,job.outputs.denoisedPng);
+		return copyOutputFile(job.outputs.tonemap,job.outputs.denoised);
 	}
 
 	void emitOutputJson(const ExportOutputs& outputs) const
 	{
 		nlohmann_json payload = {
 			{"output_tonemap",outputs.tonemapDisplay},
-			{"output_tonemap_png",outputs.tonemapPngDisplay},
 			{"output_rwmc_cascades",outputs.rwmcCascadesDisplay},
-			{"output_rwmc_cascades_png",outputs.rwmcCascadesPngDisplay},
 			{"output_albedo",outputs.albedoDisplay},
-			{"output_albedo_png",outputs.albedoPngDisplay},
 			{"output_normal",outputs.normalDisplay},
-			{"output_normal_png",outputs.normalPngDisplay},
-			{"output_denoised",outputs.denoisedDisplay},
-			{"output_denoised_png",outputs.denoisedPngDisplay}
+			{"output_denoised",outputs.denoisedDisplay}
 		};
 		std::cout << "[JSON] " << payload.dump() << "\n[ENDJSON]\n";
+	}
+
+	bool addReportSession(const ExportOutputs& outputs)
+	{
+		if (!m_report)
+			return true;
+
+		const auto sceneName = sceneNameFromOutputPath(outputs.tonemap);
+		PathTracerReport::SSession reportSession;
+		reportSession.sceneName = sceneName;
+		reportSession.displayName = sceneName;
+		reportSession.scenePath = m_args.scenePath;
+		reportSession.sensorIndex = m_args.sensor;
+		reportSession.compare = m_args.compare;
+		reportSession.images = {
+			{"tonemap","Tonemap",outputs.tonemap},
+			{"rwmc_cascades","RWMC Cascades",outputs.rwmcCascades},
+			{"albedo","Albedo",outputs.albedo},
+			{"normal","Normal",outputs.normal},
+			{"denoised","Denoised",outputs.denoised}
+		};
+		return m_report->addSession(std::move(reportSession));
 	}
 
 	bool finalizeCompletedSession(CSession* session, const IQueue::SSubmitInfo::SSemaphoreInfo& rendered)
@@ -877,6 +1233,8 @@ public:
 			return false;
 
 		emitOutputJson(outputs);
+		if (!addReportSession(outputs))
+			return false;
 		m_lastFinalizedSession = session;
 		return true;
 	}
@@ -973,6 +1331,12 @@ public:
 			}
 			else if (m_sessionQueue.empty())
 			{
+				if (m_args.headless && loadNextSceneJob())
+				{
+					session = nullptr;
+					sameSession = false;
+					continue;
+				}
 				if (!m_args.headless)
 					handleInputs();
 				return;
@@ -1093,7 +1457,7 @@ public:
 		if (shouldExitAfterQueue())
 		{
 			const auto* const currentSession = m_resolver ? m_resolver->getActiveSession() : nullptr;
-			if (m_sessionQueue.empty() && (!currentSession || currentSession==m_lastFinalizedSession))
+			if (m_sessionQueue.empty() && (!currentSession || currentSession==m_lastFinalizedSession) && m_nextSceneJob>=m_sceneJobs.size())
 				return false;
 			return true;
 		}
@@ -1103,7 +1467,10 @@ public:
 
 	bool onAppTerminated() override
 	{
-		if (!flushDeferredPostProcessJobs())
+		const bool postProcessOk = flushDeferredPostProcessJobs();
+		const bool reportOk = m_report ? m_report->write() : true;
+		const bool reportPassed = m_report ? !m_report->hasFailures() : true;
+		if (!postProcessOk || !reportOk || !reportPassed)
 			return false;
 		return device_base_t::onAppTerminated();
 	}
@@ -1115,8 +1482,13 @@ public:
 private:
 	AppArguments m_args = {};
 	bool m_exitRequested = false;
+	std::vector<SceneJob> m_sceneJobs = {};
+	size_t m_nextSceneJob = 0u;
 	const CSession* m_lastFinalizedSession = nullptr;
+	std::string m_lastSceneLoadError;
 	std::deque<PostProcessJob> m_deferredPostProcessJobs = {};
+	std::string m_buildInfoJson = {};
+	std::unique_ptr<PathTracerReport> m_report = {};
 
 	smart_refctd_ptr<InputSystem> m_inputSystem;
 	InputSystem::ChannelReader<IMouseEventChannel> m_mouse;

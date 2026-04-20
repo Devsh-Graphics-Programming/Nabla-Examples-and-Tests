@@ -95,7 +95,7 @@ path getRuntimeConfigPath(const std::vector<std::string>& arguments)
 std::string normalizeConfigCliValue(const path& configPath, std::string_view option, std::string value)
 {
 	value = stripWrappingQuotes(value);
-	if (option=="--output-dir")
+	if (option=="--output-dir" || option=="--report-dir" || option=="--reference-dir")
 	{
 		path outputPath = value;
 		if (outputPath.is_relative())

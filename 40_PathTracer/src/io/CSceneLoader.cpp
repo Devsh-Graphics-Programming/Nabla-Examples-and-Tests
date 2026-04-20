@@ -127,6 +127,11 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				}
 			);
 			auto archive = system->openFileArchive(archPath);
+			if (!archive)
+			{
+				logger.log("Failed to open archive \"%s\"",ILogger::ELL_ERROR,archPath.string().c_str());
+				return {};
+			}
 			archiveStack.push(archive.get());
 			system->mount(std::move(archive));
 		}

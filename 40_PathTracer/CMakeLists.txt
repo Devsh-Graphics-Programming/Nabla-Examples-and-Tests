@@ -1,10 +1,9 @@
 include(common)
 
 set(NBL_INCLUDE_SERACH_DIRECTORIES
-	"${NBL_EXT_MITSUBA_LOADER_INCLUDE_DIRS}"
-	"${CMAKE_CURRENT_SOURCE_DIR}/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src"
-	"${CMAKE_CURRENT_SOURCE_DIR}/app_resources"
+	"include"
+	"src"
+	"app_resources"
 )
 set(NBL_LIBRARIES
 	"${NBL_EXT_MITSUBA_LOADER_LIB}"
@@ -14,31 +13,26 @@ set(NBL_LIBRARIES
 	argparse
 )
 
-set(PT_RUNTIME_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/bin/config/pt.$<LOWER_CASE:$<CONFIG>>.json")
+set(PT_RUNTIME_CONFIG_OUTPUT "bin/config/pt.$<LOWER_CASE:$<CONFIG>>.json")
+file(GLOB_RECURSE NBL_EXAMPLE_SOURCES CONFIGURE_DEPENDS "app_resources/*.hlsl" "include/*.h" "include/*.hpp" "src/*.cpp" "src/*.h" "src/*.hpp")
+file(GLOB_RECURSE PT_REPORT_SOURCES CONFIGURE_DEPENDS "report/*.css" "report/*.html" "report/*.js" "report/*.py")
+list(APPEND NBL_EXAMPLE_SOURCES "${PT_RUNTIME_CONFIG_OUTPUT}" ${PT_REPORT_SOURCES})
 set_source_files_properties("${PT_RUNTIME_CONFIG_OUTPUT}" PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
+set_source_files_properties(${PT_REPORT_SOURCES} PROPERTIES HEADER_FILE_ONLY TRUE)
 source_group("config" FILES "${PT_RUNTIME_CONFIG_OUTPUT}")
+source_group("CI Report" FILES ${PT_REPORT_SOURCES})
 set(PT_RUNTIME_CONFIG_JSON [=[
 {
   "cli": {
-    "--output-dir": "../out/$<LOWER_CASE:$<CONFIG>>"
+    "--output-dir": "../out/$<LOWER_CASE:$<CONFIG>>/renders",
+    "--report-dir": "../out/$<LOWER_CASE:$<CONFIG>>"
   }
 }
 ]=])
 file(GENERATE OUTPUT "${PT_RUNTIME_CONFIG_OUTPUT}" CONTENT "${PT_RUNTIME_CONFIG_JSON}")
 
-set(NBL_EXAMPLE_SOURCES
-    "${PT_RUNTIME_CONFIG_OUTPUT}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/resolve/rwmc.hlsl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/io/RuntimeConfig.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/io/RuntimeConfig.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CSession.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CScene.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/CRenderer.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/resolve/CBasicRWMCResolver.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/present/CWindowPresenter.cpp"
-)
 nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_THIS_EXAMPLE_BUILD_CONFIG=\"$<CONFIG>\")
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 

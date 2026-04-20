@@ -17,6 +17,7 @@ class IResolver : public core::IReferenceCounted, public core::InterfaceUnmovabl
 		//
 		inline CSession* getActiveSession() {return m_activeSession.get();}
 		inline const CSession* getActiveSession() const {return m_activeSession.get();}
+		inline void clearSession() {m_activeSession = {};}
 
 		//
 		virtual uint64_t computeScratchSize(const CSession* session) const = 0;

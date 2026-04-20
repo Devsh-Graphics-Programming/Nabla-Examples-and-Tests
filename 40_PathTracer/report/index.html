@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Ditt Path Tracer Report</title>
+	<link rel="stylesheet" href="css/report.css">
+</head>
+<body>
+	<main>
+		<header class="report-head">
+			<h1>Ditt Path Tracer Report</h1>
+			<p id="reportStatus"><span class="badge unchecked">loading</span></p>
+		</header>
+
+		<section id="loadError" class="card load-error" hidden></section>
+		<section id="pipelineNotice" class="pipeline-toolbar" hidden></section>
+
+		<section class="top">
+			<div id="runCard" class="card run-card"></div>
+			<div class="side-stack">
+				<div id="commitCard" class="card commit-card"></div>
+				<div id="reportBundleCard" class="card report-bundle-card"></div>
+			</div>
+		</section>
+
+		<section id="summaryCard" class="card summary-card"></section>
+
+		<section class="card viewer-card" id="exrViewerCard">
+			<div class="viewer-toolbar">
+				<h2 id="exrViewerTitle">EXR Preview</h2>
+				<button type="button" class="preview-btn" id="closeExrViewer" data-hint="Hide the EXR preview panel.">Close</button>
+			</div>
+			<div class="preview-controls">
+				<label class="preview-control" data-hint="Select the rendered scene and sensor session to inspect."><span>Scene</span><select id="exrSceneSelect"></select></label>
+				<label class="preview-control" data-hint="Select which path tracer output to inspect."><span>Output</span><select id="exrOutputSelect"></select></label>
+				<div class="preview-control"><span>Variant</span><div class="variant-tabs" id="exrVariantTabs"></div></div>
+				<div class="preview-control view-control"><span>View</span><div class="viewer-tools">
+					<button type="button" class="preview-btn" id="fitExrViewer" data-hint="Fit the EXR image inside the preview area.">Fit</button>
+					<button type="button" class="preview-btn" id="oneToOneExrViewer" data-hint="Show the EXR at one image pixel per screen pixel.">100%</button>
+					<button type="button" class="preview-btn" id="zoomOutExrViewer" data-hint="Zoom out of the current EXR preview.">-</button>
+					<button type="button" class="preview-btn" id="zoomInExrViewer" data-hint="Zoom into the current EXR preview.">+</button>
+				</div></div>
+			</div>
+			<div class="viewer-info-row">
+				<div class="viewer-status" id="exrViewerStatus">No EXR loaded.</div>
+				<div class="pixel-readout is-outside" id="exrPixelInfo"><span>Pixel</span><strong>x - y -</strong><strong>R - G - B - A -</strong></div>
+			</div>
+			<div class="exr-viewer" id="exrPreview"></div>
+		</section>
+
+		<section id="overviewCard" class="card overview-card"></section>
+		<section id="sceneDetails"></section>
+	</main>
+
+	<script src="js/exrPreview.js"></script>
+	<script src="js/report.js"></script>
+</body>
+</html>
