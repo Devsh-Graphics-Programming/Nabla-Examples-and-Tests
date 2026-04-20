@@ -167,12 +167,11 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
 		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
 		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
-		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
-		auto albedoView = immutables.albedo.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
+		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_R16G16B16A16_SFLOAT);
+		auto albedoView = immutables.albedo.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
 		addImageWrite(SensorDSBindings::Albedo,albedoView);
-		// Normal and Albedo should have used `EF_A2B10G10R10_SNORM_PACK32` but Nvidia doesn't support
-		immutables.normal = createScreenSizedImage("Normal",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
-		auto normalView = immutables.normal.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
+		immutables.normal = createScreenSizedImage("Normal",E_FORMAT::EF_R16G16B16A16_SFLOAT);
+		auto normalView = immutables.normal.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
 		addImageWrite(SensorDSBindings::Normal,normalView);
 		immutables.motion = createScreenSizedImage("Motion",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
 		auto motionView = immutables.motion.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];

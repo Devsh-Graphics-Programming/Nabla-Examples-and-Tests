@@ -393,7 +393,8 @@ void raygen()
                     }
 
                     // compute BxDF value, another layer of culling
-                    const spectral_type bxdfValue = diffuse.eval(L,interaction);
+                    const bxdf_config_t::value_weight_type bxdfValueWeight = diffuse.evalAndWeight(L,interaction);
+                    const spectral_type bxdfValue = bxdfValueWeight.value();
                     const spectral_type emitterQuotient = sunColor/pdf;
                     spectral_type contrib = throughput*bxdfValue*emitterQuotient;
                     // trace shadow rays only for contributing samples, can also apply russian roulette here!
@@ -410,7 +411,7 @@ void raygen()
                         if (spirv::hitObjectIsMissEXT(hitObject))
                         {
                             // we only have area lights so always apply MIS, the PDF is finite
-                            const float bxdfWeight = diffuse.pdf(L,interaction);
+                            const float bxdfWeight = bxdfValueWeight.weight();
                             const float weightRatio = bxdfWeight/pdf;
                             // MIS balance heuristic
                             color += contrib/(1.f+weightRatio*weightRatio);
@@ -422,9 +423,10 @@ void raygen()
                 light_sample_t bxdfSample;
                 {
                     //
-                    bxdfSample = diffuse.generate(interaction,randBRDF.xy);
+                    brdf_t::isocache_type diffuseCache;
+                    bxdfSample = diffuse.generate(interaction,randBRDF.xy,diffuseCache);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
-                    const quotient_weight_type qAw = diffuse.quotient_and_pdf(bxdfSample,interaction);
+                    const quotient_weight_type qAw = diffuse.quotientAndWeight(bxdfSample,interaction,diffuseCache);
                     const float forwardWeight = qAw.weight();
                     if (forwardWeight<0.00000001f)
                         break;

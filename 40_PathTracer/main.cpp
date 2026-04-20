@@ -633,19 +633,19 @@ public:
 		if (!exportImageView(tonemapView,outputs.rwmcCascades))
 			return false;
 
-		const auto* const albedoView = immutables.albedo.getView(E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
+		const auto* const albedoView = immutables.albedo.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
 		if (!albedoView)
 		{
-			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_A2B10G10R10_UNORM_PACK32).c_str());
+			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
 		if (!exportImageView(albedoView,outputs.albedo))
 			return false;
 
-		const auto* const normalView = immutables.normal.getView(E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
+		const auto* const normalView = immutables.normal.getView(E_FORMAT::EF_R16G16B16A16_SFLOAT);
 		if (!normalView)
 		{
-			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_A2B10G10R10_UNORM_PACK32).c_str());
+			m_logger->log("Missing image view for export format %s",ILogger::ELL_ERROR,to_string(E_FORMAT::EF_R16G16B16A16_SFLOAT).c_str());
 			return false;
 		}
 		if (!exportImageView(normalView,outputs.normal))
@@ -721,6 +721,8 @@ public:
 	SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
+		if (m_args.headless)
+			retval.swapchainMode = E_SWAPCHAIN_MODE::ESM_NONE;
 		return retval.unionWith(CRenderer::RequiredDeviceFeatures());
 	}
 
