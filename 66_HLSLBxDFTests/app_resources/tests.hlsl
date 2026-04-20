@@ -116,10 +116,10 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BTR_NONE)
             return res;
 
-        if (!testing::relativeApproxCompare<float32_t3>(claimedPdf, sampledLi.weight(), 1e-4))
+        if (!testing::relativeApproxCompare<float32_t>(claimedPdf, sampledLi.weight(), 1e-4))
             return BTR_ERROR_NEGATIVE_VAL; // TODO: add new error code
 
-        if (claimedPdf.pdf() < 0.f)    // pdf should not be negative
+        if (claimedPdf < 0.f)    // pdf should not be negative
         {
 #ifndef __HLSL_VERSION
             if (verbose)
