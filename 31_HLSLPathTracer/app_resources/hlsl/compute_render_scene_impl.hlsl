@@ -53,13 +53,13 @@ RenderPushConstants getRenderPushConstants()
 }
 
 template<NEEPolygonMethod PPM>
-void tracePixel(NBL_REF_ARG(typename SVariantTypes<PPM>::pathtracer_type) pathtracer, int32_t2 coords)
+void tracePixel(NBL_REF_ARG(typename SVariantTypes<PPM>::pathtracer_type) pathtracer, uint32_t2 coords)
 {
 	const RenderPushConstants renderPushConstants = getRenderPushConstants();
 
 	uint32_t width, height, imageArraySize;
 	::outImage.GetDimensions(width, height, imageArraySize);
-	if (any(coords < int32_t2(0, 0)) || any(coords >= int32_t2(width, height)))
+	if (any(coords >= uint32_t2(width, height)))
 		return;
 
 	float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
@@ -134,18 +134,18 @@ void runPersistent()
 	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
 	pathtracer.nee.lights = lights;
 	pathtracer.materialSystem.bxdfs = bxdfs;
-	pathtracer.bxdfPdfThreshold = 0.0001;
+	pathtracer.bxdfWeightThreshold = 0.0001;
 	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
 	pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
 
 	[loop]
 	for (uint32_t wgBase = glsl::gl_WorkGroupID().x; wgBase < numWorkgroupsX * numWorkgroupsY; wgBase += glsl::gl_NumWorkGroups().x)
 	{
-		const int32_t2 wgCoords = int32_t2(wgBase % numWorkgroupsX, wgBase / numWorkgroupsX);
+		const uint32_t2 wgCoords = uint32_t2(wgBase % numWorkgroupsX, wgBase / numWorkgroupsX);
 		morton::code<true, 32, 2> mc;
 		mc.value = glsl::gl_LocalInvocationIndex().x;
 		const int32_t2 localCoords = _static_cast<int32_t2>(mc);
-		tracePixel<PPM>(pathtracer, wgCoords * int32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
+		tracePixel<PPM>(pathtracer, wgCoords * uint32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
 	}
 }
 }

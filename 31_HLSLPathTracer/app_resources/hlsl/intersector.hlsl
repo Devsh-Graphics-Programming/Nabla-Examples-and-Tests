@@ -54,7 +54,7 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = uint16_t(i);
+                objectID.id = _static_cast<uint16_t>(i);
                 objectID.shapeType = PST_SPHERE;
             }
         }
@@ -67,7 +67,7 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = uint16_t(i);
+                objectID.id = _static_cast<uint16_t>(i);
                 objectID.shapeType = PST_TRIANGLE;
             }
         }
@@ -80,7 +80,7 @@ struct Intersector
             if (closerIntersection)
             {
                 ray.intersectionT = t;
-                objectID.id = uint16_t(i);
+                objectID.id = _static_cast<uint16_t>(i);
                 objectID.shapeType = PST_RECTANGLE;
             }
         }

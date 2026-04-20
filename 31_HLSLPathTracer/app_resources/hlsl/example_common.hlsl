@@ -694,18 +694,9 @@ struct PTIsoConfiguration<LS,Interaction,Spectrum NBL_PARTIAL_REQ_BOT(CONF_ISO) 
 {
     NBL_CONSTEXPR_STATIC_INLINE bool IsAnisotropic = false;
 
-    using scalar_type = typename LS::scalar_type;
-    using ray_dir_info_type = typename LS::ray_dir_info_type;
-    using vector2_type = vector<scalar_type, 2>;
-    using vector3_type = vector<scalar_type, 3>;
-    using monochrome_type = vector<scalar_type, 1>;
-
-    using isotropic_interaction_type = Interaction;
-    using anisotropic_interaction_type = PTAnisotropicInteraction<isotropic_interaction_type>;
+    using anisotropic_interaction_type = PTAnisotropicInteraction<Interaction>;
     using sample_type = LS;
     using spectral_type = Spectrum;
-    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
-    using value_weight_type = sampling::value_and_weight<spectral_type, scalar_type>;
 };
 
 template<class LS, class Interaction, class MicrofacetCache, class Spectrum NBL_STRUCT_CONSTRAINABLE>
@@ -720,14 +711,10 @@ struct PTIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum NBL_
 {
     NBL_CONSTEXPR_STATIC_INLINE bool IsAnisotropic = false;
 
-    using base_type = PTIsoConfiguration<LS, Interaction, Spectrum>;
-
-    using matrix3x3_type = matrix<typename base_type::scalar_type,3,3>;
-
-    using isocache_type = MicrofacetCache;
     using anisocache_type = bxdf::SAnisotropicMicrofacetCache<MicrofacetCache>;
 };
 
+// TODO: define all the BxDFs here, once, and then don't have bazillions of tempalte parameters for everything else
 template<class IsoCache, class AnisoCache, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class IridescentConductorBxDF, class IridescentDielectricBxDF>
 struct PTMaterialSystemCache
 {
