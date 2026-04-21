@@ -151,6 +151,30 @@
 		return normalizeStatus(status) !== "passed";
 	}
 
+	function effectiveSceneStatus(scene) {
+		const images = scene && scene.array ? scene.array : [];
+		let checked = false;
+		let unchecked = false;
+		for (const image of images) {
+			const status = normalizeStatus(image.status);
+			if (status === "passed" || status === "failed")
+				checked = true;
+			if (status === "not-checked")
+				unchecked = true;
+			if (status === "failed" || status === "error" || status === "missing-render" || status === "missing-reference")
+				return "failed";
+		}
+
+		const status = normalizeStatus(scene && scene.status);
+		if (status === "failed" || status === "error" || status === "missing-render" || status === "missing-reference")
+			return "failed";
+		if (!checked && unchecked)
+			return "not-checked";
+		if (status === "not-checked")
+			return "not-checked";
+		return status === "passed" ? "passed":"not-checked";
+	}
+
 	function statusHint(status) {
 		const value = normalizeStatus(status);
 		if (value === "missing-render")
@@ -167,7 +191,7 @@
 	}
 
 	function sceneHasProblem(scene) {
-		if (isProblemStatus(scene && scene.status))
+		if (isProblemStatus(effectiveSceneStatus(scene)))
 			return true;
 		return (scene.array || []).some((image) => isProblemStatus(image.status));
 	}
@@ -382,7 +406,7 @@
 			notChecked: 0
 		};
 		for (const scene of results || []) {
-			const status = normalizeStatus(scene.status);
+			const status = effectiveSceneStatus(scene);
 			if (status === "passed")
 				++counts.passed;
 			else if (status === "not-checked")
@@ -760,9 +784,10 @@
 		sceneEntries.forEach(({ scene, sceneIndex }) => {
 			const row = el("tr");
 			const info = sceneInfo(scene,sceneIndex);
+			const sceneStatus = effectiveSceneStatus(scene);
 			const sceneCell = el("td",{ className: "scene side-cell" },
 				el("div",{ className: "scene-summary" },
-					badge(scene.status),
+					badge(sceneStatus),
 					el("div",{ className: "scene-copy" },
 						el("div",{ className: "scene-index", text: "Scene " + String(info.index) }),
 						el("div",{ className: "scene-title", text: info.name })
@@ -854,13 +879,14 @@
 		const results = state.summary.results || [];
 		clear(nodes.sceneDetails);
 		results.forEach((scene,sceneIndex) => {
-			const open = results.length <= 3 || normalizeStatus(scene.status) !== "passed";
+			const sceneStatus = effectiveSceneStatus(scene);
+			const open = results.length <= 3 || sceneStatus !== "passed";
 			const card = el("details",{ className: "card scene-card", id: sceneAnchor(scene,sceneIndex + 1) });
 			card.dataset.sceneIndex = String(sceneIndex);
 			if (open)
 				card.open = true;
 			card.appendChild(el("summary",{ text: String(scene.index || sceneIndex + 1) + ". " + (scene.display_name || scene.scene_name || "scene") }));
-			card.appendChild(el("div",{ className: "scene-status" },badge(scene.status)));
+			card.appendChild(el("div",{ className: "scene-status" },badge(sceneStatus)));
 			const body = el("div",{ className: "scene-body" });
 			body.appendChild(el("div",{ className: "kv scene-meta" },
 				el("div",{},hintLabel("Scene path",HINTS.scenePath)),
