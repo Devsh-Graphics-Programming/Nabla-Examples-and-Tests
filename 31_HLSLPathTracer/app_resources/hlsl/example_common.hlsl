@@ -644,7 +644,7 @@ struct PTIsotropicInteraction
         retval.N = normalizedN;
         retval.NdotV = nbl::hlsl::dot<vector3_type>(retval.N, retval.V.getDirection());
         retval.NdotV2 = retval.NdotV * retval.NdotV;
-        retval.luminosityContributionHint = hlsl::promote<spectral_type>(1.0);
+        retval.luminosityContributionHint = colorspace::scRGBtoXYZ[1];
 
         return retval;
     }
@@ -789,13 +789,251 @@ struct PTMaterialSystemCache
     anisocache_type aniso_cache;
     bool sampleIsShadowed;
 
-    // TODO: union or serialize somehow?
-    DiffuseBxDF diffuseBxDF;
-    ConductorBxDF conductorBxDF;
-    DielectricBxDF dielectricBxDF;
-    IridescentConductorBxDF iridescentConductorBxDF;
-    IridescentDielectricBxDF iridescentDielectricBxDF;
-    NormalMappedDiffuseBxDF normalMappedDiffuseBxDF;
+    // serialized bxdf members
+    uint32_t bxdf_data[32u];    // all bxdfs so far don't store more than 28 uints of data internally (max is iridescent ggx at 31)
+
+    // these are specific for the bxdfs used for this example
+    DiffuseBxDF dataToDiffuse()
+    {
+        DiffuseBxDF bxdf;
+        bxdf.A2 = bit_cast<typename DiffuseBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.AB[0] = bit_cast<typename DiffuseBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.AB[1] = bit_cast<typename DiffuseBxDF::scalar_type>(bxdf_data[2]);
+        return bxdf;
+    }
+    void diffuseToData(NBL_CONST_REF_ARG(DiffuseBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.A2);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.AB[0]);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.AB[1]);
+    }
+
+    ConductorBxDF dataToConductor()
+    {
+        ConductorBxDF bxdf;
+        bxdf.ndf.__ndf_base.a2 = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.ndf.__ndf_base.one_minus_a2 = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.ndf.__generate_base.ax = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[2]);
+        bxdf.ndf.__generate_base.ay = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[3]);
+        bxdf.fresnel.eta[0] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[4]);
+        bxdf.fresnel.eta[1] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[5]);
+        bxdf.fresnel.eta[2] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[6]);
+        bxdf.fresnel.etak2[0] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[7]);
+        bxdf.fresnel.etak2[1] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[8]);
+        bxdf.fresnel.etak2[2] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[9]);
+        bxdf.fresnel.etaLen2[0] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[10]);
+        bxdf.fresnel.etaLen2[1] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[11]);
+        bxdf.fresnel.etaLen2[2] = bit_cast<typename ConductorBxDF::scalar_type>(bxdf_data[12]);
+        return bxdf;
+    }
+    void conductorToData(NBL_CONST_REF_ARG(ConductorBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.a2);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.one_minus_a2);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ax);
+        bxdf_data[3] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ay);
+        bxdf_data[4] = bit_cast<uint32_t>(bxdf.fresnel.eta[0]);
+        bxdf_data[5] = bit_cast<uint32_t>(bxdf.fresnel.eta[1]);
+        bxdf_data[6] = bit_cast<uint32_t>(bxdf.fresnel.eta[2]);
+        bxdf_data[7] = bit_cast<uint32_t>(bxdf.fresnel.etak2[0]);
+        bxdf_data[8] = bit_cast<uint32_t>(bxdf.fresnel.etak2[1]);
+        bxdf_data[9] = bit_cast<uint32_t>(bxdf.fresnel.etak2[2]);
+        bxdf_data[10] = bit_cast<uint32_t>(bxdf.fresnel.etaLen2[0]);
+        bxdf_data[11] = bit_cast<uint32_t>(bxdf.fresnel.etaLen2[1]);
+        bxdf_data[12] = bit_cast<uint32_t>(bxdf.fresnel.etaLen2[2]);
+    }
+
+    DielectricBxDF dataToDielectric()
+    {
+        DielectricBxDF bxdf;
+        bxdf.ndf.__ndf_base.a2 = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.ndf.__ndf_base.one_minus_a2 = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.ndf.__generate_base.ax = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[2]);
+        bxdf.ndf.__generate_base.ay = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[3]);
+        bxdf.fresnel.orientedEta.value[0] = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[4]);
+        bxdf.fresnel.orientedEta.rcp[0] = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[5]);
+        bxdf.fresnel.orientedEta2[0] = bit_cast<typename DielectricBxDF::scalar_type>(bxdf_data[6]);
+        return bxdf;
+    }
+    void dielectricToData(NBL_CONST_REF_ARG(DielectricBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.a2);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.one_minus_a2);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ax);
+        bxdf_data[3] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ay);
+        bxdf_data[4] = bit_cast<uint32_t>(bxdf.fresnel.orientedEta.value[0]);
+        bxdf_data[5] = bit_cast<uint32_t>(bxdf.fresnel.orientedEta.rcp[0]);
+        bxdf_data[6] = bit_cast<uint32_t>(bxdf.fresnel.orientedEta2[0]);
+    }
+
+    IridescentConductorBxDF dataToIridescentConductor()
+    {
+        IridescentConductorBxDF bxdf;
+        bxdf.ndf.__ndf_base.a2 = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.ndf.__ndf_base.one_minus_a2 = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.ndf.__generate_base.ax = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[2]);
+        bxdf.ndf.__generate_base.ay = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[3]);
+        bxdf.fresnel.D[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[4]);
+        bxdf.fresnel.D[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[5]);
+        bxdf.fresnel.D[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[6]);
+        bxdf.fresnel.ior1[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[7]);
+        bxdf.fresnel.ior1[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[8]);
+        bxdf.fresnel.ior1[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[9]);
+        bxdf.fresnel.ior2[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[10]);
+        bxdf.fresnel.ior2[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[11]);
+        bxdf.fresnel.ior2[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[12]);
+        bxdf.fresnel.ior3[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[13]);
+        bxdf.fresnel.ior3[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[14]);
+        bxdf.fresnel.ior3[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[15]);
+        bxdf.fresnel.iork3[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[16]);
+        bxdf.fresnel.iork3[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[17]);
+        bxdf.fresnel.iork3[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[18]);
+        bxdf.fresnel.eta12[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[19]);
+        bxdf.fresnel.eta12[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[20]);
+        bxdf.fresnel.eta12[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[21]);
+        bxdf.fresnel.eta23[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[22]);
+        bxdf.fresnel.eta23[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[23]);
+        bxdf.fresnel.eta23[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[24]);
+        bxdf.fresnel.eta13[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[25]);
+        bxdf.fresnel.eta13[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[26]);
+        bxdf.fresnel.eta13[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[27]);
+        bxdf.fresnel.etak23[0] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[28]);
+        bxdf.fresnel.etak23[1] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[29]);
+        bxdf.fresnel.etak23[2] = bit_cast<typename IridescentConductorBxDF::scalar_type>(bxdf_data[30]);
+        return bxdf;
+    }
+    void iridescentConductorToData(NBL_CONST_REF_ARG(IridescentConductorBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.a2);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.one_minus_a2);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ax);
+        bxdf_data[3] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ay);
+        bxdf_data[4] = bit_cast<uint32_t>(bxdf.fresnel.D[0]);
+        bxdf_data[5] = bit_cast<uint32_t>(bxdf.fresnel.D[1]);
+        bxdf_data[6] = bit_cast<uint32_t>(bxdf.fresnel.D[2]);
+        bxdf_data[7] = bit_cast<uint32_t>(bxdf.fresnel.ior1[0]);
+        bxdf_data[8] = bit_cast<uint32_t>(bxdf.fresnel.ior1[1]);
+        bxdf_data[9] = bit_cast<uint32_t>(bxdf.fresnel.ior1[2]);
+        bxdf_data[10] = bit_cast<uint32_t>(bxdf.fresnel.ior2[0]);
+        bxdf_data[11] = bit_cast<uint32_t>(bxdf.fresnel.ior2[1]);
+        bxdf_data[12] = bit_cast<uint32_t>(bxdf.fresnel.ior2[2]);
+        bxdf_data[13] = bit_cast<uint32_t>(bxdf.fresnel.ior3[0]);
+        bxdf_data[14] = bit_cast<uint32_t>(bxdf.fresnel.ior3[1]);
+        bxdf_data[15] = bit_cast<uint32_t>(bxdf.fresnel.ior3[2]);
+        bxdf_data[16] = bit_cast<uint32_t>(bxdf.fresnel.iork3[0]);
+        bxdf_data[17] = bit_cast<uint32_t>(bxdf.fresnel.iork3[1]);
+        bxdf_data[18] = bit_cast<uint32_t>(bxdf.fresnel.iork3[2]);
+        bxdf_data[19] = bit_cast<uint32_t>(bxdf.fresnel.eta12[0]);
+        bxdf_data[20] = bit_cast<uint32_t>(bxdf.fresnel.eta12[1]);
+        bxdf_data[21] = bit_cast<uint32_t>(bxdf.fresnel.eta12[2]);
+        bxdf_data[22] = bit_cast<uint32_t>(bxdf.fresnel.eta23[0]);
+        bxdf_data[23] = bit_cast<uint32_t>(bxdf.fresnel.eta23[1]);
+        bxdf_data[24] = bit_cast<uint32_t>(bxdf.fresnel.eta23[2]);
+        bxdf_data[25] = bit_cast<uint32_t>(bxdf.fresnel.eta13[0]);
+        bxdf_data[26] = bit_cast<uint32_t>(bxdf.fresnel.eta13[1]);
+        bxdf_data[27] = bit_cast<uint32_t>(bxdf.fresnel.eta13[2]);
+        bxdf_data[28] = bit_cast<uint32_t>(bxdf.fresnel.etak23[0]);
+        bxdf_data[29] = bit_cast<uint32_t>(bxdf.fresnel.etak23[1]);
+        bxdf_data[30] = bit_cast<uint32_t>(bxdf.fresnel.etak23[2]);
+    }
+
+    IridescentDielectricBxDF dataToIridescentDielectric()
+    {
+        IridescentDielectricBxDF bxdf;
+        bxdf.ndf.__ndf_base.a2 = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.ndf.__ndf_base.one_minus_a2 = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.ndf.__generate_base.ax = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[2]);
+        bxdf.ndf.__generate_base.ay = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[3]);
+        bxdf.fresnel.D[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[4]);
+        bxdf.fresnel.D[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[5]);
+        bxdf.fresnel.D[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[6]);
+        bxdf.fresnel.ior1[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[7]);
+        bxdf.fresnel.ior1[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[8]);
+        bxdf.fresnel.ior1[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[9]);
+        bxdf.fresnel.ior2[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[10]);
+        bxdf.fresnel.ior2[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[11]);
+        bxdf.fresnel.ior2[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[12]);
+        bxdf.fresnel.ior3[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[13]);
+        bxdf.fresnel.ior3[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[14]);
+        bxdf.fresnel.ior3[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[15]);
+        bxdf.fresnel.iork3[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[16]);
+        bxdf.fresnel.iork3[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[17]);
+        bxdf.fresnel.iork3[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[18]);
+        bxdf.fresnel.eta12[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[19]);
+        bxdf.fresnel.eta12[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[20]);
+        bxdf.fresnel.eta12[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[21]);
+        bxdf.fresnel.eta23[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[22]);
+        bxdf.fresnel.eta23[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[23]);
+        bxdf.fresnel.eta23[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[24]);
+        bxdf.fresnel.eta13[0] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[25]);
+        bxdf.fresnel.eta13[1] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[26]);
+        bxdf.fresnel.eta13[2] = bit_cast<typename IridescentDielectricBxDF::scalar_type>(bxdf_data[27]);
+        return bxdf;
+    }
+    void iridescentDielectricToData(NBL_CONST_REF_ARG(IridescentDielectricBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.a2);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.ndf.__ndf_base.one_minus_a2);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ax);
+        bxdf_data[3] = bit_cast<uint32_t>(bxdf.ndf.__generate_base.ay);
+        bxdf_data[4] = bit_cast<uint32_t>(bxdf.fresnel.D[0]);
+        bxdf_data[5] = bit_cast<uint32_t>(bxdf.fresnel.D[1]);
+        bxdf_data[6] = bit_cast<uint32_t>(bxdf.fresnel.D[2]);
+        bxdf_data[7] = bit_cast<uint32_t>(bxdf.fresnel.ior1[0]);
+        bxdf_data[8] = bit_cast<uint32_t>(bxdf.fresnel.ior1[1]);
+        bxdf_data[9] = bit_cast<uint32_t>(bxdf.fresnel.ior1[2]);
+        bxdf_data[10] = bit_cast<uint32_t>(bxdf.fresnel.ior2[0]);
+        bxdf_data[11] = bit_cast<uint32_t>(bxdf.fresnel.ior2[1]);
+        bxdf_data[12] = bit_cast<uint32_t>(bxdf.fresnel.ior2[2]);
+        bxdf_data[13] = bit_cast<uint32_t>(bxdf.fresnel.ior3[0]);
+        bxdf_data[14] = bit_cast<uint32_t>(bxdf.fresnel.ior3[1]);
+        bxdf_data[15] = bit_cast<uint32_t>(bxdf.fresnel.ior3[2]);
+        bxdf_data[16] = bit_cast<uint32_t>(bxdf.fresnel.iork3[0]);
+        bxdf_data[17] = bit_cast<uint32_t>(bxdf.fresnel.iork3[1]);
+        bxdf_data[18] = bit_cast<uint32_t>(bxdf.fresnel.iork3[2]);
+        bxdf_data[19] = bit_cast<uint32_t>(bxdf.fresnel.eta12[0]);
+        bxdf_data[20] = bit_cast<uint32_t>(bxdf.fresnel.eta12[1]);
+        bxdf_data[21] = bit_cast<uint32_t>(bxdf.fresnel.eta12[2]);
+        bxdf_data[22] = bit_cast<uint32_t>(bxdf.fresnel.eta23[0]);
+        bxdf_data[23] = bit_cast<uint32_t>(bxdf.fresnel.eta23[1]);
+        bxdf_data[24] = bit_cast<uint32_t>(bxdf.fresnel.eta23[2]);
+        bxdf_data[25] = bit_cast<uint32_t>(bxdf.fresnel.eta13[0]);
+        bxdf_data[26] = bit_cast<uint32_t>(bxdf.fresnel.eta13[1]);
+        bxdf_data[27] = bit_cast<uint32_t>(bxdf.fresnel.eta13[2]);
+    }
+
+    NormalMappedDiffuseBxDF dataToNormalMappedDiffuse()
+    {
+        NormalMappedDiffuseBxDF bxdf;
+        bxdf.shadingNormal[0] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[0]);
+        bxdf.shadingNormal[1] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[1]);
+        bxdf.shadingNormal[2] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[2]);
+        bxdf.shadingBasis[0][0] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[3]);
+        bxdf.shadingBasis[0][1] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[4]);
+        bxdf.shadingBasis[0][2] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[5]);
+        bxdf.shadingBasis[1][0] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[6]);
+        bxdf.shadingBasis[1][1] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[7]);
+        bxdf.shadingBasis[1][2] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[8]);
+        bxdf.shadingBasis[2][0] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[9]);
+        bxdf.shadingBasis[2][1] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[10]);
+        bxdf.shadingBasis[2][2] = bit_cast<typename NormalMappedDiffuseBxDF::scalar_type>(bxdf_data[11]);
+        return bxdf;
+    }
+    void normalMappedDiffuseToData(NBL_CONST_REF_ARG(NormalMappedDiffuseBxDF) bxdf)
+    {
+        bxdf_data[0] = bit_cast<uint32_t>(bxdf.shadingNormal[0]);
+        bxdf_data[1] = bit_cast<uint32_t>(bxdf.shadingNormal[1]);
+        bxdf_data[2] = bit_cast<uint32_t>(bxdf.shadingNormal[2]);
+        bxdf_data[3] = bit_cast<uint32_t>(bxdf.shadingBasis[0][0]);
+        bxdf_data[4] = bit_cast<uint32_t>(bxdf.shadingBasis[0][1]);
+        bxdf_data[5] = bit_cast<uint32_t>(bxdf.shadingBasis[0][2]);
+        bxdf_data[6] = bit_cast<uint32_t>(bxdf.shadingBasis[1][0]);
+        bxdf_data[7] = bit_cast<uint32_t>(bxdf.shadingBasis[1][1]);
+        bxdf_data[8] = bit_cast<uint32_t>(bxdf.shadingBasis[1][2]);
+        bxdf_data[9] = bit_cast<uint32_t>(bxdf.shadingBasis[2][0]);
+        bxdf_data[10] = bit_cast<uint32_t>(bxdf.shadingBasis[2][1]);
+        bxdf_data[11] = bit_cast<uint32_t>(bxdf.shadingBasis[2][2]);
+    }
 };
 
 #endif

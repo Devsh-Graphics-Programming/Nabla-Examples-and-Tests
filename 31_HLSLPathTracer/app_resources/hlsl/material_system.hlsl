@@ -78,26 +78,29 @@ struct MaterialSystem
                 using creation_t = typename diffuse_op_type::creation_type;
                 creation_t params;
                 params.A = cparams.A.x;
-                _cache.diffuseBxDF = diffuse_op_type::create(params);
+                _cache.diffuseToData(diffuse_op_type::create(params));
             }
             break;
             case MaterialType::CONDUCTOR:
             {
-                _cache.conductorBxDF.ndf = conductor_op_type::ndf_type::create(cparams.A.x);
-                _cache.conductorBxDF.fresnel = conductor_op_type::fresnel_type::create(cparams.ior0,cparams.ior1);
+                conductor_op_type bxdf;
+                bxdf.ndf = conductor_op_type::ndf_type::create(cparams.A.x);
+                bxdf.fresnel = conductor_op_type::fresnel_type::create(cparams.ior0,cparams.ior1);
+                _cache.conductorToData(bxdf);
             }
             break;
             case MaterialType::DIELECTRIC:
             {
                 using oriented_eta_t = bxdf::fresnel::OrientedEtas<typename dielectric_op_type::monochrome_type>;
                 oriented_eta_t orientedEta = oriented_eta_t::create(1.0, hlsl::promote<typename dielectric_op_type::monochrome_type>(cparams.eta));
-                _cache.dielectricBxDF.ndf = dielectric_op_type::ndf_type::create(cparams.A.x);
-                _cache.dielectricBxDF.fresnel = dielectric_op_type::fresnel_type::create(orientedEta);
+                dielectric_op_type bxdf;
+                bxdf.ndf = dielectric_op_type::ndf_type::create(cparams.A.x);
+                bxdf.fresnel = dielectric_op_type::fresnel_type::create(orientedEta);
+                _cache.dielectricToData(bxdf);
             }
             break;
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                _cache.iridescentConductorBxDF.ndf = iri_conductor_op_type::ndf_type::create(cparams.A.x);
                 using creation_params_t = typename iri_conductor_op_type::fresnel_type::creation_params_type;
                 creation_params_t params;
                 params.Dinc = cparams.A.y;
@@ -105,19 +108,24 @@ struct MaterialSystem
                 params.ior2 = cparams.ior0;
                 params.ior3 = cparams.ior1;
                 params.iork3 = cparams.iork;
-                _cache.iridescentConductorBxDF.fresnel = iri_conductor_op_type::fresnel_type::create(params);
+                iri_conductor_op_type bxdf;
+                bxdf.ndf = iri_conductor_op_type::ndf_type::create(cparams.A.x);
+                bxdf.fresnel = iri_conductor_op_type::fresnel_type::create(params);
+                _cache.iridescentConductorToData(bxdf);
             }
             break;
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                _cache.iridescentDielectricBxDF.ndf = iri_dielectric_op_type::ndf_type::create(cparams.A.x);
                 using creation_params_t = typename iri_dielectric_op_type::fresnel_type::creation_params_type;
                 creation_params_t params;
                 params.Dinc = cparams.A.y;
                 params.ior1 = hlsl::promote<float32_t3>(1.0);
                 params.ior2 = cparams.ior0;
                 params.ior3 = cparams.ior1;
-                _cache.iridescentDielectricBxDF.fresnel = iri_dielectric_op_type::fresnel_type::create(params);
+                iri_dielectric_op_type bxdf;
+                bxdf.ndf = iri_dielectric_op_type::ndf_type::create(cparams.A.x);
+                bxdf.fresnel = iri_dielectric_op_type::fresnel_type::create(params);
+                _cache.iridescentDielectricToData(bxdf);
             }
             break;
             default:
@@ -136,35 +144,40 @@ struct MaterialSystem
         {
             case MaterialType::DIFFUSE:
             {
-                value_weight_type ret = _cache.diffuseBxDF.evalAndWeight(_sample, interaction.isotropic);
+                diffuse_op_type bxdf = _cache.dataToDiffuse();
+                value_weight_type ret = bxdf.evalAndWeight(_sample, interaction.isotropic);
                 ret._value *= bxdfs[matID.id].albedo;
                 return ret;
             }
             case MaterialType::CONDUCTOR:
             {
-                return _cache.conductorBxDF.evalAndWeight(_sample, interaction.isotropic);
+                conductor_op_type bxdf = _cache.dataToConductor();
+                return bxdf.evalAndWeight(_sample, interaction.isotropic);
             }
             case MaterialType::DIELECTRIC:
             {
-                return _cache.dielectricBxDF.evalAndWeight(_sample, interaction.isotropic);
+                dielectric_op_type bxdf = _cache.dataToDielectric();
+                return bxdf.evalAndWeight(_sample, interaction.isotropic);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return _cache.iridescentConductorBxDF.evalAndWeight(_sample, interaction.isotropic);
+                iri_conductor_op_type bxdf = _cache.dataToIridescentConductor();
+                return bxdf.evalAndWeight(_sample, interaction.isotropic);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return _cache.iridescentDielectricBxDF.evalAndWeight(_sample, interaction.isotropic);
+                iri_dielectric_op_type bxdf = _cache.dataToIridescentDielectric();
+                return bxdf.evalAndWeight(_sample, interaction.isotropic);
             }
             case MaterialType::NORMAL_MAPPED_DIFFUSE:
             {
-                _cache.normalMappedDiffuseBxDF.shadingNormal = interaction.getN();
-                _cache.normalMappedDiffuseBxDF.shadingBasis = interaction.getToTangentSpace();
+                normal_mapped_diffuse_op_type bxdf;
+                bxdf.shadingNormal = interaction.getN();
+                bxdf.shadingBasis = interaction.getToTangentSpace();
                 typename normal_mapped_diffuse_op_type::bxdf_type nested_brdf;
-                _cache.normalMappedDiffuseBxDF.nested_brdf = nested_brdf;
-
-                anisotropic_interaction_type interaction_Np = _cache.normalMappedDiffuseBxDF.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
-                value_weight_type ret = _cache.normalMappedDiffuseBxDF.evalAndWeight(_sample, interaction_Np.isotropic);
+                bxdf.nested_brdf = nested_brdf;
+                anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
+                value_weight_type ret = bxdf.evalAndWeight(_sample, interaction_Np.isotropic);
                 ret._value *= bxdfs[matID.id].albedo;
                 return ret;
             }
@@ -184,33 +197,39 @@ struct MaterialSystem
             case MaterialType::DIFFUSE:
             {
                 typename diffuse_op_type::isocache_type dummycache;
-                return _cache.diffuseBxDF.generate(interaction, u.xy, dummycache);
+                diffuse_op_type bxdf = _cache.dataToDiffuse();
+                return bxdf.generate(interaction, u.xy, dummycache);
             }
             case MaterialType::CONDUCTOR:
             {
-                return _cache.conductorBxDF.generate(interaction, u.xy, _cache.aniso_cache);
+                conductor_op_type bxdf = _cache.dataToConductor();
+                return bxdf.generate(interaction, u.xy, _cache.aniso_cache);
             }
             case MaterialType::DIELECTRIC:
             {
-                return _cache.dielectricBxDF.generate(interaction, u, _cache.aniso_cache);
+                dielectric_op_type bxdf = _cache.dataToDielectric();
+                return bxdf.generate(interaction, u, _cache.aniso_cache);
             }
             case MaterialType::IRIDESCENT_CONDUCTOR:
             {
-                return _cache.iridescentConductorBxDF.generate(interaction, u.xy, _cache.aniso_cache);
+                iri_conductor_op_type bxdf = _cache.dataToIridescentConductor();
+                return bxdf.generate(interaction, u.xy, _cache.aniso_cache);
             }
             case MaterialType::IRIDESCENT_DIELECTRIC:
             {
-                return _cache.iridescentDielectricBxDF.generate(interaction, u, _cache.aniso_cache);
+                iri_dielectric_op_type bxdf = _cache.dataToIridescentDielectric();
+                return bxdf.generate(interaction, u, _cache.aniso_cache);
             }
             case MaterialType::NORMAL_MAPPED_DIFFUSE:
             {
-                _cache.normalMappedDiffuseBxDF.shadingNormal = interaction.getN();
-                _cache.normalMappedDiffuseBxDF.shadingBasis = interaction.getToTangentSpace();
+                normal_mapped_diffuse_op_type bxdf;
+                bxdf.shadingNormal = interaction.getN();
+                bxdf.shadingBasis = interaction.getToTangentSpace();
                 typename normal_mapped_diffuse_op_type::bxdf_type nested_brdf;
-                _cache.normalMappedDiffuseBxDF.nested_brdf = nested_brdf;
-                anisotropic_interaction_type interaction_Np = _cache.normalMappedDiffuseBxDF.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
+                bxdf.nested_brdf = nested_brdf;
+                anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                 typename normal_mapped_diffuse_op_type::isocache_type cache;
-                sample_type s = _cache.normalMappedDiffuseBxDF.generate(interaction_Np.isotropic, u.xy, cache);
+                sample_type s = bxdf.generate(interaction_Np.isotropic, u.xy, cache);
                 _cache.sampleIsShadowed = cache.sampleIsShadowed;
                 return s;
             }
@@ -234,37 +253,42 @@ struct MaterialSystem
                 case MaterialType::DIFFUSE:
                 {
                     typename diffuse_op_type::isocache_type dummycache; // diffuse doesn't actually have a cache (struct is empty)
-                    quotient_weight_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic, dummycache);
+                    diffuse_op_type bxdf = _cache.dataToDiffuse();
+                    quotient_weight_type ret = bxdf.quotientAndWeight(_sample, interaction.isotropic, dummycache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
                 case MaterialType::CONDUCTOR:
                 {
-                    return _cache.conductorBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    conductor_op_type bxdf = _cache.dataToConductor();
+                    return bxdf.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::DIELECTRIC:
                 {
-                    return _cache.dielectricBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    dielectric_op_type bxdf = _cache.dataToDielectric();
+                    return bxdf.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_CONDUCTOR:
                 {
-                    return _cache.iridescentConductorBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    iri_conductor_op_type bxdf = _cache.dataToIridescentConductor();
+                    return bxdf.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::IRIDESCENT_DIELECTRIC:
                 {
-                    return _cache.iridescentDielectricBxDF.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
+                    iri_dielectric_op_type bxdf = _cache.dataToIridescentDielectric();
+                    return bxdf.quotientAndWeight(_sample, interaction.isotropic, _cache.aniso_cache.iso_cache);
                 }
                 case MaterialType::NORMAL_MAPPED_DIFFUSE:
                 {
-                    _cache.normalMappedDiffuseBxDF.shadingNormal = interaction.getN();
-                    _cache.normalMappedDiffuseBxDF.shadingBasis = interaction.getToTangentSpace();
+                    normal_mapped_diffuse_op_type bxdf;
+                    bxdf.shadingNormal = interaction.getN();
+                    bxdf.shadingBasis = interaction.getToTangentSpace();
                     typename normal_mapped_diffuse_op_type::bxdf_type nested_brdf;
-                    _cache.normalMappedDiffuseBxDF.nested_brdf = nested_brdf;
-
-                    anisotropic_interaction_type interaction_Np = _cache.normalMappedDiffuseBxDF.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
+                    bxdf.nested_brdf = nested_brdf;
+                    anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                     typename normal_mapped_diffuse_op_type::isocache_type cache;
                     cache.sampleIsShadowed = _cache.sampleIsShadowed;
-                    quotient_weight_type ret = _cache.normalMappedDiffuseBxDF.quotientAndWeight(_sample, interaction_Np.isotropic, cache);
+                    quotient_weight_type ret = bxdf.quotientAndWeight(_sample, interaction_Np.isotropic, cache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
