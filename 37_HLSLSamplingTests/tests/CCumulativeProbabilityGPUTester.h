@@ -52,6 +52,7 @@ private:
 			PdfCheck{"CumProb::backwardPdf", &R::backwardPdf});
 
 		// Structural invariants
+		pass &= verifyTestValue("CumProb::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
 		pass &= verifyTestValue("CumProb::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
 		pass &= verifyTestValue("CumProb::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 

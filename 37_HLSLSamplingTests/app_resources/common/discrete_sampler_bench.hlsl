@@ -5,9 +5,6 @@
 
 using namespace nbl::hlsl;
 
-#ifndef WORKGROUP_SIZE
-#define WORKGROUP_SIZE 64
-#endif
 NBL_CONSTEXPR uint32_t WorkgroupSize = WORKGROUP_SIZE;
 
 struct AliasTablePushConstants

@@ -51,12 +51,11 @@ using namespace nbl::examples;
 #include "benchmarks/CDiscreteSamplerBenchmark.h"
 #include "tests/property/CSamplerPropertyTester.h"
 
-constexpr bool DoBenchmark = true;
 
 class HLSLSamplingTests final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
    using device_base_t = application_templates::MonoDeviceApplication;
-   using asset_base_t = BuiltinResourcesApplication;
+   using asset_base_t  = BuiltinResourcesApplication;
 
    public:
    HLSLSamplingTests(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -64,7 +63,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 
    virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
    {
-      auto retval = device_base_t::getPreferredDeviceFeatures();
+      auto retval                   = device_base_t::getPreferredDeviceFeatures();
       retval.pipelineExecutableInfo = true;
       return retval;
    }
@@ -80,10 +79,10 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // test compile with dxc
       {
          IAssetLoader::SAssetLoadParams lp = {};
-         lp.logger = m_logger.get();
-         lp.workingDirectory = "app_resources";
-         auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
-         auto bundle = m_assetMgr->getAsset(key.c_str(), lp);
+         lp.logger                         = m_logger.get();
+         lp.workingDirectory               = "app_resources";
+         auto key                          = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+         auto bundle                       = m_assetMgr->getAsset(key.c_str(), lp);
 
          const auto assets = bundle.getContents();
          if (assets.empty())
@@ -155,8 +154,8 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedHemisphere<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphere<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalTriangle<float>>);
-      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>);
-      static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalRectangle<float>>);
+      //static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalTriangle<float>>); // no backwardPdf
+      //static_assert(sampling::concepts::BackwardTractableSampler<sampling::ProjectedSphericalRectangle<float>>);  // no backwardPdf
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::SphericalRectangle<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
@@ -166,7 +165,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::UniformSphere<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::ProjectedHemisphere<float>>);
-      static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float, true>>);
+      static_assert(sampling::concepts::BijectiveSampler<sampling::SphericalTriangle<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::ConcentricMapping<float>>);
       static_assert(sampling::concepts::BijectiveSampler<sampling::PolarMapping<float>>);
 
@@ -180,89 +179,162 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ======================================================================
       // GPU throughput benchmarks
       // ======================================================================
-      const uint32_t testBatchCount = 1024;
+      // 4096 workgroups * WORKGROUP_SIZE(64) = 256k invocations per dispatch — enough
+      // to saturate a 3080 (68 SMs * ~1536 resident invocations) so memory latency is
+      // hidden by hyperthreading rather than by cross-dispatch overlap.
+      constexpr uint32_t testBatchCount = 4096;
+      constexpr bool DoBenchmark        = true;
 
       if constexpr (DoBenchmark)
       {
-         constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
+         constexpr uint32_t benchWorkgroupSize      = WORKGROUP_SIZE;
          constexpr uint32_t totalThreadsPerDispatch = testBatchCount * benchWorkgroupSize;
-         constexpr uint32_t iterationsPerThread = BENCH_ITERS;
+         constexpr uint32_t iterationsPerThread     = BENCH_ITERS;
          constexpr uint32_t benchSamplesPerDispatch = totalThreadsPerDispatch * iterationsPerThread;
 
          struct BenchEntry
          {
             CSamplerBenchmark bench;
-            std::string name;
+            std::string sampler;
+            std::string mode;
          };
          std::vector<BenchEntry> benchmarks;
 
-         auto addBench = [&](const char* name, const std::string& shaderKey, size_t inputSize, size_t outputSize)
+         auto addBench = [&](const char* sampler, const char* mode, const std::string& shaderKey, size_t inputSize, size_t outputSize)
          {
-            auto& entry = benchmarks.emplace_back();
-            entry.name = name;
+            auto& entry   = benchmarks.emplace_back();
+            entry.sampler = sampler;
+            entry.mode    = mode;
 
             CSamplerBenchmark::SetupData data;
-            data.device = m_device;
-            data.api = m_api;
-            data.assetMgr = m_assetMgr;
-            data.logger = m_logger;
-            data.physicalDevice = m_physicalDevice;
+            data.device             = m_device;
+            data.api                = m_api;
+            data.assetMgr           = m_assetMgr;
+            data.logger             = m_logger;
+            data.physicalDevice     = m_physicalDevice;
             data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            data.shaderKey = shaderKey;
+            data.shaderKey          = shaderKey;
             data.dispatchGroupCount = testBatchCount;
             data.samplesPerDispatch = benchSamplesPerDispatch;
-            data.inputBufferBytes = inputSize;
-            data.outputBufferBytes = outputSize;
+            data.inputBufferBytes   = inputSize;
+            data.outputBufferBytes  = outputSize;
             entry.bench.setup(data);
          };
 
          // Bench shaders don't read input (hardcoded values) and write a single uint32_t per thread via RWByteAddressBuffer
-         constexpr size_t benchInputBytes = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
+         constexpr size_t benchInputBytes  = sizeof(uint32_t); // unused but binding must exist, didn't bother removing because some samplers need more complex inputs and it's easier to have a consistent buffer setup for all benchmarks
          constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
-         addBench("Linear", nbl::this_example::builtin::build::get_spirv_key<"linear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("Bilinear", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("BoxMullerTransform", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("UniformHemisphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("UniformSphere", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ConcentricMapping", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("PolarMapping", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedHemisphere", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphere", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("SphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphericalRectangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("SphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
-         addBench("ProjectedSphericalTriangle", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("Linear", "1:1", nbl::this_example::builtin::build::get_spirv_key<"linear_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("Linear", "1:16", nbl::this_example::builtin::build::get_spirv_key<"linear_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("Bilinear", "1:1", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("Bilinear", "1:16", nbl::this_example::builtin::build::get_spirv_key<"bilinear_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("BoxMullerTransform", "1:1", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("BoxMullerTransform", "1:16", nbl::this_example::builtin::build::get_spirv_key<"box_muller_transform_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("UniformHemisphere", "1:1", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("UniformHemisphere", "1:16", nbl::this_example::builtin::build::get_spirv_key<"uniform_hemisphere_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("UniformSphere", "1:1", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("UniformSphere", "1:16", nbl::this_example::builtin::build::get_spirv_key<"uniform_sphere_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ConcentricMapping", "1:1", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ConcentricMapping", "1:16", nbl::this_example::builtin::build::get_spirv_key<"concentric_mapping_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("PolarMapping", "1:1", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("PolarMapping", "1:16", nbl::this_example::builtin::build::get_spirv_key<"polar_mapping_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedHemisphere", "1:1", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedHemisphere", "1:16", nbl::this_example::builtin::build::get_spirv_key<"projected_hemisphere_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphere", "1:1", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphere", "1:16", nbl::this_example::builtin::build::get_spirv_key<"projected_sphere_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:1  (shape,observer)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_1_shape_observer">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:16 (shape,observer)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_16_shape_observer">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:1  (sa,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_1_sa_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:16 (sa,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_16_sa_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:1  (r0,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_1_r0_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "1:16 (r0,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_1_16_r0_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "create-only (shape,observer)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_create_only_shape_observer">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "create-only (sa,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_create_only_sa_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalRectangle", "create-only (r0,extents)", nbl::this_example::builtin::build::get_spirv_key<"spherical_rectangle_bench_create_only_r0_extents">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalRectangle", "1:1", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalRectangle", "1:16", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalRectangle", "create-only", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_bench_create_only">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalTriangle", "1:1", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalTriangle", "1:16", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("SphericalTriangle", "create-only", nbl::this_example::builtin::build::get_spirv_key<"spherical_triangle_bench_create_only">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalTriangle", "1:1", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench_1_1">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalTriangle", "1:16", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench_1_16">(m_device.get()), benchInputBytes, benchOutputBytes);
+         //addBench("ProjectedSphericalTriangle", "create-only", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_triangle_bench_create_only">(m_device.get()), benchInputBytes, benchOutputBytes);
 
          // Print all pipeline reports first
          for (auto& entry : benchmarks)
-            entry.bench.logPipelineReport(entry.name);
+            entry.bench.logPipelineReport(entry.sampler + " (" + entry.mode + ")");
 
          // Discrete sampler benchmark: alias table vs cumulative probability (BDA)
          {
             CDiscreteSamplerBenchmark::SetupData dsData;
-            dsData.device = m_device;
-            dsData.api = m_api;
-            dsData.assetMgr = m_assetMgr;
-            dsData.logger = m_logger;
-            dsData.physicalDevice = m_physicalDevice;
-            dsData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-            dsData.aliasShaderKey = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
-            dsData.cumProbShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
-            dsData.dispatchGroupCount = testBatchCount;
-            dsData.tableSize = 1024;
+            dsData.device               = m_device;
+            dsData.api                  = m_api;
+            dsData.assetMgr             = m_assetMgr;
+            dsData.logger               = m_logger;
+            dsData.physicalDevice       = m_physicalDevice;
+            dsData.computeFamilyIndex   = getComputeQueue()->getFamilyIndex();
+            dsData.aliasShaderKey       = nbl::this_example::builtin::build::get_spirv_key<"alias_table_bench">(m_device.get());
+            dsData.cumProbShaderKey     = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get());
+            dsData.cumProbYoloShaderKey = nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_yolo_bench">(m_device.get());
+            dsData.dispatchGroupCount   = testBatchCount;
 
             CDiscreteSamplerBenchmark discreteBench;
             discreteBench.setup(dsData);
 
             // Then run all benchmarks here so the reports are at the top of the log, followed by timings
-            constexpr uint32_t warmupDispatches = 500;
-            constexpr uint32_t benchDispatches = 5000;
-            m_logger->log("=== GPU Sampler Benchmarks (%u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
-               ILogger::ELL_PERFORMANCE, benchDispatches, totalThreadsPerDispatch, iterationsPerThread);
-            for (auto& entry : benchmarks)
-               entry.bench.run(entry.name, warmupDispatches, benchDispatches);
+            {
+               constexpr uint32_t warmupDispatches = 300;
+               constexpr uint32_t benchDispatches  = 1000;
+               m_logger->log("=== GPU Sampler Benchmarks (%u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
+                  ILogger::ELL_PERFORMANCE, benchDispatches, totalThreadsPerDispatch, iterationsPerThread);
+               m_logger->log("            %-28s | %-38s | %12s | %12s | %12s",
+                  ILogger::ELL_PERFORMANCE, "Sampler", "Mode", "ps/sample", "GSamples/s", "ms total");
+               for (auto& entry : benchmarks)
+                  entry.bench.run(entry.sampler, entry.mode, warmupDispatches, benchDispatches);
+            }
 
-            discreteBench.run(warmupDispatches, benchDispatches);
+            {
+               // Sweep covers both the YOLO-vs-Comparator comparison (explicit points at
+               // N=100, 10k, 1M for wg=WORKGROUP_SIZE) and an alias-vs-CDF ramp from
+               // N=4 up to 32M in a roughly-power-of-8 progression.
+               const std::vector<uint32_t> discreteSizes = {
+                  4u,
+                  16u,
+                  32u,
+                  100u,
+                  128u,
+                  512u,
+                  8192u,
+                  10000u,
+                  131072u,
+                  1000000u,
+                  2097152u,
+                  16777216u,
+                  33554432u,
+               };
+
+               // Adaptive dispatch scheduler: pick dispatch counts so total wall-clock
+               // per sampler-per-N stays near 1.5 s. Cost model comes from the prior
+               // sweep (order-of-magnitude ps/sample vs N).
+               auto dispatchScheduler = [](uint32_t N) -> CDiscreteSamplerBenchmark::DispatchCounts
+               {
+                  double ps_per_sample;
+                  if      (N <     1000u)  ps_per_sample =   15.0;  // L1-resident
+                  else if (N <   100000u)  ps_per_sample =  100.0;  // L1/L2
+                  else if (N <  2000000u)  ps_per_sample = 1000.0;  // L2-edge
+                  else                     ps_per_sample = 8000.0;  // DRAM-bound
+
+                  constexpr double targetNs            = 1.5e9;                 // ~1.5 s per bench
+                  constexpr uint64_t samplesPerDispatch = uint64_t(WORKGROUP_SIZE) * uint64_t(testBatchCount) * uint64_t(BENCH_ITERS);
+                  const uint64_t targetSamples          = uint64_t((targetNs * 1000.0) / ps_per_sample);
+                  const uint32_t bench                  = std::max(10u, uint32_t(targetSamples / samplesPerDispatch));
+                  const uint32_t warmup                 = std::max(20u, bench / 10u);
+                  return {warmup, bench};
+               };
+
+               discreteBench.runSweep(discreteSizes, dispatchScheduler);
+            }
          }
       }
 
@@ -270,21 +342,20 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // Runtime CPU/GPU comparison tests using ITester harness
       // ================================================================
       bool pass = true;
-      const uint32_t workgroupSize = WORKGROUP_SIZE;
 
       // generic lambda to run a GPU sampler test
       auto runSamplerTest = [&]<typename Tester>(const char* testName, auto spirvKey, const char* logFile)
       {
          m_logger->log("Running %s tests...", ILogger::ELL_INFO, testName);
          typename Tester::PipelineSetupData data;
-         data.device = m_device;
-         data.api = m_api;
-         data.assetMgr = m_assetMgr;
-         data.logger = m_logger;
-         data.physicalDevice = m_physicalDevice;
+         data.device             = m_device;
+         data.api                = m_api;
+         data.assetMgr           = m_assetMgr;
+         data.logger             = m_logger;
+         data.physicalDevice     = m_physicalDevice;
          data.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
-         data.shaderKey = spirvKey;
-         Tester tester(testBatchCount, workgroupSize);
+         data.shaderKey          = spirvKey;
+         Tester tester(testBatchCount, WORKGROUP_SIZE);
          tester.setupPipeline(data);
          pass &= tester.performTestsAndVerifyResults(logFile);
       };
@@ -307,7 +378,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          runSamplerTest.operator()<CProjectedSphericalRectangleTester>("ProjectedSphericalRectangle sampler", nbl::this_example::builtin::build::get_spirv_key<"projected_spherical_rectangle_test">(m_device.get()), "ProjectedSphericalRectangleTestLog.txt");
       }
 
-      if constexpr (true)
+      if constexpr (DoBenchmark)
       {
          // --- Discrete table construction (CPU) ---
          {
@@ -320,6 +391,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          runSamplerTest.operator()<CAliasTableGPUTester>("AliasTable GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"alias_table_test">(m_device.get()), "AliasTableTestLog.txt");
          runSamplerTest.operator()<CCumulativeProbabilityGPUTester>("CumulativeProbability GPU sampler", nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_test">(m_device.get()), "CumulativeProbabilityTestLog.txt");
       }
+      logJacobianSkipCounts(m_logger.get());
       if (pass)
          m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
       else

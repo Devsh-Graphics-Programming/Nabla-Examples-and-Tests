@@ -58,18 +58,15 @@ void main()
 	float32_t xi = float32_t(nbl::hlsl::glsl::bitfieldReverse(invID)) / float32_t(~0u);
 	NBL_CONSTEXPR float32_t goldenRatio = 0.6180339887498949f;
 	uint32_t acc = 0u;
-	uint32_t accPdf = 0u;
-
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
-		float32_t u = frac(xi + float32_t(i) * goldenRatio);
+		xi = frac(xi + goldenRatio);
 		BenchAliasTable::cache_type cache;
-		uint32_t generated = sampler.generate(u, cache);
-		acc ^= generated;
-		accPdf ^= asuint(sampler.forwardPdf(u, cache));
+		uint32_t generated = sampler.generate(xi, cache);
+		acc ^= generated ^ asuint(sampler.forwardPdf(xi, cache));
 	}
 
-	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc + accPdf);
+	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc);
 #else
 	AliasTableTestExecutor executor;
 	executor(inputTestValues[invID], outputTestValues[invID]);

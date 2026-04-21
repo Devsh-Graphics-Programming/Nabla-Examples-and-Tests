@@ -162,7 +162,7 @@ public:
 	}
 
 	// Runs warmupIterations submits (unclocked), then benchmarkIterations submits under GPU timestamps.
-	void run(const std::string& samplerName, uint32_t warmupIterations = 500, uint32_t benchmarkIterations = 5000)
+	void run(const std::string& samplerName, const std::string& mode, uint32_t warmupIterations = 500, uint32_t benchmarkIterations = 5000)
 	{
 		m_device->waitIdle();
 		recordBenchmarkCmdBuf();
@@ -213,9 +213,9 @@ public:
 		const float64_t gsamples_per_s  = float64_t(total_samples) / elapsed_ns;
 		const float64_t elapsed_ms      = elapsed_ns * 1e-6;
 
-		m_logger->log("[Benchmark] %-28s: %9.3f ps/sample  |  %10.3f GSamples/s  |  %10.3f ms total",
+		m_logger->log("[Benchmark] %-28s | %-38s | %12.3f | %12.3f | %12.3f",
 			system::ILogger::ELL_PERFORMANCE,
-			samplerName.c_str(), ps_per_sample, gsamples_per_s, elapsed_ms);
+			samplerName.c_str(), mode.c_str(), ps_per_sample, gsamples_per_s, elapsed_ms);
 	}
 
 private:

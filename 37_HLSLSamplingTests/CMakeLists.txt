@@ -113,8 +113,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/linear_test.comp.hlsl\",
-    \"KEY\": \"linear_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"linear_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/linear_test.comp.hlsl\",
+    \"KEY\": \"linear_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/uniform_hemisphere_test.comp.hlsl\",
@@ -122,8 +127,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/uniform_hemisphere_test.comp.hlsl\",
-    \"KEY\": \"uniform_hemisphere_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"uniform_hemisphere_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/uniform_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_hemisphere_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/uniform_sphere_test.comp.hlsl\",
@@ -131,8 +141,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/uniform_sphere_test.comp.hlsl\",
-    \"KEY\": \"uniform_sphere_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"uniform_sphere_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/uniform_sphere_test.comp.hlsl\",
+    \"KEY\": \"uniform_sphere_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_hemisphere_test.comp.hlsl\",
@@ -140,8 +155,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_hemisphere_test.comp.hlsl\",
-    \"KEY\": \"projected_hemisphere_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"projected_hemisphere_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_hemisphere_test.comp.hlsl\",
+    \"KEY\": \"projected_hemisphere_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_sphere_test.comp.hlsl\",
@@ -149,8 +169,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_sphere_test.comp.hlsl\",
-    \"KEY\": \"projected_sphere_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"projected_sphere_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_sphere_test.comp.hlsl\",
+    \"KEY\": \"projected_sphere_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
@@ -158,8 +183,18 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
-    \"KEY\": \"spherical_triangle_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"spherical_triangle_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
+    \"KEY\": \"spherical_triangle_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_triangle.comp.hlsl\",
+    \"KEY\": \"spherical_triangle_bench_create_only\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/concentric_mapping_test.comp.hlsl\",
@@ -167,8 +202,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/concentric_mapping_test.comp.hlsl\",
-    \"KEY\": \"concentric_mapping_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"concentric_mapping_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/concentric_mapping_test.comp.hlsl\",
+    \"KEY\": \"concentric_mapping_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/polar_mapping_test.comp.hlsl\",
@@ -176,8 +216,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/polar_mapping_test.comp.hlsl\",
-    \"KEY\": \"polar_mapping_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"polar_mapping_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/polar_mapping_test.comp.hlsl\",
+    \"KEY\": \"polar_mapping_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/bilinear_test.comp.hlsl\",
@@ -185,8 +230,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/bilinear_test.comp.hlsl\",
-    \"KEY\": \"bilinear_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"bilinear_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/bilinear_test.comp.hlsl\",
+    \"KEY\": \"bilinear_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/box_muller_transform_test.comp.hlsl\",
@@ -194,8 +244,13 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/box_muller_transform_test.comp.hlsl\",
-    \"KEY\": \"box_muller_transform_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"box_muller_transform_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/box_muller_transform_test.comp.hlsl\",
+    \"KEY\": \"box_muller_transform_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
@@ -203,8 +258,18 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
-    \"KEY\": \"projected_spherical_triangle_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"projected_spherical_triangle_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_triangle_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_spherical_triangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_triangle_bench_create_only\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_spherical_rectangle_test.comp.hlsl\",
@@ -212,8 +277,18 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/projected_spherical_rectangle_test.comp.hlsl\",
-    \"KEY\": \"projected_spherical_rectangle_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"projected_spherical_rectangle_bench_1_1\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_rectangle_bench_1_16\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/projected_spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"projected_spherical_rectangle_bench_create_only\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
@@ -221,8 +296,48 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
-    \"KEY\": \"spherical_rectangle_bench\",
-    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+    \"KEY\": \"spherical_rectangle_bench_1_1_shape_observer\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_1_1_sa_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\", \"-DBENCH_VARIANT_SA_EXTENTS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_1_1_r0_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=1\", \"-DBENCH_VARIANT_R0_EXTENTS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_1_16_shape_observer\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_1_16_sa_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\", \"-DBENCH_VARIANT_SA_EXTENTS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_1_16_r0_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_SAMPLES_PER_CREATE=16\", \"-DBENCH_VARIANT_R0_EXTENTS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_create_only_shape_observer\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_create_only_sa_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\", \"-DBENCH_VARIANT_SA_EXTENTS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/spherical_rectangle_test.comp.hlsl\",
+    \"KEY\": \"spherical_rectangle_bench_create_only_r0_extents\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\", \"-DBENCH_VARIANT_R0_EXTENTS\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/alias_table_test.comp.hlsl\",
@@ -241,6 +356,11 @@ set(JSON "
     \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
     \"KEY\": \"cumulative_probability_bench\",
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
+    \"KEY\": \"cumulative_probability_yolo_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DNBL_CUMPROB_YOLO_READS\"]
   }
 ]
 ")

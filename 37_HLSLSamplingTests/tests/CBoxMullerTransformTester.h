@@ -53,6 +53,7 @@ private:
 		pass &= verifyTestValue("BoxMullerTransform::jointPdf == pdf product", actual.backwardPdf, actual.separateBackwardPdf.x * actual.separateBackwardPdf.y, iteration, seed, testType, 1e-5, 1e-5);
 		// forwardPdf must return the same value stored in cache.pdf by generate
 		pass &= verifyTestValue("BoxMullerTransform::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "BoxMullerTransform::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 5e-2, 5e-2);
 		pass &= verifyTestValue("BoxMullerTransform::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-3);
 		pass &= verifyTestValue("BoxMullerTransform::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-4, 1e-3);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,

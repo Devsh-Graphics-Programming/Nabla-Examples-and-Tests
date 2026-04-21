@@ -45,7 +45,8 @@ private:
 			FieldCheck{"UniformSphere::forwardWeight",  &R::forwardWeight,  1e-5, 1e-5},
 			FieldCheck{"UniformSphere::backwardWeight", &R::backwardWeight, 1e-5, 1e-5});
 		pass &= verifyTestValue("UniformSphere::roundtripError", nbl::hlsl::float32_t2(0.0f, 0.0f), actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
-		pass &= verifyTestValue("UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 5e-2, 5e-2);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "UniformSphere::inverseJacobianPdf", actual.backwardPdf, actual.inverseJacobianPdf, iteration, seed, testType, 5e-2, 5e-2);
 		pass &= verifyTestValue("UniformSphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
 		pass &= verifyTestValue("UniformSphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,

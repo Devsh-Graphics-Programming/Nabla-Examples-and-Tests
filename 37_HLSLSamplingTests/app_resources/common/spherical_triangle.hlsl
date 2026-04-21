@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -24,6 +25,7 @@ struct SphericalTriangleTestResults
 	float32_t backwardWeight;
 	float32_t2 roundtripError;
 	float32_t jacobianProduct;
+	float32_t inverseJacobianPdf;
 	// Minimum signed distance to a triangle edge (sin of angular distance to nearest great circle).
 	// Positive = inside, negative = outside. Allows tolerance at boundaries.
 	float32_t generatedInside;
@@ -39,7 +41,7 @@ struct SphericalTriangleTestExecutor
 		const float32_t3 verts[3] = { input.vertex0, input.vertex1, input.vertex2 };
 		shapes::SphericalTriangle<float32_t> shape = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(verts);
 
-		sampling::SphericalTriangle<float32_t, true> sampler = sampling::SphericalTriangle<float32_t, true>::create(shape);
+		sampling::SphericalTriangle<float32_t> sampler = sampling::SphericalTriangle<float32_t>::create(shape);
 
 		// Forward: u -> v
 		{
@@ -57,10 +59,8 @@ struct SphericalTriangleTestExecutor
 			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
 		// Roundtrip error: ||u - u'||
-		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
-
-		// Jacobian product: (1/forwardPdf) * backwardPdf should equal 1 for bijective samplers
-		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
+		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);.
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 20.0f);
 
 		// Domain preservation:
 		// A point is inside the spherical triangle iff it is on the "inside" half-plane
@@ -79,6 +79,13 @@ struct SphericalTriangleTestExecutor
 
 		float32_t2 u = output.inverted;
 		output.invertedInDomain = nbl::hlsl::min(nbl::hlsl::min(u.x, float32_t(1.0) - u.x), nbl::hlsl::min(u.y, float32_t(1.0) - u.y));
+
+		const float32_t uMargin = 1e-2f;
+		const bool nearUBoundary = output.inverted.x < uMargin || output.inverted.x > (1.0f - uMargin)
+		                        || output.inverted.y < uMargin || output.inverted.y > (1.0f - uMargin);
+		output.inverseJacobianPdf = nearUBoundary
+			? JACOBIAN_SKIP_CODOMAIN_SINGULARITY
+			: computeInverseJacobianPdf(sampler, output.generated, output.backwardPdf, 0.1f, 10.0f);
 	}
 };
 

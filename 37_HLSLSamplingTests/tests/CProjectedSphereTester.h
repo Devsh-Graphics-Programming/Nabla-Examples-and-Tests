@@ -47,8 +47,9 @@ private:
 			FieldCheck{"ProjectedSphere::forwardWeight",  &R::forwardWeight,  1e-5, 1e-5},
 			FieldCheck{"ProjectedSphere::backwardWeight", &R::backwardWeight, 1e-5, 1e-5});
 		pass &= verifyTestValue("ProjectedSphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("ProjectedSphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-4);
-		pass &= verifyTestValue("ProjectedSphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-4, 1e-4);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "ProjectedSphere::jacobianProduct", 0.5f, actual.jacobianProduct, iteration, seed, testType, 6e-2, 6e-2);
+		pass &= verifyTestValue("ProjectedSphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
+		pass &= verifyTestValue("ProjectedSphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"ProjectedSphere::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"ProjectedSphere::backwardPdf", &R::backwardPdf});

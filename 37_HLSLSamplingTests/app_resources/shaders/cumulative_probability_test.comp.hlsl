@@ -46,10 +46,10 @@ void main()
 
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
-		float32_t u = frac(xi + float32_t(i) * goldenRatio);
+		xi = frac(xi + goldenRatio);
 		BenchCumProbSampler::cache_type cache;
-		uint32_t generated = sampler.generate(u, cache);
-		acc ^= generated ^ asuint(sampler.forwardPdf(u, cache));
+		uint32_t generated = sampler.generate(xi, cache);
+		acc ^= generated ^ asuint(sampler.forwardPdf(xi, cache));
 	}
 
 	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc);

@@ -52,6 +52,7 @@ private:
 			PdfCheck{"AliasTable::backwardPdf", &R::backwardPdf});
 
 		// Structural invariants
+		pass &= verifyTestValue("AliasTable::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
 		pass &= verifyTestValue("AliasTable::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
 		pass &= verifyTestValue("AliasTable::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 

@@ -49,8 +49,9 @@ private:
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"Linear::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"Linear::backwardPdf", &R::backwardPdf});
-		pass &= verifyTestValue("Linear::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-5);
-		pass &= verifyTestValue("Linear::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-4, 1e-5);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "Linear::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 6e-2, 6e-2);
+		pass &= verifyTestValue("Linear::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("Linear::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-5, 1e-5);
 
 		if (!pass && iteration < m_inputs.size())
 			logFailedInput(m_logger.get(), m_inputs[iteration]);
@@ -88,7 +89,7 @@ struct LinearPropertyConfig
 	{
 		using nbl::system::to_string;
 		logger->log("    coeffStart=%s coeffEnd=%s", nbl::system::ILogger::ELL_ERROR,
-			to_string(s.linearCoeffStart).c_str(), to_string(s.linearCoeffEnd).c_str());
+			to_string(s.normalizedCoeffStart).c_str(), to_string(s.normalizedCoeffEnd).c_str());
 	}
 };
 
@@ -140,7 +141,7 @@ struct LinearStressConfig
 	{
 		using nbl::system::to_string;
 		logger->log("    coeffStart=%s coeffEnd=%s", nbl::system::ILogger::ELL_ERROR,
-			to_string(s.linearCoeffStart).c_str(), to_string(s.linearCoeffEnd).c_str());
+			to_string(s.normalizedCoeffStart).c_str(), to_string(s.normalizedCoeffEnd).c_str());
 	}
 };
 
