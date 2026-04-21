@@ -858,18 +858,22 @@ struct PathTracerReport::Impl
 					imageJson["reference"] = makeGenericPathString(relativePath(image.referenceExr,params.reportDir));
 				if (!image.diffExr.empty())
 					imageJson["difference"] = makeGenericPathString(relativePath(image.diffExr,params.reportDir));
-				imageJson["error_pixels"] = image.errorPixels;
-				imageJson["allowed_error_pixels"] = image.allowedErrorPixels;
-				imageJson["total_pixels"] = image.totalPixels;
-				imageJson["max_abs_error"] = image.maxAbsError;
-				if (image.hasSsimDifference)
+				const bool hasComparisonMetric = (image.status=="passed" || image.status=="failed") && image.totalPixels>0u;
+				if (hasComparisonMetric)
 				{
-					imageJson["metric"] = "ssim";
-					imageJson["ssim_difference"] = image.ssimDifference;
-					imageJson["ssim_error_threshold"] = params.compare.ssimErrorThreshold;
+					imageJson["error_pixels"] = image.errorPixels;
+					imageJson["allowed_error_pixels"] = image.allowedErrorPixels;
+					imageJson["total_pixels"] = image.totalPixels;
+					imageJson["max_abs_error"] = image.maxAbsError;
+					if (image.hasSsimDifference)
+					{
+						imageJson["metric"] = "ssim";
+						imageJson["ssim_difference"] = image.ssimDifference;
+						imageJson["ssim_error_threshold"] = params.compare.ssimErrorThreshold;
+					}
+					else
+						imageJson["metric"] = "pixel-error";
 				}
-				else
-					imageJson["metric"] = "pixel-error";
 				images.push_back(std::move(imageJson));
 			}
 			results.push_back(std::move(sessionJson));

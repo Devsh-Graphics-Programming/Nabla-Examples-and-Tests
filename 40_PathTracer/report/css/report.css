@@ -110,7 +110,7 @@ pre {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) minmax(min(100%, 22rem), 27rem);
 	gap: 1.125rem;
-	align-items: stretch;
+	align-items: start;
 	margin: 0 0 1.25rem;
 }
 
@@ -118,7 +118,7 @@ pre {
 	display: flex;
 	flex-direction: column;
 	gap: 1.125rem;
-	min-height: 100%;
+	min-height: 0;
 }
 
 .card {
@@ -393,6 +393,41 @@ pre {
 .machine-card,
 .report-bundle-card {
 	min-width: 0;
+}
+
+.run-card {
+	align-self: start;
+}
+
+@media (min-width: 68.8125rem) {
+	.top {
+		grid-template-areas:
+			"run commit"
+			"run machine"
+			"bundle bundle";
+		align-items: stretch;
+	}
+
+	.side-stack {
+		display: contents;
+	}
+
+	.run-card {
+		grid-area: run;
+		align-self: stretch;
+	}
+
+	.commit-card {
+		grid-area: commit;
+	}
+
+	.machine-card {
+		grid-area: machine;
+	}
+
+	.report-bundle-card {
+		grid-area: bundle;
+	}
 }
 
 .commit-hash {

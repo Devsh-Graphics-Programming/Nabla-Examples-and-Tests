@@ -196,6 +196,11 @@
 		return image && (image.metric === "ssim" || image.ssim_difference !== undefined);
 	}
 
+	function suppressComparisonMetric(image) {
+		const status = normalizeStatus(image && image.status);
+		return status === "missing-render" || status === "missing-reference" || status === "not-checked" || status === "error";
+	}
+
 	function ssimDifferenceText(image) {
 		const value = Number(image && image.ssim_difference);
 		return Number.isFinite(value) ? value.toFixed(4) : "n/a";
@@ -525,10 +530,12 @@
 		clear(nodes.reportBundleCard);
 		const counts = artifactCounts();
 		const totalExr = counts.render + counts.reference + counts.difference;
+		const sceneCount = (state.summary.results || []).length;
 		append(nodes.reportBundleCard,
 			el("h2",{ text: "Report Bundle" }),
 			el("p",{ className: "ci-note", text: "Path tracer report payload.", dataset: { hint: HINTS.reportBundle }, attrs: { tabindex: "0" } }),
 			el("div",{ className: "bundle-grid" },
+				bundleStat("Scenes",String(sceneCount),"Rendered scene and sensor sessions recorded in this payload."),
 				bundleStat("Outputs",String(counts.outputs),"Output records listed in summary.json."),
 				bundleStat("EXR links",String(totalExr),"Renderable, reference and difference EXR links available in this payload."),
 				bundleStat("Renders",String(counts.render),HINTS.renderArtifact),
@@ -672,7 +679,11 @@
 			);
 
 		const cell = el("div",{ className: "output-summary" },badge(image.status));
-		if (isSsimMetric(image)) {
+		if (suppressComparisonMetric(image)) {
+			const hint = normalizeStatus(image.status) === "missing-render" ? HINTS.missingRender :
+				normalizeStatus(image.status) === "missing-reference" ? HINTS.missingReference : HINTS.missingOutput;
+			cell.appendChild(hintable("metric-main",image.details || "No comparison data",hint));
+		} else if (isSsimMetric(image)) {
 			cell.appendChild(hintable("metric-main","Difference (SSIM)",HINTS.ssimMetric));
 			cell.appendChild(hintable("metric-sub",ssimDifferenceText(image) + " / max " + String(image.ssim_error_threshold ?? "n/a"),HINTS.ssimMetric));
 		} else if (Number(image.total_pixels || 0) > 0) {
