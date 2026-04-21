@@ -66,17 +66,6 @@ struct MaterialSystem
         return monochromeEta;
     }
 
-    cache_type getCacheFromSampleInteraction(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
-    {
-        const scalar_type monochromeEta = setMonochromeEta(matID, interaction.getLuminosityContributionHint());
-        using monochrome_type = typename dielectric_op_type::monochrome_type;
-        bxdf::fresnel::OrientedEtas<monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<monochrome_type>::create(interaction.getNdotV(), hlsl::promote<monochrome_type>(monochromeEta));
-        cache_type _cache;
-        _cache.aniso_cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, _sample, orientedEta);
-        fillBxdfParams(matID, _cache);
-        return _cache;
-    }
-
     // these are specific for the bxdfs used for this example
     void fillBxdfParams(material_id_type matID, NBL_REF_ARG(cache_type) _cache)
     {
@@ -139,7 +128,9 @@ struct MaterialSystem
     value_weight_type evalAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
         // TODO: call only fillBxdfParams, should probably split the cache away from the bxdf node
-        cache_type _cache = getCacheFromSampleInteraction(matID, _sample, interaction);
+        setMonochromeEta(matID, interaction.getLuminosityContributionHint());
+        cache_type _cache;
+        fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
         {
@@ -185,6 +176,7 @@ struct MaterialSystem
     sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(cache_type) _cache)
     {
         // TODO: should probably split the caches, no aniso cache needed (generate should overwrite it
+        setMonochromeEta(matID, interaction.getLuminosityContributionHint());
         fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
@@ -241,7 +233,7 @@ struct MaterialSystem
             {
                 case MaterialType::DIFFUSE:
                 {
-                    typename diffuse_op_type::isocache_type dummycache; // diffuse doens't actually have a cache (struct is empty)
+                    typename diffuse_op_type::isocache_type dummycache; // diffuse doesn't actually have a cache (struct is empty)
                     quotient_weight_type ret = _cache.diffuseBxDF.quotientAndWeight(_sample, interaction.isotropic, dummycache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
