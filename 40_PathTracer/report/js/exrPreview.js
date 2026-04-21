@@ -560,6 +560,40 @@
 			}
 		}
 
+		function stepSelect(select, direction) {
+			if (!select || select.options.length < 2)
+				return false;
+			const next = Math.max(0,Math.min(select.options.length - 1,select.selectedIndex + direction));
+			if (next === select.selectedIndex)
+				return false;
+			select.selectedIndex = next;
+			select.dispatchEvent(new Event("change",{ bubbles: true }));
+			return true;
+		}
+
+		function installSelectWheel(select) {
+			select.addEventListener("wheel",(event) => {
+				if (Math.abs(event.deltaY) <= Math.abs(event.deltaX))
+					return;
+				if (stepSelect(select,event.deltaY > 0 ? 1 : -1))
+					event.preventDefault();
+			},{ passive: false });
+		}
+
+		function stepVariant(direction) {
+			const selection = syncControls();
+			if (!selection)
+				return false;
+			const variants = selection.output.variants;
+			const index = variants.findIndex((variant) => variant.identifier === active.variant);
+			const next = Math.max(0,Math.min(variants.length - 1,index + direction));
+			if (next === index)
+				return false;
+			active.variant = variants[next].identifier;
+			renderActivePreview();
+			return true;
+		}
+
 		function syncControls() {
 			const scene = sceneAt(active.sceneIndex);
 			if (!scene)
@@ -666,6 +700,16 @@
 			active.variant = "render";
 			renderActivePreview();
 		});
+
+		installSelectWheel(sceneSelect);
+		installSelectWheel(outputSelect);
+
+		variantTabs.addEventListener("wheel",(event) => {
+			if (Math.abs(event.deltaY) <= Math.abs(event.deltaX))
+				return;
+			if (stepVariant(event.deltaY > 0 ? 1 : -1))
+				event.preventDefault();
+		},{ passive: false });
 
 		target.addEventListener("wheel",(event) => {
 			if (!currentPreview)

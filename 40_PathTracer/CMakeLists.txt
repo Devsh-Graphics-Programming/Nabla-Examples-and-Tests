@@ -14,13 +14,9 @@ set(NBL_LIBRARIES
 )
 
 set(PT_RUNTIME_CONFIG_OUTPUT "bin/config/pt.$<LOWER_CASE:$<CONFIG>>.json")
-file(GLOB_RECURSE NBL_EXAMPLE_SOURCES CONFIGURE_DEPENDS "app_resources/*.hlsl" "include/*.h" "include/*.hpp" "src/*.cpp" "src/*.h" "src/*.hpp" "report/*.css" "report/*.html" "report/*.js" "report/*.py")
-foreach(_PT_SOURCE IN LISTS NBL_EXAMPLE_SOURCES)
-	if(_PT_SOURCE MATCHES "/report/")
-		list(APPEND PT_REPORT_SOURCES "${_PT_SOURCE}")
-	endif()
-endforeach()
-list(APPEND NBL_EXAMPLE_SOURCES "${PT_RUNTIME_CONFIG_OUTPUT}")
+file(GLOB_RECURSE NBL_EXAMPLE_SOURCES CONFIGURE_DEPENDS "app_resources/*.hlsl" "include/*.h" "include/*.hpp" "src/*.cpp" "src/*.h" "src/*.hpp")
+file(GLOB_RECURSE PT_REPORT_SOURCES CONFIGURE_DEPENDS "report/*.css" "report/*.html" "report/*.js" "report/*.py")
+set(PT_PROJECT_SOURCES ${NBL_EXAMPLE_SOURCES} ${PT_REPORT_SOURCES} "${PT_RUNTIME_CONFIG_OUTPUT}")
 set_source_files_properties("${PT_RUNTIME_CONFIG_OUTPUT}" PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
 set_source_files_properties(${PT_REPORT_SOURCES} PROPERTIES HEADER_FILE_ONLY TRUE)
 source_group("config" FILES "${PT_RUNTIME_CONFIG_OUTPUT}")
@@ -35,7 +31,7 @@ set(PT_RUNTIME_CONFIG_JSON [=[
 ]=])
 file(GENERATE OUTPUT "${PT_RUNTIME_CONFIG_OUTPUT}" CONTENT "${PT_RUNTIME_CONFIG_JSON}")
 
-nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
+nbl_create_executable_project("${PT_PROJECT_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_THIS_EXAMPLE_BUILD_CONFIG=\"$<CONFIG>\")
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")

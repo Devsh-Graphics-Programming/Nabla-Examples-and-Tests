@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import datetime as dt
 import hashlib
 import http.client
@@ -26,6 +27,8 @@ def parse_args():
     parser.add_argument("--region", default="fr-par")
     parser.add_argument("--static-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--checksum", action="store_true", help="Hash every file before deciding whether to upload.")
+    parser.add_argument("--jobs", type=int, default=16)
     return parser.parse_args()
 
 
@@ -130,7 +133,8 @@ def head_object(endpoint, region, access_key, secret_key, bucket, key):
         with urllib.request.urlopen(request) as response:
             return {
                 "size": int(response.headers.get("Content-Length", "-1")),
-                "etag": response.headers.get("ETag", "").strip('"')
+                "etag": response.headers.get("ETag", "").strip('"'),
+                "mtime_ns": response.headers.get("x-amz-meta-source-mtime-ns"),
             }
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -138,13 +142,24 @@ def head_object(endpoint, region, access_key, secret_key, bucket, key):
         raise
 
 
-def remote_matches(remote, path):
+def should_checksum(path, force):
+    return force or path.suffix.lower() in (WEB_EXTENSIONS | {".json"})
+
+
+def remote_matches(remote, path, checksum):
     if not remote:
         return False
 
-    size = path.stat().st_size
+    stat = path.stat()
+    size = stat.st_size
     if remote["size"] != size:
         return False
+
+    if remote.get("mtime_ns") == str(stat.st_mtime_ns):
+        return True
+
+    if not checksum:
+        return True
 
     _, local_md5 = file_hashes(path)
     return remote["etag"] == local_md5
@@ -163,7 +178,8 @@ def put_stream(endpoint, region, access_key, secret_key, bucket, key, path, sha2
         sha256,
         {
             "content-length": str(path.stat().st_size),
-            "content-type": content_type(path)
+            "content-type": content_type(path),
+            "x-amz-meta-source-mtime-ns": str(path.stat().st_mtime_ns),
         }
     )
     connection = http.client.HTTPSConnection(parsed.netloc) if parsed.scheme == "https" else http.client.HTTPConnection(parsed.netloc)
@@ -176,18 +192,16 @@ def put_stream(endpoint, region, access_key, secret_key, bucket, key, path, sha2
         raise RuntimeError(f"{key}: HTTP {response.status}")
 
 
-def put_object(endpoint, region, access_key, secret_key, bucket, key, path, dry_run):
+def put_object(endpoint, region, access_key, secret_key, bucket, key, path, dry_run, checksum):
     remote = head_object(endpoint, region, access_key, secret_key, bucket, key)
-    if remote_matches(remote,path):
-        print(f"skip {key} ({path.stat().st_size} bytes)")
-        return
+    if remote_matches(remote,path,checksum):
+        return f"skip {key} ({path.stat().st_size} bytes)"
     if dry_run:
-        print(f"upload {key} ({path.stat().st_size} bytes)")
-        return
+        return f"upload {key} ({path.stat().st_size} bytes)"
 
     local_sha256, _ = file_hashes(path)
     put_stream(endpoint, region, access_key, secret_key, bucket, key, path, local_sha256)
-    print(f"uploaded {key}")
+    return f"uploaded {key}"
 
 
 def main():
@@ -208,8 +222,23 @@ def main():
         upload_files += collect(source)
     upload_files = sorted(upload_files, key=lambda item: (item[1].name == "index.html", item[1].as_posix()))
 
-    for path, destination in upload_files:
-        put_object(args.endpoint, args.region, access_key, secret_key, args.bucket, f"{prefix}/{destination.as_posix()}", path, args.dry_run)
+    def upload(item):
+        path, destination = item
+        return put_object(
+            args.endpoint,
+            args.region,
+            access_key,
+            secret_key,
+            args.bucket,
+            f"{prefix}/{destination.as_posix()}",
+            path,
+            args.dry_run,
+            should_checksum(path,args.checksum)
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1,args.jobs)) as executor:
+        for line in executor.map(upload,upload_files):
+            print(line)
 
 
 if __name__ == "__main__":

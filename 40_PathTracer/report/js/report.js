@@ -30,6 +30,8 @@
 		referenceArtifact: "Download the reference EXR copied into this report bundle.",
 		differenceArtifact: "Download the generated EXR difference image.",
 		missingOutput: "This output was recorded by the report but one side of the comparison is unavailable. Check the detail text to see whether the render, reference, or difference image is missing.",
+		missingRender: "The reference exists, but this report has no unambiguous EXR produced by the current path tracer run for this output.",
+		missingReference: "The current render may exist, but the checked-out reference set does not contain a matching reference EXR for this output.",
 		machine: "Machine that generated this report, as recorded by the path tracer executable.",
 		machineGpu: "GPU selected by the path tracer runtime for this report.",
 		machineMemory: "Physical system memory reported by the operating system during the run.",
@@ -39,6 +41,8 @@
 		detailsButton: "Jump to the detailed table for this scene.",
 		variantButton: "Switch the preview between render, reference and difference images.",
 		overviewFilter: "Show every scene or only scenes with failing, missing, error or not-checked status.",
+		overviewScene: "Rendered scene and sensor session. This uses the same display name as the EXR preview selector.",
+		overviewDetails: "Open the detailed per-output table for this scene.",
 		expandFailedOnly: "Open detail sections only for scenes that need attention and collapse passing scenes.",
 		tonemapStep: "Primary tonemapped output used for visual review.",
 		rwmcStep: "Resolved RWMC cascade output exported for debugging the current resolver path.",
@@ -147,6 +151,21 @@
 		return normalizeStatus(status) !== "passed";
 	}
 
+	function statusHint(status) {
+		const value = normalizeStatus(status);
+		if (value === "missing-render")
+			return HINTS.missingRender;
+		if (value === "missing-reference")
+			return HINTS.missingReference;
+		if (value === "not-checked")
+			return "This output is present in the report but is intentionally not part of pass/fail validation.";
+		if (value === "failed")
+			return "This output failed validation or the scene has at least one failing output.";
+		if (value === "passed")
+			return "This output passed validation.";
+		return "Report status recorded for this output.";
+	}
+
 	function sceneHasProblem(scene) {
 		if (isProblemStatus(scene && scene.status))
 			return true;
@@ -155,7 +174,7 @@
 
 	function badge(status) {
 		const value = normalizeStatus(status);
-		return el("span",{ className: "badge " + statusClass(value), text: value });
+		return el("span",{ className: "badge " + statusClass(value), text: value, dataset: { hint: statusHint(value) }, attrs: { tabindex: "0" } });
 	}
 
 	function configBadge(config) {
@@ -476,7 +495,9 @@
 			outputs: 0,
 			render: 0,
 			reference: 0,
-			difference: 0
+			difference: 0,
+			missingRender: 0,
+			missingReference: 0
 		};
 		for (const scene of state.summary.results || []) {
 			for (const image of scene.array || []) {
@@ -487,13 +508,17 @@
 					++counts.reference;
 				if (image.difference)
 					++counts.difference;
+				if (normalizeStatus(image.status) === "missing-render")
+					++counts.missingRender;
+				if (normalizeStatus(image.status) === "missing-reference")
+					++counts.missingReference;
 			}
 		}
 		return counts;
 	}
 
-	function bundleStat(label, value) {
-		return el("div",{ className: "bundle-stat" },el("span",{ text: label }),el("strong",{ text: value }));
+	function bundleStat(label, value, hint) {
+		return el("div",{ className: "bundle-stat", dataset: { hint }, attrs: { tabindex: "0" } },el("span",{ text: label }),el("strong",{ text: value }));
 	}
 
 	function renderReportBundle() {
@@ -504,10 +529,13 @@
 			el("h2",{ text: "Report Bundle" }),
 			el("p",{ className: "ci-note", text: "Path tracer report payload.", dataset: { hint: HINTS.reportBundle }, attrs: { tabindex: "0" } }),
 			el("div",{ className: "bundle-grid" },
-				bundleStat("Outputs",String(counts.outputs)),
-				bundleStat("EXR links",String(totalExr)),
-				bundleStat("References",String(counts.reference)),
-				bundleStat("Differences",String(counts.difference))
+				bundleStat("Outputs",String(counts.outputs),"Output records listed in summary.json."),
+				bundleStat("EXR links",String(totalExr),"Renderable, reference and difference EXR links available in this payload."),
+				bundleStat("Renders",String(counts.render),HINTS.renderArtifact),
+				bundleStat("References",String(counts.reference),HINTS.referenceArtifact),
+				bundleStat("Differences",String(counts.difference),HINTS.differenceArtifact),
+				bundleStat("Missing renders",String(counts.missingRender),HINTS.missingRender),
+				bundleStat("Missing refs",String(counts.missingReference),HINTS.missingReference)
 			)
 		);
 	}
@@ -626,9 +654,12 @@
 		const rawName = String(scene.display_name || scene.scene_name || scene.scene_path || "scene");
 		const sensorMatch = rawName.match(/^(.*)_Sensor_([0-9]+)$/);
 		const pathName = String(scene.scene_path || "").split(/[\\/]/).pop().replace(/\.[^.]*$/,"");
+		let name = sensorMatch ? sensorMatch[1] : rawName;
+		if (!name || name === "scene")
+			name = pathName || name;
 		return {
 			index: scene.index || sceneIndex + 1,
-			name: sensorMatch ? sensorMatch[1] : (pathName || rawName),
+			name,
 			sensor: sensorMatch ? sensorMatch[2] : String(scene.sensor || 0)
 		};
 	}
@@ -648,7 +679,9 @@
 			cell.appendChild(hintable("metric-main",String(image.error_pixels || 0) + " / " + String(image.allowed_error_pixels || 0) + " bad pixels",HINTS.badPixels));
 			cell.appendChild(hintable("metric-sub",errorPercent(image) + ", max " + sci(image.max_abs_error),HINTS.errorMetric));
 		} else {
-			cell.appendChild(el("div",{ className: "metric-main", text: image.details || "No comparison data" }));
+			const hint = normalizeStatus(image.status) === "missing-render" ? HINTS.missingRender :
+				normalizeStatus(image.status) === "missing-reference" ? HINTS.missingReference : HINTS.missingOutput;
+			cell.appendChild(hintable("metric-main",image.details || "No comparison data",hint));
 		}
 		cell.appendChild(fileStrip(image));
 		cell.appendChild(previewButton("Preview",sceneIndex,image.identifier));
@@ -706,10 +739,10 @@
 
 		const columns = outputColumns(allResults);
 		const table = el("table",{ className: "overview" });
-		const headerRow = el("tr",{},el("th",{ text: "Scene" }));
+		const headerRow = el("tr",{},el("th",{},hintLabel("Scene",HINTS.overviewScene)));
 		for (const column of columns)
 			headerRow.appendChild(el("th",{},hintLabel(column.title,outputHint(column.identifier))));
-		headerRow.appendChild(el("th",{ text: "Details" }));
+		headerRow.appendChild(el("th",{},hintLabel("Details",HINTS.overviewDetails)));
 		table.appendChild(el("thead",{},headerRow));
 
 		const body = el("tbody");
