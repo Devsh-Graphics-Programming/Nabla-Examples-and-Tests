@@ -159,7 +159,7 @@ def remote_matches(remote, path, checksum):
         return True
 
     if not checksum:
-        return True
+        return False
 
     _, local_md5 = file_hashes(path)
     return remote["etag"] == local_md5
