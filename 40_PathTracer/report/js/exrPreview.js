@@ -313,6 +313,9 @@
 		let currentPreview = null;
 		let dragState = null;
 		let lastPixelInfoKey = "";
+		const exrCache = new Map();
+		const previewCache = new Map();
+		const maxCachedPreviews = 12;
 
 		function clampZoom(value) {
 			return Math.min(64,Math.max(0.05,value));
@@ -420,6 +423,58 @@
 			});
 		}
 
+		function previewKey(selection) {
+			return selection.variant.image + "\n" + selection.output.identifier + "\n" + selection.variant.identifier;
+		}
+
+		function trimPreviewCache() {
+			while (previewCache.size > maxCachedPreviews)
+				previewCache.delete(previewCache.keys().next().value);
+		}
+
+		function cachedExr(url) {
+			let entry = exrCache.get(url);
+			if (entry) {
+				exrCache.delete(url);
+				exrCache.set(url,entry);
+			} else {
+				entry = loadExrBytes(url).then((bytes) => decodeExr(bytes));
+				exrCache.set(url,entry);
+				entry.catch(() => exrCache.delete(url));
+			}
+			return entry;
+		}
+
+		function cachedPreview(selection) {
+			const key = previewKey(selection);
+			let entry = previewCache.get(key);
+			if (entry) {
+				previewCache.delete(key);
+				previewCache.set(key,entry);
+			} else {
+				entry = cachedExr(selection.variant.image).then((exr) => ({
+					exr,
+					imageData: makeImageData(exr,selection)
+				}));
+				previewCache.set(key,entry);
+				entry.catch(() => previewCache.delete(key));
+				trimPreviewCache();
+			}
+			return entry;
+		}
+
+		function warmSiblingVariants(selection) {
+			for (const variant of selection.output.variants) {
+				if (variant.identifier === selection.variant.identifier)
+					continue;
+				cachedPreview({
+					scene: selection.scene,
+					output: selection.output,
+					variant
+				}).catch(() => {});
+			}
+		}
+
 		function clearPreview() {
 			for (const child of [...target.children])
 				child.remove();
@@ -428,20 +483,20 @@
 			updatePixelInfo(null);
 		}
 
-		function drawExr(exr, selection) {
+		function drawPreview(preview, selection) {
 			const canvas = document.createElement("canvas");
-			canvas.width = exr.width;
-			canvas.height = exr.height;
+			canvas.width = preview.exr.width;
+			canvas.height = preview.exr.height;
 			canvas.className = "canvas-preview";
 			const context = canvas.getContext("2d");
 			if (!context)
 				throw new Error("Canvas 2D context is not available");
-			context.putImageData(makeImageData(exr,selection),0,0);
+			context.putImageData(preview.imageData,0,0);
 			clearPreview();
 			target.appendChild(canvas);
 			currentPreview = {
 				canvas,
-				exr,
+				exr: preview.exr,
 				offsetX: 0,
 				offsetY: 0,
 				scale: 1,
@@ -555,12 +610,12 @@
 			status.style.color = "";
 
 			try {
-				const bytes = await loadExrBytes(selection.variant.image);
-				const exr = await decodeExr(bytes);
+				const preview = await cachedPreview(selection);
 				if (requestId !== previewRequestId)
 					return;
-				drawExr(exr,selection);
-				status.textContent = "Decoded raw EXR in JavaScript: " + exr.width + "x" + exr.height + ", channels " + formatChannels(exr.channels) + ".";
+				drawPreview(preview,selection);
+				warmSiblingVariants(selection);
+				status.textContent = "Decoded raw EXR in JavaScript: " + preview.exr.width + "x" + preview.exr.height + ", channels " + formatChannels(preview.exr.channels) + ".";
 			} catch (error) {
 				if (requestId !== previewRequestId)
 					return;
