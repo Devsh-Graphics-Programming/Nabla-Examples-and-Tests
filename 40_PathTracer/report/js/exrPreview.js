@@ -65,9 +65,11 @@
 			const ySampling = cursor.readI32();
 			if (xSampling !== 1 || ySampling !== 1)
 				throw new Error("Subsampled EXR channels are not supported");
+			const component = name.split(".").pop().toUpperCase();
 			channels.push({
 				name,
-				component: name.split(".").pop().toUpperCase(),
+				component,
+				componentIndex: component === "R" ? 0 : component === "G" ? 1 : component === "B" ? 2 : component === "A" ? 3 : -1,
 				pixelType,
 				bytes: sampleByteSize(pixelType)
 			});
@@ -139,9 +141,19 @@
 		return sign*Math.pow(2,exponent - 15)*(1 + mantissa/1024);
 	}
 
+	let halfFloatTableCache = null;
+	function halfFloatTable() {
+		if (!halfFloatTableCache) {
+			halfFloatTableCache = new Float32Array(65536);
+			for (let value = 0; value < halfFloatTableCache.length; ++value)
+				halfFloatTableCache[value] = halfToFloat(value);
+		}
+		return halfFloatTableCache;
+	}
+
 	function readSample(view, offset, pixelType) {
 		if (pixelType === 1)
-			return halfToFloat(view.getUint16(offset,true));
+			return halfFloatTable()[view.getUint16(offset,true)];
 		if (pixelType === 2)
 			return view.getFloat32(offset,true);
 		if (pixelType === 0)
@@ -177,11 +189,80 @@
 		throw new Error("Unsupported EXR compression " + compression);
 	}
 
+	function previewWorkerCount(header) {
+		const chunkCount = header.offsets.length;
+		if (header.compression === 0)
+			return 1;
+		if (chunkCount >= 96)
+			return Math.min(chunkCount,2);
+		return Math.min(chunkCount,4);
+	}
+
 	async function loadExrBytes(url) {
 		const response = await fetch(url);
 		if (!response.ok)
 			throw new Error("Could not load " + url + " (" + response.status + ")");
 		return new Uint8Array(await response.arrayBuffer());
+	}
+
+	function writeChannelSamples(decoded, decodedView, pixels, destinationBase, sourceOffset, width, channel) {
+		const byteOffset = decoded.byteOffset + sourceOffset;
+		if (channel.pixelType === 1 && (byteOffset & 1) === 0) {
+			const source = new Uint16Array(decoded.buffer,byteOffset,width);
+			const table = halfFloatTable();
+			for (let x = 0, destination = destinationBase; x < width; ++x, destination += 4)
+				pixels[destination] = table[source[x]];
+			return;
+		}
+		if (channel.pixelType === 2 && (byteOffset & 3) === 0) {
+			const source = new Float32Array(decoded.buffer,byteOffset,width);
+			for (let x = 0, destination = destinationBase; x < width; ++x, destination += 4)
+				pixels[destination] = source[x];
+			return;
+		}
+		if (channel.pixelType === 0 && (byteOffset & 3) === 0) {
+			const source = new Uint32Array(decoded.buffer,byteOffset,width);
+			for (let x = 0, destination = destinationBase; x < width; ++x, destination += 4)
+				pixels[destination] = source[x];
+			return;
+		}
+		for (let x = 0, destination = destinationBase; x < width; ++x, destination += 4)
+			pixels[destination] = readSample(decodedView,sourceOffset + x*channel.bytes,channel.pixelType);
+	}
+
+	function writeDecodedChunk(header, pixels, y, decoded) {
+		const decodedView = new DataView(decoded.buffer,decoded.byteOffset,decoded.byteLength);
+		const rowStart = y - header.dataWindow.minY;
+		const rowCount = Math.min(header.linesPerChunk,header.height - rowStart);
+
+		for (let row = 0; row < rowCount; ++row) {
+			let channelOffset = row*header.bytesPerLine;
+			const rowDestination = (rowStart + row)*header.width*4;
+			for (const channel of header.channels) {
+				if (channel.componentIndex >= 0)
+					writeChannelSamples(decoded,decodedView,pixels,rowDestination + channel.componentIndex,channelOffset,header.width,channel);
+				channelOffset += header.width*channel.bytes;
+			}
+		}
+	}
+
+	async function decodeChunksIntoPixels(header, bytes, sourceView, pixels) {
+		let nextChunk = 0;
+		const workerCount = previewWorkerCount(header);
+		const workers = [];
+		for (let worker = 0; worker < workerCount; ++worker) {
+			workers.push((async () => {
+				while (nextChunk < header.offsets.length) {
+					const chunkIndex = nextChunk++;
+					const chunkOffset = header.offsets[chunkIndex];
+					const y = sourceView.getInt32(chunkOffset,true);
+					const dataSize = sourceView.getUint32(chunkOffset + 4,true);
+					const encoded = bytes.subarray(chunkOffset + 8,chunkOffset + 8 + dataSize);
+					writeDecodedChunk(header,pixels,y,await decodeChunk(header.compression,encoded));
+				}
+			})());
+		}
+		await Promise.all(workers);
 	}
 
 	async function decodeExr(bytes) {
@@ -191,30 +272,7 @@
 		for (let pixel = 0; pixel < header.width*header.height; ++pixel)
 			pixels[pixel*4 + 3] = 1;
 
-		for (let chunkIndex = 0; chunkIndex < header.offsets.length; ++chunkIndex) {
-			const chunkOffset = header.offsets[chunkIndex];
-			const y = sourceView.getInt32(chunkOffset,true);
-			const dataSize = sourceView.getUint32(chunkOffset + 4,true);
-			const encoded = bytes.subarray(chunkOffset + 8,chunkOffset + 8 + dataSize);
-			const decoded = await decodeChunk(header.compression,encoded);
-			const decodedView = new DataView(decoded.buffer,decoded.byteOffset,decoded.byteLength);
-			const rowStart = y - header.dataWindow.minY;
-			const rowCount = Math.min(header.linesPerChunk,header.height - rowStart);
-
-			for (let row = 0; row < rowCount; ++row) {
-				let channelOffset = row*header.bytesPerLine;
-				for (const channel of header.channels) {
-					const componentIndex = channel.component === "R" ? 0 : channel.component === "G" ? 1 : channel.component === "B" ? 2 : channel.component === "A" ? 3 : -1;
-					for (let x = 0; x < header.width; ++x) {
-						if (componentIndex >= 0) {
-							const sampleOffset = channelOffset + x*channel.bytes;
-							pixels[((rowStart + row)*header.width + x)*4 + componentIndex] = readSample(decodedView,sampleOffset,channel.pixelType);
-						}
-					}
-					channelOffset += header.width*channel.bytes;
-				}
-			}
-		}
+		await decodeChunksIntoPixels(header,bytes,sourceView,pixels);
 
 		return {
 			width: header.width,
@@ -224,11 +282,16 @@
 		};
 	}
 
-	function toSrgb(value) {
-		const clamped = Math.min(1,Math.max(0,Number.isFinite(value) ? value : 0));
-		if (clamped <= 0.0031308)
-			return Math.round(clamped*12.92*255);
-		return Math.round((1.055*Math.pow(clamped,1/2.4) - 0.055)*255);
+	let srgbTableCache = null;
+	function srgbTable() {
+		if (!srgbTableCache) {
+			srgbTableCache = new Uint8ClampedArray(65536);
+			for (let index = 0; index < srgbTableCache.length; ++index) {
+				const clamped = index/65535;
+				srgbTableCache[index] = clamped <= 0.0031308 ? Math.round(clamped*12.92*255) : Math.round((1.055*Math.pow(clamped,1/2.4) - 0.055)*255);
+			}
+		}
+		return srgbTableCache;
 	}
 
 	function formatChannels(channels) {
@@ -265,25 +328,42 @@
 		const isDifference = variantName.includes("difference");
 		let differenceScale = 1;
 		if (isDifference) {
-			let maxValue = 0;
-			for (let i = 0; i < exr.pixels.length; i += 4)
-				maxValue = Math.max(maxValue,Math.abs(exr.pixels[i]),Math.abs(exr.pixels[i + 1]),Math.abs(exr.pixels[i + 2]));
+			let maxValue = Number(selection.variant.maxAbsError || 0);
+			if (!Number.isFinite(maxValue) || maxValue <= 0) {
+				maxValue = 0;
+				for (let i = 0; i < exr.pixels.length; i += 4)
+					maxValue = Math.max(maxValue,Math.abs(exr.pixels[i]),Math.abs(exr.pixels[i + 1]),Math.abs(exr.pixels[i + 2]));
+			}
 			differenceScale = maxValue > 0 && maxValue < 1 ? 1/maxValue : 1;
 		}
 
 		const image = new ImageData(exr.width,exr.height);
+		const table = srgbTable();
+		const data = image.data;
+		const sourcePixels = exr.pixels;
 		for (let pixel = 0; pixel < exr.width*exr.height; ++pixel) {
 			const source = pixel*4;
 			const destination = source;
-			for (let channel = 0; channel < 3; ++channel) {
-				let value = exr.pixels[source + channel];
-				if (isNormal && value < 0)
-					value = value*0.5 + 0.5;
-				if (isDifference)
-					value *= differenceScale;
-				image.data[destination + channel] = toSrgb(value);
+			let r = sourcePixels[source];
+			let g = sourcePixels[source + 1];
+			let b = sourcePixels[source + 2];
+			if (isNormal) {
+				if (r < 0)
+					r = r*0.5 + 0.5;
+				if (g < 0)
+					g = g*0.5 + 0.5;
+				if (b < 0)
+					b = b*0.5 + 0.5;
 			}
-			image.data[destination + 3] = 255;
+			if (isDifference) {
+				r *= differenceScale;
+				g *= differenceScale;
+				b *= differenceScale;
+			}
+			data[destination] = table[!Number.isFinite(r) || r <= 0 ? 0 : r >= 1 ? 65535 : (r*65535 + 0.5) | 0];
+			data[destination + 1] = table[!Number.isFinite(g) || g <= 0 ? 0 : g >= 1 ? 65535 : (g*65535 + 0.5) | 0];
+			data[destination + 2] = table[!Number.isFinite(b) || b <= 0 ? 0 : b >= 1 ? 65535 : (b*65535 + 0.5) | 0];
+			data[destination + 3] = 255;
 		}
 		return image;
 	}
@@ -424,7 +504,10 @@
 		}
 
 		function previewKey(selection) {
-			return selection.variant.image + "\n" + selection.output.identifier + "\n" + selection.variant.identifier;
+			const outputName = (selection.output.identifier + " " + selection.output.title).toLowerCase();
+			const variantName = (selection.variant.identifier + " " + selection.variant.label).toLowerCase();
+			const transform = (outputName.includes("normal") ? "normal" : "color") + "\n" + (variantName.includes("difference") ? "difference" : "direct");
+			return selection.variant.image + "\n" + transform;
 		}
 
 		function trimPreviewCache() {
@@ -520,6 +603,19 @@
 			if (!output || !output.variants.length)
 				return null;
 			return output.variants.find((variant) => variant.identifier === identifier) || output.variants[0];
+		}
+
+		function selectionFromPayload(payload) {
+			const scene = sceneAt(Number.isInteger(payload.sceneIndex) ? payload.sceneIndex : 0);
+			if (!scene)
+				return null;
+			const output = outputAt(scene,payload.output || "");
+			if (!output)
+				return null;
+			const variant = variantAt(output,payload.variant || "render");
+			if (!variant)
+				return null;
+			return { scene, output, variant };
 		}
 
 		function syncSceneSelect() {
@@ -687,6 +783,14 @@
 			renderActivePreview();
 		}
 
+		function preparePreview(payload) {
+			if (!manifest.scenes.length)
+				return;
+			const selection = selectionFromPayload(payload || {});
+			if (selection)
+				cachedPreview(selection).catch(() => {});
+		}
+
 		sceneSelect.addEventListener("change",() => {
 			active.sceneIndex = Number(sceneSelect.value);
 			const scene = sceneAt(active.sceneIndex);
@@ -786,7 +890,8 @@
 
 		return {
 			setManifest,
-			openPreview
+			openPreview,
+			preparePreview
 		};
 	}
 

@@ -673,11 +673,26 @@
 	function previewButton(text, sceneIndex, outputIdentifier, variant = "render") {
 		const button = el("button",{ className: "preview-btn", text, dataset: { hint: HINTS.previewButton } });
 		button.type = "button";
-		button.addEventListener("click",() => viewer.openPreview({
+		const payload = {
 			sceneIndex,
 			output: outputIdentifier,
 			variant
-		}));
+		};
+		let prepared = false;
+		let prepareTimer = 0;
+		function prepare() {
+			if (prepared)
+				return;
+			prepared = true;
+			viewer.preparePreview(payload);
+		}
+		button.addEventListener("pointerenter",() => {
+			prepareTimer = window.setTimeout(prepare,80);
+		});
+		button.addEventListener("pointerleave",() => window.clearTimeout(prepareTimer));
+		button.addEventListener("pointerdown",prepare);
+		button.addEventListener("focus",prepare);
+		button.addEventListener("click",() => viewer.openPreview(payload));
 		return button;
 	}
 
@@ -930,7 +945,7 @@
 				if (image.reference)
 					variants.push({ identifier: "reference", label: "Reference", image: artifactUrl(image.reference) });
 				if (image.difference)
-					variants.push({ identifier: "difference", label: "Difference", image: artifactUrl(image.difference) });
+					variants.push({ identifier: "difference", label: "Difference", image: artifactUrl(image.difference), maxAbsError: image.max_abs_error });
 				if (variants.length)
 					outputs.push({
 						identifier: image.identifier,
