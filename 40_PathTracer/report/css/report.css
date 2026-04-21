@@ -116,7 +116,7 @@ pre {
 
 .side-stack {
 	display: grid;
-	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr);
 	gap: 1.125rem;
 	align-content: start;
 }
@@ -390,6 +390,7 @@ pre {
 
 .run-card,
 .commit-card,
+.machine-card,
 .report-bundle-card {
 	min-width: 0;
 }
@@ -404,6 +405,29 @@ pre {
 	white-space: pre-wrap;
 	color: #dbe9d2;
 	line-height: 1.42;
+}
+
+.machine-card {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.machine-card h2 {
+	margin: 0;
+}
+
+.machine-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
+}
+
+.machine-grid .stat {
+	padding: 0.625rem;
+}
+
+.machine-grid .stat strong {
+	font-size: 0.9375rem;
 }
 
 .report-bundle-card {

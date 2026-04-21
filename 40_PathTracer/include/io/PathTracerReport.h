@@ -48,12 +48,14 @@ class PathTracerReport final
 			std::string identifier;
 			std::string title;
 			system::path exrPath;
+			bool requiresReference = true;
 		};
 
 		struct SSession
 		{
 			std::string sceneName;
 			std::string displayName;
+			std::vector<std::string> referenceNames;
 			system::path scenePath;
 			uint32_t sensorIndex = 0u;
 			std::string status;
@@ -71,6 +73,7 @@ class PathTracerReport final
 			std::string commandLine;
 			std::string buildConfig;
 			std::string buildInfoJson;
+			std::string machineInfoJson;
 			SCompareSettings compare;
 			asset::IAssetManager* assetManager = nullptr;
 			system::ILogger* logger = nullptr;

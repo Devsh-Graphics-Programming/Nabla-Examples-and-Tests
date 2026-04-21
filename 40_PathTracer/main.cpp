@@ -18,16 +18,27 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <execution>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #ifndef NBL_THIS_EXAMPLE_BUILD_CONFIG
 #define NBL_THIS_EXAMPLE_BUILD_CONFIG "unknown"
@@ -87,6 +98,9 @@ struct ExportOutputs
 	path normal = {};
 	path denoised = {};
 
+	std::string artifactName = {};
+	std::string displayName = {};
+	std::vector<std::string> referenceNames = {};
 	std::string tonemapDisplay = {};
 	std::string rwmcCascadesDisplay = {};
 	std::string albedoDisplay = {};
@@ -223,25 +237,61 @@ path appendBeforeExtension(path input, std::string_view suffix)
 	return input;
 }
 
-std::string sanitizeReportName(std::string input)
-{
-	for (char& c : input)
-	{
-		const auto uc = static_cast<unsigned char>(c);
-		if (!std::isalnum(uc) && c!='_' && c!='-' && c!='.')
-			c = '_';
-	}
-	if (input.empty())
-		return "scene";
-	return input;
-}
-
 std::string sceneNameFromOutputPath(const path& outputPath)
 {
 	auto name = outputPath.stem().string();
 	if (name.rfind("Render_",0u)==0u)
 		name.erase(0u,std::char_traits<char>::length("Render_"));
-	return sanitizeReportName(name);
+	return name.empty() ? "scene":name;
+}
+
+std::string sceneReferenceNameFromPath(const path& scenePath, const std::optional<path>& sceneEntry)
+{
+	std::string name;
+	if (hasZipExtension(scenePath))
+	{
+		name = scenePath.stem().string();
+		const auto entry = sceneEntry.value_or(path("scene.xml"));
+		if (!entry.empty())
+			name += "_" + entry.stem().string();
+	}
+	else
+	{
+		name = scenePath.stem().string();
+		if (name=="scene" && scenePath.has_parent_path())
+			name = scenePath.parent_path().filename().string()+"_"+name;
+	}
+	return name.empty() ? "scene":name;
+}
+
+void addUniqueName(std::vector<std::string>& names, const std::string& name)
+{
+	if (!name.empty() && std::find(names.begin(),names.end(),name)==names.end())
+		names.push_back(name);
+}
+
+std::string makeArtifactName(const size_t jobIndex, const std::string& baseName)
+{
+	std::ostringstream out;
+	out << std::setw(2) << std::setfill('0') << jobIndex << "_" << baseName;
+	const auto name = out.str();
+	return name.empty() ? "scene":name;
+}
+
+void replaceDeducedSceneOutputName(path& outputFile, const std::string& sourceSceneName)
+{
+	if (sourceSceneName.empty())
+		return;
+
+	auto stem = outputFile.stem().string();
+	const bool hasRenderPrefix = stem.rfind("Render_",0u)==0u;
+	auto baseName = hasRenderPrefix ? stem.substr(std::char_traits<char>::length("Render_")):stem;
+	if (baseName!="scene" && baseName.rfind("scene_Sensor_",0u)!=0u)
+		return;
+
+	const auto suffix = baseName=="scene" ? std::string{}:baseName.substr(std::char_traits<char>::length("scene"));
+	const auto newStem = std::string(hasRenderPrefix ? "Render_":"")+sourceSceneName+suffix;
+	outputFile.replace_filename(newStem+outputFile.extension().string());
 }
 
 std::string makeGenericPathString(const path& input)
@@ -359,6 +409,80 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		jsonizeGitInfo(modules["nabla"],nbl::gtml::nabla_git_info);
 		jsonizeGitInfo(modules["dxc"],nbl::gtml::dxc_git_info);
 		return j.dump(4);
+	}
+
+	static std::string environmentValue(const char* name)
+	{
+		if (const char* value = std::getenv(name); value && value[0])
+			return value;
+		return {};
+	}
+
+	std::string makeMachineInfoJson() const
+	{
+		nlohmann_json machine;
+#ifdef _WIN32
+		machine["os"] = "Windows";
+		char computerName[MAX_COMPUTERNAME_LENGTH+1] = {};
+		DWORD computerNameSize = static_cast<DWORD>(sizeof(computerName)/sizeof(computerName[0]));
+		if (GetComputerNameA(computerName,&computerNameSize))
+			machine["hostname"] = computerName;
+
+		MEMORYSTATUSEX memory = {};
+		memory.dwLength = sizeof(memory);
+		if (GlobalMemoryStatusEx(&memory))
+		{
+			machine["ram"] = {
+				{"totalBytes",memory.ullTotalPhys},
+				{"availableBytes",memory.ullAvailPhys}
+			};
+		}
+#else
+		machine["os"] = "unknown";
+		machine["hostname"] = environmentValue("HOSTNAME");
+#endif
+		machine["cpu"] = {
+			{"description",environmentValue("PROCESSOR_IDENTIFIER")},
+			{"logicalThreads",std::thread::hardware_concurrency()}
+		};
+
+		if (m_device && m_device->getPhysicalDevice())
+		{
+			const auto* const physicalDevice = m_device->getPhysicalDevice();
+			const auto& properties = physicalDevice->getProperties();
+			const auto& memoryProperties = physicalDevice->getMemoryProperties();
+			nlohmann_json gpu = {
+				{"name",properties.deviceName},
+				{"vendorId",properties.vendorID},
+				{"deviceId",properties.deviceID},
+				{"driverVersion",properties.driverVersion},
+				{"apiVersion",{
+					{"major",properties.apiVersion.major},
+					{"minor",properties.apiVersion.minor},
+					{"patch",properties.apiVersion.patch}
+				}}
+			};
+
+			uint64_t deviceLocalBytes = 0u;
+			auto& heaps = gpu["memoryHeaps"];
+			heaps = nlohmann_json::array();
+			using heap_flags_e = IDeviceMemoryAllocation::E_MEMORY_HEAP_FLAGS;
+			for (uint32_t i=0u; i<memoryProperties.memoryHeapCount; ++i)
+			{
+				const auto& heap = memoryProperties.memoryHeaps[i];
+				const bool deviceLocal = heap.flags.hasFlags(heap_flags_e::EMHF_DEVICE_LOCAL_BIT);
+				if (deviceLocal)
+					deviceLocalBytes += heap.size;
+				heaps.push_back({
+					{"sizeBytes",heap.size},
+					{"deviceLocal",deviceLocal}
+				});
+			}
+			gpu["deviceLocalBytes"] = deviceLocalBytes;
+			machine["gpu"] = std::move(gpu);
+		}
+
+		return machine.dump(2);
 	}
 
 	void printGitInfos() const
@@ -699,10 +823,60 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 
 	std::string sceneNameForJob(const SceneJob& job) const
 	{
-		auto baseName = job.scenePath.stem().string();
-		if (baseName=="scene" && job.scenePath.has_parent_path())
-			baseName = job.scenePath.parent_path().filename().string();
-		return sanitizeReportName(baseName+"_Sensor_"+std::to_string(job.sensor));
+		return sceneReferenceNameFromPath(job.scenePath,job.sceneEntry);
+	}
+
+	std::vector<std::string> referenceNamesForOutput(const std::string& outputName, const std::string& sourceSceneName, const std::string& originalOutputName) const
+	{
+		std::vector<std::string> names;
+		addUniqueName(names,outputName);
+		addUniqueName(names,sourceSceneName);
+		addUniqueName(names,originalOutputName);
+		return names;
+	}
+
+	std::vector<std::string> referenceSessionNamesForJob(const SceneJob& job) const
+	{
+		const auto sourceSceneName = sceneNameForJob(job);
+		std::vector<std::string> names;
+		if (!m_args.referenceDir.empty())
+		{
+			std::error_code ec;
+			for (const auto& entry : std::filesystem::directory_iterator(m_args.referenceDir,ec))
+			{
+				if (!entry.is_directory(ec))
+					continue;
+				const auto referenceName = entry.path().filename().string();
+				if (referenceName==sourceSceneName || referenceName.rfind(sourceSceneName+"_",0u)==0u)
+					addUniqueName(names,referenceName);
+			}
+		}
+		if (names.empty())
+			names.push_back(sourceSceneName);
+		std::sort(names.begin(),names.end());
+		return names;
+	}
+
+	ExportOutputs buildExpectedOutputsForJob(const SceneJob& job, const size_t jobIndex, const std::string& outputName) const
+	{
+		const auto sourceSceneName = sceneNameForJob(job);
+		auto outputFile = (std::string("Render_")+outputName+".exr");
+		path outputPath = m_args.outputDir.empty() ? (localOutputCWD/outputFile):(m_args.outputDir/outputFile);
+		outputPath = outputPath.lexically_normal();
+
+		const auto artifactName = makeArtifactName(jobIndex,outputName);
+		outputPath = outputPath.parent_path()/artifactName/outputPath.filename();
+
+		ExportOutputs outputs;
+		outputs.artifactName = artifactName;
+		outputs.displayName = outputName;
+		outputs.referenceNames = referenceNamesForOutput(outputName,sourceSceneName,outputName);
+		outputs.tonemap = outputPath;
+		outputs.rwmcCascades = appendBeforeExtension(outputPath,"_rwmc_cascades");
+		outputs.albedo = appendBeforeExtension(outputPath,"_albedo");
+		outputs.normal = appendBeforeExtension(outputPath,"_normal");
+		outputs.denoised = appendBeforeExtension(outputPath,"_denoised");
+		return outputs;
 	}
 
 	void recordFailedSceneJob(const SceneJob& job)
@@ -710,16 +884,27 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		if (!m_report)
 			return;
 
-		const auto sceneName = sceneNameForJob(job);
-		m_report->addSession(PathTracerReport::SSession{
-			.sceneName = sceneName,
-			.displayName = sceneName,
-			.scenePath = job.scenePath,
-			.sensorIndex = job.sensor,
-			.status = "failed",
-			.details = m_lastSceneLoadError.empty() ? "Scene failed before render session was queued.":m_lastSceneLoadError,
-			.compare = job.compare
-		});
+		for (const auto& outputName : referenceSessionNamesForJob(job))
+		{
+			const auto outputs = buildExpectedOutputsForJob(job,m_nextSceneJob,outputName);
+			m_report->addSession(PathTracerReport::SSession{
+				.sceneName = outputs.artifactName,
+				.displayName = outputName,
+				.referenceNames = outputs.referenceNames,
+				.scenePath = job.scenePath,
+				.sensorIndex = job.sensor,
+				.status = "failed",
+				.details = m_lastSceneLoadError.empty() ? "Scene failed before render session was queued.":m_lastSceneLoadError,
+				.compare = job.compare,
+				.images = {
+					{"tonemap","Tonemap",outputs.tonemap,true},
+					{"rwmc_cascades","RWMC Cascades",outputs.rwmcCascades,false},
+					{"albedo","Albedo",outputs.albedo,true},
+					{"normal","Normal",outputs.normal,true},
+					{"denoised","Denoised",outputs.denoised,true}
+				}
+			});
+		}
 	}
 
 	bool shouldExitAfterQueue() const
@@ -783,6 +968,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			.commandLine = makeCommandLine(),
 			.buildConfig = NBL_THIS_EXAMPLE_BUILD_CONFIG,
 			.buildInfoJson = m_buildInfoJson,
+			.machineInfoJson = makeMachineInfoJson(),
 			.compare = m_args.compare,
 			.assetManager = m_assetMgr.get(),
 			.logger = m_logger.get()
@@ -885,6 +1071,8 @@ public:
 			m_scene = {};
 
 			const auto job = m_sceneJobs[m_nextSceneJob++];
+			m_activeSceneJob = job;
+			m_activeSceneJobIndex = m_nextSceneJob;
 			m_args.scenePath = job.scenePath;
 			m_args.sceneEntry = job.sceneEntry;
 			m_args.sensor = job.sensor;
@@ -1011,8 +1199,17 @@ public:
 		}
 		outputFile = outputFile.lexically_normal();
 		outputFile.replace_extension(".exr");
+		const auto originalOutputName = sceneNameFromOutputPath(outputFile);
+		const auto sourceSceneName = sceneNameForJob(m_activeSceneJob);
+		replaceDeducedSceneOutputName(outputFile,sourceSceneName);
+		const auto outputName = sceneNameFromOutputPath(outputFile);
+		const auto artifactName = makeArtifactName(m_activeSceneJobIndex,outputName);
+		outputFile = outputFile.parent_path()/artifactName/outputFile.filename();
 
 		ExportOutputs outputs;
+		outputs.artifactName = artifactName;
+		outputs.displayName = outputName;
+		outputs.referenceNames = referenceNamesForOutput(outputName,sourceSceneName,originalOutputName);
 		outputs.tonemap = outputFile;
 		outputs.rwmcCascades = appendBeforeExtension(outputFile,"_rwmc_cascades");
 		outputs.albedo = appendBeforeExtension(outputFile,"_albedo");
@@ -1195,19 +1392,19 @@ public:
 		if (!m_report)
 			return true;
 
-		const auto sceneName = sceneNameFromOutputPath(outputs.tonemap);
 		PathTracerReport::SSession reportSession;
-		reportSession.sceneName = sceneName;
-		reportSession.displayName = sceneName;
+		reportSession.sceneName = outputs.artifactName;
+		reportSession.displayName = outputs.displayName.empty() ? outputs.artifactName:outputs.displayName;
+		reportSession.referenceNames = outputs.referenceNames;
 		reportSession.scenePath = m_args.scenePath;
 		reportSession.sensorIndex = m_args.sensor;
 		reportSession.compare = m_args.compare;
 		reportSession.images = {
-			{"tonemap","Tonemap",outputs.tonemap},
-			{"rwmc_cascades","RWMC Cascades",outputs.rwmcCascades},
-			{"albedo","Albedo",outputs.albedo},
-			{"normal","Normal",outputs.normal},
-			{"denoised","Denoised",outputs.denoised}
+			{"tonemap","Tonemap",outputs.tonemap,true},
+			{"rwmc_cascades","RWMC Cascades",outputs.rwmcCascades,false},
+			{"albedo","Albedo",outputs.albedo,true},
+			{"normal","Normal",outputs.normal,true},
+			{"denoised","Denoised",outputs.denoised,true}
 		};
 		return m_report->addSession(std::move(reportSession));
 	}
@@ -1484,6 +1681,8 @@ private:
 	bool m_exitRequested = false;
 	std::vector<SceneJob> m_sceneJobs = {};
 	size_t m_nextSceneJob = 0u;
+	SceneJob m_activeSceneJob = {};
+	size_t m_activeSceneJobIndex = 0u;
 	const CSession* m_lastFinalizedSession = nullptr;
 	std::string m_lastSceneLoadError;
 	std::deque<PostProcessJob> m_deferredPostProcessJobs = {};

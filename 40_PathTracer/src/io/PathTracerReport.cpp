@@ -74,7 +74,7 @@ std::string statusColor(const std::string& status)
 		return "green";
 	if (status=="failed")
 		return "red";
-	if (status=="missing-reference")
+	if (status=="missing-reference" || status=="missing-render")
 		return "orange";
 	if (status=="error")
 		return "red";
@@ -206,19 +206,36 @@ std::optional<std::string> blake3FileHash(const system::path& path)
 	return hexString(hash.data,sizeof(hash.data));
 }
 
-system::path firstExistingReferencePath(const system::path& referenceDir, const std::string& sceneName, const system::path& renderPath)
+std::vector<std::string> referenceNamesWithFallbacks(const std::string& sceneName, const std::vector<std::string>& referenceNames)
+{
+	std::vector<std::string> names;
+	for (const auto& name : referenceNames)
+	{
+		if (!name.empty() && std::find(names.begin(),names.end(),name)==names.end())
+			names.push_back(name);
+	}
+	if (!sceneName.empty() && std::find(names.begin(),names.end(),sceneName)==names.end())
+		names.push_back(sceneName);
+	return names;
+}
+
+system::path firstExistingReferencePath(const system::path& referenceDir, const std::string& sceneName, const std::vector<std::string>& referenceNames, const system::path& renderPath)
 {
 	if (referenceDir.empty())
 		return {};
 
-	const system::path candidates[] = {
-		referenceDir/sceneName/renderPath.filename(),
-		referenceDir/renderPath.filename()
-	};
+	std::vector<system::path> candidates;
+	const auto filename = renderPath.filename();
+	for (const auto& name : referenceNamesWithFallbacks(sceneName,referenceNames))
+		candidates.push_back(referenceDir/name/filename);
+	candidates.push_back(referenceDir/filename);
+
 	for (const auto& candidate : candidates)
-	if (std::filesystem::exists(candidate))
-		return candidate;
-	return candidates[0];
+	{
+		if (std::filesystem::exists(candidate))
+			return candidate;
+	}
+	return candidates.empty() ? system::path{}:candidates.front();
 }
 
 smart_refctd_ptr<ICPUImageView> makeImageView(smart_refctd_ptr<ICPUImage>&& image)
@@ -490,6 +507,7 @@ struct SImageResult
 {
 	std::string identifier;
 	std::string title;
+	bool requiresReference = true;
 	std::string status = "not-checked";
 	std::string details = "No reference directory configured";
 	system::path renderExr;
@@ -507,6 +525,7 @@ struct SSessionResult
 {
 	std::string sceneName;
 	std::string displayName;
+	std::vector<std::string> referenceNames;
 	system::path scenePath;
 	uint32_t sensorIndex = 0u;
 	PathTracerReport::SCompareSettings compare;
@@ -536,11 +555,40 @@ struct PathTracerReport::Impl
 		if (params.referenceDir.empty())
 			return true;
 
-		const auto externalReferenceExr = firstExistingReferencePath(params.referenceDir,session.sceneName,image.renderExr);
+		const auto renderExists = std::filesystem::exists(image.renderExr);
+		const auto externalReferenceExr = firstExistingReferencePath(params.referenceDir,session.sceneName,session.referenceNames,image.renderExr);
 		if (!std::filesystem::exists(externalReferenceExr))
 		{
-			image.status = "missing-reference";
-			image.details = "Reference file is missing";
+			if (image.requiresReference)
+			{
+				image.status = "missing-reference";
+				image.details = renderExists ? "Reference file is missing":"Render and reference files are missing";
+				hasFailures = true;
+			}
+			else
+			{
+				image.status = renderExists ? "not-checked":"missing-render";
+				image.details = renderExists ? "No reference is expected for this diagnostic output":"Render file is missing and no reference is expected for this diagnostic output";
+				hasFailures = hasFailures || !renderExists;
+			}
+			return true;
+		}
+
+		const auto referenceDir = params.reportDir/"references"/session.sceneName;
+		image.referenceExr = referenceDir/externalReferenceExr.filename();
+		if (!copyFile(externalReferenceExr,image.referenceExr))
+		{
+			image.status = "error";
+			image.details = "Could not copy reference image into report";
+			hasErrors = true;
+			return false;
+		}
+
+		if (!renderExists)
+		{
+			image.status = "missing-render";
+			image.details = "Render file is missing. Reference was copied into the report";
+			hasFailures = true;
 			return true;
 		}
 
@@ -552,16 +600,6 @@ struct PathTracerReport::Impl
 		{
 			image.status = "error";
 			image.details = "Could not load or convert image pair";
-			hasErrors = true;
-			return false;
-		}
-
-		const auto referenceDir = params.reportDir/"references"/session.sceneName;
-		image.referenceExr = referenceDir/externalReferenceExr.filename();
-		if (!copyFile(externalReferenceExr,image.referenceExr))
-		{
-			image.status = "error";
-			image.details = "Could not copy reference image into report";
 			hasErrors = true;
 			return false;
 		}
@@ -636,6 +674,7 @@ struct PathTracerReport::Impl
 		SSessionResult result;
 		result.sceneName = input.sceneName.empty() ? "scene":input.sceneName;
 		result.displayName = input.displayName.empty() ? result.sceneName:input.displayName;
+		result.referenceNames = std::move(input.referenceNames);
 		result.scenePath = std::move(input.scenePath);
 		result.sensorIndex = input.sensorIndex;
 		result.compare = input.compare;
@@ -648,6 +687,7 @@ struct PathTracerReport::Impl
 			SImageResult image;
 			image.identifier = std::move(artifact.identifier);
 			image.title = std::move(artifact.title);
+			image.requiresReference = artifact.requiresReference;
 			image.renderExr = std::move(artifact.exrPath);
 			result.images.push_back(std::move(image));
 		}
@@ -677,7 +717,7 @@ struct PathTracerReport::Impl
 			for (auto& image : session.images)
 			{
 				compareImage(session,image);
-				if (image.status=="failed" || image.status=="error")
+				if (image.status=="failed" || image.status=="error" || image.status=="missing-render")
 				{
 					session.status = "failed";
 					hasFailures = true;
@@ -758,6 +798,17 @@ struct PathTracerReport::Impl
 		{
 			summary["build"] = params.buildInfoJson;
 		}
+		if (!params.machineInfoJson.empty())
+		{
+			try
+			{
+				summary["machine"] = nlohmann_json::parse(params.machineInfoJson);
+			}
+			catch (...)
+			{
+				summary["machine"] = params.machineInfoJson;
+			}
+		}
 
 		auto& results = summary["results"];
 		results = nlohmann_json::array();
@@ -767,8 +818,10 @@ struct PathTracerReport::Impl
 		{
 			nlohmann_json sessionJson;
 			sessionJson["index"] = index++;
+			sessionJson["artifact_name"] = session.sceneName;
 			sessionJson["scene_name"] = session.sceneName;
 			sessionJson["display_name"] = session.displayName;
+			sessionJson["reference_names"] = session.referenceNames;
 			sessionJson["scene_path"] = portablePathString(session.scenePath,params.reportDir,params.workingDirectory);
 			sessionJson["sensor"] = session.sensorIndex;
 			sessionJson["status"] = session.status;
@@ -788,7 +841,7 @@ struct PathTracerReport::Impl
 				++failureCount;
 			for (const auto& image : session.images)
 			{
-				if (image.status=="failed" || image.status=="error")
+				if (image.status=="failed" || image.status=="error" || image.status=="missing-reference" || image.status=="missing-render")
 					++failureCount;
 				nlohmann_json imageJson;
 				imageJson["identifier"] = image.identifier;
@@ -797,7 +850,10 @@ struct PathTracerReport::Impl
 				imageJson["status"] = image.status;
 				imageJson["status_color"] = statusColor(image.status);
 				imageJson["details"] = image.details;
-				imageJson["render"] = makeGenericPathString(relativePath(image.renderExr,params.reportDir));
+				if (!image.renderExr.empty() && std::filesystem::exists(image.renderExr))
+					imageJson["render"] = makeGenericPathString(relativePath(image.renderExr,params.reportDir));
+				else
+					imageJson["expected_render"] = makeGenericPathString(relativePath(image.renderExr,params.reportDir));
 				if (!image.referenceExr.empty())
 					imageJson["reference"] = makeGenericPathString(relativePath(image.referenceExr,params.reportDir));
 				if (!image.diffExr.empty())
