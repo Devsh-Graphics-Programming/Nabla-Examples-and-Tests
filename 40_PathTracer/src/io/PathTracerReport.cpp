@@ -219,16 +219,58 @@ std::vector<std::string> referenceNamesWithFallbacks(const std::string& sceneNam
 	return names;
 }
 
-system::path firstExistingReferencePath(const system::path& referenceDir, const std::string& sceneName, const std::vector<std::string>& referenceNames, const system::path& renderPath)
+bool endsWith(std::string_view value, std::string_view suffix)
+{
+	return value.size()>=suffix.size() && value.substr(value.size()-suffix.size())==suffix;
+}
+
+void appendUniquePath(std::vector<system::path>& paths, system::path path)
+{
+	if (!path.empty() && std::find(paths.begin(),paths.end(),path)==paths.end())
+		paths.push_back(std::move(path));
+}
+
+std::vector<system::path> referenceFilenameFallbacks(const std::string& imageIdentifier, const system::path& renderPath)
+{
+	std::vector<system::path> filenames;
+	const auto filename = renderPath.filename();
+	appendUniquePath(filenames,filename);
+
+	const auto filenameString = filename.string();
+	if (!filenameString.empty() && filenameString.rfind("Render_",0u)!=0u)
+		appendUniquePath(filenames,system::path("Render_"+filenameString));
+
+	if (isDenoisedOutput(imageIdentifier))
+	{
+		const auto stem = filename.stem().string();
+		const auto extension = filename.extension().string();
+		const std::string suffix = "_denoised";
+		if (endsWith(stem,suffix))
+		{
+			const auto tonemapStem = stem.substr(0u,stem.size()-suffix.size());
+			const auto tonemapFilename = tonemapStem+extension;
+			appendUniquePath(filenames,system::path(tonemapFilename));
+			if (tonemapFilename.rfind("Render_",0u)!=0u)
+				appendUniquePath(filenames,system::path("Render_"+tonemapFilename));
+		}
+	}
+
+	return filenames;
+}
+
+system::path firstExistingReferencePath(const system::path& referenceDir, const std::string& sceneName, const std::vector<std::string>& referenceNames, const std::string& imageIdentifier, const system::path& renderPath)
 {
 	if (referenceDir.empty())
 		return {};
 
 	std::vector<system::path> candidates;
-	const auto filename = renderPath.filename();
-	for (const auto& name : referenceNamesWithFallbacks(sceneName,referenceNames))
-		candidates.push_back(referenceDir/name/filename);
-	candidates.push_back(referenceDir/filename);
+	const auto filenames = referenceFilenameFallbacks(imageIdentifier,renderPath);
+	for (const auto& filename : filenames)
+	{
+		for (const auto& name : referenceNamesWithFallbacks(sceneName,referenceNames))
+			appendUniquePath(candidates,referenceDir/name/filename);
+		appendUniquePath(candidates,referenceDir/filename);
+	}
 
 	for (const auto& candidate : candidates)
 	{
@@ -556,7 +598,7 @@ struct PathTracerReport::Impl
 			return true;
 
 		const auto renderExists = std::filesystem::exists(image.renderExr);
-		const auto externalReferenceExr = firstExistingReferencePath(params.referenceDir,session.sceneName,session.referenceNames,image.renderExr);
+		const auto externalReferenceExr = firstExistingReferencePath(params.referenceDir,session.sceneName,session.referenceNames,image.identifier,image.renderExr);
 		if (!std::filesystem::exists(externalReferenceExr))
 		{
 			if (image.requiresReference)

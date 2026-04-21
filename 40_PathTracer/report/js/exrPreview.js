@@ -193,9 +193,8 @@
 		const chunkCount = header.offsets.length;
 		if (header.compression === 0)
 			return 1;
-		if (chunkCount >= 96)
-			return Math.min(chunkCount,2);
-		return Math.min(chunkCount,4);
+		const hardwareWorkers = Math.max(2,Math.min(6,navigator.hardwareConcurrency || 4));
+		return Math.min(chunkCount,hardwareWorkers);
 	}
 
 	async function loadExrBytes(url) {
