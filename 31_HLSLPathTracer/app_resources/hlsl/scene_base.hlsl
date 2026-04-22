@@ -18,6 +18,10 @@ struct SceneBase
     using vector3_type = vector<scalar_type, 3>;
     using light_type = Light<vector3_type>;
     using light_id_type = LightID;
+    using object_handle_type = ObjectID;
+
+    using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+    using interaction_type = PTIsotropicInteraction<ray_dir_info_t, vector3_type>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 10u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
@@ -48,6 +52,31 @@ struct SceneBase
         bool canContinuePath() NBL_CONST_MEMBER_FUNC { return matID.id != material_id_type::INVALID_ID; }
     };
     using mat_light_id_type = MatLightID;
+
+    template<class Intersection, class Ray>
+    static Intersection __fillIntersectionData(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected, const vector3_type N, const vector3_type intersectP)
+    {
+        Intersection intersection;
+        intersection.objectID = objectID;
+        intersection.position = intersectP;
+
+        intersection.geometricNormal = ieee754::flipSignIfRHSNegative<vector3_type>(N, hlsl::promote<vector3_type>(-hlsl::dot(N, rayIntersected.direction)));
+        ray_dir_info_t V;
+        V.setDirection(-rayIntersected.direction);
+        interaction_type interaction = interaction_type::create(V, N);
+        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * rayIntersected.getPayloadThroughput();
+        interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
+
+        // sphere shading normal same as unit vec from origin
+        // TODO: might want to account for sphere rotation, but this example doesn't have any
+        vector<scalar_type, 2> sphUV;
+        sphUV.x = 0.5 - hlsl::atan2(N.z, N.x) * numbers::inv_pi<scalar_type> * 0.5;
+        sphUV.y = 0.5 - hlsl::asin(N.y) * numbers::inv_pi<scalar_type>;
+        interaction.uv = sphUV;
+    
+        intersection.aniso_interaction = Intersection::interaction_type::create(interaction);
+        return intersection;
+    }
 };
 
 const Shape<float, PST_SPHERE> SceneBase::scene_spheres[SCENE_SPHERE_COUNT] = {

@@ -15,8 +15,8 @@ struct SceneTriangleLight : SceneBase
     using object_handle_type = ObjectID;
     using mat_light_id_type = base_t::mat_light_id_type;
 
-    using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-    using interaction_type = PTIsotropicInteraction<ray_dir_info_t, spectral_t>;
+    using ray_dir_info_t = typename base_t::ray_dir_info_t;
+    using interaction_type = typename base_t::interaction_type;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
@@ -59,28 +59,9 @@ struct SceneTriangleLight : SceneBase
     Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected)
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
-        Intersection intersection;
-        intersection.objectID = objectID;
-        intersection.position = rayIntersected.origin + rayIntersected.direction * rayIntersected.intersectionT;
-
-        vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection.position) : getTriangle(objectID.id).getNormalTimesArea();
-        N = hlsl::normalize(N);
-        intersection.geometricNormal = ieee754::flipSignIfRHSNegative<vector3_type>(N, hlsl::promote<vector3_type>(-hlsl::dot(N, rayIntersected.direction)));
-        ray_dir_info_t V;
-        V.setDirection(-rayIntersected.direction);
-        interaction_type interaction = interaction_type::create(V, N);
-        interaction.luminosityContributionHint = colorspace::scRGBtoXYZ[1] * rayIntersected.getPayloadThroughput();
-        interaction.luminosityContributionHint /= interaction.luminosityContributionHint.r + interaction.luminosityContributionHint.g + interaction.luminosityContributionHint.b;
-
-        // sphere shading normal same as unit vec from origin
-        // TODO: might want to account for sphere rotation, but this example doesn't have any
-        vector<scalar_type, 2> sphUV;
-        sphUV.x = 0.5 - hlsl::atan2(N.z, N.x) * numbers::inv_pi<scalar_type> * 0.5;
-        sphUV.y = 0.5 - hlsl::asin(N.y) * numbers::inv_pi<scalar_type>;
-        interaction.uv = sphUV;
-
-        intersection.aniso_interaction = Intersection::interaction_type::create(interaction);
-        return intersection;
+        const vector3_type intersectP = rayIntersected.origin + rayIntersected.direction * rayIntersected.intersectionT;
+        const vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersectP) : getTriangle(objectID.id).getNormalTimesArea();
+        return base_t::template __fillIntersectionData<Intersection, Ray>(objectID, rayIntersected, hlsl::normalize(N), intersectP);
     }
 };
 
