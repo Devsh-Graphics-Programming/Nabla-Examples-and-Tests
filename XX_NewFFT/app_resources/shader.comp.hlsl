@@ -11,9 +11,6 @@ using namespace nbl::hlsl;
 
 groupshared uint32_t sharedmem[4 * ((sizeof(complex_t<float32_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2) ];
 
-// Users MUST define this method for FFT to work
-//uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(uint32_t(ConstevalParameters::WorkgroupSize), 1, 1); }
-
 struct SharedMemoryAccessor 
 {
 	template <typename AccessType, typename IndexType>
@@ -130,28 +127,4 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 		hiAcc.get(pair, hi);
 		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
 	}
-
-	/*
-	[unroll]
-	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
-	{
-		complex_t<float32_t> lo, hi;
-		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
-		loAcc.set(pair, lo);
-		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
-		hiAcc.set(pair, hi);
-	}
-
-	Exchanger::__call(0, Channels - 1, loAcc, hiAcc, TestStride, sharedmemAdaptor, false);
-
-	[unroll]
-	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
-	{
-		complex_t<float32_t> lo, hi;
-		loAcc.get(pair, lo);
-		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
-		hiAcc.get(pair, hi);
-		accessor.set(uint32_t(workgroup::SubgroupContiguousIndex()) + (2 * pair + 1) * WorkgroupSize, hi);
-	}
-	*/
 }

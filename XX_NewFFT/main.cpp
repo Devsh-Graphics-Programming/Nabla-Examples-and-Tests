@@ -120,20 +120,66 @@ public:
 	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-	inline core::smart_refctd_ptr<IShader> createShader(const std::string& includeMainName)
+	inline core::smart_refctd_ptr<IShader> createShader(const char* includeMainName)
 	{
-		auto HLSLShader = core::make_smart_refctd_ptr<IShader>(("#include \"" + includeMainName + "\"\n").c_str(),
+		auto HLSLShader = core::make_smart_refctd_ptr<IShader>((std::string("#include \"") + includeMainName + "\"\n").c_str(),
 			IShader::E_CONTENT_TYPE::ECT_HLSL,
 			includeMainName);
 		assert(HLSLShader);
 
+		ILogicalDevice::SShaderCreationParameters shaderCreationParams{ .source = HLSLShader.get(),
+																		.preprocessedOutputPath = (localOutputCWD / "preprocessed.hlsl").string(),
+																		.spvOutputPath = (localOutputCWD / "out.spv").string() };
 #ifndef _NBL_DEBUG
 		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
 		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-		return m_device->compileShader({ HLSLShader.get(), opt.get() });
-#else 
-		return m_device->compileShader({ HLSLShader.get() });
+		shaderCreationParams.optimizer = opt.get();
+		shaderCreationParams.optimizerIsExtraPasses = true;
 #endif
+		return m_device->compileShader(shaderCreationParams);
+	}
+	
+	// useful for debugging compiler issues
+	inline core::smart_refctd_ptr<IShader> createSpirvShader(const char* spirvName)
+	{
+		core::smart_refctd_ptr<ICPUBuffer> shaderBuffer;
+		{
+			core::smart_refctd_ptr<system::IFile> shaderReadFile;
+			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+			m_system->createFile(future, spirvName, system::IFile::ECF_READ);
+			if (future.wait())
+			{
+				future.acquire().move_into(shaderReadFile);
+				if (shaderReadFile)
+				{
+					const size_t size = shaderReadFile->getSize();
+					if (size > 0ull)
+					{
+						asset::IBuffer::SCreationParams bufferCreationParams{ .size = size };
+						asset::ICPUBuffer::SCreationParams foo;
+						foo = bufferCreationParams;
+						shaderBuffer = ICPUBuffer::create(std::move(foo));
+						system::IFile::success_t succ;
+						shaderReadFile->read(succ, shaderBuffer->getPointer(), 0, size);
+						if (!succ)
+							m_logger->log("Failed Reading From Shader File.", ILogger::ELL_ERROR);
+					}
+				}
+				else
+				{
+					m_logger->log("Failed Opening Shader File.", ILogger::ELL_ERROR);
+				}
+			}
+			else
+			{
+				m_logger->log("Failed Opening Shader Cache File.", ILogger::ELL_ERROR);
+			}
+		}
+
+		auto SPIRVShader = core::make_smart_refctd_ptr<IShader>(std::move(shaderBuffer), IShader::E_CONTENT_TYPE::ECT_SPIRV, spirvName);
+		assert(SPIRVShader);
+
+		return m_device->compileShader({ .source = SPIRVShader.get() });
 	}
 
 	// we stuff all our work here because its a "single shot" app
@@ -145,23 +191,11 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		smart_refctd_ptr<IShader> shader;
-		{
-			IAssetLoader::SAssetLoadParams lp = {};
-			lp.logger = m_logger.get();
-			lp.workingDirectory = "app_resources"; // virtual root
-			auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
-			auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-			const auto assets = assetBundle.getContents();
-			if (assets.empty())
-				return logFail("Could not load shader!");
-
-			// Cast down the asset to its proper type
-			shader = IAsset::castDown<IShader>(assets[0]);
-			
-			if (!shader)
-				return logFail("Invalid shader!");
-		}
+		smart_refctd_ptr<IShader> shader = createShader("app_resources/shader.comp.hlsl");
+		// DEBUG
+		//smart_refctd_ptr<IShader> shader = createSpirvShader("app_resources/optimized.spv");
+		if (!shader)
+			return logFail("Invalid shader!");
 
 		// Create massive upload/download buffers
 		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
