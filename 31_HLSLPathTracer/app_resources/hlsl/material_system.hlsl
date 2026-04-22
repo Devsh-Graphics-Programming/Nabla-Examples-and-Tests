@@ -136,7 +136,6 @@ struct MaterialSystem
     value_weight_type evalAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
     {
         // TODO: call only fillBxdfParams, should probably split the cache away from the bxdf node
-        setMonochromeEta(matID, interaction.getLuminosityContributionHint());
         cache_type _cache;
         fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
@@ -189,7 +188,6 @@ struct MaterialSystem
     sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(cache_type) _cache)
     {
         // TODO: should probably split the caches, no aniso cache needed (generate should overwrite it
-        setMonochromeEta(matID, interaction.getLuminosityContributionHint());
         fillBxdfParams(matID, _cache);
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         switch(matType)
@@ -229,7 +227,7 @@ struct MaterialSystem
                 bxdf.nested_brdf = nested_brdf;
                 anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                 typename normal_mapped_diffuse_op_type::isocache_type cache;
-                sample_type s = bxdf.generate(interaction_Np.isotropic, u.xy, cache);
+                sample_type s = bxdf.generate(interaction_Np, u.xy, cache);
                 _cache.sampleIsShadowed = cache.sampleIsShadowed;
                 return s;
             }

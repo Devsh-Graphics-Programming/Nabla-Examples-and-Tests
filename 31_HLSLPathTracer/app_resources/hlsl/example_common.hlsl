@@ -310,7 +310,7 @@ struct NoiseAccessor
     void get(NBL_REF_ARG(float32_t3) value, const float32_t3 pos, const float32_t3 offset_dir1, const float32_t3 offset_dir2)
     {
         GradientNoise noise;
-        const float offset_stride = 1.0;
+        const float offset_stride = 0.5;
         const float noise_scale = 150.0;
         const float bump_strength = 2.0;
 
@@ -376,6 +376,8 @@ struct BxDFNode
         retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-3));
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
+        const spectral_type throughputCIE_Y = colorspace::scRGBtoXYZ[1];
+        retval.params.eta = hlsl::dot<spectral_type>(throughputCIE_Y, ior1/ior0) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);
         return retval;
     }
 
@@ -390,6 +392,8 @@ struct BxDFNode
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         retval.params.iork = iork1;
+        const spectral_type throughputCIE_Y = colorspace::scRGBtoXYZ[1];
+        retval.params.eta = hlsl::dot<spectral_type>(throughputCIE_Y, ior1/ior0) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);
         return retval;
     }
 
@@ -404,7 +408,7 @@ struct BxDFNode
 
     scalar_type getNEEProb()
     {
-        const scalar_type alpha = materialType != MaterialType::DIFFUSE ? params.A[0] : 1.0;
+        const scalar_type alpha = (materialType != MaterialType::DIFFUSE) && (materialType != MaterialType::NORMAL_MAPPED_DIFFUSE) ? params.A[0] : 1.0;
         return hlsl::min(8.0 * alpha, 1.0);
     }
 
