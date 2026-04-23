@@ -96,6 +96,9 @@ public:
         if (!cudaDevice) 
             return logFail("Could not create a CUDA Device!");
 
+
+        queue = getComputeQueue();
+
         testSharedResource();
         testDestruction();
         testLargeAllocations();
@@ -193,7 +196,7 @@ public:
         for (auto input_i = 0; input_i < InputCount; input_i++)
         {
           // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-          ASSERT_SUCCESS(cudaDevice->createExportableMemory(&cudaInputMemories[input_i], { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
+          cudaInputMemories[input_i] = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
           vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
           vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
           inputStagingBuffers[input_i] = createStaging(BufferSize);
@@ -205,15 +208,18 @@ public:
         outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
         const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
         auto outputMemReq = outputBuf->getMemoryReqs();
+
         auto allocation = m_device->allocate(outputMemReq, outputBuf.get(), IDeviceMemoryAllocation::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE);
-        core::smart_refctd_ptr<CCUDAImportedMemory> cudaOutputMemory;
-        ASSERT_SUCCESS(cudaDevice->importExternalMemory(&cudaOutputMemory, allocation.memory.get()));
+        const auto cudaOutputMemory = cudaDevice->importExternalMemory(core::smart_refctd_ptr(allocation.memory));
+        if (!cudaOutputMemory)
+          logFail("Fail to import Vulkan Memory into CUDA!");
         
         ISemaphore::SCreationParams semParams;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
         auto semaphore = m_device->createSemaphore(0, std::move(semParams));
-        core::smart_refctd_ptr<CCUDAImportedSemaphore> cudaSemaphore;
-        ASSERT_SUCCESS(cudaDevice->importExternalSemaphore(&cudaSemaphore, semaphore.get()));
+        const auto cudaSemaphore = cudaDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
+        if (!cudaSemaphore)
+          logFail("Fail to import Vulkan Semaphore into CUDA!");
         
         std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> cmd;
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -414,15 +420,15 @@ public:
 
     void testDestruction()
     {
-
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
         auto& cu = cudaHandler->getCUDAFunctionTable();
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory;
-            ASSERT_SUCCESS(cudaDevice->createExportableMemory(&cudaMemory, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
+            const auto cudaMemory = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            if (!cudaMemory) logFail("Fail to create exportable memory!");
+
             escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
         
