@@ -73,12 +73,11 @@ struct MaterialID
     uint16_t id;
 };
 
-template<typename Payload, NEEPolygonMethod PPM>
-struct Ray
+struct RayCommon
 {
-    using this_t = Ray<Payload,PPM>;
-    using payload_type = Payload;
-    using scalar_type = typename payload_type::scalar_type;
+    using this_t = RayCommon;
+    using payload_type = Payload<float>;
+    using scalar_type = float;
     using vector3_type = vector<scalar_type, 3>;
 
     // immutable
@@ -96,12 +95,6 @@ struct Ray
     {
         origin = _origin;
         direction = _direction;
-    }
-
-    template<class Interaction>
-    void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
-    {
-        // empty, only for projected solid angle
     }
 
     void initPayload()
@@ -140,33 +133,35 @@ struct Ray
     spectral_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
+template<typename Payload, NEEPolygonMethod PPM>
+struct Ray : RayCommon
+{
+    using this_t = Ray<Payload,PPM>;
+    using base_t = RayCommon;
+    using payload_type = Payload;
+    using scalar_type = typename base_t::scalar_type;
+    using vector3_type = typename base_t::vector3_type;
+    using spectral_type = typename base_t::spectral_type;
+
+    template<class Interaction>
+    void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
+    {
+        // empty, only for projected solid angle
+    }
+};
+
 template<typename Payload>
-struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE> : RayCommon
 {
     using this_t = Ray<Payload,PPM_APPROX_PROJECTED_SOLID_ANGLE>;
+    using base_t = RayCommon;
     using payload_type = Payload;
-    using scalar_type = typename payload_type::scalar_type;
-    using vector3_type = vector<scalar_type, 3>;
-
-    // immutable
-    vector3_type origin;
-    vector3_type direction;
+    using scalar_type = typename base_t::scalar_type;
+    using vector3_type = typename base_t::vector3_type;
+    using spectral_type = typename base_t::spectral_type;
 
     vector3_type normalAtOrigin;
     bool wasBSDFAtOrigin;
-
-    // mutable
-    scalar_type intersectionT;
-    uint16_t depth;
-
-    payload_type payload;
-    using spectral_type = typename payload_type::spectral_type;
-
-    void init(const vector3_type _origin, const vector3_type _direction)
-    {
-        origin = _origin;
-        direction = _direction;
-    }
 
     template<class Interaction>
     void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
@@ -174,41 +169,6 @@ struct Ray<Payload, PPM_APPROX_PROJECTED_SOLID_ANGLE>
         normalAtOrigin = interaction.getN();
         wasBSDFAtOrigin = interaction.isMaterialBSDF();
     }
-
-    void initPayload()
-    {
-        payload.accumulation = hlsl::promote<vector3_type>(0.0);
-        payload.otherTechniqueHeuristic = scalar_type(0.0); // needed for direct eye-light paths
-        payload.throughput = hlsl::promote<vector3_type>(1.0);
-    }
-
-    bool shouldDoMIS()
-    {
-        return payload.otherTechniqueHeuristic > numeric_limits<scalar_type>::min;
-    }
-
-    scalar_type foundEmissiveMIS(scalar_type pdfSq)
-    {
-        return scalar_type(1.0) / (scalar_type(1.0) + pdfSq * payload.otherTechniqueHeuristic);
-    }
-
-    void addPayloadContribution(const vector3_type contribution)
-    {
-        payload.accumulation += contribution;
-    }
-    vector3_type getPayloadAccumulatiion() { return payload.accumulation; }
-
-    void updateThroughputAndMISWeights(const vector3_type throughput, const scalar_type otherTechniqueHeuristic)
-    {
-        payload.throughput = throughput;
-        payload.otherTechniqueHeuristic = otherTechniqueHeuristic;
-    }
-
-    void setT(scalar_type t) { intersectionT = t; }
-    scalar_type getT() NBL_CONST_MEMBER_FUNC { return intersectionT; }
-    void setDepth(uint16_t d) { depth = d; }
-
-    vector3_type getPayloadThroughput() NBL_CONST_MEMBER_FUNC { return payload.throughput; }
 };
 
 template<class Spectrum>
