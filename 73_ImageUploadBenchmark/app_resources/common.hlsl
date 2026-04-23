@@ -1,3 +1,5 @@
+#include <nbl/builtin/hlsl/morton.hlsl>
+
 struct PushConstantData
 {
     uint64_t deviceBufferAddress;
