@@ -14,7 +14,7 @@ class CProjectedSphereTester final : public ITester<ProjectedSphereInputValues, 
 	using R = ProjectedSphereTestResults;
 
 public:
-	CProjectedSphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CProjectedSphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	ProjectedSphereInputValues generateInputTestValues() override

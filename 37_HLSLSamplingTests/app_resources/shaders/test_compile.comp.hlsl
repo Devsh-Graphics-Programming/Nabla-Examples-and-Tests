@@ -190,16 +190,6 @@ void main()
    aliasIdx.data[0] = 1u; aliasIdx.data[1] = 2u; aliasIdx.data[2] = 3u; aliasIdx.data[3] = 0u;
    ArrayAccessor<float32_t, 4> aliasPdf;
    aliasPdf.data[0] = 0.25; aliasPdf.data[1] = 0.25; aliasPdf.data[2] = 0.25; aliasPdf.data[3] = 0.25;
-   sampling::AliasTable<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 4>, ArrayAccessor<uint32_t, 4>, ArrayAccessor<float32_t, 4> > aliasTable =
-      sampling::AliasTable<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 4>, ArrayAccessor<uint32_t, 4>, ArrayAccessor<float32_t, 4> >::create(aliasProb, aliasIdx, aliasPdf, 4u);
-   sampling::AliasTable<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 4>, ArrayAccessor<uint32_t, 4>, ArrayAccessor<float32_t, 4> >::cache_type aliasCache;
-   uint32_t aliasBin0 = aliasTable.generate(0.3);
-   uint32_t aliasBin = aliasTable.generate(0.3, aliasCache);
-   acc.x += float32_t(aliasBin0 + aliasBin);
-   acc.x += aliasTable.forwardPdf(0.3, aliasCache);
-   acc.x += aliasTable.forwardWeight(0.3, aliasCache);
-   acc.x += aliasTable.backwardPdf(aliasBin);
-   acc.x += aliasTable.backwardWeight(aliasBin);
 
    // CumulativeProbabilitySampler — generate (with/without cache), forwardPdf, backwardPdf, forwardWeight, backwardWeight
    ArrayAccessor<float32_t, 3> cumProb;

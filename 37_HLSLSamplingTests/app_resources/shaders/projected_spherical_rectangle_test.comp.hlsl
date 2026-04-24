@@ -17,12 +17,8 @@
 #define BENCH_SAMPLES_PER_CREATE (BENCH_ITERS)
 #endif
 
-#ifndef WORKGROUP_SIZE
-#define WORKGROUP_SIZE 64
-#endif
 [numthreads(WORKGROUP_SIZE, 1, 1)]
-[shader("compute")] void
-main()
+void main()
 {
    const uint32_t invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
 #ifdef BENCH_ITERS

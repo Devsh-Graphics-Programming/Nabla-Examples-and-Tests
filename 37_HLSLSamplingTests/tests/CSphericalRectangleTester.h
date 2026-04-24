@@ -15,7 +15,7 @@ class CSphericalRectangleTester final : public ITester<SphericalRectangleInputVa
 	using R = SphericalRectangleTestResults;
 
 public:
-	CSphericalRectangleTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CSphericalRectangleTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	SphericalRectangleInputValues generateInputTestValues() override

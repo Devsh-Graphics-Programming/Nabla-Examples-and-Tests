@@ -12,7 +12,7 @@ class CUniformHemisphereTester final : public ITester<UniformHemisphereInputValu
 	using R = UniformHemisphereTestResults;
 
 public:
-	CUniformHemisphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CUniformHemisphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	UniformHemisphereInputValues generateInputTestValues() override

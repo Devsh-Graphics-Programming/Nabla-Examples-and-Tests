@@ -26,7 +26,7 @@ set(DEPENDS
   app_resources/shaders/projected_spherical_triangle_test.comp.hlsl
   app_resources/shaders/projected_spherical_rectangle_test.comp.hlsl
   app_resources/shaders/spherical_rectangle_test.comp.hlsl
-  app_resources/shaders/alias_table_test.comp.hlsl
+  app_resources/shaders/packed_alias_test.comp.hlsl
   app_resources/shaders/cumulative_probability_test.comp.hlsl
   app_resources/common/linear.hlsl
   app_resources/common/uniform_hemisphere.hlsl
@@ -91,7 +91,7 @@ endif()
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
-set(BENCH_ITERS 2048)
+set(BENCH_ITERS 128)
 set(WORKGROUP_SIZE 64)
 
 target_compile_definitions(${EXECUTABLE_NAME} PRIVATE
@@ -99,7 +99,7 @@ target_compile_definitions(${EXECUTABLE_NAME} PRIVATE
   WORKGROUP_SIZE=${WORKGROUP_SIZE}
 )
 
-set(BENCH_OPTS "\"-DBENCH_ITERS=${BENCH_ITERS}\", \"-DWORKGROUP_SIZE=${WORKGROUP_SIZE}\"")
+set(BENCH_OPTS "\"-DBENCH_ITERS=${BENCH_ITERS}\"")
 
 set(JSON "
 [
@@ -340,13 +340,23 @@ set(JSON "
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DBENCH_CREATE_ONLY\", \"-DBENCH_VARIANT_R0_EXTENTS\"]
   },
   {
-    \"INPUT\": \"app_resources/shaders/alias_table_test.comp.hlsl\",
-    \"KEY\": \"alias_table_test\"
+    \"INPUT\": \"app_resources/shaders/packed_alias_test.comp.hlsl\",
+    \"KEY\": \"packed_alias_a_test\"
   },
   {
-    \"INPUT\": \"app_resources/shaders/alias_table_test.comp.hlsl\",
-    \"KEY\": \"alias_table_bench\",
+    \"INPUT\": \"app_resources/shaders/packed_alias_test.comp.hlsl\",
+    \"KEY\": \"packed_alias_b_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_PACKED_ALIAS_B\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/packed_alias_test.comp.hlsl\",
+    \"KEY\": \"packed_alias_a_bench\",
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/packed_alias_test.comp.hlsl\",
+    \"KEY\": \"packed_alias_b_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DNBL_PACKED_ALIAS_B\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
@@ -361,6 +371,11 @@ set(JSON "
     \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
     \"KEY\": \"cumulative_probability_yolo_bench\",
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DNBL_CUMPROB_YOLO_READS\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
+    \"KEY\": \"cumulative_probability_eytzinger_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DNBL_CUMPROB_EYTZINGER\"]
   }
 ]
 ")
@@ -370,7 +385,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
   LINK_TO ${EXECUTABLE_NAME}
   BINARY_DIR ${OUTPUT_DIRECTORY}
   MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -T cs_6_8
+  COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -T cs_6_8 -DWORKGROUP_SIZE=${WORKGROUP_SIZE}
   OUTPUT_VAR KEYS
   INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
   NAMESPACE nbl::this_example::builtin::build

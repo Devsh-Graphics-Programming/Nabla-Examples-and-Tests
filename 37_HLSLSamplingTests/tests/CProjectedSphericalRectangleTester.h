@@ -15,7 +15,7 @@ class CProjectedSphericalRectangleTester final : public ITester<ProjectedSpheric
    using R = ProjectedSphericalRectangleTestResults;
 
    public:
-   CProjectedSphericalRectangleTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+   CProjectedSphericalRectangleTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
    private:
    ProjectedSphericalRectangleInputValues generateInputTestValues() override

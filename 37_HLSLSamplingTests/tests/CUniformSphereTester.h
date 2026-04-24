@@ -12,7 +12,7 @@ class CUniformSphereTester final : public ITester<UniformSphereInputValues, Unif
 	using R = UniformSphereTestResults;
 
 public:
-	CUniformSphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CUniformSphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	UniformSphereInputValues generateInputTestValues() override

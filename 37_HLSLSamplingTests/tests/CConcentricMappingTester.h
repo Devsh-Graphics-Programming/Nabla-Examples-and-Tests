@@ -14,7 +14,7 @@ class CConcentricMappingTester final : public ITester<ConcentricMappingInputValu
 	using R = ConcentricMappingTestResults;
 
 public:
-	CConcentricMappingTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CConcentricMappingTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	ConcentricMappingInputValues generateInputTestValues() override

@@ -12,7 +12,7 @@ class CCumulativeProbabilityGPUTester final : public ITester<CumProbInputValues,
 	using R = CumProbTestResults;
 
 public:
-	CCumulativeProbabilityGPUTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CCumulativeProbabilityGPUTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	CumProbInputValues generateInputTestValues() override

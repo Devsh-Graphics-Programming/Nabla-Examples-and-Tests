@@ -59,7 +59,7 @@ struct SphericalTriangleTestExecutor
 			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
 		// Roundtrip error: ||u - u'||
-		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);.
+		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
 		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 20.0f);
 
 		// Domain preservation:

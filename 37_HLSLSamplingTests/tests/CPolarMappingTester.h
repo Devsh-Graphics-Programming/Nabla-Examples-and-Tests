@@ -14,7 +14,7 @@ class CPolarMappingTester final : public ITester<PolarMappingInputValues, PolarM
 	using R = PolarMappingTestResults;
 
 public:
-	CPolarMappingTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CPolarMappingTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	PolarMappingInputValues generateInputTestValues() override

@@ -14,7 +14,7 @@ class CBilinearTester final : public ITester<BilinearInputValues, BilinearTestRe
 	using R = BilinearTestResults;
 
 public:
-	CBilinearTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CBilinearTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	BilinearInputValues generateInputTestValues() override

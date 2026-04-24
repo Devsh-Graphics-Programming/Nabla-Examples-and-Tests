@@ -14,7 +14,7 @@ class CBoxMullerTransformTester final : public ITester<BoxMullerTransformInputVa
 	using R = BoxMullerTransformTestResults;
 
 public:
-	CBoxMullerTransformTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CBoxMullerTransformTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	BoxMullerTransformInputValues generateInputTestValues() override

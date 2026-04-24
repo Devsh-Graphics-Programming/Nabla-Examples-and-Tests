@@ -14,7 +14,7 @@ class CProjectedHemisphereTester final : public ITester<ProjectedHemisphereInput
 	using R = ProjectedHemisphereTestResults;
 
 public:
-	CProjectedHemisphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CProjectedHemisphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	ProjectedHemisphereInputValues generateInputTestValues() override

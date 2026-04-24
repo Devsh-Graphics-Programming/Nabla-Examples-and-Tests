@@ -12,13 +12,18 @@ struct BdaCumProbAccessor
 {
 	using value_type = float32_t;
 	template<typename V, typename I>
-	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = V(vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i))); }
-	value_type operator[](uint32_t i) NBL_CONST_MEMBER_FUNC { value_type v; get<value_type, uint32_t>(i, v); return v; }
+	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = V(vk::RawBufferLoad<value_type>(addr + uint64_t(sizeof(value_type)) * uint64_t(i), sizeof(value_type))); }
 
 	uint64_t addr;
 };
 
-using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, BdaCumProbAccessor>;
+#if defined(NBL_CUMPROB_EYTZINGER)
+using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, BdaCumProbAccessor, sampling::CumulativeProbabilityMode::EYTZINGER>;
+#elif defined(NBL_CUMPROB_YOLO_READS)
+using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, BdaCumProbAccessor, sampling::CumulativeProbabilityMode::YOLO>;
+#else
+using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, BdaCumProbAccessor, sampling::CumulativeProbabilityMode::TRACKING>;
+#endif
 #else
 #include "../common/cumulative_probability.hlsl"
 
@@ -26,11 +31,7 @@ using BenchCumProbSampler = sampling::CumulativeProbabilitySampler<float32_t, fl
 [[vk::binding(1, 0)]] RWStructuredBuffer<CumProbTestResults> outputTestValues;
 #endif
 
-#ifndef WORKGROUP_SIZE
-#define WORKGROUP_SIZE 64
-#endif
 [numthreads(WORKGROUP_SIZE, 1, 1)]
-[shader("compute")]
 void main()
 {
 	const uint32_t invID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;

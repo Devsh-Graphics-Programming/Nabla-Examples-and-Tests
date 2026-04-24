@@ -6,13 +6,31 @@
 #include "nbl/examples/Tester/ITester.h"
 #include "SamplerTestHelpers.h"
 
-class CAliasTableGPUTester final : public ITester<AliasTableInputValues, AliasTableTestResults, AliasTableTestExecutor>
+// Shared GPU correctness harness for the packed alias variants. Labels for
+// failed-field messages are selected from the Executor type at compile time.
+template<typename Executor>
+class CPackedAliasTableGPUTester final : public ITester<AliasTableInputValues, AliasTableTestResults, Executor>
 {
-	using base_t = ITester<AliasTableInputValues, AliasTableTestResults, AliasTableTestExecutor>;
-	using R = AliasTableTestResults;
+	using base_t = ITester<AliasTableInputValues, AliasTableTestResults, Executor>;
+	using R      = AliasTableTestResults;
+
+	using typename base_t::TestType;
+	using base_t::getRandomEngine;
+	using base_t::verifyTestValue;
+	using base_t::printTestFail;
+
+	static constexpr bool kIsA = std::is_same_v<Executor, PackedAliasATestExecutor>;
+	static constexpr const char* kGeneratedIdxName     = kIsA ? "PackedAliasA::generatedIndex"     : "PackedAliasB::generatedIndex";
+	static constexpr const char* kForwardPdfName       = kIsA ? "PackedAliasA::forwardPdf"         : "PackedAliasB::forwardPdf";
+	static constexpr const char* kBackwardPdfName      = kIsA ? "PackedAliasA::backwardPdf"        : "PackedAliasB::backwardPdf";
+	static constexpr const char* kForwardWeightName    = kIsA ? "PackedAliasA::forwardWeight"      : "PackedAliasB::forwardWeight";
+	static constexpr const char* kBackwardWeightName   = kIsA ? "PackedAliasA::backwardWeight"     : "PackedAliasB::backwardWeight";
+	static constexpr const char* kJacobianName         = kIsA ? "PackedAliasA::jacobianProduct"    : "PackedAliasB::jacobianProduct";
+	static constexpr const char* kPdfConsistencyName   = kIsA ? "PackedAliasA::pdf consistency"    : "PackedAliasB::pdf consistency";
+	static constexpr const char* kWeightConsistencyName = kIsA ? "PackedAliasA::weight consistency" : "PackedAliasB::weight consistency";
 
 public:
-	CAliasTableGPUTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CPackedAliasTableGPUTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	AliasTableInputValues generateInputTestValues() override
@@ -27,7 +45,7 @@ private:
 	AliasTableTestResults determineExpectedResults(const AliasTableInputValues& input) override
 	{
 		AliasTableTestResults expected;
-		AliasTableTestExecutor executor;
+		Executor              executor;
 		executor(input, expected);
 		return expected;
 	}
@@ -39,25 +57,27 @@ private:
 		if (expected.generatedIndex != actual.generatedIndex)
 		{
 			pass = false;
-			printTestFail("AliasTable::generatedIndex", float(expected.generatedIndex), float(actual.generatedIndex), iteration, seed, testType, 0.0, 0.0);
+			printTestFail(kGeneratedIdxName, float(expected.generatedIndex), float(actual.generatedIndex), iteration, seed, testType, 0.0, 0.0);
 		}
 
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
-			FieldCheck{"AliasTable::forwardPdf",     &R::forwardPdf,     1e-5, 1e-6},
-			FieldCheck{"AliasTable::backwardPdf",    &R::backwardPdf,    1e-5, 1e-6},
-			FieldCheck{"AliasTable::forwardWeight",  &R::forwardWeight,  1e-5, 1e-6},
-			FieldCheck{"AliasTable::backwardWeight", &R::backwardWeight, 1e-5, 1e-6});
+			FieldCheck{kForwardPdfName,     &R::forwardPdf,     1e-5, 1e-6},
+			FieldCheck{kBackwardPdfName,    &R::backwardPdf,    1e-5, 1e-6},
+			FieldCheck{kForwardWeightName,  &R::forwardWeight,  1e-5, 1e-6},
+			FieldCheck{kBackwardWeightName, &R::backwardWeight, 1e-5, 1e-6});
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
-			PdfCheck{"AliasTable::forwardPdf",  &R::forwardPdf},
-			PdfCheck{"AliasTable::backwardPdf", &R::backwardPdf});
+			PdfCheck{kForwardPdfName,  &R::forwardPdf},
+			PdfCheck{kBackwardPdfName, &R::backwardPdf});
 
-		// Structural invariants
-		pass &= verifyTestValue("AliasTable::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
-		pass &= verifyTestValue("AliasTable::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
-		pass &= verifyTestValue("AliasTable::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
+		pass &= verifyTestValue(kJacobianName,          1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+		pass &= verifyTestValue(kPdfConsistencyName,    actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
+		pass &= verifyTestValue(kWeightConsistencyName, actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 
 		return pass;
 	}
 };
+
+using CPackedAliasAGPUTester = CPackedAliasTableGPUTester<PackedAliasATestExecutor>;
+using CPackedAliasBGPUTester = CPackedAliasTableGPUTester<PackedAliasBTestExecutor>;
 
 #endif
