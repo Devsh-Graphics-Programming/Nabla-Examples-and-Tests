@@ -51,20 +51,15 @@ if(NBL_BUILD_IMGUI)
 		$<$<CONFIG:Debug>:-O1experimental>
 		$<$<CONFIG:RelWithDebInfo>:-O1experimental>
 		-T "lib_${SM}"
-		-Wno-conversion
-		-Wno-sign-conversion
-		-Wno-float-conversion
-		-Wno-shorten-64-to-32
-		-Wno-shadow
 		-Wno-literal-range
 	)
 
 	# Keep the payload flat and explicit here. Once Nabla PR #988 lands, these per-rule compile axes should move to first-class packaged-variant support there.
 	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.sphere.proxy.hlsl" KEY "pt.compute.sphere" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=0" "-DPT_VARIANT_SCENE_KIND=${PT_SCENE_SPHERE}")
 	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.sphere.rwmc.proxy.hlsl" KEY "pt.compute.sphere.rwmc" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=1" "-DPT_VARIANT_SCENE_KIND=${PT_SCENE_SPHERE}")
-	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.triangle.persistent.proxy.hlsl" KEY "pt.compute.triangle.persistent" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=0" "-DPT_VARIANT_ENTRYPOINT_KIND=${PT_ENTRYPOINT_PERSISTENT}")
-	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.persistent.proxy.hlsl" KEY "pt.compute.triangle.rwmc.persistent" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=1" "-DPT_VARIANT_ENTRYPOINT_KIND=${PT_ENTRYPOINT_PERSISTENT}")
-	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.persistent.proxy.hlsl" KEY "pt.compute.rectangle.rwmc.persistent" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=1" "-DPT_VARIANT_SCENE_KIND=${PT_SCENE_RECTANGLE}")
+	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.triangle.proxy.hlsl" KEY "pt.compute.triangle" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=0")
+	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.triangle.rwmc.proxy.hlsl" KEY "pt.compute.triangle.rwmc" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=1")
+	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.rectangle.rwmc.proxy.hlsl" KEY "pt.compute.rectangle.rwmc" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=1" "-DPT_VARIANT_SCENE_KIND=${PT_SCENE_RECTANGLE}")
 	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.compute.rectangle.proxy.hlsl" KEY "pt.compute.rectangle" COMPILE_OPTIONS "-DPT_VARIANT_USE_RWMC=0" "-DPT_VARIANT_SCENE_KIND=${PT_SCENE_RECTANGLE}")
 	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/resolve.comp.hlsl" KEY "pt.compute.resolve")
 	PT_APPEND_SPIRV_RULE(VAR JSON INPUT "app_resources/hlsl/spirv/pt.misc.proxy.hlsl" KEY "pt.misc")
