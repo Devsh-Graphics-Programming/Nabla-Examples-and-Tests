@@ -616,6 +616,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			// Frontend AST -> IR compilation
 			{
+				auto ir = CTrueIR::create({.composed={.blockSizeKBLog2=4}});
+				auto& irPool = forest->getObjectPool();
+
+				ASSERT_VALUE(ir->addMaterials(forest.get()),true,"Material IR adding");
 			}
 
 			// Reference Backend Codegen
