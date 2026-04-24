@@ -330,10 +330,10 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P>
-struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P>>
+template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -349,10 +349,10 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P>
-struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P>>
+template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -369,10 +369,10 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P>
-struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P>>
+template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {

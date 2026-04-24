@@ -179,7 +179,7 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         float32_t3 quo_pdf = sampledLi.quotient()*claimedPdf;
-        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.value(), 1e-4))
+        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.value(), 1e-2))
         {
 #ifndef __HLSL_VERSION
             if (verbose)

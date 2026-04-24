@@ -228,9 +228,13 @@ private:
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>), initparams);
-            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, bxdf::reflection::PNS_YINING>>), initparams);
-            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, bxdf::reflection::PNS_YINING>>), initparams);
-            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, bxdf::reflection::PNS_YINING>>), initparams);
+
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, bxdf::reflection::PNS_SCHUSSLER, 2>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, bxdf::reflection::PNS_SCHUSSLER, 2>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, bxdf::reflection::PNS_SCHUSSLER, 2>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, bxdf::reflection::PNS_YINING, 1>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, bxdf::reflection::PNS_YINING, 1>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, bxdf::reflection::PNS_YINING, 1>>), initparams);
 
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>), initparams);

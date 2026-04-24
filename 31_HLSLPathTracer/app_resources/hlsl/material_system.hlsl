@@ -176,7 +176,8 @@ struct MaterialSystem
                 typename normal_mapped_diffuse_op_type::bxdf_type nested_brdf;
                 bxdf.nested_brdf = nested_brdf;
                 anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
-                value_weight_type ret = bxdf.evalAndWeight(_sample, interaction_Np.isotropic);
+                sample_type sample_Np = sample_type::create(_sample.getL(), interaction_Np.getN());
+                value_weight_type ret = bxdf.evalAndWeight(sample_Np, interaction_Np.isotropic);
                 ret._value *= bxdfs[matID.id].albedo;
                 return ret;
             }
@@ -286,7 +287,8 @@ struct MaterialSystem
                     anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                     typename normal_mapped_diffuse_op_type::isocache_type cache;
                     cache.sampleIsShadowed = _cache.sampleIsShadowed;
-                    quotient_weight_type ret = bxdf.quotientAndWeight(_sample, interaction_Np.isotropic, cache);
+                    sample_type sample_Np = sample_type::create(_sample.getL(), interaction_Np.getN());
+                    quotient_weight_type ret = bxdf.quotientAndWeight(sample_Np, interaction_Np.isotropic, cache);
                     ret._quotient *= bxdfs[matID.id].albedo;
                     return ret;
                 }
