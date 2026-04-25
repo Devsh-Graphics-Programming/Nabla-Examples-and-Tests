@@ -33,8 +33,23 @@ file(GENERATE OUTPUT "${PT_RUNTIME_CONFIG_OUTPUT}" CONTENT "${PT_RUNTIME_CONFIG_
 
 nbl_create_executable_project("${PT_PROJECT_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_THIS_EXAMPLE_BUILD_CONFIG=\"$<CONFIG>\")
+nbl_install_example_runtime_component(
+	COMPONENT EX40Runtime
+	DISPLAY_NAME "EX40 Path Tracer Runtime"
+	DESCRIPTION "Runtime-only package for the EX40 path tracer executable, shaders, config and report viewer"
+	DIRECTORIES
+		app_resources
+		report
+	GENERATED_RUNTIME_FILES
+		"config/pt.$<LOWER_CASE:$<CONFIG>>.json"
+		"app_resources/$<CONFIG>/pathtrace_previs.spv"
+		"app_resources/$<CONFIG>/pathtrace_beauty.spv"
+		"app_resources/$<CONFIG>/pathtrace_debug.spv"
+		"app_resources/$<CONFIG>/present_default.spv"
+		"app_resources/$<CONFIG>/resolve_rwmc.spv"
+)
 
-set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin/app_resources")
 
 set(SM 6_9)
 set(JSON [=[
