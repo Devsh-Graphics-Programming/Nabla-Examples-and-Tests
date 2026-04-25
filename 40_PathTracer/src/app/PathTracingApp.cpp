@@ -1150,7 +1150,12 @@ public:
 	{
 		auto retval = device_base_t::getAPIFeaturesToEnable();
 		if (m_args.headless)
+		{
 			retval.swapchainMode = E_SWAPCHAIN_MODE::ESM_NONE;
+			retval.validations = false;
+			retval.synchronizationValidation = false;
+			retval.debugUtils = false;
+		}
 		return retval;
 	}
 
@@ -1166,6 +1171,8 @@ public:
 	void filterDevices(nbl::core::set<IPhysicalDevice*>& physicalDevices) const override
 	{
 		device_base_t::filterDevices(physicalDevices);
+		if (m_args.headless)
+			return;
 		std::erase_if(physicalDevices,[&](const IPhysicalDevice* device)->bool
 			{
 				const auto& props = device->getMemoryProperties();
