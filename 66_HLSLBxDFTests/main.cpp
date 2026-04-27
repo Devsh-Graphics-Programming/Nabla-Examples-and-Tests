@@ -246,6 +246,10 @@ private:
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>), initparams);
             RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>), initparams);
+
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SLambertian<iso_config_t>, bxdf::ndf::PNS_YINING, 1>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SOrenNayar<iso_config_t>, bxdf::ndf::PNS_YINING, 1>>), initparams);
+            RUN_TEST_OF_TYPE((TestJacobian<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, bxdf::ndf::PNS_YINING, 1>>), initparams);
         FOR_EACH_END
 
 

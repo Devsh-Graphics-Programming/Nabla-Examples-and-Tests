@@ -531,6 +531,65 @@ struct TestBxDF<bxdf::transmission::SIridescent<Config>> : TestBxDFBase<bxdf::tr
     }
 };
 
+template<bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SLambertian<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SLambertian<iso_config_t>, P, Ord>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SLambertian<iso_config_t>, P, Ord>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        bxdf::transmission::SLambertian<iso_config_t> child_brdf;
+        base_t::bxdf.nested_bsdf = child_brdf;
+        base_t::bxdf.shadingNormal = _rc.N2;
+        float32_t3 T, B;
+        math::frisvad<float32_t3>(_rc.N2, T, B);
+        base_t::bxdf.shadingBasis = float32_t3x3(T, B, _rc.N2);
+#ifndef __HLSL_VERSION
+        base_t::name = "Microfacet-based normals BSDF (lambertian)";
+#endif
+    }
+};
+
+template<bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SOrenNayar<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SOrenNayar<iso_config_t>, P, Ord>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SOrenNayar<iso_config_t>, P, Ord>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        bxdf::transmission::SOrenNayar<iso_config_t>::creation_type params;
+        params.A = _rc.alpha.x;
+        base_t::bxdf.nested_bsdf = bxdf::transmission::SOrenNayar<iso_config_t>::create(params);
+        base_t::bxdf.shadingNormal = _rc.N2;
+        float32_t3 T, B;
+        math::frisvad<float32_t3>(_rc.N2, T, B);
+        base_t::bxdf.shadingBasis = float32_t3x3(T, B, _rc.N2);
+#ifndef __HLSL_VERSION
+        base_t::name = "Microfacet-based normals BSDF (oren nayar)";
+#endif
+    }
+};
+
+template<class Config, bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
+struct TestBxDF<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SGGXDielectricIsotropic<Config>, P, Ord>> : TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SGGXDielectricIsotropic<Config>, P, Ord>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SMicrofacetNormals<iso_config_t, bxdf::transmission::SGGXDielectricIsotropic<Config>, P, Ord>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(1.0, hlsl::promote<typename base_t::bxdf_t::monochrome_type>(_rc.eta.x));
+        base_t::bxdf.nested_bsdf.ndf = bxdf::transmission::SGGXDielectricIsotropic<Config>::ndf_type::create(_rc.alpha.x);
+        base_t::bxdf.nested_bsdf.fresnel = bxdf::transmission::SGGXDielectricIsotropic<Config>::fresnel_type::create(orientedEta);
+        base_t::bxdf.shadingNormal = _rc.N2;
+        float32_t3 T, B;
+        math::frisvad<float32_t3>(_rc.N2, T, B);
+        base_t::bxdf.shadingBasis = float32_t3x3(T, B, _rc.N2);
+#ifndef __HLSL_VERSION
+        base_t::name = "Microfacet-based normals BSDF (GGX dielectric isotropic)";
+#endif
+    }
+};
+
 
 namespace reciprocity_test_impl
 {
