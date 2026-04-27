@@ -84,6 +84,9 @@ set(COMPILE_OPTIONS
     -T lib_${SM}
 )
 
+option(EX40_PT_ENABLE_EXP_OPTS "Build EX40 RelWithDebInfo shaders with experimental optimization" OFF)
+list(APPEND COMPILE_OPTIONS "$<$<AND:$<CONFIG:RelWithDebInfo>,$<BOOL:${EX40_PT_ENABLE_EXP_OPTS}>>:-O1experimental>")
+
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
