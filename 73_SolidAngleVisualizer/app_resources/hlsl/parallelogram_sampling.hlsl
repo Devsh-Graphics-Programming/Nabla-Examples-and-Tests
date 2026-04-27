@@ -1,4 +1,4 @@
-//// Copyright (C) 2026-2026 - DevSH Graphics Programming Sp. z O.O.
+//// Copyright (C) 2026 - DevSH Graphics Programming Sp. z O.O.
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _SOLID_ANGLE_VIS_EXAMPLE_PARALLELOGRAM_SAMPLING_HLSL_INCLUDED_
@@ -28,7 +28,7 @@ struct Parallelogram
 
     static float32_t3 circleToSphere(float32_t2 circlePoint)
     {
-        float32_t2 xy = circlePoint / CIRCLE_RADIUS;
+        float32_t2 xy = circlePoint * INV_CIRCLE_RADIUS;
         float32_t xy_len_sq = dot(xy, xy);
         return float32_t3(xy, sqrt(1.0f - xy_len_sq));
     }
@@ -305,25 +305,18 @@ struct Parallelogram
         computeBoundsForAxis<true>(minAlong, maxAlong, minPerp, maxPerp, silhouette, convexMask, n3Mask, dir, perpDir);
 
         Parallelogram result;
-        result.width = float16_t(maxAlong - minAlong);
-        result.height = float16_t(maxPerp - minPerp);
+        result.width = (float16_t)(maxAlong - minAlong);
+        result.height = (float16_t)(maxPerp - minPerp);
         result.axisDir = float16_t2(dir);
-        result.corner = float16_t2(minAlong * dir + minPerp * float16_t2(-dir.y, dir.x));
+        result.corner = float16_t2(minAlong * dir + minPerp * perpDir);
 
         return result;
     }
 
     // Silhouette vertices must be normalized before calling create()
-    static Parallelogram create(const ClippedSilhouette silhouette, out SilEdgeNormals precompSil
-#if VISUALIZE_SAMPLES
-                                ,
-                                float32_t2 ndc, float32_t3 spherePos, float32_t aaWidth,
-                                inout float32_t4 color
-#endif
-    )
+    static Parallelogram create(const ClippedSilhouette silhouette, out SilEdgeNormals precompSil)
     {
         precompSil = (SilEdgeNormals)0;
-        precompSil.count = silhouette.count;
 
         uint32_t convexMask = 0;
         uint32_t n3Mask = 0;
@@ -355,7 +348,6 @@ struct Parallelogram
 
         Parallelogram best = buildForAxis(silhouette, convexMask, n3Mask, bestDir);
 
-#if VISUALIZE_SAMPLES
         for (uint32_t i = 0; i < silhouette.count; i++)
         {
             if (convexMask & (1u << i))
@@ -376,22 +368,19 @@ struct Parallelogram
                     computeApexClamped(p0, midPoint, t0, tangentAtMid, apex0);
                     computeApexClamped(midPoint, p1, tangentAtMid, endTangent, apex1);
 
-                    color += drawCorner(float32_t3(apex0, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
-                    color += drawCorner(float32_t3(midPoint, 0.0f), ndc, aaWidth, 0.02, 0.0f, float32_t3(0, 1, 0));
-                    color += drawCorner(float32_t3(apex1, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0.5, 0));
+                    VisContext::add(SphereDrawer::drawDot(float32_t3(apex0, 0.0f), 0.03, 0.0f, float32_t3(1, 0, 1)));
+                    VisContext::add(SphereDrawer::drawDot(float32_t3(midPoint, 0.0f), 0.02, 0.0f, float32_t3(0, 1, 0)));
+                    VisContext::add(SphereDrawer::drawDot(float32_t3(apex1, 0.0f), 0.03, 0.0f, float32_t3(1, 0.5, 0)));
                 }
                 else
                 {
                     float32_t2 apex;
                     computeApexClamped(p0, p1, t0, endTangent, apex);
-                    color += drawCorner(float32_t3(apex, 0.0f), ndc, aaWidth, 0.03, 0.0f, float32_t3(1, 0, 1));
+                    VisContext::add(SphereDrawer::drawDot(float32_t3(apex, 0.0f), 0.03, 0.0f, float32_t3(1, 0, 1)));
                 }
             }
         }
-#endif
-#if DEBUG_DATA
-        DebugDataBuffer[0].parallelogramArea = best.width * best.height;
-#endif
+        DebugRecorder::recordParallelogram(float32_t(best.width) * float32_t(best.height), convexMask, n3Mask, float32_t2(best.corner), float32_t2(best.axisDir), float32_t(best.width), float32_t(best.height));
 
         return best;
     }
@@ -401,8 +390,8 @@ struct Parallelogram
         float16_t2 perpDir = float16_t2(-axisDir.y, axisDir.x);
 
         float16_t2 circleXY = corner +
-                              float16_t(xi.x) * width * axisDir +
-                              float16_t(xi.y) * height * perpDir;
+                              (float16_t)(xi.x) * width * axisDir +
+                              (float16_t)(xi.y) * height * perpDir;
 
         float32_t3 direction = circleToSphere(circleXY);
 
@@ -414,5 +403,8 @@ struct Parallelogram
         return direction;
     }
 };
+
+#undef MAX_CURVE_APEXES
+#undef GET_PROJ_VERT
 
 #endif // _SOLID_ANGLE_VIS_EXAMPLE_PARALLELOGRAM_SAMPLING_HLSL_INCLUDED_

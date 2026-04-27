@@ -24,7 +24,7 @@ TransformReturnInfo EditTransform(float* cameraView, const float* cameraProjecti
 	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
 	static bool useSnap = false;
 	static float snap[3] = { 1.f, 1.f, 1.f };
-	static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
+	static float bounds[] = { 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f };
 	static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
 	static bool boundSizing = false;
 	static bool boundSizingSnap = false;

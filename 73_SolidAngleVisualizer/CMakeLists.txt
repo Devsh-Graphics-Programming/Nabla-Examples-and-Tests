@@ -11,6 +11,7 @@ if(NBL_BUILD_IMGUI)
 		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::FullScreenTriangle
 	)
 
 	if(NBL_EMBED_BUILTIN_RESOURCES)
@@ -40,14 +41,21 @@ if(NBL_BUILD_IMGUI)
 	set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 	set(DEPENDS
 		app_resources/hlsl/common.hlsl
-		app_resources/hlsl/gpu_common.hlsl
-		app_resources/hlsl/Drawing.hlsl
-		app_resources/hlsl/Sampling.hlsl
+		app_resources/hlsl/debug_vis.hlsl
+		app_resources/hlsl/drawing.hlsl
 		app_resources/hlsl/silhouette.hlsl
 		app_resources/hlsl/utils.hlsl
+		app_resources/hlsl/triangle_sampling.hlsl
 		app_resources/hlsl/parallelogram_sampling.hlsl
+		app_resources/hlsl/pyramid_sampling.hlsl
 
-		# app_resources/hlsl/test.comp.hlsl
+		app_resources/hlsl/pyramid_sampling/bilinear.hlsl
+		app_resources/hlsl/pyramid_sampling/biquadratic.hlsl
+
+
+		app_resources/hlsl/solid_angle_vis.frag.hlsl
+		app_resources/hlsl/ray_vis.frag.hlsl
+
 		app_resources/hlsl/benchmark/benchmark.comp.hlsl
 		app_resources/hlsl/benchmark/common.hlsl
 	)
@@ -55,20 +63,54 @@ if(NBL_BUILD_IMGUI)
 	set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 	set(SM 6_8)
+	set(SA_VIS "app_resources/hlsl/solid_angle_vis.frag.hlsl")
+	set(RAY_VIS "app_resources/hlsl/ray_vis.frag.hlsl")
+	set(BENCH "app_resources/hlsl/benchmark/benchmark.comp.hlsl")
+
 	set(JSON [=[
 	[
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa",      "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=0", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa_dbg",  "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=0", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=1", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=1", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para",        "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=2", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para_dbg",    "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=2", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=3", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=3", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_biquad",      "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=4", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_biquad_dbg",  "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=4", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=5", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=5", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=6", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=6", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=7", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=7", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid",        "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=8", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid_dbg",    "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=8", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
 
-		{
-			"INPUT": "app_resources/hlsl/benchmark/benchmark.comp.hlsl",
-			"KEY": "benchmark",
-		},
+		{"INPUT": "${RAY_VIS}", "KEY": "ray_vis",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${RAY_VIS}", "KEY": "ray_vis_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+
+		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_sa",  "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=0"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_psa", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=1"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_para",    "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=2"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_rectangle", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=3"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_biquad",    "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=4"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_bilinear", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=5"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_proj_rectangle", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=6"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_silhouette", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=7"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_pyramid_creation", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=8"]},
 	]
 	]=])
 	string(CONFIGURE "${JSON}" JSON)
 
 	set(COMPILE_OPTIONS
 		-I "${CMAKE_CURRENT_SOURCE_DIR}"
-		-T lib_${SM}
+		-Zi -Qembed_debug
+		-fspv-debug=file
+		-fspv-debug=source
+		-fspv-debug=line
+		-enable-16bit-types
 	)
 
 	NBL_CREATE_NSC_COMPILE_RULES(
@@ -77,7 +119,7 @@ if(NBL_BUILD_IMGUI)
 		DEPENDS ${DEPENDS}
 		BINARY_DIR ${OUTPUT_DIRECTORY}
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-		COMMON_OPTIONS ${COMPILE_OPTIONS}
+		COMMON_OPTIONS ${COMPILE_OPTIONS} 
 		OUTPUT_VAR KEYS
 		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 		NAMESPACE nbl::this_example::builtin::build
