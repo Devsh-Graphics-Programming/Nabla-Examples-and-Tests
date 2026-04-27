@@ -1,7 +1,9 @@
-#ifndef __NBL_THIS_EXAMPLE_RENDER_VARIANT_INFO_HPP_INCLUDED__
-#define __NBL_THIS_EXAMPLE_RENDER_VARIANT_INFO_HPP_INCLUDED__
+#ifndef _NBL_THIS_EXAMPLE_RENDER_VARIANT_INFO_HPP_INCLUDED_
+#define _NBL_THIS_EXAMPLE_RENDER_VARIANT_INFO_HPP_INCLUDED_
+
 
 #include "nbl/this_example/render_variant_enums.hlsl"
+
 
 namespace nbl::this_example
 {
@@ -12,14 +14,9 @@ struct SRenderVariantInfo
 	const char* entryPoint;
 };
 
-static constexpr const char* getDefaultRenderEntryPointName(const bool)
+static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY geometry, const E_POLYGON_METHOD requestedMethod)
 {
-	return "mainPersistent";
-}
-
-static constexpr SRenderVariantInfo getRenderVariantInfo(const E_LIGHT_GEOMETRY geometry, const bool persistentWorkGroups, const E_POLYGON_METHOD requestedMethod)
-{
-	const char* const defaultEntryPoint = getDefaultRenderEntryPointName(persistentWorkGroups);
+	const char* const defaultEntryPoint = "mainPersistent";
 	switch (geometry)
 	{
 	case ELG_SPHERE:

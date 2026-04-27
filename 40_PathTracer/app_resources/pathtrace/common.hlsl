@@ -157,8 +157,8 @@ struct BxDFConfig
     using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
     using sample_type = bxdf::SLightSample<ray_dir_info_type>;
 
-    // TODO: change to conform to PR 1001 later
-    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
+    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
+    using value_weight_type = sampling::value_and_weight<spectral_type,scalar_type>;
 };
 }
 }
@@ -257,37 +257,58 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 	return retval;
 }
 
-// TODO: split into RayDir 
 // raygen functions
 struct SRay
 {
-	static SRay create(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi)
-	{
-		using namespace nbl::hlsl;
-		using namespace nbl::hlsl::math::linalg;
-
-        // stochastic reconstruction filter
-		const float16_t stddev = _static_cast<float16_t>(1.2);
-        const float32_t3 adjNDC = float32_t3(path_tracing::GaussianFilter<float16_t>::create(stddev,stddev).sample(xi)*pixelSizeNDC+ndc,-1.f);
-        // unproject
-        const float32_t3 direction = hlsl::normalize(float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC), -1.0)); 
-        const float32_t3 origin = -float32_t3(direction.xy/direction.z,sensor.nearClip);
-		// rotate with camera
-		SRay retval;
-		retval.origin = promoted_mul(sensor.invView,origin);
-		retval.tMin = sensor.nearClip;
-        // normalization is extremely important for tMax to have correct units and also so rest of BxDF code can assume normalized V=-dir
-		retval.direction = hlsl::normalize(hlsl::mul(truncate<3,3,3,4>(sensor.invView),direction));
-		retval.tMax = sensor.tMax;
-		return retval;
-	}
+    using ray_dir_info_type = typename hlsl::material_compiler3::backends::default_upt::BxDFConfig::ray_dir_info_type;
 
 	float32_t3 origin;
-	float32_t tMin;
-	float32_t3 direction;
-	float32_t tMax;
-	// TODO: ray differentials or covariance
+    ray_dir_info_type direction;
 };
+
+struct SPrimaryRay
+{
+    SRay ray;
+    float32_t tMin;
+};
+
+SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi)
+{
+    using namespace nbl::hlsl;
+
+    // stochastic reconstruction filter
+    const float16_t stddev = _static_cast<float16_t>(1.2);
+    const float32_t3 adjNDC = float32_t3(path_tracing::GaussianFilter<float16_t>::create(stddev, stddev).sample(xi) * pixelSizeNDC + ndc, -1.f);
+
+    SPrimaryRay retval;
+    // unproject
+    if (sensor.orthoCam)
+    {
+        const float32_t3 viewOrigin = float32_t3(hlsl::mul(sensor.ndcToRay,adjNDC),0.f);
+        retval.ray.origin = hlsl::math::linalg::promoted_mul(sensor.invView,viewOrigin);
+        retval.ray.direction.setDirection(float32_t3(0,0,-1));
+        retval.tMin = sensor.nearClip;
+    }
+    else
+    {
+        retval.ray.origin = hlsl::transpose(sensor.invView)[3];
+        float32_t3 viewDir;
+        if (spirv::LaunchSizeKHR.z != 6u)
+            viewDir = float32_t3(hlsl::mul(sensor.ndcToRay, adjNDC), -1.0);
+        else
+        {
+            // TODO: handle cubemap cameras 
+        }
+        viewDir = hlsl::normalize(viewDir);
+        retval.tMin = sensor.nearClip / hlsl::abs(viewDir.z);
+        retval.ray.direction.setDirection(viewDir);
+    }
+    // rotate and scale with camera 
+    retval.ray.direction = retval.ray.direction.transform(hlsl::math::linalg::truncate<3,3,3,4>(sensor.invView));
+    // TODO: fix this later introduce `transformOrthonormal` and `transform`
+    retval.ray.direction.direction = hlsl::normalize(retval.ray.direction.direction);
+    return retval;
+}
 
 // variables that multiply together
 struct SAOVThroughputs
@@ -408,9 +429,6 @@ struct SArbitraryOutputValues
     //float16_t3or4 motion;
 };
 
-// accumulated color
-using accum_t = float16_t3;
-
 // only callable from closestHit
 inline float32_t3 reconstructGeometricNormal()
 {
@@ -425,6 +443,23 @@ inline float32_t3 reconstructGeometricNormal()
     // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
     // this would require a normalization before the matrix multiplication, making everything slower/
     const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,3,4>(hlsl::transpose(float32_t4x3(spirv::WorldToObjectKHR)));
+    // normalization also needs to be done in full floats because length squared can easily be over 64k
+    return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
+}
+inline float32_t3 reconstructGeometricNormal(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
+{
+    using namespace nbl::hlsl;
+
+    const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+
+    // Do diffs in high precision, edges can be very long and dot products can easily overflow 64k max float16_t value and normalizing one extra time makes no sense
+    const float32_t3 geometricNormal = hlsl::cross(vertices[1]-vertices[0],vertices[2]-vertices[0]);
+    // Scales can be absolutely huge, we'd need special per-instance pre-scaled 3x3 matrices and also guarantee `geometricNormal` isn't huge
+    // this would require a normalization before the matrix multiplication, making everything slower
+  
+    // This is Inverse Transpose of ObjectToWorld matrix
+    // Note that SPIR-V gives tranposed matrices already vs our row-major feeding SSBO and BDA, as well as contrary to maths (an affine matrix should be 3x4 not 4x3)
+    const float32_t3x3 normalMatrix = hlsl::math::linalg::truncate<3,3,4,3>(spirv::hitObjectGetWorldToObjectEXT(hitObject));
     // normalization also needs to be done in full floats because length squared can easily be over 64k
     return hlsl::normalize(hlsl::mul(normalMatrix,geometricNormal));
 }
@@ -443,7 +478,7 @@ struct MaxContributionEstimator
     }
 
     // notCulled instead of culled because of NaN handling
-    inline bool notCulled(NBL_REF_ARG(float32_t3) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
+    inline bool surviveRussianRoulette(NBL_REF_ARG(float32_t3) throughput, bool skipRussianRoulette, NBL_REF_ARG(float32_t) xi)
     {
         // recompute after previous hit
         const float16_t surviveProb = hlsl::dot(float16_t3(throughput),throughputWeights);
@@ -451,8 +486,12 @@ struct MaxContributionEstimator
         // skipRussianRoulette = skipRussianRoulette && ...;
         // cull really low throughput paths (adds bias)
         const float16_t RelativeLumaThroughputThreshold = hlsl::numeric_limits<float16_t>::min;
+        if (surviveProb<RelativeLumaThroughputThreshold)
+            return false;
+        if (skipRussianRoulette)
+            return true;
         // < instead of <= very important for handling zero probability, note that nextULP correction doesn't need to be applied because we use unclamped probability here
-        if (surviveProb>RelativeLumaThroughputThreshold && (skipRussianRoulette || xi<surviveProb))
+        const bool retval = xi<surviveProb;
         {
             const float16_t UnityFp16 = 1;
             // now apply the clamp
@@ -461,35 +500,38 @@ struct MaxContributionEstimator
             xi *= rcpSurvivalProb;
             // apply to throughput
             throughput *= rcpSurvivalProb;
-            return true;
         }
-        return false;
+        return retval;
     }
 
     // The idea is that the throughput weights scale HDR world-referenced throughput into a Probability value
     float16_t3 throughputWeights;
 };
 
+// accumulated color
+using accum_t = float16_t3;
+
 //
 struct SEnvSample
 {
-    accum_t color;
+    float32_t3 color;
     SArbitraryOutputValues aov;
 };
 // tmp stuff
 const static float32_t sunConeHalfAngleCos = 0.99999;
 const static float32_t3 sunDir = normalize(float32_t3(1,1,1));
+const static float32_t3 skyColor = float32_t3(0.5f, 0.5f, 1.f);
+const static float32_t3 sunColor = float32_t3(10000, 10000, 10000);
 //
 SEnvSample sampleEnv(const float32_t3 raydir)
 {
     SEnvSample retval;
     // TODO: sample the envmap texture
-    retval.color = float16_t3(0.5f,0.5f,1.f);
-    const accum_t sunColor = accum_t(1000, 1000, 1000);
-//    if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
-//        retval.color = sunColor;
+    retval.color = skyColor;
+    if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
+        retval.color = sunColor;
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
-    retval.aov.albedo = hlsl::min(retval.color,float16_t3(1,1,1));
+    retval.aov.albedo = hlsl::min(retval.color,float32_t3(1,1,1));
     retval.aov.normal = -hlsl::normalize(float16_t3(raydir));
     return retval;
 }

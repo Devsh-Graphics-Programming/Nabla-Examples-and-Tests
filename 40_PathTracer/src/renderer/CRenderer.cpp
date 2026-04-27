@@ -328,16 +328,21 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				const bool isBeauty = m==uint8_t(CSession::RenderMode::Beauty);
 				const auto* const shader = m_construction.shaders[m].get();
 				missShaders[m] = {.shader=shader,.entryPoint="miss"};
-				hitShaders[m].closestHit = { .shader = shader,.entryPoint = "closestHit" };
-				core::bitflag<creation_flags_e> flags = creation_flags_e::NONE; // NO_NULL_INTERSECTION_SHADERS ?
-				if (!isBeauty) // TODO: With SER hit objdects will that still be true?
-					flags |= creation_flags_e::NO_NULL_MISS_SHADERS;
+				hitShaders[m].closestHit = {.shader=shader,.entryPoint="closestHit"};
+				// right now we don't do any procedular geometry
+				core::bitflag<creation_flags_e> flags = creation_flags_e::NO_NULL_INTERSECTION_SHADERS;
+				//flags |= creation_flags_e::SKIP_AABBS; this probably doesn't make anything faster since the `rayTraversalPrimitiveCulling` feature would need to be enabled
+				// we always have a miss shader, or because of SER we never call it
+				flags |= creation_flags_e::NO_NULL_MISS_SHADERS;
+				if (isBeauty) // beauty doesn't call the closest hit shaders
+					flags |= creation_flags_e::NO_NULL_CLOSEST_HIT_SHADERS;
+				// we use `NO_NULL_ANY_HIT_SHADERS` to control opacity on a per-instance and per-geo level though, OPAQUE flags are only conservative culling
 				creationParams[m] = {
 					.layout = m_construction.renderingLayouts[m].get(),
 					.shaderGroups = {
 						.raygen = {.shader=shader,.entryPoint="raygen"},
 						.misses = {missShaders+m,isBeauty ? 0ull:1ull},
-						.hits = {hitShaders+m,1}
+						.hits = {hitShaders+m,isBeauty ? 0ull:1ull}
 						// TODO: use Material Compiler to get callables for us
 					},
 					.cached = {

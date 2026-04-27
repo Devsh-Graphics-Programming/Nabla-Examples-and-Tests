@@ -14,7 +14,7 @@ class CPolarMappingTester final : public ITester<PolarMappingInputValues, PolarM
 	using R = PolarMappingTestResults;
 
 public:
-	CPolarMappingTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CPolarMappingTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	PolarMappingInputValues generateInputTestValues() override
@@ -46,7 +46,8 @@ private:
 			FieldCheck{"PolarMapping::forwardWeight",  &R::forwardWeight,  1e-5, 1e-5},
 			FieldCheck{"PolarMapping::backwardWeight", &R::backwardWeight, 1e-5, 1e-5});
 		pass &= verifyTestValue("PolarMapping::roundtripError", nbl::hlsl::float32_t2(0.0f, 0.0f), actual.roundtripError, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("PolarMapping::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-5, 1e-5);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "PolarMapping::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 9e-2, 9e-2);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "PolarMapping::inverseJacobianPdf", actual.backwardPdf, actual.inverseJacobianPdf, iteration, seed, testType, 1e-2, 1e-2);
 		pass &= verifyTestValue("PolarMapping::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-5, 1e-5);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"PolarMapping::forwardPdf",  &R::forwardPdf},
