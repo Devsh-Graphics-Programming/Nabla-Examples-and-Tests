@@ -330,7 +330,7 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+template<bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
 struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>>
 {
     using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, P, Ord>>;
@@ -349,7 +349,7 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+template<bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
 struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>>
 {
     using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SOrenNayar<iso_config_t>, P, Ord>>;
@@ -369,7 +369,7 @@ struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflect
     }
 };
 
-template<bxdf::reflection::PerturbedNormalShadowing P, uint16_t Ord>
+template<bxdf::ndf::PerturbedNormalShadowing P, uint16_t Ord>
 struct TestBxDF<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>> : TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>>
 {
     using base_t = TestBxDFBase<bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, P, Ord>>;

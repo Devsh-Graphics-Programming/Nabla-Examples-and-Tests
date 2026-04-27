@@ -22,7 +22,7 @@ using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_confi
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
 using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
-using normal_mapped_diffuse_bxdf_type = bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, bxdf::reflection::PNS_YINING, 1>;
+using normal_mapped_diffuse_bxdf_type = bxdf::reflection::SMicrofacetNormals<iso_config_t, bxdf::reflection::SLambertian<iso_config_t>, bxdf::ndf::PNS_YINING, 1>;
 
 using payload_type = Payload<float>;
 using randgen_type = examples::KeyedQuantizedSequence<Xoroshiro64Star>;
