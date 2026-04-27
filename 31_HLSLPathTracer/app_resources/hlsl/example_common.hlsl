@@ -310,7 +310,7 @@ struct BxDFNode
     using scalar_type = typename vector_traits<Spectrum>::scalar_type;
     using vector2_type = vector<scalar_type, 2>;
     using params_type = SBxDFCreationParams<scalar_type, spectral_type>;
-    using normals_accessor = TexAccessor;
+    using normals_accessor = NoiseAccessor;
 
     // for diffuse bxdfs
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) albedo)
