@@ -20,9 +20,11 @@
 #include <iomanip>
 #include <execution>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <vector>
 
 namespace nbl::this_example
@@ -75,6 +77,8 @@ std::string statusColor(const std::string& status)
 	if (status=="failed")
 		return "red";
 	if (status=="missing-reference" || status=="missing-render")
+		return "orange";
+	if (status=="warning")
 		return "orange";
 	if (status=="error")
 		return "red";
@@ -582,6 +586,323 @@ std::string allowedErrorPixelModeName(const PathTracerReport::SCompareSettings::
 	return mode==mode_t::AbsoluteCount ? "absolute-count":"relative-to-resolution";
 }
 
+bool containsParentTraversal(const system::path& path)
+{
+	for (const auto& part : path.lexically_normal())
+	{
+		if (part.string()=="..")
+			return true;
+	}
+	return false;
+}
+
+std::string jsonString(const nlohmann_json& value, const char* key, const std::string& fallback = {})
+{
+	if (!value.is_object() || !value.contains(key) || !value[key].is_string())
+		return fallback;
+	return value[key].get<std::string>();
+}
+
+uint32_t jsonUint32(const nlohmann_json& value, const char* key, const uint32_t fallback = 0u)
+{
+	if (!value.is_object() || !value.contains(key) || !value[key].is_number_unsigned())
+		return fallback;
+	return value[key].get<uint32_t>();
+}
+
+bool readJsonFile(const system::path& path, nlohmann_json& output, system::ILogger* logger)
+{
+	std::ifstream file(path,std::ios::binary);
+	if (!file)
+	{
+		if (logger)
+			logger->log("Could not open JSON file \"%s\"",system::ILogger::ELL_ERROR,path.string().c_str());
+		return false;
+	}
+
+	try
+	{
+		file >> output;
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		if (logger)
+			logger->log("Could not parse JSON file \"%s\": %s",system::ILogger::ELL_ERROR,path.string().c_str(),e.what());
+		return false;
+	}
+}
+
+nlohmann_json compareSettingsJson(const PathTracerReport::SCompareSettings& compare)
+{
+	return {
+		{"errorThreshold",compare.errorThreshold},
+		{"epsilon",compare.epsilon},
+		{"allowedErrorPixelMode",allowedErrorPixelModeName(compare.allowedErrorPixelMode)},
+		{"allowedErrorPixelRatio",compare.allowedErrorPixelRatio},
+		{"allowedErrorPixelCount",compare.allowedErrorPixelCount},
+		{"ssimErrorThreshold",compare.ssimErrorThreshold}
+	};
+}
+
+PathTracerReport::SCompareSettings parseCompareSettings(const nlohmann_json& json, PathTracerReport::SCompareSettings fallback = {})
+{
+	if (!json.is_object())
+		return fallback;
+
+	if (json.contains("errorThreshold") && json["errorThreshold"].is_number())
+		fallback.errorThreshold = json["errorThreshold"].get<double>();
+	if (json.contains("epsilon") && json["epsilon"].is_number())
+		fallback.epsilon = json["epsilon"].get<double>();
+	if (json.contains("allowedErrorPixelRatio") && json["allowedErrorPixelRatio"].is_number())
+		fallback.allowedErrorPixelRatio = json["allowedErrorPixelRatio"].get<double>();
+	if (json.contains("allowedErrorPixelCount") && json["allowedErrorPixelCount"].is_number_unsigned())
+		fallback.allowedErrorPixelCount = json["allowedErrorPixelCount"].get<uint64_t>();
+	if (json.contains("ssimErrorThreshold") && json["ssimErrorThreshold"].is_number())
+		fallback.ssimErrorThreshold = json["ssimErrorThreshold"].get<double>();
+	if (jsonString(json,"allowedErrorPixelMode")=="absolute-count")
+		fallback.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::AbsoluteCount;
+	else if (jsonString(json,"allowedErrorPixelMode")=="relative-to-resolution")
+		fallback.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::RelativeToResolution;
+	return fallback;
+}
+
+std::optional<system::path> resolveReportArtifactPath(const system::path& reportDir, const nlohmann_json& image, const char* key)
+{
+	const auto value = jsonString(image,key);
+	if (value.empty())
+		return std::nullopt;
+
+	system::path relative(value);
+	if (relative.is_absolute() || containsParentTraversal(relative))
+		return std::nullopt;
+	return (reportDir/relative).lexically_normal();
+}
+
+std::string sessionKey(const nlohmann_json& session)
+{
+	return jsonString(session,"scene_name",jsonString(session,"artifact_name"))+"\n"+std::to_string(jsonUint32(session,"sensor"));
+}
+
+struct SSummaryImage
+{
+	std::string identifier;
+	std::string title;
+	system::path render;
+	system::path reference;
+	nlohmann_json json;
+};
+
+struct SSummarySession
+{
+	std::string key;
+	std::string sceneName;
+	std::string displayName;
+	system::path scenePath;
+	uint32_t sensor = 0u;
+	PathTracerReport::SCompareSettings compare;
+	nlohmann_json json;
+	std::unordered_map<std::string,SSummaryImage> images;
+};
+
+using session_map_t = std::unordered_map<std::string,SSummarySession>;
+
+session_map_t collectReportSessions(const system::path& reportDir, const nlohmann_json& summary, const PathTracerReport::SCompareSettings& fallbackCompare)
+{
+	session_map_t sessions;
+	if (!summary.contains("results") || !summary["results"].is_array())
+		return sessions;
+
+	for (const auto& sessionJson : summary["results"])
+	{
+		if (!sessionJson.is_object())
+			continue;
+
+		SSummarySession session;
+		session.key = sessionKey(sessionJson);
+		if (session.key.empty())
+			continue;
+		session.sceneName = jsonString(sessionJson,"scene_name",jsonString(sessionJson,"artifact_name","scene"));
+		session.displayName = jsonString(sessionJson,"display_name",session.sceneName);
+		session.scenePath = system::path(jsonString(sessionJson,"scene_path"));
+		session.sensor = jsonUint32(sessionJson,"sensor");
+		session.compare = parseCompareSettings(sessionJson.contains("compare") ? sessionJson["compare"]:nlohmann_json{},fallbackCompare);
+		session.json = sessionJson;
+
+		if (sessionJson.contains("array") && sessionJson["array"].is_array())
+		{
+			for (const auto& imageJson : sessionJson["array"])
+			{
+				if (!imageJson.is_object())
+					continue;
+
+				SSummaryImage image;
+				image.identifier = jsonString(imageJson,"identifier");
+				if (image.identifier.empty())
+					continue;
+				image.title = jsonString(imageJson,"title",image.identifier);
+				if (const auto renderPath = resolveReportArtifactPath(reportDir,imageJson,"render"); renderPath.has_value())
+					image.render = renderPath.value();
+				if (const auto referencePath = resolveReportArtifactPath(reportDir,imageJson,"reference"); referencePath.has_value())
+					image.reference = referencePath.value();
+				image.json = imageJson;
+				session.images.emplace(image.identifier,std::move(image));
+			}
+		}
+
+		sessions.emplace(session.key,std::move(session));
+	}
+
+	return sessions;
+}
+
+struct SPairComparison
+{
+	std::string status = "not-checked";
+	std::string details = "No comparison data";
+	system::path diffExr;
+	uint64_t errorPixels = 0u;
+	uint64_t allowedErrorPixels = 0u;
+	uint64_t totalPixels = 0u;
+	double maxAbsError = 0.0;
+	bool hasSsimDifference = false;
+	double ssimDifference = 0.0;
+};
+
+bool compareImagePair(asset::IAssetManager* assetManager, system::ILogger* logger, const system::path& candidatePath, const system::path& baselinePath, const system::path& diffPath, const PathTracerReport::SCompareSettings& compare, const bool useSsim, SPairComparison& result)
+{
+	const auto candidateExists = !candidatePath.empty() && std::filesystem::exists(candidatePath);
+	const auto baselineExists = !baselinePath.empty() && std::filesystem::exists(baselinePath);
+	if (!candidateExists || !baselineExists)
+	{
+		result.status = !candidateExists ? "missing-render":"missing-reference";
+		result.details = !candidateExists && !baselineExists ? "Candidate and baseline images are missing" :
+			!candidateExists ? "Candidate image is missing":"Baseline image is missing";
+		return true;
+	}
+
+	auto candidateView = loadImageView(assetManager,logger,candidatePath);
+	auto baselineView = loadImageView(assetManager,logger,baselinePath);
+	auto candidateFloat = convertImageView(candidateView.get(),E_FORMAT::EF_R32G32B32A32_SFLOAT);
+	auto baselineFloat = convertImageView(baselineView.get(),E_FORMAT::EF_R32G32B32A32_SFLOAT);
+	if (!candidateFloat || !baselineFloat)
+	{
+		result.status = "error";
+		result.details = "Could not load or convert image pair";
+		return false;
+	}
+
+	const auto& candidateParams = candidateFloat->getCreationParameters();
+	const auto& baselineParams = baselineFloat->getCreationParameters();
+	if (candidateParams.extent.width!=baselineParams.extent.width || candidateParams.extent.height!=baselineParams.extent.height)
+	{
+		result.status = "failed";
+		result.details = "Image dimensions differ";
+		return true;
+	}
+
+	result.totalPixels = uint64_t(candidateParams.extent.width)*uint64_t(candidateParams.extent.height);
+	using mode_t = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode;
+	result.allowedErrorPixels = compare.allowedErrorPixelMode==mode_t::AbsoluteCount ?
+		compare.allowedErrorPixelCount:static_cast<uint64_t>(std::ceil(double(result.totalPixels)*compare.allowedErrorPixelRatio));
+
+	uint64_t errorPixels = 0u;
+	double maxAbsError = 0.0;
+	auto diffImage = createFloatDiffImage(candidateFloat.get(),baselineFloat.get(),errorPixels,maxAbsError,compare);
+	if (!diffImage)
+	{
+		result.status = "error";
+		result.details = "Could not create difference image";
+		return false;
+	}
+
+	result.errorPixels = errorPixels;
+	result.maxAbsError = maxAbsError;
+	if (useSsim)
+	{
+		result.hasSsimDifference = true;
+		result.ssimDifference = computeSsimDifference(candidateFloat.get(),baselineFloat.get());
+		result.status = result.ssimDifference<=compare.ssimErrorThreshold ? "passed":"failed";
+	}
+	else
+		result.status = errorPixels<=result.allowedErrorPixels ? "passed":"failed";
+
+	result.diffExr = diffPath;
+	auto diffView = makeImageView(smart_refctd_ptr<ICPUImage>(diffImage));
+	if (!writeImageView(assetManager,logger,diffView.get(),result.diffExr))
+	{
+		result.status = "error";
+		result.details = "Could not write difference image";
+		return false;
+	}
+
+	std::ostringstream details;
+	if (result.hasSsimDifference)
+		details << "Difference (SSIM): " << std::fixed << std::setprecision(4) << result.ssimDifference;
+	else
+	{
+		const auto errorPercent = result.totalPixels ? (100.0*double(result.errorPixels)/double(result.totalPixels)):0.0;
+		details << "Errors: " << result.errorPixels << " (" << std::fixed << std::setprecision(3) << errorPercent << "%) / " << result.allowedErrorPixels;
+		if (compare.allowedErrorPixelMode==mode_t::RelativeToResolution)
+			details << " (" << std::fixed << std::setprecision(3) << 100.0*compare.allowedErrorPixelRatio << "%)";
+	}
+	result.details = details.str();
+	return true;
+}
+
+nlohmann_json makeComparisonImageJson(const std::string& identifier, const std::string& title, const system::path& candidatePath, const system::path& baselinePath, const SPairComparison& comparison, const system::path& reportDir, const PathTracerReport::SCompareSettings& compare, const bool includeMetrics)
+{
+	nlohmann_json imageJson;
+	imageJson["identifier"] = identifier;
+	imageJson["title"] = title;
+	imageJson["filename"] = candidatePath.filename().string();
+	imageJson["status"] = comparison.status;
+	imageJson["status_color"] = statusColor(comparison.status);
+	imageJson["details"] = comparison.details;
+	if (!candidatePath.empty() && std::filesystem::exists(candidatePath))
+		imageJson["render"] = makeGenericPathString(relativePath(candidatePath,reportDir));
+	else if (!candidatePath.empty())
+		imageJson["expected_render"] = makeGenericPathString(relativePath(candidatePath,reportDir));
+	if (!baselinePath.empty() && std::filesystem::exists(baselinePath))
+		imageJson["reference"] = makeGenericPathString(relativePath(baselinePath,reportDir));
+	if (!comparison.diffExr.empty() && std::filesystem::exists(comparison.diffExr))
+		imageJson["difference"] = makeGenericPathString(relativePath(comparison.diffExr,reportDir));
+	if (includeMetrics && (comparison.status=="passed" || comparison.status=="failed" || comparison.status=="warning") && comparison.totalPixels>0u)
+	{
+		imageJson["error_pixels"] = comparison.errorPixels;
+		imageJson["allowed_error_pixels"] = comparison.allowedErrorPixels;
+		imageJson["total_pixels"] = comparison.totalPixels;
+		imageJson["max_abs_error"] = comparison.maxAbsError;
+		if (comparison.hasSsimDifference)
+		{
+			imageJson["metric"] = "ssim";
+			imageJson["ssim_difference"] = comparison.ssimDifference;
+			imageJson["ssim_error_threshold"] = compare.ssimErrorThreshold;
+		}
+		else
+			imageJson["metric"] = "pixel-error";
+	}
+	return imageJson;
+}
+
+std::string imageTitleForComparison(const std::string& baseTitle, const char* suffix)
+{
+	return (baseTitle.empty() ? "output":baseTitle)+" "+suffix;
+}
+
+std::string sanitizePathComponent(std::string value)
+{
+	if (value.empty())
+		return "scene";
+	for (char& c : value)
+	{
+		const auto uc = static_cast<unsigned char>(c);
+		if (!std::isalnum(uc) && c!='_' && c!='-' && c!='.')
+			c = '_';
+	}
+	return value;
+}
+
 }
 
 struct PathTracerReport::Impl
@@ -989,6 +1310,213 @@ const system::path& PathTracerReport::getReportDirectory() const
 bool PathTracerReport::hasFailures() const
 {
 	return m_impl->hasFailures || m_impl->hasErrors;
+}
+
+bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
+{
+	if (!params.assetManager)
+		return false;
+	if (params.baselineReportDir.empty() || params.candidateReportDir.empty() || params.reportDir.empty())
+		return false;
+
+	std::error_code ec;
+	std::filesystem::create_directories(params.reportDir,ec);
+	if (ec)
+		return false;
+
+	nlohmann_json baselineSummary;
+	nlohmann_json candidateSummary;
+	if (!readJsonFile(params.baselineReportDir/"summary.json",baselineSummary,params.logger))
+		return false;
+	if (!readJsonFile(params.candidateReportDir/"summary.json",candidateSummary,params.logger))
+		return false;
+
+	auto compare = params.compare;
+	compare = parseCompareSettings(candidateSummary.contains("compare") ? candidateSummary["compare"]:nlohmann_json{},compare);
+	const auto baselineSessions = collectReportSessions(params.baselineReportDir,baselineSummary,compare);
+	const auto candidateSessions = collectReportSessions(params.candidateReportDir,candidateSummary,compare);
+
+	nlohmann_json summary;
+	summary["identifier"] = "40_PathTracer";
+	summary["schema"] = "devsh.ditt.pathtracer-report-compare.v1";
+	summary["datetime"] = nowString();
+	summary["buildConfig"] = (jsonString(candidateSummary,"buildConfig","candidate")+" vs "+jsonString(baselineSummary,"buildConfig","baseline"));
+	summary["workingDirectory"] = portablePathString(params.workingDirectory,params.reportDir,params.workingDirectory);
+	summary["reportDir"] = portablePathString(params.reportDir,params.reportDir,params.workingDirectory);
+	summary["referenceDir"] = "";
+	summary["commandLine"] = portableCommandLineString(params.commandLine,params.reportDir,params.workingDirectory);
+	summary["compare"] = compareSettingsJson(compare);
+	summary["comparison"] = {
+		{"mode","report-vs-report"},
+		{"baseline",{
+			{"name",params.baselineName.empty() ? "baseline":params.baselineName},
+			{"reportDir",portablePathString(params.baselineReportDir,params.reportDir,params.workingDirectory)},
+			{"buildConfig",jsonString(baselineSummary,"buildConfig","unknown")},
+			{"passStatus",jsonString(baselineSummary,"pass_status","unknown")},
+			{"failureCount",baselineSummary.value("failure_count",0)}
+		}},
+		{"candidate",{
+			{"name",params.candidateName.empty() ? "candidate":params.candidateName},
+			{"reportDir",portablePathString(params.candidateReportDir,params.reportDir,params.workingDirectory)},
+			{"buildConfig",jsonString(candidateSummary,"buildConfig","unknown")},
+			{"passStatus",jsonString(candidateSummary,"pass_status","unknown")},
+			{"failureCount",candidateSummary.value("failure_count",0)}
+		}},
+		{"strictReferenceMatch",params.strictReferenceMatch}
+	};
+	summary["postprocess"] = {
+		{"denoiser",{
+			{"mode","report-compare"},
+			{"message","This payload compares two completed path tracer report bundles. It does not render scenes."}
+		}}
+	};
+	summary["lowDiscrepancySequenceCache"] = {{"status","not-configured"}};
+	if (candidateSummary.contains("build"))
+		summary["build"] = candidateSummary["build"];
+	if (candidateSummary.contains("machine"))
+		summary["machine"] = candidateSummary["machine"];
+
+	auto& results = summary["results"];
+	results = nlohmann_json::array();
+	uint32_t index = 1u;
+	uint32_t failureCount = 0u;
+	uint32_t warningCount = 0u;
+	uint32_t referenceMismatchCount = 0u;
+
+	std::set<std::string> sessionKeys;
+	for (const auto& [key,session] : candidateSessions)
+		sessionKeys.insert(key);
+	for (const auto& [key,session] : baselineSessions)
+		sessionKeys.insert(key);
+
+	for (const auto& key : sessionKeys)
+	{
+		const auto baselineIt = baselineSessions.find(key);
+		const auto candidateIt = candidateSessions.find(key);
+		const auto* baselineSession = baselineIt!=baselineSessions.end() ? &baselineIt->second:nullptr;
+		const auto* candidateSession = candidateIt!=candidateSessions.end() ? &candidateIt->second:nullptr;
+		const auto* displaySession = candidateSession ? candidateSession:baselineSession;
+
+		nlohmann_json sessionJson;
+		sessionJson["index"] = index++;
+		sessionJson["artifact_name"] = displaySession ? displaySession->sceneName:"missing-session";
+		sessionJson["scene_name"] = displaySession ? displaySession->sceneName:"missing-session";
+		sessionJson["display_name"] = displaySession ? displaySession->displayName:"Missing session";
+		sessionJson["reference_names"] = nlohmann_json::array();
+		sessionJson["scene_path"] = displaySession ? makeGenericPathString(displaySession->scenePath):"";
+		sessionJson["sensor"] = displaySession ? displaySession->sensor:0u;
+		sessionJson["compare"] = compareSettingsJson(compare);
+		auto& images = sessionJson["array"];
+		images = nlohmann_json::array();
+
+		uint32_t sessionFailures = 0u;
+		uint32_t sessionWarnings = 0u;
+		const auto recordStatus = [&](const std::string& status)
+		{
+			if (status=="failed" || status=="error" || status=="missing-reference" || status=="missing-render")
+			{
+				++failureCount;
+				++sessionFailures;
+			}
+			else if (status=="warning")
+			{
+				++warningCount;
+				++sessionWarnings;
+			}
+		};
+
+		if (!baselineSession || !candidateSession)
+		{
+			SPairComparison missing;
+			missing.status = baselineSession ? "missing-render":"missing-reference";
+			missing.details = baselineSession ? "Candidate report is missing this scene":"Baseline report is missing this scene";
+			images.push_back(makeComparisonImageJson("session","Session presence",{},{},missing,params.reportDir,compare,false));
+			recordStatus(missing.status);
+		}
+		else
+		{
+			std::set<std::string> imageKeys;
+			for (const auto& [imageKey,image] : candidateSession->images)
+				imageKeys.insert(imageKey);
+			for (const auto& [imageKey,image] : baselineSession->images)
+				imageKeys.insert(imageKey);
+
+			for (const auto& imageKey : imageKeys)
+			{
+				const auto baselineImageIt = baselineSession->images.find(imageKey);
+				const auto candidateImageIt = candidateSession->images.find(imageKey);
+				const auto* baselineImage = baselineImageIt!=baselineSession->images.end() ? &baselineImageIt->second:nullptr;
+				const auto* candidateImage = candidateImageIt!=candidateSession->images.end() ? &candidateImageIt->second:nullptr;
+				const auto title = candidateImage ? candidateImage->title:(baselineImage ? baselineImage->title:imageKey);
+				const auto sceneComponent = sanitizePathComponent(candidateSession->sceneName.empty() ? baselineSession->sceneName:candidateSession->sceneName);
+				const auto imageComponent = sanitizePathComponent(imageKey);
+
+				const system::path baselineReference = baselineImage ? baselineImage->reference:system::path{};
+				const system::path candidateReference = candidateImage ? candidateImage->reference:system::path{};
+				if (!baselineReference.empty() || !candidateReference.empty())
+				{
+					SPairComparison referenceComparison;
+					const auto baselineHash = blake3FileHash(baselineReference);
+					const auto candidateHash = blake3FileHash(candidateReference);
+					const bool referencesExist = baselineHash.has_value() && candidateHash.has_value();
+					const bool referencesIdentical = referencesExist && baselineHash.value()==candidateHash.value();
+					if (referencesIdentical)
+					{
+						referenceComparison.status = "passed";
+						referenceComparison.details = "Reference files are byte-identical";
+					}
+					else
+					{
+						const auto diffPath = params.reportDir/"diff_images"/sceneComponent/(imageComponent+"_reference_diff.exr");
+						if (!compareImagePair(params.assetManager,params.logger,candidateReference,baselineReference,diffPath,compare,isDenoisedOutput(imageKey),referenceComparison))
+							referenceComparison.status = "error";
+						if (referencesExist && !referencesIdentical)
+						{
+							++referenceMismatchCount;
+							referenceComparison.details = "Reference files differ. "+referenceComparison.details;
+							if (params.strictReferenceMatch)
+								referenceComparison.status = "failed";
+							else if (referenceComparison.status!="error")
+								referenceComparison.status = "warning";
+						}
+					}
+					images.push_back(makeComparisonImageJson(imageKey+"_reference",imageTitleForComparison(title,"reference A/B"),candidateReference,baselineReference,referenceComparison,params.reportDir,compare,true));
+					recordStatus(referenceComparison.status);
+				}
+
+				SPairComparison renderComparison;
+				const system::path baselineRender = baselineImage ? baselineImage->render:system::path{};
+				const system::path candidateRender = candidateImage ? candidateImage->render:system::path{};
+				const auto diffPath = params.reportDir/"diff_images"/sceneComponent/(imageComponent+"_render_diff.exr");
+				if (!compareImagePair(params.assetManager,params.logger,candidateRender,baselineRender,diffPath,compare,isDenoisedOutput(imageKey),renderComparison))
+					renderComparison.status = "error";
+				images.push_back(makeComparisonImageJson(imageKey+"_render",imageTitleForComparison(title,"render A/B"),candidateRender,baselineRender,renderComparison,params.reportDir,compare,true));
+				recordStatus(renderComparison.status);
+			}
+		}
+
+		const std::string sessionStatus = sessionFailures>0u ? "failed":(sessionWarnings>0u ? "warning":"passed");
+		sessionJson["status"] = sessionStatus;
+		sessionJson["status_color"] = statusColor(sessionStatus);
+		sessionJson["details"] = sessionFailures>0u ? "One or more report comparisons failed":
+			(sessionWarnings>0u ? "One or more report comparisons produced a warning":"Report comparisons passed");
+		results.push_back(std::move(sessionJson));
+	}
+
+	summary["num_of_tests"] = results.size();
+	summary["failure_count"] = failureCount;
+	summary["warning_count"] = warningCount;
+	summary["reference_mismatch_count"] = referenceMismatchCount;
+	summary["pass_status"] = failureCount>0u ? "failed":"passed";
+
+	std::ofstream file(params.reportDir/"summary.json",std::ios::binary);
+	if (!file)
+		return false;
+	file << summary.dump(2);
+
+	if (params.logger)
+		params.logger->log("Path tracer report comparison written to \"%s\"",system::ILogger::ELL_INFO,(params.reportDir/"summary.json").string().c_str());
+	return true;
 }
 
 }

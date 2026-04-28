@@ -7,6 +7,7 @@
 
 #include "argparse/argparse.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 #include "nbl/examples/examples.hpp"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
@@ -57,6 +58,140 @@ using namespace nbl::application_templates;
 using namespace nbl::examples;
 using namespace nbl::this_example;
 using nlohmann_json = nlohmann::json;
+
+class PathTracerReportCompareApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
+{
+	using base_t = nbl::application_templates::MonoSystemMonoLoggerApplication;
+
+	path resolvePathAgainstCurrentWorkingDirectory(const path& candidate) const
+	{
+		if (candidate.empty() || candidate.is_absolute())
+			return candidate;
+		return (std::filesystem::current_path()/candidate).lexically_normal();
+	}
+
+	std::string makeCommandLine() const
+	{
+		std::string commandLine;
+		for (size_t i=0u; i<argv.size(); ++i)
+		{
+			std::string argument = i==0u ? path(argv[i]).filename().string():argv[i];
+			if (!commandLine.empty())
+				commandLine += ' ';
+			if (argument.find_first_of(" \t\"")!=std::string::npos)
+				commandLine += '"' + argument + '"';
+			else
+				commandLine += argument;
+		}
+		return commandLine;
+	}
+
+	bool parseCommandLine(PathTracerReport::SReportComparisonParams& params) const
+	{
+		std::vector<std::string> normalizedArguments;
+		normalizedArguments.reserve(argv.size());
+		for (const auto& argument : argv)
+			normalizedArguments.push_back(argument);
+
+		argparse::ArgumentParser parser("40_pathtracer","1.0");
+		parser.add_description("Offline path tracer report comparison.");
+		parser.add_argument("--compare-reports")
+			.help("Compare two completed EX40 report bundles without rendering scenes.")
+			.default_value(false)
+			.implicit_value(true);
+		parser.add_argument("--baseline-report")
+			.help("Baseline report bundle directory.")
+			.required();
+		parser.add_argument("--candidate-report")
+			.help("Candidate report bundle directory.")
+			.required();
+		parser.add_argument("--report-dir")
+			.help("Output comparison report bundle directory.")
+			.required();
+		parser.add_argument("--baseline-name")
+			.help("Human-readable baseline label.")
+			.default_value(std::string("baseline"));
+		parser.add_argument("--candidate-name")
+			.help("Human-readable candidate label.")
+			.default_value(std::string("candidate"));
+		parser.add_argument("--strict-reference-match")
+			.help("Fail the comparison when matching reports contain different copied reference files.")
+			.default_value(false)
+			.implicit_value(true);
+		parser.add_argument("--compare-error-threshold")
+			.help("Relative per-channel error threshold for native image comparison.")
+			.scan<'g',double>()
+			.default_value(0.05);
+		parser.add_argument("--compare-epsilon")
+			.help("Absolute epsilon used before relative image comparison.")
+			.scan<'g',double>()
+			.default_value(0.00001);
+		parser.add_argument("--compare-allowed-error-ratio")
+			.help("Allowed ratio of pixels that may exceed the native comparison threshold.")
+			.scan<'g',double>()
+			.default_value(0.0001);
+		parser.add_argument("--compare-allowed-error-count")
+			.help("Absolute allowed count of pixels that may exceed the native comparison threshold.")
+			.scan<'g',double>();
+		parser.add_argument("--compare-ssim-threshold")
+			.help("Maximum allowed SSIM difference for denoised output comparison.")
+			.scan<'g',double>()
+			.default_value(0.001);
+
+		try
+		{
+			parser.parse_args(normalizedArguments);
+		}
+		catch (const std::exception& e)
+		{
+			std::fprintf(stderr,"Failed to parse report comparison arguments: %s\n",e.what());
+			return false;
+		}
+
+		params.baselineReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--baseline-report")));
+		params.candidateReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--candidate-report")));
+		params.reportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--report-dir")));
+		params.baselineName = parser.get<std::string>("--baseline-name");
+		params.candidateName = parser.get<std::string>("--candidate-name");
+		params.strictReferenceMatch = parser.get<bool>("--strict-reference-match");
+		params.compare.errorThreshold = parser.get<double>("--compare-error-threshold");
+		params.compare.epsilon = parser.get<double>("--compare-epsilon");
+		params.compare.allowedErrorPixelRatio = parser.get<double>("--compare-allowed-error-ratio");
+		if (const auto allowedErrorCount = parser.present<double>("--compare-allowed-error-count"); allowedErrorCount.has_value())
+		{
+			params.compare.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::AbsoluteCount;
+			params.compare.allowedErrorPixelCount = static_cast<uint64_t>(std::ceil(std::max(0.0,allowedErrorCount.value())));
+		}
+		params.compare.ssimErrorThreshold = parser.get<double>("--compare-ssim-threshold");
+		params.workingDirectory = std::filesystem::current_path();
+		params.commandLine = makeCommandLine();
+		return true;
+	}
+
+public:
+	using base_t::base_t;
+
+	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	{
+		if (!base_t::onAppInitialized(std::move(system)))
+			return false;
+
+		PathTracerReport::SReportComparisonParams params;
+		if (!parseCommandLine(params))
+			return false;
+
+		m_assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
+		params.assetManager = m_assetManager.get();
+		params.logger = m_logger.get();
+		return PathTracerReport::writeComparison(std::move(params));
+	}
+
+	void workLoopBody() override {}
+	bool keepRunning() override { return false; }
+
+private:
+	smart_refctd_ptr<IAssetManager> m_assetManager;
+};
 
 class PathTracingApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -1396,6 +1531,11 @@ namespace nbl::this_example
 
 int runPathTracingApp(int argc, char** argv)
 {
+	for (int i=1; i<argc; ++i)
+	{
+		if (std::string_view(argv[i])=="--compare-reports")
+			return ::PathTracerReportCompareApp::main<::PathTracerReportCompareApp>(argc,argv);
+	}
 	return ::PathTracingApp::main<::PathTracingApp>(argc,argv);
 }
 

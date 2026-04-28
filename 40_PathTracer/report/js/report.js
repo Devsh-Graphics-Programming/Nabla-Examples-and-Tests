@@ -140,6 +140,8 @@
 			return "failed";
 		if (value === "error")
 			return "error";
+		if (value === "warning")
+			return "warning";
 		if (value === "missing-reference" || value === "missing-render")
 			return "missing";
 		if (value === "not-checked")
@@ -155,10 +157,13 @@
 		const images = scene && scene.array ? scene.array : [];
 		let checked = false;
 		let unchecked = false;
+		let warning = false;
 		for (const image of images) {
 			const status = normalizeStatus(image.status);
 			if (status === "passed" || status === "failed")
 				checked = true;
+			if (status === "warning")
+				warning = true;
 			if (status === "not-checked")
 				unchecked = true;
 			if (status === "failed" || status === "error" || status === "missing-render" || status === "missing-reference")
@@ -168,6 +173,8 @@
 		const status = normalizeStatus(scene && scene.status);
 		if (status === "failed" || status === "error" || status === "missing-render" || status === "missing-reference")
 			return "failed";
+		if (status === "warning" || warning)
+			return "warning";
 		if (!checked && unchecked)
 			return "not-checked";
 		if (status === "not-checked")
@@ -185,6 +192,8 @@
 			return "This output is present in the report but is intentionally not part of pass/fail validation.";
 		if (value === "failed")
 			return "This output failed validation or the scene has at least one failing output.";
+		if (value === "warning")
+			return "This output passed numeric validation but has a condition that needs attention.";
 		if (value === "passed")
 			return "This output passed validation.";
 		return "Report status recorded for this output.";

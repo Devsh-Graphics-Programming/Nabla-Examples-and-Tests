@@ -79,6 +79,21 @@ class PathTracerReport final
 			system::ILogger* logger = nullptr;
 		};
 
+		struct SReportComparisonParams
+		{
+			system::path baselineReportDir;
+			system::path candidateReportDir;
+			system::path reportDir;
+			system::path workingDirectory;
+			std::string baselineName;
+			std::string candidateName;
+			std::string commandLine;
+			SCompareSettings compare;
+			bool strictReferenceMatch = false;
+			asset::IAssetManager* assetManager = nullptr;
+			system::ILogger* logger = nullptr;
+		};
+
 		explicit PathTracerReport(SCreationParams&& params);
 		~PathTracerReport();
 
@@ -92,6 +107,8 @@ class PathTracerReport final
 
 		const system::path& getReportDirectory() const;
 		bool hasFailures() const;
+
+		static bool writeComparison(SReportComparisonParams&& params);
 
 	private:
 		struct Impl;
