@@ -1599,8 +1599,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
 
             // Allocate the memory
             {
-               constexpr size_t BufferSize = BENCHMARK_WORKGROUP_COUNT * BENCHMARK_WORKGROUP_DIMENSION_SIZE_X *
-                  BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y * BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z * sizeof(uint32_t);
+               constexpr size_t BufferSize = BENCHMARK_WORKGROUP_COUNT * BENCHMARK_WORKGROUP_DIMENSION_SIZE_X * BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y * BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z * sizeof(uint32_t);
 
                nbl::video::IGPUBuffer::SCreationParams params = {};
                params.size                                    = BufferSize;
@@ -1665,13 +1664,13 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
             SAMPLING_MODE mode;
          };
          const SamplerEntry samplers[] = {
-            {"PYRAMID_RECTANGLE", SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_RECTANGLE},
-            {"PYRAMID_PROJ_RECTANGLE", SAMPLING_MODE::SYMMETRIC_PYRAMID_PROJECTED_SOLID_ANGLE_RECTANGLE},
-            {"PYRAMID_BIQUADRATIC", SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BIQUADRATIC},
-            {"PYRAMID_BILINEAR", SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BILINEAR},
-            {"PARALLELOGRAM", SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE},
-            {"TRIANGLE_SA", SAMPLING_MODE::TRIANGLE_SOLID_ANGLE},
-            {"TRIANGLE_PSA", SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE},
+            {.name = "PYRAMID_RECTANGLE", .mode = SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_RECTANGLE},
+            {.name = "PYRAMID_PROJ_RECTANGLE", .mode = SAMPLING_MODE::SYMMETRIC_PYRAMID_PROJECTED_SOLID_ANGLE_RECTANGLE},
+            {.name = "PYRAMID_BIQUADRATIC", .mode = SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BIQUADRATIC},
+            {.name = "PYRAMID_BILINEAR", .mode = SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BILINEAR},
+            {.name = "PARALLELOGRAM", .mode = SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE},
+            {.name = "TRIANGLE_SA", .mode = SAMPLING_MODE::TRIANGLE_SOLID_ANGLE},
+            {.name = "TRIANGLE_PSA", .mode = SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE},
          };
 
          // Creation-only modes: report per-creation, not per-sample.
@@ -1776,7 +1775,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          m_cmdbuf->end();
       }
 
-      uint64_t calcTimeElapsed()
+      uint64_t calcTimeElapsed() const
       {
          uint64_t            timestamps[2];
          const core::bitflag flags = core::bitflag(IQueryPool::RESULTS_FLAGS::_64_BIT) | core::bitflag(IQueryPool::RESULTS_FLAGS::WAIT_BIT);

@@ -19,9 +19,7 @@ struct DebugRecorder
       DebugDataBuffer[0].silhouette.clippedVertexIndices[slot] = originalIndex;
    }
 
-   static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount,
-      uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount,
-      bool wrapAround, uint32_t rotatedSil)
+   static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount, uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount, bool wrapAround, uint32_t rotatedSil)
    {
       DebugDataBuffer[0].silhouette.clippedVertexCount = vertexCount;
       DebugDataBuffer[0].silhouette.clipMask = clipMask;
@@ -43,8 +41,7 @@ struct DebugRecorder
          DebugDataBuffer[0].triangleFan.solidAngles[tri] = solidAngles[tri];
    }
 
-   static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask,
-      float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height)
+   static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask, float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height)
    {
       DebugDataBuffer[0].parallelogram.area = area;
 
@@ -61,8 +58,7 @@ struct DebugRecorder
       DebugDataBuffer[0].parallelogram.corners[3] = corner + height * perpDir;
    }
 
-   static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center,
-      float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge)
+   static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center, float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge)
    {
       DebugDataBuffer[0].pyramid.axis1 = axis1;
       DebugDataBuffer[0].pyramid.axis2 = axis2;
@@ -80,8 +76,7 @@ struct DebugRecorder
    static void recordSampleCount(uint32_t count) { DebugDataBuffer[0].sampling.sampleCount = count; }
    static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf) { DebugDataBuffer[0].sampling.rayData[i] = float32_t4(dir, pdf); }
 
-   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize,
-      uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount)
+   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize, uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount)
    {
       InterlockedAdd(DebugDataBuffer[0].sampling.validSampleCount, validSampleCount);
       InterlockedAdd(DebugDataBuffer[0].sampling.threadCount, 1u);
@@ -94,14 +89,10 @@ struct DebugRecorder
    }
 #else
    static void recordClippedVertex(uint32_t slot, float32_t3 pos, uint32_t originalIndex) {}
-   static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount,
-      uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount,
-      bool wrapAround, uint32_t rotatedSil) {}
+   static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount, uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount, bool wrapAround, uint32_t rotatedSil) {}
    static void recordTriangleFan(bool luneDetected, uint32_t count, float32_t totalWeight, float32_t solidAngles[5]) {}
-   static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask,
-      float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height) {}
-   static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center,
-      float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge) {}
+   static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask, float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height) {}
+   static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center, float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge) {}
    static void recordSampleCount(uint32_t count) {}
    static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf) {}
    static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize,
