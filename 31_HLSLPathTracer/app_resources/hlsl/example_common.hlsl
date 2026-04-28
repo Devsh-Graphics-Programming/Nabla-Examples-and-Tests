@@ -751,6 +751,7 @@ struct PTMaterialSystemCache
     using isocache_type = IsoCache;
 
     anisocache_type aniso_cache;
+    bool sampleFromNt;
     bool sampleIsShadowed;
 
     // serialized bxdf members

@@ -229,6 +229,7 @@ struct MaterialSystem
                 anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                 typename normal_mapped_diffuse_op_type::isocache_type cache;
                 sample_type s = bxdf.generate(interaction_Np, u.xy, cache);
+                _cache.sampleFromNt = cache.sampleFromNt;
                 _cache.sampleIsShadowed = cache.sampleIsShadowed;
                 return s;
             }
@@ -286,6 +287,7 @@ struct MaterialSystem
                     bxdf.nested_brdf = nested_brdf;
                     anisotropic_interaction_type interaction_Np = bxdf.template buildInteraction<typename bxdfnode_type::normals_accessor>(bxdfs[matID.id].normals, interaction.getIntersectUV(), interaction.getFromTangentSpace(), interaction.getV());
                     typename normal_mapped_diffuse_op_type::isocache_type cache;
+                    cache.sampleFromNt = _cache.sampleFromNt;
                     cache.sampleIsShadowed = _cache.sampleIsShadowed;
                     sample_type sample_Np = sample_type::create(_sample.getL(), interaction_Np.getN());
                     quotient_weight_type ret = bxdf.quotientAndWeight(sample_Np, interaction_Np.isotropic, cache);
