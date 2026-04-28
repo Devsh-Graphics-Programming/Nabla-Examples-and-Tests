@@ -14,6 +14,9 @@ if(NBL_BUILD_IMGUI)
 		Nabla::ext::FullScreenTriangle
 	)
 
+	# TODO; Arek I removed `NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET` from the last parameter here, doesn't this macro have 4 arguments anyway !?
+	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
+
 	if(NBL_EMBED_BUILTIN_RESOURCES)
 		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
 		set(RESOURCE_DIR "app_resources")
@@ -32,9 +35,6 @@ if(NBL_BUILD_IMGUI)
 
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 	endif()
-
-	# TODO; Arek I removed `NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET` from the last parameter here, doesn't this macro have 4 arguments anyway !?
-	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
 	# TODO: Arek temporarily disabled cause I haven't figured out how to make this target yet
 	# LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
