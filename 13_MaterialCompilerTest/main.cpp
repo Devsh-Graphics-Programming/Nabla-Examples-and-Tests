@@ -5,6 +5,8 @@
 
 #include "nbl/examples/examples.hpp"
 
+// TODO: get this in the right Nabla header
+#include "nbl/asset/material_compiler3/CFrontendIR.h"
 
 
 using namespace nbl;
@@ -43,6 +45,16 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			auto logger = m_logger.get();
 
+			core::vector<CFrontendIR::typed_pointer_type<const CFrontendIR::CLayer>> astRoots;
+			auto checkValidAndRecord = [&](const CFrontendIR::typed_pointer_type<const CFrontendIR::CLayer> rootH)->bool
+			{
+				if (forest->valid(rootH,logger))
+				{
+					astRoots.push_back(rootH);
+					return true;
+				}
+				return false;
+			};
 			{
 				// dummy image views
 				smart_refctd_ptr<ICPUImageView> monochromeImageView, rgbImageView;
@@ -88,7 +100,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* layer = forestPool.deref(layerH);
 						layer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("MyWeirdInvisibleMaterial");
 						layer->btdf = forestPool.emplace<CFrontendIR::CDeltaTransmission>();
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// creating a node and changing our mind
@@ -127,10 +139,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 						// test layer cycle detection
 						layer->coated = layerH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Layer Cycle Detection");
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Layer Cycle Detection");
 						layer->coated = {};
 
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// two-sided diffuse
@@ -144,7 +156,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// TODO: add a derivative map for testing the printing and compilation
 						layer->brdfTop = orenNayarH;
 						layer->brdfBottom = orenNayarH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// diffuse isotropic rough transmissive
@@ -171,7 +183,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 						// test expression cycle detection
 						mul->lhs = mulH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Expression Cycle Detection");
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Expression Cycle Detection");
 
 						// create the BxDF as we'd do for a single BRDF or BTDF
 						{
@@ -183,7 +195,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							mul->lhs = orenNayarH;
 						}
 						// TODO: add a derivative map for testing the printing and compilation
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 				}
 
@@ -212,7 +224,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						layer->brdfTop = mulH;
 						layer->brdfBottom = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// emitter with IES profile
@@ -249,7 +261,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						layer->brdfTop = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// onesided emitter with spatially varying emission from the backside
@@ -282,7 +294,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						layer->brdfBottom = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// spatially varying emission but with a profile (think classroom projector)
@@ -322,7 +334,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						layer->brdfTop = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 			
 				// anisotropic cook torrance GGX with Conductor Fresnel
@@ -348,11 +360,11 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 					// test that our bad subtree checks by swapping lhs with rhs
 					std::swap(mul->lhs,mul->rhs);
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Contributor not in left subtree check failed");
+					ASSERT_VALUE(checkValidAndRecord(layerH),false,"Contributor not in left subtree check failed");
 
 					// should work now
 					std::swap(mul->lhs,mul->rhs);
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Contributor in left subtree check failed");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Contributor in left subtree check failed");
 				}
 
 				// dielectric
@@ -384,7 +396,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					layer->btdf = dielectricH;
 					layer->brdfBottom = dielectricH;
 
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Dielectric");
 				}
 
 				// correlated thindielectric (exit through a microfacet with identical normal on the other side - no refraction possible) 
@@ -424,12 +436,12 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						imagEta->getParam(0)->scale = std::numeric_limits<float>::min();
 						imagEta->getParam(1)->scale = -std::numeric_limits<float>::max();
 						imagEta->getParam(2)->scale = 0.5f;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Imaginary Fresnel disallowed");
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Imaginary Fresnel disallowed");
 						for (uint8_t i=0; i<3; i++)
 							imagEta->getParam(i)->scale = 0.f;
 					}
 
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"ThinDielectric");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"ThinDielectric");
 				}
 
 				// complex materials with coatings with IOR 1.5
@@ -495,7 +507,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							midLayer->coated = bottomH;
 						}
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Twosided Rough Plastic");
 					}
 
 					// Diffuse transmitter normalized to whole sphere
@@ -533,7 +545,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						topLayer->coated = midH;
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Transmitter");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Transmitter");
 					}
 
 					// same thing but with subsurface beer absorption
@@ -590,7 +602,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						topLayer->coated = midH;
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Extinction Transmitter");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Extinction Transmitter");
 					}
 				}
 
@@ -605,7 +617,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				}
 				if (file)
 				{
-					CFrontendIR::SDotPrinter printer = {forest.get(),forest->getMaterials()};
+					CFrontendIR::SDotPrinter printer = {forest.get(),astRoots};
 					auto visualization = printer();
 					// file write does not take an internal copy of pointer given, need to keep source alive till end
 					IFile::success_t succ;
@@ -619,7 +631,12 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				auto ir = CTrueIR::create({.composed={.blockSizeKBLog2=4}});
 				auto& irPool = forest->getObjectPool();
 
-				ASSERT_VALUE(ir->addMaterials(forest.get()),true,"Material IR adding");
+				core::vector<CTrueIR::SMaterialHandle> result(astRoots.size());
+				forest->addMaterials({.rootNodes=astRoots,.ir=ir.get(),.result=result.data(),.logger=logger});
+				for (const auto& materialHandle : result)
+				{
+					ASSERT_VALUE(bool(materialHandle),true,"Material Not added successfully");
+				}
 			}
 
 			// Reference Backend Codegen
