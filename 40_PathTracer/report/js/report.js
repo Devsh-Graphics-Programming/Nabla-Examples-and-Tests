@@ -340,7 +340,9 @@
 	installHintTooltip();
 
 	function servedRootUrl() {
-		return new URL("../",window.location.href);
+		const path = window.location.pathname.replace(/\/+$/,"");
+		const isTemplateViewer = path.endsWith("/report") || path.endsWith("/report/index.html");
+		return new URL(isTemplateViewer ? "../":"./",window.location.href);
 	}
 
 	function normalizeReportPath(path) {
@@ -754,11 +756,11 @@
 	}
 
 	function isCompareReport() {
-		return state.summary && state.summary.comparison && state.summary.comparison.mode === "report-vs-report";
+		return !!(state.summary && state.summary.comparison && state.summary.comparison.mode === "report-vs-report");
 	}
 
 	function isCompareSetReport() {
-		return state.summary && state.summary.comparison && state.summary.comparison.mode === "report-set";
+		return !!(state.summary && state.summary.comparison && state.summary.comparison.mode === "report-set");
 	}
 
 	function variantLabel(variant) {

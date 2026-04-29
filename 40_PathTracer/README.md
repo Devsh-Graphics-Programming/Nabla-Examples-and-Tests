@@ -144,7 +144,7 @@ For multiple inputs, write a small manifest and compare each input against one b
 
 ```json
 {
-  "name": "GPU vendor smoke",
+  "name": "Release compare smoke",
   "baseline": "nvidia",
   "inputs": [
     { "id": "nvidia", "name": "NVIDIA", "reportDir": "nvidia" },

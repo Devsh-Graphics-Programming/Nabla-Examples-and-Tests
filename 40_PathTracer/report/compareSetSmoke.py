@@ -83,7 +83,7 @@ def main() -> int:
     parser.add_argument("--exe", default="40_pathtracer.exe", help="Path to the EX40 executable. Relative paths resolve against --workdir.")
     parser.add_argument("--scene", default="../../media/mitsuba/shapetest.xml", help="Scene path passed to EX40. Relative paths resolve in --workdir.")
     parser.add_argument("--output-dir", default=f"out/compare_vendor_smoke_{default_stamp}", help="Output directory. Relative paths resolve against --workdir.")
-    parser.add_argument("--set-name", default="GPU vendor smoke", help="Human-readable compare-set label.")
+    parser.add_argument("--set-name", default="Release compare smoke", help="Human-readable compare-set label.")
     parser.add_argument("--baseline", default="nvidia", help="Baseline input id.")
     parser.add_argument("--inputs", nargs="+", default=["nvidia=NVIDIA", "amd=AMD", "intel=Intel"], help="Input specs in id=label form.")
     parser.add_argument("--skip-render", action="store_true", help="Reuse existing input report directories under --output-dir.")
