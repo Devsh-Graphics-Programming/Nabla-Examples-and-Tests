@@ -63,11 +63,56 @@ class PathTracerReportCompareApp final : public nbl::application_templates::Mono
 {
 	using base_t = nbl::application_templates::MonoSystemMonoLoggerApplication;
 
+	struct SParsedComparisonParams
+	{
+		bool useSet = false;
+		PathTracerReport::SReportComparisonParams pair;
+		PathTracerReport::SReportSetComparisonParams set;
+	};
+
 	path resolvePathAgainstCurrentWorkingDirectory(const path& candidate) const
 	{
 		if (candidate.empty() || candidate.is_absolute())
 			return candidate;
 		return (std::filesystem::current_path()/candidate).lexically_normal();
+	}
+
+	path resolvePathAgainstBaseDirectory(const path& candidate, const path& baseDirectory) const
+	{
+		if (candidate.empty() || candidate.is_absolute())
+			return candidate;
+		return (baseDirectory/candidate).lexically_normal();
+	}
+
+	bool isValidInputId(std::string_view id) const
+	{
+		if (id.empty() || !std::isalnum(static_cast<unsigned char>(id.front())))
+			return false;
+		for (const char c : id)
+		{
+			const auto uc = static_cast<unsigned char>(c);
+			if (!std::isalnum(uc) && c!='_' && c!='-' && c!='.')
+				return false;
+		}
+		return true;
+	}
+
+	bool readStringField(const nlohmann_json& object, const char* fieldName, const char* context, std::string& value, bool required = false) const
+	{
+		const auto it = object.find(fieldName);
+		if (it==object.end())
+		{
+			if (required)
+				std::fprintf(stderr,"%s is missing string field \"%s\".\n",context,fieldName);
+			return !required;
+		}
+		if (!it->is_string())
+		{
+			std::fprintf(stderr,"%s field \"%s\" must be a string.\n",context,fieldName);
+			return false;
+		}
+		value = it->get<std::string>();
+		return true;
 	}
 
 	std::string makeCommandLine() const
@@ -86,7 +131,124 @@ class PathTracerReportCompareApp final : public nbl::application_templates::Mono
 		return commandLine;
 	}
 
-	bool parseCommandLine(PathTracerReport::SReportComparisonParams& params) const
+	bool parseReportSetManifest(const path& manifestPath, const std::string& baselineOverride, PathTracerReport::SReportSetComparisonParams& params) const
+	{
+		std::ifstream file(manifestPath,std::ios::binary);
+		if (!file)
+		{
+			std::fprintf(stderr,"Could not open report set manifest: %s\n",manifestPath.string().c_str());
+			return false;
+		}
+
+		nlohmann_json manifest;
+		try
+		{
+			file >> manifest;
+		}
+		catch (const std::exception& e)
+		{
+			std::fprintf(stderr,"Could not parse report set manifest: %s\n",e.what());
+			return false;
+		}
+
+		if (!manifest.is_object() || !manifest.contains("inputs") || !manifest["inputs"].is_array())
+		{
+			std::fprintf(stderr,"Report set manifest must be an object with an inputs array.\n");
+			return false;
+		}
+
+		params.baselineId = baselineOverride;
+		if (!params.baselineId.empty() && !isValidInputId(params.baselineId))
+		{
+			std::fprintf(stderr,"Invalid report set baseline id: %s\n",params.baselineId.c_str());
+			return false;
+		}
+		if (params.baselineId.empty())
+		{
+			std::string baselineId;
+			if (!readStringField(manifest,"baseline","Report set manifest",baselineId,false))
+				return false;
+			params.baselineId = baselineId;
+		}
+		if (params.comparisonName.empty())
+		{
+			if (!readStringField(manifest,"name","Report set manifest",params.comparisonName,false))
+				return false;
+			if (params.comparisonName.empty() && !readStringField(manifest,"label","Report set manifest",params.comparisonName,false))
+				return false;
+			if (params.comparisonName.empty() && !readStringField(manifest,"comparisonName","Report set manifest",params.comparisonName,false))
+				return false;
+		}
+
+		const auto manifestBase = manifestPath.parent_path();
+		uint32_t inputIndex = 0u;
+		for (const auto& inputJson : manifest["inputs"])
+		{
+			++inputIndex;
+			if (!inputJson.is_object())
+			{
+				std::fprintf(stderr,"Report set input %u must be an object.\n",inputIndex);
+				return false;
+			}
+
+			const auto context = "Report set input "+std::to_string(inputIndex);
+			PathTracerReport::SReportComparisonInput input;
+			if (!readStringField(inputJson,"id",context.c_str(),input.id,true))
+				return false;
+			if (!isValidInputId(input.id))
+			{
+				std::fprintf(stderr,"Invalid report set input id: %s\n",input.id.c_str());
+				return false;
+			}
+			const auto duplicate = std::find_if(params.inputs.begin(),params.inputs.end(),[&](const auto& existing){ return existing.id==input.id; });
+			if (duplicate!=params.inputs.end())
+			{
+				std::fprintf(stderr,"Duplicate report set input id: %s\n",input.id.c_str());
+				return false;
+			}
+
+			if (!readStringField(inputJson,"name",context.c_str(),input.name,false))
+				return false;
+			if (input.name.empty() && !readStringField(inputJson,"label",context.c_str(),input.name,false))
+				return false;
+			if (input.name.empty())
+				input.name = input.id;
+
+			std::string reportDir;
+			if (!readStringField(inputJson,"reportDir",context.c_str(),reportDir,false))
+				return false;
+			if (reportDir.empty() && !readStringField(inputJson,"path",context.c_str(),reportDir,false))
+				return false;
+			if (reportDir.empty())
+			{
+				std::fprintf(stderr,"Report set input %s is missing reportDir.\n",input.id.c_str());
+				return false;
+			}
+			input.reportDir = resolvePathAgainstBaseDirectory(stripWrappingQuotes(reportDir),manifestBase);
+			if (!std::filesystem::exists(input.reportDir/"summary.json"))
+			{
+				std::fprintf(stderr,"Report set input %s does not contain summary.json in %s\n",input.id.c_str(),input.reportDir.string().c_str());
+				return false;
+			}
+			params.inputs.push_back(std::move(input));
+		}
+
+		if (params.inputs.size()<2u)
+		{
+			std::fprintf(stderr,"Report set manifest requires at least two inputs.\n");
+			return false;
+		}
+		if (params.baselineId.empty())
+			params.baselineId = params.inputs.front().id;
+		if (std::find_if(params.inputs.begin(),params.inputs.end(),[&](const auto& input){ return input.id==params.baselineId; })==params.inputs.end())
+		{
+			std::fprintf(stderr,"Report set baseline id was not found: %s\n",params.baselineId.c_str());
+			return false;
+		}
+		return true;
+	}
+
+	bool parseCommandLine(SParsedComparisonParams& parsed) const
 	{
 		std::vector<std::string> normalizedArguments;
 		normalizedArguments.reserve(argv.size());
@@ -99,21 +261,30 @@ class PathTracerReportCompareApp final : public nbl::application_templates::Mono
 			.help("Compare two completed EX40 report bundles without rendering scenes.")
 			.default_value(false)
 			.implicit_value(true);
+		parser.add_argument("--compare-report-set")
+			.help("JSON manifest with multiple completed EX40 report bundles to compare against one baseline.")
+			.default_value(std::string{});
 		parser.add_argument("--baseline-report")
 			.help("Baseline report bundle directory.")
-			.required();
+			.default_value(std::string{});
 		parser.add_argument("--candidate-report")
 			.help("Candidate report bundle directory.")
-			.required();
+			.default_value(std::string{});
 		parser.add_argument("--report-dir")
 			.help("Output comparison report bundle directory.")
-			.required();
+			.default_value(std::string{});
 		parser.add_argument("--baseline-name")
 			.help("Human-readable baseline label.")
 			.default_value(std::string("baseline"));
 		parser.add_argument("--candidate-name")
 			.help("Human-readable candidate label.")
 			.default_value(std::string("candidate"));
+		parser.add_argument("--comparison-name")
+			.help("Human-readable comparison label shown in report headers.")
+			.default_value(std::string{});
+		parser.add_argument("--baseline-id")
+			.help("Baseline input id used by --compare-report-set.")
+			.default_value(std::string{});
 		parser.add_argument("--strict-reference-match")
 			.help("Fail the comparison when matching reports contain different copied reference files.")
 			.default_value(false)
@@ -148,21 +319,55 @@ class PathTracerReportCompareApp final : public nbl::application_templates::Mono
 			return false;
 		}
 
-		params.baselineReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--baseline-report")));
-		params.candidateReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--candidate-report")));
-		params.reportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(parser.get<std::string>("--report-dir")));
-		params.baselineName = parser.get<std::string>("--baseline-name");
-		params.candidateName = parser.get<std::string>("--candidate-name");
-		params.strictReferenceMatch = parser.get<bool>("--strict-reference-match");
-		params.compare.errorThreshold = parser.get<double>("--compare-error-threshold");
-		params.compare.epsilon = parser.get<double>("--compare-epsilon");
-		params.compare.allowedErrorPixelRatio = parser.get<double>("--compare-allowed-error-ratio");
+		const auto reportDirArgument = parser.get<std::string>("--report-dir");
+		if (reportDirArgument.empty())
+		{
+			std::fprintf(stderr,"--report-dir is required for report comparison.\n");
+			return false;
+		}
+
+		PathTracerReport::SCompareSettings compare;
+		compare.errorThreshold = parser.get<double>("--compare-error-threshold");
+		compare.epsilon = parser.get<double>("--compare-epsilon");
+		compare.allowedErrorPixelRatio = parser.get<double>("--compare-allowed-error-ratio");
 		if (const auto allowedErrorCount = parser.present<double>("--compare-allowed-error-count"); allowedErrorCount.has_value())
 		{
-			params.compare.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::AbsoluteCount;
-			params.compare.allowedErrorPixelCount = static_cast<uint64_t>(std::ceil(std::max(0.0,allowedErrorCount.value())));
+			compare.allowedErrorPixelMode = PathTracerReport::SCompareSettings::EAllowedErrorPixelMode::AbsoluteCount;
+			compare.allowedErrorPixelCount = static_cast<uint64_t>(std::ceil(std::max(0.0,allowedErrorCount.value())));
 		}
-		params.compare.ssimErrorThreshold = parser.get<double>("--compare-ssim-threshold");
+		compare.ssimErrorThreshold = parser.get<double>("--compare-ssim-threshold");
+
+		const auto manifestArgument = parser.get<std::string>("--compare-report-set");
+		if (!manifestArgument.empty())
+		{
+			parsed.useSet = true;
+			auto& params = parsed.set;
+			params.manifestPath = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(manifestArgument));
+			params.reportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(reportDirArgument));
+			params.strictReferenceMatch = parser.get<bool>("--strict-reference-match");
+			params.comparisonName = parser.get<std::string>("--comparison-name");
+			params.compare = compare;
+			params.workingDirectory = std::filesystem::current_path();
+			params.commandLine = makeCommandLine();
+			return parseReportSetManifest(params.manifestPath,parser.get<std::string>("--baseline-id"),params);
+		}
+
+		auto& params = parsed.pair;
+		const auto baselineReport = parser.get<std::string>("--baseline-report");
+		const auto candidateReport = parser.get<std::string>("--candidate-report");
+		if (baselineReport.empty() || candidateReport.empty())
+		{
+			std::fprintf(stderr,"--baseline-report and --candidate-report are required for pair comparison.\n");
+			return false;
+		}
+		params.baselineReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(baselineReport));
+		params.candidateReportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(candidateReport));
+		params.reportDir = resolvePathAgainstCurrentWorkingDirectory(stripWrappingQuotes(reportDirArgument));
+		params.baselineName = parser.get<std::string>("--baseline-name");
+		params.candidateName = parser.get<std::string>("--candidate-name");
+		params.comparisonName = parser.get<std::string>("--comparison-name");
+		params.strictReferenceMatch = parser.get<bool>("--strict-reference-match");
+		params.compare = compare;
 		params.workingDirectory = std::filesystem::current_path();
 		params.commandLine = makeCommandLine();
 		return true;
@@ -176,14 +381,20 @@ public:
 		if (!base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		PathTracerReport::SReportComparisonParams params;
-		if (!parseCommandLine(params))
+		SParsedComparisonParams parsed;
+		if (!parseCommandLine(parsed))
 			return false;
 
 		m_assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
-		params.assetManager = m_assetManager.get();
-		params.logger = m_logger.get();
-		return PathTracerReport::writeComparison(std::move(params));
+		if (parsed.useSet)
+		{
+			parsed.set.assetManager = m_assetManager.get();
+			parsed.set.logger = m_logger.get();
+			return PathTracerReport::writeComparisonSet(std::move(parsed.set));
+		}
+		parsed.pair.assetManager = m_assetManager.get();
+		parsed.pair.logger = m_logger.get();
+		return PathTracerReport::writeComparison(std::move(parsed.pair));
 	}
 
 	void workLoopBody() override {}
@@ -1533,7 +1744,8 @@ int runPathTracingApp(int argc, char** argv)
 {
 	for (int i=1; i<argc; ++i)
 	{
-		if (std::string_view(argv[i])=="--compare-reports")
+		const auto argument = std::string_view(argv[i]);
+		if (argument=="--compare-reports" || argument=="--compare-report-set")
 			return ::PathTracerReportCompareApp::main<::PathTracerReportCompareApp>(argc,argv);
 	}
 	return ::PathTracingApp::main<::PathTracingApp>(argc,argv);

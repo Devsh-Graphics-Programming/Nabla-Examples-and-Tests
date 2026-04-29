@@ -131,3 +131,37 @@ Comparison options:
 Reference lookup first checks `<reference-dir>/<scene>/<filename>` and then `<reference-dir>/<filename>`.
 
 The runtime report metadata uses portable paths, so the payload can be moved or published without embedding the original workspace path.
+
+## Report Bundle Compare
+
+Completed report bundles can be compared without rendering scenes again:
+
+```bat
+40_pathtracer.exe --compare-reports --candidate-report out\amd --candidate-name AMD --baseline-report out\nvidia --baseline-name NVIDIA --comparison-name "AMD vs NVIDIA" --report-dir out\compare\amd_vs_nvidia
+```
+
+For multiple inputs, write a small manifest and compare each input against one baseline:
+
+```json
+{
+  "name": "GPU vendor smoke",
+  "baseline": "nvidia",
+  "inputs": [
+    { "id": "nvidia", "name": "NVIDIA", "reportDir": "nvidia" },
+    { "id": "amd", "name": "AMD", "reportDir": "amd" },
+    { "id": "intel", "name": "Intel", "reportDir": "intel" }
+  ]
+}
+```
+
+```bat
+40_pathtracer.exe --compare-report-set out\compare_vendor_smoke\set.json --report-dir out\compare_vendor_smoke\set
+```
+
+The compare payload is self-contained and relocatable. Pair reports copy the compared EXR artifacts into the compare directory, so the output can be served or uploaded without the source report directories.
+
+Run the local smoke from the example directory:
+
+```bat
+python report\compareSetSmoke.py --exe 40_pathtracer.exe --output-dir out\compare_vendor_smoke_local
+```

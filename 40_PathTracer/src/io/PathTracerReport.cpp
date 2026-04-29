@@ -645,6 +645,24 @@ nlohmann_json compareSettingsJson(const PathTracerReport::SCompareSettings& comp
 	};
 }
 
+nlohmann_json reportInputMetadataJson(const std::string& name, const system::path& reportDir, const nlohmann_json& summary, const system::path& outputReportDir, const system::path& workingDirectory)
+{
+	nlohmann_json input = {
+		{"name",name},
+		{"reportDir",portablePathString(reportDir,outputReportDir,workingDirectory)},
+		{"buildConfig",jsonString(summary,"buildConfig","unknown")},
+		{"passStatus",jsonString(summary,"pass_status","unknown")},
+		{"failureCount",summary.value("failure_count",0)}
+	};
+	if (summary.contains("datetime"))
+		input["datetime"] = summary["datetime"];
+	if (summary.contains("build"))
+		input["build"] = summary["build"];
+	if (summary.contains("machine"))
+		input["machine"] = summary["machine"];
+	return input;
+}
+
 PathTracerReport::SCompareSettings parseCompareSettings(const nlohmann_json& json, PathTracerReport::SCompareSettings fallback = {})
 {
 	if (!json.is_object())
@@ -679,6 +697,18 @@ std::optional<system::path> resolveReportArtifactPath(const system::path& report
 	return (reportDir/relative).lexically_normal();
 }
 
+std::optional<system::path> reportArtifactRelativePath(const nlohmann_json& image, const char* key)
+{
+	const auto value = jsonString(image,key);
+	if (value.empty())
+		return std::nullopt;
+
+	system::path relative(value);
+	if (relative.is_absolute() || containsParentTraversal(relative))
+		return std::nullopt;
+	return relative.lexically_normal();
+}
+
 std::string sessionKey(const nlohmann_json& session)
 {
 	return jsonString(session,"scene_name",jsonString(session,"artifact_name"))+"\n"+std::to_string(jsonUint32(session,"sensor"));
@@ -689,7 +719,9 @@ struct SSummaryImage
 	std::string identifier;
 	std::string title;
 	system::path render;
+	system::path renderArtifact;
 	system::path reference;
+	system::path referenceArtifact;
 	nlohmann_json json;
 };
 
@@ -743,8 +775,12 @@ session_map_t collectReportSessions(const system::path& reportDir, const nlohman
 				image.title = jsonString(imageJson,"title",image.identifier);
 				if (const auto renderPath = resolveReportArtifactPath(reportDir,imageJson,"render"); renderPath.has_value())
 					image.render = renderPath.value();
+				if (const auto renderArtifact = reportArtifactRelativePath(imageJson,"render"); renderArtifact.has_value())
+					image.renderArtifact = renderArtifact.value();
 				if (const auto referencePath = resolveReportArtifactPath(reportDir,imageJson,"reference"); referencePath.has_value())
 					image.reference = referencePath.value();
+				if (const auto referenceArtifact = reportArtifactRelativePath(imageJson,"reference"); referenceArtifact.has_value())
+					image.referenceArtifact = referenceArtifact.value();
 				image.json = imageJson;
 				session.images.emplace(image.identifier,std::move(image));
 			}
@@ -847,6 +883,37 @@ bool compareImagePair(asset::IAssetManager* assetManager, system::ILogger* logge
 			details << " (" << std::fixed << std::setprecision(3) << 100.0*compare.allowedErrorPixelRatio << "%)";
 	}
 	result.details = details.str();
+	return true;
+}
+
+bool materializeComparisonArtifact(const system::path& sourcePath, const system::path& sourceArtifact, const system::path& reportDir, const system::path& variantRoot, system::path& outputPath)
+{
+	outputPath.clear();
+	if (sourcePath.empty() || !std::filesystem::exists(sourcePath))
+		return true;
+
+	auto relative = sourceArtifact.empty() ? sourcePath.filename():sourceArtifact.lexically_normal();
+	if (relative.empty() || relative.is_absolute() || containsParentTraversal(relative))
+		relative = sourcePath.filename();
+
+	outputPath = (reportDir/variantRoot/relative).lexically_normal();
+	return copyFile(sourcePath,outputPath);
+}
+
+bool materializeComparisonPair(const system::path& candidateSourcePath, const system::path& candidateSourceArtifact, const system::path& baselineSourcePath, const system::path& baselineSourceArtifact, const system::path& reportDir, SPairComparison& comparison, system::path& candidateReportPath, system::path& baselineReportPath)
+{
+	if (!materializeComparisonArtifact(candidateSourcePath,candidateSourceArtifact,reportDir,"candidate",candidateReportPath))
+	{
+		comparison.status = "error";
+		comparison.details = "Could not copy candidate image into compare report";
+		return false;
+	}
+	if (!materializeComparisonArtifact(baselineSourcePath,baselineSourceArtifact,reportDir,"baseline",baselineReportPath))
+	{
+		comparison.status = "error";
+		comparison.details = "Could not copy baseline image into compare report";
+		return false;
+	}
 	return true;
 }
 
@@ -1331,6 +1398,9 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 	if (!readJsonFile(params.candidateReportDir/"summary.json",candidateSummary,params.logger))
 		return false;
 
+	const auto baselineName = params.baselineName.empty() ? "baseline":params.baselineName;
+	const auto candidateName = params.candidateName.empty() ? "candidate":params.candidateName;
+	const auto comparisonName = params.comparisonName.empty() ? candidateName+" vs "+baselineName:params.comparisonName;
 	auto compare = params.compare;
 	compare = parseCompareSettings(candidateSummary.contains("compare") ? candidateSummary["compare"]:nlohmann_json{},compare);
 	const auto baselineSessions = collectReportSessions(params.baselineReportDir,baselineSummary,compare);
@@ -1341,6 +1411,7 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 	summary["schema"] = "devsh.ditt.pathtracer-report-compare.v1";
 	summary["datetime"] = nowString();
 	summary["buildConfig"] = (jsonString(candidateSummary,"buildConfig","candidate")+" vs "+jsonString(baselineSummary,"buildConfig","baseline"));
+	summary["displayName"] = comparisonName;
 	summary["workingDirectory"] = portablePathString(params.workingDirectory,params.reportDir,params.workingDirectory);
 	summary["reportDir"] = portablePathString(params.reportDir,params.reportDir,params.workingDirectory);
 	summary["referenceDir"] = "";
@@ -1348,20 +1419,9 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 	summary["compare"] = compareSettingsJson(compare);
 	summary["comparison"] = {
 		{"mode","report-vs-report"},
-		{"baseline",{
-			{"name",params.baselineName.empty() ? "baseline":params.baselineName},
-			{"reportDir",portablePathString(params.baselineReportDir,params.reportDir,params.workingDirectory)},
-			{"buildConfig",jsonString(baselineSummary,"buildConfig","unknown")},
-			{"passStatus",jsonString(baselineSummary,"pass_status","unknown")},
-			{"failureCount",baselineSummary.value("failure_count",0)}
-		}},
-		{"candidate",{
-			{"name",params.candidateName.empty() ? "candidate":params.candidateName},
-			{"reportDir",portablePathString(params.candidateReportDir,params.reportDir,params.workingDirectory)},
-			{"buildConfig",jsonString(candidateSummary,"buildConfig","unknown")},
-			{"passStatus",jsonString(candidateSummary,"pass_status","unknown")},
-			{"failureCount",candidateSummary.value("failure_count",0)}
-		}},
+		{"name",comparisonName},
+		{"baseline",reportInputMetadataJson(baselineName,params.baselineReportDir,baselineSummary,params.reportDir,params.workingDirectory)},
+		{"candidate",reportInputMetadataJson(candidateName,params.candidateReportDir,candidateSummary,params.reportDir,params.workingDirectory)},
 		{"strictReferenceMatch",params.strictReferenceMatch}
 	};
 	summary["postprocess"] = {
@@ -1452,7 +1512,9 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 				const auto imageComponent = sanitizePathComponent(imageKey);
 
 				const system::path baselineReference = baselineImage ? baselineImage->reference:system::path{};
+				const system::path baselineReferenceArtifact = baselineImage ? baselineImage->referenceArtifact:system::path{};
 				const system::path candidateReference = candidateImage ? candidateImage->reference:system::path{};
+				const system::path candidateReferenceArtifact = candidateImage ? candidateImage->referenceArtifact:system::path{};
 				if (!baselineReference.empty() || !candidateReference.empty())
 				{
 					SPairComparison referenceComparison;
@@ -1480,17 +1542,25 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 								referenceComparison.status = "warning";
 						}
 					}
-					images.push_back(makeComparisonImageJson(imageKey+"_reference",imageTitleForComparison(title,"reference A/B"),candidateReference,baselineReference,referenceComparison,params.reportDir,compare,true));
+					system::path candidateReferenceReport;
+					system::path baselineReferenceReport;
+					materializeComparisonPair(candidateReference,candidateReferenceArtifact,baselineReference,baselineReferenceArtifact,params.reportDir,referenceComparison,candidateReferenceReport,baselineReferenceReport);
+					images.push_back(makeComparisonImageJson(imageKey+"_reference",imageTitleForComparison(title,"reference A/B"),candidateReferenceReport,baselineReferenceReport,referenceComparison,params.reportDir,compare,true));
 					recordStatus(referenceComparison.status);
 				}
 
 				SPairComparison renderComparison;
 				const system::path baselineRender = baselineImage ? baselineImage->render:system::path{};
+				const system::path baselineRenderArtifact = baselineImage ? baselineImage->renderArtifact:system::path{};
 				const system::path candidateRender = candidateImage ? candidateImage->render:system::path{};
+				const system::path candidateRenderArtifact = candidateImage ? candidateImage->renderArtifact:system::path{};
 				const auto diffPath = params.reportDir/"diff_images"/sceneComponent/(imageComponent+"_render_diff.exr");
 				if (!compareImagePair(params.assetManager,params.logger,candidateRender,baselineRender,diffPath,compare,isDenoisedOutput(imageKey),renderComparison))
 					renderComparison.status = "error";
-				images.push_back(makeComparisonImageJson(imageKey+"_render",imageTitleForComparison(title,"render A/B"),candidateRender,baselineRender,renderComparison,params.reportDir,compare,true));
+				system::path candidateRenderReport;
+				system::path baselineRenderReport;
+				materializeComparisonPair(candidateRender,candidateRenderArtifact,baselineRender,baselineRenderArtifact,params.reportDir,renderComparison,candidateRenderReport,baselineRenderReport);
+				images.push_back(makeComparisonImageJson(imageKey+"_render",imageTitleForComparison(title,"render A/B"),candidateRenderReport,baselineRenderReport,renderComparison,params.reportDir,compare,true));
 				recordStatus(renderComparison.status);
 			}
 		}
@@ -1516,6 +1586,129 @@ bool PathTracerReport::writeComparison(SReportComparisonParams&& params)
 
 	if (params.logger)
 		params.logger->log("Path tracer report comparison written to \"%s\"",system::ILogger::ELL_INFO,(params.reportDir/"summary.json").string().c_str());
+	return true;
+}
+
+bool PathTracerReport::writeComparisonSet(SReportSetComparisonParams&& params)
+{
+	if (!params.assetManager || params.inputs.size()<2u || params.reportDir.empty())
+		return false;
+
+	if (params.baselineId.empty())
+		params.baselineId = params.inputs.front().id;
+
+	const auto baselineIt = std::find_if(params.inputs.begin(),params.inputs.end(),[&](const auto& input){ return input.id==params.baselineId; });
+	if (baselineIt==params.inputs.end())
+		return false;
+
+	std::error_code ec;
+	std::filesystem::create_directories(params.reportDir,ec);
+	if (ec)
+		return false;
+
+	const auto& baseline = *baselineIt;
+	const auto setName = params.comparisonName.empty() ? "Report set":params.comparisonName;
+	nlohmann_json summary;
+	summary["identifier"] = "40_PathTracer";
+	summary["schema"] = "devsh.ditt.pathtracer-report-set.v1";
+	summary["datetime"] = nowString();
+	summary["buildConfig"] = "Report set";
+	summary["displayName"] = setName;
+	summary["workingDirectory"] = portablePathString(params.workingDirectory,params.reportDir,params.workingDirectory);
+	summary["reportDir"] = portablePathString(params.reportDir,params.reportDir,params.workingDirectory);
+	summary["referenceDir"] = "";
+	summary["commandLine"] = portableCommandLineString(params.commandLine,params.reportDir,params.workingDirectory);
+	summary["compare"] = compareSettingsJson(params.compare);
+	summary["postprocess"] = {
+		{"denoiser",{
+			{"mode","report-set"},
+			{"message","This payload groups pairwise comparisons of completed path tracer report bundles. It does not render scenes."}
+		}}
+	};
+	summary["lowDiscrepancySequenceCache"] = {{"status","not-configured"}};
+	summary["results"] = nlohmann_json::array();
+
+	auto& comparison = summary["comparison"];
+	comparison = {
+		{"mode","report-set"},
+		{"name",setName},
+		{"baseline",params.baselineId},
+		{"strictReferenceMatch",params.strictReferenceMatch},
+		{"manifest",params.manifestPath.empty() ? "" : portablePathString(params.manifestPath,params.reportDir,params.workingDirectory)},
+		{"inputs",nlohmann_json::array()},
+		{"pairs",nlohmann_json::array()}
+	};
+
+	for (const auto& input : params.inputs)
+	{
+		comparison["inputs"].push_back({
+			{"id",input.id},
+			{"name",input.name.empty() ? input.id:input.name},
+			{"reportDir",portablePathString(input.reportDir,params.reportDir,params.workingDirectory)},
+			{"isBaseline",input.id==params.baselineId}
+		});
+	}
+
+	uint32_t failureCount = 0u;
+	uint32_t warningCount = 0u;
+	uint32_t pairCount = 0u;
+
+	for (const auto& candidate : params.inputs)
+	{
+		if (candidate.id==params.baselineId)
+			continue;
+
+		++pairCount;
+		const auto pairId = sanitizePathComponent(candidate.id+"_vs_"+baseline.id);
+		const auto pairDir = params.reportDir/"pairs"/pairId;
+		SReportComparisonParams pairParams;
+		pairParams.baselineReportDir = baseline.reportDir;
+		pairParams.candidateReportDir = candidate.reportDir;
+		pairParams.reportDir = pairDir;
+		pairParams.workingDirectory = params.workingDirectory;
+		pairParams.baselineName = baseline.name.empty() ? baseline.id:baseline.name;
+		pairParams.candidateName = candidate.name.empty() ? candidate.id:candidate.name;
+		pairParams.comparisonName = pairParams.candidateName+" vs "+pairParams.baselineName;
+		pairParams.commandLine = params.commandLine;
+		pairParams.compare = params.compare;
+		pairParams.strictReferenceMatch = params.strictReferenceMatch;
+		pairParams.assetManager = params.assetManager;
+		pairParams.logger = params.logger;
+
+		const bool wrotePair = writeComparison(std::move(pairParams));
+		nlohmann_json pairSummary;
+		const bool readPair = wrotePair && readJsonFile(pairDir/"summary.json",pairSummary,params.logger);
+		const auto status = readPair ? jsonString(pairSummary,"pass_status","unknown"):"error";
+		const auto pairFailures = readPair ? pairSummary.value("failure_count",0u):1u;
+		const auto pairWarnings = readPair ? pairSummary.value("warning_count",0u):0u;
+		failureCount += pairFailures;
+		warningCount += pairWarnings;
+
+		comparison["pairs"].push_back({
+			{"id",pairId},
+			{"candidate",candidate.id},
+			{"baseline",baseline.id},
+			{"name",(candidate.name.empty() ? candidate.id:candidate.name)+" vs "+(baseline.name.empty() ? baseline.id:baseline.name)},
+			{"status",status},
+			{"failureCount",pairFailures},
+			{"warningCount",pairWarnings},
+			{"reportDir",makeGenericPathString(relativePath(pairDir,params.reportDir))},
+			{"summary",makeGenericPathString(relativePath(pairDir/"summary.json",params.reportDir))}
+		});
+	}
+
+	summary["num_of_tests"] = pairCount;
+	summary["failure_count"] = failureCount;
+	summary["warning_count"] = warningCount;
+	summary["pass_status"] = failureCount>0u ? "failed":(warningCount>0u ? "warning":"passed");
+
+	std::ofstream file(params.reportDir/"summary.json",std::ios::binary);
+	if (!file)
+		return false;
+	file << summary.dump(2);
+
+	if (params.logger)
+		params.logger->log("Path tracer report set comparison written to \"%s\"",system::ILogger::ELL_INFO,(params.reportDir/"summary.json").string().c_str());
 	return true;
 }
 

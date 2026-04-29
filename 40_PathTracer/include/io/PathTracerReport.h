@@ -87,6 +87,29 @@ class PathTracerReport final
 			system::path workingDirectory;
 			std::string baselineName;
 			std::string candidateName;
+			std::string comparisonName;
+			std::string commandLine;
+			SCompareSettings compare;
+			bool strictReferenceMatch = false;
+			asset::IAssetManager* assetManager = nullptr;
+			system::ILogger* logger = nullptr;
+		};
+
+		struct SReportComparisonInput
+		{
+			std::string id;
+			std::string name;
+			system::path reportDir;
+		};
+
+		struct SReportSetComparisonParams
+		{
+			std::vector<SReportComparisonInput> inputs;
+			std::string baselineId;
+			std::string comparisonName;
+			system::path manifestPath;
+			system::path reportDir;
+			system::path workingDirectory;
 			std::string commandLine;
 			SCompareSettings compare;
 			bool strictReferenceMatch = false;
@@ -109,6 +132,7 @@ class PathTracerReport final
 		bool hasFailures() const;
 
 		static bool writeComparison(SReportComparisonParams&& params);
+		static bool writeComparisonSet(SReportSetComparisonParams&& params);
 
 	private:
 		struct Impl;

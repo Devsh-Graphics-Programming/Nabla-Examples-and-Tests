@@ -57,7 +57,9 @@
 	};
 
 	const nodes = {
+		title: document.getElementById("reportTitle"),
 		status: document.getElementById("reportStatus"),
+		top: document.querySelector(".top"),
 		loadError: document.getElementById("loadError"),
 		pipelineNotice: document.getElementById("pipelineNotice"),
 		runCard: document.getElementById("runCard"),
@@ -66,7 +68,8 @@
 		reportBundleCard: document.getElementById("reportBundleCard"),
 		summaryCard: document.getElementById("summaryCard"),
 		overviewCard: document.getElementById("overviewCard"),
-		sceneDetails: document.getElementById("sceneDetails")
+		sceneDetails: document.getElementById("sceneDetails"),
+		viewerCard: document.getElementById("exrViewerCard")
 	};
 
 	const viewer = window.DittExrPreview.createViewer({
@@ -396,9 +399,19 @@
 	}
 
 	function renderHeaderStatus() {
+		const title = isCompareSetReport() ? "Ditt Path Tracer Report Set" : (isCompareReport() ? "Ditt Path Tracer Report Compare" : "Ditt Path Tracer Report");
+		document.title = title;
+		nodes.title.textContent = title;
 		nodes.status.replaceChildren(badge(state.summary.pass_status));
-		if (state.summary.buildConfig)
-			nodes.status.appendChild(configBadge(state.summary.buildConfig));
+		const label = reportBadgeLabel();
+		if (label)
+			nodes.status.appendChild(configBadge(label));
+	}
+
+	function reportBadgeLabel() {
+		if (isCompareReport() || isCompareSetReport())
+			return (state.summary.comparison && state.summary.comparison.name) || state.summary.displayName || "";
+		return state.summary.buildConfig || "";
 	}
 
 	function runStat(label, hint, value, options = {}) {
@@ -489,9 +502,11 @@
 	function renderRunCard() {
 		const summary = state.summary;
 		const compare = summary.compare || {};
+		const comparison = summary.comparison || {};
 		const cache = summary.lowDiscrepancySequenceCache || {};
+		const compareReport = isCompareReport();
 		clear(nodes.runCard);
-		nodes.runCard.appendChild(el("h2",{ text: "Path Tracer Validation" }));
+		nodes.runCard.appendChild(el("h2",{ text: compareReport ? "Compare Summary":"Path Tracer Validation" }));
 		nodes.runCard.appendChild(el("p",{ className: "ci-note" },
 			hintLabel("Pixel error threshold",HINTS.errorThreshold),
 			" allows output and reference RGB values to differ by up to ",
@@ -501,21 +516,32 @@
 		nodes.runCard.appendChild(renderMiniSummary());
 		nodes.runCard.appendChild(renderPostprocessSummary());
 
-		const grid = el("div",{ className: "stat-grid" },
+		const stats = [
 			runStat("Generated",HINTS.generated,summary.datetime || "unknown"),
-			runStat("Build configuration",HINTS.buildConfig,summary.buildConfig || "unknown"),
+			runStat(compareReport ? "Comparison":"Build configuration",compareReport ? "Human-readable label for this report comparison.":HINTS.buildConfig,compareReport ? (comparison.name || summary.displayName || "unknown"):(summary.buildConfig || "unknown")),
 			runStat("Validation status",HINTS.ciStatus,summary.pass_status || "unknown"),
 			runStat("Allowed bad pixels",HINTS.allowedBadPixels,percent(compare.allowedErrorPixelRatio) + " of an image"),
 			runStat("Scenes",HINTS.scenes,String(summary.num_of_tests || (summary.results || []).length)),
-			runStat("SSIM threshold",HINTS.ssimMetric,String(compare.ssimErrorThreshold ?? "not configured")),
-			runStat("Low discrepancy sequence cache hash",HINTS.ldsHash,cache.hash || "not available",{ wide: true, valueClass: "hash-value" }),
-			runStat("LDS cache",HINTS.ldsStatus,ldsStatusText(cache),{ wide: true })
-		);
+			runStat("SSIM threshold",HINTS.ssimMetric,String(compare.ssimErrorThreshold ?? "not configured"))
+		];
+		if (compareReport) {
+			stats.push(runStat("Candidate build",HINTS.buildConfig,(comparison.candidate && comparison.candidate.buildConfig) || "unknown"));
+			stats.push(runStat("Baseline build",HINTS.buildConfig,(comparison.baseline && comparison.baseline.buildConfig) || "unknown"));
+		} else {
+			stats.push(runStat("Low discrepancy sequence cache hash",HINTS.ldsHash,cache.hash || "not available",{ wide: true, valueClass: "hash-value" }));
+			stats.push(runStat("LDS cache",HINTS.ldsStatus,ldsStatusText(cache),{ wide: true }));
+		}
+		const grid = el("div",{ className: "stat-grid" },...stats);
 		nodes.runCard.appendChild(grid);
 	}
 
 	function moduleCommit() {
 		const modules = state.summary.build && state.summary.build.modules;
+		return modules && modules.nabla ? modules.nabla : null;
+	}
+
+	function moduleCommitFrom(input) {
+		const modules = input && input.build && input.build.modules;
 		return modules && modules.nabla ? modules.nabla : null;
 	}
 
@@ -526,6 +552,68 @@
 		if (commit.commitBody)
 			message += "\n\n" + commit.commitBody;
 		return message;
+	}
+
+	function commitStat(commit) {
+		if (!commit)
+			return el("p",{ className: "ci-note", text: "Commit metadata is not available." });
+		const hash = commit.commitHash || "";
+		const shortHash = commit.commitShortHash || hash || "unknown";
+		const hashUrl = hash ? "https://github.com/Devsh-Graphics-Programming/Nabla/commit/" + hash : "";
+		const hashValue = hashUrl ? el("a",{ href: hashUrl, text: shortHash }) : shortHash;
+		return el("div",{ className: "stat-grid compare-input-commit" },
+			el("div",{ className: "stat" },hintLabel("Hash",HINTS.commitHash),el("strong",{ className: "commit-hash" },hashValue)),
+			el("div",{ className: "stat" },hintLabel("Date",HINTS.commitDate),el("strong",{ text: commit.commitDate || "unknown" })),
+			el("div",{ className: "stat wide" },hintLabel("Message",HINTS.commitMessage),el("div",{ className: "message-box", text: commitMessage(commit) }))
+		);
+	}
+
+	function machineSummary(input) {
+		const machine = input && input.machine ? input.machine : {};
+		const cpu = machine.cpu || {};
+		const gpu = machine.gpu || {};
+		const ram = machine.ram || {};
+		return el("div",{ className: "machine-grid" },
+			runStat("Host",HINTS.machine,machine.hostname || "unknown"),
+			runStat("OS",HINTS.machine,machine.os || "unknown"),
+			runStat("CPU",HINTS.machine,cpu.description || "unknown"),
+			runStat("Threads",HINTS.machine,String(cpu.logicalThreads || "unknown")),
+			runStat("RAM",HINTS.machineMemory,formatBytes(ram.totalBytes)),
+			runStat("GPU",HINTS.machineGpu,gpu.name || "unknown"),
+			runStat("VRAM",HINTS.machineGpu,formatBytes(gpu.deviceLocalBytes)),
+			runStat("Driver",HINTS.machineGpu,String(gpu.driverVersion || "unknown"))
+		);
+	}
+
+	function compareInputCard(role, label, input) {
+		input = input || {};
+		const commit = moduleCommitFrom(input);
+		return el("section",{ className: "compare-input-card " + role },
+			el("div",{ className: "compare-input-head" },
+				el("span",{ className: "badge config", text: label }),
+				badge(input.passStatus || "not-checked")
+			),
+			el("h3",{ text: input.name || label }),
+			el("div",{ className: "stat-grid" },
+				runStat("Build",HINTS.buildConfig,input.buildConfig || "unknown"),
+				runStat("Failures",HINTS.ciStatus,String(input.failureCount || 0)),
+				runStat("Generated",HINTS.generated,input.datetime || "unknown"),
+				runStat("Source report",HINTS.reportBundle,input.reportDir || "unknown",{ wide: true, valueClass: "hash-value" })
+			),
+			commitStat(commit),
+			machineSummary(input)
+		);
+	}
+
+	function renderCompareInputsCard() {
+		clear(nodes.commitCard);
+		const comparison = state.summary.comparison || {};
+		nodes.commitCard.appendChild(el("h2",{ text: "Compared Reports" }));
+		nodes.commitCard.appendChild(el("p",{ className: "ci-note", text: "Each side keeps its own commit, machine and build metadata." }));
+		nodes.commitCard.appendChild(el("div",{ className: "compare-inputs-grid" },
+			compareInputCard("candidate","Candidate A",comparison.candidate),
+			compareInputCard("baseline","Baseline B",comparison.baseline)
+		));
 	}
 
 	function artifactCounts() {
@@ -564,9 +652,10 @@
 		const counts = artifactCounts();
 		const totalExr = counts.render + counts.reference + counts.difference;
 		const sceneCount = (state.summary.results || []).length;
+		const bundleText = isCompareReport() ? "Self-contained path tracer compare payload." : "Path tracer report payload.";
 		append(nodes.reportBundleCard,
 			el("h2",{ text: "Report Bundle" }),
-			el("p",{ className: "ci-note", text: "Path tracer report payload.", dataset: { hint: HINTS.reportBundle }, attrs: { tabindex: "0" } }),
+			el("p",{ className: "ci-note", text: bundleText, dataset: { hint: HINTS.reportBundle }, attrs: { tabindex: "0" } }),
 			el("div",{ className: "bundle-grid" },
 				bundleStat("Scenes",String(sceneCount),"Rendered scene and sensor sessions recorded in this payload."),
 				bundleStat("Outputs",String(counts.outputs),"Output records listed in summary.json."),
@@ -664,15 +753,42 @@
 		return "Path tracer output artifact.";
 	}
 
+	function isCompareReport() {
+		return state.summary && state.summary.comparison && state.summary.comparison.mode === "report-vs-report";
+	}
+
+	function isCompareSetReport() {
+		return state.summary && state.summary.comparison && state.summary.comparison.mode === "report-set";
+	}
+
+	function variantLabel(variant) {
+		if (!isCompareReport()) {
+			if (variant === "render")
+				return "Render";
+			if (variant === "reference")
+				return "Reference";
+			return "Difference";
+		}
+		if (variant === "render")
+			return "Candidate A";
+		if (variant === "reference")
+			return "Baseline B";
+		return "A/B diff";
+	}
+
+	function downloadLabel(variant) {
+		return "Download " + variantLabel(variant) + " EXR";
+	}
+
 	function fileStrip(image) {
 		const strip = el("div",{ className: "file-strip" });
 		let wrote = false;
-		for (const [key,label] of [["render","Render"],["reference","Reference"],["difference","Difference"]]) {
+		for (const key of ["render","reference","difference"]) {
 			if (!image[key])
 				continue;
 			const hint = key === "render" ? HINTS.renderArtifact : key === "reference" ? HINTS.referenceArtifact : HINTS.differenceArtifact;
 			wrote = true;
-			strip.appendChild(el("a",{ href: artifactUrl(image[key]), text: label, dataset: { hint }, attrs: { download: artifactFilename(image[key]) } }));
+			strip.appendChild(el("a",{ href: artifactUrl(image[key]), text: variantLabel(key), dataset: { hint }, attrs: { download: artifactFilename(image[key]) } }));
 		}
 		if (!wrote)
 			strip.appendChild(el("em",{ text: "none" }));
@@ -893,9 +1009,9 @@
 
 	function artifactLinks(image, sceneIndex) {
 		return el("div",{ className: "artifact-links files-panel" },
-			artifactAction("Download Render EXR",image.render,sceneIndex,image.identifier,"render"),
-			artifactAction("Download Reference EXR",image.reference,sceneIndex,image.identifier,"reference"),
-			artifactAction("Download Difference EXR",image.difference,sceneIndex,image.identifier,"difference")
+			artifactAction(downloadLabel("render"),image.render,sceneIndex,image.identifier,"render"),
+			artifactAction(downloadLabel("reference"),image.reference,sceneIndex,image.identifier,"reference"),
+			artifactAction(downloadLabel("difference"),image.difference,sceneIndex,image.identifier,"difference")
 		);
 	}
 
@@ -950,11 +1066,11 @@
 			for (const image of scene.array || []) {
 				const variants = [];
 				if (image.render)
-					variants.push({ identifier: "render", label: "Render", image: artifactUrl(image.render) });
+					variants.push({ identifier: "render", label: variantLabel("render"), image: artifactUrl(image.render) });
 				if (image.reference)
-					variants.push({ identifier: "reference", label: "Reference", image: artifactUrl(image.reference) });
+					variants.push({ identifier: "reference", label: variantLabel("reference"), image: artifactUrl(image.reference) });
 				if (image.difference)
-					variants.push({ identifier: "difference", label: "Difference", image: artifactUrl(image.difference), maxAbsError: image.max_abs_error });
+					variants.push({ identifier: "difference", label: variantLabel("difference"), image: artifactUrl(image.difference), maxAbsError: image.max_abs_error });
 				if (variants.length)
 					outputs.push({
 						identifier: image.identifier,
@@ -974,13 +1090,100 @@
 		return { scenes };
 	}
 
+	function reportChildPath(childPath) {
+		const root = String(state.reportPath || "").replace(/\/+$/,"");
+		const child = String(childPath || "").replace(/^\/+/,"");
+		return root ? root + "/" + child : child;
+	}
+
+	function compareSetRunCard() {
+		const comparison = state.summary.comparison || {};
+		const inputs = comparison.inputs || [];
+		const pairs = comparison.pairs || [];
+		clear(nodes.runCard);
+		nodes.runCard.appendChild(el("h2",{ text: "Path Tracer Report Set" }));
+		nodes.runCard.appendChild(el("p",{ className: "ci-note", text: "This payload groups pairwise comparisons of completed path tracer report bundles. It does not render scenes." }));
+		nodes.runCard.appendChild(el("div",{ className: "mini-summary" },
+			summaryChip("passed",String(pairs.filter((pair) => normalizeStatus(pair.status)==="passed").length) + " passed"),
+			summaryChip("failed",String(pairs.filter((pair) => {
+				const status = normalizeStatus(pair.status);
+				return status!=="passed" && status!=="warning";
+			}).length) + " failed"),
+			summaryChip("not-checked",String(pairs.filter((pair) => normalizeStatus(pair.status)==="warning").length) + " warnings")
+		));
+		nodes.runCard.appendChild(el("div",{ className: "stat-grid" },
+			runStat("Generated",HINTS.generated,state.summary.datetime || "unknown"),
+			runStat("Validation status",HINTS.ciStatus,state.summary.pass_status || "unknown"),
+			runStat("Inputs","Report bundles listed in the compare-set manifest.",String(inputs.length)),
+			runStat("Pairs","Pairwise comparison reports generated by this payload.",String(pairs.length)),
+			runStat("Baseline","Input id used as the common comparison baseline.",comparison.baseline || "unknown"),
+			runStat("Manifest","Source report-set manifest path.",comparison.manifest || "not recorded",{ wide: true })
+		));
+	}
+
+	function renderCompareSetOverview() {
+		const comparison = state.summary.comparison || {};
+		const inputs = comparison.inputs || [];
+		const pairs = comparison.pairs || [];
+		clear(nodes.overviewCard);
+		nodes.overviewCard.appendChild(el("h2",{ text: "Report Set" }));
+
+		const inputGrid = el("div",{ className: "bundle-grid" });
+		for (const input of inputs) {
+			inputGrid.appendChild(bundleStat(input.isBaseline ? input.id + " (baseline)" : input.id,input.name || input.id,input.reportDir || ""));
+		}
+		nodes.overviewCard.appendChild(el("div",{ className: "compare-set-panel" },
+			el("h3",{ text: "Inputs" }),
+			inputGrid
+		));
+
+		const pairGrid = el("div",{ className: "bundle-grid" });
+		for (const pair of pairs) {
+			const pairPath = pair.reportDir || "";
+			pairGrid.appendChild(el("div",{ className: "bundle-stat" },
+				el("span",{ text: pair.name || pair.id || "pair" }),
+				badge(pair.status || "not-checked"),
+				el("small",{ text: String(pair.failureCount || 0) + " failures, " + String(pair.warningCount || 0) + " warnings" }),
+				el("a",{ href: "#/" + encodeURI(reportChildPath(pairPath)), text: "Open pair report" })
+			));
+		}
+		nodes.overviewCard.appendChild(el("div",{ className: "compare-set-panel" },
+			el("h3",{ text: "Pairs" }),
+			pairGrid
+		));
+	}
+
 	function render() {
 		nodes.loadError.hidden = true;
 		renderHeaderStatus();
 		renderPipelineNotice();
+		if (isCompareSetReport()) {
+			nodes.top.classList.add("is-single");
+			nodes.top.classList.remove("is-compare");
+			nodes.commitCard.hidden = true;
+			nodes.machineCard.hidden = true;
+			nodes.reportBundleCard.hidden = true;
+			nodes.viewerCard.hidden = true;
+			compareSetRunCard();
+			renderSummaryCard();
+			renderCompareSetOverview();
+			clear(nodes.sceneDetails);
+			viewer.setManifest({ scenes: [] });
+			return;
+		}
+		nodes.top.classList.remove("is-single");
+		nodes.top.classList.toggle("is-compare",isCompareReport());
+		nodes.commitCard.hidden = false;
+		nodes.machineCard.hidden = isCompareReport();
+		nodes.reportBundleCard.hidden = false;
+		nodes.viewerCard.hidden = false;
 		renderRunCard();
-		renderCommitCard();
-		renderMachineCard();
+		if (isCompareReport())
+			renderCompareInputsCard();
+		else {
+			renderCommitCard();
+			renderMachineCard();
+		}
 		renderReportBundle();
 		renderSummaryCard();
 		renderOverview();
@@ -993,9 +1196,16 @@
 		state.dataBaseUrl = null;
 		nodes.status.replaceChildren(badge("not-checked"));
 		nodes.pipelineNotice.hidden = true;
+		nodes.top.classList.remove("is-single");
+		nodes.top.classList.remove("is-compare");
+		nodes.commitCard.hidden = false;
+		nodes.machineCard.hidden = false;
+		nodes.reportBundleCard.hidden = false;
+		nodes.viewerCard.hidden = false;
 		clear(nodes.pipelineNotice);
 		clear(nodes.runCard);
 		clear(nodes.commitCard);
+		clear(nodes.machineCard);
 		clear(nodes.reportBundleCard);
 		clear(nodes.summaryCard);
 		clear(nodes.overviewCard);
