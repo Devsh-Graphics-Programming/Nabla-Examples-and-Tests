@@ -91,6 +91,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 		m_logger->log("Disregard the error above, its expected.",system::ILogger::ELL_INFO)
 
 
+				using spectral_semantics_e = CTrueIR::ISpectralVariable::ESemantics;
 				using spectral_var_t = CFrontendIR::CSpectralVariable;
 				// simple white furnace testing materials
 				{
@@ -215,7 +216,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// we multiply the unit emitter by the value we actually want
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							params.knots.params[0].scale = 3.f;
 							params.knots.params[1].scale = 7.f;
 							params.knots.params[2].scale = 15.f;
@@ -253,7 +254,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// we multiply the unit emitter by the emission color value we actually want
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							params.knots.params[0].scale = 60.f;
 							params.knots.params[1].scale = 90.f;
 							params.knots.params[2].scale = 45.f;
@@ -280,7 +281,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// we multiply the unit emitter by the value we actually want
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							for (auto c=0; c<3; c++)
 							{
 								params.knots.params[c].scale = 4.9f;
@@ -320,7 +321,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// we multiply the unit emitter by the value we actually want
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							for (auto c=0; c<3; c++)
 							{
 								params.knots.params[c].scale = 900.f; // super bright cause its probably small
@@ -458,7 +459,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							params.knots.params[0].scale = 0.9f;
 							params.knots.params[1].scale = 0.6f;
 							params.knots.params[2].scale = 0.01f;
@@ -563,7 +564,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* beer = forestPool.deref(beerH);
 						{
 							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
 							params.knots.params[0].scale = 0.3f;
 							params.knots.params[1].scale = 0.9f;
 							params.knots.params[2].scale = 0.7f;
