@@ -45,6 +45,8 @@ def verify_payload(report_dir: Path) -> dict:
     for summary_path in report_dir.rglob("summary.json"):
         payload = load_json(summary_path)
         base = summary_path.parent
+        for relative in ("index.html", "css/report.css", "js/report.js"):
+            require((base / relative).is_file(), f"Missing report UI file referenced by {summary_path}: {relative}")
         for scene in payload.get("results", []):
             for image in scene.get("array", []):
                 for key in ("render", "reference", "difference"):
@@ -52,6 +54,16 @@ def verify_payload(report_dir: Path) -> dict:
                     if artifact:
                         require((base / artifact).is_file(), f"Missing {key} artifact referenced by {summary_path}: {artifact}")
     return summary
+
+
+def copy_report_template(template_dir: Path, report_dir: Path) -> None:
+    require(template_dir.is_dir(), f"Report template does not exist: {template_dir}")
+    for item in template_dir.iterdir():
+        destination = report_dir / item.name
+        if item.is_dir():
+            shutil.copytree(item, destination, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, destination)
 
 
 def verify_no_host_paths(report_dir: Path, project_root: Path) -> None:
@@ -81,6 +93,7 @@ def main() -> int:
     exe_path = resolve_under(workdir, args.exe)
     output_dir = resolve_under(workdir, args.output_dir)
     scene_path = resolve_under(workdir, args.scene)
+    report_template = root / "report"
 
     require(workdir.is_dir(), f"Workdir does not exist: {workdir}")
     require(exe_path.is_file(), f"Executable does not exist: {exe_path}")
@@ -138,6 +151,9 @@ def main() -> int:
     ], workdir)
 
     set_dir = output_dir / "set"
+    copy_report_template(report_template, set_dir)
+    for pair_summary in (set_dir / "pairs").glob("*/summary.json"):
+        copy_report_template(report_template, pair_summary.parent)
     summary = verify_payload(set_dir)
     require(summary.get("pass_status") == "passed", f"Compare set did not pass: {summary.get('pass_status')}")
     pairs = summary.get("comparison", {}).get("pairs", [])
