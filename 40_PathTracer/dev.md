@@ -41,6 +41,8 @@ Open any payload by changing only the fragment:
 http://127.0.0.1:8040/report/#/bin/out/ci_public
 http://127.0.0.1:8040/report/#/bin/out/ci_private
 http://127.0.0.1:8040/report/#/bin/out/my_test_run
+http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set
+http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set/pairs/amd_vs_nvidia
 ```
 
 `server.py` is config-agnostic. It serves the whole example directory and does not scan build configurations. Editing `report/index.html`, `report/css/report.css` or `report/js/*.js` affects the live report after a browser refresh without rebuilding or regenerating runtime output.
@@ -93,6 +95,17 @@ For fast UI and summary logic iteration, use a small temporary report directory 
 ```
 
 Keep smoke payloads out of source control.
+
+When report UI code changes, validate both the normal render report and report
+set compare routes locally before publishing:
+
+```text
+http://127.0.0.1:8040/report/#/bin/out/<render-payload>
+http://127.0.0.1:8040/report/#/bin/out/<set-payload>
+http://127.0.0.1:8040/report/#/bin/out/<set-payload>/pairs/<candidate>_vs_<baseline>
+```
+
+The compare payload must be relocatable just like the normal render report.
 
 ## S3 Publish
 
