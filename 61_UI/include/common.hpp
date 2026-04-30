@@ -4,6 +4,9 @@
 
 #include "nbl/examples/examples.hpp"
 
+// extensions
+#include "nbl/ext/Frustum/CDrawFrustum.h"
+
 // the example's headers
 #include "transform.hpp"
 

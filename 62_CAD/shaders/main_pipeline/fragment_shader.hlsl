@@ -82,15 +82,18 @@ float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, co
 template<>
 float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
+    float32_t4 color;
     uint32_t styleIdx = loadMainObject(currentMainObjectIdx).styleIdx;
     if (!colorFromTexture)
     {
-        float32_t4 col = loadLineStyle(styleIdx).color;
-        col.w *= localAlpha;
-        return float4(col);
+        color = loadLineStyle(styleIdx).color;
+        color.w *= localAlpha;
     }
     else
-        return float4(localTextureColor, localAlpha);
+        color = float4(localTextureColor, localAlpha);
+        
+    color.rgb *= color.a;
+    return color;
 }
 template<>
 float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
@@ -141,6 +144,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
+    color.rgb *= color.a;
     return color;
 }
 
@@ -211,12 +215,13 @@ float4 fragMain(PSInput input) : SV_TARGET
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
         {
             float distance = nbl::hlsl::numeric_limits<float>::max;
+            const float thickness = input.getLineThickness();
+            
             if (objType == ObjectType::LINE)
             {
                 const float2 start = input.getLineStart();
                 const float2 end = input.getLineEnd();
                 const uint32_t styleIdx = mainObj.styleIdx;
-                const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -241,7 +246,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
 
                 const uint32_t styleIdx = mainObj.styleIdx;
-                const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -261,14 +265,19 @@ float4 fragMain(PSInput input) : SV_TARGET
                 const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
                 distance = miterSDF(
                     P,
-                    input.getLineThickness(),
+                    thickness,
                     input.getPolylineConnectorTrapezoidStart(),
                     input.getPolylineConnectorTrapezoidEnd(),
                     input.getPolylineConnectorTrapezoidLongBase(),
                     input.getPolylineConnectorTrapezoidShortBase());
 
             }
-            localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
+
+            const bool lineAA = thickness >= globals.minLineThicknessToEnableAA;
+            if (lineAA)
+                localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
+            else
+                localAlpha = (distance < 0.0f) ? 1.0f : 0.0f;
         }
         else if (objType == ObjectType::CURVE_BOX) 
         {
@@ -695,7 +704,6 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
         }
 
-        
         if (localAlpha <= 0)
             discard;
         
