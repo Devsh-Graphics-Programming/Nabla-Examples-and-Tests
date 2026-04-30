@@ -60,6 +60,7 @@ struct SceneBase
         intersection.objectID = objectID;
         intersection.position = intersectP;
 
+        // TODO: could have also been *sign(NdotV) before abs(NdotV), benchmark what's faster
         intersection.geometricNormal = ieee754::flipSignIfRHSNegative<vector3_type>(N, hlsl::promote<vector3_type>(-hlsl::dot(N, rayIntersected.direction)));
         ray_dir_info_t V;
         V.setDirection(-rayIntersected.direction);
