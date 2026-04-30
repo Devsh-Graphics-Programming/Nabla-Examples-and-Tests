@@ -71,6 +71,18 @@ bin/out/<config>/renders
 bin/out/<config>
 ```
 
+## Runtime Package
+
+The example exposes a runtime-only CMake install component:
+
+```bat
+cmake --install <build-dir> --config Release --prefix <install-dir> --component EX40Runtime
+```
+
+The installed package contains the path tracer executable, generated runtime config, app resources, shader outputs, Nabla and DXC runtime DLLs and the static report viewer. It also writes `EX40Runtime.json`, which records the portable paths used by CI and other launchers.
+
+The component intentionally does not install scene media, private assets or reference EXRs. Those inputs should be mounted or materialized separately by the caller.
+
 ## Scene Lists
 
 `--scene-list` reads one scene command per line. Empty lines and lines starting with `;` are ignored. Each line may contain a scene path, an optional ZIP entry and per-scene comparison overrides:

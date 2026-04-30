@@ -24,6 +24,18 @@ The generated runtime config files are under:
 40_PathTracer/bin/config/pt.relwithdebinfo.json
 ```
 
+## Runtime Package
+
+Install the CI/runtime-only package from the configured build tree:
+
+```bat
+cmake --install <build-dir> --config Release --prefix <install-dir> --component EX40Runtime
+```
+
+The package is the expected Jenkins input shape. It contains the executable, runtime DLLs, generated shader/config resources, report viewer and `EX40Runtime.json`. It does not contain scene media or reference data.
+
+For a local handoff smoke, archive the install directory after the install command and unpack it elsewhere. The executable should still find its packaged runtime files, and the report viewer should remain usable through `report\server.py`.
+
 ## Local Report Viewer
 
 The C++ runtime writes only `summary.json` and EXR artifacts. The static viewer is committed under `report/` and reads a selected report payload from the browser URL fragment.
@@ -106,6 +118,19 @@ http://127.0.0.1:8040/report/#/bin/out/<set-payload>/pairs/<candidate>_vs_<basel
 ```
 
 The compare payload must be relocatable just like the normal render report.
+
+The fastest end-to-end compare smoke renders the dummy scene three times with custom labels and verifies the generated set and pair payloads:
+
+```bat
+python report\compareSetSmoke.py --exe bin\40_pathtracer.exe --output-dir bin\out\compare_vendor_smoke
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set
+http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set/pairs/amd_vs_nvidia
+```
 
 ## S3 Publish
 
