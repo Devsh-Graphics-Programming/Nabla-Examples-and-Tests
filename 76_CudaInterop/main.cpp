@@ -40,8 +40,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
     return true;
 }
 
-#define ASSERT_SUCCESS(expr) { auto re = check_cuda_err((expr), cu, m_logger, __FILE__, __LINE__); assert(re); }
-#define ASSERT_SUCCESS_NV(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
+#define ASSERT_CUDA_SUCCESS_NV(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
 
 
 using namespace nbl::core;
@@ -156,7 +155,7 @@ public:
             std::string log;
             auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()), 
                 "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
-            ASSERT_SUCCESS_NV(res, log);
+            ASSERT_CUDA_SUCCESS_NV(res, log);
 
             ptx = std::move(ptx_);
         }
@@ -167,9 +166,9 @@ public:
         CUfunction kernel;
         CUstream   stream;
 
-        ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
-        ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
-        ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), cudaHandler);
 
         // CPU memory which we fill with random numbers between [-1,1] that will be copied to corresponding cudaMemory
         std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpuBufs;
@@ -279,17 +278,17 @@ public:
             };
             auto numElements = &NumElements;
             void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements };
-            ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream));
-            ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream));
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), cudaHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), cudaHandler);
     
             auto semaphore = cudaSemaphore->getInternalObject();
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
-            ASSERT_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream)); // Wait for release op from vulkan
-            ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr));
+            ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), cudaHandler); // Wait for release op from vulkan
+            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), cudaHandler);
             const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
-            ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
+            ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), cudaHandler); // Signal the imported semaphore
         }
-        ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
         
         // After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
         {
@@ -411,11 +410,11 @@ public:
             ctx->logger->log("TestSharedResources Complete", ILogger::ELL_INFO);
         };
 
-        ASSERT_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx));
-        ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
+        ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
 
-        ASSERT_SUCCESS(cu.pcuModuleUnload(module));
-        ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleUnload(module), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamDestroy_v2(stream), cudaHandler);
     }
 
     void testDestruction()
