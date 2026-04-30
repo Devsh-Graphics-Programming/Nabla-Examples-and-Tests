@@ -29,10 +29,11 @@ The generated runtime config files are under:
 Install the CI/runtime-only package from the configured build tree:
 
 ```bat
-cmake --install <build-dir> --config Release --prefix <install-dir> --component EX40Runtime
+cmake --install <build-dir> --config Release --prefix <install-dir> --component Runtimes
+cmake --install <build-dir>\examples_tests --config Release --prefix <install-dir> --component EX40Runtime
 ```
 
-The package is the expected Jenkins input shape. It contains the executable, runtime DLLs, generated shader/config resources, report viewer and `EX40Runtime.json`. It does not contain scene media or reference data.
+The package is the expected Jenkins input shape after both install commands. It contains the executable, runtime DLLs, generated shader/config resources, report viewer and `EX40Runtime.json`. It does not contain scene media or reference data.
 
 For a local handoff smoke, archive the install directory after the install command and unpack it elsewhere. The executable should still find its packaged runtime files, and the report viewer should remain usable through `report\server.py`.
 
@@ -130,6 +131,13 @@ Then open:
 ```text
 http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set
 http://127.0.0.1:8040/report/#/bin/out/compare_vendor_smoke/set/pairs/amd_vs_nvidia
+```
+
+From an installed package, run the same smoke from the installed executable
+directory and pass a scene path explicitly:
+
+```bat
+python report\compareSetSmoke.py --scene <scene.xml> --output-dir out\compare_vendor_smoke
 ```
 
 ## S3 Publish

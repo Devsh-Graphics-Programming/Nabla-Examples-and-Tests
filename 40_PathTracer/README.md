@@ -73,13 +73,18 @@ bin/out/<config>
 
 ## Runtime Package
 
-The example exposes a runtime-only CMake install component:
+The example exposes a runtime-only CMake install component. Install it into the
+same prefix as the shared runtime component:
 
 ```bat
-cmake --install <build-dir> --config Release --prefix <install-dir> --component EX40Runtime
+cmake --install <build-dir> --config Release --prefix <install-dir> --component Runtimes
+cmake --install <build-dir>\examples_tests --config Release --prefix <install-dir> --component EX40Runtime
 ```
 
-The installed package contains the path tracer executable, generated runtime config, app resources, shader outputs, Nabla and DXC runtime DLLs and the static report viewer. It also writes `EX40Runtime.json`, which records the portable paths used by CI and other launchers.
+After both install commands, the package contains the path tracer executable,
+generated runtime config, app resources, shader outputs, Nabla and DXC runtime
+DLLs and the static report viewer. It also writes `EX40Runtime.json`, which
+records the portable paths used by CI and other launchers.
 
 The component intentionally does not install scene media, private assets or reference EXRs. Those inputs should be mounted or materialized separately by the caller.
 
@@ -175,5 +180,12 @@ The compare payload is self-contained and relocatable. Pair reports copy the com
 Run the local smoke from the example directory:
 
 ```bat
-python report\compareSetSmoke.py --exe 40_pathtracer.exe --output-dir out\compare_vendor_smoke_local
+python report\compareSetSmoke.py --exe bin\40_pathtracer.exe --output-dir bin\out\compare_vendor_smoke_local
+```
+
+Inside an installed package, run it from the installed executable directory and
+provide a scene path:
+
+```bat
+python report\compareSetSmoke.py --scene <scene.xml> --output-dir out\compare_vendor_smoke_local
 ```

@@ -14,6 +14,13 @@ def project_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def default_workdir(root: Path) -> Path:
+    for exe_name in ("40_pathtracer.exe", "40_pathtracer_rwdi.exe"):
+        if (root / exe_name).is_file():
+            return root
+    return root / "bin"
+
+
 def resolve_under(base: Path, value: str) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -75,11 +82,11 @@ def verify_no_host_paths(report_dir: Path, project_root: Path) -> None:
 
 def main() -> int:
     root = project_dir()
-    default_workdir = root / "bin"
+    default_workdir_path = default_workdir(root)
     default_stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     parser = argparse.ArgumentParser(description="Generate a local EX40 compare-set smoke with three labeled reports.")
-    parser.add_argument("--workdir", default=str(default_workdir), help="Directory used as the executable working directory.")
+    parser.add_argument("--workdir", default=str(default_workdir_path), help="Directory used as the executable working directory.")
     parser.add_argument("--exe", default="40_pathtracer.exe", help="Path to the EX40 executable. Relative paths resolve against --workdir.")
     parser.add_argument("--scene", default="../../media/mitsuba/shapetest.xml", help="Scene path passed to EX40. Relative paths resolve in --workdir.")
     parser.add_argument("--output-dir", default=f"out/compare_vendor_smoke_{default_stamp}", help="Output directory. Relative paths resolve against --workdir.")
