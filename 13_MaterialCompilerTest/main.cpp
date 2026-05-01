@@ -5,9 +5,6 @@
 
 #include "nbl/examples/examples.hpp"
 
-// TODO: get this in the right Nabla header
-#include "nbl/asset/material_compiler3/CFrontendIR.h"
-
 
 using namespace nbl;
 using namespace nbl::core;
