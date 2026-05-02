@@ -58,13 +58,18 @@ set(JSON "
 [
   {
     \"INPUT\": \"app_resources/shaders/sobol_bench.comp.hlsl\",
-    \"KEY\": \"sobol_bench_row_major\",
+    \"KEY\": \"sobol_bench_quantized\",
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DMETHOD=0\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/sobol_bench.comp.hlsl\",
-    \"KEY\": \"sobol_bench_col_major\",
+    \"KEY\": \"sobol_bench_row_major\",
     \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DMETHOD=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/sobol_bench.comp.hlsl\",
+    \"KEY\": \"sobol_bench_col_major\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}, \"-DMETHOD=2\"]
   }
 ]
 ")
