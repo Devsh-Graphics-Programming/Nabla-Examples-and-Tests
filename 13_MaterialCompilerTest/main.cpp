@@ -89,7 +89,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 
 				using spectral_semantics_e = CTrueIR::ISpectralVariable::ESemantics;
-				using spectral_var_t = CFrontendIR::CSpectralVariable;
+				using spectral_var_t = CFrontendIR::CSpectralVariableExpr;
 				// simple white furnace testing materials
 				{
 					// transmission
@@ -103,15 +103,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 					// creating a node and changing our mind
 					{
+						const auto handle = forestPool.emplace<spectral_var_t>(1);
 
-						spectral_var_t::SCreationParams<1> params = {};
-						params.knots.params[0].scale = 4.5f;
-						params.knots.params[0].view = monochromeImageView;
-
-						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"initial reference count");
-
-						const auto handle = forestPool.emplace<spectral_var_t>(std::move(params));
-						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"transferred reference count");
+						forestPool.deref(handle)->setParameter(0,{.scale=4.5f,.view=monochromeImageView});
+						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"increased reference count");
 
 						// cleaning it up right away should run the destructor immediately and drop the image view refcount
 						forestPool._delete(handle);
@@ -174,9 +169,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* mul = forestPool.deref(mulH);
 						// regular BRDF will normalize to 100% over a hemisphere, if we allow a BTDF term we must split it half/half
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 0.5f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=0.5f});
+							mul->rhs = varH;
 						}
 
 						// test expression cycle detection
@@ -212,12 +207,15 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							params.knots.params[0].scale = 3.f;
-							params.knots.params[1].scale = 7.f;
-							params.knots.params[2].scale = 15.f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=3.f});
+								var->setParameter(1,{.scale=7.f});
+								var->setParameter(2,{.scale=15.f});
+							}
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 						layer->brdfBottom = mulH;
@@ -250,12 +248,15 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the emission color value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							params.knots.params[0].scale = 60.f;
-							params.knots.params[1].scale = 90.f;
-							params.knots.params[2].scale = 45.f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=60.f});
+								var->setParameter(1,{.scale=90.f});
+								var->setParameter(2,{.scale=45.f});
+							}
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 					}
@@ -277,18 +278,24 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							for (auto c=0; c<3; c++)
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
 							{
-								params.knots.params[c].scale = 4.9f;
-								params.knots.params[c].viewChannel = c;
-								params.knots.params[c].view = rgbImageView;
-								params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								for (uint8_t c=0; c<3; c++)
+								{
+									CTrueIR::SParameter param = {
+										.scale = 4.9f,
+										.viewChannel = c,
+										.view = rgbImageView
+									};
+									param.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+									var->setParameter(c,std::move(param));
+								}
 							}
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							mul->rhs = varH;
 						}
 						layer->brdfBottom = mulH;
 					}
@@ -317,18 +324,24 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							for (auto c=0; c<3; c++)
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
 							{
-								params.knots.params[c].scale = 900.f; // super bright cause its probably small
-								params.knots.params[c].viewChannel = c;
-								params.knots.params[c].view = rgbImageView;
-								params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								for (uint8_t c=0; c<3; c++)
+								{
+									CTrueIR::SParameter param = {
+										.scale = 900.f, // super bright cause its probably small
+										.viewChannel = c,
+										.view = rgbImageView
+									};
+									param.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+									var->setParameter(c,std::move(param));
+								}
 							}
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 					}
@@ -431,12 +444,12 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				
 					{
 						auto* imagEta = forestPool.deref(fresnel->orientedImagEta);
-						imagEta->getParam(0)->scale = std::numeric_limits<float>::min();
-						imagEta->getParam(1)->scale = -std::numeric_limits<float>::max();
-						imagEta->getParam(2)->scale = 0.5f;
+						imagEta->setParameter(0,{.scale=std::numeric_limits<float>::min()});
+						imagEta->setParameter(1,{.scale=-std::numeric_limits<float>::max()});
+						imagEta->setParameter(2,{.scale=0.5f});
 						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Imaginary Fresnel disallowed");
 						for (uint8_t i=0; i<3; i++)
-							imagEta->getParam(i)->scale = 0.f;
+							imagEta->setParameter(i,{.scale=0.f});
 					}
 
 					ASSERT_VALUE(checkValidAndRecord(layerH),true,"ThinDielectric");
@@ -455,22 +468,24 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							mul->lhs = orenNayarH;
 						}
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							params.knots.params[0].scale = 0.9f;
-							params.knots.params[1].scale = 0.6f;
-							params.knots.params[2].scale = 0.01f;
-							const auto albedoH = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
-							forestPool.deref(albedoH)->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Albedo");
+							const auto albedoH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(albedoH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=0.9f});
+								var->setParameter(1,{.scale=0.6f});
+								var->setParameter(2,{.scale=0.01f});
+								var->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Albedo");
+							}
 							mul->rhs = albedoH;
 						}
 					}
 					const auto fresnelH = forestPool.emplace<CFrontendIR::CFresnel>();
 					{
 						auto* fresnel = forestPool.deref(fresnelH);
-						spectral_var_t::SCreationParams<1> params = {};
-						params.knots.params[0].scale = 1.5f;
-						fresnel->orientedRealEta = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
+						const auto varH = forestPool.emplace<spectral_var_t>(1);
+						forestPool.deref(varH)->setParameter(0,{.scale=1.5f});
+						fresnel->orientedRealEta = varH;
 					}
 					// the delta layering should optimize out nicely due to the sampling property
 					const auto transH = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),fresnelH);
@@ -515,9 +530,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* mul = forestPool.deref(roughDiffTransH);
 						mul->lhs = roughDiffuseH;
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 0.5f;
-							mul->rhs = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=0.5f});
+							mul->rhs = varH;
 						}
 					}
 
@@ -560,17 +575,20 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto beerH = forestPool.emplace<CFrontendIR::CBeer>();
 						auto* beer = forestPool.deref(beerH);
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_semantics_e::Fixed3_SRGB;
-							params.knots.params[0].scale = 0.3f;
-							params.knots.params[1].scale = 0.9f;
-							params.knots.params[2].scale = 0.7f;
-							beer->perpTransmittance = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=0.3f});
+								var->setParameter(1,{.scale=0.9f});
+								var->setParameter(2,{.scale=0.7f});
+							}
+							beer->perpTransmittance = varH;
 						}
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 1.f;
-							beer->thickness = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=1.f});
+							beer->thickness = varH;
 						}
 
 						topLayer->brdfTop = dielectricH;
