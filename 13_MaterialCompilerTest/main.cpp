@@ -239,9 +239,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.scale = 0.01f;
 							emitter->profile.viewChannel = 0;
 							emitter->profile.view = monochromeImageView;
-							// these are defaults but going to set them
-							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
-							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+							// we don't handle symmetries yet, so the octahedral mapping is always corner sampled
+							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
 							// TODO: set transform after merging the OBB PR
 							//emitter->profileTransform = ;
 							mul->lhs = emitterH;
@@ -319,6 +320,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							// lets try some other samplers
 							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
 							// try with default transform
 							mul->lhs = emitterH;
 						}
