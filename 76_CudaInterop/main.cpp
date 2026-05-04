@@ -16,19 +16,6 @@ The start of the main function starts like in most other example. We ask the
 user for the desired renderer and start it up.
 */
 
-bool check_cuda_err(cudaError_enum err, auto& cu, auto& logger, auto file, auto line)
-{
-    if (auto re = err; CUDA_SUCCESS != re) 
-    {
-        const char* name = 0, * str = 0;
-        cu.pcuGetErrorName(re, &name);
-        cu.pcuGetErrorString(re, &str);
-        logger->log("%s:%d %s:\n\t%s\n", system::ILogger::ELL_ERROR, file, line, name, str);
-        return false;
-    }
-    return true;
-}
-
 bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto line, std::string const& log)
 {
     if (auto re = err; NVRTC_SUCCESS != re) 
@@ -40,7 +27,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
     return true;
 }
 
-#define ASSERT_CUDA_SUCCESS_NV(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
+#define ASSERT_NV_SUCCESS(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
 
 
 using namespace nbl::core;
@@ -155,7 +142,7 @@ public:
             std::string log;
             auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()), 
                 "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
-            ASSERT_CUDA_SUCCESS_NV(res, log);
+            ASSERT_NV_SUCCESS(res, log);
 
             ptx = std::move(ptx_);
         }
