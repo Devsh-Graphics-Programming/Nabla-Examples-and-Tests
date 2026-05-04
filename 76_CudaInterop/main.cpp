@@ -480,49 +480,6 @@ public:
             m_logger->log("Test Destruction complete", ILogger::ELL_INFO);
         }
     
-        // {
-        //     constexpr size_t M = 32;
-        //     auto staging = createStaging(size * M);
-        //
-        //     auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
-        //     for (uint32_t i = 0; i < (M * size) / 4; ++i)
-        //         ptr[i] = rand();
-        //
-        //     std::vector<smart_refctd_ptr<IGPUCommandBuffer>> cmd(1 << 10);
-        //     commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1 << 10, cmd.data());
-        //
-        //     for (size_t i = 0; i < 1 << 10; ++i)
-        //     {
-        //         IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
-        //             .size = size * M,
-        //             .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
-        //             .alignmentLog2 = 10,
-        //         };
-        //     RE:
-        //         auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
-        //
-        //         if (!memory)
-        //         {
-        //             m_device->waitIdle();
-        //             for (size_t j = 0; j < i; ++j)
-        //                 cmd[j] = 0;
-        //             goto END;
-        //         }
-        //         assert(memory);
-        //         auto tmpBuf = createExternalBuffer(memory.get());
-        //
-        //         cmd[i]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-        //         IGPUCommandBuffer::SBufferCopy region = { .size = size * M };
-        //         assert(cmd[i]->copyBuffer(staging.get(), tmpBuf.get(), 1, &region));
-        //         cmd[i]->end();
-        //         IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[i].get() };
-        //         IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1} };
-        //         assert(IQueue::RESULT::SUCCESS == queue->submit({ &submitInfo,&submitInfo + 1 }));
-        //     }
-        // END:
-        //     m_device->waitIdle();
-        // }
-    
     }
 
     void testLargeAllocations()
