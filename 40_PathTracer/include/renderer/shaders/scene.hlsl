@@ -12,13 +12,19 @@ struct SSceneUniforms
 {
 	struct SInit
 	{
+		NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxPathDepthLog2 = MAX_PATH_DEPTH_LOG2;
+
 		//
-//		bda_t<QuantizedSequence> pQuantizedSequence;
+		uint64_t pSampleSequence;
+		uint16_t sequenceSamplesLog2 : 5;  // TODO: make this compile time constant - Spec Constant?
+		uint16_t lastSequencePathDepth : 11; // TODO: what do we even need this for ? Also coult be a spec constant
+		static_assert(MaxPathDepthLog2<=11);
+		uint16_t unused1[3];
+		//hlsl::float16_t envmapScale;
+		// TODO: later when we can save the envmap values to a buffer
 		// because the PDF is rescaled to log2(luma)/log2(Max)*255
 		// and you get it out as `exp2(texValue)*factor`
-		hlsl::float32_t envmapPDFNormalizationFactor;
-		hlsl::float16_t envmapScale;
-		uint16_t unused;
+		//hlsl::float32_t envmapPDFNormalizationFactor;
 	} init;
 };
 

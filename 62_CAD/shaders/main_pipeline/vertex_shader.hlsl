@@ -223,7 +223,8 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
             const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
             const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
-            const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
+            const float sdfLineThickness = max(screenSpaceLineWidth, globals.minLineWidth) / 2.0f;
+
             outV.setLineThickness(sdfLineThickness);
 
             if (objType == ObjectType::LINE)

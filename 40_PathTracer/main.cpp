@@ -97,7 +97,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
-			// TODO: need union/superset
+			// TODO: need union/superset so Renderer can slap it in
+			retval.rayTracingInvocationReorder = true;
 			retval.rayTracingPositionFetch = true;
 			retval.shaderStorageImageReadWithoutFormat = true;
 			return retval;
@@ -187,8 +188,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.uploadQueue = getTransferUpQueue(),
 					.utilities = smart_refctd_ptr(m_utils)
 				},
-				"TODO Sample sequence cache",
-				m_assetMgr.get()
+				m_assetMgr.get(),
+				(sharedOutputCWD/nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string()
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");
@@ -218,7 +219,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				m_api->startCapture();
 				auto scene_daily_pt = m_renderer->createScene({
 						.load = m_sceneLoader->load({
-						.relPath = sharedInputCWD/"mitsuba/daily_pt.xml",
+						.relPath = sharedInputCWD/"mitsuba/ditt/render_2160p.xml",
 						.workingDirectory = localOutputCWD 
 					}),
 					.converter = nullptr
@@ -232,6 +233,9 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				});
 		#endif
 				m_api->endCapture();
+
+				if (!scene_daily_pt)
+					return logFail("Could not create scene");
 
 				// quick test code
 				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
@@ -252,11 +256,11 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
 					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
 				}
-				sensors.erase(sensors.begin());
+//				sensors.erase(sensors.begin());
 				for (const auto& sensor : sensors)
 					m_sessionQueue.push(
 						scene_daily_pt->createSession({
-							{.mode=CSession::RenderMode::Debug},&sensor
+							{.mode=CSession::RenderMode::Beauty},&sensor
 						})
 					);
 			}
@@ -414,25 +418,35 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline void workLoopBody() override
 		{
 			CSession* session;
-			volatile bool skip = false; // skip using the debugger
-			for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 			{
-				skip = false;
-				if (m_sessionQueue.empty())
+				bool sameSession = true;
+				volatile bool skip = false; // skip using the debugger
+				for (session=m_resolver->getActiveSession(); !session || session->getProgress()>=1.f || skip;)
 				{
-					if (!m_args.headless)
-						handleInputs();
-					return;
-				}
-				session = m_sessionQueue.front().get();
-				// init
-				m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session](SIntendedSubmitInfo& info)->bool
+					skip = false;
+					if (m_sessionQueue.empty())
 					{
-						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+						if (!m_args.headless)
+							handleInputs();
+						return;
 					}
-				);
-				m_resolver->changeSession(std::move(m_sessionQueue.front()));
-				m_sessionQueue.pop();
+					session = m_sessionQueue.front().get();
+					// init
+					m_utils->autoSubmit<SIntendedSubmitInfo>({.queue=getGraphicsQueue()},[&session,this](SIntendedSubmitInfo& info)->bool
+						{
+							return session->init(info);
+						}
+					);
+					m_resolver->changeSession(std::move(m_sessionQueue.front()));
+					sameSession = false;
+					m_sessionQueue.pop();
+				}
+				// TODO: camera movement and UI update
+				if (sameSession)
+				{
+					// no update right now
+					session->update(session->getActiveResources().prevSensorState);
+				}
 			}
 
 			m_api->startCapture();

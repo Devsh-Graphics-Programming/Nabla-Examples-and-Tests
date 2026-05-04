@@ -215,12 +215,13 @@ float4 fragMain(PSInput input) : SV_TARGET
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
         {
             float distance = nbl::hlsl::numeric_limits<float>::max;
+            const float thickness = input.getLineThickness();
+            
             if (objType == ObjectType::LINE)
             {
                 const float2 start = input.getLineStart();
                 const float2 end = input.getLineEnd();
                 const uint32_t styleIdx = mainObj.styleIdx;
-                const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -245,7 +246,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
 
                 const uint32_t styleIdx = mainObj.styleIdx;
-                const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -265,14 +265,19 @@ float4 fragMain(PSInput input) : SV_TARGET
                 const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
                 distance = miterSDF(
                     P,
-                    input.getLineThickness(),
+                    thickness,
                     input.getPolylineConnectorTrapezoidStart(),
                     input.getPolylineConnectorTrapezoidEnd(),
                     input.getPolylineConnectorTrapezoidLongBase(),
                     input.getPolylineConnectorTrapezoidShortBase());
 
             }
-            localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
+
+            const bool lineAA = thickness >= globals.minLineThicknessToEnableAA;
+            if (lineAA)
+                localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
+            else
+                localAlpha = (distance < 0.0f) ? 1.0f : 0.0f;
         }
         else if (objType == ObjectType::CURVE_BOX) 
         {
