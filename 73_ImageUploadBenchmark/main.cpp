@@ -403,7 +403,7 @@ private:
 				auto rSnake = runBenchmarkCompute("Snake Compute (SysRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
 					m_destinationImage.get(), m_snakeStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, 128u, 4u,
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(128u, 4u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Snake Compute (SysRAM)", rSnake.wallGBps, rSnake.gpuGBps, rSnake.memcpyGBps });
 
@@ -411,7 +411,7 @@ private:
 				auto rMorton = runBenchmarkCompute("Morton Compute (SysRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
 					m_destinationImage.get(), m_mortonStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, 16u, 16u,
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(16u, 16u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Morton Compute (SysRAM)", rMorton.wallGBps, rMorton.gpuGBps, rMorton.memcpyGBps });
 
@@ -441,7 +441,7 @@ private:
 				auto rSnake = runBenchmarkCompute("Snake Compute (BAR/VRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
 					m_destinationImage.get(), m_snakeStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, 128u, 4u,
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(128u, 4u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Snake Compute (BAR/VRAM)", rSnake.wallGBps, rSnake.gpuGBps, rSnake.memcpyGBps });
 
@@ -449,7 +449,7 @@ private:
 				auto rMorton = runBenchmarkCompute("Morton Compute (BAR/VRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
 					m_destinationImage.get(), m_mortonStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, 16u, 16u,
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(16u, 16u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Morton Compute (BAR/VRAM)", rMorton.wallGBps, rMorton.gpuGBps, rMorton.memcpyGBps });
 
@@ -777,8 +777,9 @@ private:
 		IQueue* queue)
 	{
 		// Disabled after testing: this path needs CPU writes into host-visible
-		// OPTIMAL images, but the memory layout and preinitialized-image lifetime
-		// rules are too implementation-dependent to make this a clean benchmark.
+		// OPTIMAL images. The devices we tested on didn't allow creating OPTIMAL
+		// images over host visible memory, and the layout/preinitialized-image
+		// lifetime rules are too implementation-dependent for a clean benchmark.
 		return 0.0;
 	}
 
@@ -793,8 +794,7 @@ private:
 		IGPUDescriptorSet* ds,
 		uint32_t tileSize,
 		uint32_t tileSizeBytes,
-		uint32_t workgroupSizeX,
-		uint32_t workgroupSizeY,
+		hlsl::uint32_t2 workgroupSize,
 		uint32_t tilesPerFrame,
 		uint32_t framesInFlight,
 		uint32_t totalFrames,
@@ -872,8 +872,8 @@ private:
 		uint32_t imageWidth = destinationImage->getCreationParameters().extent.width;
 		uint32_t tilesPerRow = imageWidth / tileSize;
 		uint32_t tileRows = (tilesPerFrame + tilesPerRow - 1u) / tilesPerRow;
-		uint32_t dispatchX = (tilesPerRow * tileSize + workgroupSizeX - 1u) / workgroupSizeX;
-		uint32_t dispatchY = (tileRows * tileSize + workgroupSizeY - 1u) / workgroupSizeY;
+		uint32_t dispatchX = (tilesPerRow * tileSize + workgroupSize.x - 1u) / workgroupSize.x;
+		uint32_t dispatchY = (tileRows * tileSize + workgroupSize.y - 1u) / workgroupSize.y;
 		uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
 
 		std::vector<uint8_t> cpuSourceData(partitionSize);

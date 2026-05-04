@@ -19,6 +19,9 @@ static const uint32_t BLOCKS_PER_TILE = TILE_SIZE / BLOCK_SIZE;
 [shader("compute")]
 void SnakeStore(uint32_t3 ID : SV_DispatchThreadID)
 {
+    // The CPU packs each 128x128 tile linearly in row-major order. TILE_SIZE is
+    // a power of two, so >>, <<, and & replace division, multiplication, and
+    // modulo by TILE_SIZE/TILE_PIXELS.
     const uint32_t2 globalPos = ID.xy;
     const uint32_t2 tileCoord = globalPos >> TILE_SIZE_LOG2;
     const uint32_t2 localPos = globalPos & TILE_SIZE_MASK;
@@ -53,10 +56,13 @@ void SnakeLoad(uint32_t3 ID : SV_DispatchThreadID)
 
 [numthreads(16, 16, 1)]
 [shader("compute")]
-void MortonStore(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
+void MortonStore(uint32_t3 GroupThreadID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
+    // Each workgroup handles one 16x16 block inside a 128x128 tile. Reads stay
+    // contiguous in that block; writes use a 4-bit Morton decode locally. The
+    // tile/block dimensions are powers of two, so shifts/masks are exact here.
     const uint32_t2 globalBlock = GroupID.xy;
-    const uint32_t2 threadPos = ID.xy;
+    const uint32_t2 threadPos = GroupThreadID.xy;
     const uint32_t2 tileCoord = globalBlock >> BLOCKS_PER_TILE_LOG2;
     const uint32_t2 blockCoordInTile = globalBlock & (BLOCKS_PER_TILE - 1u);
     const uint32_t tileIdx = tileCoord.y * pc.tilesPerRow + tileCoord.x;
@@ -77,10 +83,10 @@ void MortonStore(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID
 
 [numthreads(16, 16, 1)]
 [shader("compute")]
-void MortonLoad(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
+void MortonLoad(uint32_t3 GroupThreadID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     const uint32_t2 globalBlock = GroupID.xy;
-    const uint32_t2 threadPos = ID.xy;
+    const uint32_t2 threadPos = GroupThreadID.xy;
     const uint32_t2 tileCoord = globalBlock >> BLOCKS_PER_TILE_LOG2;
     const uint32_t2 blockCoordInTile = globalBlock & (BLOCKS_PER_TILE - 1u);
     const uint32_t tileIdx = tileCoord.y * pc.tilesPerRow + tileCoord.x;
