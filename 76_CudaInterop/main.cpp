@@ -85,7 +85,7 @@ public:
 
         queue = getComputeQueue();
 
-        testSharedResource();
+        testVectorAddKernel();
         testDestruction();
         testLargeAllocations();
 
@@ -120,7 +120,7 @@ public:
         return buf;
     };
 
-    void testSharedResource()
+    void testVectorAddKernel()
     {
         static constexpr uint32_t GridDim[3] = { 4096,1,1 };
         static constexpr uint32_t BlockDim[3] = { 1024,1,1 };
@@ -389,8 +389,7 @@ public:
               const auto output = outputs[elem_i];
               const auto expected = input1 + input2;
               const auto diff = abs(output - expected);
-              bool re = diff < 0.01;
-              if (!re)
+              if (diff < 0.01)
                 ctx->logger->log("TestSharedResources: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
             }
 
