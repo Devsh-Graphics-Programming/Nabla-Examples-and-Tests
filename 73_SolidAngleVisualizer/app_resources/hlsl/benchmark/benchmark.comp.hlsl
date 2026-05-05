@@ -12,10 +12,10 @@
 
 using namespace nbl::hlsl;
 
-[[vk::binding(0, 0)]] RWByteAddressBuffer outputBuffer;
+[[vk::binding(0, 0)]] RWByteAddressBuffer    outputBuffer;
 [[vk::push_constant]] BenchmarkPushConstants pc;
 
-static const SAMPLING_MODE benchmarkMode = (SAMPLING_MODE)SAMPLING_MODE_CONST;
+static const SAMPLING_MODE_FLAGS benchmarkMode = SAMPLING_MODE_FLAGS_CONST;
 
 float32_t2 stratifiedXi(uint32_t sampleIdx, uint32_t threadIdx)
 {
@@ -24,24 +24,11 @@ float32_t2 stratifiedXi(uint32_t sampleIdx, uint32_t threadIdx)
       (float32_t(sampleIdx >> 3u) + 0.5f) / 8.0f + float32_t(threadIdx) * 1e-9f);
 }
 
-struct PyramidSetup
-{
-   SphericalPyramid pyramid;
-   SilEdgeNormals silEdgeNormals;
-
-   static PyramidSetup create(ClippedSilhouette silhouette)
-   {
-      PyramidSetup s;
-      s.pyramid = SphericalPyramid::create(silhouette, s.silEdgeNormals);
-      s.silEdgeNormals.transformToLocal(s.pyramid.axis1, s.pyramid.axis2, s.pyramid.getAxis3());
-      return s;
-   }
-};
-
 // Per-thread input perturbation: scatters threads across the 27 OBB regions and
-// generates a fresh silhouette per outer-loop iteration so creation work can't
-// be hoisted out by the compiler.
-ClippedSilhouette makePerturbedSilhouette(float32_t3 baseOffset, NBL_REF_ARG(random::PCG32) rng, float32_t rcpU32)
+// generates a fresh OBBView per outer-loop iteration so creation work can't be
+// hoisted out by the compiler. Returns just the view; callers build their own
+// ClippedSilhouette + materialized verts from it as needed.
+shapes::OBBView<float32_t> makePerturbedView(float32_t3 baseOffset, NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU32)
 {
    const float32_t3 cJ = float32_t3(
       (float32_t(rng()) * rcpU32 - 0.5f) * 8.0f,
@@ -51,18 +38,84 @@ ClippedSilhouette makePerturbedSilhouette(float32_t3 baseOffset, NBL_REF_ARG(ran
    cM[0][3] += baseOffset.x + cJ.x;
    cM[1][3] += baseOffset.y + cJ.y;
    cM[2][3] += baseOffset.z + cJ.z;
-   shapes::OBBView<float32_t> cV = shapes::OBBView<float32_t>::create(cM);
-   return ClippedSilhouette::create(cV);
+   return shapes::OBBView<float32_t>::create(cM);
 }
 
-[numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)]
-void main()
+// Shared create-and-sample loop for any sampler with the standard
+// `create(silhouette, view)` + `generate/forwardPdf/selectedIdx(cache)` shape.
+// XORs all outputs into the returned sink to defeat DCE.
+template<typename SamplerT>
+uint32_t runCreateAndSample(uint32_t creations, NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU32, uint32_t invocationID, float32_t3 rndOffset)
 {
-	const uint32_t invocationID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+   uint32_t sink = 0;
+   for (uint32_t c = 0; c < creations; c++)
+   {
+      shapes::OBBView<float32_t> view       = makePerturbedView(rndOffset, rng, rcpU32);
+      ClippedSilhouette          silhouette = ClippedSilhouette::create(view);
+      SamplerT                   sampler    = SamplerT::create(silhouette, view);
 
-   // Scatter the OBB translation per invocation so threads span all 27 regions
-   random::PCG32 rng = random::PCG32::construct(invocationID.x + 0x9e3779b9u);
-   const float32_t rcpU32 = 1.0f / 4294967296.0f;
+      for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
+      {
+         float32_t2                    xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
+         typename SamplerT::cache_type cache;
+         float32_t3                    dir = sampler.generate(xi, cache);
+         float32_t                     pdf = sampler.forwardPdf(xi, cache);
+         sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ sampler.selectedIdx(cache);
+      }
+   }
+   return sink;
+}
+
+// Pyramid-create-only benchmark using synthetic random vertices. Templated on
+// UseCaliper so PYRAMID_CREATION_ONLY and CALIPER_PYRAMID_CREATION_ONLY share
+// one body. Inner sampler is unused (no generate() calls), so default to SphRect.
+template<bool UseCaliper>
+uint32_t runPyramidCreationOnly(NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU32)
+{
+   typedef SphericalPyramid<UseCaliper, sampling::SphericalRectangle<float32_t> > PyramidT;
+   uint32_t sink = 0;
+   for (uint32_t i = 0; i < pc.sampleCount; i++)
+   {
+      float32_t3 synthVerts[MAX_SILHOUETTE_VERTICES];
+      NBL_UNROLL
+      for (uint32_t init = 0; init < MAX_SILHOUETTE_VERTICES; init++)
+         synthVerts[init] = float32_t3(0, 0, 0);
+      const uint32_t synthCount = 5;
+
+      for (uint32_t v = 0; v < synthCount; v++)
+      {
+         float32_t x = (float32_t(rng()) * rcpU32 - 0.5f) * 1.2f;
+         float32_t y = (float32_t(rng()) * rcpU32 - 0.5f) * 1.2f;
+         // Diagnostic raw-rng sink: forces rng+normalize cost into the timing
+         // even if the entire pyramid create() gets DCE'd downstream.
+         sink ^= asuint(x) ^ asuint(y);
+         synthVerts[v] = normalize(float32_t3(x, y, 1.0f));
+         sink ^= asuint(synthVerts[v].x) ^ asuint(synthVerts[v].y) ^ asuint(synthVerts[v].z);
+      }
+
+      float32_t2 dummyR0, dummyExt;
+      PyramidT   pyramid = PyramidT::createFromVertices(synthVerts, synthCount, dummyR0, dummyExt);
+
+      const float32_t3 axis3 = pyramid.getAxis3();
+      sink ^= asuint(pyramid.axis1.x) ^ asuint(pyramid.axis1.y) ^ asuint(pyramid.axis1.z);
+      sink ^= asuint(pyramid.axis2.x) ^ asuint(pyramid.axis2.y) ^ asuint(pyramid.axis2.z);
+      sink ^= asuint(axis3.x) ^ asuint(axis3.y) ^ asuint(axis3.z);
+      NBL_UNROLL
+      for (uint32_t e = 0; e < 5; e++)
+      {
+         const float32_t3 n = pyramid.silEdgeNormals.edgeNormals[e];
+         sink ^= asuint(n.x) ^ asuint(n.y) ^ asuint(n.z);
+      }
+   }
+   return sink;
+}
+
+[numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)] void main()
+{
+   const uint32_t invocationID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+
+   Xoroshiro64Star  rng       = Xoroshiro64Star::construct(uint32_t2(invocationID.x + 0x9e3779b9u, invocationID.x * 0x85ebca77u + 1u));
+   const float32_t  rcpU32    = 1.0f / 4294967296.0f;
    const float32_t3 rndOffset = float32_t3(
       (float32_t(rng()) * rcpU32 - 0.5f) * 8.0f,
       (float32_t(rng()) * rcpU32 - 0.5f) * 8.0f,
@@ -77,164 +130,45 @@ void main()
    // `samplesPerCreation`. Total samples per thread = sampleCount.
    const uint32_t creations = pc.sampleCount / pc.samplesPerCreation;
 
-   if (benchmarkMode == SAMPLING_MODE::TRIANGLE_SOLID_ANGLE ||
-      benchmarkMode == SAMPLING_MODE::TRIANGLE_PROJECTED_SOLID_ANGLE)
+   if (benchmarkMode == SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY)
    {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         TriangleFanSampler samplingData = TriangleFanSampler::create(silhouette, benchmarkMode);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            float32_t pdf;
-            uint32_t triIdx;
-            float32_t3 dir = samplingData.sample(silhouette, xi, pdf, triIdx);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ triIdx;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::PROJECTED_PARALLELOGRAM_SOLID_ANGLE)
-   {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         silhouette.normalize();
-         SilEdgeNormals silEdgeNormals;
-         Parallelogram parallelogram = Parallelogram::create(silhouette, silEdgeNormals);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            float32_t pdf;
-            float32_t3 dir = parallelogram.sample(silEdgeNormals, xi, pdf, sampleValid);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ (uint32_t)sampleValid;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_RECTANGLE)
-   {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         PyramidSetup ps = PyramidSetup::create(silhouette);
-         sampling::SphericalRectangle<float32_t> rectSampler = sampling::SphericalRectangle<float32_t>::create(float32_t3x3(ps.pyramid.axis1, ps.pyramid.axis2, ps.pyramid.getAxis3()), float32_t3(ps.pyramid.rectR0, 1.0f), ps.pyramid.rectExtents);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            sampling::SphericalRectangle<float32_t>::cache_type cache;
-            float32_t hitDist;
-            float32_t3 localDir = rectSampler.generateNormalizedLocal(xi, cache, hitDist);
-            float32_t3 dir = localDir.x * ps.pyramid.axis1 + localDir.y * ps.pyramid.axis2 + localDir.z * ps.pyramid.getAxis3();
-            float32_t localX = localDir.x / localDir.z;
-            float32_t localY = localDir.y / localDir.z;
-            sampleValid = dir.z > 0.0f && ps.silEdgeNormals.isInsideLocal(localX, localY);
-            float32_t pdf = rectSampler.forwardPdf(xi, cache);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ (uint32_t)sampleValid;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::SYMMETRIC_PYRAMID_PROJECTED_SOLID_ANGLE_RECTANGLE)
-   {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         PyramidSetup ps = PyramidSetup::create(silhouette);
-
-         const float32_t3 axis3 = ps.pyramid.getAxis3();
-         shapes::CompressedSphericalRectangle<float32_t> compressed;
-         compressed.origin = ps.pyramid.axis1 * ps.pyramid.rectR0.x + ps.pyramid.axis2 * ps.pyramid.rectR0.y + axis3;
-         compressed.right  = ps.pyramid.axis1 * ps.pyramid.rectExtents.x;
-         compressed.up     = ps.pyramid.axis2 * ps.pyramid.rectExtents.y;
-         sampling::ProjectedSphericalRectangle<float32_t> projRectSampler = sampling::ProjectedSphericalRectangle<float32_t>::create(compressed, float32_t3(0.0f, 0.0f, 0.0f), float32_t3(0.0f, 0.0f, 1.0f), false);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            sampling::ProjectedSphericalRectangle<float32_t>::cache_type cache;
-            float32_t hitDist;
-            float32_t3 localDir = projRectSampler.generateNormalizedLocal(xi, cache, hitDist);
-            float32_t3 dir = localDir.x * ps.pyramid.axis1 + localDir.y * ps.pyramid.axis2 + localDir.z * ps.pyramid.getAxis3();
-            float32_t localX = localDir.x / localDir.z;
-            float32_t localY = localDir.y / localDir.z;
-            sampleValid = dir.z > 0.0f && ps.silEdgeNormals.isInsideLocal(localX, localY);
-            float32_t pdf = projRectSampler.forwardPdf(xi, cache);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ (uint32_t)sampleValid;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BIQUADRATIC)
-   {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         PyramidSetup ps = PyramidSetup::create(silhouette);
-         BiquadraticSampler biquad = BiquadraticSampler::create(ps.pyramid);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            float32_t pdf;
-            float32_t3 dir = biquad.sample(ps.pyramid, ps.silEdgeNormals, xi, pdf, sampleValid);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ (uint32_t)sampleValid;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::SYMMETRIC_PYRAMID_SOLID_ANGLE_BILINEAR)
-   {
-      for (uint32_t c = 0; c < creations; c++)
-      {
-         ClippedSilhouette silhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
-         PyramidSetup ps = PyramidSetup::create(silhouette);
-         BilinearSampler bilin = BilinearSampler::create(ps.pyramid);
-
-         for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
-         {
-            float32_t2 xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
-            float32_t pdf;
-            float32_t3 dir = bilin.sample(ps.pyramid, ps.silEdgeNormals, xi, pdf, sampleValid);
-            sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ (uint32_t)sampleValid;
-         }
-      }
-   }
-   else if (benchmarkMode == SAMPLING_MODE::SILHOUETTE_CREATION_ONLY)
-   {
+      // Measure full silhouette-prep cost = create + materialize. The previous
+      // ClippedSilhouette did both inline; the metadata-only ClippedSilhouette
+      // splits them, so we exercise both here to keep this benchmark
+      // apples-to-apples.
       for (uint32_t i = 0; i < pc.sampleCount; i++)
       {
-         ClippedSilhouette iterSilhouette = makePerturbedSilhouette(rndOffset, rng, rcpU32);
+         shapes::OBBView<float32_t> iterView       = makePerturbedView(rndOffset, rng, rcpU32);
+         ClippedSilhouette          iterSilhouette = ClippedSilhouette::create(iterView);
+         float32_t3                 iterVerts[MAX_SILHOUETTE_VERTICES];
+         iterSilhouette.materialize(iterView, iterVerts);
 
          sink ^= iterSilhouette.count;
          NBL_UNROLL
          for (uint32_t j = 0; j < MAX_SILHOUETTE_VERTICES; j++)
-            sink ^= asuint(iterSilhouette.vertices[j].x) ^ asuint(iterSilhouette.vertices[j].y) ^ asuint(iterSilhouette.vertices[j].z);
+            sink ^= asuint(iterVerts[j].x) ^ asuint(iterVerts[j].y) ^ asuint(iterVerts[j].z);
       }
    }
-   else if (benchmarkMode == SAMPLING_MODE::PYRAMID_CREATION_ONLY)
+   else if ((benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_PYRAMID) != 0u
+         && (benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_CREATE_ONLY) != 0u)
+      sink ^= runPyramidCreationOnly<(benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_CALIPER) != 0u>(rng, rcpU32);
+   // Caliper variant: tighter rect → different rejection rate, only interesting when samplesPerCreation > 1.
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID)
+      sink ^= runCreateAndSample<SphericalPyramid<true, sampling::SphericalRectangle<float32_t> > >(creations, rng, rcpU32, invocationID, rndOffset);
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID)
+      sink ^= runCreateAndSample<SphericalPyramid<false, sampling::SphericalRectangle<float32_t> > >(creations, rng, rcpU32, invocationID, rndOffset);
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID)
+      sink ^= runCreateAndSample<SphericalPyramid<false, sampling::ProjectedSphericalRectangle<float32_t> > >(creations, rng, rcpU32, invocationID, rndOffset);
+   else if ((benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_TRIANGLE) != 0u)
+      sink ^= runCreateAndSample<TriangleFanSampler<(benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_PROJECTED) != 0u> >(creations, rng, rcpU32, invocationID, rndOffset);
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE)
+      sink ^= runCreateAndSample<Parallelogram>(creations, rng, rcpU32, invocationID, rndOffset);
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID)
+      sink ^= runCreateAndSample<SphericalPyramid<false, BilinearSampler> >(creations, rng, rcpU32, invocationID, rndOffset);
+   else
    {
-      for (uint32_t i = 0; i < pc.sampleCount; i++)
-      {
-         ClippedSilhouette synthSil = (ClippedSilhouette)0;
-         synthSil.count = 5;
-
-         NBL_UNROLL
-         for (uint32_t v = 0; v < 5; v++)
-         {
-            float32_t x = (float32_t(rng()) * rcpU32 - 0.5f) * 1.2f;
-            float32_t y = (float32_t(rng()) * rcpU32 - 0.5f) * 1.2f;
-            synthSil.vertices[v] = normalize(float32_t3(x, y, 1.0f));
-         }
-
-         SilEdgeNormals silEdgeNormals;
-         SphericalPyramid pyramid = SphericalPyramid::create(synthSil, silEdgeNormals);
-
-         uint32_t pyramidBits = asuint(pyramid.axis1.x) ^ asuint(pyramid.axis2.x) ^ asuint(pyramid.rectR0.x) ^ asuint(pyramid.rectR0.y) ^ asuint(pyramid.rectExtents.x) ^ asuint(pyramid.rectExtents.y);
-         uint32_t edgeBits = asuint(float32_t(silEdgeNormals.edgeNormals[0].x)) ^ asuint(float32_t(silEdgeNormals.edgeNormals[1].x));
-         sink ^= pyramidBits ^ edgeBits;
-      }
+      assert(false);
    }
-
    const uint32_t offset = sizeof(uint32_t) * invocationID.x;
    outputBuffer.Store<uint32_t>(offset, sink);
 }

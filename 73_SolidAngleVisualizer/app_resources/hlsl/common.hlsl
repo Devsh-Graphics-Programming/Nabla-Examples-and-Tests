@@ -13,20 +13,63 @@ namespace nbl
 namespace hlsl
 {
     
-// Sampling mode enum
-enum SAMPLING_MODE : uint32_t
+// Sampling mode enum -- bit-encoded: low byte is the dense ID (0..Count-1),
+// high bits are family/variant flags so callers can do `mode & FLAG_X` instead
+// of long `||` chains. Host C++ that needs a dense index wraps mode access
+// with `(uint32_t(mode) & DENSE_ID_MASK)`.
+enum SAMPLING_MODE_FLAGS : uint32_t
 {
-   TRIANGLE_SOLID_ANGLE,
-   TRIANGLE_PROJECTED_SOLID_ANGLE,
-   PROJECTED_PARALLELOGRAM_SOLID_ANGLE,
-   SYMMETRIC_PYRAMID_SOLID_ANGLE_RECTANGLE,
-   SYMMETRIC_PYRAMID_SOLID_ANGLE_BIQUADRATIC,
-   SYMMETRIC_PYRAMID_SOLID_ANGLE_BILINEAR,
-   SYMMETRIC_PYRAMID_PROJECTED_SOLID_ANGLE_RECTANGLE,
-   SILHOUETTE_CREATION_ONLY,
-   PYRAMID_CREATION_ONLY,
-   Count
+   // ---- family flags (which underlying geometry/sampler family) ----
+   FLAG_PYRAMID       = 0x100,
+   FLAG_TRIANGLE      = 0x200,
+   FLAG_PARALLELOGRAM = 0x400,
+   FLAG_SILHOUETTE    = 0x800,
+
+   // ---- variant flags (modifiers on the family) ----
+   FLAG_CALIPER     = 0x1000,
+   FLAG_PROJECTED   = 0x2000,
+   FLAG_BILINEAR    = 0x4000,
+   FLAG_CREATE_ONLY = 0x8000,
+
+   // ---- dense-ID extractor for host-side array indexing ----
+   DENSE_ID_MASK = 0xFF,
+
+   // ---- modes: dense ID in low byte | family/variant flags ----
+   SPH_RECT_FROM_CALIPER_PYRAMID       = 0 | FLAG_PYRAMID | FLAG_CALIPER,
+   SPH_RECT_FROM_PYRAMID               = 1 | FLAG_PYRAMID,
+   PROJ_SPH_RECT_FROM_PYRAMID          = 2 | FLAG_PYRAMID | FLAG_PROJECTED,
+
+   TRIANGLE_SOLID_ANGLE                = 3 | FLAG_TRIANGLE,
+   TRIANGLE_PROJECTED_SOLID_ANGLE      = 4 | FLAG_TRIANGLE | FLAG_PROJECTED,
+
+   PROJECTED_PARALLELOGRAM_SOLID_ANGLE = 5 | FLAG_PARALLELOGRAM,
+
+   BILINEAR_FROM_PYRAMID               = 6 | FLAG_PYRAMID | FLAG_BILINEAR,
+
+   SILHOUETTE_CREATION_ONLY            = 7 | FLAG_SILHOUETTE | FLAG_CREATE_ONLY,
+   PYRAMID_CREATION_ONLY               = 8 | FLAG_PYRAMID | FLAG_CREATE_ONLY,
+   CALIPER_PYRAMID_CREATION_ONLY       = 9 | FLAG_PYRAMID | FLAG_CALIPER | FLAG_CREATE_ONLY,
+
+   Count = 10  // count of distinct dense IDs
 };
+
+#ifndef __HLSL_VERSION
+// Host helpers: dense IDs for array indexing + a parallel array for combo/iteration.
+inline uint32_t denseIdOf(SAMPLING_MODE_FLAGS m) { return uint32_t(m) & uint32_t(SAMPLING_MODE_FLAGS::DENSE_ID_MASK); }
+
+constexpr SAMPLING_MODE_FLAGS kAllModes[SAMPLING_MODE_FLAGS::Count] = {
+   SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID,        // dense 0
+   SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID,                // dense 1
+   SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID,           // dense 2
+   SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE,                 // dense 3
+   SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE,       // dense 4
+   SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE,  // dense 5
+   SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID,                // dense 6
+   SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY,             // dense 7
+   SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY,                // dense 8
+   SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY,        // dense 9
+};
+#endif
 
 struct ResultData
 {
@@ -48,7 +91,8 @@ struct ResultData
       uint32_t rotatedSil;
       uint32_t edgeVisibilityMismatch;
 
-      // Clipped output (layout matches ClippedSilhouette: vertices[7] then count)
+      // Clipped output: positions written via DebugRecorder::recordClippedVertex
+      // by callers that materialize silhouette vertices; indices recorded in parallel.
       float32_t3 clippedVertices[MAX_SILHOUETTE_VERTICES];
       uint32_t clippedVertexCount;
       uint32_t clippedVertexIndices[MAX_SILHOUETTE_VERTICES];

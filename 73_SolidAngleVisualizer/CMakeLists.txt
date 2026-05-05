@@ -50,8 +50,6 @@ if(NBL_BUILD_IMGUI)
 		app_resources/hlsl/pyramid_sampling.hlsl
 
 		app_resources/hlsl/pyramid_sampling/bilinear.hlsl
-		app_resources/hlsl/pyramid_sampling/biquadratic.hlsl
-
 
 		app_resources/hlsl/solid_angle_vis.frag.hlsl
 		app_resources/hlsl/ray_vis.frag.hlsl
@@ -69,37 +67,40 @@ if(NBL_BUILD_IMGUI)
 
 	set(JSON [=[
 	[
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa",      "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=0", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa_dbg",  "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=0", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=1", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=1", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para",        "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=2", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para_dbg",    "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=2", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=3", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=3", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_biquad",      "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=4", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_biquad_dbg",  "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=4", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=5", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=5", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=6", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=6", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=7", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=7", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid",        "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=8", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
-		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid_dbg",    "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-O3","-DSAMPLING_MODE_CONST=8", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa",             "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=3",                       "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_sa_dbg",         "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=3",                       "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa",            "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=4",             "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_tri_psa_dbg",        "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=4",             "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para",               "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=5",        "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_para_dbg",           "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=5",        "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle",          "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=1",    "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_rectangle_dbg",      "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=1",    "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear",           "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=6",     "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_bilinear_dbg",       "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=6",     "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=2", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_proj_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=2", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette",         "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=7",                   "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_silhouette_dbg",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=7",                   "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid",              "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=8",                     "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_pyramid_dbg",          "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=8",                     "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_caliper_pyramid",       "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=9",              "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_caliper_pyramid_dbg",   "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=9",              "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_caliper_rectangle",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=0",      "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
+		{"INPUT": "${SA_VIS}", "KEY": "sa_vis_caliper_rectangle_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=0",      "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
 
 		{"INPUT": "${RAY_VIS}", "KEY": "ray_vis",     "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DDEBUG_DATA=0", "-DVISUALIZE_SAMPLES=0"]},
 		{"INPUT": "${RAY_VIS}", "KEY": "ray_vis_dbg", "COMPILE_OPTIONS": ["-T", "ps_${SM}", "-DDEBUG_DATA=1", "-DVISUALIZE_SAMPLES=1"]},
 
-		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_sa",  "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=0"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_psa", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=1"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_para",    "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=2"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_rectangle", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=3"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_biquad",    "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=4"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_bilinear", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=5"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_proj_rectangle", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=6"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_silhouette", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=7"]},
-		{"INPUT": "${BENCH}", "KEY": "benchmark_pyramid_creation", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_CONST=8"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_sa",                  "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=3"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_tri_psa",                 "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=4"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_para",                    "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE", "-DSAMPLING_MODE_DENSE_ID=5"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_bilinear",                "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=6"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_rectangle",               "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=1"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_proj_rectangle",          "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=2"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_silhouette",              "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=7"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_pyramid_creation",        "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=8"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_caliper_pyramid_creation", "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY", "-DSAMPLING_MODE_DENSE_ID=9"]},
+		{"INPUT": "${BENCH}", "KEY": "benchmark_caliper_rectangle",        "COMPILE_OPTIONS": ["-T", "cs_${SM}", "-DSAMPLING_MODE_FLAGS_CONST=SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID", "-DSAMPLING_MODE_DENSE_ID=0"]},
 	]
 	]=])
 	string(CONFIGURE "${JSON}" JSON)
@@ -107,9 +108,10 @@ if(NBL_BUILD_IMGUI)
 	set(COMPILE_OPTIONS
 		-I "${CMAKE_CURRENT_SOURCE_DIR}"
 		-Zi -Qembed_debug
-		-fspv-debug=file
-		-fspv-debug=source
-		-fspv-debug=line
+
+		# -fspv-debug=file
+		# -fspv-debug=source
+		# -fspv-debug=line
 		-enable-16bit-types
 	)
 
@@ -119,7 +121,7 @@ if(NBL_BUILD_IMGUI)
 		DEPENDS ${DEPENDS}
 		BINARY_DIR ${OUTPUT_DIRECTORY}
 		MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-		COMMON_OPTIONS ${COMPILE_OPTIONS} 
+		COMMON_OPTIONS ${COMPILE_OPTIONS}
 		OUTPUT_VAR KEYS
 		INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 		NAMESPACE nbl::this_example::builtin::build

@@ -73,19 +73,20 @@ struct DebugRecorder
       DebugDataBuffer[0].pyramid.max2 = bounds.w;
    }
 
-   static void recordSampleCount(uint32_t count) { DebugDataBuffer[0].sampling.sampleCount = count; }
    static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf) { DebugDataBuffer[0].sampling.rayData[i] = float32_t4(dir, pdf); }
 
-   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize, uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount)
+   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize, uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount, uint32_t sampleCount)
    {
-      InterlockedAdd(DebugDataBuffer[0].sampling.validSampleCount, validSampleCount);
-      InterlockedAdd(DebugDataBuffer[0].sampling.threadCount, 1u);
       DebugDataBuffer[0].silhouette.region = region;
       DebugDataBuffer[0].silhouette.silhouetteIndex = configIndex;
       DebugDataBuffer[0].silhouette.silhouetteVertexCount = silSize;
       for (uint32_t i = 0; i < 6; i++)
-         DebugDataBuffer[0].silhouette.vertices[i] = vertexIndices[i];
+      DebugDataBuffer[0].silhouette.vertices[i] = vertexIndices[i];
       DebugDataBuffer[0].silhouette.silhouette = silData;
+
+      InterlockedAdd(DebugDataBuffer[0].sampling.validSampleCount, validSampleCount);
+      InterlockedAdd(DebugDataBuffer[0].sampling.threadCount, 1u);
+      DebugDataBuffer[0].sampling.sampleCount = sampleCount;
    }
 #else
    static void recordClippedVertex(uint32_t slot, float32_t3 pos, uint32_t originalIndex) {}
@@ -93,10 +94,8 @@ struct DebugRecorder
    static void recordTriangleFan(bool luneDetected, uint32_t count, float32_t totalWeight, float32_t solidAngles[5]) {}
    static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask, float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height) {}
    static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center, float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge) {}
-   static void recordSampleCount(uint32_t count) {}
    static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf) {}
-   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize,
-      uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount) {}
+   static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize, uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount, uint32_t sampleCount) {}
 #endif
 };
 

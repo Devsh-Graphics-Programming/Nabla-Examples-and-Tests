@@ -10,275 +10,428 @@
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
-#include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl> // acos_csc_approx
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl>
 
 #include "silhouette.hlsl"
 #include "drawing.hlsl"
+#include "pyramid_sampling/bilinear.hlsl"
 
-// ============================================================================
+// Tag-dispatched inner sampler factory: overload selected by the type of the
+// default-constructed `tag` arg. Avoids the per-inner adapter struct.
+inline sampling::SphericalRectangle<float32_t> buildInner(float32_t3x3 basis, float32_t2 r0, float32_t2 ext, sampling::SphericalRectangle<float32_t> /*tag*/)
+{
+   return sampling::SphericalRectangle<float32_t>::create(basis, float32_t3(r0, 1.0f), ext);
+}
+
+inline sampling::ProjectedSphericalRectangle<float32_t> buildInner(float32_t3x3 basis, float32_t2 r0, float32_t2 ext, sampling::ProjectedSphericalRectangle<float32_t> /*tag*/)
+{
+   shapes::CompressedSphericalRectangle<float32_t> compressed;
+   compressed.origin = basis[0] * r0.x + basis[1] * r0.y + basis[2];
+   compressed.right  = basis[0] * ext.x;
+   compressed.up     = basis[1] * ext.y;
+   return sampling::ProjectedSphericalRectangle<float32_t>::create(compressed, float32_t3(0.0f, 0.0f, 0.0f), float32_t3(0.0f, 0.0f, 1.0f), false);
+}
+
+inline BilinearSampler buildInner(float32_t3x3 basis, float32_t2 r0, float32_t2 ext, BilinearSampler /*tag*/)
+{
+   return BilinearSampler::create(basis, r0, ext);
+}
+
 // Spherical Pyramid: gnomonic bounding rectangle for silhouette sampling.
 //
-// Algorithm (SphericalPyramid::create):
-// 1. Pass 1: walk the silhouette CCW, accumulating
-//      unnormCentroid = sum(cross(v_i, v_{i+1}) * acos_csc_approx(dot(v_i, v_{i+1})))
-//    which is the sum of normalized outward edge normals weighted by arc length
-//    (Kelvin-Stokes form). This is the true spherical centroid of the polygon
-//    and serves as a much better gnomonic-projection axis than blending the raw
-//    vertex centroid toward (0,0,1). The cross products are also written into
-//    silEdgeNormals.edgeNormals[i] (used later by the inside-polygon test).
-// 2. axis3 = normalize(unnormCentroid).
-// 3. Pass 2: Frisvad basis (u, v) orthogonal to axis3; project all silhouette
-//    vertices to 2D gnomonic coordinates in (u, v) once, up front.
-// 4. Pass 3: "guesstimate" calipers: pick the longest 2D edge as axis1, do
-//    a single bound pass. O(N) edge-length compares + 1 bound pass, vs the old
-//    O(N^2) cascade. The bound is slightly looser than the true min-area rect
-//    but the rejection sampler tolerates that.
-// 5. Reconstruct 3D axis1, axis2; sign-stabilize axis1 against a world ref.
+// UseCaliper=false: axis1 picks the longest world-space silhouette edge
+//   (one compare per edge, no inner loop, blind to perpendicular spread).
+// UseCaliper=true: spherical rotating-caliper. For each candidate edge (A, B),
+//   the extremal opposing vertex C is found via argmax_K dot(C_K, precross)
+//   where precross = cross(B-A, n0); this matches argmax dot(n0, cross(C+A, C+B))
+//   by the cyclic scalar triple product. Score = cos(dihedral) between the
+//   AB-great-circle and the Lexell-circle plane through (-A, -B, C). The
+//   lune cosine is a heuristic; the post-search bound pass is exact regardless.
 //
-// axis3 is not stored, reconstructed as cross(axis1, axis2).
-// rectR0 is float2 (z is always 1.0 in the local gnomonic frame).
-// ============================================================================
+// Pipeline: axis3 = normalize(-unnormCentroid); axis1 = project bestEdge3d
+// onto plane(axis3); axis2 = cross(axis3, axis1); computeBound3D yields
+// (rectR0, rectExtents). axis3 is not stored, reconstructed via getAxis3().
+//
+// rectR0/rectExtents are returned out-params from createFromVertices and not
+// stored on the pyramid (the inner sampler keeps its own copy). The local
+// vertex array dies at end-of-create-scope; only the inner sampler persists.
+template<bool UseCaliper, typename InnerSampler>
 struct SphericalPyramid
 {
-   float32_t3 axis1; // edge-aligned, perpendicular to axis3
-   float32_t3 axis2; // = cross(axis3, axis1); axis3 reconstructed via getAxis3()
-   float32_t2 rectR0; // gnomonic bounding rect corner (z=1 implicit)
-   float32_t2 rectExtents;
+   using scalar_type   = float32_t;
+   using vector2_type  = float32_t2;
+   using vector3_type  = float32_t3;
+   using domain_type   = vector2_type;
+   using codomain_type = vector3_type;
+   using density_type  = scalar_type;
+   using weight_type   = density_type;
+
+   // Caches the inner sampler's cache plus a pre-computed `pdf` that bakes in
+   // the silhouette/horizon validity test from generate().
+   struct cache_type
+   {
+      typename InnerSampler::cache_type inner;
+      density_type                      pdf;
+   };
+
+   float32_t3 axis1;
+   float32_t3 axis2; // axis3 reconstructed via getAxis3() = cross(axis1, axis2)
+
+   // Per-edge cross products in world space. Populated during Pass 1's
+   // centroid accumulation (also cached for caliper scoring), used by
+   // isInside(dir) in generate().
+   SilEdgeNormals silEdgeNormals;
+
+   // Constructed by create(silhouette, view) via tag-dispatched buildInner.
+   // The synth-vertices path (createFromVertices direct) leaves it default-init.
+   InnerSampler inner;
 
    float32_t3 getAxis3() NBL_CONST_MEMBER_FUNC { return cross(axis1, axis2); }
 
-   // ========================================================================
-   // Pass 1: per-edge cross + arc-length-weighted accumulate
-   // ========================================================================
-   template<uint32_t I, bool CheckCount = false>
-   static void accumulateEdge(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette, NBL_REF_ARG(float32_t3) unnormCentroid, NBL_REF_ARG(SilEdgeNormals) silEdgeNormals)
+   // Pass 1: per-edge cross + Stokes centroid; UseCaliper=false also tracks
+   // the longest world edge here. Out params exist in both modes so the
+   // per-count cascade has one signature; DCE drops the longest-edge body when
+   // UseCaliper=true.
+   template<uint32_t I, uint32_t J>
+   void processEdge(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], NBL_REF_ARG(float32_t3) unnormCentroid, NBL_REF_ARG(float32_t) bestLenSq, NBL_REF_ARG(float32_t3) bestEdge3d, NBL_REF_ARG(uint32_t) bestEdge)
    {
-      const uint32_t j              = CheckCount ? ((I + 1 < silhouette.count) ? I + 1 : 0) : I + 1;
-      float32_t3     vI             = silhouette.vertices[I];
-      float32_t3     vJ             = silhouette.vertices[j];
-      float32_t3     c              = cross(vI, vJ);
+      const float32_t3 vI = vertices[I];
+      const float32_t3 vJ = vertices[J];
+
+      const float32_t3 c            = cross(vI, vJ);
       silEdgeNormals.edgeNormals[I] = c;
-      // |c| = sin(arc) since vI, vJ are unit; so c/|c| * arc = c * acos(dot)/sin(arc) = c * acos_csc(dot).
-      // Clamp away from -1: acos_csc_approx contains log2(1+arg), which goes -inf at arg=-1 and
-      // produces inf-inf = NaN inside the order-2 polynomial for near-antipodal edges (which can
-      // occur for "wide" silhouettes whose adjacent vertices sit far apart on the sphere).
-      // TODO: will be moved to it's own namespace
-      const float32_t cos_arc = max(dot(vI, vJ), -1.0f + 1e-5f);
-      unnormCentroid += c * nbl::hlsl::shapes::acos_csc_approx<float32_t, 1>(cos_arc);
+      unnormCentroid += c;
+
+      if (!UseCaliper)
+      {
+         // Explicit nbl::hlsl::select so DXC emits scalar-conditional OpSelect
+         // for the vec3 update instead of a bool-broadcast v3bool.
+         const float32_t3 edge3d = vJ - vI;
+         const float32_t  lenSq  = dot(edge3d, edge3d);
+         const bool       isBest = lenSq > bestLenSq;
+         bestLenSq               = max(lenSq, bestLenSq);
+         bestEdge3d              = nbl::hlsl::select(isBest, edge3d, bestEdge3d);
+         bestEdge                = nbl::hlsl::select(isBest, I, bestEdge);
+      }
    }
 
-   // ========================================================================
-   // Pass 2: gnomonic project a single silhouette vertex into the (u,v) plane.
-   // Skips the (w_dot > 0) guard, axis3 = normalize(unnormCentroid) is the
-   // polygon's interior direction so all vertices have w_dot > 0 by construction.
-   // ========================================================================
-   template<uint32_t I>
-   static float32_t2 projectVertex2D(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette, float32_t3 axis_u, float32_t3 axis_v, float32_t3 axis3)
+   // Caliper-only helpers (DCE'd when UseCaliper=false).
+
+   // Track the silhouette vertex with max dot(vK, precross). SkipA/SkipB are
+   // the candidate edge's (I, J); compile-time skipped (drops the verts[K]
+   // read entirely). Assumes vertices are ~unit length so we can skip the
+   // per-K |vK| factor in the cosine.
+   template<uint32_t K, uint32_t SkipA, uint32_t SkipB>
+   static void tryK(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], float32_t3 precross, NBL_REF_ARG(float32_t) bestNum, NBL_REF_ARG(float32_t3) bestC)
    {
-      float32_t3 vert = silhouette.vertices[I];
-      float32_t  rcpW = rcp(dot(vert, axis3));
-      return float32_t2(dot(vert, axis_u), dot(vert, axis_v)) * rcpW;
+      if (K != SkipA && K != SkipB)
+      {
+         const float32_t3 vK     = vertices[K];
+         const float32_t  num    = dot(vK, precross);
+         const bool       better = num > bestNum;
+         bestNum                 = max(num, bestNum);
+         bestC                   = nbl::hlsl::select(better, vK, bestC);
+      }
    }
 
-   // ========================================================================
-   // Pass 3: 2D rotating-calipers helpers
-   // ========================================================================
-   template<uint32_t K>
-   static void boundOne2D(const float32_t2 verts2d[MAX_SILHOUETTE_VERTICES], float32_t2 axis2d, float32_t2 perp2d, NBL_REF_ARG(float32_t4) bound)
+   // Cascade-on-count K scan with (I, J) as compile-time skips. bestNum seeds
+   // at -inf; bestC's placeholder is always overwritten (count >= 3).
+   template<uint32_t I, uint32_t J>
+   static float32_t3 findExtremalC(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count, float32_t3 precross)
    {
-      float32_t2 v2 = verts2d[K];
-      float32_t  x  = dot(v2, axis2d);
-      float32_t  y  = dot(v2, perp2d);
-      bound.x       = min(bound.x, x);
-      bound.y       = min(bound.y, y);
-      bound.z       = max(bound.z, x);
-      bound.w       = max(bound.w, y);
-   }
-
-   static void computeBound2D(const float32_t2 verts2d[MAX_SILHOUETTE_VERTICES], uint32_t count, float32_t2 axis2d, float32_t2 perp2d, NBL_REF_ARG(float32_t4) bound)
-   {
-      bound = float32_t4(1e10f, 1e10f, -1e10f, -1e10f);
-      boundOne2D<0>(verts2d, axis2d, perp2d, bound);
-      boundOne2D<1>(verts2d, axis2d, perp2d, bound);
-      boundOne2D<2>(verts2d, axis2d, perp2d, bound);
+      float32_t  bestNum = -1e30f;
+      float32_t3 bestC   = vertices[0];
+      tryK<0, I, J>(vertices, precross, bestNum, bestC);
+      tryK<1, I, J>(vertices, precross, bestNum, bestC);
+      tryK<2, I, J>(vertices, precross, bestNum, bestC);
       if (count > 3)
       {
-         boundOne2D<3>(verts2d, axis2d, perp2d, bound);
+         tryK<3, I, J>(vertices, precross, bestNum, bestC);
          if (count > 4)
          {
-            boundOne2D<4>(verts2d, axis2d, perp2d, bound);
+            tryK<4, I, J>(vertices, precross, bestNum, bestC);
             if (count > 5)
             {
-               boundOne2D<5>(verts2d, axis2d, perp2d, bound);
+               tryK<5, I, J>(vertices, precross, bestNum, bestC);
                if (count > 6)
-                  boundOne2D<6>(verts2d, axis2d, perp2d, bound);
+                  tryK<6, I, J>(vertices, precross, bestNum, bestC);
+            }
+         }
+      }
+      return bestC;
+   }
+
+   // Score candidate edge (I, J) by cos(dihedral) between AB-great-circle
+   // and Lexell plane through (-A, -B, C_win). Identity used:
+   //   cross(C+A, C+B) = n0 + cross(A, C) + cross(C, B)
+   // so we reuse cached n0. Larger score = smaller bounding lune. max(.,1e-30f)
+   // keeps rsqrt finite on collapsed edges (they lose on numerator anyway).
+   template<uint32_t I, uint32_t J>
+   static void evalCandidate(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count, NBL_CONST_REF_ARG(SilEdgeNormals) sen, NBL_REF_ARG(float32_t) bestScore, NBL_REF_ARG(float32_t3) bestEdge3d, NBL_REF_ARG(uint32_t) bestEdge)
+   {
+      const float32_t3 vI     = vertices[I];
+      const float32_t3 vJ     = vertices[J];
+      const float32_t3 n0     = sen.edgeNormals[I];
+      const float32_t3 edge3d = vJ - vI;
+
+      const float32_t3 precross = cross(edge3d, n0);
+      const float32_t3 C        = findExtremalC<I, J>(vertices, count, precross);
+
+      const float32_t3 lexell_n1   = n0 + cross(vI, C) + cross(C, vJ);
+      const float32_t  numerator   = dot(n0, lexell_n1);
+      const float32_t  edgeDenomSq = dot(n0, n0) * dot(lexell_n1, lexell_n1);
+      const float32_t  score       = numerator * rsqrt(max(edgeDenomSq, 1e-30f));
+
+      const bool better = score > bestScore;
+      bestScore         = max(score, bestScore);
+      bestEdge3d        = nbl::hlsl::select(better, edge3d, bestEdge3d);
+      bestEdge          = nbl::hlsl::select(better, I, bestEdge);
+   }
+
+   // Gnomonic-project each silhouette vertex into the (axis1, axis2, axis3)
+   // frame and accumulate the AABB.
+   template<uint32_t I>
+   static void boundOne3D(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], float32_t3 axis1, float32_t3 perp, float32_t3 axis3, NBL_REF_ARG(float32_t4) bound)
+   {
+      const float32_t3 vert  = vertices[I];
+      const float32_t  rcpDp = rcp(dot(vert, axis3));
+      const float32_t  x     = dot(vert, axis1) * rcpDp;
+      const float32_t  y     = dot(vert, perp) * rcpDp;
+      bound.x                = min(bound.x, x);
+      bound.y                = min(bound.y, y);
+      bound.z                = max(bound.z, x);
+      bound.w                = max(bound.w, y);
+   }
+
+   static void computeBound3D(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count, float32_t3 axis1, float32_t3 perp, float32_t3 axis3, NBL_REF_ARG(float32_t4) bound)
+   {
+      bound = float32_t4(1e10f, 1e10f, -1e10f, -1e10f);
+      boundOne3D<0>(vertices, axis1, perp, axis3, bound);
+      boundOne3D<1>(vertices, axis1, perp, axis3, bound);
+      boundOne3D<2>(vertices, axis1, perp, axis3, bound);
+      if (count > 3)
+      {
+         boundOne3D<3>(vertices, axis1, perp, axis3, bound);
+         if (count > 4)
+         {
+            boundOne3D<4>(vertices, axis1, perp, axis3, bound);
+            if (count > 5)
+            {
+               boundOne3D<5>(vertices, axis1, perp, axis3, bound);
+               if (count > 6)
+                  boundOne3D<6>(vertices, axis1, perp, axis3, bound);
             }
          }
       }
    }
 
-   // "Guesstimate" pass 3: pick the longest 2D edge as axis1 and do ONE bound
-   // computation, instead of trying every edge as a caliper candidate. O(N) +
-   // one bound pass, vs old O(N^2) of bound passes. The bound is slightly
-   // looser than the true min-area rect (typically a few percent for OBB
-   // silhouettes), but the rejection sampler tolerates that.
-   template<uint32_t I, bool CheckCount = false>
-   static void considerEdge(const float32_t2 verts2d[MAX_SILHOUETTE_VERTICES], uint32_t count, NBL_REF_ARG(float32_t) bestLenSq, NBL_REF_ARG(float32_t2) bestEdge2d, NBL_REF_ARG(uint32_t) bestEdge)
+   // Pyramid from pre-materialized verts; (rectR0, rectExtents) returned as
+   // out-params (not stored on the pyramid).
+   static SphericalPyramid<UseCaliper, InnerSampler> createFromVertices(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count, NBL_REF_ARG(float32_t2) outRectR0, NBL_REF_ARG(float32_t2) outRectExtents)
    {
-      const uint32_t j      = CheckCount ? ((I + 1 < count) ? I + 1 : 0) : I + 1;
-      float32_t2     edge2d = verts2d[j] - verts2d[I];
-      float32_t      lenSq  = dot(edge2d, edge2d);
-      // Sticky 1% threshold (in lenSq, ~0.5% in length) prevents axis1 from flipping
-      // between two near-equal-length edges as the silhouette deforms.
-      if (lenSq > bestLenSq * (1.0f + 1e-2f))
+      SphericalPyramid<UseCaliper, InnerSampler> self;
+      // Sentinel-init so unused slots (count..6) produce dot(dir,(0,0,-1)) < 0
+      // for the sign-bit AND in SilEdgeNormals::isInside.
+      self.silEdgeNormals = SilEdgeNormals::initSentinel();
+
+      // Tiny z-bias seed so symmetric shapes don't normalize(0) to NaN; the
+      // cross sum dominates for any non-degenerate silhouette.
+      // verts past count are zero-init by materialize, so reading them is harmless.
+      float32_t3 unnormCentroid = float32_t3(0.0f, 0.0f, 1e-6f);
+      float32_t  bestLenSq      = 0.0f;
+      float32_t3 bestEdge3d     = float32_t3(1.0f, 0.0f, 0.0f);
+      uint32_t   bestEdge       = 0;
+
+      self.processEdge<0, 1>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+      self.processEdge<1, 2>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+      if (count == 3)
       {
-         bestLenSq  = lenSq;
-         bestEdge2d = edge2d;
-         bestEdge   = I;
+         self.processEdge<2, 0>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
       }
-   }
-
-   // ========================================================================
-   // Factory
-   // ========================================================================
-
-   static SphericalPyramid create(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette, NBL_REF_ARG(SilEdgeNormals) silEdgeNormals)
-   {
-      SphericalPyramid self;
-      silEdgeNormals = (SilEdgeNormals)0;
-
-      // Pass 1: build unnormCentroid (true spherical centroid) and edgeNormals.
-      // Seed with a tiny scaled vertex centroid so symmetric / near-cancelling
-      // shapes don't degenerate to a zero direction on `normalize`.
-      float32_t3 unnormCentroid = silhouette.getUnnormalizedCenter() * 1e-6f;
-
-      // Count-cascade: silhouette.vertices[I] for I >= count is uninitialized in some
-      // call sites (e.g. solid_angle_vis.frag.hlsl declares ClippedSilhouette without
-      // zero-init), so we must NOT read past count. I=2 needs the wrap check because
-      // count can be exactly 3 (j must wrap to 0).
-      accumulateEdge<0>(silhouette, unnormCentroid, silEdgeNormals);
-      accumulateEdge<1>(silhouette, unnormCentroid, silEdgeNormals);
-      accumulateEdge<2, true>(silhouette, unnormCentroid, silEdgeNormals);
-      if (silhouette.count > 3)
+      else
       {
-         accumulateEdge<3, true>(silhouette, unnormCentroid, silEdgeNormals);
-         if (silhouette.count > 4)
+         self.processEdge<2, 3>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+         if (count == 4)
          {
-            accumulateEdge<4, true>(silhouette, unnormCentroid, silEdgeNormals);
-            if (silhouette.count > 5)
+            self.processEdge<3, 0>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+         }
+         else
+         {
+            self.processEdge<3, 4>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+            if (count == 5)
             {
-               accumulateEdge<5, true>(silhouette, unnormCentroid, silEdgeNormals);
-               if (silhouette.count > 6)
-                  accumulateEdge<6, true>(silhouette, unnormCentroid, silEdgeNormals);
+               self.processEdge<4, 0>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+            }
+            else
+            {
+               self.processEdge<4, 5>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+               if (count == 6)
+               {
+                  self.processEdge<5, 0>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+               }
+               else // count == 7
+               {
+                  self.processEdge<5, 6>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+                  self.processEdge<6, 0>(vertices, unnormCentroid, bestLenSq, bestEdge3d, bestEdge);
+               }
             }
          }
       }
 
       const float32_t3 axis3 = normalize(-unnormCentroid);
 
-      // Pass 2: Frisvad basis + 2D gnomonic projection (one-time, before calipers).
-      float32_t3 u, v;
-      nbl::hlsl::math::frisvad<float32_t3>(axis3, u, v);
-
-      // Project only the first `count` vertices; entries past `count` are unread by
-      // try2DCaliper since its cascade is also count-gated.
-      float32_t2 verts2d[MAX_SILHOUETTE_VERTICES];
-      verts2d[0] = projectVertex2D<0>(silhouette, u, v, axis3);
-      verts2d[1] = projectVertex2D<1>(silhouette, u, v, axis3);
-      verts2d[2] = projectVertex2D<2>(silhouette, u, v, axis3);
-      if (silhouette.count > 3)
+      // Pass 2: caliper dihedral scan overwrites bestEdge3d. Skipped under
+      // UseCaliper=false (keeps Pass 1's longest edge).
+      if (UseCaliper)
       {
-         verts2d[3] = projectVertex2D<3>(silhouette, u, v, axis3);
-         if (silhouette.count > 4)
+         float32_t bestScore = -2.0f;
+
+         evalCandidate<0, 1>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+         evalCandidate<1, 2>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+         if (count == 3)
          {
-            verts2d[4] = projectVertex2D<4>(silhouette, u, v, axis3);
-            if (silhouette.count > 5)
+            evalCandidate<2, 0>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+         }
+         else
+         {
+            evalCandidate<2, 3>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+            if (count == 4)
             {
-               verts2d[5] = projectVertex2D<5>(silhouette, u, v, axis3);
-               if (silhouette.count > 6)
-                  verts2d[6] = projectVertex2D<6>(silhouette, u, v, axis3);
+               evalCandidate<3, 0>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+            }
+            else
+            {
+               evalCandidate<3, 4>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+               if (count == 5)
+               {
+                  evalCandidate<4, 0>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+               }
+               else
+               {
+                  evalCandidate<4, 5>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+                  if (count == 6)
+                  {
+                     evalCandidate<5, 0>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+                  }
+                  else // count == 7
+                  {
+                     evalCandidate<5, 6>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+                     evalCandidate<6, 0>(vertices, count, self.silEdgeNormals, bestScore, bestEdge3d, bestEdge);
+                  }
+               }
             }
          }
       }
 
-      // Pass 3: pick longest 2D edge as axis1 ("guesstimate" rotating calipers).
-      // O(N) edge-length comparisons, then ONE bound pass after the winner is known.
-      float32_t  bestLenSq  = 0.0f;
-      float32_t2 bestEdge2d = float32_t2(1.0f, 0.0f);
-      uint32_t   bestEdge   = 0;
+      // axis1 = winning chord projected onto plane(axis3) and normalized.
+      // max(lenSq, 1e-12) keeps rsqrt finite; degenerate select picks a stable
+      // axis perpendicular to axis3.
+      const float32_t3 inPlaneEdge  = bestEdge3d - axis3 * dot(bestEdge3d, axis3);
+      const float32_t  inPlaneLenSq = dot(inPlaneEdge, inPlaneEdge);
+      const bool       useY         = abs(axis3.x) >= 0.9f;
+      const float32_t  scale        = rsqrt(max(inPlaneLenSq, 1e-12f));
 
-      considerEdge<0>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-      considerEdge<1>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-      considerEdge<2, true>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-      if (silhouette.count > 3)
-      {
-         considerEdge<3, true>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-         if (silhouette.count > 4)
-         {
-            considerEdge<4, true>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-            if (silhouette.count > 5)
-            {
-               considerEdge<5, true>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-               if (silhouette.count > 6)
-                  considerEdge<6, true>(verts2d, silhouette.count, bestLenSq, bestEdge2d, bestEdge);
-            }
-         }
-      }
+      const bool       degenerate    = inPlaneLenSq <= 1e-12f;
+      const float32_t3 fallbackAxis1 = nbl::hlsl::select(useY, float32_t3(0.0f, 1.0f, 0.0f), float32_t3(1.0f, 0.0f, 0.0f));
+      self.axis1                     = nbl::hlsl::select(degenerate, fallbackAxis1, inPlaneEdge * scale);
+      self.axis2                     = cross(axis3, self.axis1);
 
-      // Single bound pass with the winning edge as axis1. Fall back to (1,0) if
-      // every edge degenerated (silhouette projects to a single point).
-      const float32_t2 bestAxis2d = bestLenSq > 1e-12f ? bestEdge2d * rsqrt(bestLenSq) : float32_t2(1.0f, 0.0f);
-      const float32_t2 bestPerp2d = float32_t2(-bestAxis2d.y, bestAxis2d.x);
-      float32_t4       bestBound;
-      computeBound2D(verts2d, silhouette.count, bestAxis2d, bestPerp2d, bestBound);
+      float32_t4 bestBound;
+      computeBound3D(vertices, count, self.axis1, self.axis2, axis3, bestBound);
 
-      // Pass 4: reconstruct 3D, sign-stabilize axis1 against a world reference.
-      // For right-handed (u, v, axis3) Frisvad basis, cross(axis3, u) = v and cross(axis3, v) = -u,
-      // so axis1 = u*a + v*b => axis2 = cross(axis3, axis1) = v*a - u*b. Skip the 3D `cross`.
-      const float32_t3 axis1Raw = u * bestAxis2d.x + v * bestAxis2d.y;
-      const float32_t3 axis2Raw = v * bestAxis2d.x - u * bestAxis2d.y;
-      {
-         // Sign-stabilize axis1 against a world reference, branchless.
-         // axis1 is already perpendicular to axis3, so dot(axis1, worldRef - axis3*dot(worldRef,axis3))
-         // == dot(axis1, worldRef). Flipping axis1 also flips axis2 (both negate together since
-         // axis2 = cross(axis3, axis1)); mirror both x and y bounds simultaneously.
-         const float32_t3 worldRef = nbl::hlsl::select(abs(axis3.x) < 0.9f, float32_t3(1.0f, 0.0f, 0.0f), float32_t3(0.0f, 1.0f, 0.0f));
-         const bool       flip     = dot(axis1Raw, worldRef) < 0.0f;
-         self.axis1                = nbl::hlsl::select(flip, -axis1Raw, axis1Raw);
-         self.axis2                = nbl::hlsl::select(flip, -axis2Raw, axis2Raw);
-         bestBound                 = nbl::hlsl::select(flip, float32_t4(-bestBound.z, -bestBound.w, -bestBound.x, -bestBound.y), bestBound);
-      }
+      // Per-axis degenerate clamp: each upper bound at least 1e-6 above lower.
+      // Independent per axis so a single collapsed axis doesn't kill the other.
+      bestBound.zw = max(bestBound.zw, bestBound.xy + 1e-6f);
 
-      // Degenerate bounds fallback (branchless).
-      const bool degenerateBounds = bestBound.x >= bestBound.z || bestBound.y >= bestBound.w;
-      bestBound                   = nbl::hlsl::select(degenerateBounds, float32_t4(-0.1f, -0.1f, 0.1f, 0.1f), bestBound);
+      outRectR0      = bestBound.xy;
+      outRectExtents = float32_t2(bestBound.zw - bestBound.xy);
 
-      self.rectR0      = bestBound.xy;
-      self.rectExtents = float32_t2(bestBound.zw - bestBound.xy);
-      
-      VisContext::add(SphereDrawer::drawDot(normalize(-unnormCentroid), 0.05f, 0.0f, float32_t3(1.0f, 0.0f, 1.0f)));
-      VisContext::add(SphereDrawer::visualizeBestCaliperEdge(silhouette, bestEdge));
-      self.visualize();
-      
-      // DCE
-      nbl::hlsl::sampling::SphericalRectangle<float32_t> rectSampler = nbl::hlsl::sampling::SphericalRectangle<float32_t>::create(float32_t3x3(self.axis1, self.axis2, axis3), float32_t3(self.rectR0, 1.0f), self.rectExtents);
-      DebugRecorder::recordPyramid(self.axis1, self.axis2, -unnormCentroid, bestBound, rectSampler.solidAngle, bestEdge);
+      // Pre-rotate edge normals into local frame so per-sample inside test
+      // can use the cheaper 2D form (2 muls + 2 adds + n.z per edge instead
+      // of 3 muls + 2 adds). Amortized once per build; saves 7 muls/sample.
+      self.silEdgeNormals.transformToLocal(self.axis1, self.axis2, axis3);
+
+      // solidAngle for the debug overlay only.
+      const float32_t4 denorm_n_z             = float32_t4(-bestBound.y, bestBound.z, bestBound.w, -bestBound.x);
+      const float32_t4 n_z                    = denorm_n_z * rsqrt(float32_t4(1.0f, 1.0f, 1.0f, 1.0f) + denorm_n_z * denorm_n_z);
+      const float32_t4 cosGamma               = float32_t4(-n_z[0] * n_z[1], -n_z[1] * n_z[2], -n_z[2] * n_z[3], -n_z[3] * n_z[0]);
+      math::sincos_accumulator<float32_t> acc = math::sincos_accumulator<float32_t>::create(cosGamma[0]);
+      acc.addCosine(cosGamma[1]);
+      acc.addCosine(cosGamma[2]);
+      acc.addCosine(cosGamma[3]);
+      const float32_t solidAngle = acc.getSumOfArccos() - 2.0f * numbers::pi<float32_t>;
+
+      DebugRecorder::recordPyramid(self.axis1, self.axis2, -unnormCentroid, bestBound, solidAngle, bestEdge);
+      self.visualize(vertices, count, outRectR0, outRectExtents);
 
       return self;
    }
 
-   // ========================================================================
-   // Visualization
-   // ========================================================================
+   // Materialize verts from the silhouette, build the pyramid, then construct
+   // the InnerSampler via tag-dispatched buildInner. Local rect data dies at
+   // end-of-scope; only the inner sampler retains a copy.
+   static SphericalPyramid<UseCaliper, InnerSampler> create(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette, shapes::OBBView<float32_t> view)
+   {
+      float32_t3 vertices[MAX_SILHOUETTE_VERTICES];
+      silhouette.materialize(view, vertices);
 
-   void visualize()
+      float32_t2 rectR0, rectExtents;
+      SphericalPyramid<UseCaliper, InnerSampler> self = createFromVertices(vertices, silhouette.count, rectR0, rectExtents);
+
+      // tag's value is unread; only its type selects the overload.
+      const float32_t3x3 basis = float32_t3x3(self.axis1, self.axis2, self.getAxis3());
+      InnerSampler tag;
+      self.inner = buildInner(basis, rectR0, rectExtents, tag);
+      return self;
+   }
+
+   // Generate via inner.generateNormalizedLocal so we can recover gnomonic
+   // (localX, localY) for the 2D inside test. With rectR0.z == 1, localDir.z =
+   // 1/hitDist, so localDir.{x,y} * hitDist == gnomonic coords. Bake
+   // silhouette/horizon validity into cache.pdf so forwardPdf is O(1).
+   codomain_type generate(domain_type u, NBL_REF_ARG(cache_type) cache)
+   {
+      scalar_type          hitDist;
+      const codomain_type  localDir = inner.generateNormalizedLocal(u, cache.inner, hitDist);
+      const codomain_type  dir      = localDir.x * axis1 + localDir.y * axis2 + localDir.z * getAxis3();
+      const scalar_type    localX   = localDir.x * hitDist;
+      const scalar_type    localY   = localDir.y * hitDist;
+      const bool           valid    = dir.z > 0.0f && silEdgeNormals.isInsideLocal(localX, localY);
+      cache.pdf                     = hlsl::select(valid, inner.forwardPdf(u, cache.inner), 0.0f);
+      return dir;
+   }
+
+   density_type forwardPdf(domain_type u, cache_type cache) NBL_CONST_MEMBER_FUNC { return cache.pdf; }
+   weight_type  forwardWeight(domain_type u, cache_type cache) NBL_CONST_MEMBER_FUNC { return cache.pdf; }
+   uint32_t     selectedIdx(cache_type cache) NBL_CONST_MEMBER_FUNC { return 0u; }
+
+   // Visualization (debug only). Takes verts + count to highlight the chosen
+   // edge; rectR0/rectExtents are passed in since the pyramid doesn't store them.
+   uint32_t findChosenEdge(uint32_t count) NBL_CONST_MEMBER_FUNC
+   {
+      uint32_t  bestI   = 0;
+      float32_t bestAbs = abs(silEdgeNormals.edgeNormals[0].x);
+
+      for (uint32_t i = 0; i < count; i++)
+      {
+         const float32_t v      = abs(silEdgeNormals.edgeNormals[i].x);
+         const bool      better = v < bestAbs;
+         bestAbs                = nbl::hlsl::select(better, v, bestAbs);
+         bestI                  = nbl::hlsl::select(better, i, bestI);
+      }
+
+      return bestI;
+   }
+
+   void visualize(float32_t3 vertices[MAX_SILHOUETTE_VERTICES], uint32_t count, float32_t2 rectR0, float32_t2 rectExtents) NBL_CONST_MEMBER_FUNC
    {
       // Colors for visualization
       float32_t3 boundColor1 = float32_t3(1.0f, 0.5f, 0.5f); // Light red for axis1 bounds
       float32_t3 boundColor2 = float32_t3(0.5f, 0.5f, 1.0f); // Light blue for axis2 bounds
       float32_t3 centerColor = float32_t3(1.0f, 1.0f, 0.0f); // Yellow for center
+      float32_t3 chosenColor = float32_t3(1.0f, 0.65f, 0.0f); // Orange for chosen edge highlight
+      float32_t3 cornerColor = float32_t3(1.0f, 1.0f, 1.0f); // White for rect corners
 
       float32_t3      a3 = getAxis3();
       float32_t       x0 = rectR0.x;
@@ -312,14 +465,18 @@ struct SphericalPyramid
       VisContext::add(SphereDrawer::drawGreatCircleHalf(leftNormal, a3, boundColor1, 0.004f));
       VisContext::add(SphereDrawer::drawGreatCircleHalf(rightNormal, a3, boundColor1, 0.004f));
 
+      // Highlight the chosen silhouette edge (recovered from cached silEdgeNormals).
+      const uint32_t   bestI     = findChosenEdge(count);
+      const uint32_t   bestJ     = (bestI + 1u) % count;
+      const float32_t3 vBestI    = vertices[bestI];
+      const float32_t3 vBestJ    = vertices[bestJ];
+      float32_t3       chosen[2] = {vBestI, vBestJ};
+      VisContext::add(SphereDrawer::drawEdge(8u, chosen, 0.012f)); // colorLUT[8] = orange
+
       VisContext::add(SphereDrawer::drawDot(axis1, 0.025f, 0.0f, float32_t3(1.0f, 0.0f, 0.0f)));
       VisContext::add(SphereDrawer::drawDot(axis2, 0.025f, 0.0f, float32_t3(0.0f, 1.0f, 0.0f)));
       VisContext::add(SphereDrawer::drawDot(a3, 0.025f, 0.0f, float32_t3(0.0f, 0.0f, 1.0f)));
    }
 };
-
-
-#include "pyramid_sampling/bilinear.hlsl"
-#include "pyramid_sampling/biquadratic.hlsl"
 
 #endif // _SOLID_ANGLE_VIS_EXAMPLE_PYRAMID_SAMPLING_HLSL_INCLUDED_
