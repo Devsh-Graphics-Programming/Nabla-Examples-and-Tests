@@ -237,11 +237,12 @@ void raygen()
         using namespace nbl::hlsl::bxdf;
         using namespace nbl::hlsl::material_compiler3::backends::default_upt;
         using bxdf_config_t = BxDFConfig;
-        using ray_dir_info_t = bxdf_config_t::ray_dir_info_type;
         using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
         using light_sample_t = bxdf_config_t::sample_type;
-        using quotient_weight_type = bxdf_config_t::quotient_weight_type;
         using spectral_type = bxdf_config_t::spectral_type;
+        using ray_dir_info_t = light_sample_t::ray_dir_info_type;
+        using quotient_weight_type = sampling::quotient_and_weight<spectral_type,float>;
+        using value_weight_type = sampling::value_and_weight<spectral_type,float>;
         // a little bit of persistent state
         spirv::HitObjectEXT hitObject;
         {
@@ -393,9 +394,9 @@ void raygen()
                     }
 
                     // compute BxDF value, another layer of culling
-                    const spectral_type bxdfValue = diffuse.eval(L,interaction);
+                    const value_weight_type bxdfEval = diffuse.evalAndWeight(L, interaction);
                     const spectral_type emitterQuotient = sunColor/pdf;
-                    spectral_type contrib = throughput*bxdfValue*emitterQuotient;
+                    spectral_type contrib = throughput*bxdfEval.value()*emitterQuotient;
                     // trace shadow rays only for contributing samples, can also apply russian roulette here!
                     if (contribEstimator.surviveRussianRoulette(contrib,false,randNEE.z))
                     {
@@ -410,8 +411,8 @@ void raygen()
                         if (spirv::hitObjectIsMissEXT(hitObject))
                         {
                             // we only have area lights so always apply MIS, the PDF is finite
-                            const float bxdfWeight = diffuse.pdf(L,interaction);
-                            const float weightRatio = bxdfWeight/pdf;
+                            const float bxdfWeight = bxdfEval.weight();
+                            const float weightRatio = bxdfWeight/pdf; // NEE pdf is its MIS weight (for now)
                             // MIS balance heuristic
                             color += contrib/(1.f+weightRatio*weightRatio);
                         }
@@ -422,9 +423,10 @@ void raygen()
                 light_sample_t bxdfSample;
                 {
                     //
-                    bxdfSample = diffuse.generate(interaction,randBRDF.xy);
+                    typename brdf_t::isocache_type cache;
+                    bxdfSample = diffuse.generate(interaction,randBRDF.xy,cache);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
-                    const quotient_weight_type qAw = diffuse.quotient_and_pdf(bxdfSample,interaction);
+                    const quotient_weight_type qAw = diffuse.quotientAndWeight(bxdfSample,interaction,cache);
                     const float forwardWeight = qAw.weight();
                     if (forwardWeight<0.00000001f)
                         break;
