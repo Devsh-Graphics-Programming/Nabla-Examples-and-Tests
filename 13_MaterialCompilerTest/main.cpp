@@ -92,6 +92,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				using spectral_var_t = CFrontendIR::CSpectralVariableExpr;
 				// simple white furnace testing materials
 				{
+#if 1 // tmp debug option
 					// transmission
 					{
 						const auto layerH = forestPool.emplace<CFrontendIR::CLayer>();
@@ -240,10 +241,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.viewChannel = 0;
 							emitter->profile.view = monochromeImageView;
 							// we don't handle symmetries yet, so the octahedral mapping is always corner sampled
-							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
+							emitter->profile.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 							emitter->profileTransform = hlsl::_static_cast<hlsl::float32_t3x3>(hlsl::math::quaternion<float32_t>::create(hlsl::normalize(hlsl::float32_t3(1.f,1.f,1.f)), 3.14159f*0.25f, 1.f));
 							mul->lhs = emitterH;
 						}
@@ -290,9 +290,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 										.viewChannel = c,
 										.view = rgbImageView
 									};
-									param.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-									param.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-									param.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
+									param.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
 									var->setParameter(c,std::move(param));
 								}
 							}
@@ -318,10 +318,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.viewChannel = 0;
 							emitter->profile.view = monochromeImageView;
 							// lets try some other samplers
-							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
+							emitter->profile.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
 							// try with default transform
 							mul->lhs = emitterH;
 						}
@@ -338,9 +337,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 										.viewChannel = c,
 										.view = rgbImageView
 									};
-									param.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-									param.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-									param.sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+									param.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
 									var->setParameter(c,std::move(param));
 								}
 							}
@@ -350,7 +349,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					}
 					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
-#if 0 // extra materials that don't work right now
+#endif
 				// anisotropic cook torrance GGX with Conductor Fresnel
 				{
 					const auto layerH = forestPool.emplace<CFrontendIR::CLayer>();
@@ -624,7 +623,6 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Extinction Transmitter");
 					}
 				}
-#endif
 				smart_refctd_ptr<IFile> file;
 				{
 					m_system->deleteFile(localOutputCWD/"frontend.dot");
