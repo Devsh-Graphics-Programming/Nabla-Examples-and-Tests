@@ -195,10 +195,6 @@ public:
 				"Verify Staging Buffer", m_stagingBuffer, m_stagingAlloc, m_stagingMappedPtr))
 				return false;
 
-			if (!createStagingBuffer(sizeof(uint32_t), hostVisibleOnlyBits,
-				"Verify Dst Tile Locations", m_verifyDstTileLocationsBuffer, m_verifyDstTileLocationsAlloc, m_verifyDstTileLocationsMappedPtr))
-				return false;
-
 			if (!createStagingBuffer(TILE_SIZE_BYTES, hostVisibleOnlyBits,
 				"Snake Readback Buffer", m_snakeReadbackBuffer, m_snakeReadbackAlloc, m_snakeReadbackMappedPtr))
 				return false;
@@ -219,16 +215,6 @@ public:
 				if (!m_stagingAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
 				{
 					ILogicalDevice::MappedMemoryRange range(m_stagingAlloc.memory.get(), 0, TILE_SIZE_BYTES);
-					m_device->flushMappedMemoryRanges(1, &range);
-				}
-			}
-			{
-				uint32_t* dstTileLocation = static_cast<uint32_t*>(m_verifyDstTileLocationsMappedPtr);
-				*dstTileLocation = packDstTileLocation(0u, 0u);
-
-				if (!m_verifyDstTileLocationsAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-				{
-					ILogicalDevice::MappedMemoryRange range(m_verifyDstTileLocationsAlloc.memory.get(), 0, sizeof(uint32_t));
 					m_device->flushMappedMemoryRanges(1, &range);
 				}
 			}
@@ -295,8 +281,6 @@ public:
 
 		if (m_stagingAlloc.memory)
 			m_stagingAlloc.memory->unmap();
-		if (m_verifyDstTileLocationsAlloc.memory)
-			m_verifyDstTileLocationsAlloc.memory->unmap();
 		if (m_snakeReadbackAlloc.memory)
 			m_snakeReadbackAlloc.memory->unmap();
 		if (m_mortonReadbackAlloc.memory)
@@ -336,15 +320,12 @@ private:
 	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout;
 	smart_refctd_ptr<IGPUDescriptorSet> m_ds;
 	smart_refctd_ptr<IGPUBuffer> m_stagingBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_verifyDstTileLocationsBuffer;
 	smart_refctd_ptr<IGPUBuffer> m_snakeReadbackBuffer;
 	smart_refctd_ptr<IGPUBuffer> m_mortonReadbackBuffer;
 	IDeviceMemoryAllocator::SAllocation m_stagingAlloc;
-	IDeviceMemoryAllocator::SAllocation m_verifyDstTileLocationsAlloc;
 	IDeviceMemoryAllocator::SAllocation m_snakeReadbackAlloc;
 	IDeviceMemoryAllocator::SAllocation m_mortonReadbackAlloc;
 	void* m_stagingMappedPtr = nullptr;
-	void* m_verifyDstTileLocationsMappedPtr = nullptr;
 	void* m_snakeReadbackMappedPtr = nullptr;
 	void* m_mortonReadbackMappedPtr = nullptr;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
