@@ -96,7 +96,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	//adaptor_t sharedmemAdaptor;
 	//sharedmemAdaptor.accessor = sharedmemAccessor;
 
-	using ConstevalParameters = workgroup2::fft::ConstevalParameters<ElementsPerThread, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledChannelsPerRound, false, 0, float32_t>;
+	using ConstevalParameters = workgroup2::fft::ConstevalParameters<ElementsPerThread, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledChannelsPerRound, false, 0, true, float32_t>;
 	using FFT = workgroup2::FFT<false, ConstevalParameters>;
 	using IFFT = workgroup2::FFT<true, ConstevalParameters>;
 
