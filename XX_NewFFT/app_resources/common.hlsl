@@ -22,3 +22,5 @@ NBL_CONSTEXPR uint32_t complexElementCountPerChannel = uint32_t(1) << (Workgroup
 NBL_CONSTEXPR uint32_t Channels = ElementsPerThread / 2;
 
 NBL_CONSTEXPR uint32_t ShuffledChannelsPerRound = nbl::hlsl::mpl::min_v<uint32_t, Channels, 4>;
+
+NBL_CONSTEXPR bool ShareTwiddles = true;
