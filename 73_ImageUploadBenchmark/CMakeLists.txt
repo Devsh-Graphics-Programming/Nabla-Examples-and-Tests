@@ -36,7 +36,7 @@ set(JSON [=[
 [
 	{
 		"INPUT": "app_resources/tile_upload.comp.hlsl",
-		"KEY": "snakeStore"
+		"KEY": "tile_upload"
 	}
 ]
 ]=])

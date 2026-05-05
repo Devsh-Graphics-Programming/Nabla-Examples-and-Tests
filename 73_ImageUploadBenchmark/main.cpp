@@ -5,10 +5,13 @@
 
 using namespace nbl;
 using namespace nbl::core;
+using namespace nbl::hlsl;
 using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::video;
 using namespace nbl::examples;
+
+#include "app_resources/common.hlsl"
 
 class ImageUploadBenchmarkApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
@@ -121,7 +124,7 @@ public:
 		//Setup compute shader resources
 		m_logger->log("\n=== Setting up Compute Shaders (Snake + Morton) ===", ILogger::ELL_PERFORMANCE);
 		{
-			auto shaderLib = loadPrecompiledShader.operator() < "snakeStore" > ();
+			auto shaderLib = loadPrecompiledShader.operator() < "tile_upload" > ();
 			if (!shaderLib)
 				return logFail("Failed to load shader library!\n");
 
@@ -157,10 +160,8 @@ public:
 					return true;
 				};
 
-			if (!createPipeline("SnakeStore",  m_snakeStorePipeline))  return false;
-			if (!createPipeline("SnakeLoad",   m_snakeLoadPipeline))   return false;
-			if (!createPipeline("MortonStore", m_mortonStorePipeline)) return false;
-			if (!createPipeline("MortonLoad",  m_mortonLoadPipeline))  return false;
+			if (!createPipeline("SnakeLoadStore",  m_snakeLoadStorePipeline))  return false;
+			if (!createPipeline("MortonLoadStore", m_mortonLoadStorePipeline)) return false;
 
 			auto imageView = m_device->createImageView({
 				.flags = IGPUImageView::ECF_NONE,
@@ -279,9 +280,6 @@ public:
 
 		runAllBenchmarks();
 
-		if (!verifyComputeShaders())
-			return false;
-
 		return true;
 	}
 
@@ -319,9 +317,6 @@ protected:
 	}
 
 private:
-	static constexpr uint32_t TILE_SIZE = 128;
-	static constexpr uint32_t TILE_BYTES_PER_PIXEL = 4;
-	static constexpr uint32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * TILE_BYTES_PER_PIXEL;
 
 	struct SPushConstantData
 	{
@@ -336,10 +331,8 @@ private:
 
 	IQueue* m_queue = nullptr;
 	smart_refctd_ptr<IGPUImage> m_destinationImage;
-	smart_refctd_ptr<IGPUComputePipeline> m_snakeStorePipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_snakeLoadPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_mortonStorePipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_mortonLoadPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_snakeLoadStorePipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_mortonLoadStorePipeline;
 	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout;
 	smart_refctd_ptr<IGPUDescriptorSet> m_ds;
 	smart_refctd_ptr<IGPUBuffer> m_stagingBuffer;
@@ -402,16 +395,16 @@ private:
 				m_logger->log("\n--- Snake Compute (SysRAM) ---", ILogger::ELL_PERFORMANCE);
 				auto rSnake = runBenchmarkCompute("Snake Compute (SysRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
-					m_destinationImage.get(), m_snakeStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(128u, 4u),
+					m_destinationImage.get(), m_snakeLoadStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(SNAKE_WORKGROUP_SIZE_X, SNAKE_WORKGROUP_SIZE_Y),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Snake Compute (SysRAM)", rSnake.wallGBps, rSnake.gpuGBps, rSnake.memcpyGBps });
 
 				m_logger->log("\n--- Morton Compute (SysRAM) ---", ILogger::ELL_PERFORMANCE);
 				auto rMorton = runBenchmarkCompute("Morton Compute (SysRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
-					m_destinationImage.get(), m_mortonStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
-					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(16u, 16u),
+					m_destinationImage.get(), m_mortonLoadStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
+					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(MORTON_WORKGROUP_SIZE_X, MORTON_WORKGROUP_SIZE_Y),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Morton Compute (SysRAM)", rMorton.wallGBps, rMorton.gpuGBps, rMorton.memcpyGBps });
 
@@ -440,7 +433,7 @@ private:
 				m_logger->log("\n--- Snake Compute (BAR/VRAM) ---", ILogger::ELL_PERFORMANCE);
 				auto rSnake = runBenchmarkCompute("Snake Compute (BAR/VRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
-					m_destinationImage.get(), m_snakeStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
+					m_destinationImage.get(), m_snakeLoadStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
 					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(128u, 4u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Snake Compute (BAR/VRAM)", rSnake.wallGBps, rSnake.gpuGBps, rSnake.memcpyGBps });
@@ -448,7 +441,7 @@ private:
 				m_logger->log("\n--- Morton Compute (BAR/VRAM) ---", ILogger::ELL_PERFORMANCE);
 				auto rMorton = runBenchmarkCompute("Morton Compute (BAR/VRAM)",
 					benchStagingBuffer.get(), benchStagingAlloc, benchMappedPtr,
-					m_destinationImage.get(), m_mortonStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
+					m_destinationImage.get(), m_mortonLoadStorePipeline.get(), m_pipelineLayout.get(), m_ds.get(),
 					TILE_SIZE, TILE_SIZE_BYTES, hlsl::uint32_t2(16u, 16u),
 					TILES_PER_FRAME, FRAMES_IN_FLIGHT, TOTAL_FRAMES, m_queue);
 				results.push_back({ "Morton Compute (BAR/VRAM)", rMorton.wallGBps, rMorton.gpuGBps, rMorton.memcpyGBps });
@@ -1114,252 +1107,6 @@ private:
 		outMappedPtr = outAllocation.memory->map({ 0ull, outAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_WRITE);
 		if (!outMappedPtr)
 			return logFail("Failed to map Device Memory!\n");
-
-		return true;
-	}
-
-	bool verifyComputeShaders()
-	{
-		const uint64_t semValue = 2;
-
-		m_cmdPool->reset();
-
-		memset(m_snakeReadbackMappedPtr, 0, TILE_SIZE_BYTES);
-		if (!m_snakeReadbackAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-		{
-			ILogicalDevice::MappedMemoryRange range(m_snakeReadbackAlloc.memory.get(), 0, TILE_SIZE_BYTES);
-			m_device->flushMappedMemoryRanges(1, &range);
-		}
-		memset(m_mortonReadbackMappedPtr, 0, TILE_SIZE_BYTES);
-		if (!m_mortonReadbackAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-		{
-			ILogicalDevice::MappedMemoryRange range(m_mortonReadbackAlloc.memory.get(), 0, TILE_SIZE_BYTES);
-			m_device->flushMappedMemoryRanges(1, &range);
-		}
-
-		m_cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-		const IGPUDescriptorSet* sets[] = { m_ds.get() };
-		SPushConstantData storePc = {
-			.deviceBufferAddress = m_stagingBuffer->getDeviceAddress(),
-			.dstTileLocationsAddress = m_verifyDstTileLocationsBuffer->getDeviceAddress(),
-			.dstOffsetX = 0,
-			.dstOffsetY = 0,
-			.srcWidth = TILE_SIZE,
-			.srcHeight = TILE_SIZE,
-			.tilesPerRow = 1u
-		};
-
-		//SNAKE VERIFICATION
-		{
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> snakePreBarrier = {};
-			snakePreBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-			snakePreBarrier.newLayout = IImage::LAYOUT::GENERAL;
-			snakePreBarrier.image = m_destinationImage.get();
-			snakePreBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			snakePreBarrier.subresourceRange.baseMipLevel = 0;
-			snakePreBarrier.subresourceRange.levelCount = 1;
-			snakePreBarrier.subresourceRange.baseArrayLayer = 0;
-			snakePreBarrier.subresourceRange.layerCount = 1;
-			snakePreBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			snakePreBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-			snakePreBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			snakePreBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&snakePreBarrier, 1} });
-		}
-
-		m_cmdbuf->bindComputePipeline(m_snakeStorePipeline.get());
-		m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, sets);
-		m_cmdbuf->pushConstants(m_pipelineLayout.get(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(SPushConstantData), &storePc);
-		m_cmdbuf->dispatch(1u, TILE_SIZE / 4u, 1u);
-
-		{
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> snakeMidBarrier = {};
-			snakeMidBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-			snakeMidBarrier.newLayout = IImage::LAYOUT::GENERAL;
-			snakeMidBarrier.image = m_destinationImage.get();
-			snakeMidBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			snakeMidBarrier.subresourceRange.baseMipLevel = 0;
-			snakeMidBarrier.subresourceRange.levelCount = 1;
-			snakeMidBarrier.subresourceRange.baseArrayLayer = 0;
-			snakeMidBarrier.subresourceRange.layerCount = 1;
-			snakeMidBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-			snakeMidBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			snakeMidBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			snakeMidBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&snakeMidBarrier, 1} });
-		}
-
-		m_cmdbuf->bindComputePipeline(m_snakeLoadPipeline.get());
-		m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, sets);
-
-		SPushConstantData snakeLoadPc = {
-			.deviceBufferAddress = m_snakeReadbackBuffer->getDeviceAddress(),
-			.dstTileLocationsAddress = m_verifyDstTileLocationsBuffer->getDeviceAddress(),
-			.dstOffsetX = 0,
-			.dstOffsetY = 0,
-			.srcWidth = TILE_SIZE,
-			.srcHeight = TILE_SIZE,
-			.tilesPerRow = 1u
-		};
-		m_cmdbuf->pushConstants(m_pipelineLayout.get(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(SPushConstantData), &snakeLoadPc);
-		m_cmdbuf->dispatch(1u, TILE_SIZE / 4u, 1u);
-
-		{
-			asset::SMemoryBarrier memBarrier = {
-				.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-				.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-				.dstStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT,
-				.dstAccessMask = ACCESS_FLAGS::HOST_READ_BIT
-			};
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
-		}
-
-		//MORTON VERIFICATION
-		{
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> mortonPreBarrier = {};
-			mortonPreBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-			mortonPreBarrier.newLayout = IImage::LAYOUT::GENERAL;
-			mortonPreBarrier.image = m_destinationImage.get();
-			mortonPreBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			mortonPreBarrier.subresourceRange.baseMipLevel = 0;
-			mortonPreBarrier.subresourceRange.levelCount = 1;
-			mortonPreBarrier.subresourceRange.baseArrayLayer = 0;
-			mortonPreBarrier.subresourceRange.layerCount = 1;
-			mortonPreBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			mortonPreBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-			mortonPreBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			mortonPreBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&mortonPreBarrier, 1} });
-		}
-
-		m_cmdbuf->bindComputePipeline(m_mortonStorePipeline.get());
-		m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, sets);
-		m_cmdbuf->pushConstants(m_pipelineLayout.get(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(SPushConstantData), &storePc);
-		m_cmdbuf->dispatch(TILE_SIZE / 16u, TILE_SIZE / 16u, 1u);
-
-		{
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> mortonMidBarrier = {};
-			mortonMidBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-			mortonMidBarrier.newLayout = IImage::LAYOUT::GENERAL;
-			mortonMidBarrier.image = m_destinationImage.get();
-			mortonMidBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			mortonMidBarrier.subresourceRange.baseMipLevel = 0;
-			mortonMidBarrier.subresourceRange.levelCount = 1;
-			mortonMidBarrier.subresourceRange.baseArrayLayer = 0;
-			mortonMidBarrier.subresourceRange.layerCount = 1;
-			mortonMidBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-			mortonMidBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			mortonMidBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			mortonMidBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&mortonMidBarrier, 1} });
-		}
-
-		m_cmdbuf->bindComputePipeline(m_mortonLoadPipeline.get());
-		m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, sets);
-
-		SPushConstantData mortonLoadPc = {
-			.deviceBufferAddress = m_mortonReadbackBuffer->getDeviceAddress(),
-			.dstTileLocationsAddress = m_verifyDstTileLocationsBuffer->getDeviceAddress(),
-			.dstOffsetX = 0,
-			.dstOffsetY = 0,
-			.srcWidth = TILE_SIZE,
-			.srcHeight = TILE_SIZE,
-			.tilesPerRow = 1u
-		};
-		m_cmdbuf->pushConstants(m_pipelineLayout.get(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(SPushConstantData), &mortonLoadPc);
-		m_cmdbuf->dispatch(TILE_SIZE / 16u, TILE_SIZE / 16u, 1u);
-
-		{
-			asset::SMemoryBarrier memBarrier = {
-				.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-				.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-				.dstStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT,
-				.dstAccessMask = ACCESS_FLAGS::HOST_READ_BIT
-			};
-			m_cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
-		}
-
-		m_cmdbuf->end();
-
-		// Submit and wait
-		IQueue::SSubmitInfo submitInfo = {};
-		IQueue::SSubmitInfo::SCommandBufferInfo cmdBufInfo = { .cmdbuf = m_cmdbuf.get() };
-		submitInfo.commandBuffers = { &cmdBufInfo, 1 };
-
-		IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
-			.semaphore = m_sem.get(),
-			.value = semValue,
-			.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-		};
-		submitInfo.signalSemaphores = { &signalInfo, 1 };
-
-		m_api->startCapture();
-		m_queue->submit({ &submitInfo, 1 });
-		m_api->endCapture();
-
-		ISemaphore::SWaitInfo waitInfo = { .semaphore = m_sem.get(), .value = semValue };
-		m_device->blockForSemaphores({ &waitInfo, 1 });
-
-		if (!m_snakeReadbackAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-		{
-			ILogicalDevice::MappedMemoryRange range(m_snakeReadbackAlloc.memory.get(), 0, TILE_SIZE_BYTES);
-			m_device->invalidateMappedMemoryRanges(1, &range);
-		}
-		if (!m_mortonReadbackAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-		{
-			ILogicalDevice::MappedMemoryRange range(m_mortonReadbackAlloc.memory.get(), 0, TILE_SIZE_BYTES);
-			m_device->invalidateMappedMemoryRanges(1, &range);
-		}
-
-		const uint32_t* srcPixels = static_cast<const uint32_t*>(m_stagingMappedPtr);
-		uint32_t totalPixels = TILE_SIZE * TILE_SIZE;
-
-		const uint32_t* snakeDstPixels = static_cast<const uint32_t*>(m_snakeReadbackMappedPtr);
-		uint32_t snakeMatchCount = 0;
-		uint32_t snakeFirstMismatchIdx = ~0u;
-
-		for (uint32_t i = 0; i < totalPixels; i++)
-		{
-			if (srcPixels[i] == snakeDstPixels[i])
-				snakeMatchCount++;
-			else if (snakeFirstMismatchIdx == ~0u)
-				snakeFirstMismatchIdx = i;
-		}
-
-		if (snakeMatchCount == totalPixels)
-		{
-			m_logger->log("Snake verification PASS. All %u pixels match.", ILogger::ELL_PERFORMANCE, totalPixels);
-		}
-		else
-		{
-			m_logger->log("Snake verification FAIL. %u / %u pixels matched. First mismatch at pixel %u: expected 0x%08X, got 0x%08X",
-				ILogger::ELL_ERROR, snakeMatchCount, totalPixels, snakeFirstMismatchIdx, srcPixels[snakeFirstMismatchIdx], snakeDstPixels[snakeFirstMismatchIdx]);
-			return false;
-		}
-
-		const uint32_t* mortonDstPixels = static_cast<const uint32_t*>(m_mortonReadbackMappedPtr);
-		uint32_t mortonMatchCount = 0;
-		uint32_t mortonFirstMismatchIdx = ~0u;
-
-		for (uint32_t i = 0; i < totalPixels; i++)
-		{
-			if (srcPixels[i] == mortonDstPixels[i])
-				mortonMatchCount++;
-			else if (mortonFirstMismatchIdx == ~0u)
-				mortonFirstMismatchIdx = i;
-		}
-
-		if (mortonMatchCount == totalPixels)
-		{
-			m_logger->log("Morton verification PASS. All %u pixels match.", ILogger::ELL_PERFORMANCE, totalPixels);
-		}
-		else
-		{
-			m_logger->log("Morton verification FAIL. %u / %u pixels matched. First mismatch at pixel %u: expected 0x%08X, got 0x%08X",
-				ILogger::ELL_ERROR, mortonMatchCount, totalPixels, mortonFirstMismatchIdx, srcPixels[mortonFirstMismatchIdx], mortonDstPixels[mortonFirstMismatchIdx]);
-			return false;
-		}
 
 		return true;
 	}
