@@ -1,0 +1,30 @@
+#include <nbl/builtin/hlsl/morton.hlsl>
+
+NBL_CONSTEXPR_STATIC uint32_t TILE_SIZE = 128u;
+NBL_CONSTEXPR_STATIC uint32_t TILE_SIZE_LOG2 = 7u;
+NBL_CONSTEXPR_STATIC uint32_t TILE_SIZE_MASK = TILE_SIZE - 1u;
+NBL_CONSTEXPR_STATIC uint32_t TILE_PIXELS_LOG2 = TILE_SIZE_LOG2 * 2u;
+NBL_CONSTEXPR_STATIC uint32_t BLOCK_SIZE = 16u;
+NBL_CONSTEXPR_STATIC uint32_t BLOCK_SIZE_LOG2 = 4u;
+NBL_CONSTEXPR_STATIC uint32_t BLOCK_PIXELS_LOG2 = BLOCK_SIZE_LOG2 * 2u;
+NBL_CONSTEXPR_STATIC uint32_t BLOCKS_PER_TILE_LOG2 = TILE_SIZE_LOG2 - BLOCK_SIZE_LOG2;
+NBL_CONSTEXPR_STATIC uint32_t BLOCKS_PER_TILE = TILE_SIZE / BLOCK_SIZE;
+NBL_CONSTEXPR_STATIC uint32_t PIXEL_BYTE_SIZE = 4u; // later could be moved to push constant to allow for more formats
+NBL_CONSTEXPR_STATIC uint32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * PIXEL_BYTE_SIZE;
+
+// Could be just 512, 1
+#define SNAKE_WORKGROUP_SIZE_X 128
+#define SNAKE_WORKGROUP_SIZE_Y 4
+
+#define MORTON_WORKGROUP_SIZE_X 16
+#define MORTON_WORKGROUP_SIZE_Y 16
+
+struct PushConstantData
+{
+    uint64_t deviceBufferAddress;
+    uint64_t dstTileLocationsAddress;
+    uint32_t2 dstOffset;
+    uint32_t srcWidth;
+    uint32_t srcHeight;
+    uint32_t tilesPerRow;
+};
