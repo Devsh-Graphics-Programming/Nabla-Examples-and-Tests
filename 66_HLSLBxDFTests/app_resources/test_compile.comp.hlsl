@@ -1,0 +1,110 @@
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
+
+#include "nbl/builtin/hlsl/bxdf/common.hlsl"
+#include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
+#include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+
+[[vk::binding(0,0)]] RWStructuredBuffer<float3> buff;
+
+using namespace nbl::hlsl;
+
+using spectral_t = vector<float, 3>;
+using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
+using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
+using sample_t = bxdf::SLightSample<ray_dir_info_t>;
+using quotient_weight_t = sampling::quotient_and_weight<float32_t3, float>;
+
+using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
+using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;
+
+using iso_mc_cache = bxdf::SIsotropicMicrofacetCache<float>;
+using aniso_mc_cache = bxdf::SAnisotropicMicrofacetCache<iso_mc_cache>;
+using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_mc_cache, spectral_t>;
+using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_mc_cache, spectral_t>;
+
+[numthreads(64,1,1)]
+void main(uint32_t3 ID : SV_DispatchThreadID)
+{
+    bxdf::reflection::SLambertian<iso_config_t> lambertianBRDF;
+    bxdf::reflection::SOrenNayar<iso_config_t> orenNayarBRDF;
+    bxdf::reflection::SDeltaDistribution<iso_config_t> deltaDistBRDF;
+    bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t> beckmannIsoBRDF;
+    bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t> beckmannAnisoBRDF;
+    bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t> ggxIsoBRDF;
+    bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t> ggxAnisoBRDF;
+    bxdf::reflection::SIridescent<iso_microfacet_config_t> iridBRDF;
+
+    bxdf::transmission::SLambertian<iso_config_t> lambertianBSDF;
+    bxdf::transmission::SOrenNayar<iso_config_t> orenNayarBSDF;
+    bxdf::transmission::SSmoothDielectric<iso_config_t> smoothDielectricBSDF;
+    bxdf::transmission::SThinSmoothDielectric<iso_config_t> thinSmoothDielectricBSDF;
+    bxdf::transmission::SDeltaDistribution<iso_config_t> deltaDistBSDF;
+    bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t> beckmannIsoBSDF;
+    bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
+    bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t> ggxIsoBSDF;
+    bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t> ggxAnisoBSDF;
+    bxdf::transmission::SIridescent<iso_microfacet_config_t> iridBSDF;
+
+
+    // do some nonsense calculations, but call all the relevant functions
+    ray_dir_info_t V;
+    V.direction = nbl::hlsl::normalize<float3>(float3(1, 1, 1));
+    const float3 N = float3(0, 1, 0);
+    float3 T, B;
+    math::frisvad<float32_t3>(N, T, B);
+    const float3 u = float3(0.5, 0.5, 0);
+
+    iso_interaction isointer = iso_interaction::create(V, N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, T, B);
+
+    float3 L = float3(0,0,0);
+    float3 q = float3(0,0,0);
+    typename bxdf::reflection::SLambertian<iso_config_t>::anisocache_type _lcache;
+    sample_t s = lambertianBRDF.generate(anisointer, u.xy, _lcache);
+    L += s.L.direction;
+
+    typename bxdf::reflection::SOrenNayar<iso_config_t>::anisocache_type _ocache;
+    s = orenNayarBRDF.generate(anisointer, u.xy, _ocache);
+    L += s.L.direction;
+
+    quotient_weight_t qp = orenNayarBRDF.quotientAndWeight(s, isointer, _ocache);
+    L -= qp.quotient();
+
+    {
+        aniso_mc_cache cache;
+
+        s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
+        L += s.L.direction;
+
+        qp = beckmannAnisoBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
+
+        s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
+        L += s.L.direction;
+
+        qp = iridBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
+
+        qp = ggxAnisoBRDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
+
+        typename bxdf::transmission::SLambertian<iso_config_t>::anisocache_type _tlcache;
+        s = lambertianBSDF.generate(anisointer, u, _tlcache);
+        L += s.L.direction;
+
+        typename bxdf::transmission::SThinSmoothDielectric<iso_config_t>::anisocache_type _tscache;
+        s = thinSmoothDielectricBSDF.generate(anisointer, u, _tscache);
+        L += s.L.direction;
+
+        qp = thinSmoothDielectricBSDF.quotientAndWeight(s, isointer, _tscache);
+        L -= qp.quotient();
+
+        s = ggxAnisoBSDF.generate(anisointer, u, cache);
+        L += s.L.direction;
+
+        qp = ggxAnisoBSDF.quotientAndWeight(s, anisointer, cache);
+        L -= qp.quotient();
+    }
+    buff[ID.x] = L;
+}

@@ -66,6 +66,12 @@ private:
             realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
             realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())
         );
+        testInput.pseudoMat3x4 = float32_t4x4(
+            realDistribution(getRandomEngine()), 0, 0, realDistribution(getRandomEngine()),
+            0, realDistribution(getRandomEngine()), 0, realDistribution(getRandomEngine()),
+            0, 0, realDistribution(getRandomEngine()), realDistribution(getRandomEngine()),
+            0,0,0,1
+        );
         testInput.minA = realDistribution(getRandomEngine());
         testInput.minB = realDistribution(getRandomEngine());
         testInput.maxA = realDistribution(getRandomEngine());
@@ -197,63 +203,84 @@ private:
         auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
         expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
 
+        auto inverse3x4Glm = hlsl::inverse(testInput.pseudoMat3x4);
+        expected.pseudoInverse3x4 = nbl::hlsl::mul(inverse3x4Glm, float32_t4(testInput.length, 1));
+
         return expected;
     }
 
-    void verifyTestResults(const IntrinsicsTestValues& expectedTestValues, const IntrinsicsTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
+    bool verifyTestResults(const IntrinsicsTestValues& expectedTestValues, const IntrinsicsTestValues& testValues, const size_t testIteration, const uint32_t seed, TestType testType) override
     {
-        verifyTestValue("bitCount", expectedTestValues.bitCount, testValues.bitCount, testIteration, seed, testType);
-        verifyTestValue("clamp", expectedTestValues.clamp, testValues.clamp, testIteration, seed, testType);
-        verifyTestValue("length", expectedTestValues.length, testValues.length, testIteration, seed, testType, 0.0001);
-        verifyTestValue("dot", expectedTestValues.dot, testValues.dot, testIteration, seed, testType, 0.00001);
-        verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testIteration, seed, testType);
-        verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testIteration, seed, testType);
-        verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testIteration, seed, testType);
-        verifyTestValue("min", expectedTestValues.min, testValues.min, testIteration, seed, testType);
-        verifyTestValue("max", expectedTestValues.max, testValues.max, testIteration, seed, testType);
-        verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testIteration, seed, testType);
-        verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testIteration, seed, testType);
-        verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testIteration, seed, testType);
-        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testIteration, seed, testType);
-        verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testIteration, seed, testType);
-        verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testIteration, seed, testType, 0.00001);
-        verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testIteration, seed, testType, 0.001);
-        verifyTestValue("step", expectedTestValues.step, testValues.step, testIteration, seed, testType);
-        verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testIteration, seed, testType);
-        verifyTestValue("addCarryResult", expectedTestValues.addCarry.result, testValues.addCarry.result, testIteration, seed, testType);
-        verifyTestValue("addCarryCarry", expectedTestValues.addCarry.carry, testValues.addCarry.carry, testIteration, seed, testType);
-        verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testIteration, seed, testType);
-        verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testIteration, seed, testType);
+        volatile float lengthToleranace = 0.00001;
+        volatile float dotToleranace = 0.00001;
+        volatile float determinantToleranace = 0.000212669;
+        volatile float rsqrtTolerance = 1.1922e-07;
+        volatile float mixTolerance = 0.00001; // for now
+        volatile float radiansToleranace = 0.000001;
+        volatile float degreesToleranace = 0.000001;
+        volatile float smoothstepToleranace = 3.57628e-07;
+        volatile float normalizeToleranace = 0.0000001;
+        volatile float reflectToleranace = 0.0001;
+        volatile float refractToleranace = 0.001;
+        volatile float matrixMulToleranace = 0.00001;
+        volatile float inverseToleranace = 0.0001;
+        volatile float pseudoInverseToleranace = 0.0001;
 
-        verifyTestValue("normalize", expectedTestValues.normalize, testValues.normalize, testIteration, seed, testType, 0.000001);
-        verifyTestValue("cross", expectedTestValues.cross, testValues.cross, testIteration, seed, testType);
-        verifyTestValue("bitCountVec", expectedTestValues.bitCountVec, testValues.bitCountVec, testIteration, seed, testType);
-        verifyTestValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testIteration, seed, testType);
-        verifyTestValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testIteration, seed, testType);
-        verifyTestValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testIteration, seed, testType);
-        verifyTestValue("minVec", expectedTestValues.minVec, testValues.minVec, testIteration, seed, testType);
-        verifyTestValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testIteration, seed, testType);
-        verifyTestValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testIteration, seed, testType);
-        verifyTestValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testIteration, seed, testType);
-        verifyTestValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testIteration, seed, testType);
-        verifyTestValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testIteration, seed, testType);
+        bool pass = true;
+        pass &= verifyTestValue("bitCount", expectedTestValues.bitCount, testValues.bitCount, testIteration, seed, testType);
+        pass &= verifyTestValue("clamp", expectedTestValues.clamp, testValues.clamp, testIteration, seed, testType);
+        pass &= verifyTestValue("length", expectedTestValues.length, testValues.length, testIteration, seed, testType, lengthToleranace);
+        pass &= verifyTestValue("dot", expectedTestValues.dot, testValues.dot, testIteration, seed, testType, dotToleranace);
+        pass &= verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testIteration, seed, testType, determinantToleranace);
+        pass &= verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testIteration, seed, testType);
+        pass &= verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testIteration, seed, testType);
+        pass &= verifyTestValue("min", expectedTestValues.min, testValues.min, testIteration, seed, testType);
+        pass &= verifyTestValue("max", expectedTestValues.max, testValues.max, testIteration, seed, testType);
+        pass &= verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testIteration, seed, testType, rsqrtTolerance);
+        pass &= verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testIteration, seed, testType);
+        pass &= verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testIteration, seed, testType);
+        pass &= verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testIteration, seed, testType, mixTolerance);
+        pass &= verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testIteration, seed, testType);
+        pass &= verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testIteration, seed, testType, radiansToleranace);
+        pass &= verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testIteration, seed, testType, degreesToleranace);
+        pass &= verifyTestValue("step", expectedTestValues.step, testValues.step, testIteration, seed, testType);
+        pass &= verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testIteration, seed, testType, smoothstepToleranace);
+        pass &= verifyTestValue("addCarryResult", expectedTestValues.addCarry.result, testValues.addCarry.result, testIteration, seed, testType);
+        pass &= verifyTestValue("addCarryCarry", expectedTestValues.addCarry.carry, testValues.addCarry.carry, testIteration, seed, testType);
+        pass &= verifyTestValue("subBorrowResult", expectedTestValues.subBorrow.result, testValues.subBorrow.result, testIteration, seed, testType);
+        pass &= verifyTestValue("subBorrowBorrow", expectedTestValues.subBorrow.borrow, testValues.subBorrow.borrow, testIteration, seed, testType);
 
-        verifyTestValue("signVec", expectedTestValues.signVec, testValues.signVec, testIteration, seed, testType);
-        verifyTestValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testIteration, seed, testType, 0.00001);
-        verifyTestValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testIteration, seed, testType, 0.001);
-        verifyTestValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testIteration, seed, testType);
-        verifyTestValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testIteration, seed, testType);
-        verifyTestValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testIteration, seed, testType);
-        verifyTestValue("reflect", expectedTestValues.reflect, testValues.reflect, testIteration, seed, testType, 0.001);
-        verifyTestValue("refract", expectedTestValues.refract, testValues.refract, testIteration, seed, testType, 0.01);
-        verifyTestValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testIteration, seed, testType);
-        verifyTestValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testIteration, seed, testType);
-        verifyTestValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testIteration, seed, testType);
-        verifyTestValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testIteration, seed, testType);
+        pass &= verifyTestValue("normalize", expectedTestValues.normalize, testValues.normalize, testIteration, seed, testType, normalizeToleranace);
+        pass &= verifyTestValue("cross", expectedTestValues.cross, testValues.cross, testIteration, seed, testType);
+        pass &= verifyTestValue("bitCountVec", expectedTestValues.bitCountVec, testValues.bitCountVec, testIteration, seed, testType);
+        pass &= verifyTestValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testIteration, seed, testType);
+        pass &= verifyTestValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testIteration, seed, testType);
+        pass &= verifyTestValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testIteration, seed, testType);
+        pass &= verifyTestValue("minVec", expectedTestValues.minVec, testValues.minVec, testIteration, seed, testType);
+        pass &= verifyTestValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testIteration, seed, testType);
+        pass &= verifyTestValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testIteration, seed, testType);
+        pass &= verifyTestValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testIteration, seed, testType);
+        pass &= verifyTestValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testIteration, seed, testType);
+        pass &= verifyTestValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testIteration, seed, testType);
 
-        verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType);
-        verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType);
-        verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType);
+        pass &= verifyTestValue("signVec", expectedTestValues.signVec, testValues.signVec, testIteration, seed, testType);
+        pass &= verifyTestValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testIteration, seed, testType, radiansToleranace);
+        pass &= verifyTestValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testIteration, seed, testType, degreesToleranace);
+        pass &= verifyTestValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testIteration, seed, testType);
+        pass &= verifyTestValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testIteration, seed, testType, smoothstepToleranace);
+        pass &= verifyTestValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testIteration, seed, testType);
+        pass &= verifyTestValue("reflect", expectedTestValues.reflect, testValues.reflect, testIteration, seed, testType, reflectToleranace);
+        pass &= verifyTestValue("refract", expectedTestValues.refract, testValues.refract, testIteration, seed, testType, refractToleranace);
+        pass &= verifyTestValue("addCarryVecResult", expectedTestValues.addCarryVec.result, testValues.addCarryVec.result, testIteration, seed, testType);
+        pass &= verifyTestValue("addCarryVecCarry", expectedTestValues.addCarryVec.carry, testValues.addCarryVec.carry, testIteration, seed, testType);
+        pass &= verifyTestValue("subBorrowVecResult", expectedTestValues.subBorrowVec.result, testValues.subBorrowVec.result, testIteration, seed, testType);
+        pass &= verifyTestValue("subBorrowVecBorrow", expectedTestValues.subBorrowVec.borrow, testValues.subBorrowVec.borrow, testIteration, seed, testType);
+
+        pass &= verifyTestValue("mul", expectedTestValues.mul, testValues.mul, testIteration, seed, testType, matrixMulToleranace);
+        pass &= verifyTestValue("transpose", expectedTestValues.transpose, testValues.transpose, testIteration, seed, testType, 0.0);
+        pass &= verifyTestValue("inverse", expectedTestValues.inverse, testValues.inverse, testIteration, seed, testType, inverseToleranace);
+        pass &= verifyTestValue("pseudoInverse3x4", expectedTestValues.pseudoInverse3x4, testValues.pseudoInverse3x4, testIteration, seed, testType, pseudoInverseToleranace);
+        return pass;
     }
 };
 

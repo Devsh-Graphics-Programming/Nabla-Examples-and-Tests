@@ -26,7 +26,7 @@ struct ReferenceObjectCpu
 {
 	core::smart_refctd_ptr<ICPUPolygonGeometry> data;
 	Material material;
-  core::matrix3x4SIMD transform;
+	hlsl::float32_t3x4 transform;
 
 };
 

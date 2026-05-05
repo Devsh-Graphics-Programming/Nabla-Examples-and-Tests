@@ -9,7 +9,10 @@
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
-
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/transform.hlsl>
+#include <nbl/builtin/hlsl/math/quaternions.hlsl>
+#include <nbl/system/to_string.h>
 
 class RaytracingPipelineApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -26,17 +29,6 @@ class RaytracingPipelineApp final : public SimpleWindowedApplication, public Bui
 	  "Directional",
 	  "Point",
 	  "Spot"
-	};
-
-	struct ShaderBindingTable
-	{
-		SBufferRange<IGPUBuffer> raygenGroupRange;
-		SBufferRange<IGPUBuffer> hitGroupsRange;
-		uint32_t hitGroupsStride;
-		SBufferRange<IGPUBuffer> missGroupsRange;
-		uint32_t missGroupsStride;
-		SBufferRange<IGPUBuffer> callableGroupsRange;
-		uint32_t callableGroupsStride;
 	};
 
 
@@ -59,6 +51,7 @@ public:
 	{
 		auto retval = device_base_t::getPreferredDeviceFeatures();
 		retval.accelerationStructureHostCommands = true;
+		retval.pipelineExecutableInfo = true;
 		return retval;
 	}
 
@@ -102,48 +95,48 @@ public:
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
-		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!device_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(m_system)))
 			return false;
 
 		// Load Custom Shader
 		auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+		{
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = "app_resources"; // virtual root
+			auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+			auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+				return nullptr;
+
+			// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+			auto shader = IAsset::castDown<IShader>(assets[0]);
+			if (!shader)
 			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = "app_resources"; // virtual root
-				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
-				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
+				m_logger->log("Failed to load a precompiled shader.", ILogger::ELL_ERROR);
+				return nullptr;
+			}
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto shader = IAsset::castDown<IShader>(assets[0]);
-				if (!shader)
-				{
-					m_logger->log("Failed to load a precompiled shader.", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				return shader;
-			};
+			return shader;
+		};
 
 		// load shaders
-		const auto raygenShader = loadPrecompiledShader.operator()<"raytrace_rgen">(); // "app_resources/raytrace.rgen.hlsl"
-		const auto closestHitShader = loadPrecompiledShader.operator()<"raytrace_rchit">(); // "app_resources/raytrace.rchit.hlsl"
-		const auto proceduralClosestHitShader = loadPrecompiledShader.operator()<"raytrace_procedural_rchit">(); // "app_resources/raytrace_procedural.rchit.hlsl"
-		const auto intersectionHitShader = loadPrecompiledShader.operator()<"raytrace_rint">(); // "app_resources/raytrace.rint.hlsl"
-		const auto anyHitShaderColorPayload = loadPrecompiledShader.operator()<"raytrace_rahit">(); // "app_resources/raytrace.rahit.hlsl"
-		const auto anyHitShaderShadowPayload = loadPrecompiledShader.operator()<"raytrace_shadow_rahit">(); // "app_resources/raytrace_shadow.rahit.hlsl"
-		const auto missShader = loadPrecompiledShader.operator()<"raytrace_rmiss">(); // "app_resources/raytrace.rmiss.hlsl"
-		const auto missShadowShader = loadPrecompiledShader.operator()<"raytrace_shadow_rmiss">(); // "app_resources/raytrace_shadow.rmiss.hlsl"
-		const auto directionalLightCallShader = loadPrecompiledShader.operator()<"light_directional_rcall">(); // "app_resources/light_directional.rcall.hlsl"
-		const auto pointLightCallShader = loadPrecompiledShader.operator()<"light_point_rcall">(); // "app_resources/light_point.rcall.hlsl"
-		const auto spotLightCallShader = loadPrecompiledShader.operator()<"light_spot_rcall">(); // "app_resources/light_spot.rcall.hlsl"
-		const auto fragmentShader = loadPrecompiledShader.operator()<"present_frag">(); // "app_resources/present.frag.hlsl"
+		const auto raygenShader = loadPrecompiledShader.operator() < "raytrace_rgen" > (); // "app_resources/raytrace.rgen.hlsl"
+		const auto closestHitShader = loadPrecompiledShader.operator() < "raytrace_rchit" > (); // "app_resources/raytrace.rchit.hlsl"
+		const auto proceduralClosestHitShader = loadPrecompiledShader.operator() < "raytrace_procedural_rchit" > (); // "app_resources/raytrace_procedural.rchit.hlsl"
+		const auto intersectionHitShader = loadPrecompiledShader.operator() < "raytrace_rint" > (); // "app_resources/raytrace.rint.hlsl"
+		const auto anyHitShaderColorPayload = loadPrecompiledShader.operator() < "raytrace_rahit" > (); // "app_resources/raytrace.rahit.hlsl"
+		const auto anyHitShaderShadowPayload = loadPrecompiledShader.operator() < "raytrace_shadow_rahit" > (); // "app_resources/raytrace_shadow.rahit.hlsl"
+		const auto missShader = loadPrecompiledShader.operator() < "raytrace_rmiss" > (); // "app_resources/raytrace.rmiss.hlsl"
+		const auto missShadowShader = loadPrecompiledShader.operator() < "raytrace_shadow_rmiss" > (); // "app_resources/raytrace_shadow.rmiss.hlsl"
+		const auto directionalLightCallShader = loadPrecompiledShader.operator() < "light_directional_rcall" > (); // "app_resources/light_directional.rcall.hlsl"
+		const auto pointLightCallShader = loadPrecompiledShader.operator() < "light_point_rcall" > (); // "app_resources/light_point.rcall.hlsl"
+		const auto spotLightCallShader = loadPrecompiledShader.operator() < "light_spot_rcall" > (); // "app_resources/light_spot.rcall.hlsl"
+		const auto fragmentShader = loadPrecompiledShader.operator() < "present_frag" > (); // "app_resources/present.frag.hlsl"
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 		if (!m_semaphore)
@@ -240,18 +233,18 @@ public:
 		{
 			const auto bindings = std::array<const ICPUDescriptorSetLayout::SBinding, 2>{
 			  ICPUDescriptorSetLayout::SBinding{
-          .binding = 0,
-          .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
+		  .binding = 0,
+		  .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+		  .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+		  .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+		  .count = 1,
 			  },
 			  {
-          .binding = 1,
-          .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-          .count = 1,
+		  .binding = 1,
+		  .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+		  .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+		  .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+		  .count = 1,
 			  }
 			};
 			auto cpuDescriptorSetLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
@@ -264,11 +257,19 @@ public:
 			const auto cpuPipelineLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>({ pcRange }), std::move(cpuDescriptorSetLayout), nullptr, nullptr, nullptr);
 
 			const auto pipeline = ICPURayTracingPipeline::create(cpuPipelineLayout.get());
-			pipeline->getCachedCreationParams() = {
-				.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS,
-				.maxRecursionDepth = 1,
-				.dynamicStackSize = true,
-			};
+			{
+				core::bitflag<IGPURayTracingPipeline::SCreationParams::FLAGS> flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS;
+				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+				{
+					flags |= IGPURayTracingPipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+					flags |= IGPURayTracingPipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+				}
+				pipeline->getCachedCreationParams() = {
+					.flags = flags,
+					.maxRecursionDepth = 1,
+					.dynamicStackSize = true,
+				};
+			}
 
 			pipeline->getSpecInfos(ESS_RAYGEN)[0] = {
 				.shader = raygenShader,
@@ -295,7 +296,7 @@ public:
 			const auto intersectionSpecs = pipeline->getSpecInfos(ESS_INTERSECTION);
 
 			closestHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = closestHitShader, .entryPoint = "main" };
-			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {.shader = anyHitShaderColorPayload, .entryPoint = "main"};
+			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
 
 			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
 
@@ -303,7 +304,7 @@ public:
 			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
 			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = intersectionHitShader, .entryPoint = "main" };
 
-			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {.shader = anyHitShaderShadowPayload, .entryPoint = "main" };
+			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
 			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = intersectionHitShader, .entryPoint = "main" };
 
 			pipeline->getSpecInfoVector(ESS_CALLABLE)->resize(ELT_COUNT);
@@ -312,9 +313,9 @@ public:
 			callableGroups[ELT_POINT] = { .shader = pointLightCallShader, .entryPoint = "main" };
 			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader, .entryPoint = "main" };
 
-      smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-		  CAssetConverter::SInputs inputs = {};
-      inputs.logger = m_logger.get();
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
 
 			const std::array cpuPipelines = { pipeline.get() };
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPURayTracingPipeline>>(inputs.assets) = cpuPipelines;
@@ -322,7 +323,7 @@ public:
 			CAssetConverter::SConvertParams params = {};
 			params.utilities = m_utils.get();
 
-      auto reservation = converter->reserve(inputs);
+			auto reservation = converter->reserve(inputs);
 			auto future = reservation.convert(params);
 			if (future.copy() != IQueue::RESULT::SUCCESS)
 			{
@@ -333,10 +334,16 @@ public:
 			// assign gpu objects to output
 			auto&& pipelines = reservation.getGPUObjects<ICPURayTracingPipeline>();
 			m_rayTracingPipeline = pipelines[0].value;
+
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				auto report = system::to_string(m_rayTracingPipeline->getExecutableInfo());
+				m_logger->log("Ray Tracing Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+			}
 			const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
 
 			const std::array<const IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { gpuDsLayout };
-      m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+			m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
 			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
 
 			calculateRayTracingStackSize(m_rayTracingPipeline);
@@ -346,7 +353,7 @@ public:
 
 		}
 
-		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 
 		if (!createIndirectBuffer())
 			return logFail("Could not create indirect buffer");
@@ -476,9 +483,9 @@ public:
 
 				m_camera.setProjectionMatrix([&]()
 					{
-						static matrix4SIMD projection;
+						static hlsl::float32_t4x4 projection;
 
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 							core::radians(m_cameraSetting.fov),
 							io.DisplaySize.x / io.DisplaySize.y,
 							m_cameraSetting.zNear,
@@ -542,9 +549,9 @@ public:
 		// Set Camera
 		{
 			core::vectorSIMDf cameraPosition(0, 5, -10);
-			matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+			hlsl::float32_t4x4 proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 				core::radians(60.0f),
-				WIN_W / WIN_H,
+				float(WIN_W / WIN_H),
 				0.01f,
 				500.0f
 			);
@@ -620,18 +627,15 @@ public:
 		const auto projectionMatrix = m_camera.getProjectionMatrix();
 		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 
-		core::matrix3x4SIMD modelMatrix;
-		modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-		modelMatrix.setRotation(quaternion(0, 0, 0));
+		//hlsl::float32_t3x4 modelMatrix;
 
-		core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+		hlsl::float32_t4x4 modelViewProjectionMatrix = viewProjectionMatrix;
 		if (m_cachedModelViewProjectionMatrix != modelViewProjectionMatrix)
 		{
 			m_frameAccumulationCounter = 0;
 			m_cachedModelViewProjectionMatrix = modelViewProjectionMatrix;
 		}
-		core::matrix4SIMD invModelViewProjectionMatrix;
-		modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
+		hlsl::float32_t4x4 invModelViewProjectionMatrix = hlsl::inverse(modelViewProjectionMatrix);
 
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
@@ -665,29 +669,16 @@ public:
 			pc.frameCounter = m_frameAccumulationCounter;
 			const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
-			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
+			pc.invMVP = invModelViewProjectionMatrix;
 
 			cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
 			cmdbuf->setRayTracingPipelineStackSize(m_rayTracingStackSize);
 			cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
 			cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
 			if (m_useIndirectCommand)
-			{
-				cmdbuf->traceRaysIndirect(
-					SBufferBinding<const IGPUBuffer>{
-					.offset = 0,
-						.buffer = m_indirectBuffer,
-				});
-			}
+				cmdbuf->traceRaysIndirect({ .offset = 0,.buffer = m_indirectBuffer });
 			else
-			{
-				cmdbuf->traceRays(
-					m_shaderBindingTable.raygenGroupRange,
-					m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
-					m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
-					m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
-					WIN_W, WIN_H, 1);
-			}
+				cmdbuf->traceRays(m_shaderBindingTable, WIN_W, WIN_H, 1);
 		}
 
 		// pipeline barrier
@@ -916,22 +907,22 @@ private:
 
 	bool createIndirectBuffer()
 	{
-		const auto getBufferRangeAddress = [](const SBufferRange<IGPUBuffer>& range)
+		const auto getBufferRangeAddress = [](const SBufferRange<const IGPUBuffer>& range)
 			{
 				return range.buffer->getDeviceAddress() + range.offset;
 			};
 		const auto command = TraceRaysIndirectCommand_t{
-		  .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygenGroupRange),
-		  .raygenShaderRecordSize = m_shaderBindingTable.raygenGroupRange.size,
-		  .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.missGroupsRange),
-		  .missShaderBindingTableSize = m_shaderBindingTable.missGroupsRange.size,
-		  .missShaderBindingTableStride = m_shaderBindingTable.missGroupsStride,
-		  .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hitGroupsRange),
-		  .hitShaderBindingTableSize = m_shaderBindingTable.hitGroupsRange.size,
-		  .hitShaderBindingTableStride = m_shaderBindingTable.hitGroupsStride,
-		  .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callableGroupsRange),
-		  .callableShaderBindingTableSize = m_shaderBindingTable.callableGroupsRange.size,
-		  .callableShaderBindingTableStride = m_shaderBindingTable.callableGroupsStride,
+		  .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygen),
+		  .raygenShaderRecordSize = m_shaderBindingTable.raygen.size,
+		  .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.miss.range),
+		  .missShaderBindingTableSize = m_shaderBindingTable.miss.range.size,
+		  .missShaderBindingTableStride = m_shaderBindingTable.miss.stride,
+		  .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hit.range),
+		  .hitShaderBindingTableSize = m_shaderBindingTable.hit.range.size,
+		  .hitShaderBindingTableStride = m_shaderBindingTable.hit.stride,
+		  .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callable.range),
+		  .callableShaderBindingTableSize = m_shaderBindingTable.callable.range.size,
+		  .callableShaderBindingTableStride = m_shaderBindingTable.callable.stride,
 		  .width = WIN_W,
 		  .height = WIN_H,
 		  .depth = 1,
@@ -972,15 +963,15 @@ private:
 		const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
 		const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
-		auto& raygenRange = m_shaderBindingTable.raygenGroupRange;
+		auto& raygenRange = m_shaderBindingTable.raygen;
 
-		auto& hitRange = m_shaderBindingTable.hitGroupsRange;
+		auto& hitRange = m_shaderBindingTable.hit.range;
 		const auto hitHandles = pipeline->getHitHandles();
 
-		auto& missRange = m_shaderBindingTable.missGroupsRange;
+		auto& missRange = m_shaderBindingTable.miss.range;
 		const auto missHandles = pipeline->getMissHandles();
 
-		auto& callableRange = m_shaderBindingTable.callableGroupsRange;
+		auto& callableRange = m_shaderBindingTable.callable.range;
 		const auto callableHandles = pipeline->getCallableHandles();
 
 		raygenRange = {
@@ -992,19 +983,19 @@ private:
 		  .offset = raygenRange.size,
 		  .size = core::alignUp(missHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.missGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.miss.stride = handleSizeAligned;
 
 		hitRange = {
 		  .offset = missRange.offset + missRange.size,
 		  .size = core::alignUp(hitHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.hitGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.hit.stride = handleSizeAligned;
 
 		callableRange = {
 		  .offset = hitRange.offset + hitRange.size,
 		  .size = core::alignUp(callableHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
 		};
-		m_shaderBindingTable.callableGroupsStride = handleSizeAligned;
+		m_shaderBindingTable.callable.stride = handleSizeAligned;
 
 		const auto bufferSize = raygenRange.size + missRange.size + hitRange.size + callableRange.size;
 
@@ -1021,7 +1012,7 @@ private:
 		for (const auto& handle : missHandles)
 		{
 			memcpy(pMissData, &handle, handleSize);
-			pMissData += m_shaderBindingTable.missGroupsStride;
+			pMissData += m_shaderBindingTable.miss.stride;
 		}
 
 		// copy hit region
@@ -1029,7 +1020,7 @@ private:
 		for (const auto& handle : hitHandles)
 		{
 			memcpy(pHitData, &handle, handleSize);
-			pHitData += m_shaderBindingTable.hitGroupsStride;
+			pHitData += m_shaderBindingTable.miss.stride;
 		}
 
 		// copy callable region
@@ -1037,17 +1028,21 @@ private:
 		for (const auto& handle : callableHandles)
 		{
 			memcpy(pCallableData, &handle, handleSize);
-			pCallableData += m_shaderBindingTable.callableGroupsStride;
+			pCallableData += m_shaderBindingTable.callable.stride;
 		}
 
 		{
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
-			params.size = bufferSize;
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), pData).move_into(raygenRange.buffer);
-			missRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			hitRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
-			callableRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
+			smart_refctd_ptr<IGPUBuffer> buffer;
+			{
+				IGPUBuffer::SCreationParams params;
+				params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
+				params.size = bufferSize;
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, std::move(params), pData).move_into(buffer);
+			}
+			raygenRange.buffer = smart_refctd_ptr(buffer);
+			missRange.buffer = smart_refctd_ptr(raygenRange.buffer);
+			hitRange.buffer = smart_refctd_ptr(raygenRange.buffer);
+			callableRange.buffer = smart_refctd_ptr(raygenRange.buffer);
 		}
 
 		return true;
@@ -1071,13 +1066,14 @@ private:
 
 		auto getTranslationMatrix = [](float32_t x, float32_t y, float32_t z)
 			{
-				core::matrix3x4SIMD transform;
-				transform.setTranslation(nbl::core::vectorSIMDf(x, y, z, 0));
+				hlsl::float32_t3x4 transform = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
+				hlsl::math::linalg::setTranslation(transform, float32_t3(x, y, z));
+
 				return transform;
 			};
 
-		core::matrix3x4SIMD planeTransform;
-		planeTransform.setRotation(quaternion::fromAngleAxis(core::radians(-90.0f), vector3df_SIMD{ 1, 0, 0 }));
+		const auto planeRotation = hlsl::math::quaternion<hlsl::float32_t>::create(hlsl::float32_t3(1.f, 0.f, 0.f), core::radians(-90.0f));
+		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3, 4, 3, 3>(hlsl::_static_cast<hlsl::float32_t3x3>(planeRotation));
 
 		// triangles geometries
 		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
@@ -1165,7 +1161,7 @@ private:
 		const auto blasCount = std::size(cpuObjects) + 1;
 		const auto proceduralBlasIdx = std::size(cpuObjects);
 
-		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlasList;
+		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects) + 1u> cpuBlasList;
 		for (uint32_t i = 0; i < blasCount; i++)
 		{
 			auto& blas = cpuBlasList[i];
@@ -1178,7 +1174,7 @@ private:
 
 				auto& aabb = aabbs->front();
 				auto& primCount = primitiveCounts->front();
-				
+
 				primCount = NumberOfProceduralGeometries;
 				aabb.data = { .offset = 0, .buffer = cpuProcBuffer };
 				aabb.stride = sizeof(IGPUBottomLevelAccelerationStructure::AABB_t);
@@ -1228,7 +1224,7 @@ private:
 				inst.base.instanceCustomIndex = i;
 				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;
 				inst.base.mask = 0xFF;
-				inst.transform = isProceduralInstance ? matrix3x4SIMD() : cpuObjects[i].transform;
+				inst.transform = isProceduralInstance ? hlsl::float32_t3x4(1.0) : cpuObjects[i].transform;
 
 				instance->instance = inst;
 			}
@@ -1283,7 +1279,7 @@ private:
 			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
 				tmpGeometries[i] = cpuObjects[i].data.get();
-				tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				tmpGeometryPatches[i].indexBufferUsages = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			}
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
@@ -1294,7 +1290,7 @@ private:
 
 		auto reservation = converter->reserve(inputs);
 		{
-			auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+			auto prepass = [&]<typename asset_type_t>(const auto& references) -> bool
 			{
 				auto objects = reservation.getGPUObjects<asset_type_t>();
 				uint32_t counter = {};
@@ -1387,12 +1383,12 @@ private:
 			auto future = reservation.convert(params);
 			if (future.copy() != IQueue::RESULT::SUCCESS)
 			{
-				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+				m_logger->log("Failed to await submission future!", ILogger::ELL_ERROR);
 				return false;
 			}
 			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!
-			if (compute.getFutureScratchSemaphore().value>3)
-				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!",system::ILogger::ELL_ERROR);
+			if (compute.getFutureScratchSemaphore().value > 3)
+				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!", system::ILogger::ELL_ERROR);
 
 			// assign gpu objects to output
 			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
@@ -1414,9 +1410,9 @@ private:
 
 				const auto& normalView = gpuPolygon->getNormalView();
 				const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
-        auto normalType = NT_R32G32B32_SFLOAT;
-        if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
-          normalType = NT_R8G8B8A8_SNORM;
+				auto normalType = NT_R32G32B32_SFLOAT;
+				if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
+					normalType = NT_R8G8B8A8_SNORM;
 
 				const auto& indexBufferBinding = gpuTriangles.indexData;
 				auto& geomInfo = geomInfos[i];
@@ -1467,7 +1463,7 @@ private:
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 	} m_cameraSetting;
-	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 
 	Light m_light = {
 	  .direction = {-1.0f, -1.0f, -0.4f},
@@ -1510,7 +1506,7 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> m_rayTracingDs;
 	smart_refctd_ptr<IGPURayTracingPipeline> m_rayTracingPipeline;
 	uint64_t m_rayTracingStackSize;
-	ShaderBindingTable m_shaderBindingTable;
+	IGPURayTracingPipeline::SShaderBindingTable m_shaderBindingTable;
 
 	smart_refctd_ptr<IGPUDescriptorSet> m_presentDs;
 	smart_refctd_ptr<IDescriptorPool> m_presentDsPool;
@@ -1519,7 +1515,7 @@ private:
 	smart_refctd_ptr<CAssetConverter> m_converter;
 
 
-	core::matrix4SIMD m_cachedModelViewProjectionMatrix;
+	hlsl::float32_t4x4 m_cachedModelViewProjectionMatrix;
 	bool m_useIndirectCommand = false;
 
 };

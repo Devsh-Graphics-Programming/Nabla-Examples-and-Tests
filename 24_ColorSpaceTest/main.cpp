@@ -541,7 +541,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						struct
 						{
 							std::string path;
-							json data;
+							::json data;
 						} current, reference;
 
 						current.path = (localOutputCWD / filename).make_preferred().string() + "_" + modeAsString + extension.string() + ".json";
@@ -552,7 +552,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						m_logger->log("Mode: \"%s\"", ILogger::ELL_INFO, modeAsString.c_str());
 						m_logger->log("Writing \"%ls\"'s image hash to \"%s\"", ILogger::ELL_INFO, filename.c_str(), current.path.c_str());
 
-						current.data["image"] = json::array();
+						current.data["image"] = ::json::array();
 						for (const auto& it : hash)
 							current.data["image"].push_back(it);
 
@@ -793,6 +793,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 							};
 							cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 						}
+
 						cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 						cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 						cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);

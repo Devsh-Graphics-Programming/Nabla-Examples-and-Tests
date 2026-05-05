@@ -1,0 +1,9 @@
+if(NBL_BUILD_DEBUG_DRAW)
+	set(NBL_INCLUDE_SERACH_DIRECTORIES
+		"${CMAKE_CURRENT_SOURCE_DIR}/include"
+	)
+
+	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+
+	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
+endif()

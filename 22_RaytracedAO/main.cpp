@@ -17,7 +17,6 @@
 
 #include "CSceneNodeAnimatorCameraModifiedMaya.h"
 #include "Renderer.h"
-#include "SimpleJson.h"
 
 using namespace nbl;
 using namespace core;
@@ -131,138 +130,6 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool overloadCameraKeyPressed;
 };
 
-struct PersistentState
-{
-	bool isBeauty;
-	bool isInteractiveMode;
-	bool isInteractiveViewMatrixLH;
-	bool isDenoiseDeferred;
-	uint32_t startSensorID;
-	std::string zipPath;
-	std::string xmlPath;
-	ProcessSensorsBehaviour processSensorsBehaviour;
-	// It is important to initialize it to all 0s because we use the condition of determinant 0 as an invalid condition for the view matrix.
-	core::matrix3x4SIMD interactiveCameraViewMatrix = core::matrix3x4SIMD(core::vectorSIMDf(), core::vectorSIMDf(), core::vectorSIMDf());
-
-	bool readFromDisk()
-	{
-		bool readSuccess = false;
-		std::ifstream readFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
-		if (readFile.is_open())
-		{
-			auto readSize = readFile.tellg();
-			if (readSize != std::istream::pos_type(-1))
-			{
-				std::unique_ptr<uint8_t[]> readBuffer = std::make_unique<uint8_t[]>(readSize);
-				readFile.seekg(0, std::ios::beg);
-				readFile.read(reinterpret_cast<char*>(readBuffer.get()), readSize);
-				if (readFile.rdstate() == std::ios_base::goodbit)
-				{
-					uint64_t offset = 0;
-
-					memcpy(&isBeauty, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&isInteractiveViewMatrixLH, readBuffer.get() + offset, sizeof(bool));
-					offset += sizeof(bool);
-
-					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
-					offset += sizeof(uint32_t);
-
-					memcpy(&processSensorsBehaviour, readBuffer.get() + offset, sizeof(ProcessSensorsBehaviour));
-					offset += sizeof(ProcessSensorsBehaviour);
-
-					memcpy(&interactiveCameraViewMatrix, readBuffer.get() + offset, sizeof(core::matrix3x4SIMD));
-					offset += sizeof(core::matrix3x4SIMD);
-
-					const char* path = reinterpret_cast<const char*>(readBuffer.get() + offset);
-					zipPath = std::string(path);
-					offset += zipPath.length() + 1;
-
-					path = reinterpret_cast<const char*>(readBuffer.get() + offset);
-					xmlPath = std::string(path);
-					offset += xmlPath.length() + 1;
-
-					readSuccess = (offset == static_cast<uint64_t>(readSize));
-				}
-			}
-
-			readFile.close();
-		}
-
-		return readSuccess;
-	}
-
-	bool writeToDisk() const
-	{
-		bool writeSuccess = false;
-		std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
-		if (outFile.is_open())
-		{
-			const size_t writeSize = getSerializedMemorySize();
-
-			std::unique_ptr<uint8_t[]> writeBuffer = std::make_unique<uint8_t[]>(writeSize);
-
-			uint64_t offset = 0;
-
-			memcpy(writeBuffer.get() + offset, &isBeauty, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &isInteractiveViewMatrixLH, sizeof(bool));
-			offset += sizeof(bool);
-
-			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
-			offset += sizeof(uint32_t);
-
-			memcpy(writeBuffer.get() + offset, &processSensorsBehaviour, sizeof(ProcessSensorsBehaviour));
-			offset += sizeof(ProcessSensorsBehaviour);
-
-			memcpy(writeBuffer.get() + offset, &interactiveCameraViewMatrix, sizeof(core::matrix3x4SIMD));
-			offset += sizeof(core::matrix3x4SIMD);
-
-			memcpy(writeBuffer.get() + offset, zipPath.c_str(), zipPath.length() + 1);
-			offset += zipPath.length() + 1;
-
-			memcpy(writeBuffer.get() + offset, xmlPath.c_str(), xmlPath.length() + 1);
-			offset += xmlPath.length() + 1;
-
-			assert(offset == static_cast<uint32_t>(writeSize));
-
-			outFile.write(reinterpret_cast<char*>(writeBuffer.get()), writeSize);
-			if (outFile.rdstate() == std::ios_base::goodbit)
-				writeSuccess = true;
-
-			outFile.close();
-		}
-
-		if (!writeSuccess)
-			printf("[ERROR]: Failed to write the persistent state cache.\n");
-
-		return writeSuccess;
-	}
-
-private:
-	inline size_t getSerializedMemorySize() const
-	{
-		const size_t result =
-			sizeof(bool)					+ // isBeauty
-			sizeof(bool)					+ // isInteractiveMode
-			sizeof(bool)                    + // isInteractiveViewMatrixLH
-			sizeof(uint32_t)				+ // startSensorID
-			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
-			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
-			(zipPath.length() + 1)			+
-			(xmlPath.length() + 1)			;
-
-		return result;
-	}
-};
 
 int main(int argc, char** argv)
 {
@@ -272,16 +139,7 @@ int main(int argc, char** argv)
 		for (auto i = 1ul; i < argc; ++i)
 			arguments.emplace_back(argv[i]);
 	}
-	std::cout << std::endl;
-	std::cout << "-- Build URL:" << std::endl;
-	std::cout << NBL_BUILD_URL << std::endl;
-	std::cout << std::endl;
-	std::cout << "-- Build log:" << std::endl;
-	std::cout << NBL_GIT_LOG << std::endl;
-	std::cout  << std::endl;
 
-	bool applicationIsReloaded = false;
-	PersistentState applicationState;
 	{
 		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 
@@ -291,8 +149,6 @@ int main(int argc, char** argv)
 		applicationState.isDenoiseDeferred = cmdHandler.getDeferredDenoiseFlag();
 
 		auto sceneDir = cmdHandler.getSceneDirectory();
-		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
-			applicationIsReloaded = true;
 
 		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
 		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
@@ -313,36 +169,15 @@ int main(int argc, char** argv)
 	}
 
 	bool takeScreenShots = true;
-	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
-	// create device with full flexibility over creation parameters
-	// you can add more parameters if desired, check nbl::SIrrlichtCreationParameters
-	nbl::SIrrlichtCreationParameters params;
-	params.Bits = 24; //may have to set to 32bit for some platforms
-	params.ZBufferBits = 24;
-	params.DriverType = video::EDT_OPENGL;
-	params.Fullscreen = false;
-	params.Vsync = false;
-	params.Doublebuffer = true;
-	params.Stencilbuffer = false; //! This will not even be a choice soon
-	params.WindowSize = dimension2d<uint32_t>(1920, 1080);
-	auto device = createDeviceEx(params);
-	if (!device)
-		return 1; // could not create selected driver.
+// DEVICE CREATION EMITTED
 
 	//
 	asset::SAssetBundle meshes = {};
 	core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> globalMeta;
 	{
-		io::IFileSystem* fs = device->getFileSystem();
-		asset::IAssetManager* am = device->getAssetManager();
 
-		auto serializedLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CSerializedLoader>(am);
-		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am, fs);
-		serializedLoader->initialize();
-		mitsubaLoader->initialize();
-		am->addAssetLoader(std::move(serializedLoader));
-		am->addAssetLoader(std::move(mitsubaLoader));
+// LOADER ADDITION EMITTED
 
 		if (applicationState.zipPath.empty() && applicationState.xmlPath.empty() && !applicationIsReloaded)
 		{
@@ -360,19 +195,9 @@ int main(int argc, char** argv)
 		auto loadScene = [&device, &am, &fs](const std::string& _zipPath, std::string& _xmlPath, std::string& _mainFileName) -> asset::SAssetBundle
 		{
 			asset::SAssetBundle result = {};
-			if (_zipPath.empty() && _xmlPath.empty())
-				return result;
 
-			_mainFileName = "";
-			if (!_zipPath.empty())
-			{
-				_mainFileName = std::filesystem::path(_zipPath).filename().string();
-				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+// ADD ARCHIVE AND VALIDATION EMITTED
 
-				io::IFileArchive* arch = nullptr;
-				device->getFileSystem()->addFileArchive(_zipPath.c_str(), io::EFAT_ZIP, "", &arch);
-				if (!arch)
-					return result;
 
 				auto flist = arch->getFileList();
 				if (!flist)
@@ -449,12 +274,7 @@ int main(int argc, char** argv)
 				}
 
 				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).filename().replace_extension().string();
-			}
-			else if (!_xmlPath.empty())
-			{
-				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
-				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
-			}
+
 
 			printf("[INFO]: Loading XML file: %s\n", _xmlPath.c_str());
 
@@ -471,92 +291,15 @@ int main(int argc, char** argv)
 		};
 
 		meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
-		if (meshes.getContents().empty() || applicationIsReloaded)
-		{
-			if (meshes.getContents().empty() && !applicationState.xmlPath.empty())
-				printf("[ERROR]: Failed to load asset at: %s\n", applicationState.xmlPath.c_str());
 
-			// Restore state to get new values for zipPath and xmlPath and try loading again
-			printf("[INFO]: Trying to restore the application to its previous state.\n");
+// APPLICATION RESTORE OMITTED
 
-			bool restoreSuccess = false;
-			if (applicationState.readFromDisk())
-			{
-				meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
-				if (!meshes.getContents().empty())
-					restoreSuccess = true;
-			}
-
-			if (!restoreSuccess)
-			{
-				pfd::message("ERROR", "Cannot restore application to its previous state.", pfd::choice::ok);
-				return 2;
-			}
-		}
-
-		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
-		if (!globalMeta)
-		{
-			std::cout << "[ERROR] Couldn't get global Meta";
-			return 3;
-		}
-
-		std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
-
-		if (globalMeta->m_global.m_sensors.empty())
-		{
-			std::cout << "[ERROR] No Sensors found." << std::endl;
-			assert(false);
-			return 5; // return code?
-		}
-
-		if (applicationState.startSensorID >= globalMeta->m_global.m_sensors.size())
-		{
-			applicationState.startSensorID = 0;
-			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
-		}
-
-		// empty out the cache from individual images and meshes taht are not used by the scene
-		am->clearAllAssetCache();
 	}
 	
-	constexpr float DefaultRotateSpeed = 300.0f;
-	constexpr float DefaultZoomSpeed = 1.0f;
-	constexpr float DefaultMoveSpeed = 100.0f;
-	constexpr float DefaultSceneDiagonal = 50.0f; // reference for default zoom and move speed;
 
 	struct SensorData
 	{
-		int32_t width = 0u;
-		int32_t height = 0u;
-		int32_t cropWidth = 0u;
-		int32_t cropHeight = 0u;
-		int32_t cropOffsetX = 0u;
-		int32_t cropOffsetY = 0u;
-		bool rightHandedCamera = true;
-		uint32_t samplesNeeded = 0u;
-		float moveSpeed = core::nan<float>();
-		float stepZoomSpeed = core::nan<float>();
-		float rotateSpeed = core::nan<float>();
-		scene::ICameraSceneNode * staticCamera;
-		scene::ICameraSceneNode * interactiveCamera;
-		std::filesystem::path outputFilePath;
-		ext::MitsubaLoader::CElementSensor::Type type;
-		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
-		Renderer::DenoiserArgs denoiserInfo = {};
-		int32_t cascadeCount = 1;
-		float cascadeLuminanceBase = core::nan<float>();
-		float cascadeLuminanceStart = core::nan<float>();
-		float kappa = 0.f;
-		float Emin = 0.05f;
-		bool envmap = false;
-		float envmapRegFactor = 0.0f;
-		core::vector<core::vectorSIMDf> clipPlanes;
-
-		scene::CSceneNodeAnimatorCameraModifiedMaya* getInteractiveCameraAnimator()
-		{
-			return reinterpret_cast<scene::CSceneNodeAnimatorCameraModifiedMaya*>(interactiveCamera->getAnimators()[0]);
-		}
+// ...
 
 		void resetInteractiveCamera()
 		{
@@ -574,242 +317,22 @@ int main(int argc, char** argv)
 			modifiedMayaAnim->setZoomAndRotationBasedOnTargetAndPosition(cameraPos, cameraTarget);
 		}
 	};
-	
-	struct CubemapRender
-	{
-		uint32_t sensorIdx = 0u;
-		uint32_t getSensorsBeginIdx() const { return sensorIdx; }
-		uint32_t getSensorsEndIdx() const { return sensorIdx + 5; }
-	};
 
-	auto smgr = device->getSceneManager();
-	
-	// When outputFilePath isn't set in Film Element in Mitsuba, use this to find the extension string.
-	auto getFileExtensionFromFormat= [](ext::MitsubaLoader::CElementFilm::FileFormat format) -> std::string
-	{
-		std::string ret = "";
-		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format)
-		{
-			case FileFormat::PNG:
-				ret = ".png";
-				break;
-			case FileFormat::OPENEXR:
-				ret = ".exr";
-				break;
-			case FileFormat::JPEG:
-				ret = ".jpg";
-				break;
-			default: // TODO?
-				break;
-		}
-		return ret;
-	};
 
-	auto isFileExtensionCompatibleWithFormat = [](std::string extension, ext::MitsubaLoader::CElementFilm::FileFormat format) -> bool
-	{
-		if(extension.empty())
-			return false;
-
-		if(extension[0] == '.')
-			extension = extension.substr(1, extension.size());
-
-		// TODO: get the supported extensions from loaders(?)
-		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format)
-		{
-			case FileFormat::PNG:
-				return extension == "png";
-			case FileFormat::OPENEXR:
-				return extension == "exr";
-			case FileFormat::JPEG:
-				return extension == "jpg" || extension == "jpeg" || extension == "jpe" || extension == "jif" || extension == "jfif" || extension == "jfi";
-			default:
-				return false;
-		}
-	};
-	
-	const bool shouldHaveSensorIdxInFileName = globalMeta->m_global.m_sensors.size() > 1;
-	std::vector<SensorData> sensors;
-	std::vector<CubemapRender> cubemapRenders;
+// ...
 
 	auto extractAndAddToSensorData = [&](const ext::MitsubaLoader::CElementSensor& sensor, uint32_t idx) -> bool
 	{
 		SensorData mainSensorData = {};
 
-		const auto& film = sensor.film;
-		mainSensorData.denoiserInfo.bloomFilePath = std::filesystem::path(film.denoiserBloomFilePath);
-		mainSensorData.denoiserInfo.bloomScale = film.denoiserBloomScale;
-		mainSensorData.denoiserInfo.bloomIntensity = film.denoiserBloomIntensity;
-		mainSensorData.denoiserInfo.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
-		mainSensorData.fileFormat = film.fileFormat;
-		mainSensorData.cascadeCount = film.cascadeCount;
-		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
-		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
-		mainSensorData.kappa = mainSensorData.cascadeCount<2 ? 0.f:film.rfilter.kappa;
-		mainSensorData.Emin = film.rfilter.Emin;
-		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
-		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
-		// handle missing output path
-		if (mainSensorData.outputFilePath.empty())
-		{
-			auto extensionStr = getFileExtensionFromFormat(mainSensorData.fileFormat);
-			if(shouldHaveSensorIdxInFileName)
-				mainSensorData.outputFilePath = std::filesystem::path("Render_" + mainFileName + "_Sensor_" + std::to_string(idx) + extensionStr);
-			else
-				mainSensorData.outputFilePath = std::filesystem::path("Render_" + mainFileName + extensionStr);
-		}
-		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
-			std::cout << "[ERROR] film.outputFilePath's extension is not compatible with film.fileFormat" << std::endl;
 
-		mainSensorData.samplesNeeded = sensor.sampler.sampleCount;
-		std::cout << "\t SamplesPerPixelNeeded = " << mainSensorData.samplesNeeded << std::endl;
+// ...
 
-		const ext::MitsubaLoader::CElementSensor::PerspectivePinhole* persp = nullptr;
-		const ext::MitsubaLoader::CElementSensor::Orthographic* ortho = nullptr;
-		const ext::MitsubaLoader::CElementSensor::CameraBase* cameraBase = nullptr;
-		switch (sensor.type)
-		{
-			case ext::MitsubaLoader::CElementSensor::Type::PERSPECTIVE:
-				persp = &sensor.perspective;
-				cameraBase = persp;
-				std::cout << "\t Type = PERSPECTIVE" << std::endl;
-				break;
-			case ext::MitsubaLoader::CElementSensor::Type::THINLENS:
-				persp = &sensor.thinlens;
-				cameraBase = persp;
-				std::cout << "\t Type = THINLENS" << std::endl;
-				break;
-			case ext::MitsubaLoader::CElementSensor::Type::ORTHOGRAPHIC:
-				ortho = &sensor.orthographic;
-				cameraBase = ortho;
-				std::cout << "\t Type = ORTHOGRAPHIC" << std::endl;
-				break;
-			case ext::MitsubaLoader::CElementSensor::Type::TELECENTRIC:
-				ortho = &sensor.telecentric;
-				cameraBase = ortho;
-				std::cout << "\t Type = TELECENTRIC" << std::endl;
-				break;
-			case ext::MitsubaLoader::CElementSensor::Type::SPHERICAL:
-				cameraBase = &sensor.spherical;
-				std::cout << "\t Type = SPHERICAL" << std::endl;
-				break;
-			default:
-				std::cout << "\tSensor Type is not valid" << std::endl;
-				return false;
-		}
-		mainSensorData.type = sensor.type;
-		
-		for (auto i=0; i<sensor.MaxClipPlanes; i++)
-		{
-			const auto& plane = cameraBase->clipPlanes[i];
-			if ((plane!=core::vectorSIMDf()).any())
-			{
-				mainSensorData.clipPlanes.push_back(plane);
-				printf("Found Clip Plane %f,%f,%f,%f\n",plane[0],plane[1],plane[2],plane[3]);
-			}
-		}
 
-		mainSensorData.rotateSpeed = cameraBase->rotateSpeed;
-		mainSensorData.stepZoomSpeed = cameraBase->zoomSpeed;
-		mainSensorData.moveSpeed = cameraBase->moveSpeed;
-		
-		if(core::isnan<float>(mainSensorData.rotateSpeed))
-		{
-			mainSensorData.rotateSpeed = DefaultRotateSpeed;
-			std::cout << "\t Camera Rotate Speed = " << mainSensorData.rotateSpeed << " = [Default Value]" << std::endl;
-		}
-		else
-			std::cout << "\t Camera Rotate Speed = " << mainSensorData.rotateSpeed << std::endl;
-
-		if(core::isnan<float>(mainSensorData.stepZoomSpeed))
-			std::cout << "\t Camera Step Zoom Speed [Linear] = " << "[Value will be deduced from Scene Bounds] " << std::endl;
-		else
-			std::cout << "\t Camera Step Zoom Speed [Linear] = " << mainSensorData.stepZoomSpeed << std::endl;
-		
-		if(core::isnan<float>(mainSensorData.moveSpeed))
-			std::cout << "\t Camera Move Speed = " << "[Value will be deduced from Scene Bounds] " << std::endl;
-		else
-			std::cout << "\t Camera Move Speed = " << mainSensorData.moveSpeed << std::endl;
-		
-		float defaultZoomSpeedMultiplier = std::pow(DefaultSceneDiagonal, DefaultZoomSpeed / DefaultSceneDiagonal);
-		mainSensorData.interactiveCamera = smgr->addCameraSceneNodeModifiedMaya(nullptr, -1.0f * mainSensorData.rotateSpeed, 50.0f, mainSensorData.moveSpeed, -1, 2.0f, defaultZoomSpeedMultiplier, false, true);
-		
-		nbl::core::vectorSIMDf mainCamPos;
-		nbl::core::vectorSIMDf mainCamUp;
-		nbl::core::vectorSIMDf mainCamView;
-		// need to extract individual components from matrix to camera
-		{
-			auto relativeTransform = sensor.transform.matrix.extractSub3x4();
-			if (applicationState.isInteractiveMode && (idx == applicationState.startSensorID) && (core::abs(applicationState.interactiveCameraViewMatrix.getPseudoDeterminant().x) > 1e-6f))
-			{
-				if (!applicationState.interactiveCameraViewMatrix.getInverse(relativeTransform))
-					printf("[ERROR]: Previously saved interactive camera's view matrix is not invertible.\n");
-
-				if (applicationState.isInteractiveViewMatrixLH)
-				{
-					// invert signs in the first col only
-					relativeTransform.rows[0].x *= -1.f;
-					relativeTransform.rows[1].x *= -1.f;
-					relativeTransform.rows[2].x *= -1.f;
-				}
-				else
-				{
-					// invert signs both in the first and third cols
-					relativeTransform.rows[0].x *= -1.f;
-					relativeTransform.rows[1].x *= -1.f;
-					relativeTransform.rows[2].x *= -1.f;
-
-					relativeTransform.rows[0].z *= -1.f;
-					relativeTransform.rows[1].z *= -1.f;
-					relativeTransform.rows[2].z *= -1.f;
-				}
-			}
-			
-			if (relativeTransform.getPseudoDeterminant().x < 0.f)
-				mainSensorData.rightHandedCamera = false;
-			else
-				mainSensorData.rightHandedCamera = true;
-			
-			std::cout << "\t IsRightHanded=" << ((mainSensorData.rightHandedCamera) ? "TRUE" : "FALSE") << std::endl;
-
-			mainCamPos = relativeTransform.getTranslation();
-			
-			std::cout << "\t Camera Position = <" << mainCamPos.x << "," << mainCamPos.y << "," << mainCamPos.z << ">" << std::endl;
-
-			auto tpose = core::transpose(core::matrix4SIMD(relativeTransform));
-			mainCamUp = tpose.rows[1];
-			mainCamView = tpose.rows[2];
-
-			std::cout << "\t Camera Reconstructed UpVector = <" << mainCamUp.x << "," << mainCamUp.y << "," << mainCamUp.z << ">" << std::endl;
-			std::cout << "\t Camera Reconstructed Forward = <" << mainCamView.x << "," << mainCamView.y << "," << mainCamView.z << ">" << std::endl;
-		}
-		
-		float realFoVDegrees;
-		auto width = film.cropWidth;
-		auto height = film.cropHeight;
-
-		float aspectRatio = float(width) / float(height);
-		auto convertFromXFoV = [=](float fov) -> float
-		{
-			float aspectX = tan(core::radians(fov)*0.5f);
-			return core::degrees(atan(aspectX/aspectRatio)*2.f);
-		};
-
-		float nearClip = cameraBase->nearClip;
-		float farClip = cameraBase->farClip;
-		if(farClip > nearClip * 10'000.0f)
-			std::cout << "[WARN] Depth Range is too big: nearClip = " << nearClip << ", farClip = " << farClip << std::endl;
 
 		if (mainSensorData.type == ext::MitsubaLoader::CElementSensor::Type::SPHERICAL)
 		{
-			mainSensorData.width = film.width;
-			mainSensorData.height = film.height;
-			mainSensorData.cropWidth = film.cropWidth;
-			mainSensorData.cropHeight = film.cropHeight;
-			mainSensorData.cropOffsetX = film.cropOffsetX;
-			mainSensorData.cropOffsetY = film.cropOffsetY;
-
+#ifdef 0 // camera setup cubemap
 			nbl::core::vectorSIMDf camViews[6] =
 			{
 				nbl::core::vectorSIMDf(-1, 0, 0, 0), // -X
@@ -819,7 +342,7 @@ int main(int argc, char** argv)
 				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
 				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 			};
-			
+
 			const nbl::core::vectorSIMDf upVectors[6] =
 			{
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
@@ -836,15 +359,6 @@ int main(int argc, char** argv)
 
 			for(uint32_t i = 0; i < 6; ++i)
 			{
-				SensorData cubemapFaceSensorData = mainSensorData;
-				cubemapFaceSensorData.envmap = true;
-
-				if (mainSensorData.cropWidth != mainSensorData.cropHeight)
-				{
-					std::cout << "[ERROR] Cannot generate cubemap faces where film.cropWidth and film.cropHeight are not equal. (Aspect Ratio must be 1)" << std::endl;
-					assert(false);
-				}
-
 				// FIXME: suffix added after extension
 				cubemapFaceSensorData.outputFilePath.replace_extension();
 				constexpr const char* suffixes[6] =
@@ -858,184 +372,38 @@ int main(int argc, char** argv)
 				};
 				cubemapFaceSensorData.outputFilePath += suffixes[i];
 
-				cubemapFaceSensorData.staticCamera = smgr->addCameraSceneNode(nullptr); 
-				auto& staticCamera = cubemapFaceSensorData.staticCamera;
-				
-				const auto& camView = camViews[i];
-				const auto& upVector = upVectors[i];
-
-				staticCamera->setPosition(mainCamPos.getAsVector3df());
-				staticCamera->setTarget((mainCamPos + camView).getAsVector3df());
-				staticCamera->setUpVector(upVector);
+				staticCamera->setTarget((mainCamPos + camViews[i]).getAsVector3df());
+				staticCamera->setUpVector(upVectors[i]);
 
 				const float w = float(cubemapFaceSensorData.width)/float(cubemapFaceSensorData.cropWidth);
 				const float h = float(cubemapFaceSensorData.height)/float(cubemapFaceSensorData.cropHeight);
 				
-				const auto fov = atanf(h)*2.f;
-				const auto aspectRatio = h/w;
+				const auto fov = 45 degree nondiag;
+				const auto aspectRatio = 1.f;
 				if (mainSensorData.rightHandedCamera)
 					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(fov, aspectRatio, nearClip, farClip));
 				else
 					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(fov, aspectRatio, nearClip, farClip));
-				
-				cubemapFaceSensorData.interactiveCamera = smgr->addCameraSceneNodeModifiedMaya(nullptr, -1.0f * mainSensorData.rotateSpeed, 50.0f, mainSensorData.moveSpeed, -1, 2.0f, defaultZoomSpeedMultiplier, false, true);
-				cubemapFaceSensorData.resetInteractiveCamera();
-				sensors.push_back(cubemapFaceSensorData);
 			}
+#endif
 		}
 		else
 		{
-			mainSensorData.width = film.cropWidth;
-			mainSensorData.height = film.cropHeight;
-			
-			if(film.cropOffsetX != 0 || film.cropOffsetY != 0)
-			{
-				std::cout << "[WARN] CropOffsets are non-zero. cropping is not supported for non cubemap renders." << std::endl;
-			}
-
-			mainSensorData.staticCamera = smgr->addCameraSceneNode(nullptr); 
-			auto& staticCamera = mainSensorData.staticCamera;
-
-			staticCamera->setPosition(mainCamPos.getAsVector3df());
-			
-			{
-				auto target = mainCamView+mainCamPos;
-				std::cout << "\t Camera Target = <" << target.x << "," << target.y << "," << target.z << ">" << std::endl;
-				staticCamera->setTarget(target.getAsVector3df());
-			}
-
-			{
-				auto declaredUp = cameraBase->up;
-				auto reconstructedRight = core::cross(declaredUp,mainCamView);
-				auto actualRight = core::cross(mainCamUp,mainCamView);
-				// special formulation avoiding multiple sqrt and inversesqrt to preserve precision
-				const float dp = core::dot(reconstructedRight,actualRight).x/core::sqrt((core::dot(reconstructedRight,reconstructedRight)*core::dot(actualRight,actualRight)).x);
-				const float pb = core::dot(declaredUp,mainCamView).x/core::sqrt((core::dot(declaredUp,declaredUp)*core::dot(mainCamView,mainCamView)).x);
-				std::cout << "\t Camera Reconstructed UpVector match score = "<< dp << std::endl;
-				if (dp>0.97f && dp<1.03f && abs(pb)<0.9996f)
-					staticCamera->setUpVector(declaredUp);
-				else
-					staticCamera->setUpVector(mainCamUp);
-			}
-
-			//
-			if (ortho)
-			{
-				const auto scale = sensor.transform.matrix.extractSub3x4().getScale();
-				const float volumeX = 2.f*scale.x;
-				const float volumeY = (2.f/aspectRatio)*scale.y;
-				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixOrthoRH(volumeX, volumeY, nearClip, farClip));
-				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixOrthoLH(volumeX, volumeY, nearClip, farClip));
-			}
-			else if (persp)
-			{
-				switch (persp->fovAxis)
-				{
-					case ext::MitsubaLoader::CElementSensor::PerspectivePinhole::FOVAxis::X:
-						realFoVDegrees = convertFromXFoV(persp->fov);
-						break;
-					case ext::MitsubaLoader::CElementSensor::PerspectivePinhole::FOVAxis::Y:
-						realFoVDegrees = persp->fov;
-						break;
-					case ext::MitsubaLoader::CElementSensor::PerspectivePinhole::FOVAxis::DIAGONAL:
-						{
-							float aspectDiag = tan(core::radians(persp->fov)*0.5f);
-							float aspectY = aspectDiag/core::sqrt(1.f+aspectRatio*aspectRatio);
-							realFoVDegrees = core::degrees(atan(aspectY)*2.f);
-						}
-						break;
-					case ext::MitsubaLoader::CElementSensor::PerspectivePinhole::FOVAxis::SMALLER:
-						if (width < height)
-							realFoVDegrees = convertFromXFoV(persp->fov);
-						else
-							realFoVDegrees = persp->fov;
-						break;
-					case ext::MitsubaLoader::CElementSensor::PerspectivePinhole::FOVAxis::LARGER:
-						if (width < height)
-							realFoVDegrees = persp->fov;
-						else
-							realFoVDegrees = convertFromXFoV(persp->fov);
-						break;
-					default:
-						realFoVDegrees = NAN;
-						assert(false);
-						break;
-				}
-				core::matrix4SIMD projMat;
-				projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
-				if (mainSensorData.rightHandedCamera)
-					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
-				else
-					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
-				staticCamera->setProjectionMatrix(projMat);
-			}
-			else
-			{
-				assert(false);
-			}
-
-			mainSensorData.resetInteractiveCamera();
-			sensors.push_back(mainSensorData);
+// camera setup non spherical	
 		}
 
 		return true;
 	};
 
-	// Always add all the sensors because the interactive mode wants all the sensors.
-	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
-	{
-		std::cout << "Sensors[" << s << "] = " << std::endl;
-		const auto& sensor = globalMeta->m_global.m_sensors[s];
-		extractAndAddToSensorData(sensor, s);
-	}
-
 	auto driver = device->getVideoDriver();
 
 	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr,applicationState.isDenoiseDeferred);
 	renderer->initSceneResources(meshes,"LowDiscrepancySequenceCache.bin");
-	// free memory
-	meshes = {};
-	device->getAssetManager()->clearAllGPUObjects();
-	
-	RaytracerExampleEventReceiver receiver;
-	device->setEventReceiver(&receiver);
 
-	// Deduce Move and Zoom Speeds if it is nan
-	auto sceneBoundsExtent = renderer->getSceneBound().getExtent();
-	auto sceneDiagonal = sceneBoundsExtent.getLength(); 
+// free memory
+meshes = {};
+device->getAssetManager()->clearAllGPUObjects();
 
-	for(uint32_t s = 0u; s < sensors.size(); ++s)
-	{
-		auto& sensorData = sensors[s];
-		
-		float linearStepZoomSpeed = sensorData.stepZoomSpeed;
-		if(core::isnan<float>(sensorData.stepZoomSpeed))
-		{
-			linearStepZoomSpeed = sceneDiagonal * (DefaultZoomSpeed / DefaultSceneDiagonal);
-		}
-
-		// Set Zoom Multiplier
-		{
-			float logarithmicZoomSpeed = std::pow(sceneDiagonal, linearStepZoomSpeed / sceneDiagonal);
-			sensorData.stepZoomSpeed =  logarithmicZoomSpeed;
-			sensorData.getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
-			printf("[INFO] Sensor[%d] Camera Step Zoom Speed deduced from scene bounds = %f [Linear], %f [Logarithmic] \n", s, linearStepZoomSpeed, logarithmicZoomSpeed);
-		}
-
-		if(core::isnan<float>(sensorData.moveSpeed))
-		{
-			float newMoveSpeed = DefaultMoveSpeed * (sceneDiagonal / DefaultSceneDiagonal);
-			sensorData.moveSpeed = newMoveSpeed;
-			sensorData.getInteractiveCameraAnimator()->setMoveSpeed(newMoveSpeed);
-			printf("[INFO] Sensor[%d] Camera Move Speed deduced from scene bounds = %f\n", s, newMoveSpeed);
-		}
-		
-		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getRotateSpeed()));
-		//assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getStepZoomSpeed()));
-		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
-	}
 
 	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
 	if (!applicationState.isInteractiveMode)
@@ -1051,18 +419,7 @@ int main(int argc, char** argv)
 	}
 	assert(nonInteractiveSensors.size() <= sensors.size());
 
-	auto reloadApplication = [argv]()
-	{
-		printf("[INFO]: Reloading..\n");
-
-		// Set up the special reload condition.
-		const char* cmdLineParams = "-SCENE=";
-		HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
-		if ((uint64_t)result <= 32)
-			printf("[ERROR]: Failed to reload.\n");
-		else
-			exit(0);
-	};
+// ...
 
 	// Render To file
 	int32_t prevWidth = 0;

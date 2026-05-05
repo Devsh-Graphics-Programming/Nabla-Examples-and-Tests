@@ -24,13 +24,6 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 endif()
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(DEPENDS
-	app_resources/common.hlsl
-	app_resources/prefix_sum_shader.comp.hlsl
-	app_resources/scatter_shader.comp.hlsl
-)
-target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
-set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(SM 6_8)
 set(REQUIRED_CAPS [=[
@@ -72,7 +65,6 @@ set(COMPILE_OPTIONS
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
-    DEPENDS ${DEPENDS}
     BINARY_DIR ${OUTPUT_DIRECTORY}
     MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
     COMMON_OPTIONS ${COMPILE_OPTIONS}

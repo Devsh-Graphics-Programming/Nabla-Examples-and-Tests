@@ -24,26 +24,6 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 endif()
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(DEPENDS
-    app_resources/compute/advectParticles.comp.hlsl
-	app_resources/compute/applyBodyForces.comp.hlsl
-	app_resources/compute/diffusion.comp.hlsl
-	app_resources/compute/genParticleVertices.comp.hlsl
-	app_resources/compute/particlesInit.comp.hlsl
-	app_resources/compute/prepareCellUpdate.comp.hlsl
-	app_resources/compute/pressureSolver.comp.hlsl
-	app_resources/compute/updateFluidCells.comp.hlsl
-	app_resources/cellUtils.hlsl
-	app_resources/common.hlsl
-	app_resources/descriptor_bindings.hlsl
-	app_resources/fluidParticles.fragment.hlsl
-	app_resources/fluidParticles.vertex.hlsl
-	app_resources/gridSampling.hlsl
-	app_resources/gridUtils.hlsl
-	app_resources/render_common.hlsl
-)
-target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
-set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(SM 6_8)
 set(JSON [=[
@@ -101,7 +81,6 @@ set(COMPILE_OPTIONS
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
-    DEPENDS ${DEPENDS}
     BINARY_DIR ${OUTPUT_DIRECTORY}
     MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
     COMMON_OPTIONS ${COMPILE_OPTIONS}

@@ -18,12 +18,12 @@ float3 unpackNormals3x10(uint32_t v)
 {
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32
     // follows unpacking scheme from https://github.com/KhronosGroup/SPIRV-Cross/blob/main/reference/shaders-hlsl/frag/unorm-snorm-packing.frag
-    int signedValue = int(v);
+    const int signedValue = (int)v;
     int3 pn = int3(signedValue << 22, signedValue << 12, signedValue << 2) >> 22;
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
 
-float3 calculateNormals(int primID, SGeomInfo geom, float2 bary)
+float3 calculateNormals(const uint32_t primID, SGeomInfo geom, float2 bary)
 {
     const uint indexType = geom.indexType;
     const uint normalType = geom.normalType;
@@ -35,9 +35,9 @@ float3 calculateNormals(int primID, SGeomInfo geom, float2 bary)
     uint32_t3 indices;
     if (indexBufferAddress == 0)
     {
-        indices[0] = primID * 3;
-        indices[1] = indices[0] + 1;
-        indices[2] = indices[0] + 2;
+        indices[0] = primID * 3u;
+        indices[1] = indices[0] + 1u;
+        indices[2] = indices[0] + 2u;
     }
     else {
         switch (indexType)
@@ -117,9 +117,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     if (spirv::rayQueryGetIntersectionTypeKHR(query, true) == spv::RayQueryCommittedIntersectionTypeRayQueryCommittedIntersectionTriangleKHR)
     {
-        const int instanceCustomIndex = spirv::rayQueryGetIntersectionInstanceCustomIndexKHR(query, true);
-        const int geometryIndex = spirv::rayQueryGetIntersectionGeometryIndexKHR(query, true);
-        const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
+        const uint32_t instanceCustomIndex = spirv::rayQueryGetIntersectionInstanceCustomIndexKHR(query, true);
+        const uint32_t geometryIndex = spirv::rayQueryGetIntersectionGeometryIndexKHR(query, true);
+        const uint32_t primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
 
         // TODO: candidate for `bda::__ptr<SGeomInfo>`
         const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + (instanceCustomIndex + geometryIndex) * sizeof(SGeomInfo), 8);

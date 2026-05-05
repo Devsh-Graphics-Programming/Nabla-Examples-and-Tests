@@ -23,9 +23,9 @@ using GeometryCollectionData = core::smart_refctd_ptr<ICPUGeometryCollection>;
 using GeometryData = std::variant<PolygonGeometryData, GeometryCollectionData>;
 struct ReferenceObjectCpu
 {
-  core::matrix3x4SIMD transform;
+	hlsl::float32_t3x4 transform;
 	GeometryData data;
-  uint32_t instanceID;
+	uint32_t instanceID;
 };
 
 }

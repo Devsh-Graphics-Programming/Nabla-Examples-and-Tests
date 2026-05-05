@@ -7,6 +7,7 @@
 #include "nbl/examples/examples.hpp"
 // TODO: why is it not in nabla.h ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 using namespace nbl;
 using namespace nbl::core;
@@ -180,6 +181,13 @@ public:
     inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
         : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+    inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+    {
+        auto retval = device_base_t::getPreferredDeviceFeatures();
+        retval.pipelineExecutableInfo = true;
+        return retval;
+    }
+
     inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
     {
         if (!m_surface)
@@ -232,7 +240,7 @@ public:
             float zNear = 0.1f, zFar = 10000.f;
             core::vectorSIMDf cameraPosition(14, 8, 12);
             core::vectorSIMDf cameraTarget(0, 0, 0);
-            matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+            hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
             camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 
             m_pRenderParams.zNear = zNear;
@@ -373,8 +381,18 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = entryPoint;
                 params.shader.shader = shader.get();
-                
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
                 m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline);
+
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo && pipeline)
+                {
+                    auto report = system::to_string(pipeline->getExecutableInfo());
+                    m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, ShaderKey.value, report.c_str());
+                }
             };
 
         {
@@ -626,16 +644,38 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = "iterateDiffusion";
                 params.shader.shader = diffusion.get();
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline))
+					m_logger->log("Failed to create iterateDiffusion pipeline!\n");
 
-                m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    auto report = system::to_string(m_iterateDiffusionPipeline->getExecutableInfo());
+                    m_logger->log("iterateDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+                }
             }
             {
                 IGPUComputePipeline::SCreationParams params = {};
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = "applyDiffusion";
                 params.shader.shader = diffusion.get();
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                    params.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+                }
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline))
+					m_logger->log("Failed to create applyDiffusion pipeline!\n");
 
-                m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
+                if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+                {
+                    auto report = system::to_string(m_diffusionPipeline->getExecutableInfo());
+                    m_logger->log("applyDiffusion Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, report.c_str());
+                }
             }
 
             {
@@ -883,22 +923,20 @@ public:
             const auto projectionMatrix = camera.getProjectionMatrix();
             const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-            core::matrix3x4SIMD modelMatrix;
-            modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-            modelMatrix.setRotation(quaternion(0, 0, 0));
+            hlsl::float32_t3x4 modelMatrix = hlsl::math::linalg::identity<float32_t3x4>();
 
-            core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
-            core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+            hlsl::float32_t3x4 modelViewMatrix = viewMatrix;
+            hlsl::float32_t4x4 modelViewProjectionMatrix = viewProjectionMatrix;
 
-            auto modelMat = core::concatenateBFollowedByA(core::matrix4SIMD(), modelMatrix);
+            auto modelMat = hlsl::math::linalg::promote_affine<4, 4, 3, 4>(modelMatrix);
 
             const core::vector3df camPos = camera.getPosition().getAsVector3df();
 
             camPos.getAs4Values(camData.cameraPosition);
-            memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
-            memcpy(camData.M, modelMat.pointer(), sizeof(camData.M));
-            memcpy(camData.V, viewMatrix.pointer(), sizeof(camData.V));
-            memcpy(camData.P, projectionMatrix.pointer(), sizeof(camData.P));
+            memcpy(camData.MVP, &modelViewProjectionMatrix[0][0], sizeof(camData.MVP));
+            memcpy(camData.M, &modelMat[0][0], sizeof(camData.M));
+            memcpy(camData.V, &viewMatrix[0][0], sizeof(camData.V));
+            memcpy(camData.P, &projectionMatrix[0][0], sizeof(camData.P));
             {
                 camDataRange.buffer = cameraBuffer;
                 camDataRange.size = cameraBuffer->getSize();
@@ -1789,7 +1827,7 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-    Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
+    Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), hlsl::float32_t4x4());
     video::CDumbPresentationOracle oracle;
 
     bool m_shouldInitParticles = true;
