@@ -9,7 +9,7 @@ using namespace nbl::hlsl;
 
 //using ConstevalParameters = workgroup::fft::ConstevalParameters<ElementsPerThreadLog2, WorkgroupSizeLog2, scalar_t>;
 
-groupshared uint32_t sharedmem[4 * ((sizeof(complex_t<float32_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2) ];
+groupshared uint32_t sharedmem[4 * ((sizeof(complex_t<scalar_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2) ];
 
 struct SharedMemoryAccessor 
 {
@@ -60,24 +60,27 @@ struct Accessor
 };
 
 
-template<uint16_t Size>
+template<uint16_t Channels, uint16_t Size>
 struct InvocationElementsAccessor
 {
-	float32_t real[Size];
-	float32_t imag[Size];
+	scalar_t real[Channels][Size];
+	scalar_t imag[Channels][Size];
 
-	void get(uint32_t channel, NBL_REF_ARG(complex_t<float32_t>) value)
+	void get(uint32_t channel, uint32_t pair, NBL_REF_ARG(complex_t<scalar_t>) value)
 	{
-		value.real(real[channel]);
-		value.imag(imag[channel]);
+		value.real(real[channel][pair]);
+		value.imag(imag[channel][pair]);
 	}
 
-	void set(uint32_t channel, complex_t<float32_t> value)
+	void set(uint32_t channel, uint32_t pair, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
 	{
-		real[channel] = value.real();
-		imag[channel] = value.imag();
+		real[channel][pair] = value.real();
+		imag[channel][pair] = value.imag();
 	}
 };
+
+using _InvocationElementsAccessor = InvocationElementsAccessor<Channels, ElementsPerInvocationPerChannel / 2>;
+using ElementsAccessorAdaptor = workgroup2::fft::WorkgroupRadix2AccessorAdaptor<Channels, scalar_t, _InvocationElementsAccessor>;
 
 //[numthreads(ConstevalParameters::WorkgroupSize,1,1)]
 [numthreads(WorkgroupSize, 1, 1)]
@@ -87,8 +90,10 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	// global mem read write
 	Accessor accessor = Accessor::create(pushConstants.deviceBufferAddress);
 	// Load elements into the accessor
-	InvocationElementsAccessor<ElementsPerThread / 2> loAcc;
-	InvocationElementsAccessor<ElementsPerThread / 2> hiAcc;
+	_InvocationElementsAccessor loElementAccessor;
+	ElementsAccessorAdaptor loAcc = ElementsAccessorAdaptor::create(loElementAccessor);
+	_InvocationElementsAccessor hiElementAccessor;
+	ElementsAccessorAdaptor hiAcc = ElementsAccessorAdaptor::create(hiElementAccessor);
 
 	// Set up the memory adaptor
 	SharedMemoryAccessor sharedmemAccessor;
@@ -96,13 +101,12 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	//adaptor_t sharedmemAdaptor;
 	//sharedmemAdaptor.accessor = sharedmemAccessor;
 
-	using ConstevalParameters = workgroup2::fft::ConstevalParameters<ElementsPerThread, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledChannelsPerRound, false, 0, ShareTwiddles, float32_t>;
-	using FFT = workgroup2::FFT<false, ConstevalParameters>;
-	using IFFT = workgroup2::FFT<true, ConstevalParameters>;
+	using FFT = workgroup2::impl::InnerFFT<false, ConstevalParameters>;
+	using IFFT = workgroup2::impl::InnerFFT<true, ConstevalParameters>;
 
 	// Invert last channel to ensure ping pong works
 	[unroll]
-	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
+	for (uint32_t pair = 0u; pair < ElementsPerInvocationPerChannel / 2; pair++)
 	{
 		complex_t<float32_t> lo, hi;
 		accessor.get(uint32_t(workgroup::SubgroupContiguousIndex()) + 2 * pair * WorkgroupSize, lo);
@@ -119,7 +123,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	IFFT::__call(loAcc, hiAcc, sharedmemAccessor);
 
 	[unroll]
-	for (uint32_t pair = 0u; pair < ElementsPerThread / 2; pair++)
+	for (uint32_t pair = 0u; pair < ElementsPerInvocationPerChannel / 2; pair++)
 	{
 		complex_t<float32_t> lo, hi;
 		loAcc.get(pair, lo);

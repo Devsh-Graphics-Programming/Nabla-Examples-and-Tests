@@ -278,7 +278,7 @@ public:
 		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
 
 		// Run DIF Ordering test
-		DIFOrderTester<Radix2ElementsPerInvocationLog2, WorkgroupSizeLog2, ExtraPrimeFactor>();
+		DIFOrderTester<Radix2ElementsPerInvocationPerChannelLog2, WorkgroupSizeLog2, ExtraPrimeFactor>();
 
 		// Generate our data in-place on the allocated staging buffer. Packing is interleaved in this example!
 		{
