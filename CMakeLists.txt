@@ -111,7 +111,9 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 
 	add_subdirectory(74_QuantizedSequenceTests)
-	add_subdirectory(76_CudaInterop)
+	if (NBL_COMPILE_WITH_CUDA)
+		add_subdirectory(76_CudaInterop)
+	endif()
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)

@@ -1,6 +1,4 @@
-#include "nbl/video/CCUDAHandler.h"
-// #include "nbl/video/CCUDAExportableMemory.h"
-// #include "nbl/video/CCUDAImportedSemaphore.h"
+#include "nbl/ext/CUDAInterop/CUDAInterop.h"
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
