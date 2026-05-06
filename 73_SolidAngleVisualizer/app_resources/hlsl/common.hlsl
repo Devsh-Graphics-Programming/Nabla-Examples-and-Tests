@@ -24,6 +24,8 @@ enum SAMPLING_MODE_FLAGS : uint32_t
    FLAG_TRIANGLE      = 0x200,
    FLAG_PARALLELOGRAM = 0x400,
    FLAG_SILHOUETTE    = 0x800,
+   FLAG_OBB_FACE      = 0x10000,
+   FLAG_OBB_AXES      = 0x20000,
 
    // ---- variant flags (modifiers on the family) ----
    FLAG_CALIPER     = 0x1000,
@@ -46,11 +48,14 @@ enum SAMPLING_MODE_FLAGS : uint32_t
 
    BILINEAR_FROM_PYRAMID               = 6 | FLAG_PYRAMID | FLAG_BILINEAR,
 
-   SILHOUETTE_CREATION_ONLY            = 7 | FLAG_SILHOUETTE | FLAG_CREATE_ONLY,
-   PYRAMID_CREATION_ONLY               = 8 | FLAG_PYRAMID | FLAG_CREATE_ONLY,
-   CALIPER_PYRAMID_CREATION_ONLY       = 9 | FLAG_PYRAMID | FLAG_CALIPER | FLAG_CREATE_ONLY,
+   OBB_FACE_DIRECT                     = 7 | FLAG_OBB_FACE,
 
-   Count = 10  // count of distinct dense IDs
+   SILHOUETTE_CREATION_ONLY            = 8 | FLAG_SILHOUETTE | FLAG_CREATE_ONLY,
+   PYRAMID_CREATION_ONLY               = 9 | FLAG_PYRAMID | FLAG_CREATE_ONLY,
+   CALIPER_PYRAMID_CREATION_ONLY       = 10 | FLAG_PYRAMID | FLAG_CALIPER | FLAG_CREATE_ONLY,
+
+   Count = 11,  // count of distinct dense IDs
+   CountWithoutCreateOnly = Count - 3 // count of modes that aren't "creation only" (i.e. that produce samples)
 };
 
 #ifndef __HLSL_VERSION
@@ -65,9 +70,10 @@ constexpr SAMPLING_MODE_FLAGS kAllModes[SAMPLING_MODE_FLAGS::Count] = {
    SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE,       // dense 4
    SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE,  // dense 5
    SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID,                // dense 6
-   SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY,             // dense 7
-   SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY,                // dense 8
-   SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY,        // dense 9
+   SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT,                      // dense 7
+   SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY,             // dense 8
+   SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY,                // dense 9
+   SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY,        // dense 10
 };
 #endif
 

@@ -9,6 +9,7 @@
 #include "app_resources/hlsl/parallelogram_sampling.hlsl"
 #include "app_resources/hlsl/pyramid_sampling.hlsl"
 #include "app_resources/hlsl/triangle_sampling.hlsl"
+#include "app_resources/hlsl/obb_face_sampling.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -66,6 +67,30 @@ uint32_t runCreateAndSample(uint32_t creations, NBL_REF_ARG(Xoroshiro64Star) rng
    return sink;
 }
 
+// Variant for samplers whose `create(view)` works directly from the OBBView
+// without needing a ClippedSilhouette upstream. Skips the ~25-30 ps silhouette
+// build cost per creation.
+template<typename SamplerT>
+uint32_t runCreateAndSampleNoSilhouette(uint32_t creations, NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU32, uint32_t invocationID, float32_t3 rndOffset)
+{
+   uint32_t sink = 0;
+   for (uint32_t c = 0; c < creations; c++)
+   {
+      shapes::OBBView<float32_t> view    = makePerturbedView(rndOffset, rng, rcpU32);
+      SamplerT                   sampler = SamplerT::create(view);
+
+      for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
+      {
+         float32_t2                    xi = stratifiedXi(c * pc.samplesPerCreation + s, invocationID);
+         typename SamplerT::cache_type cache;
+         float32_t3                    dir = sampler.generate(xi, cache);
+         float32_t                     pdf = sampler.forwardPdf(xi, cache);
+         sink ^= asuint(dir.x) ^ asuint(dir.y) ^ asuint(dir.z) ^ asuint(pdf) ^ sampler.selectedIdx(cache);
+      }
+   }
+   return sink;
+}
+
 // Pyramid-create-only benchmark using synthetic random vertices. Templated on
 // UseCaliper so PYRAMID_CREATION_ONLY and CALIPER_PYRAMID_CREATION_ONLY share
 // one body. Inner sampler is unused (no generate() calls), so default to SphRect.
@@ -110,7 +135,8 @@ uint32_t runPyramidCreationOnly(NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU
    return sink;
 }
 
-[numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)] void main()
+[numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)] 
+void main()
 {
    const uint32_t invocationID = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
 
@@ -149,8 +175,7 @@ uint32_t runPyramidCreationOnly(NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU
             sink ^= asuint(iterVerts[j].x) ^ asuint(iterVerts[j].y) ^ asuint(iterVerts[j].z);
       }
    }
-   else if ((benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_PYRAMID) != 0u
-         && (benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_CREATE_ONLY) != 0u)
+   else if ((benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_PYRAMID) != 0u && (benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_CREATE_ONLY) != 0u)
       sink ^= runPyramidCreationOnly<(benchmarkMode & SAMPLING_MODE_FLAGS::FLAG_CALIPER) != 0u>(rng, rcpU32);
    // Caliper variant: tighter rect → different rejection rate, only interesting when samplesPerCreation > 1.
    else if (benchmarkMode == SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID)
@@ -165,6 +190,8 @@ uint32_t runPyramidCreationOnly(NBL_REF_ARG(Xoroshiro64Star) rng, float32_t rcpU
       sink ^= runCreateAndSample<Parallelogram>(creations, rng, rcpU32, invocationID, rndOffset);
    else if (benchmarkMode == SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID)
       sink ^= runCreateAndSample<SphericalPyramid<false, BilinearSampler> >(creations, rng, rcpU32, invocationID, rndOffset);
+   else if (benchmarkMode == SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT)
+      sink ^= runCreateAndSampleNoSilhouette<OBBFaceSampler>(creations, rng, rcpU32, invocationID, rndOffset);
    else
    {
       assert(false);

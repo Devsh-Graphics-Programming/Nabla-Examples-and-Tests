@@ -15,39 +15,26 @@ using namespace ext::FullScreenTriangle;
 #include "triangle_sampling.hlsl"
 #include "parallelogram_sampling.hlsl"
 #include "pyramid_sampling.hlsl"
+#include "obb_face_sampling.hlsl"
 
 [[vk::push_constant]] struct PushConstants pc;
 
 static const SAMPLING_MODE_FLAGS samplingMode = SAMPLING_MODE_FLAGS_CONST;
 
-// Mode -> Sampler type dispatch keyed on the dense ID (boost::wave can't
-// evaluate enum-qualified `::` in #if, so we use a parallel numeric macro
-// passed in by CMake). Dense IDs match the kAllModes ordering in common.hlsl:
-//   0 SPH_RECT_FROM_CALIPER_PYRAMID    5 PROJECTED_PARALLELOGRAM_SOLID_ANGLE
-//   1 SPH_RECT_FROM_PYRAMID            6 BILINEAR_FROM_PYRAMID
-//   2 PROJ_SPH_RECT_FROM_PYRAMID       7 SILHOUETTE_CREATION_ONLY (early-exit)
-//   3 TRIANGLE_SOLID_ANGLE             8 PYRAMID_CREATION_ONLY
-//   4 TRIANGLE_PROJECTED_SOLID_ANGLE   9 CALIPER_PYRAMID_CREATION_ONLY
-// PYRAMID_CREATION_ONLY / CALIPER_PYRAMID_CREATION_ONLY pick the sphrect inner
-// so the bounding lunes still draw on screen; the inner is harmless extra work
-// (those modes are timed in the compute benchmark, not the frag).
-#if SAMPLING_MODE_DENSE_ID == 3
-typedef TriangleFanSampler<false> SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 4
-typedef TriangleFanSampler<true> SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 5
-typedef Parallelogram SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 1 || SAMPLING_MODE_DENSE_ID == 8
-typedef SphericalPyramid<false, sampling::SphericalRectangle<float32_t> > SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 0 || SAMPLING_MODE_DENSE_ID == 9
-typedef SphericalPyramid<true, sampling::SphericalRectangle<float32_t> > SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 2
-typedef SphericalPyramid<false, sampling::ProjectedSphericalRectangle<float32_t> > SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 6
-typedef SphericalPyramid<false, BilinearSampler> SelectedSampler;
-#elif SAMPLING_MODE_DENSE_ID == 7  // SILHOUETTE_CREATION_ONLY: alias any type so the
-typedef Parallelogram SelectedSampler;  // unreachable post-early-return code parses.
-#endif
+template<SAMPLING_MODE_FLAGS Mode> struct SelectSampler;
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE>                { using type = TriangleFanSampler<false>; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE>      { using type = TriangleFanSampler<true>; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE> { using type = Parallelogram; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID>               { using type = SphericalPyramid<false, sampling::SphericalRectangle<float32_t> >; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY>               { using type = SphericalPyramid<false, sampling::SphericalRectangle<float32_t> >; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID>       { using type = SphericalPyramid<true, sampling::SphericalRectangle<float32_t> >; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY>       { using type = SphericalPyramid<true, sampling::SphericalRectangle<float32_t> >; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID>          { using type = SphericalPyramid<false, sampling::ProjectedSphericalRectangle<float32_t> >; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID>               { using type = SphericalPyramid<false, BilinearSampler>; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT>                     { using type = OBBFaceSampler; };
+template<> struct SelectSampler<SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY>            { using type = Parallelogram; };
+
+using SelectedSampler = typename SelectSampler<SAMPLING_MODE_FLAGS_CONST>::type;
 
 void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 spherePos)
 {
@@ -80,22 +67,6 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
 
    shapes::OBBView<float32_t> view       = shapes::OBBView<float32_t>::create(pc.modelMatrix);
    ClippedSilhouette          silhouette = ClippedSilhouette::create(view);
-
-   if (SAMPLING_MODE_DENSE_ID == 7) // SILHOUETTE_CREATION_ONLY
-   {
-      // Sink that prevents DCE of the create+materialize cost.
-      shapes::OBBView<float32_t> perturbedView = view;
-      perturbedView.minCorner += float32_t3(ndc.x, ndc.y, 0.0f) * 1e-7f;
-      ClippedSilhouette pSilhouette = ClippedSilhouette::create(perturbedView);
-      float32_t3 pVerts[MAX_SILHOUETTE_VERTICES];
-      pSilhouette.materialize(perturbedView, pVerts);
-
-      uint32_t sink = pSilhouette.count;
-      NBL_UNROLL
-      for (uint32_t i = 0; i < MAX_SILHOUETTE_VERTICES; i++)
-         sink ^= asuint(pVerts[i].x) ^ asuint(pVerts[i].y) ^ asuint(pVerts[i].z);
-      return (float32_t4)asfloat(sink);
-   }
 
    SelectedSampler sampler = SelectedSampler::create(silhouette, view);
 

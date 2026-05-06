@@ -26,14 +26,14 @@
 // pairs that the frag shader / benchmark actually instantiate.
 // ============================================================================
 
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<Parallelogram>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<TriangleFanSampler<false>>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<TriangleFanSampler<true>>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<BilinearSampler>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, nbl::hlsl::sampling::SphericalRectangle<float32_t>>>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<true,  nbl::hlsl::sampling::SphericalRectangle<float32_t>>>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, nbl::hlsl::sampling::ProjectedSphericalRectangle<float32_t>>>);
- //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, BilinearSampler>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<Parallelogram>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<TriangleFanSampler<false>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<TriangleFanSampler<true>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<BilinearSampler>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, nbl::hlsl::sampling::SphericalRectangle<float32_t>>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<true,  nbl::hlsl::sampling::SphericalRectangle<float32_t>>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, nbl::hlsl::sampling::ProjectedSphericalRectangle<float32_t>>>);
+//static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, BilinearSampler>>);
 
 // App execution mode -- pick at compile time via -DAPP_MODE=N
 //   APP_MODE_VISUALIZER       (1) full visualization with debug + ImGui editor (default)
@@ -237,6 +237,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          addSaVis.template operator()<"sa_vis_pyramid", "sa_vis_pyramid_dbg">(SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY);
          addSaVis.template operator()<"sa_vis_caliper_pyramid", "sa_vis_caliper_pyramid_dbg">(SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY);
          addSaVis.template operator()<"sa_vis_caliper_rectangle", "sa_vis_caliper_rectangle_dbg">(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID);
+         addSaVis.template operator()<"sa_vis_obb_face", "sa_vis_obb_face_dbg">(SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT);
 
          smart_refctd_ptr<IShader> rayVisShaders[DebugPermutations];
          rayVisShaders[0] = loadPrecompiledShader(nbl::this_example::builtin::build::get_spirv_key<"ray_vis">(m_device.get()));
@@ -430,16 +431,16 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          m_keepRunning     = false;
       }
 
-      const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
-      auto* const cb        = m_cmdBufs.data()[resourceIx].get();
+      const auto  resourceIx = m_realFrameIx % MaxFramesInFlight;
+      auto* const cb         = m_cmdBufs.data()[resourceIx].get();
       cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
       cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
       {
          auto*                                         scRes      = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
          const IGPUCommandBuffer::SClearColorValue     clearValue = {.float32 = {0.f, 0.f, 0.f, 1.f}};
          const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
-            {.framebuffer             = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
-               .colorClearValues      = &clearValue,
+            {.framebuffer               = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
+               .colorClearValues        = &clearValue,
                .depthStencilClearValues = nullptr,
                .renderArea              = {.offset = {0, 0}, .extent = {m_window->getWidth(), m_window->getHeight()}}};
          beginRenderpass(cb, renderpassInfo);
@@ -448,14 +449,14 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       cb->end();
 
       IQueue::SSubmitInfo::SSemaphoreInfo retval =
-         {.semaphore = m_semaphore.get(),
-            .value   = ++m_realFrameIx,
+         {.semaphore   = m_semaphore.get(),
+            .value     = ++m_realFrameIx,
             .stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS};
-      const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = {{.cmdbuf = cb}};
+      const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = {{.cmdbuf = cb }};
       const IQueue::SSubmitInfo::SSemaphoreInfo     acquired[]       = {
          {.semaphore   = device_base_t::getCurrentAcquire().semaphore,
-            .value     = device_base_t::getCurrentAcquire().acquireCount,
-            .stageMask = PIPELINE_STAGE_FLAGS::NONE}};
+                      .value     = device_base_t::getCurrentAcquire().acquireCount,
+                      .stageMask = PIPELINE_STAGE_FLAGS::NONE }};
       const IQueue::SSubmitInfo infos[] = {
          {.waitSemaphores = acquired, .commandBuffers = commandBuffers, .signalSemaphores = {&retval, 1}}};
       if (getGraphicsQueue()->submit(infos) != IQueue::RESULT::SUCCESS)
@@ -881,13 +882,13 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
    constexpr static inline auto MaxImGUITextures = 2u + MaxFramesInFlight;
 
    static inline SAMPLING_MODE_FLAGS m_samplingMode         = SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID;
-   static inline bool          m_debugVisualization   = true;
-   static inline int           m_SampleCount          = 64;
-   static inline int           m_BenchmarkSampleCount = 128;
-   static inline bool          m_frameSeeding         = true;
-   static inline ResultData    m_GPUOutResulData;
-   bool                        m_keepRunning          = true;
-   bool                        m_nsightBenchDone      = false;
+   static inline bool                m_debugVisualization   = true;
+   static inline int                 m_SampleCount          = 64;
+   static inline int                 m_BenchmarkSampleCount = 128;
+   static inline bool                m_frameSeeding         = true;
+   static inline ResultData          m_GPUOutResulData;
+   bool                              m_keepRunning     = true;
+   bool                              m_nsightBenchDone = false;
    //
    smart_refctd_ptr<CGeometryCreatorScene> m_scene;
    smart_refctd_ptr<IGPURenderpass>        m_solidAngleRenderpass;
@@ -962,26 +963,25 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          ImGui::Text("Sampling Mode:");
          ImGui::SameLine();
 
-         const char* samplingModes[SAMPLING_MODE_FLAGS::Count - 3]                       = {};
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID)]            = "Spherical Rectangle From Pyramid";
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID)]    = "Caliper Rectangle From Pyramid";
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID)]       = "Projected Spherical Rectangle From Pyramid";
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE)]             = "Spherical Triangle";
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE)]   = "Projected Spherical Triangle";
+         const char* samplingModes[SAMPLING_MODE_FLAGS::CountWithoutCreateOnly]             = {};
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID)]               = "Spherical Rectangle From Pyramid";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID)]       = "Caliper Rectangle From Pyramid";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID)]          = "Projected Spherical Rectangle From Pyramid";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE)]                = "Spherical Triangle";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE)]      = "Projected Spherical Triangle";
          samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE)] = "Projected Parallelogram";
-         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID)]            = "Bilinear Pyramid";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::BILINEAR_FROM_PYRAMID)]               = "Bilinear Pyramid";
+         samplingModes[denseIdOf(SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT)]                     = "OBB Face Direct";
 
          int currentMode = static_cast<int>(denseIdOf(m_samplingMode));
 
-         if (ImGui::Combo("##SamplingMode", &currentMode, samplingModes, SAMPLING_MODE_FLAGS::Count - 3))
+         if (ImGui::Combo("##SamplingMode", &currentMode, samplingModes, SAMPLING_MODE_FLAGS::CountWithoutCreateOnly))
          {
             m_samplingMode = kAllModes[currentMode];
          }
 
          ImGui::Checkbox("Debug Visualization", &m_debugVisualization);
-         ImGui::Text("Pipeline idx: SA=%d, Ray=%d",
-            static_cast<int>(denseIdOf(m_samplingMode)) * DebugPermutations + (m_debugVisualization ? 1 : 0),
-            m_debugVisualization ? 1 : 0);
+         ImGui::Text("Pipeline idx: SA=%d, Ray=%d", static_cast<int>(denseIdOf(m_samplingMode)) * DebugPermutations + (m_debugVisualization ? 1 : 0), m_debugVisualization ? 1 : 0);
          ImGui::Checkbox("Frame seeding", &m_frameSeeding);
 
          ImGui::SliderInt("Sample Count", &m_SampleCount, 0, 512);
@@ -1260,7 +1260,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
                }
 
                // Parallelogram
-               if (m_samplingMode == PROJECTED_PARALLELOGRAM_SOLID_ANGLE && ImGui::CollapsingHeader("Projected Parallelogram", ImGuiTreeNodeFlags_DefaultOpen))
+               if (m_samplingMode & FLAG_PARALLELOGRAM && ImGui::CollapsingHeader("Projected Parallelogram", ImGuiTreeNodeFlags_DefaultOpen))
                {
                   ImGui::Text("Area: %.3f", m_GPUOutResulData.parallelogram.area);
                   ImGui::Text("N3 Mask: 0x%02X", m_GPUOutResulData.parallelogram.n3Mask);
@@ -1275,7 +1275,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
                   for (uint32_t i = 0; i < 4; i++)
                      ImGui::Text("Corner[%u]: (%.3f, %.3f)", i, m_GPUOutResulData.parallelogram.corners[i].x, m_GPUOutResulData.parallelogram.corners[i].y);
                }
-               else if ((m_samplingMode == SPH_RECT_FROM_PYRAMID || m_samplingMode == PROJ_SPH_RECT_FROM_PYRAMID || m_samplingMode == BILINEAR_FROM_PYRAMID || m_samplingMode == SPH_RECT_FROM_CALIPER_PYRAMID) && ImGui::CollapsingHeader("Spherical Pyramid", ImGuiTreeNodeFlags_DefaultOpen))
+               else if ((m_samplingMode & FLAG_PYRAMID) && ImGui::CollapsingHeader("Spherical Pyramid", ImGuiTreeNodeFlags_DefaultOpen))
                {
                   ImGui::Text("Best Caliper Edge: %u", m_GPUOutResulData.pyramid.bestEdge);
                   ImGui::Separator();
@@ -1299,7 +1299,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
                      m_GPUOutResulData.pyramid.center.x, m_GPUOutResulData.pyramid.center.y, m_GPUOutResulData.pyramid.center.z);
                   ImGui::Text("Solid Angle (bound): %.6f sr", m_GPUOutResulData.pyramid.solidAngle);
                }
-               else if (m_samplingMode == TRIANGLE_SOLID_ANGLE || m_samplingMode == TRIANGLE_PROJECTED_SOLID_ANGLE && ImGui::CollapsingHeader("Spherical Triangle", ImGuiTreeNodeFlags_DefaultOpen))
+               else if (m_samplingMode & FLAG_TRIANGLE && ImGui::CollapsingHeader("Spherical Triangle", ImGuiTreeNodeFlags_DefaultOpen))
                {
                   ImGui::Text("Spherical Lune Detected: %s", m_GPUOutResulData.triangleFan.sphericalLuneDetected ? "true" : "false");
                   ImGui::Text("Triangle Count: %u", m_GPUOutResulData.triangleFan.triangleCount);
@@ -1651,6 +1651,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
             addBench.template operator()<"benchmark_pyramid_creation">(SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY);
             addBench.template operator()<"benchmark_caliper_pyramid_creation">(SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY);
             addBench.template operator()<"benchmark_caliper_rectangle">(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID);
+            addBench.template operator()<"benchmark_obb_face_direct">(SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT);
 
             nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
                {.binding       = 0,
@@ -1753,7 +1754,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
 
          struct SamplerEntry
          {
-            const char*   name;
+            const char*         name;
             SAMPLING_MODE_FLAGS mode;
          };
          const SamplerEntry samplers[] = {
@@ -1764,6 +1765,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
             {.name = "PARALLELOGRAM", .mode = SAMPLING_MODE_FLAGS::PROJECTED_PARALLELOGRAM_SOLID_ANGLE},
             {.name = "TRIANGLE_SA", .mode = SAMPLING_MODE_FLAGS::TRIANGLE_SOLID_ANGLE},
             {.name = "TRIANGLE_PSA", .mode = SAMPLING_MODE_FLAGS::TRIANGLE_PROJECTED_SOLID_ANGLE},
+            {.name = "OBB_FACE_DIRECT", .mode = SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT},
          };
 
          // Creation-only modes: report per-creation, not per-sample.
@@ -1783,7 +1785,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       // can gather enough source-line hits.
       void runNSightOneShot()
       {
-         const char* modeNames[SAMPLING_MODE_FLAGS::Count]                       = {};
+         const char* modeNames[SAMPLING_MODE_FLAGS::Count]                              = {};
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_CALIPER_PYRAMID)]       = "CALIPER_PYRAMID_RECTANGLE";
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::SPH_RECT_FROM_PYRAMID)]               = "PYRAMID_RECTANGLE";
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::PROJ_SPH_RECT_FROM_PYRAMID)]          = "PYRAMID_PROJ_RECTANGLE";
@@ -1794,6 +1796,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY)]            = "SILHOUETTE_CREATION_ONLY";
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY)]               = "PYRAMID_CREATION_ONLY";
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY)]       = "CALIPER_PYRAMID_CREATION_ONLY";
+         modeNames[denseIdOf(SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT)]                     = "OBB_FACE_DIRECT";
 
          m_pushConstants.modelMatrix        = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
          m_pushConstants.sampleCount        = static_cast<uint32_t>(m_BenchmarkSampleCount);
@@ -1828,8 +1831,8 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          }
          m_cmdbuf->end();
 
-         smart_refctd_ptr<ISemaphore>              done       = m_device->createSemaphore(0);
-         const IQueue::SSubmitInfo::SSemaphoreInfo signals[]  = {{.semaphore = done.get(), .value = 1, .stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}};
+         smart_refctd_ptr<ISemaphore>                  done           = m_device->createSemaphore(0);
+         const IQueue::SSubmitInfo::SSemaphoreInfo     signals[]      = {{.semaphore = done.get(), .value = 1, .stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}};
          IQueue::SSubmitInfo                           submitInfos[1] = {};
          const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[]      = {{.cmdbuf = m_cmdbuf.get()}};
          submitInfos[0].commandBuffers                                = cmdbufs;
@@ -1850,12 +1853,10 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       {
          m_device->waitIdle();
 
-         const bool isCreationBenchmark = (mode == SAMPLING_MODE_FLAGS::SILHOUETTE_CREATION_ONLY || mode == SAMPLING_MODE_FLAGS::PYRAMID_CREATION_ONLY || mode == SAMPLING_MODE_FLAGS::CALIPER_PYRAMID_CREATION_ONLY);
-
          m_pushConstants.modelMatrix = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
          m_pushConstants.sampleCount = m_BenchmarkSampleCount;
          // For create-only modes the inner loop is unused; pick any divisor of sampleCount to keep the shader's `creations = sampleCount / samplesPerCreation` well-defined.
-         m_pushConstants.samplesPerCreation = isCreationBenchmark ? uint32_t(m_BenchmarkSampleCount) : samplesPerCreation;
+         m_pushConstants.samplesPerCreation = mode & FLAG_CREATE_ONLY ? uint32_t(m_BenchmarkSampleCount) : samplesPerCreation;
          recordCmdBuff(mode);
 
          // Nabla's IQueue::submit rejects submissions without a signal semaphore
@@ -1883,7 +1884,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          const float64_t elapsed_ms = elapsed_ps * 1e-9;
 
          char modeBuf[16];
-         if (isCreationBenchmark)
+         if (mode & FLAG_CREATE_ONLY)
             snprintf(modeBuf, sizeof(modeBuf), "create-only");
          else
             snprintf(modeBuf, sizeof(modeBuf), "1:%u", samplesPerCreation);
@@ -1966,7 +1967,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       static constexpr int               WarmupDispatches    = 100;
       static constexpr int               Dispatches          = 1000;
       // PC sampling needs sustained execution per range; one dispatch is too short. Tune up if NSight still reports too few samples.
-      static constexpr int               NSightDispatchesPerMode = 16;
+      static constexpr int NSightDispatchesPerMode = 16;
    };
 
    template<typename... Args>
