@@ -4,6 +4,8 @@
 #include "renderer/present/CWindowPresenter.h"
 #include "renderer/shaders/session.hlsl"
 
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
+
 namespace nbl::this_example
 {
 using namespace nbl::core;
@@ -193,8 +195,12 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 	uint16_t2 targetResolution = m_pushConstants.isCubemap ? maxResolution:sessionParams.uniforms.renderSize;
 	if (m_pushConstants.isCubemap)
 	{
-		// TODO: build default perspective projection matrix given aspect ratio and smaller axis (or diagonal) FOV of the viewer
-//		m_pushConstants.cubemap.invProjView = ;
+		const auto invView = math::linalg::promote_affine<4,4>(sessionParams.initDynamics.invView);
+		// TODO: consider handedness, right now right hand
+		const auto originalAspectRatio = float32_t(targetResolution.x) / float32_t(targetResolution.y);
+		const auto proj = buildProjectionMatrixPerspectiveFovRH(numbers::pi<float32_t> * 0.5f, originalAspectRatio, sessionParams.initDynamics.nearClip, sessionParams.initDynamics.tMax);
+		const auto invProj = hlsl::inverse(proj);
+	    m_pushConstants.cubemap.invProjView = hlsl::mul(invView, invProj);
 	}
 	else
 	{
