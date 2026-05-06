@@ -90,9 +90,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 				using spectral_semantics_e = CTrueIR::ISpectralVariable::ESemantics;
 				using spectral_var_t = CFrontendIR::CSpectralVariableExpr;
+
 				// simple white furnace testing materials
 				{
-#if 1 // tmp debug option
 					// transmission
 					{
 						const auto layerH = forestPool.emplace<CFrontendIR::CLayer>();
@@ -349,7 +349,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					}
 					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
-#endif
+
 				// anisotropic cook torrance GGX with Conductor Fresnel
 				{
 					const auto layerH = forestPool.emplace<CFrontendIR::CLayer>();
