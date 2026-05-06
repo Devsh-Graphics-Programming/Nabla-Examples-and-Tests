@@ -1,4 +1,4 @@
-#include "nbl/ext/CUDAInterop/CUDAInterop.h"
+#include "nbl/ext/CUDAInterop/CUDAInteropNative.h"
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
@@ -16,9 +16,9 @@ user for the desired renderer and start it up.
 
 bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto line, std::string const& log)
 {
-    if (auto re = err; NVRTC_SUCCESS != re) 
+    if (auto re = err; NVRTC_SUCCESS != re)
     {
-        const char* str = cudaHandler->getNVRTCFunctionTable().pnvrtcGetErrorString(re); 
+        const char* str = cuda_native::getNVRTCFunctionTable(*cudaHandler).pnvrtcGetErrorString(re);
         logger->log("%s:%d %s\n%s\n", system::ILogger::ELL_ERROR, file, line, str, log.c_str());
         return false;
     }
@@ -59,7 +59,7 @@ public:
         device_base_t::filterDevices(physicalDevices);
         auto& cuDevices = cudaHandler->getAvailableDevices();
         std::erase_if(physicalDevices, [&cuDevices](auto pdev) {
-            return cuDevices.end() == std::find_if(cuDevices.begin(), cuDevices.end(), [pdev](auto& cuDev) { return !memcmp(pdev->getProperties().deviceUUID, &cuDev.uuid, 16);  });
+            return cuDevices.end() == std::find_if(cuDevices.begin(), cuDevices.end(), [pdev](auto& cuDev) { return !memcmp(pdev->getProperties().deviceUUID, cuDev.uuid.data(), 16);  });
         });
     }
 
@@ -138,14 +138,14 @@ public:
 
             smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
             std::string log;
-            auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()), 
+            auto [ptx_, res] = cuda_native::compileDirectlyToPTX(*cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
                 "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
             ASSERT_NV_SUCCESS(res, log);
 
             ptx = std::move(ptx_);
         }
 
-        auto& cu = cudaHandler->getCUDAFunctionTable();
+        auto& cu = cuda_native::getCUDAFunctionTable(*cudaHandler);
 
         CUmodule   module;
         CUfunction kernel;
@@ -187,7 +187,7 @@ public:
         }
 
         IGPUBuffer::SCreationParams outputBufferParams;
-        outputBufferParams.size = cudaDevice->roundToGranularity(CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
+        outputBufferParams.size = cudaDevice->roundToGranularity(ECUDAMemoryLocation::DEVICE, BufferSize);
         outputBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
         outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
         const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
@@ -255,10 +255,10 @@ public:
         // Launch kernel
         {
             CUdeviceptr outputBufPtr;
-            cudaOutputMemory->getMappedBuffer(&outputBufPtr);
+            cuda_native::getMappedBuffer(*cudaOutputMemory, &outputBufPtr);
             CUdeviceptr ptrs[] = {
-              cudaInputMemories[0]->getDeviceptr(),
-              cudaInputMemories[1]->getDeviceptr(),
+              cuda_native::getDeviceptr(*cudaInputMemories[0]),
+              cuda_native::getDeviceptr(*cudaInputMemories[1]),
               outputBufPtr
             };
             auto numElements = &NumElements;
@@ -266,7 +266,7 @@ public:
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), cudaHandler);
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), cudaHandler);
     
-            auto semaphore = cudaSemaphore->getInternalObject();
+            auto semaphore = cuda_native::getInternalObject(*cudaSemaphore);
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), cudaHandler); // Wait for release op from vulkan
             ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), cudaHandler);
@@ -406,7 +406,7 @@ public:
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
-        auto& cu = cudaHandler->getCUDAFunctionTable();
+        auto& cu = cuda_native::getCUDAFunctionTable(*cudaHandler);
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
             const auto cudaMemory = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
