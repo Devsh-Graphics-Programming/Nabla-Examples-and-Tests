@@ -32,7 +32,7 @@ struct CCascades
     inline uint16_t3 __getCoord(const uint16_t cascadeIx)
     {
         uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
-        coord.z = coord.z*uint16_t(6)+cascadeIx;
+        coord.z = coord.z+cascadeIx*uint16_t(spirv::LaunchSizeKHR.z);
         return coord;
     }
 
