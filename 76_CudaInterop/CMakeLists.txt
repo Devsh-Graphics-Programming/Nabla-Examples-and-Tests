@@ -5,7 +5,7 @@ endif()
 
 nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
-target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::CUDAInterop)
+nbl_target_link_cuda_interop(${EXECUTABLE_NAME} PRIVATE)
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
