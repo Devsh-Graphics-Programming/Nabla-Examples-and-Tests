@@ -139,11 +139,11 @@ public:
 
             smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
             std::string log;
-            auto [ptx_, res] = cuda::CCUDAHandlerAccessor::compileDirectlyToPTX(*cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
-                "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
-            ASSERT_NV_SUCCESS(res, log);
+            auto compile = cuda::CCUDAHandlerAccessor::compileDirectlyToPTX(*cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
+                "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), log, 0, 0, 0);
+            ASSERT_NV_SUCCESS(compile.result, log);
 
-            ptx = std::move(ptx_);
+            ptx = std::move(compile.ptx);
         }
 
         auto& cu = cuda::CCUDAHandlerAccessor::getCUDAFunctionTable(*cudaHandler);
