@@ -19,7 +19,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
 {
     if (auto re = err; NVRTC_SUCCESS != re)
     {
-        const char* str = cuda::getNVRTCFunctionTable(cudaHandler).pnvrtcGetErrorString(re);
+        const char* str = cuda::CCUDAHandlerAccessor::getNVRTCFunctionTable(*cudaHandler).pnvrtcGetErrorString(re);
         logger->log("%s:%d %s\n%s\n", system::ILogger::ELL_ERROR, file, line, str, log.c_str());
         return false;
     }
@@ -139,14 +139,14 @@ public:
 
             smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
             std::string log;
-            auto [ptx_, res] = cuda::compileDirectlyToPTX(cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
+            auto [ptx_, res] = cuda::CCUDAHandlerAccessor::compileDirectlyToPTX(*cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
                 "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
             ASSERT_NV_SUCCESS(res, log);
 
             ptx = std::move(ptx_);
         }
 
-        auto& cu = cuda::getCUDAFunctionTable(cudaHandler);
+        auto& cu = cuda::CCUDAHandlerAccessor::getCUDAFunctionTable(*cudaHandler);
 
         CUmodule   module;
         CUfunction kernel;
@@ -181,7 +181,7 @@ public:
         for (auto input_i = 0; input_i < InputCount; input_i++)
         {
           // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-            cudaInputMemories[input_i] = cuda_native::createExportableMemory(cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            cudaInputMemories[input_i] = cuda_native::CCUDADeviceAccessor::createExportableMemory(*cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
           assert(cudaInputMemories[input_i]);
           vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
           vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
@@ -189,7 +189,7 @@ public:
         }
 
         IGPUBuffer::SCreationParams outputBufferParams;
-        outputBufferParams.size = cuda_native::roundToGranularity(cudaDevice, CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
+        outputBufferParams.size = cuda_native::CCUDADeviceAccessor::roundToGranularity(*cudaDevice, CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
         outputBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
         outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
         const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
@@ -257,10 +257,10 @@ public:
         // Launch kernel
         {
             CUdeviceptr outputBufPtr;
-            cuda::getMappedBuffer(cudaOutputMemory, &outputBufPtr);
+            cuda::CCUDAImportedMemoryAccessor::getMappedBuffer(*cudaOutputMemory, &outputBufPtr);
             CUdeviceptr ptrs[] = {
-              cuda::getDeviceptr(cudaInputMemories[0]),
-              cuda::getDeviceptr(cudaInputMemories[1]),
+              cuda::CCUDAExportableMemoryAccessor::getDeviceptr(*cudaInputMemories[0]),
+              cuda::CCUDAExportableMemoryAccessor::getDeviceptr(*cudaInputMemories[1]),
               outputBufPtr
             };
             auto numElements = &NumElements;
@@ -268,7 +268,7 @@ public:
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), cudaHandler);
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), cudaHandler);
     
-            auto semaphore = cuda::getInternalObject(cudaSemaphore);
+            auto semaphore = cuda::CCUDAImportedSemaphoreAccessor::getInternalObject(*cudaSemaphore);
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), cudaHandler); // Wait for release op from vulkan
             ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), cudaHandler);
@@ -408,10 +408,10 @@ public:
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
-        auto& cu = cuda::getCUDAFunctionTable(cudaHandler);
+        auto& cu = cuda::CCUDAHandlerAccessor::getCUDAFunctionTable(*cudaHandler);
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory = cuda_native::createExportableMemory(cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory = cuda_native::CCUDADeviceAccessor::createExportableMemory(*cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
             assert(cudaMemory);
             escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
