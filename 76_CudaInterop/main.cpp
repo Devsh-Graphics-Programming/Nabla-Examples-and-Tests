@@ -181,14 +181,15 @@ public:
         for (auto input_i = 0; input_i < InputCount; input_i++)
         {
           // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-          cudaInputMemories[input_i] = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            cudaInputMemories[input_i] = cuda_native::createExportableMemory(cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+          assert(cudaInputMemories[input_i]);
           vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
           vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
           inputStagingBuffers[input_i] = createStaging(BufferSize);
         }
 
         IGPUBuffer::SCreationParams outputBufferParams;
-        outputBufferParams.size = cudaDevice->roundToGranularity(ECUDAMemoryLocation::DEVICE, BufferSize);
+        outputBufferParams.size = cuda_native::roundToGranularity(cudaDevice, CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
         outputBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
         outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
         const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
@@ -410,9 +411,8 @@ public:
         auto& cu = cuda::getCUDAFunctionTable(cudaHandler);
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            const auto cudaMemory = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
-            if (!cudaMemory) logFail("Fail to create exportable memory!");
-
+            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory = cuda_native::createExportableMemory(cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            assert(cudaMemory);
             escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
         
