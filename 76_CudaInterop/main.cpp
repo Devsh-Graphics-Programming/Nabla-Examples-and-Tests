@@ -27,6 +27,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
 }
 
 #define ASSERT_NV_SUCCESS(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
+#define ASSERT_CUDA_SUCCESS(expr, handler) { auto re = cuda::CCUDAHandlerAccessor::defaultHandleResult(*(handler), (expr)); assert(re); }
 
 
 using namespace nbl::core;
