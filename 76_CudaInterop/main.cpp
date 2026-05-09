@@ -258,7 +258,7 @@ public:
         // Launch kernel
         {
             cuda::SCUdeviceptr outputBufPtr;
-            cudaOutputMemory->getMappedBuffer(outputBufPtr.opaque());
+            cudaOutputMemory->getMappedBuffer(outputBufPtr);
             CUdeviceptr ptrs[] = {
               cuda::SCUdeviceptr(cudaInputMemories[0]->getDeviceptr()),
               cuda::SCUdeviceptr(cudaInputMemories[1]->getDeviceptr()),
