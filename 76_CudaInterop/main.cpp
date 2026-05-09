@@ -19,7 +19,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
 {
     if (auto re = err; NVRTC_SUCCESS != re)
     {
-        const char* str = cuda::getNVRTCFunctionTable(*cudaHandler).pnvrtcGetErrorString(re);
+        const char* str = cudaHandler->getNVRTCFunctionTable().pnvrtcGetErrorString(re);
         logger->log("%s:%d %s\n%s\n", system::ILogger::ELL_ERROR, file, line, str, log.c_str());
         return false;
     }
@@ -147,7 +147,7 @@ public:
             ptx = std::move(compile.ptx);
         }
 
-        auto& cu = cuda::getCUDAFunctionTable(*cudaHandler);
+        auto& cu = cudaHandler->getCUDAFunctionTable();
 
         CUmodule   module;
         CUfunction kernel;
@@ -182,7 +182,7 @@ public:
         for (auto input_i = 0; input_i < InputCount; input_i++)
         {
           // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-            cudaInputMemories[input_i] = cuda::createExportableMemory(*cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            cudaInputMemories[input_i] = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
           assert(cudaInputMemories[input_i]);
           vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
           vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
@@ -190,7 +190,7 @@ public:
         }
 
         IGPUBuffer::SCreationParams outputBufferParams;
-        outputBufferParams.size = cuda::roundToGranularity(*cudaDevice, CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
+        outputBufferParams.size = cudaDevice->roundToGranularity(CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
         outputBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
         outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
         const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
@@ -409,10 +409,10 @@ public:
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
-        auto& cu = cuda::getCUDAFunctionTable(*cudaHandler);
+        auto& cu = cudaHandler->getCUDAFunctionTable();
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory = cuda::createExportableMemory(*cudaDevice, { .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            core::smart_refctd_ptr<CCUDAExportableMemory> cudaMemory = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
             assert(cudaMemory);
             escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
