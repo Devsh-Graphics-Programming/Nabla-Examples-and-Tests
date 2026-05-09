@@ -7,8 +7,6 @@
 
 using namespace nbl::hlsl;
 
-//using ConstevalParameters = workgroup::fft::ConstevalParameters<ElementsPerThreadLog2, WorkgroupSizeLog2, scalar_t>;
-
 groupshared uint32_t sharedmem[4 * ((sizeof(complex_t<scalar_t>) / sizeof(uint32_t)) << WorkgroupSizeLog2) ];
 
 struct SharedMemoryAccessor 
@@ -101,8 +99,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	//adaptor_t sharedmemAdaptor;
 	//sharedmemAdaptor.accessor = sharedmemAccessor;
 
-	using FFT = workgroup2::impl::InnerFFT<false, ConstevalParameters>;
-	using IFFT = workgroup2::impl::InnerFFT<true, ConstevalParameters>;
+	using FFT = workgroup2::impl::InnerFFT<false, ConstevalParametersForward>;
+	using IFFT = workgroup2::impl::InnerFFT<true, ConstevalParametersInverse>;
 
 	// Invert last channel to ensure ping pong works
 	[unroll]

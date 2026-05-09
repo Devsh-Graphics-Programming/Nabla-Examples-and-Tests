@@ -26,4 +26,8 @@ NBL_CONSTEXPR uint32_t ShuffledVirtualChannelsPerRound = nbl::hlsl::mpl::min_v<u
 
 NBL_CONSTEXPR bool ShareTwiddles = true;
 
-using ConstevalParameters = workgroup2::fft::ConstevalParameters<ElementsPerInvocationPerChannel, Channels, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledVirtualChannelsPerRound, false, true, 0, scalar_t>;
+NBL_CONSTEXPR uint16_t DivisionPolicyForward = workgroup2::fft::DivisionPolicy::DivBySqrtHalfway;
+NBL_CONSTEXPR uint16_t DivisionPolicyInverse = workgroup2::fft::DivisionPolicy::DivBySqrtHalfway;
+
+using ConstevalParametersForward = workgroup2::fft::ConstevalParameters<ElementsPerInvocationPerChannel, Channels, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledVirtualChannelsPerRound, false, true, DivisionPolicyForward, scalar_t>;
+using ConstevalParametersInverse = workgroup2::fft::ConstevalParameters<ElementsPerInvocationPerChannel, Channels, SubgroupSizeLog2, WorkgroupSizeLog2, ShuffledVirtualChannelsPerRound, false, true, DivisionPolicyInverse, scalar_t>;
