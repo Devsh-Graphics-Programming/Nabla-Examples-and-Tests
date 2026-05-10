@@ -8,7 +8,6 @@ using namespace core;
 using namespace system;
 using namespace asset;
 using namespace video;
-namespace cuda = nbl::video::cuda_native;
 
 /*
 The start of the main function starts like in most other example. We ask the
@@ -139,7 +138,7 @@ public:
 
             smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
             std::string log;
-            auto compile = cuda::compileDirectlyToPTX(*cudaHandler, std::string((const char*)source->getPointer(), source->getSize()),
+            auto compile = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()),
                 "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), log, 0, 0, 0);
             ASSERT_NV_SUCCESS(compile.result, log);
 
@@ -256,11 +255,11 @@ public:
         
         // Launch kernel
         {
-            cuda::SCUdeviceptr outputBufPtr;
+            CUdeviceptr outputBufPtr = 0;
             cudaOutputMemory->getMappedBuffer(outputBufPtr);
             CUdeviceptr ptrs[] = {
-              cuda::SCUdeviceptr(cudaInputMemories[0]->getDeviceptr()),
-              cuda::SCUdeviceptr(cudaInputMemories[1]->getDeviceptr()),
+              cudaInputMemories[0]->getDeviceptr(),
+              cudaInputMemories[1]->getDeviceptr(),
               outputBufPtr
             };
             auto numElements = &NumElements;
@@ -268,7 +267,7 @@ public:
             NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), *cudaHandler);
             NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), *cudaHandler);
     
-            CUexternalSemaphore semaphore = cuda::SCUexternalSemaphore(cudaSemaphore->getInternalObject());
+            CUexternalSemaphore semaphore = cudaSemaphore->getInternalObject();
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
             NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), *cudaHandler); // Wait for release op from vulkan
             NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), *cudaHandler);
