@@ -390,7 +390,7 @@ public:
               const auto output = outputs[elem_i];
               const auto expected = input1 + input2;
               const auto diff = abs(output - expected);
-              if (diff < 0.01)
+              if (diff >= 0.01f)
                 ctx->logger->log("TestSharedResources: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
             }
 
