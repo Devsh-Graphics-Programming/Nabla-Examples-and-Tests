@@ -25,6 +25,7 @@ bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto lin
     return true;
 }
 
+#define ASSERT_SUCCESS(expr) NBL_CUDA_INTEROP_ASSERT_SUCCESS((expr), cudaHandler)
 #define ASSERT_NV_SUCCESS(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
 
 
@@ -139,7 +140,7 @@ public:
             smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
             std::string log;
             auto compile = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()),
-                "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), log, 0, 0, 0);
+                "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), &log, 0, 0, 0);
             ASSERT_NV_SUCCESS(compile.result, log);
 
             ptx = std::move(compile.ptx);
@@ -151,9 +152,9 @@ public:
         CUfunction kernel;
         CUstream   stream;
 
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), cudaHandler);
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"), cudaHandler);
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), cudaHandler);
+        ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
+        ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
+        ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
 
         // CPU memory which we fill with random numbers between [-1,1] that will be copied to corresponding cudaMemory
         std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpuBufs;
@@ -264,17 +265,17 @@ public:
             };
             auto numElements = &NumElements;
             void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements };
-            NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), cudaHandler);
-            NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), cudaHandler);
+            ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream));
+            ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream));
     
             CUexternalSemaphore semaphore = cudaSemaphore->getInternalObject();
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
-            NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), cudaHandler); // Wait for release op from vulkan
-            NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), cudaHandler);
+            ASSERT_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream)); // Wait for release op from vulkan
+            ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr));
             const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
-            NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), cudaHandler); // Signal the imported semaphore
+            ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
         }
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
+        ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
         
         // After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
         {
@@ -395,11 +396,11 @@ public:
             ctx->logger->log("TestSharedResources Complete", ILogger::ELL_INFO);
         };
 
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), cudaHandler);
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
+        ASSERT_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx));
+        ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
 
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuModuleUnload(module), cudaHandler);
-        NBL_CUDA_INTEROP_ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream), cudaHandler);
+        ASSERT_SUCCESS(cu.pcuModuleUnload(module));
+        ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
     }
 
     void testDestruction()
@@ -478,6 +479,49 @@ public:
             m_logger->log("Test Destruction complete", ILogger::ELL_INFO);
         }
     
+        // {
+        //     constexpr size_t M = 32;
+        //     auto staging = createStaging(size * M);
+        //
+        //     auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
+        //     for (uint32_t i = 0; i < (M * size) / 4; ++i)
+        //         ptr[i] = rand();
+        //
+        //     std::vector<smart_refctd_ptr<IGPUCommandBuffer>> cmd(1 << 10);
+        //     commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1 << 10, cmd.data());
+        //
+        //     for (size_t i = 0; i < 1 << 10; ++i)
+        //     {
+        //         IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
+        //             .size = size * M,
+        //             .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
+        //             .alignmentLog2 = 10,
+        //         };
+        //     RE:
+        //         auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
+        //
+        //         if (!memory)
+        //         {
+        //             m_device->waitIdle();
+        //             for (size_t j = 0; j < i; ++j)
+        //                 cmd[j] = 0;
+        //             goto END;
+        //         }
+        //         assert(memory);
+        //         auto tmpBuf = createExternalBuffer(memory.get());
+        //
+        //         cmd[i]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+        //         IGPUCommandBuffer::SBufferCopy region = { .size = size * M };
+        //         assert(cmd[i]->copyBuffer(staging.get(), tmpBuf.get(), 1, &region));
+        //         cmd[i]->end();
+        //         IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[i].get() };
+        //         IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1} };
+        //         assert(IQueue::RESULT::SUCCESS == queue->submit({ &submitInfo,&submitInfo + 1 }));
+        //     }
+        // END:
+        //     m_device->waitIdle();
+        // }
+
     }
 
     void testLargeAllocations()
