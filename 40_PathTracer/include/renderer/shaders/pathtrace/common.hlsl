@@ -11,8 +11,8 @@ namespace nbl
 {
 namespace this_example
 {
-NBL_CONSTEXPR uint32_t SceneDSIndex = 0;
-NBL_CONSTEXPR uint32_t SessionDSIndex = 1;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t SceneDSIndex = 0;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t SessionDSIndex = 1;
 }
 }
 #include "renderer/shaders/scene.hlsl"

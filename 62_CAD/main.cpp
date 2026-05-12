@@ -1463,6 +1463,70 @@ public:
 		
 		m_timeElapsed = 0.0;
 		
+		return runUnitTests();
+	}
+	
+	bool runUnitTests() {
+		auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+		auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+
+		Hatch::Segment segment1;
+		segment1.originalBezier = &bezier1;
+		segment1.t_start = 0.60907690910425261;
+		segment1.t_end = 1.0;
+		Hatch::Segment segment2;
+		segment2.originalBezier = &bezier2;
+		segment2.t_start = 0.0;
+		segment2.t_end = 1.0;
+
+		{
+			const auto intersections = segment1.intersect(segment2);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			auto bezier1Clone = bezier1;
+			bezier1Clone.splitFromMinToMax(0.60907690910425261, 1.0);
+
+			Hatch::Segment segment1;
+			segment1.originalBezier = &bezier1Clone;
+			segment1.t_start = 0.0;
+			segment1.t_end = 1.0;
+
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+
 		return true;
 	}
 
@@ -1472,7 +1536,9 @@ public:
 		auto now = std::chrono::high_resolution_clock::now();
 		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
-		m_timeElapsed += dt;
+		if (!m_paused)
+			m_timeElapsed += dt;
+
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
 			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
@@ -1495,6 +1561,10 @@ public:
 				{
 					auto ev = *eventIt;
 
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_SPACE)
+					{
+						m_paused = !m_paused;
+					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
 					{
 						m_hatchDebugStep++;
@@ -1680,6 +1750,8 @@ public:
 			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.minLineWidth = 0.0f; // minimum line width in screenspace pixels (will clamp if it's lower)
+		globalData.minLineThicknessToEnableAA = 0.0f; // lines/curves with screenspace (pixel) widths lower than this will skip AA
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultProjectionToNDC = projectionToNDC;
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
@@ -2032,6 +2104,8 @@ protected:
 					}
 				}
 			}
+
+
 			if (true)
 			{
 #include "bike_hatch.h"
@@ -3958,7 +4032,8 @@ protected:
 	clock_t::time_point start;
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 
-	double m_timeElapsed = 0.0;
+	bool m_paused = true;
+	double m_timeElapsed = 1170236713;
 	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
@@ -4033,7 +4108,7 @@ protected:
 	#endif
 	
 	// Example Specific Settings:
-	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	uint32_t m_hatchDebugStep = 0;// 401; // setting for CASE_2
 	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 

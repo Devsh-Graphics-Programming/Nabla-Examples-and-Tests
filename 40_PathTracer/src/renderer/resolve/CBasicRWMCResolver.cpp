@@ -47,7 +47,7 @@ bool CBasicRWMCResolver::changeSession_impl()
 
 bool CBasicRWMCResolver::resolve(video::IGPUCommandBuffer* cb, video::IGPUBuffer* scratch)
 {
-	if (!cb)
+	if (!m_activeSession || !cb)
 		return false;
 
 	switch (m_activeSession->getConstructionParams().mode)
@@ -61,16 +61,60 @@ bool CBasicRWMCResolver::resolve(video::IGPUCommandBuffer* cb, video::IGPUBuffer
 			return false;
 	}
 
-	const auto* const layout = m_construction.layout.get();
+	bool success = true;
+	if (success)
 	{
 		constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
 		constexpr auto firstResolveStage = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-		// TODO: pipeline barrier from raytracing pipeline to first resolve pass
+	
+		using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+		core::vector<image_barrier_t> barr;
+		{
+			constexpr image_barrier_t base = {
+				.barrier = {
+					.dep = {
+						.srcStageMask = raytracingStages,
+						.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+						.dstStageMask = firstResolveStage,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+					}
+				},
+				.subresourceRange = {},
+				.newLayout = IGPUImage::LAYOUT::GENERAL
+			};
+			barr.reserve(4);
+
+			auto enqueueBarrier = [&barr,base](const CSession::SImageWithViews& img)->void
+			{
+				auto& out = barr.emplace_back(base);
+				out.image = img.image.get();
+				out.subresourceRange = {
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+					.levelCount = 1,
+					.layerCount = out.image->getCreationParameters().arrayLayers
+				};
+			};
+			const auto& immutables = m_activeSession->getActiveResources().immutables;
+			enqueueBarrier(immutables.rwmcCascades);
+			enqueueBarrier(immutables.albedo);
+			enqueueBarrier(immutables.normal);
+			enqueueBarrier(immutables.motion);
+			enqueueBarrier(immutables.mask);
+			// this one is slightly different, we barrier against ourselves, and we'll also be writing to it
+			enqueueBarrier(immutables.beauty);
+			barr.back().barrier.dep.srcStageMask = firstResolveStage;
+			barr.back().barrier.dep.dstAccessMask |= ACCESS_FLAGS::SHADER_WRITE_BITS;
+
+		}
+		success = cb->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=barr});
 	}
+
+	const auto* const layout = m_construction.layout.get();
+	// TODO: uimplemented yet
 
 	// compute passes
 
-	return false; // TODO: uimplemented yet
+	return success;
 }
 
 }
