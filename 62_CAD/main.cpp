@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_10;
 
 class Camera2D
 {
@@ -3752,7 +3752,7 @@ protected:
 			
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+			style.color = float32_t4(0.2f, 0.2f, 0.2f, 0.5f);
 
 			for (uint32_t i = 0; i < 128u; ++i)
 			{
@@ -3809,7 +3809,7 @@ protected:
 					0.0, 0.0, 1.0
 				};
 
-				float64_t2 scale = float64_t2{ 100.0, 100.0 };
+				float64_t2 scale = float64_t2{ 10.0, 10.0 };
 				float64_t3x3 scaleMat =
 				{
 					scale.x, 0.0, 0.0,
@@ -3821,8 +3821,35 @@ protected:
 				polyline.addLinePoints(line0);
 				polyline.addLinePoints(line1);
 				polyline.preprocessPolylineWithStyle(style);
-				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
-				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				//drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
+				//drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+
+				constexpr int MarkerCount = 1000000;
+				for (int i = 0; i < MarkerCount; ++i)
+				{
+					translateMat =
+					{
+						1.0, 0.0, static_cast<float64_t>(i) / static_cast<float64_t>(MarkerCount*0.2),
+						0.0, 1.0, 0.0,
+						0.0, 0.0, 1.0
+					};
+
+					const float64_t rotationAngle = (core::radians(360.0) / static_cast<float64_t>(MarkerCount)) * i * 10;
+					dir = float64_t2{ std::cos(rotationAngle), std::sin(rotationAngle) };
+					rotateMat =
+					{
+						dir.x, -dir.y, 0.0,
+						dir.y, dir.x,  0.0,
+						0.0, 0.0, 1.0
+					};
+
+
+					transformation = nbl::hlsl::mul(rotateMat, translateMat);
+					
+					transformation = nbl::hlsl::mul(rotateMat, nbl::hlsl::mul(translateMat, scaleMat));
+
+					drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				}
 			}
 		}
 		else if (mode == ExampleMode::CASE_11)
