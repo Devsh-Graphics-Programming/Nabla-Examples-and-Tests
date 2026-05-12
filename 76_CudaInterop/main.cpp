@@ -11,23 +11,26 @@ using namespace system;
 using namespace asset;
 using namespace video;
 
+#define WARP_SIZE 32
+
+
 /*
 The start of the main function starts like in most other example. We ask the
 user for the desired renderer and start it up.
 */
 
-bool check_nv_err(auto err, auto& cudaHandler, auto& logger, auto file, auto line, std::string const& log)
+bool check_nv_err(auto err, auto& m_cuHandler, auto& logger, auto file, auto line, std::string const& log)
 {
     if (auto re = err; NVRTC_SUCCESS != re) 
     {
-        const char* str = cudaHandler->getNVRTCFunctionTable().pnvrtcGetErrorString(re); 
+        const char* str = m_cuHandler->getNVRTCFunctionTable().pnvrtcGetErrorString(re); 
         logger->log("%s:%d %s\n%s\n", system::ILogger::ELL_ERROR, file, line, str, log.c_str());
         return false;
     }
     return true;
 }
 
-#define ASSERT_NV_SUCCESS(expr, log) { auto re = check_nv_err((expr), cudaHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
+#define ASSERT_NV_SUCCESS(expr, log) { auto re = check_nv_err((expr), m_cuHandler, m_logger, __FILE__, __LINE__, log); assert(re); }
 
 
 using namespace nbl::core;
@@ -49,8 +52,9 @@ public:
     CUDA2VKApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-    smart_refctd_ptr<CCUDAHandler> cudaHandler;
-    smart_refctd_ptr<CCUDADevice> cudaDevice;
+    smart_refctd_ptr<CCUDAHandler> m_cuHandler;
+    smart_refctd_ptr<CCUDADevice> m_cuDevice;
+    smart_refctd_ptr<IUtilities> m_utils;
 
     IQueue* queue;
 
@@ -59,7 +63,7 @@ public:
     virtual void filterDevices(core::set<video::IPhysicalDevice*>& physicalDevices) const
     {
         device_base_t::filterDevices(physicalDevices);
-        auto& cuDevices = cudaHandler->getAvailableDevices();
+        auto& cuDevices = m_cuHandler->getAvailableDevices();
         std::erase_if(physicalDevices, [&cuDevices](auto pdev) {
             return cuDevices.end() == std::find_if(cuDevices.begin(), cuDevices.end(), [pdev](auto& cuDev) { return !memcmp(pdev->getProperties().deviceUUID, &cuDev.uuid, 16);  });
         });
@@ -71,23 +75,29 @@ public:
         if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
 
-        cudaHandler = CCUDAHandler::create(m_system.get(), smart_refctd_ptr<ILogger>(m_logger));
-        if (!cudaHandler) 
+        m_cuHandler = CCUDAHandler::create(m_system.get(), smart_refctd_ptr<ILogger>(m_logger));
+        if (!m_cuHandler) 
             return logFail("Could not create a CUDA handler!");
 
         if (!device_base_t::onAppInitialized(std::move(system)))
             return false;
 
-        cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(m_api), m_physicalDevice);
-        if (!cudaDevice) 
+        m_utils = IUtilities::create(core::smart_refctd_ptr(m_device), core::smart_refctd_ptr<system::ILogger>(m_logger));
+        if (!m_utils)
+            return logFail("Could not create IUtilities!");
+
+        m_cuDevice = m_cuHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(m_api), m_physicalDevice);
+        if (!m_cuDevice) 
             return logFail("Could not create a CUDA Device!");
 
 
         queue = getComputeQueue();
 
-        testVectorAddKernel();
-        testDestruction();
-        testLargeAllocations();
+        testWmmaGemB1();
+        // testWmmaGemm();
+        // testVectorAddKernel();
+        // testDestruction();
+        // testLargeAllocations();
 
         return true;
     }
@@ -120,42 +130,60 @@ public:
         return buf;
     };
 
+    smart_refctd_ptr<ICPUBuffer> compilePtx(const char* filepath)
+    {
+        IAssetLoader::SAssetLoadParams lp = {};
+        lp.logger = m_logger.get();
+        lp.workingDirectory = ""; // virtual root
+        // this time we load a shader directly from a file
+        auto assetBundle = m_assetMgr->getAsset(filepath, lp);
+        const auto assets = assetBundle.getContents();
+        if (assets.empty())
+            logFail("Could not load kernel!");
+
+        smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
+        std::string log;
+        auto [ptx, res] = m_cuHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()), 
+            filepath, m_cuDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
+        ASSERT_NV_SUCCESS(res, log);
+
+        return ptx;
+    }
+
+    std::tuple<smart_refctd_ptr<IGPUBuffer>, smart_refctd_ptr<CCUDAImportedMemory>> createSharedBuffer(uint32_t size)
+    {
+        IGPUBuffer::SCreationParams vkBufferParams;
+        vkBufferParams.size = m_cuDevice->roundToGranularity(CU_MEM_LOCATION_TYPE_DEVICE, size);
+        vkBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
+        vkBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
+        const auto outputBuf = m_device->createBuffer(std::move(vkBufferParams));
+        auto outputMemReq = outputBuf->getMemoryReqs();
+
+        auto allocation = m_device->allocate(outputMemReq, outputBuf.get(), IDeviceMemoryAllocation::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE);
+        const auto cudaOutputMemory = m_cuDevice->importExternalMemory(core::smart_refctd_ptr(allocation.memory));
+        if (!cudaOutputMemory)
+          logFail("Fail to import Vulkan Memory into CUDA!");
+
+        return std::tuple(std::move(outputBuf), std::move(cudaOutputMemory));
+    }
+
     void testVectorAddKernel()
     {
         static constexpr uint32_t GridDim[3] = { 4096,1,1 };
-        static constexpr uint32_t BlockDim[3] = { 1024,1,1 };
+        static constexpr uint32_t BlockDim[3] = { 1,1,1 };
         static constexpr size_t NumElements = GridDim[0] * BlockDim[0];
         static constexpr size_t BufferSize = sizeof(float) * NumElements;
 
-        smart_refctd_ptr<ICPUBuffer> ptx;
-        {
-            IAssetLoader::SAssetLoadParams lp = {};
-            lp.logger = m_logger.get();
-            lp.workingDirectory = ""; // virtual root
-            // this time we load a shader directly from a file
-            auto assetBundle = m_assetMgr->getAsset("app_resources/vectorAdd_kernel.cu", lp);
-            const auto assets = assetBundle.getContents();
-            if (assets.empty())
-                logFail("Could not load kernel!");
-
-            smart_refctd_ptr<ICPUBuffer> source = IAsset::castDown<ICPUBuffer>(assets[0]);
-            std::string log;
-            auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(std::string((const char*)source->getPointer(), source->getSize()), 
-                "app_resources/vectorAdd_kernel.cu", cudaDevice->geDefaultCompileOptions(), 0, 0, 0, &log);
-            ASSERT_NV_SUCCESS(res, log);
-
-            ptx = std::move(ptx_);
-        }
-
-        auto& cu = cudaHandler->getCUDAFunctionTable();
+        const auto ptx = compilePtx("app_resources/vectorAdd_kernel.cu");
+        auto& cu = m_cuHandler->getCUDAFunctionTable();
 
         CUmodule   module;
         CUfunction kernel;
         CUstream   stream;
 
-        ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), cudaHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"), cudaHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
 
         // CPU memory which we fill with random numbers between [-1,1] that will be copied to corresponding cudaMemory
         std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpuBufs;
@@ -182,28 +210,18 @@ public:
         for (auto input_i = 0; input_i < InputCount; input_i++)
         {
           // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-          cudaInputMemories[input_i] = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+          cudaInputMemories[input_i] = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
           vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
           vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
           inputStagingBuffers[input_i] = createStaging(BufferSize);
         }
 
-        IGPUBuffer::SCreationParams outputBufferParams;
-        outputBufferParams.size = cudaDevice->roundToGranularity(CU_MEM_LOCATION_TYPE_DEVICE, BufferSize);
-        outputBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
-        outputBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
-        const auto outputBuf = m_device->createBuffer(std::move(outputBufferParams));
-        auto outputMemReq = outputBuf->getMemoryReqs();
-
-        auto allocation = m_device->allocate(outputMemReq, outputBuf.get(), IDeviceMemoryAllocation::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE);
-        const auto cudaOutputMemory = cudaDevice->importExternalMemory(core::smart_refctd_ptr(allocation.memory));
-        if (!cudaOutputMemory)
-          logFail("Fail to import Vulkan Memory into CUDA!");
+        auto [outputBuf, cudaOutputMemory] = createSharedBuffer(BufferSize);
         
         ISemaphore::SCreationParams semParams;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
         auto semaphore = m_device->createSemaphore(0, std::move(semParams));
-        const auto cudaSemaphore = cudaDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
+        const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
           logFail("Fail to import Vulkan Semaphore into CUDA!");
         
@@ -265,17 +283,16 @@ public:
             };
             auto numElements = &NumElements;
             void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements };
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), cudaHandler);
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), cudaHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), m_cuHandler);
     
             auto semaphore = cudaSemaphore->getInternalObject();
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
-            ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), cudaHandler); // Wait for release op from vulkan
-            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), cudaHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), m_cuHandler); // Wait for release op from vulkan
+            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), m_cuHandler);
             const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
-            ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), cudaHandler); // Signal the imported semaphore
+            ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), m_cuHandler); // Signal the imported semaphore
         }
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
         
         // After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
         {
@@ -389,18 +406,526 @@ public:
               const auto output = outputs[elem_i];
               const auto expected = input1 + input2;
               const auto diff = abs(output - expected);
-              if (diff < 0.01)
+              if (diff > 0.01)
                 ctx->logger->log("TestSharedResources: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
             }
 
             ctx->logger->log("TestSharedResources Complete", ILogger::ELL_INFO);
         };
 
-        ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), cudaHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
 
-        ASSERT_CUDA_SUCCESS(cu.pcuModuleUnload(module), cudaHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamDestroy_v2(stream), cudaHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleUnload(module), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamDestroy_v2(stream), m_cuHandler);
+    }
+
+    void testWmmaGemm()
+    {
+        // x = M, y = N, z = K
+        constexpr auto WmmaSize = uint32_t3{ 16, 16, 16 };
+        constexpr auto TileCount = uint32_t3{ 64, 64, 64 };
+        constexpr auto ElementCount = WmmaSize * TileCount;
+        constexpr auto BlockDim = uint32_t2{ 128, 4 };
+        // TODO(kevin): Check if this calculation of GridDim correct. Currently we only handle square matrix. So, it doesn't matter
+        constexpr auto GridDim = uint32_t2(ElementCount.x / BlockDim.x, ElementCount.y / BlockDim.y);
+        const float Alpha = 1.1f;
+        const float Beta  = 1.2f;
+
+        const auto ptx = compilePtx("app_resources/wmmaGemm_kernel.cu");
+        auto& cu = m_cuHandler->getCUDAFunctionTable();
+
+        CUmodule   module;
+        CUfunction kernel;
+        CUstream   stream;
+
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "wmmaGemm"), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
+
+        const auto elementsPerBlock = uint32_t2{ (WmmaSize.x * BlockDim.x) / WARP_SIZE, (WmmaSize.y * BlockDim.y) };
+        uint32_t2 gridDim = {
+            ElementCount.x + (elementsPerBlock.x - 1) / elementsPerBlock.x,
+            ElementCount.y + (elementsPerBlock.y - 1) / elementsPerBlock.y
+        };
+
+
+        auto [vkBufferMatA, cuMemMatA] = createSharedBuffer(sizeof(half) * ElementCount.x * ElementCount.z);
+        auto [vkBufferMatB, cuMemMatB] = createSharedBuffer(sizeof(half) * ElementCount.z * ElementCount.y);
+        auto [vkBufferMatC, cuMemMatC] = createSharedBuffer(sizeof(float) * ElementCount.x * ElementCount.y);
+        auto [vkBufferMatD, cuMemMatD] = createSharedBuffer(sizeof(float) * ElementCount.x * ElementCount.y);
+
+        core::vector<half> cpuMatA(ElementCount.x * ElementCount.z), cpuMatB(ElementCount.z * ElementCount.y);
+        core::vector<float> cpuMatC(ElementCount.x * ElementCount.y);
+
+        auto initCpuMatrix = [ElementCount](half* a, half* b, float* c)
+        {
+            for (int i = 0; i < ElementCount.x; i++) {
+                for (int j = 0; j < ElementCount.z; j++) {
+                    a[i * ElementCount.z + j] = (half)(rand() % 3);
+                }
+            }
+
+            for (int i = 0; i < ElementCount.y; i++) {
+                for (int j = 0; j < ElementCount.z; j++) {
+                    b[i * ElementCount.x + j] = (half)(rand() % 3);
+                }
+            }
+
+            for (int t = 0; t < ElementCount.x * ElementCount.y; t++) {
+                c[t] = static_cast<float>(rand() % 3);
+            }
+        };
+        initCpuMatrix(cpuMatA.data(), cpuMatB.data(), cpuMatC.data());
+
+
+        ISemaphore::SCreationParams semParams;
+        semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
+        auto semaphore = m_device->createSemaphore(0, std::move(semParams));
+        const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
+        if (!cudaSemaphore)
+          logFail("Fail to import Vulkan Semaphore into CUDA!");
+        
+        std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> cmd;
+        auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+        bool re = commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, cmd.size(), cmd.data(), smart_refctd_ptr(m_logger));
+
+        const auto outputStagingBuffer = createStaging(vkBufferMatD->getSize());
+
+        // First we record a release ownership transfer to let vulkan know that resources are going to be used in an external API
+        {
+            const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+                        .srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+                    },
+                    .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+                    .otherQueueFamilyIndex = IQueue::FamilyExternal,
+                },
+                .range = {
+                  .offset = 0, 
+                  .size = vkBufferMatD->getSize(), 
+                  .buffer = vkBufferMatD, 
+                },
+            };
+    
+            // start recording
+            bool re = true;
+            re &= cmd[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            re &= cmd[0]->pipelineBarrier(EDF_NONE, {
+              .bufBarriers = std::span{&bufBarrier,&bufBarrier + 1}
+            });
+            re &= cmd[0]->end();
+    
+            const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
+              .semaphore = semaphore.get(), 
+              .value = 1,
+              .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+            };
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[0].get() };
+            const IQueue::SSubmitInfo submitInfo = {
+              .commandBuffers = {&cmdInfo, &cmdInfo + 1}, 
+              .signalSemaphores = {&signalInfo, &signalInfo + 1}
+            };
+            const auto submitRe = queue->submit({ &submitInfo, &submitInfo + 1 });
+            re &= IQueue::RESULT::SUCCESS == submitRe;
+            if (!re) logFail("Something went wrong readying resources for CUDA");
+        }
+
+        // Launch kernel
+        {
+            CUdeviceptr matrixAPtr, matrixBPtr, matrixCPtr, matrixDPtr;
+            cuMemMatA->getMappedBuffer(&matrixAPtr);
+            cuMemMatB->getMappedBuffer(&matrixBPtr);
+            cuMemMatC->getMappedBuffer(&matrixCPtr);
+            cuMemMatD->getMappedBuffer(&matrixDPtr);
+            CUdeviceptr ptrs[] = {
+                matrixAPtr,
+                matrixBPtr,
+                matrixCPtr,
+                matrixDPtr,
+            };
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixAPtr, cpuMatA.data(), cpuMatA.size() * sizeof(half), stream), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixBPtr, cpuMatB.data(), cpuMatB.size() * sizeof(half), stream), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixCPtr, cpuMatC.data(), cpuMatC.size() * sizeof(float), stream), m_cuHandler);
+
+            int m_ld = ElementCount.x; 
+            int n_ld = ElementCount.y;  
+            int k_ld = ElementCount.z; 
+            float alpha = Alpha; 
+            float beta = Beta;
+            void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &ptrs[3], &m_ld, &n_ld, &k_ld, &alpha, &beta };
+
+            auto semaphore = cudaSemaphore->getInternalObject();
+            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
+            ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), m_cuHandler); // Wait for release op from vulkan
+            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim.x, GridDim.y, 1, BlockDim.x, BlockDim.y, 1, 0, stream, parameters, nullptr), m_cuHandler);
+            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
+            ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), m_cuHandler); // Signal the imported semaphore
+        }
+
+        // After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
+        {
+            const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
+                .barrier = {
+                    .dep = {
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::TRANSFER_READ_BIT,
+                    },
+                    .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+                    .otherQueueFamilyIndex = IQueue::FamilyExternal,
+                },
+                .range = { 
+                  .offset = 0,
+                  .size = vkBufferMatD->getSize(),
+                  .buffer = vkBufferMatD, 
+                },
+            };
+            bool re = true;
+            re &= cmd[1]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            re &= cmd[1]->pipelineBarrier(EDF_NONE,
+            {
+              .bufBarriers = std::span{ &bufBarrier, &bufBarrier + 1 }
+            });
+            const auto region = IGPUCommandBuffer::SBufferCopy{ 
+              .srcOffset = 0,
+              .dstOffset = 0,
+              .size = vkBufferMatD->getSize() 
+            };
+            re &= cmd[1]->copyBuffer(vkBufferMatD.get(), outputStagingBuffer.get(), 1, &region);
+            re &= cmd[1]->end();
+            
+            const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo= {
+              .semaphore = semaphore.get(), 
+              .value = 2,
+              .stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+            };
+            const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
+              .semaphore = semaphore.get(), 
+              .value = 3,
+              .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+            };
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[1].get() };
+            const IQueue::SSubmitInfo submitInfo = { 
+                .waitSemaphores = { &waitInfo, &waitInfo + 1 },
+                .commandBuffers = { &cmdInfo, &cmdInfo + 1 },  
+                .signalSemaphores = { &signalInfo, &signalInfo + 1 } 
+            };
+            const auto submitRe = queue->submit({ &submitInfo, &submitInfo + 1 });
+            re &= IQueue::RESULT::SUCCESS == submitRe;
+            if (!re)
+                logFail("Something went wrong copying results from CUDA");
+        } 
+
+        auto matMultiplyOnHost = [&](
+            const half* A,
+            const half* B,
+            float* C)
+        {
+            const auto numARows = ElementCount.x;
+            const auto numAColumns = ElementCount.z;
+            const auto numBRows = ElementCount.z;
+            const auto numBColumns = ElementCount.y;
+            const auto numCRows = ElementCount.x;
+            const auto numCColumns = ElementCount.y;
+            for (int i = 0; i < numCRows; i++) {
+                for (int j = 0; j < numCColumns; j++) {
+                    float temp = 0.0;
+
+                    for (int k = 0; k < numAColumns; k++) {
+                        temp += (float)A[i * numAColumns + k] * (float)B[j * numBRows + k];
+                    }
+
+                    C[i * numCColumns + j] = temp * Alpha + Beta * C[i * numCColumns + j];
+                }
+            }
+        };
+        matMultiplyOnHost(cpuMatA.data(), cpuMatB.data(), cpuMatC.data());
+
+        struct CallbackContext
+        {
+            core::smart_refctd_ptr<ISemaphore> semaphore;
+            core::smart_refctd_ptr<IGPUBuffer> outputStagingBuffer;
+            core::smart_refctd_ptr<video::ILogicalDevice> device;
+            core::smart_refctd_ptr<system::ILogger> logger;
+            const float* expectedOutput;
+        };
+
+        CallbackContext ctx;
+        ctx.semaphore = semaphore;
+        ctx.outputStagingBuffer = outputStagingBuffer;
+        ctx.device = m_device;
+        ctx.logger = m_logger;
+        ctx.expectedOutput = cpuMatC.data();
+
+        auto cudaCallback = [](void* userData)
+        {
+            const auto* ctx = reinterpret_cast<CallbackContext*>(userData);
+
+            // Make sure we are also done with the readback 
+            const auto wait = std::array{
+              ISemaphore::SWaitInfo{
+                .semaphore = ctx->semaphore.get(), 
+                .value = 3,
+              }
+            };
+            ctx->device->blockForSemaphores(wait, true);
+
+            auto* stagingMem = ctx->outputStagingBuffer->getBoundMemory().memory;
+            if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            {
+                ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
+                ctx->device->invalidateMappedMemoryRanges(1, &range);
+            }
+
+
+            const auto* outputs = reinterpret_cast<float*>(ctx->outputStagingBuffer->getBoundMemory().memory->getMappedPointer());
+
+            for (auto elem_i = 0; elem_i < ElementCount.x * ElementCount.y; elem_i++)
+            {
+              const auto output = outputs[elem_i];
+              const auto diff = abs(output - ctx->expectedOutput[elem_i]);
+              if (diff > 0.01)
+                ctx->logger->log("TestSharedResources: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
+            }
+
+            ctx->logger->log("Test Wmma Gemm Complete", ILogger::ELL_INFO);
+        };
+
+        ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
+
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleUnload(module), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamDestroy_v2(stream), m_cuHandler);
+    }
+
+    void testWmmaGemB1()
+    {
+        // b1 WMMA dimensions: M=8, N=8, K=128
+        constexpr auto WmmaSize = uint32_t3{ 8, 8, 128 };
+        constexpr auto TileCount = uint32_t3{ 128, 128, 8 };  // Adjust for b1 dimensions
+        constexpr auto ElementCount = WmmaSize * TileCount; // M=1024, N=1024, K=1024
+        constexpr auto BlockDim = uint32_t2{ 32, 1 };       // 1 warp per block
+        constexpr auto GridDim = uint32_t2(
+            (ElementCount.x + WmmaSize.x - 1) / WmmaSize.x,  // M tiles
+            (ElementCount.y + WmmaSize.y - 1) / WmmaSize.y   // N tiles
+        );
+
+        const auto ptx = compilePtx("app_resources/wmmaGemm_b1_kernel.cu");
+        auto& cu = m_cuHandler->getCUDAFunctionTable();
+
+        CUmodule   module;
+        CUfunction kernel;
+        CUstream   stream;
+
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "b1_wmma_gemm_kernel"), m_cuHandler);
+        ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
+
+        // Calculate buffer sizes (bits packed into uint32_t)
+        const size_t matA_size = (ElementCount.x * ElementCount.z) / 32 * sizeof(uint32_t); // M x K bits
+        const size_t matB_size = (ElementCount.z * ElementCount.y) / 32 * sizeof(uint32_t); // K x N bits
+        const size_t matC_size = ElementCount.x * ElementCount.y * sizeof(int32_t);         // M x N ints
+
+        auto [vkBufferMatA, cuMemMatA] = createSharedBuffer(matA_size);
+        auto [vkBufferMatB, cuMemMatB] = createSharedBuffer(matB_size);
+        auto [vkBufferMatC, cuMemMatC] = createSharedBuffer(matC_size);
+
+        // CPU matrices for initialization and verification
+        core::vector<uint32_t> cpuMatA(ElementCount.x * ElementCount.z / 32);
+        core::vector<uint32_t> cpuMatB(ElementCount.z * ElementCount.y / 32);
+        core::vector<int32_t> cpuMatC_expected(ElementCount.x * ElementCount.y);
+
+        // Initialize with simple patterns for verification
+        auto initBinaryMatrices = [&]()
+        {
+            // Fill cpuMatA with reverse diagonal pattern
+            std::fill(cpuMatA.begin(), cpuMatA.end(), 0);
+
+            for (int i = 0; i < ElementCount.x; i++)
+            {
+              auto j = ElementCount.z - 1 - i;
+              auto bitIdx = i * ElementCount.z + j;
+              auto wordIdx = bitIdx / 32;
+              auto bitOffset = bitIdx % 32;
+              cpuMatA[wordIdx] |= (1u << bitOffset);
+            }
+
+            // Fill cpuMatB with random bits
+            for (auto& val : cpuMatB) val = rand();
+            
+            // Compute expected result: For bmma with bmmaBitOpAND
+            // C[i][j] = popcount(A[i,:] AND B[:,j])
+            for (int i = 0; i < ElementCount.x; i++) {
+                for (int j = 0; j < ElementCount.y; j++) {
+                    const int k = ElementCount.z - 1 - i;
+                    const int b_bit_idx = j * ElementCount.z + k; // col-major
+                    const int32_t bit = (cpuMatB[b_bit_idx / 32] >> (b_bit_idx % 32)) & 1;
+                    cpuMatC_expected[i * ElementCount.y + j] = bit;
+                }
+            }
+        };
+        initBinaryMatrices();
+  
+        ISemaphore::SCreationParams semParams;
+        semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
+        auto semaphore = m_device->createSemaphore(0, std::move(semParams));
+        const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
+        if (!cudaSemaphore)
+          logFail("Fail to import Vulkan Semaphore into CUDA!");
+        
+        std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> cmd;
+        auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+        commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, cmd.size(), cmd.data(), smart_refctd_ptr(m_logger));
+
+        const auto outputStagingBuffer = createStaging(vkBufferMatC->getSize());
+
+        // Release ownership to CUDA
+        {
+            const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+                        .srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+                    },
+                    .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+                    .otherQueueFamilyIndex = IQueue::FamilyExternal,
+                },
+                .range = { .offset = 0, .size = vkBufferMatC->getSize(), .buffer = vkBufferMatC },
+            };
+
+            cmd[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            cmd[0]->pipelineBarrier(EDF_NONE, {.bufBarriers = std::span{&bufBarrier, &bufBarrier + 1}});
+            cmd[0]->end();
+
+            const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
+              .semaphore = semaphore.get(), .value = 1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+            };
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[0].get() };
+            const IQueue::SSubmitInfo submitInfo = {
+              .commandBuffers = {&cmdInfo, &cmdInfo + 1}, .signalSemaphores = {&signalInfo, &signalInfo + 1}
+            };
+            queue->submit({ &submitInfo, &submitInfo + 1 });
+        }
+
+        // Launch CUDA kernel
+        {
+            CUdeviceptr matrixAPtr, matrixBPtr, matrixCPtr;
+            cuMemMatA->getMappedBuffer(&matrixAPtr);
+            cuMemMatB->getMappedBuffer(&matrixBPtr);
+            cuMemMatC->getMappedBuffer(&matrixCPtr);
+
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixAPtr, cpuMatA.data(), matA_size, stream), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixBPtr, cpuMatB.data(), matB_size, stream), m_cuHandler);
+            core::vector<int32_t> cpuMatC(ElementCount.x * ElementCount.y, 15);
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixCPtr, cpuMatC.data(), matC_size, stream), m_cuHandler);
+
+            void* parameters[] = { &matrixAPtr, &matrixBPtr, &matrixCPtr, 
+                                   (void*)&ElementCount.x, (void*)&ElementCount.y, (void*)&ElementCount.z };
+
+            auto semaphore_cu = cudaSemaphore->getInternalObject();
+            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
+            ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore_cu, &waitParams, 1, stream), m_cuHandler);
+            
+            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim.x, GridDim.y, 1, 
+                                                   BlockDim.x, BlockDim.y, 1, 
+                                                   0, stream, parameters, nullptr), m_cuHandler);
+            
+            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
+            ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore_cu, &signalParams, 1, stream), m_cuHandler);
+        }
+
+        // Acquire ownership and copy results back
+        {
+            const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
+                .barrier = {
+                    .dep = {
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::TRANSFER_READ_BIT,
+                    },
+                    .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+                    .otherQueueFamilyIndex = IQueue::FamilyExternal,
+                },
+                .range = { .offset = 0, .size = vkBufferMatC->getSize(), .buffer = vkBufferMatC },
+            };
+            
+            cmd[1]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            cmd[1]->pipelineBarrier(EDF_NONE, {.bufBarriers = std::span{&bufBarrier, &bufBarrier + 1}});
+            const auto region = IGPUCommandBuffer::SBufferCopy{ .srcOffset = 0, .dstOffset = 0, .size = matC_size };
+            cmd[1]->copyBuffer(vkBufferMatC.get(), outputStagingBuffer.get(), 1, &region);
+            cmd[1]->end();
+            
+            const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo = {
+              .semaphore = semaphore.get(), .value = 2, .stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+            };
+            const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
+              .semaphore = semaphore.get(), .value = 3, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+            };
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[1].get() };
+            const IQueue::SSubmitInfo submitInfo = { 
+                .waitSemaphores = { &waitInfo, &waitInfo + 1 },
+                .commandBuffers = { &cmdInfo, &cmdInfo + 1 },  
+                .signalSemaphores = { &signalInfo, &signalInfo + 1 } 
+            };
+            queue->submit({ &submitInfo, &submitInfo + 1 });
+        }
+
+        // Wait and verify results
+        const auto wait = std::array{ ISemaphore::SWaitInfo{.semaphore = semaphore.get(), .value = 3} };
+        m_device->blockForSemaphores(wait, true);
+
+        auto* stagingMem = outputStagingBuffer->getBoundMemory().memory;
+        if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+        {
+            ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
+            m_device->invalidateMappedMemoryRanges(1, &range);
+        }
+
+        const auto* results = reinterpret_cast<int32_t*>(stagingMem->getMappedPointer());
+        
+        // Verify results
+        bool success = true;
+        int errors = 0;
+        for (int i = 0; i < ElementCount.x * ElementCount.y; i++) {
+            const auto expected = [&]
+            {
+                // Since we are multiplying reverse diagonal matrix to matrixB. The result should be matrix b but each column reversed.
+                // The calculation below is to get the index of cpuMatB if the column is reversed to get the expected bit.
+                const auto row = i / ElementCount.y;
+                const auto col = i % ElementCount.y;
+                const auto expectedCol = col;
+                const auto expectedRow = ElementCount.z - row - 1;
+                const auto expectedIdx = expectedCol * ElementCount.z + expectedRow;
+                const auto expectedWordIdx = expectedIdx / 32;
+                const auto expectedBitOffset = expectedIdx % 32;
+                return (cpuMatB[expectedWordIdx] >> expectedBitOffset) & uint32_t(1);
+            }();
+
+            // const auto expected = [&]
+            // {
+            //     const auto row = i / ElementCount.y;            // row-major
+            //     const auto col = i % ElementCount.y;
+            //     const auto k   = ElementCount.z - 1 - row;      // reverse-diagonal A
+            //     const auto bIdx = col * ElementCount.z + k;     // col-major B
+            //     return (cpuMatB[bIdx / 32] >> (bIdx % 32)) & uint32_t(1);
+            // }();
+
+            // const auto expected = cpuMatC_expected[i];
+
+            const auto result = results[i];
+            if (result != expected) {
+                m_logger->log("WMMA b1 test error at [%d]: GPU=%d, CPU=%d", 
+                             system::ILogger::ELL_ERROR, i, results[i], expected);
+                errors++;
+                success = false;
+            }
+        }
+        
+        if (success)
+            m_logger->log("b1 WMMA test PASSED!", system::ILogger::ELL_INFO);
+        else
+            m_logger->log("b1 WMMA test FAILED with %d errors!", system::ILogger::ELL_ERROR, errors);
     }
 
     void testDestruction()
@@ -408,10 +933,10 @@ public:
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
-        auto& cu = cudaHandler->getCUDAFunctionTable();
+        auto& cu = m_cuHandler->getCUDAFunctionTable();
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            const auto cudaMemory = cudaDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
+            const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE });
             if (!cudaMemory) logFail("Fail to create exportable memory!");
 
             escaped = cudaMemory->exportAsMemory(m_device.get());
@@ -499,7 +1024,6 @@ public:
             auto tmpBuf = createExternalBuffer(memory.get());
         }
     }
-
 
     // Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
     bool keepRunning() override { return false; }
