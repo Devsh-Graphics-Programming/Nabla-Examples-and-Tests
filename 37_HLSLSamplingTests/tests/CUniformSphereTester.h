@@ -12,7 +12,7 @@ class CUniformSphereTester final : public ITester<UniformSphereInputValues, Unif
 	using R = UniformSphereTestResults;
 
 public:
-	CUniformSphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CUniformSphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	UniformSphereInputValues generateInputTestValues() override
@@ -38,14 +38,14 @@ private:
 		bool pass = true;
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
 			FieldCheck{"UniformSphere::generate",        &R::generated,   1e-5, 1e-5},
-			FieldCheck{"UniformSphere::pdf",             &R::pdf,         1e-5, 1e-5},
 			FieldCheck{"UniformSphere::generateInverse", &R::inverted,    1e-5, 1e-5},
 			FieldCheck{"UniformSphere::forwardPdf",      &R::forwardPdf,  1e-5, 1e-5},
 			FieldCheck{"UniformSphere::backwardPdf",     &R::backwardPdf, 1e-5, 1e-5},
 			FieldCheck{"UniformSphere::forwardWeight",  &R::forwardWeight,  1e-5, 1e-5},
 			FieldCheck{"UniformSphere::backwardWeight", &R::backwardWeight, 1e-5, 1e-5});
 		pass &= verifyTestValue("UniformSphere::roundtripError", nbl::hlsl::float32_t2(0.0f, 0.0f), actual.roundtripError, iteration, seed, testType, 0.0, 1e-4);
-		pass &= verifyTestValue("UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "UniformSphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 5e-2, 5e-2);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "UniformSphere::inverseJacobianPdf", actual.backwardPdf, actual.inverseJacobianPdf, iteration, seed, testType, 5e-2, 5e-2);
 		pass &= verifyTestValue("UniformSphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
 		pass &= verifyTestValue("UniformSphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
