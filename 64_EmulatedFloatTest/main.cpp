@@ -99,9 +99,9 @@ class CEF64Benchmark : public GPUBenchmark
          [&](IGPUCommandBuffer* cb)
          {
             cb->bindDescriptorSets(EPBP_COMPUTE, pe.layout.get(), 0, 1, &m_ds.get());
-            bindAndPush(cb, pe, pc);
+            defaultBindAndPush(cb, pe, pc);
          },
-         [this](IGPUCommandBuffer* cb) { dispatch(cb); },
+         [this](IGPUCommandBuffer* cb) { defaultDispatch(cb); },
          samplesForCurrentRow());
 
       record(m_name, t, pe.stats);
