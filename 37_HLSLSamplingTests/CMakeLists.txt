@@ -42,6 +42,7 @@ set(DEPENDS
   app_resources/common/concentric_mapping.hlsl
   app_resources/common/polar_mapping.hlsl
   app_resources/common/discrete_sampler_bench.hlsl
+  app_resources/common/sampler_bench_pc.hlsl
   app_resources/common/alias_table.hlsl
   app_resources/common/cumulative_probability.hlsl
 )

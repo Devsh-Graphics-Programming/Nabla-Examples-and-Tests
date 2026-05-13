@@ -15,7 +15,6 @@ struct UniformSphereInputValues
 struct UniformSphereTestResults
 {
 	float32_t3 generated;
-	float32_t pdf;
 	float32_t2 inverted;
 	float32_t forwardPdf;
 	float32_t backwardPdf;

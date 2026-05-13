@@ -38,7 +38,6 @@ private:
 		bool pass = true;
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
 			FieldCheck{"UniformSphere::generate",        &R::generated,   1e-5, 1e-5},
-			FieldCheck{"UniformSphere::pdf",             &R::pdf,         1e-5, 1e-5},
 			FieldCheck{"UniformSphere::generateInverse", &R::inverted,    1e-5, 1e-5},
 			FieldCheck{"UniformSphere::forwardPdf",      &R::forwardPdf,  1e-5, 1e-5},
 			FieldCheck{"UniformSphere::backwardPdf",     &R::backwardPdf, 1e-5, 1e-5},

@@ -38,7 +38,6 @@ private:
 		bool pass = true;
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
 			FieldCheck{"UniformHemisphere::generate",        &R::generated,   1e-5, 1e-5},
-			FieldCheck{"UniformHemisphere::pdf",             &R::pdf,         1e-5, 1e-5},
 			FieldCheck{"UniformHemisphere::generateInverse", &R::inverted,    1e-5, 1e-5},
 			FieldCheck{"UniformHemisphere::forwardPdf",      &R::forwardPdf,  1e-5, 1e-5},
 			FieldCheck{"UniformHemisphere::backwardPdf",     &R::backwardPdf, 1e-5, 1e-5},

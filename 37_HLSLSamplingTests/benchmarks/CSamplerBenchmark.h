@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -7,6 +7,7 @@
 
 #include <nabla.h>
 #include "nbl/examples/examples.hpp"
+#include "../app_resources/common/sampler_bench_pc.hlsl"
 
 using namespace nbl;
 
@@ -81,7 +82,12 @@ public:
 		};
 		auto dsLayout = m_device->createDescriptorSetLayout(bindings);
 
-		m_pplnLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(dsLayout));
+		const asset::SPushConstantRange pcRange = {
+			.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+			.offset     = 0,
+			.size       = sizeof(SamplerBenchPushConstants),
+		};
+		m_pplnLayout = m_device->createPipelineLayout({&pcRange, 1}, core::smart_refctd_ptr(dsLayout));
 
 		{
 			video::IGPUComputePipeline::SCreationParams pparams = {};
@@ -119,13 +125,14 @@ public:
 		{
 			video::IGPUBuffer::SCreationParams bparams = {};
 			bparams.size = data.outputBufferBytes;
-			bparams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+			bparams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			outputBuf = m_device->createBuffer(std::move(bparams));
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuf->getMemoryReqs();
 			reqs.memoryTypeBits &= data.physicalDevice->getDeviceLocalMemoryTypeBits();
-			m_outputAlloc = m_device->allocate(reqs, outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+			m_outputAlloc = m_device->allocate(reqs, outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			if (!m_outputAlloc.isValid())
 				m_logger->log("CSamplerBenchmark: failed to allocate output buffer memory", system::ILogger::ELL_ERROR);
+			m_outputAddress = outputBuf->getDeviceAddress();
 		}
 
 		// Zero-fill the input buffer once on the GPU
@@ -183,6 +190,10 @@ public:
 		m_benchmarkCmdbuf->resetQueryPool(m_queryPool.get(), 0, 2);
 		m_benchmarkCmdbuf->bindComputePipeline(m_pipeline.get());
 		m_benchmarkCmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+		{
+			SamplerBenchPushConstants pc = { .outputAddress = m_outputAddress };
+			m_benchmarkCmdbuf->pushConstants(m_pplnLayout.get(), asset::IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+		}
 		for (uint32_t i = 0u; i < warmupIterations; ++i)
 			m_benchmarkCmdbuf->dispatch(m_dispatchGroupCount, 1, 1);
 		m_benchmarkCmdbuf->writeTimestamp(asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, m_queryPool.get(), 0);
@@ -233,6 +244,7 @@ private:
 	core::smart_refctd_ptr<video::IGPUDescriptorSet>    m_ds;
 	video::IDeviceMemoryAllocator::SAllocation          m_inputAlloc  = {};
 	video::IDeviceMemoryAllocator::SAllocation          m_outputAlloc = {};
+	uint64_t                                            m_outputAddress      = 0;
 	video::IQueue*                                      m_queue              = nullptr;
 	video::IPhysicalDevice*                             m_physicalDevice     = nullptr;
 	uint32_t                                            m_dispatchGroupCount = 0;
