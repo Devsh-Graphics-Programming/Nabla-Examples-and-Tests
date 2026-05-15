@@ -1260,7 +1260,7 @@ private:
 				auto retval = device->allocate(info);
 				// map what is mappable by default so ReBAR checks succeed
 				if (retval.isValid() && retval.memory->isMappable())
-					retval.memory->map({ .offset = 0,.length = info.size });
+					retval.memory->map({ .offset = 0,.length = info.allocationSize });
 				return retval;
 			}
 
