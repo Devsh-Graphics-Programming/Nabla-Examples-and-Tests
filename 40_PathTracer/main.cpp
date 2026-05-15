@@ -101,7 +101,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		inline SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
-			// TODO: need union/superset
+			// TODO: need union/superset so Renderer can slap it in
+			retval.rayTracingInvocationReorder = true;
 			retval.rayTracingPositionFetch = true;
 			retval.shaderStorageImageReadWithoutFormat = true;
 			return retval;
@@ -191,8 +192,8 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					.uploadQueue = getTransferUpQueue(),
 					.utilities = smart_refctd_ptr(m_utils)
 				},
-				"TODO Sample sequence cache",
-				m_assetMgr.get()
+				m_assetMgr.get(),
+				(sharedOutputCWD/nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string()
 			});
 			if (!m_renderer)
 				return logFail("Failed to create CRenderer");
@@ -220,7 +221,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			// TODO: tmp code
 			{
 				m_api->startCapture();
-				m_currentScenePath = (sharedInputCWD / "mitsuba/daily_pt.xml").string();
+				m_currentScenePath = (sharedInputCWD / "mitsuba/ditt/render_2160p.xml").string();
 				m_currentScene = m_renderer->createScene({
 						.load = m_sceneLoader->load({
 						.relPath = m_currentScenePath,
@@ -239,6 +240,36 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				});
 		#endif
 				m_api->endCapture();
+
+				if (!scene_daily_pt)
+					return logFail("Could not create scene");
+
+				// quick test code
+				nbl::core::vector<CSession::sensor_t> sensors(3,scene_daily_pt->getSensors().front());
+				{
+					sensors[1].mutableDefaults.cropWidth = 640;
+					sensors[1].mutableDefaults.cropHeight = 360;
+					sensors[1].mutableDefaults.cropOffsetX = 0;
+					sensors[1].mutableDefaults.cropOffsetY = 0;
+				}
+				{
+					sensors[2].mutableDefaults.cropWidth = 5120;
+					sensors[2].mutableDefaults.cropHeight = 2880;
+					sensors[2].mutableDefaults.cropOffsetX = 128;
+					sensors[2].mutableDefaults.cropOffsetY = 128;
+				}
+				for (auto i=1; i<3; i++)
+				{
+					sensors[i].constants.width = sensors[i].mutableDefaults.cropWidth+2*sensors[i].mutableDefaults.cropOffsetX;
+					sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight+2*sensors[i].mutableDefaults.cropOffsetY;
+				}
+//				sensors.erase(sensors.begin());
+				for (const auto& sensor : sensors)
+					m_sessionQueue.push(
+						scene_daily_pt->createSession({
+							{.mode=CSession::RenderMode::Beauty},&sensor
+						})
+					);
 			}
 	
 			// Initialize UI Manager (non-headless only)
@@ -257,12 +288,15 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 							const auto sensors = m_currentScene->getSensors();
 							if (sensorIdx < sensors.size())
 							{
+								const auto mode = m_pendingSession ? m_pendingSession->getConstructionParams().mode
+									: (m_resolver->getActiveSession() ? m_resolver->getActiveSession()->getConstructionParams().mode : CSession::RenderMode::Beauty);
 								auto newSession = m_currentScene->createSession({
-									{.mode = CSession::RenderMode::Debug},
+									{.mode = mode},
 									&sensors[sensorIdx]
 								});
 								if (newSession)
 								{
+									m_currentSensorIdx = sensorIdx;
 									m_pendingSession = std::move(newSession);
 								}
 							}
@@ -349,16 +383,17 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 					},
 					// Session callbacks
 					.onRenderModeChanged = [this](CSession::RenderMode mode, CSession* session) {
-						// Recreate session with new mode
-						if (session)
-						{
-							const CSession::SConstructionParams& params = session->getConstructionParams();
-							auto creationParams = params; // Copy params
-							creationParams.mode = mode;	
-
-							// TODO: Actually recreate the session. For now just log.
-							m_logger->log("Render mode changed to %d (Recreation TODO)", ILogger::ELL_INFO, mode);
-						}
+						if (!m_currentScene)
+							return;
+						const auto sensors = m_currentScene->getSensors();
+						if (m_currentSensorIdx >= sensors.size())
+							return;
+						auto newSession = m_currentScene->createSession({
+							{.mode = mode},
+							&sensors[m_currentSensorIdx]
+						});
+						if (newSession)
+							m_pendingSession = std::move(newSession);
 					},
 					.onResolutionChanged = [this](uint16_t w, uint16_t h) {
 						m_logger->log("Resolution changed to %dx%d (TODO)", ILogger::ELL_INFO, w, h);
@@ -388,7 +423,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
     			{
     				const auto& sensors = m_currentScene->getSensors();
     				auto initialSession = m_currentScene->createSession({
-    					{.mode = CSession::RenderMode::Debug},
+    					{.mode = CSession::RenderMode::Beauty},
     					&sensors.front()
     					});
 
@@ -412,7 +447,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
     				// init
     				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [&session](SIntendedSubmitInfo& info)->bool
     					{
-    						return session->init(info.getCommandBufferForRecording()->cmdbuf);
+    						return session->init(info);
     					}
     				);
     				m_resolver->changeSession(std::move(m_sessionQueue.front()));
@@ -442,7 +477,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
     				auto pendingSession = m_pendingSession.get();
     				m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [pendingSession](SIntendedSubmitInfo& info)->bool
     					{
-    						return pendingSession->init(info.getCommandBufferForRecording()->cmdbuf);
+    						return pendingSession->init(info);
     					}
     				);
     				m_resolver->changeSession(std::move(m_pendingSession));
@@ -594,6 +629,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
         //
         smart_refctd_ptr<CScene> m_currentScene;
         std::string m_currentScenePath;
+        size_t m_currentSensorIdx = 0;
         smart_refctd_ptr<gui::CUIManager> m_uiManager;
 
 };

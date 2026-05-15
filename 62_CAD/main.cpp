@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -1463,6 +1463,70 @@ public:
 		
 		m_timeElapsed = 0.0;
 		
+		return runUnitTests();
+	}
+	
+	bool runUnitTests() {
+		auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+		auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+
+		Hatch::Segment segment1;
+		segment1.originalBezier = &bezier1;
+		segment1.t_start = 0.60907690910425261;
+		segment1.t_end = 1.0;
+		Hatch::Segment segment2;
+		segment2.originalBezier = &bezier2;
+		segment2.t_start = 0.0;
+		segment2.t_end = 1.0;
+
+		{
+			const auto intersections = segment1.intersect(segment2);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			auto bezier1Clone = bezier1;
+			bezier1Clone.splitFromMinToMax(0.60907690910425261, 1.0);
+
+			Hatch::Segment segment1;
+			segment1.originalBezier = &bezier1Clone;
+			segment1.t_start = 0.0;
+			segment1.t_end = 1.0;
+
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+
 		return true;
 	}
 
@@ -1472,7 +1536,9 @@ public:
 		auto now = std::chrono::high_resolution_clock::now();
 		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
-		m_timeElapsed += dt;
+		if (!m_paused)
+			m_timeElapsed += dt;
+
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
 			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
@@ -1495,6 +1561,10 @@ public:
 				{
 					auto ev = *eventIt;
 
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_SPACE)
+					{
+						m_paused = !m_paused;
+					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
 					{
 						m_hatchDebugStep++;
@@ -1680,6 +1750,8 @@ public:
 			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.minLineWidth = 0.0f; // minimum line width in screenspace pixels (will clamp if it's lower)
+		globalData.minLineThicknessToEnableAA = 0.0f; // lines/curves with screenspace (pixel) widths lower than this will skip AA
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultProjectionToNDC = projectionToNDC;
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
@@ -1966,7 +2038,7 @@ protected:
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
 			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				// Degenerate and Corner cases for hatches
 				{
@@ -2032,7 +2104,9 @@ protected:
 					}
 				}
 			}
-			if (hatchDebugStep > 0)
+
+
+			if (true)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -2043,6 +2117,41 @@ protected:
 					// assert(polylines[i].checkSectionsContunuity());
 					//drawResourcesFiller.drawPolyline(polylines[i], lineStyle, intendedNextSubmit);
 				}
+
+#if 1
+				auto circleThing = [&](float64_t2 offset)
+				{
+					CPolyline polyline;
+					std::vector<shapes::QuadraticBezier<double>> beziers;
+
+					beziers.push_back({ float64_t2(0, -1), float64_t2(-1, -1),float64_t2(-1, 0) });
+					beziers.push_back({ float64_t2(0, -1), float64_t2(1, -1),float64_t2(1, 0) });
+					beziers.push_back({ float64_t2(-1, 0), float64_t2(-1, 1),float64_t2(0, 1) });
+					beziers.push_back({ float64_t2(1, 0), float64_t2(1, 1),float64_t2(0, 1) });
+
+					for (uint32_t i = 0; i < beziers.size(); i++)
+					{
+						beziers[i].P0 = (beziers[i].P0 * 50.0) + offset;
+						beziers[i].P1 = (beziers[i].P1 * 50.0) + offset;
+						beziers[i].P2 = (beziers[i].P2 * 50.0) + offset;
+					}
+
+					polyline.addQuadBeziers(beziers);
+
+					polylines.push_back(polyline);
+				};
+
+				float64_t2 offsettMain = { 50.0, 50.0 };
+				float64_t2 offsett = {30.0 * cos(m_timeElapsed * 0.002), 20.0 * sin(m_timeElapsed * 0.002)};
+				float64_t2 offsett2 = {30.0 * cos(m_timeElapsed * 0.002 + 1.0) , 20.0 * sin(m_timeElapsed * 0.002 + 1.0)};
+
+				circleThing(float64_t2(-50, 0) - offsett + offsettMain);
+				circleThing(float64_t2(50, 0)  - offsett2 + offsettMain);
+				circleThing(float64_t2(0, -50) + offsett + offsettMain);
+				circleThing(float64_t2(0, 50) + offsett2 + offsettMain);
+
+#endif
+
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
@@ -2060,7 +2169,7 @@ protected:
 				//).c_str());
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2103,7 +2212,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
@@ -2135,7 +2244,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2173,7 +2282,7 @@ protected:
 					polyline.addQuadBeziers(beziers);
 				}
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				{
@@ -2287,7 +2396,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -2325,7 +2434,7 @@ protected:
 				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				CPolyline polyline;
 				std::vector<shapes::QuadraticBezier<double>> beziers;
@@ -3923,7 +4032,8 @@ protected:
 	clock_t::time_point start;
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 
-	double m_timeElapsed = 0.0;
+	bool m_paused = true;
+	double m_timeElapsed = 1170236713;
 	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
@@ -3998,7 +4108,7 @@ protected:
 	#endif
 	
 	// Example Specific Settings:
-	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	uint32_t m_hatchDebugStep = 0;// 401; // setting for CASE_2
 	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 

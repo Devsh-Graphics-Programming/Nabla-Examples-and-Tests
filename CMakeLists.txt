@@ -71,11 +71,10 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(29_Arithmetic2Bench)
 	# add_subdirectory(36_CUDAInterop)
 
-	# Showcase compute pathtracing
-	add_subdirectory(30_ComputeShaderPathTracer)
-
+	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
+	add_subdirectory(37_HLSLSamplingTests)
 	add_subdirectory(38_EXRSplit)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		# if (NBL_BUILD_OPTIX)
@@ -98,13 +97,14 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(64_EmulatedFloatTest)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
-	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
+	add_subdirectory(66_HLSLBxDFTests)
 	add_subdirectory(67_RayQueryGeometry)
 	add_subdirectory(68_JpegLoading)
 
   	add_subdirectory(70_FLIPFluids)
 	add_subdirectory(71_RayTracingPipeline)
 	add_subdirectory(72_CooperativeBinarySearch)
+	add_subdirectory(73_ImageUploadBenchmark)
 
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(73_GeometryInspector)

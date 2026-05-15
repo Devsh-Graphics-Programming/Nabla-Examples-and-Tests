@@ -13,6 +13,8 @@ namespace nbl::this_example::gui
 
 void CSessionWindow::setSession(CSession* session)
 {
+	if (session == m_session)
+		return;
 	m_session = session;
 	if (m_session)
 	{
@@ -79,8 +81,10 @@ void CSessionWindow::drawRenderModeSection()
 	if (ImGui::CollapsingHeader("Render Mode", ImGuiTreeNodeFlags_DefaultOpen))
 	{
 		const char* modes[] = { "Previs", "Beauty", "Debug" };
-		if (ImGui::Combo("Mode", reinterpret_cast<int*>(&m_state.renderMode), modes, IM_ARRAYSIZE(modes)))
+		int modeIndex = static_cast<int>(m_state.renderMode);
+		if (ImGui::Combo("Mode", &modeIndex, modes, IM_ARRAYSIZE(modes)))
 		{
+			m_state.renderMode = static_cast<CSession::RenderMode>(modeIndex);
 			if (m_callbacks.onRenderModeChanged)
 			{
 				m_callbacks.onRenderModeChanged(m_state.renderMode, m_session);

@@ -40,6 +40,20 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 {
 	if (!_params)
 		return nullptr;
+
+	// get started with the sequence ASAP
+	auto* const assMan = _params.assMan;
+	auto sequenceFuture = std::async(std::launch::async,[assMan](std::string&& cachePath)->auto
+		{
+			// TODO: resize the Sample Sequence after every scene load, smaller sequence has better caching properties
+			return nbl::examples::CCachedOwenScrambledSequence::create({
+				.cachePath=std::move(cachePath),.assMan=assMan,.header={
+					.maxSamplesLog2=MaxSPPLog2,.maxDimensions=(RandDimTriplesPerDepth*((0x1u<<SSceneUniforms::SInit::MaxPathDepthLog2)-1)+PrimaryRayRandTripletsUsed)*3
+				}
+			});
+		},_params.sequenceCachePath
+	);
+
 	SConstructorParams params = {std::move(_params)};
 
 	//
@@ -257,11 +271,20 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
 	// command buffers
 	for (uint8_t i=0; i<SConstructorParams::FramesInFlight; i++)
 	{
-		auto pool = device->createCommandPool(params.graphicsQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+		auto pool = device->createCommandPool(params.graphicsQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		if (pool)
 			pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,1,params.commandBuffers+i,smart_refctd_ptr(params.logger.get()));
 		if (checkNullObject(params.commandBuffers[i],"Graphics Command Buffer "+to_string(i)))
 			return nullptr;
+	}
+
+	// upload quantized LDS sequence buffer
+	{
+		auto sequence = sequenceFuture.get();
+		params.sequenceHeader = sequence->getHeader();
+		auto* const seqBufferCPU = sequence->getBuffer();
+		params.utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=params.graphicsQueue},IGPUBuffer::SCreationParams{seqBufferCPU->getCreationParams()},seqBufferCPU->getPointer()).move_into(params.sobolSequence);
+		params.sobolSequence->setObjectDebugName("Low Discrepancy Sequence");
 	}
 
 	return core::smart_refctd_ptr<CRenderer>(new CRenderer(std::move(params)),core::dont_grab);
@@ -297,18 +320,29 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 	{
 		IGPURayTracingPipeline::SCreationParams creationParams[RenderModeCount] = {};
 		using creation_flags_e = IGPURayTracingPipeline::SCreationParams::FLAGS;
-		auto flags = creation_flags_e::NO_NULL_MISS_SHADERS;
 		IGPURayTracingPipeline::SShaderSpecInfo missShaders[RenderModeCount] = {};
+		IGPURayTracingPipeline::SHitGroup hitShaders[RenderModeCount] = {};
 		{
 			for (uint8_t m=0; m<RenderModeCount; m++)
 			{
+				const bool isBeauty = m==uint8_t(CSession::RenderMode::Beauty);
 				const auto* const shader = m_construction.shaders[m].get();
 				missShaders[m] = {.shader=shader,.entryPoint="miss"};
+				hitShaders[m].closestHit = {.shader=shader,.entryPoint="closestHit"};
+				// right now we don't do any procedular geometry
+				core::bitflag<creation_flags_e> flags = creation_flags_e::NO_NULL_INTERSECTION_SHADERS;
+				//flags |= creation_flags_e::SKIP_AABBS; this probably doesn't make anything faster since the `rayTraversalPrimitiveCulling` feature would need to be enabled
+				// we always have a miss shader, or because of SER we never call it
+				flags |= creation_flags_e::NO_NULL_MISS_SHADERS;
+				if (isBeauty) // beauty doesn't call the closest hit shaders
+					flags |= creation_flags_e::NO_NULL_CLOSEST_HIT_SHADERS;
+				// we use `NO_NULL_ANY_HIT_SHADERS` to control opacity on a per-instance and per-geo level though, OPAQUE flags are only conservative culling
 				creationParams[m] = {
 					.layout = m_construction.renderingLayouts[m].get(),
 					.shaderGroups = {
 						.raygen = {.shader=shader,.entryPoint="raygen"},
-						.misses = {missShaders+m,1}
+						.misses = {missShaders+m,isBeauty ? 0ull:1ull},
+						.hits = {hitShaders+m,isBeauty ? 0ull:1ull}
 						// TODO: use Material Compiler to get callables for us
 					},
 					.cached = {
@@ -352,7 +386,6 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
                         const auto* geo = ref.geometry.get();
                         if (geo->getPrimitiveType()!=IGeometryBase::EPrimitiveType::Polygon)
                             continue;
-						// TODO: test without and see why asset converter complains!
 						ref.geometry = CPolygonGeometryManipulator::createTriangleListIndexing(static_cast<const ICPUPolygonGeometry*>(geo));
 					}
 				}
@@ -408,7 +441,11 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 		{
 			tmpBuffers.ubo = ICPUBuffer::create({{.size=sizeof(SSceneUniforms),.usage=BasicBufferUsages|buffer_usage_e::EUF_UNIFORM_BUFFER_BIT},nullptr});
 			auto& uniforms = *reinterpret_cast<SSceneUniforms*>(tmpBuffers.ubo->getPointer());
-			uniforms.init = {}; // TODO: fill with stuff
+			uniforms.init = {};
+			uniforms.init.pSampleSequence = m_construction.sobolSequence->getDeviceAddress();
+			uniforms.init.sequenceSamplesLog2 = m_construction.sequenceHeader.maxSamplesLog2;
+			// TODO: Some Constant to Tell us how many dimensions each path vertex consumes
+			uniforms.init.lastSequencePathDepth = m_construction.getSequenceMaxPathDepth();
 			tmpBuffers.ubo->setContentHash(tmpBuffers.ubo->computeContentHash());
 		}
 		// SBT
@@ -444,15 +481,21 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				auto memRsc = core::make_smart_refctd_ptr<CVectorBacked>(hitHandles.size()+missHandles.size()+callableHandles.size()+1);
 				{
 					core::LinearAddressAllocatorST<uint32_t> allocator(nullptr,0,0,limits.shaderGroupBaseAlignment,0x7fff0000u);
-					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles)->SBufferRange<const IGPUBuffer>
+					// Without SER, the arrays for Miss and Closest Hit cannot be null, unless you can guarantee a Ray will never hit geometry or miss
+					auto copyShaderHandles = [&](const std::span<const IGPURayTracingPipeline::SShaderGroupHandle> handles, const size_t minCount=1)->SBufferRange<const IGPUBuffer>
 					{
-						SBufferRange<const IGPUBuffer> range = {.size=handles.size()*handleSizeAligned};
+						SBufferRange<const IGPUBuffer> range = {.size=hlsl::max(handles.size(),minCount)*handleSizeAligned};
 						range.offset = allocator.alloc_addr(range.size,limits.shaderGroupBaseAlignment);
-						memRsc->storage.resize(allocator.get_allocated_size());
+						memRsc->storage.resize(core::alignUp(allocator.get_allocated_size(),limits.shaderGroupBaseAlignment));
 						uint8_t* out = memRsc->storage.data()+range.offset;
 						for (const auto& handle : handles)
 						{
 							memcpy(out,&handle,HandleSize);
+							out += handleSizeAligned;
+						}
+						for (auto i=minCount; i<handles.size(); i++)
+						{
+							memset(out,0,HandleSize);
 							out += handleSizeAligned;
 						}
 						return range;
@@ -465,7 +508,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 					// also de-dup stuff that has the same hash (array of hitgroups) so two instances can happily point at the same material
 					sbt.hit.range = copyShaderHandles(pipeline->getHitHandles());
 					// TODO: material compiler will give us callables and we need to turn those into materials
-					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles());
+					sbt.callable.range = copyShaderHandles(pipeline->getCallableHandles(),0);
 					// TODO: futhermore different rays (NEE vs BxDF) should use different SBTs using big offsets so it becomes a really funny mess 
 					sbt.miss.stride = sbt.hit.stride = sbt.callable.stride = handleSizeAligned;
 				}
@@ -750,16 +793,68 @@ auto CRenderer::render(CSession* session) -> SSubmit
 				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
 				break;
 			}
+			case CSession::RenderMode::Beauty:
+			{
+				SBeautyPushConstants pc = {.sensorDynamics=sessionResources.currentSensorState};
+				// TODOs
+				pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later LumaConversionCoeffs
+				pc.__16BitData.maxSppPerDispatch = 3;
+				success = cb->pushConstants(pipeline->getLayout(),hlsl::ShaderStage::ESS_ALL_RAY_TRACING,0,sizeof(pc),&pc);
+				break;
+			}
 			default:
 				getLogger().log("Unimplemented RenderMode::%s !",ILogger::ELL_ERROR,system::to_string(mode).c_str());
 				return {};
 		}
 	}
+
+	const auto& sessionImmutables = sessionResources.immutables;
 	// bind pipelines
 	success = success && cb->bindRayTracingPipeline(pipeline);
 	{
-		const IGPUDescriptorSet* sets[2] = {sessionParams.scene->getDescriptorSet(),sessionResources.immutables.ds.get()};
+		const IGPUDescriptorSet* sets[2] = {sessionParams.scene->getDescriptorSet(),sessionImmutables.ds.get()};
 		success = success && cb->bindDescriptorSets(EPBP_RAY_TRACING,pipeline->getLayout(),0,2,sets);
+	}
+	
+	// barrier against previous usages of accumulation targets (so that RMW cycles sync up properly)
+	{
+		constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+		using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+		core::vector<image_barrier_t> barr;
+		{
+			constexpr image_barrier_t base = {
+				.barrier = {
+					.dep = {
+						// Any of the images can be read by Debug/Presenter, ideally we should be aware of that and inject it here via a Command Graph
+						// but to keep code decoupled we'll have those subsystems use one more pipeline barrier after their own dispatch
+						.srcStageMask = raytracingStages,
+						.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+						.dstStageMask = raytracingStages,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+				},
+				.subresourceRange = {}
+			};
+			barr.reserve(SensorDSBindingCounts::AsSampledImages);
+
+			auto enqueueBarrier = [&barr,base](const CSession::SImageWithViews& img)->void
+			{
+				auto& out = barr.emplace_back(base);
+				out.image = img.image.get();
+				out.subresourceRange = {
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+					.levelCount = 1,
+					.layerCount = out.image->getCreationParameters().arrayLayers
+				};
+			};
+			enqueueBarrier(sessionImmutables.sampleCount);
+			enqueueBarrier(sessionImmutables.rwmcCascades);
+			enqueueBarrier(sessionImmutables.albedo);
+			enqueueBarrier(sessionImmutables.normal);
+			enqueueBarrier(sessionImmutables.motion);
+			enqueueBarrier(sessionImmutables.mask);
+		}
+		success = cb->pipelineBarrier(asset::EDF_NONE,{.imgBarriers=barr});
 	}
 
 	const auto renderSize = sessionParams.uniforms.renderSize;

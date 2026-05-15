@@ -5,6 +5,7 @@ set(NBL_INCLUDE_SERACH_DIRECTORIES
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
 	"${NBL_ROOT_PATH}/3rdparty/portable-file-dialogs"
+	"${CMAKE_CURRENT_SOURCE_DIR}/app_resources"
 )
 set(NBL_LIBRARIES
 	"${NBL_EXT_MITSUBA_LOADER_LIB}"
@@ -41,7 +42,7 @@ nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
-set(SM 6_8)
+set(SM 6_9)
 set(JSON [=[
 [
     {
@@ -65,6 +66,7 @@ set(JSON [=[
 string(CONFIGURE "${JSON}" JSON)
 
 set(COMPILE_OPTIONS
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/../common/include"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
     -T lib_${SM}
 )
