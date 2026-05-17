@@ -512,10 +512,11 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
                static uint32_t lastFrameSeed = 0u;
                lastFrameSeed                 = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : lastFrameSeed;
                PushConstants pc {
-                  .modelMatrix = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
-                  .viewport    = {0.f, 0.f, static_cast<float>(creationParams.width), static_cast<float>(creationParams.height)},
-                  .sampleCount = static_cast<uint32_t>(m_SampleCount),
-                  .frameIndex  = lastFrameSeed};
+                  .modelMatrix  = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
+                  .viewport     = {0.f, 0.f, static_cast<float>(creationParams.width), static_cast<float>(creationParams.height)},
+                  .shadingPoint = interface.m_ShadingPoint,
+                  .sampleCount  = static_cast<uint32_t>(m_SampleCount),
+                  .frameIndex   = lastFrameSeed};
                const uint32_t debugIdx = m_debugVisualization ? 1u : 0u;
                auto           pipeline = m_solidAngleVisPipelines[denseIdOf(m_samplingMode) * DebugPermutations + debugIdx];
                cb->bindGraphicsPipeline(pipeline.get());
@@ -564,6 +565,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
                   .viewMatrix     = view,
                   .modelMatrix    = hlsl::float32_t3x4(hlsl::transpose(interface.m_OBBModelMatrix)),
                   .invModelMatrix = hlsl::float32_t3x4(hlsl::transpose(hlsl::inverse(interface.m_OBBModelMatrix))),
+                  .shadingPoint   = interface.m_ShadingPoint,
                   .viewport       = {0.f, 0.f, static_cast<float>(creationParams.width), static_cast<float>(creationParams.height)},
                   .frameIndex     = m_frameSeeding ? static_cast<uint32_t>(m_realFrameIx) : 0u};
                auto pipeline = m_rayVisPipelines[m_debugVisualization ? 1u : 0u];
@@ -594,7 +596,14 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
             instance.packedGeo = m_renderer->getGeometries().data(); // cube // +interface.gcIndex;
             m_renderer->render(cb, viewParams); // draw the cube/OBB
 
-            instance.world     = float32_t3x4(1.0f);
+            {
+               // Disk visualizes the shading point; move it to interface.m_ShadingPoint.
+               float32_t3x4 diskWorld(1.0f);
+               diskWorld[0][3] = interface.m_ShadingPoint.x;
+               diskWorld[1][3] = interface.m_ShadingPoint.y;
+               diskWorld[2][3] = interface.m_ShadingPoint.z;
+               instance.world     = diskWorld;
+            }
             instance.packedGeo = m_renderer->getGeometries().data() + 2; // disk
             m_renderer->render(cb, viewParams);
          }
@@ -1112,17 +1121,50 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
 
             // TODO: camera will return hlsl::float32_tMxN
             imguizmoM16InOut.projection = hlsl::transpose(camera.getProjectionMatrix());
-            ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
 
             if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
                imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 
             transformParams.editTransformDecomposition = true;
-            mainViewTransformReturnInfo                = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
-            move                                       = mainViewTransformReturnInfo.allowCameraMovement;
 
-            ImGuizmo::DecomposeMatrixToComponents(&imguizmoM16InOut.model[0][0], &m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x);
-            ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
+            // Target selector: OBB (full TRS) or ShadingPoint (translation-only).
+            // The same EditTransform/Manipulate widget drives whichever is selected;
+            // we just swap which matrix it operates on and decompose accordingly.
+            {
+               int target = static_cast<int>(m_GizmoTarget);
+               ImGui::Text("Gizmo target:");
+               ImGui::SameLine();
+               if (ImGui::RadioButton("OBB", &target, static_cast<int>(GizmoTarget::OBB)))
+                  m_GizmoTarget = GizmoTarget::OBB;
+               ImGui::SameLine();
+               if (ImGui::RadioButton("Shading Point", &target, static_cast<int>(GizmoTarget::ShadingPoint)))
+                  m_GizmoTarget = GizmoTarget::ShadingPoint;
+            }
+
+            if (m_GizmoTarget == GizmoTarget::OBB)
+            {
+               ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
+
+               mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+               move                        = mainViewTransformReturnInfo.allowCameraMovement;
+
+               ImGuizmo::DecomposeMatrixToComponents(&imguizmoM16InOut.model[0][0], &m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x);
+               ImGuizmo::RecomposeMatrixFromComponents(&m_TRS.translation.x, &m_TRS.rotation.x, &m_TRS.scale.x, &imguizmoM16InOut.model[0][0]);
+            }
+            else
+            {
+               // ShadingPoint mode: build identity-rotation/unit-scale matrix
+               // with translation = m_ShadingPoint; only the translation column
+               // round-trips through the gizmo.
+               float32_t3 spRotation {0.0f};
+               float32_t3 spScale {1.0f};
+               ImGuizmo::RecomposeMatrixFromComponents(&m_ShadingPoint.x, &spRotation.x, &spScale.x, &imguizmoM16InOut.model[0][0]);
+
+               mainViewTransformReturnInfo = EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+               move                        = mainViewTransformReturnInfo.allowCameraMovement;
+
+               ImGuizmo::DecomposeMatrixToComponents(&imguizmoM16InOut.model[0][0], &m_ShadingPoint.x, &spRotation.x, &spScale.x);
+            }
          }
          // object meta display
          //{
@@ -1580,6 +1622,13 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          float32_t3 scale {1.0f};
       } m_TRS;
       float32_t4x4 m_OBBModelMatrix; // always overwritten from TRS
+      float32_t3   m_ShadingPoint {0.0f, 0.0f, 0.0f}; // world-space observer; samplers operate in shading-point-relative coords
+      enum class GizmoTarget : uint8_t
+      {
+         OBB,
+         ShadingPoint
+      };
+      GizmoTarget m_GizmoTarget = GizmoTarget::OBB; // which entity the manipulator gizmo currently drives
 
       // std::string_view objectName;
       TransformRequestParams transformParams;
@@ -1799,6 +1848,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          modeNames[denseIdOf(SAMPLING_MODE_FLAGS::OBB_FACE_DIRECT)]                     = "OBB_FACE_DIRECT";
 
          m_pushConstants.modelMatrix        = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
+         m_pushConstants.shadingPoint       = m_visualizer->interface.m_ShadingPoint;
          m_pushConstants.sampleCount        = static_cast<uint32_t>(m_BenchmarkSampleCount);
          m_pushConstants.samplesPerCreation = m_pushConstants.sampleCount; // full amortization: 1 creation per dispatch
 
@@ -1853,8 +1903,9 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       {
          m_device->waitIdle();
 
-         m_pushConstants.modelMatrix = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
-         m_pushConstants.sampleCount = m_BenchmarkSampleCount;
+         m_pushConstants.modelMatrix  = float32_t3x4(transpose(m_visualizer->interface.m_OBBModelMatrix));
+         m_pushConstants.shadingPoint = m_visualizer->interface.m_ShadingPoint;
+         m_pushConstants.sampleCount  = m_BenchmarkSampleCount;
          // For create-only modes the inner loop is unused; pick any divisor of sampleCount to keep the shader's `creations = sampleCount / samplesPerCreation` well-defined.
          m_pushConstants.samplesPerCreation = mode & FLAG_CREATE_ONLY ? uint32_t(m_BenchmarkSampleCount) : samplesPerCreation;
          recordCmdBuff(mode);

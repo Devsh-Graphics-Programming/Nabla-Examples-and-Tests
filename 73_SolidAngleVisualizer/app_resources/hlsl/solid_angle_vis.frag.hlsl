@@ -66,9 +66,10 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
    VisContext::begin(ndc, spherePos, aaWidth);
 
    shapes::OBBView<float32_t> view       = shapes::OBBView<float32_t>::create(pc.modelMatrix);
-   ClippedSilhouette          silhouette = ClippedSilhouette::create(view);
+   ClippedSilhouette          silhouette = createClippedSilhouetteDbg(view, pc.shadingPoint);
 
    SelectedSampler sampler = SelectedSampler::create(silhouette, view);
+   PyramidDebugVis<SelectedSampler>::apply(sampler, silhouette, view);
 
    uint32_t validSampleCount = 0;
    for (uint32_t i = 0; i < pc.sampleCount; i++)
@@ -98,7 +99,7 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
    {
       float32_t3 vertices[MAX_SILHOUETTE_VERTICES];
       silhouette.materialize(view, vertices);
-      silhouette.recordVertices(vertices);
+      recordClippedSilhouetteVertices(silhouette, vertices);
 
       for (uint32_t i = 0; i < silhouette.count; i++)
       {

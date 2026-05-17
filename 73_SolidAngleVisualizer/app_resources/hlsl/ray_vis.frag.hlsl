@@ -36,10 +36,12 @@ struct RayVisOutput
     ndcPos.x *= aspect;
     VisContext::begin(ndcPos, float32_t3(0, 0, 0), aaWidth);
 
-    // Draw vertices in 3D
+    // Draw vertices in 3D. clippedVertices are stored in shading-point-relative
+    // coords (the frag materializes with pc.shadingPoint); shift back to world.
     for (uint32_t v = 0; v < DebugDataBuffer[0].silhouette.clippedVertexCount; v++)
     {
-        float32_t4 clipPos = mul(pc.viewProjMatrix, float32_t4(DebugDataBuffer[0].silhouette.clippedVertices[v], 1.0));
+        float32_t3 worldVertex = DebugDataBuffer[0].silhouette.clippedVertices[v] + pc.shadingPoint;
+        float32_t4 clipPos = mul(pc.viewProjMatrix, float32_t4(worldVertex, 1.0));
         float32_t3 ndcPosVertex = clipPos.xyz / clipPos.w;
         ndcPosVertex.x *= aspect;
         if (ndcPosVertex.z < maxDepth)
@@ -58,7 +60,7 @@ struct RayVisOutput
     // Draw sample rays
     for (uint32_t i = 0; i < DebugDataBuffer[0].sampling.sampleCount; i++)
     {
-        float32_t3 rayOrigin = float32_t3(0, 0, 0);
+        float32_t3 rayOrigin = pc.shadingPoint;
         float32_t4 directionAndPdf = DebugDataBuffer[0].sampling.rayData[i];
         float32_t3 rayDir = normalize(directionAndPdf.xyz);
 

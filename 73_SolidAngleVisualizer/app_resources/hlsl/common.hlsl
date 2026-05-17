@@ -156,6 +156,7 @@ struct PushConstants
 {
    float32_t3x4 modelMatrix;
    float32_t4 viewport;
+   float32_t3 shadingPoint;
    uint32_t sampleCount;
    uint32_t frameIndex;
 };
@@ -166,6 +167,7 @@ struct PushConstantRayVis
    float32_t3x4 viewMatrix;
    float32_t3x4 modelMatrix;
    float32_t3x4 invModelMatrix;
+   float32_t3 shadingPoint;
    float32_t4 viewport;
    uint32_t frameIndex;
 };
@@ -173,6 +175,7 @@ struct PushConstantRayVis
 struct BenchmarkPushConstants
 {
    float32_t3x4 modelMatrix;
+   float32_t3 shadingPoint;
    uint32_t sampleCount;        // total samples per thread (= creations * samplesPerCreation)
    uint32_t samplesPerCreation; // inner-loop count; outer-loop count = sampleCount / samplesPerCreation
 };
