@@ -12,7 +12,9 @@
 #include "nbl/asset/utils/IShaderCompiler.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <ranges>
 #include <span>
 #include <string>
@@ -71,8 +73,8 @@ public:
       bool isPrecompiled() const { return !precompiledKey.empty(); }
    };
 
-   // Layout: [bindOnce] [warmup x dispatchOne][ts0][bench x dispatchOne][ts1][cooldown x dispatchOne]
-   // Cooldown == warmup so the measured window isn't on a winding-down tail.
+   // Logical layout: [warmup x dispatchOne][ts0][bench x dispatchOne][ts1][cooldown x dispatchOne]
+   // Warmup/cooldown can be split into shorter submissions and the measured window stays intact.
    // Putting binds inside dispatchOne adds per-iteration cmdbuf overhead that
    // shows up in ps/sample on tight shaders.
    using DispatchFn = std::function<void(nbl::video::IGPUCommandBuffer*)>;
@@ -513,8 +515,22 @@ public:
       const uint64_t     targetBudgetNs = targetBudgetMs * 1'000'000ull;
       constexpr uint32_t kPilotN        = 64;
       constexpr uint32_t kMaxN          = 1u << 24; // safety cap for ultra-fast shaders
-      TimingResult       r              = runTimed(warmupDispatches, kPilotN, bindOnce, dispatchOne);
+      uint32_t           dispatchesPerSubmit = 1u;
+      TimingResult       r                   = runTimed(warmupDispatches, kPilotN, bindOnce, dispatchOne, dispatchesPerSubmit);
+      dispatchesPerSubmit                    = estimateDispatchesPerSubmit(r, kPilotN);
       uint32_t           lastN          = kPilotN;
+      while (r.elapsed_ns > targetBudgetNs && lastN > 1u)
+      {
+         const double scale = double(targetBudgetNs) / r.elapsed_ns;
+         uint32_t     nextN = uint32_t(std::max(1.0, std::floor(double(lastN) * scale)));
+         if (nextN >= lastN)
+            nextN = lastN - 1u;
+
+         r                   = runTimed(warmupDispatches, nextN, bindOnce, dispatchOne, dispatchesPerSubmit);
+         dispatchesPerSubmit = estimateDispatchesPerSubmit(r, nextN);
+         lastN               = nextN;
+      }
+
       while (r.elapsed_ns < targetBudgetNs && lastN < kMaxN)
       {
          uint32_t nextN;
@@ -529,8 +545,9 @@ public:
          }
          if (nextN <= lastN)
             break; // converged
-         r     = runTimed(warmupDispatches, nextN, bindOnce, dispatchOne);
-         lastN = nextN;
+         r                   = runTimed(warmupDispatches, nextN, bindOnce, dispatchOne, dispatchesPerSubmit);
+         dispatchesPerSubmit = estimateDispatchesPerSubmit(r, nextN);
+         lastN               = nextN;
       }
 
       if (samples <= 1)
@@ -545,7 +562,7 @@ public:
       ns.push_back(r.elapsed_ns);
       for (uint32_t i = 1; i < samples; ++i)
       {
-         const TimingResult ri = runTimed(warmupDispatches, lastN, bindOnce, dispatchOne);
+         const TimingResult ri = runTimed(warmupDispatches, lastN, bindOnce, dispatchOne, dispatchesPerSubmit);
          ns.push_back(ri.elapsed_ns);
       }
       std::sort(ns.begin(), ns.end());
@@ -580,48 +597,53 @@ public:
       return m;
    }
 
-   TimingResult runTimed(uint32_t warmupDispatches, uint32_t benchDispatches, const DispatchFn& bindOnce, const DispatchFn& dispatchOne)
+   TimingResult runTimed(uint32_t warmupDispatches, uint32_t benchDispatches, const DispatchFn& bindOnce, const DispatchFn& dispatchOne, uint32_t maxDispatchesPerSubmit)
    {
-      m_device->waitIdle();
+      if (m_device->waitIdle() != nbl::video::IQueue::RESULT::SUCCESS)
+         return {};
+
       const uint32_t cooldownDispatches = warmupDispatches;
 
-      m_cmdbuf->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::NONE);
-      m_cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-      m_cmdbuf->resetQueryPool(m_queryPool.get(), 0, 2);
+      if (!runUntimedDispatches(warmupDispatches, bindOnce, dispatchOne, maxDispatchesPerSubmit))
+         return {};
 
-      if (bindOnce)
-         bindOnce(m_cmdbuf.get());
+      double   elapsedNs = 0.0;
+      uint32_t remaining = benchDispatches;
+      while (remaining > 0u)
+      {
+         const uint32_t batch = std::min(remaining, std::max(1u, maxDispatchesPerSubmit));
 
-      for (uint32_t i = 0u; i < warmupDispatches; ++i)
-         dispatchOne(m_cmdbuf.get());
+         m_cmdbuf->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::NONE);
+         m_cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+         m_cmdbuf->resetQueryPool(m_queryPool.get(), 0, 2);
 
-      m_cmdbuf->writeTimestamp(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, m_queryPool.get(), 0);
-      for (uint32_t i = 0u; i < benchDispatches; ++i)
-         dispatchOne(m_cmdbuf.get());
-      m_cmdbuf->writeTimestamp(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, m_queryPool.get(), 1);
+         if (bindOnce)
+            bindOnce(m_cmdbuf.get());
 
-      for (uint32_t i = 0u; i < cooldownDispatches; ++i)
-         dispatchOne(m_cmdbuf.get());
-      m_cmdbuf->end();
+         m_cmdbuf->writeTimestamp(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, m_queryPool.get(), 0);
+         for (uint32_t i = 0u; i < batch; ++i)
+            dispatchOne(m_cmdbuf.get());
+         m_cmdbuf->writeTimestamp(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, m_queryPool.get(), 1);
+         m_cmdbuf->end();
 
-      auto                                                      semaphore   = m_device->createSemaphore(0u);
-      const nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo benchCmds[] = {{.cmdbuf = m_cmdbuf.get()}};
-      const nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo     signalSem[] = {
-         {.semaphore = semaphore.get(), .value = 1u, .stageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
-      nbl::video::IQueue::SSubmitInfo submit = {};
-      submit.commandBuffers                  = benchCmds;
-      submit.signalSemaphores                = signalSem;
-      m_queue->submit({&submit, 1u});
+         if (!submitAndWait())
+            return {};
 
-      m_device->waitIdle();
+         uint64_t   timestamps[2] = {};
+         const auto flags         = nbl::core::bitflag(nbl::video::IQueryPool::RESULTS_FLAGS::_64_BIT) | nbl::core::bitflag(nbl::video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
+         if (!m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, timestamps, sizeof(uint64_t), flags))
+            return {};
 
-      uint64_t   timestamps[2] = {};
-      const auto flags         = nbl::core::bitflag(nbl::video::IQueryPool::RESULTS_FLAGS::_64_BIT) | nbl::core::bitflag(nbl::video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
-      m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, timestamps, sizeof(uint64_t), flags);
+         const double timestampPeriod = double(m_physicalDevice->getLimits().timestampPeriodInNanoSeconds);
+         elapsedNs += double(timestamps[1] - timestamps[0]) * timestampPeriod;
+         remaining -= batch;
+      }
+
+      if (!runUntimedDispatches(cooldownDispatches, bindOnce, dispatchOne, maxDispatchesPerSubmit))
+         return {};
 
       TimingResult r {};
-      const double timestampPeriod = double(m_physicalDevice->getLimits().timestampPeriodInNanoSeconds);
-      r.elapsed_ns                 = double(timestamps[1] - timestamps[0]) * timestampPeriod;
+      r.elapsed_ns                 = elapsedNs;
       r.totalSamples               = uint64_t(benchDispatches) * m_samplesPerDispatch;
       r.ps_per_sample              = r.totalSamples ? r.elapsed_ns * 1e3 / double(r.totalSamples) : 0.0;
       r.gsamples_per_s             = r.elapsed_ns > 0.0 ? double(r.totalSamples) / r.elapsed_ns : 0.0;
@@ -633,6 +655,63 @@ protected:
    std::vector<PipelineEntry> m_pipelines;
 
 private:
+   // Soft target for one queue submit, estimated from timings on the current GPU.
+   // Benchmark budgets still control measured work. This only chunks submits.
+   static constexpr double SubmitChunkTargetNs = 250'000'000.0;
+
+   static uint32_t estimateDispatchesPerSubmit(const TimingResult& r, uint32_t dispatches)
+   {
+      if (dispatches == 0u || r.elapsed_ns <= 0.0)
+         return 1u;
+
+      const double nsPerDispatch = r.elapsed_ns / double(dispatches);
+      if (nsPerDispatch <= 0.0)
+         return 1u;
+
+      const double maxDispatches = std::floor(SubmitChunkTargetNs / nsPerDispatch);
+      return uint32_t(std::clamp(maxDispatches, 1.0, double(std::numeric_limits<uint32_t>::max())));
+   }
+
+   bool submitAndWait()
+   {
+      auto semaphore = m_device->createSemaphore(0u);
+      if (!semaphore)
+         return false;
+
+      const nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmds[] = {{.cmdbuf = m_cmdbuf.get()}};
+      const nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo     done[] = {
+         {.semaphore = semaphore.get(), .value = 1u, .stageMask = nbl::asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}};
+      nbl::video::IQueue::SSubmitInfo submit = {};
+      submit.commandBuffers                  = cmds;
+      submit.signalSemaphores                = done;
+      if (m_queue->submit({&submit, 1u}) != nbl::video::IQueue::RESULT::SUCCESS)
+         return false;
+
+      const nbl::video::ISemaphore::SWaitInfo wait[] = {{.semaphore = semaphore.get(), .value = 1u}};
+      return m_device->blockForSemaphores(wait) == nbl::video::ISemaphore::WAIT_RESULT::SUCCESS;
+   }
+
+   bool runUntimedDispatches(uint32_t dispatches, const DispatchFn& bindOnce, const DispatchFn& dispatchOne, uint32_t maxDispatchesPerSubmit)
+   {
+      while (dispatches > 0u)
+      {
+         const uint32_t batch = std::min(dispatches, std::max(1u, maxDispatchesPerSubmit));
+
+         m_cmdbuf->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::NONE);
+         m_cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+         if (bindOnce)
+            bindOnce(m_cmdbuf.get());
+         for (uint32_t i = 0u; i < batch; ++i)
+            dispatchOne(m_cmdbuf.get());
+         m_cmdbuf->end();
+
+         if (!submitAndWait())
+            return false;
+         dispatches -= batch;
+      }
+      return true;
+   }
+
    static void matchStat(const nbl::video::IGPUPipelineBase::SExecutableStatistic& stat, PipelineStats& out, uint64_t& vgpr, uint64_t& sgpr)
    {
       const uint64_t v = stat.asUint();
