@@ -14,7 +14,7 @@ class CBilinearTester final : public ITester<BilinearInputValues, BilinearTestRe
 	using R = BilinearTestResults;
 
 public:
-	CBilinearTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CBilinearTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	BilinearInputValues generateInputTestValues() override
@@ -51,8 +51,9 @@ private:
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"Bilinear::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"Bilinear::backwardPdf", &R::backwardPdf});
-		pass &= verifyTestValue("Bilinear::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-4);
-		pass &= verifyTestValue("Bilinear::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-4, 1e-4);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "Bilinear::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 5e-2, 5e-2);
+		pass &= verifyTestValue("Bilinear::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-5, 1e-5);
+		pass &= verifyTestValue("Bilinear::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-5, 1e-5);
 
 		if (!pass && iteration < m_inputs.size())
 			logFailedInput(m_logger.get(), m_inputs[iteration]);

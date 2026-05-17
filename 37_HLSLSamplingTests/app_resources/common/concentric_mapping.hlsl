@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/concentric_mapping.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -20,6 +21,7 @@ struct ConcentricMappingTestResults
 	float32_t forwardWeight;
 	float32_t backwardWeight;
 	float32_t jacobianProduct;
+	float32_t inverseJacobianPdf;
 	float32_t2 roundtripError;
 };
 
@@ -39,7 +41,15 @@ struct ConcentricMappingTestExecutor
 			output.backwardWeight = sampling::ConcentricMapping<float32_t>::backwardWeight(input.u);
 		}
 		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
-		output.jacobianProduct = float32_t(1.0 / output.backwardPdf) * output.forwardPdf;	
+		{
+			sampling::ConcentricMapping<float32_t> sampler;
+			output.jacobianProduct = computeJacobianProduct<JACOBIAN_CONCENTRIC>(sampler, input.u, 1e-3f, 1.0f);
+			// Disk-center singularity: concentric atan2 blows up as r->0.
+			const float32_t diskRadius = nbl::hlsl::length(output.mapped);
+			output.inverseJacobianPdf = diskRadius < 0.1f
+				? JACOBIAN_SKIP_CODOMAIN_SINGULARITY
+				: computeInverseJacobianPdf(sampler, output.mapped, output.backwardPdf, 0.0f, 1e30f);
+		}
 	}
 };
 
