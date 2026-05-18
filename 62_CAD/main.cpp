@@ -3824,7 +3824,8 @@ protected:
 				//drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
 				//drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 
-				constexpr int MarkerCount = 1000000;
+				//constexpr int MarkerCount = 1000000;
+				constexpr int MarkerCount = 1;
 				for (int i = 0; i < MarkerCount; ++i)
 				{
 					translateMat =
@@ -3834,7 +3835,7 @@ protected:
 						0.0, 0.0, 1.0
 					};
 
-					const float64_t rotationAngle = (core::radians(360.0) / static_cast<float64_t>(MarkerCount)) * i * 10;
+					const float64_t rotationAngle = (core::radians(360.0) / static_cast<float64_t>(MarkerCount)) * static_cast<float64_t>(i) * 10.0;
 					dir = float64_t2{ std::cos(rotationAngle), std::sin(rotationAngle) };
 					rotateMat =
 					{

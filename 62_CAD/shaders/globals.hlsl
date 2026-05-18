@@ -159,9 +159,10 @@ struct MainObject
 
 struct DrawObject
 {
-    uint32_t type_subsectionIdx; // packed two uint16 into uint32
-    uint32_t mainObjIndex;
-    uint64_t geometryAddress;
+    ObjectType type : 4; // 16 different object types
+    uint32_t subsectionIdx : 2; // 4 max subsections
+    uint32_t mainObjIndex : 26; // 67M main objects max
+    uint32_t geometryAddress; // geometry has 8 byte alignment, max 34GB of data to reference
 };
 
 // Goes into geometry buffer, needs to be aligned by 8
@@ -618,7 +619,7 @@ MainObject loadMainObject(const uint32_t index)
 }
 DrawObject loadDrawObject(const uint32_t index)
 {
-    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
+    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 4u);
 }
 #else
 static_assert(alignof(LineStyle)==4u);
@@ -626,7 +627,7 @@ static_assert(alignof(DTMSettings)==4u);
 static_assert(alignof(pfloat64_t3x3)==8u);
 static_assert(alignof(WorldClipRect)==8u);
 static_assert(alignof(MainObject)==4u);
-static_assert(alignof(DrawObject)==8u);
+static_assert(alignof(DrawObject)==4u);
 #endif
 
 

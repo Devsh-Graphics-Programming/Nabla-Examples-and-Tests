@@ -29,7 +29,7 @@ using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
 
-static_assert(sizeof(DrawObject) == 16u);
+static_assert(sizeof(DrawObject) == 8u);
 static_assert(sizeof(MainObject) == 20u);
 static_assert(sizeof(LineStyle) == 88u);
 
