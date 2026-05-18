@@ -52,6 +52,7 @@ using namespace nbl::examples;
 
 #include "benchmarks/CSamplerBenchmark.h"
 #include "benchmarks/CDiscreteSamplerBenchmark.h"
+#include "nbl/examples/Tester/FailureManifest.h"
 #include "tests/property/CSamplerPropertyTester.h"
 
 
@@ -189,6 +190,12 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 
       m_logger->log("All sampling concept tests passed.", ILogger::ELL_INFO);
 
+      const auto runControl = nbl::examples::testing::parseRunControl(this->argv, m_logger.get());
+      if (!runControl.valid)
+         return false;
+
+      nbl::examples::testing::FailureManifest failureManifest("37_HLSLSamplingTests");
+
       // ======================================================================
       // GPU throughput benchmarks
       // ======================================================================
@@ -197,6 +204,12 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
 
       if constexpr (DoBenchmark)
       {
+         if (runControl.skipBenchmarks)
+         {
+            m_logger->log("Skipping benchmark phase due to CLI.", ILogger::ELL_INFO);
+         }
+         else
+         {
          constexpr uint32_t benchWorkgroupSize      = WORKGROUP_SIZE;
          constexpr uint32_t totalThreadsPerDispatch = benchWorkgroupsCount * benchWorkgroupSize;
          constexpr uint32_t iterationsPerThread     = BENCH_ITERS;
@@ -346,6 +359,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
                Aggregator::makeSpan(benchmarks,    samplerCtx),
                Aggregator::makeSpan(discreteBench, discreteCtx));
          }
+         }
       }
 
       // ================================================================
@@ -353,9 +367,16 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ================================================================
       bool pass = true;
       constexpr uint32_t testWorkgroupsCount = 4096;
+      bool samplerPass = true;
       // generic lambda to run a GPU sampler test
-      auto runSamplerTest = [&]<typename Tester, core::StringLiteral ShaderKey>(const char* testName, const char* logFile)
+      auto runSamplerTest = [&]<typename Tester, core::StringLiteral ShaderKey>(const char* id, const char* testName, const char* logFile)
       {
+         if (!runControl.filter.shouldRun(id))
+         {
+            m_logger->log("Skipping %s tests due to filter.", ILogger::ELL_INFO, testName);
+            return;
+         }
+
          m_logger->log("Running %s tests...", ILogger::ELL_INFO, testName);
          typename Tester::PipelineSetupData data;
          data.device             = m_device;
@@ -367,43 +388,58 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          data.shaderKey          = std::move(nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get()));
          Tester tester(testWorkgroupsCount);
          tester.setupPipeline(data);
-         pass &= tester.performTestsAndVerifyResults(logFile);
+         if (const auto seed = runControl.filter.seedFor(id); seed.has_value())
+            tester.setSeed(*seed);
+         tester.setFailureRecordContext(&failureManifest, "sampler", id, testName);
+         samplerPass &= tester.performTestsAndVerifyResults(logFile);
       };
 
       // --- Sampler tests ---
       if constexpr (true)
       {
-         runSamplerTest.operator()<CLinearTester, "linear_test">("Linear sampler", "LinearTestLog.txt");
-         runSamplerTest.operator()<CBilinearTester, "bilinear_test">("Bilinear sampler", "BilinearTestLog.txt");
-         runSamplerTest.operator()<CUniformHemisphereTester, "uniform_hemisphere_test">("UniformHemisphere sampler", "UniformHemisphereTestLog.txt");
-         runSamplerTest.operator()<CUniformSphereTester, "uniform_sphere_test">("UniformSphere sampler", "UniformSphereTestLog.txt");
-         runSamplerTest.operator()<CProjectedHemisphereTester, "projected_hemisphere_test">("ProjectedHemisphere sampler", "ProjectedHemisphereTestLog.txt");
-         runSamplerTest.operator()<CProjectedSphereTester, "projected_sphere_test">("ProjectedSphere sampler", "ProjectedSphereTestLog.txt");
-         runSamplerTest.operator()<CConcentricMappingTester, "concentric_mapping_test">("ConcentricMapping sampler", "ConcentricMappingTestLog.txt");
-         runSamplerTest.operator()<CPolarMappingTester, "polar_mapping_test">("PolarMapping sampler", "PolarMappingTestLog.txt");
-         runSamplerTest.operator()<CBoxMullerTransformTester, "box_muller_transform_test">("BoxMullerTransform sampler", "BoxMullerTransformTestLog.txt");
-         runSamplerTest.operator()<CSphericalTriangleTester, "spherical_triangle">("SphericalTriangle", "SphericalTriangleTestLog.txt");
-         runSamplerTest.operator()<CProjectedSphericalTriangleTester, "projected_spherical_triangle_test">("ProjectedSphericalTriangle sampler", "ProjectedSphericalTriangleTestLog.txt");
-         runSamplerTest.operator()<CSphericalRectangleTester, "spherical_rectangle_test">("SphericalRectangle sampler", "SphericalRectangleTestLog.txt");
-         runSamplerTest.operator()<CProjectedSphericalRectangleTester, "projected_spherical_rectangle_test">("ProjectedSphericalRectangle sampler", "ProjectedSphericalRectangleTestLog.txt");
+         runSamplerTest.operator()<CLinearTester, "linear_test">("sampler/Linear", "Linear sampler", "LinearTestLog.txt");
+         runSamplerTest.operator()<CBilinearTester, "bilinear_test">("sampler/Bilinear", "Bilinear sampler", "BilinearTestLog.txt");
+         runSamplerTest.operator()<CUniformHemisphereTester, "uniform_hemisphere_test">("sampler/UniformHemisphere", "UniformHemisphere sampler", "UniformHemisphereTestLog.txt");
+         runSamplerTest.operator()<CUniformSphereTester, "uniform_sphere_test">("sampler/UniformSphere", "UniformSphere sampler", "UniformSphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedHemisphereTester, "projected_hemisphere_test">("sampler/ProjectedHemisphere", "ProjectedHemisphere sampler", "ProjectedHemisphereTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphereTester, "projected_sphere_test">("sampler/ProjectedSphere", "ProjectedSphere sampler", "ProjectedSphereTestLog.txt");
+         runSamplerTest.operator()<CConcentricMappingTester, "concentric_mapping_test">("sampler/ConcentricMapping", "ConcentricMapping sampler", "ConcentricMappingTestLog.txt");
+         runSamplerTest.operator()<CPolarMappingTester, "polar_mapping_test">("sampler/PolarMapping", "PolarMapping sampler", "PolarMappingTestLog.txt");
+         runSamplerTest.operator()<CBoxMullerTransformTester, "box_muller_transform_test">("sampler/BoxMullerTransform", "BoxMullerTransform sampler", "BoxMullerTransformTestLog.txt");
+         runSamplerTest.operator()<CSphericalTriangleTester, "spherical_triangle">("sampler/SphericalTriangle", "SphericalTriangle", "SphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalTriangleTester, "projected_spherical_triangle_test">("sampler/ProjectedSphericalTriangle", "ProjectedSphericalTriangle sampler", "ProjectedSphericalTriangleTestLog.txt");
+         runSamplerTest.operator()<CSphericalRectangleTester, "spherical_rectangle_test">("sampler/SphericalRectangle", "SphericalRectangle sampler", "SphericalRectangleTestLog.txt");
+         runSamplerTest.operator()<CProjectedSphericalRectangleTester, "projected_spherical_rectangle_test">("sampler/ProjectedSphericalRectangle", "ProjectedSphericalRectangle sampler", "ProjectedSphericalRectangleTestLog.txt");
       }
 
       if constexpr (true)
       {
          // --- Discrete table construction (CPU) ---
          {
-            m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
-            CDiscreteTableTester tableTester(m_logger.get());
-            pass &= tableTester.run();
+            constexpr const char* id = "sampler/DiscreteTableBuilder";
+            if (!runControl.filter.shouldRun(id))
+            {
+               m_logger->log("Skipping discrete table builder tests due to filter.", ILogger::ELL_INFO);
+            }
+            else
+            {
+               m_logger->log("Running discrete table builder tests (CPU)...", ILogger::ELL_INFO);
+               CDiscreteTableTester tableTester(m_logger.get());
+               const bool ok = tableTester.run();
+               samplerPass &= ok;
+               if (!ok)
+                  failureManifest.addGroupFailure("sampler", id, "Discrete table builder");
+            }
          }
 
          // --- GPU table sampler tests ---
-         runSamplerTest.operator()<CPackedAliasAGPUTester, "packed_alias_a_test">("PackedAliasA GPU sampler", "PackedAliasATestLog.txt");
-         runSamplerTest.operator()<CPackedAliasBGPUTester, "packed_alias_b_test">("PackedAliasB GPU sampler", "PackedAliasBTestLog.txt");
-         runSamplerTest.operator()<CCumulativeProbabilityGPUTester, "cumulative_probability_test">("CumulativeProbability GPU sampler", "CumulativeProbabilityTestLog.txt");
+         runSamplerTest.operator()<CPackedAliasAGPUTester, "packed_alias_a_test">("sampler/PackedAliasA", "PackedAliasA GPU sampler", "PackedAliasATestLog.txt");
+         runSamplerTest.operator()<CPackedAliasBGPUTester, "packed_alias_b_test">("sampler/PackedAliasB", "PackedAliasB GPU sampler", "PackedAliasBTestLog.txt");
+         runSamplerTest.operator()<CCumulativeProbabilityGPUTester, "cumulative_probability_test">("sampler/CumulativeProbability", "CumulativeProbability GPU sampler", "CumulativeProbabilityTestLog.txt");
       }
       logJacobianSkipCounts(m_logger.get());
-      if (pass)
+      pass &= samplerPass;
+      if (samplerPass)
          m_logger->log("All sampling tests PASSED.", ILogger::ELL_INFO);
       else
          m_logger->log("Some sampling tests FAILED. Check log files for details.", ILogger::ELL_ERROR);
@@ -413,12 +449,28 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ================================================================
       if constexpr (true)
       {
+         bool propertyPass = true;
          m_logger->log("Running sampler property tests (CPU)...", ILogger::ELL_INFO);
          m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
 
          auto check = [&]<typename Config>()
          {
-            pass &= CSamplerPropertyTester<Config>(m_logger.get()).run();
+            const std::string id = std::string("property/") + Config::name();
+            if (!runControl.filter.shouldRun(id))
+            {
+               m_logger->log("Skipping %s property tests due to filter.", ILogger::ELL_INFO, Config::name());
+               return;
+            }
+
+            CSamplerPropertyTester<Config> tester(m_logger.get(), runControl.filter.seedFor(id));
+            const bool ok = tester.run();
+            propertyPass &= ok;
+            if (!ok)
+            {
+               failureManifest.addGroupFailure("property", id, Config::name());
+               if (const auto seed = tester.failureSeed(); seed.has_value())
+                  failureManifest.addCase("property", id, Config::name(), "property", "CPU", 0, *seed, 0.0, 0.0);
+            }
          };
 
          check.operator()<LinearPropertyConfig>();
@@ -444,7 +496,8 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          // Grazing angle tests
          check.operator()<ProjectedSphericalTriangleGrazingConfig>();
 
-         if (pass)
+         pass &= propertyPass;
+         if (propertyPass)
             m_logger->log("All sampler property tests PASSED.", ILogger::ELL_INFO);
          else
             m_logger->log("Some sampler property tests FAILED.", ILogger::ELL_ERROR);
@@ -455,26 +508,40 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ================================================================
       if constexpr (true)
       {
+         bool geometryPass = true;
          m_logger->log("Running geometry tests (CPU)...", ILogger::ELL_INFO);
          m_logger->log("WARNING: CPU math may use higher intermediate precision than GPU shaders. Tolerances that pass here may be too tight for GPU.", ILogger::ELL_WARNING);
 
-         auto check = [&]<typename Tester>()
+         auto check = [&]<typename Tester>(const char* id, const char* name)
          {
-            pass &= Tester(m_logger.get()).run();
+            if (!runControl.filter.shouldRun(id))
+            {
+               m_logger->log("Skipping %s geometry tests due to filter.", ILogger::ELL_INFO, name);
+               return;
+            }
+
+            const bool ok = Tester(m_logger.get()).run();
+            geometryPass &= ok;
+            if (!ok)
+               failureManifest.addGroupFailure("geometry", id, name);
          };
 
-         check.template operator()<CSolidAngleAccuracyTester>();
-         check.template operator()<CSphericalTriangleGenerateTester>();
-         check.template operator()<CSphericalRectangleGenerateTester>();
-         check.template operator()<CProjectedSphericalRectangleGenerateTester>();
-         check.template operator()<CProjectedSphericalRectangleGeometricTester>();
-         check.template operator()<CProjectedSphericalTriangleGeometricTester>();
+         check.template operator()<CSolidAngleAccuracyTester>("geometry/SolidAngleAccuracy", "SolidAngleAccuracy");
+         check.template operator()<CSphericalTriangleGenerateTester>("geometry/SphericalTriangleGenerate", "SphericalTriangleGenerate");
+         check.template operator()<CSphericalRectangleGenerateTester>("geometry/SphericalRectangleGenerate", "SphericalRectangleGenerate");
+         check.template operator()<CProjectedSphericalRectangleGenerateTester>("geometry/ProjectedSphericalRectangleGenerate", "ProjectedSphericalRectangleGenerate");
+         check.template operator()<CProjectedSphericalRectangleGeometricTester>("geometry/ProjectedSphericalRectangle", "ProjectedSphericalRectangle");
+         check.template operator()<CProjectedSphericalTriangleGeometricTester>("geometry/ProjectedSphericalTriangle", "ProjectedSphericalTriangle");
 
-         if (pass)
+         pass &= geometryPass;
+         if (geometryPass)
             m_logger->log("All geometry tests PASSED.", ILogger::ELL_INFO);
          else
             m_logger->log("Some geometry tests FAILED.", ILogger::ELL_ERROR);
       }
+
+      if (!runControl.failedOutPath.empty())
+         pass &= nbl::examples::testing::writeFailureManifestFile(failureManifest, runControl.failedOutPath, m_logger.get());
 
       return pass;
    }

@@ -198,7 +198,9 @@ class CDiscreteSamplerBenchmark : public GPUBenchmark
       // Pipeline + push constants are bound *once* in bindOnce, the inner loop is just
       // dispatch(...). Putting binds inside dispatchOne would inflate ps/sample on the
       // tighter samplers.
-      const PipelineEntry& pe = m_pipelines[m_pipelineIdx[size_t(kind)]];
+      const PipelineEntry* pe = getPipelineEntry(m_pipelineIdx[size_t(kind)], joinName(name));
+      if (!pe)
+         return;
 
       const TimingResult timingResult = runTimedBudgeted(warmupIterations, getTargetBudgetMs(),
          [&](IGPUCommandBuffer* cb)
@@ -210,7 +212,7 @@ class CDiscreteSamplerBenchmark : public GPUBenchmark
                pc.pdfAddress                 = m_aliasPdfBuf->getDeviceAddress();
                pc.outputAddress              = m_outputBuf->getDeviceAddress();
                pc.tableSize                  = m_aliasTableN;
-               defaultBindAndPush(cb, pe, pc);
+               defaultBindAndPush(cb, *pe, pc);
             }
             else
             {
@@ -219,13 +221,13 @@ class CDiscreteSamplerBenchmark : public GPUBenchmark
                pc.cumProbAddress        = buf->getDeviceAddress();
                pc.outputAddress         = m_outputBuf->getDeviceAddress();
                pc.tableSize             = N;
-               defaultBindAndPush(cb, pe, pc);
+               defaultBindAndPush(cb, *pe, pc);
             }
          },
          [this](IGPUCommandBuffer* cb) { defaultDispatch(cb); },
          samplesForCurrentRow());
 
-      record(std::move(name), timingResult, pe.stats);
+      record(std::move(name), timingResult, pe->stats);
    }
 
    core::smart_refctd_ptr<IAssetManager> m_assetMgr;

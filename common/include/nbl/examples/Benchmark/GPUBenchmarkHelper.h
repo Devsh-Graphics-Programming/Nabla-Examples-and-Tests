@@ -344,9 +344,7 @@ public:
       nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> dsLayout = nullptr)
    {
       using namespace nbl;
-      const uint32_t idx = uint32_t(m_pipelines.size());
-      m_pipelines.push_back({.tag = tag});
-      PipelineEntry& slot = m_pipelines.back();
+      PipelineEntry slot = {.tag = tag};
 
       const asset::SPushConstantRange pcRange = {
          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -359,7 +357,7 @@ public:
       if (!layout)
       {
          benchLogFmt(m_logger.get(), system::ILogger::ELL_ERROR, "createPipeline({}): pipeline layout creation failed", tag);
-         return idx;
+         return InvalidPipelineIndex;
       }
 
       auto source = loadShader(variant, std::move(assetMgr));
@@ -367,7 +365,7 @@ public:
       if (!shader)
       {
          benchLogFmt(m_logger.get(), system::ILogger::ELL_ERROR, "createPipeline({}): shader load/compile failed", tag);
-         return idx;
+         return InvalidPipelineIndex;
       }
 
       video::IGPUComputePipeline::SCreationParams pp = {};
@@ -381,7 +379,7 @@ public:
       if (!m_device->createComputePipelines(nullptr, {&pp, 1}, &pipeline) || !pipeline)
       {
          benchLogFmt(m_logger.get(), system::ILogger::ELL_ERROR, "createPipeline({}): createComputePipelines failed", tag);
-         return idx;
+         return InvalidPipelineIndex;
       }
 
       if (m_device->getEnabledFeatures().pipelineExecutableInfo)
@@ -408,6 +406,8 @@ public:
 
       slot.layout   = std::move(layout);
       slot.pipeline = std::move(pipeline);
+      const uint32_t idx = uint32_t(m_pipelines.size());
+      m_pipelines.push_back(std::move(slot));
       return idx;
    }
 
@@ -652,6 +652,18 @@ public:
    }
 
 protected:
+   static constexpr uint32_t InvalidPipelineIndex = std::numeric_limits<uint32_t>::max();
+
+   const PipelineEntry* getPipelineEntry(uint32_t idx, std::string_view context) const
+   {
+      if (idx == InvalidPipelineIndex || idx >= m_pipelines.size() || !m_pipelines[idx].pipeline)
+      {
+         benchLogFmt(m_logger.get(), nbl::system::ILogger::ELL_ERROR, "{}: pipeline is not available", context);
+         return nullptr;
+      }
+      return &m_pipelines[idx];
+   }
+
    std::vector<PipelineEntry> m_pipelines;
 
 private:

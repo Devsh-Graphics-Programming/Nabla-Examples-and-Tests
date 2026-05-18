@@ -39,16 +39,18 @@ class CSamplerBenchmark : public GPUBenchmark
 
    void doRun() override
    {
-      const PipelineEntry&      pe = m_pipelines[m_pipelineIdx];
+      const PipelineEntry*      pe = getPipelineEntry(m_pipelineIdx, joinName(m_name));
+      if (!pe)
+         return;
       SamplerBenchPushConstants pc = {};
       pc.outputAddress             = m_outputAddress;
 
       const TimingResult t = runTimedBudgeted(getWarmupDispatches(), getTargetBudgetMs(),
-         [&](video::IGPUCommandBuffer* cb) { defaultBindAndPush(cb, pe, pc); },
+         [&](video::IGPUCommandBuffer* cb) { defaultBindAndPush(cb, *pe, pc); },
          [this](video::IGPUCommandBuffer* cb) { defaultDispatch(cb); },
          samplesForCurrentRow());
 
-      record(m_name, t, pe.stats);
+      record(m_name, t, pe->stats);
    }
 
    private:

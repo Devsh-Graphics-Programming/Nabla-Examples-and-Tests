@@ -91,20 +91,22 @@ class CEF64Benchmark : public GPUBenchmark
 
    void doRun() override
    {
-      const PipelineEntry&   pe = m_pipelines[m_pipelineIdx];
+      const PipelineEntry*   pe = getPipelineEntry(m_pipelineIdx, joinName(m_name));
+      if (!pe)
+         return;
       BenchmarkPushConstants pc = {};
       pc.benchmarkMode          = m_mode;
 
       const TimingResult t = runTimedBudgeted(getWarmupDispatches(), getTargetBudgetMs(),
          [&](IGPUCommandBuffer* cb)
          {
-            cb->bindDescriptorSets(EPBP_COMPUTE, pe.layout.get(), 0, 1, &m_ds.get());
-            defaultBindAndPush(cb, pe, pc);
+            cb->bindDescriptorSets(EPBP_COMPUTE, pe->layout.get(), 0, 1, &m_ds.get());
+            defaultBindAndPush(cb, *pe, pc);
          },
          [this](IGPUCommandBuffer* cb) { defaultDispatch(cb); },
          samplesForCurrentRow());
 
-      record(m_name, t, pe.stats);
+      record(m_name, t, pe->stats);
    }
 
    private:

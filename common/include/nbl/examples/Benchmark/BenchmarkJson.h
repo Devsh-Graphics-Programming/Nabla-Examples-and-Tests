@@ -13,6 +13,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -85,32 +86,52 @@ inline std::optional<Baseline> loadBaselineFile(std::string label, const std::st
          continue;
          
       BaselineRow row;
-      row.psPerSample     = ps->get<double>();
-      row.registerCount   = r.at("regs").get<uint64_t>();
-      row.codeSizeBytes   = r.at("code_bytes").get<uint64_t>();
-      row.sharedMemBytes  = r.at("shared_mem_bytes").get<uint64_t>();
-      row.privateMemBytes = r.at("local_mem_bytes").get<uint64_t>();
-      row.stackBytes      = r.at("stack_bytes").get<uint64_t>();
-      row.subgroupSize    = r.at("subgroup_size").get<uint64_t>();
+      try
+      {
+         row.psPerSample = ps->get<double>();
+      }
+      catch (const std::exception&)
+      {
+         continue;
+      }
+
+      auto readU64 = [&](const char* key, uint64_t& out)
+      {
+         const auto it = r.find(key);
+         if (it != r.end() && it->is_number_unsigned())
+            out = it->get<uint64_t>();
+      };
+      readU64("regs", row.registerCount);
+      readU64("code_bytes", row.codeSizeBytes);
+      readU64("shared_mem_bytes", row.sharedMemBytes);
+      readU64("local_mem_bytes", row.privateMemBytes);
+      readU64("stack_bytes", row.stackBytes);
+      readU64("subgroup_size", row.subgroupSize);
 
       auto readUvec3 = [&](const char* key, nbl::hlsl::uint32_t3& out)
       {
-         const auto& a = r.at(key);
-         out.x         = a[0].get<uint32_t>();
-         out.y         = a[1].get<uint32_t>();
-         out.z         = a[2].get<uint32_t>();
+         const auto it = r.find(key);
+         if (it == r.end() || !it->is_array() || it->size() != 3)
+            return;
+         const auto& a = *it;
+         if (!a[0].is_number_unsigned() || !a[1].is_number_unsigned() || !a[2].is_number_unsigned())
+            return;
+         out.x = a[0].get<uint32_t>();
+         out.y = a[1].get<uint32_t>();
+         out.z = a[2].get<uint32_t>();
       };
       readUvec3("workgroup_size", row.workload.shape.workgroupSize);
       readUvec3("dispatch_groups", row.workload.shape.dispatchGroupCount);
-      row.workload.shape.samplesPerDispatch = r.at("samples_per_dispatch").get<uint64_t>();
-      row.workload.benchDispatches          = r.at("bench_dispatches").get<uint32_t>();
+      readU64("samples_per_dispatch", row.workload.shape.samplesPerDispatch);
+      if (const auto it = r.find("bench_dispatches"); it != r.end() && it->is_number_unsigned())
+         row.workload.benchDispatches = it->get<uint32_t>();
 
       rowsByName[makeKey(nameVec)] = row;
    }
    if (rowsByName.empty())
       return std::nullopt;
 
-   return Baseline {std::move(label), path, j.at("device"), std::move(rowsByName)};
+   return Baseline {std::move(label), path, j.contains("device") ? j["device"] : nullptr, std::move(rowsByName)};
 }
 
 // Writes a JSON report. Preserves rows in the prior file whose names weren't

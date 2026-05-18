@@ -7,6 +7,8 @@
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
 
+#include <optional>
+
 // ============================================================================
 // Declarative field verification helpers
 //
@@ -475,7 +477,7 @@ struct SeededTestContext
    std::mt19937 rng;
    uint32_t failCount = 0;
 
-   SeededTestContext() : seed(std::random_device {}()), rng(seed) {}
+   SeededTestContext(std::optional<uint32_t> seedOverride = {}) : seed(seedOverride.value_or(std::random_device {}())), rng(seed) {}
 
    // Log "reproduce with seed" if failCount > 0, return failCount == 0
    bool finalize(nbl::system::ILogger* logger, const char* tag) const
