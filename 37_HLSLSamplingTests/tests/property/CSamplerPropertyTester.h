@@ -78,7 +78,9 @@ class CSamplerPropertyTester
    }
 
    public:
-   CSamplerPropertyTester(system::ILogger* logger) : m_logger(logger) {}
+   CSamplerPropertyTester(system::ILogger* logger, std::optional<uint32_t> seedOverride = {}) : m_logger(logger), m_seedOverride(seedOverride) {}
+
+   std::optional<uint32_t> failureSeed() const { return m_failureSeed; }
 
    bool run()
    {
@@ -96,7 +98,7 @@ class CSamplerPropertyTester
    // If the PDF normalization is wrong by factor k, this will be off by 1/k.
    bool testMonteCarloPdfNormalization()
    {
-      SeededTestContext ctx;
+      SeededTestContext ctx(m_seedOverride);
       uint32_t evaluatedConfigs = 0;
 
       for (uint32_t c = 0; c < Config::numConfigurations; c++)
@@ -159,7 +161,10 @@ class CSamplerPropertyTester
          m_logger->log("  [%s] MC normalization FAILED (%u/%u evaluated configs failed, %u/%u configs evaluated, %u samples/config, relTol=%e)",
             system::ILogger::ELL_ERROR, Config::name(), ctx.failCount, evaluatedConfigs, evaluatedConfigs, Config::numConfigurations, Config::samplesPerConfig, Config::mcNormalizationRelTol);
 
-      return ctx.finalize(m_logger, Config::name());
+      const bool passed = ctx.finalize(m_logger, Config::name());
+      if (!passed)
+         m_failureSeed = ctx.seed;
+      return passed;
    }
 
    // Test 4: Grid integration of backwardPdf over [0,1]^d codomain
@@ -167,7 +172,7 @@ class CSamplerPropertyTester
    // integral of backwardPdf over codomain should equal 1.0.
    bool testGridPdfNormalization()
    {
-      SeededTestContext ctx;
+      SeededTestContext ctx(m_seedOverride);
 
       for (uint32_t c = 0; c < Config::numConfigurations; c++)
       {
@@ -191,10 +196,15 @@ class CSamplerPropertyTester
          m_logger->log("  [%s] grid PDF normalization FAILED (%u/%u configs exceeded absTol=%e)",
             system::ILogger::ELL_ERROR, Config::name(), ctx.failCount, Config::numConfigurations, Config::gridNormalizationAbsTol);
 
-      return ctx.finalize(m_logger, Config::name());
+      const bool passed = ctx.finalize(m_logger, Config::name());
+      if (!passed)
+         m_failureSeed = ctx.seed;
+      return passed;
    }
 
    system::ILogger* m_logger;
+   std::optional<uint32_t> m_seedOverride;
+   std::optional<uint32_t> m_failureSeed;
 };
 
 
