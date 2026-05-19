@@ -93,11 +93,21 @@ public:
         queue = getComputeQueue();
 
         testWmmaGemB1();
-        // testVectorAddKernel();
-        // testDestruction();
-        // testLargeAllocations();
+        testVectorAddKernel();
+        testDestruction();
+        testLargeAllocations();
 
         return true;
+    }
+
+    smart_refctd_ptr<IGPUBuffer> createExternalBuffer2(uint64_t size, core::bitflag<IDeviceMemoryAllocation::E_EXTERNAL_HANDLE_TYPE> externalHandleTypes)
+    {
+        IGPUBuffer::SCreationParams params = {};
+        params.size = size;
+        params.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+        params.externalHandleTypes = externalHandleTypes;
+        auto buf = m_device->createBuffer(std::move(params));
+        return buf;
     }
 
     smart_refctd_ptr<IGPUBuffer> createExternalBuffer(IDeviceMemoryAllocation* mem)
@@ -119,7 +129,7 @@ public:
         req.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits()
                             & m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits()
                             & m_device->getPhysicalDevice()->getMemoryTypeBitsFromMemoryTypeFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT);
-        auto allocation = m_device->allocate(req, buf.get());
+        auto allocation = m_device->allocate(req, { buf.get() });
     
         void* mapping = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ);
         if (!mapping)
@@ -153,11 +163,11 @@ public:
         IGPUBuffer::SCreationParams vkBufferParams;
         vkBufferParams.size = m_cuDevice->roundToGranularity(CU_MEM_LOCATION_TYPE_DEVICE, size);
         vkBufferParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
-        vkBufferParams.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
+        vkBufferParams.externalHandleTypes = CCUDADevice::ExternalMemoryHandleType;
         const auto outputBuf = m_device->createBuffer(std::move(vkBufferParams));
         auto outputMemReq = outputBuf->getMemoryReqs();
 
-        auto allocation = m_device->allocate(outputMemReq, outputBuf.get(), IDeviceMemoryAllocation::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE);
+        auto allocation = m_device->allocate(outputMemReq, { outputBuf.get(), IDeviceMemoryAllocation::EMAF_NONE, CCUDADevice::ExternalMemoryHandleType });
         const auto cudaOutputMemory = m_cuDevice->importExternalMemory(core::smart_refctd_ptr(allocation.memory));
         if (!cudaOutputMemory)
           logFail("Fail to import Vulkan Memory into CUDA!");
@@ -217,8 +227,9 @@ public:
         auto [outputBuf, cudaOutputMemory] = createSharedBuffer(BufferSize);
         
         ISemaphore::SCreationParams semParams;
+        semParams.initialValue = 0;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
-        auto semaphore = m_device->createSemaphore(0, std::move(semParams));
+        auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
           logFail("Fail to import Vulkan Semaphore into CUDA!");
@@ -387,20 +398,11 @@ public:
             const auto* inputs2 = reinterpret_cast<float*>(ctx->cpuBuffers[1]->getPointer());
 
             const auto* outputs = reinterpret_cast<float*>(ctx->outputStagingBuffer->getBoundMemory().memory->getMappedPointer());
-            const auto* inputsInStaging1 = reinterpret_cast<float*>(ctx->inputStagingBuffers[0]->getBoundMemory().memory->getMappedPointer());
-            const auto* inputsInStaging2 = reinterpret_cast<float*>(ctx->inputStagingBuffers[1]->getBoundMemory().memory->getMappedPointer());
 
             for (auto elem_i = 0; elem_i < NumElements; elem_i++)
             {
               const auto input1 = inputs1[elem_i];
               const auto input2 = inputs2[elem_i];
-              const auto inputInStaging1 = inputsInStaging1[elem_i];
-              const auto inputInStaging2 = inputsInStaging2[elem_i];
-              if (inputInStaging1 != input1)
-                ctx->logger->log("Input1 in Staging %d is incorrect!", ILogger::ELL_ERROR, elem_i);
-              if (inputInStaging2 != input2)
-                ctx->logger->log("Input2 in Staging %d is incorrect!", ILogger::ELL_ERROR, elem_i);
-
               const auto output = outputs[elem_i];
               const auto expected = input1 + input2;
               const auto diff = abs(output - expected);
@@ -450,10 +452,23 @@ public:
         auto [vkBufferMatB, cuMemMatB] = createSharedBuffer(matB_size);
         auto [vkBufferMatC, cuMemMatC] = createSharedBuffer(matC_size);
 
+        // ICPUBuffer::SCreationParams cpuBufferParamsA;
+        // cpuBufferParamsA.size = ElementCount.x * ElementCount.z / 32;
+        // const auto cpuBufferA = ICPUBuffer::create(std::move(cpuBufferParamsA));
+
+        // ICPUBuffer::SCreationParams cpuBufferParamsB;
+        // cpuBufferParamsB.size = ElementCount.x * ElementCount.z / 32;
+        // const auto cpuBufferB = ICPUBuffer::create(std::move(cpuBufferParamsB));
+        //
+        // std::array inputBuffers = {cpuBufferA.get(), cpuBufferB.get()};
+        //
+        // CAssetConverter::SInputs inputs = {};
+        // std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = inputBuffers;
+
         // CPU matrices for initialization and verification
         core::vector<uint32_t> cpuMatA(ElementCount.x * ElementCount.z / 32);
         core::vector<uint32_t> cpuMatB(ElementCount.z * ElementCount.y / 32);
-        core::vector<int32_t> cpuMatC_expected(ElementCount.x * ElementCount.y);
+
 
         // Initialize with simple patterns for verification
         auto initBinaryMatrices = [&]()
@@ -473,22 +488,13 @@ public:
             // Fill cpuMatB with random bits
             for (auto& val : cpuMatB) val = rand();
             
-            // Compute expected result: For bmma with bmmaBitOpAND
-            // C[i][j] = popcount(A[i,:] AND B[:,j])
-            for (int i = 0; i < ElementCount.x; i++) {
-                for (int j = 0; j < ElementCount.y; j++) {
-                    const int k = ElementCount.z - 1 - i;
-                    const int b_bit_idx = j * ElementCount.z + k; // col-major
-                    const int32_t bit = (cpuMatB[b_bit_idx / 32] >> (b_bit_idx % 32)) & 1;
-                    cpuMatC_expected[i * ElementCount.y + j] = bit;
-                }
-            }
         };
         initBinaryMatrices();
   
         ISemaphore::SCreationParams semParams;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
-        auto semaphore = m_device->createSemaphore(0, std::move(semParams));
+        semParams.initialValue = 0;
+        auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
           logFail("Fail to import Vulkan Semaphore into CUDA!");
@@ -619,18 +625,6 @@ public:
                 const auto expectedBitOffset = expectedIdx % 32;
                 return (cpuMatB[expectedWordIdx] >> expectedBitOffset) & uint32_t(1);
             }();
-
-            // const auto expected = [&]
-            // {
-            //     const auto row = i / ElementCount.y;            // row-major
-            //     const auto col = i % ElementCount.y;
-            //     const auto k   = ElementCount.z - 1 - row;      // reverse-diagonal A
-            //     const auto bIdx = col * ElementCount.z + k;     // col-major B
-            //     return (cpuMatB[bIdx / 32] >> (bIdx % 32)) & uint32_t(1);
-            // }();
-
-            // const auto expected = cpuMatC_expected[i];
-
             const auto result = results[i];
             if (result != expected) {
                 m_logger->log("WMMA b1 test error at [%d]: GPU=%d, CPU=%d", 
@@ -657,17 +651,19 @@ public:
             const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
             if (!cudaMemory) logFail("Fail to create exportable memory!");
 
-            escaped = cudaMemory->exportAsMemory(m_device.get());
+            auto tmpBuf = createExternalBuffer2(cudaMemory->getCreationParams().granularSize, IDeviceMemoryAllocation::EHT_OPAQUE_WIN32);
+            escaped = cudaMemory->exportAsMemory(m_device.get(), tmpBuf.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
         
-            auto tmpBuf = createExternalBuffer(escaped.get());
             auto staging = createStaging(BufferSize);
         
             auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
             for (uint32_t i = 0; i < ElementCount; ++i)
                 ptr[i] = i;
         
-            const auto semaphore = m_device->createSemaphore(0);
+            ISemaphore::SCreationParams semParams;
+            semParams.initialValue = 0;
+            const auto semaphore = m_device->createSemaphore(std::move(semParams));
             IQueue::SSubmitInfo::SSemaphoreInfo semInfo;
             semInfo.semaphore = semaphore.get();
             semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
@@ -693,7 +689,9 @@ public:
             auto tmpBuf = createExternalBuffer(escaped.get());
             auto staging = createStaging(BufferSize);
         
-            const auto semaphore = m_device->createSemaphore(0);
+            ISemaphore::SCreationParams semParams;
+            semParams.initialValue = 0;
+            const auto semaphore = m_device->createSemaphore(std::move(semParams));
             IQueue::SSubmitInfo::SSemaphoreInfo semInfo;
             semInfo.semaphore = semaphore.get();
             semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
@@ -737,7 +735,7 @@ public:
     
         for (size_t i = 0; i < (1 << 8); ++i)
         {
-            auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
+            auto memory = m_device->allocate(reqs, { nullptr, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::ExternalMemoryHandleType }).memory;
             assert(memory);
             auto tmpBuf = createExternalBuffer(memory.get());
         }
