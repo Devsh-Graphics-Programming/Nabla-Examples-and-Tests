@@ -22,6 +22,11 @@ struct SphericalRectangleTestResults
 	float32_t3 generated;
 	float32_t2 surfaceOffset;
 	float32_t3 referenceDirection;
+	float32_t3 normalizedLocal;
+	float32_t  hitDist;
+	float32_t3 unnormalized;
+	float32_t  computedHitT;
+	float32_t3 normalizedLocalToWorld;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t forwardWeight;
@@ -61,6 +66,19 @@ struct SphericalRectangleTestExecutor
 			                          + sampler.basis[1] * localDir[1]
 			                          + sampler.basis[2] * localDir[2];
 		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.normalizedLocal = sampler.generateNormalizedLocal(input.u, cache, output.hitDist);
+			output.normalizedLocalToWorld = sampler.basis[0] * output.normalizedLocal[0]
+			                              + sampler.basis[1] * output.normalizedLocal[1]
+			                              + sampler.basis[2] * output.normalizedLocal[2];
+		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.unnormalized = sampler.generateUnnormalized(input.u, cache);
+		}
+		output.computedHitT = sampler.computeHitT(output.generated);
+
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 		output.backwardWeight = sampler.backwardWeight(output.generated);
 		// marginFactor = 3: __generate's sin_au denominator goes through catastrophic cancellation

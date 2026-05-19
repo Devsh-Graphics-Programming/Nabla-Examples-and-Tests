@@ -5,7 +5,8 @@
 #include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 
 #ifdef BENCH_ITERS
-[[vk::binding(1, 0)]] RWByteAddressBuffer benchOutput;
+#include "../common/sampler_bench_pc.hlsl"
+[[vk::push_constant]] SamplerBenchPushConstants benchPC;
 #else
 [[vk::binding(0, 0)]] RWStructuredBuffer<ProjectedSphericalTriangleInputValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<ProjectedSphericalTriangleTestResults> outputTestValues;
@@ -54,7 +55,7 @@ void main()
 		}
 	}
 #endif
-	benchOutput.Store(invID * 4u, acc);
+	vk::RawBufferStore<uint32_t>(benchPC.outputAddress + invID * 4u, acc);
 #else
 	ProjectedSphericalTriangleTestExecutor executor;
 	executor(inputTestValues[invID], outputTestValues[invID]);
