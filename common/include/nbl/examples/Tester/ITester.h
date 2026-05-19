@@ -3,6 +3,7 @@
 
 #include <nabla.h>
 #include <nbl/system/to_string.h>
+#include <nbl/examples/Tester/FailureManifest.h>
 #include <ranges>
 #include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
 #include <nbl/builtin/hlsl/testing/approx_compare.hlsl>
@@ -171,6 +172,7 @@ class ITester
 
    bool performTestsAndVerifyResults(const std::string& logFileName)
    {
+      m_failureLogFile = logFileName;
       m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
       if (!m_logFile.is_open())
          m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
@@ -197,12 +199,28 @@ class ITester
       core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
 
       bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+      if (!pass && m_failureManifest)
+         m_failureManifest->addGroupFailure(m_failurePhase, m_failureId, m_failureName, m_failureLogFile);
 
       m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
       reloadSeed();
 
       m_logFile.close();
       return pass;
+   }
+
+   void setFailureRecordContext(nbl::examples::testing::FailureManifest* manifest, std::string phase, std::string id, std::string name)
+   {
+      m_failureManifest = manifest;
+      m_failurePhase = std::move(phase);
+      m_failureId = std::move(id);
+      m_failureName = std::move(name);
+   }
+
+   void setSeed(uint32_t seed)
+   {
+      m_seed = seed;
+      m_mersenneTwister = std::mt19937(m_seed);
    }
 
    virtual ~ITester()
@@ -339,6 +357,13 @@ class ITester
          ss << " DIFFERENCE: " << system::to_string(hlsl::abs(expectedVal - testVal));
       ss << " MAX RELATIVE: " << system::to_string(maxRelativeDifference) << " MAX ABSOLUTE " << system::to_string(maxAbsoluteDifference) << '\n';
 
+      if (m_failureManifest)
+      {
+         const char* side = testType == TestType::CPU ? "CPU" : "GPU";
+         m_failureManifest->addCase(m_failurePhase, m_failureId, m_failureName, memberName, side,
+            testIteration, seed, maxRelativeDifference, maxAbsoluteDifference);
+      }
+
       m_logger->log("%s", system::ILogger::ELL_ERROR, ss.str().c_str());
       m_logFile << ss.str() << '\n';
    }
@@ -439,6 +464,11 @@ class ITester
    uint32_t m_seed;
    std::ofstream m_logFile;
    core::unordered_map<std::string, hlsl::testing::SMaxError> m_maxErrors;
+   nbl::examples::testing::FailureManifest* m_failureManifest = nullptr;
+   std::string m_failurePhase;
+   std::string m_failureId;
+   std::string m_failureName;
+   std::string m_failureLogFile;
 };
 
 #endif

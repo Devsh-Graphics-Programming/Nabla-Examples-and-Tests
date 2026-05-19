@@ -55,6 +55,10 @@ private:
 		VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType,
 			FieldCheck{"SphericalRectangle::generate",              &R::generated,      5e-4, 2e-2},
 			FieldCheck{"SphericalRectangle::generateSurfaceOffset", &R::surfaceOffset,  5e-4, 2e-2},
+			FieldCheck{"SphericalRectangle::generateNormalizedLocal", &R::normalizedLocal, 5e-4, 2e-2},
+			FieldCheck{"SphericalRectangle::generateNormalizedLocal::hitDist", &R::hitDist, 5e-4, 2e-2},
+			FieldCheck{"SphericalRectangle::generateUnnormalized",  &R::unnormalized,   5e-4, 2e-2},
+			FieldCheck{"SphericalRectangle::computeHitT",           &R::computedHitT,   5e-4, 2e-2},
 			FieldCheck{"SphericalRectangle::forwardPdf",            &R::forwardPdf,     2e-3, 1e-1},
 			FieldCheck{"SphericalRectangle::backwardPdf",           &R::backwardPdf,    2e-3, 1e-1},
 			FieldCheck{"SphericalRectangle::forwardWeight",         &R::forwardWeight,  2e-3, 1e-1},
@@ -82,6 +86,26 @@ private:
 
 		// generate must agree with generateSurfaceOffset (reference direction from normalized local point)
 		pass &= verifyTestValue("SphericalRectangle::generate vs generateSurfaceOffset", actual.generated, actual.referenceDirection, iteration, seed, testType, 5e-5, 5e-3);
+
+		// generateNormalizedLocal: must be unit length (in local frame)
+		{
+			const float localLen = nbl::hlsl::length(actual.normalizedLocal);
+			pass &= verifyTestValue("SphericalRectangle::generateNormalizedLocal (unit length)", localLen, 1.0f, iteration, seed, testType, 1e-5, 1e-4);
+		}
+		// generateNormalizedLocal transformed to world must equal generate()
+		pass &= verifyTestValue("SphericalRectangle::generateNormalizedLocal -> world == generate", actual.generated, actual.normalizedLocalToWorld, iteration, seed, testType, 5e-5, 5e-3);
+		// computeHitT(generated) must equal hitDist returned by generateNormalizedLocal
+		pass &= verifyTestValue("SphericalRectangle::computeHitT == hitDist", actual.computedHitT, actual.hitDist, iteration, seed, testType, 5e-4, 2e-2);
+		// generateUnnormalized direction must be parallel to generate() (cross product near zero)
+		{
+			const nbl::hlsl::float32_t3 c = nbl::hlsl::cross(actual.unnormalized, actual.generated);
+			pass &= verifyTestValue("SphericalRectangle::generateUnnormalized parallel to generate", c, nbl::hlsl::float32_t3(0.0f, 0.0f, 0.0f), iteration, seed, testType, 1e-3, 5e-2);
+		}
+		// |generateUnnormalized| must equal hitDist (distance to hitpoint along the unit ray)
+		{
+			const float ulen = nbl::hlsl::length(actual.unnormalized);
+			pass &= verifyTestValue("SphericalRectangle::|generateUnnormalized| == hitDist", ulen, actual.hitDist, iteration, seed, testType, 5e-4, 2e-2);
+		}
 
 		if (!pass && iteration < m_inputs.size())
 			logFailedInput(m_logger.get(), m_inputs[iteration]);

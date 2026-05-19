@@ -207,7 +207,6 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     
     {
         float4 v;
-        const volatile float4 u;
 
         STATIC_ASSERT(is_same_v<decltype(v.x), nbl::hlsl::impl::add_lvalue_reference<decltype(v.x)>::type>);
         STATIC_ASSERT(nbl::hlsl::impl::is_reference<decltype(v.x)>::value);

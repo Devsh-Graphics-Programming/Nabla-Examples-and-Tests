@@ -145,20 +145,11 @@ struct BxDFConfig
 
     // TODO: experiment with float16_t
     using spectral_type = float32_t3;
+
     using isotropic_interaction_type = SIsotropicInteraction<spectral_type>;
-    
-    using scalar_type = typename isotropic_interaction_type::scalar_type;
-    using vector2_type = vector<scalar_type,2>;
-    using vector3_type = typename isotropic_interaction_type::vector3_type;
     using anisotropic_interaction_type = SAnisotropicInteraction<isotropic_interaction_type>;
-    // TODO: experiment with spectral_type's scalar type
-    using monochrome_type = vector<scalar_type,1>;
 
-    using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
-    using sample_type = bxdf::SLightSample<ray_dir_info_type>;
-
-    using quotient_weight_type = sampling::quotient_and_pdf<spectral_type,scalar_type>;
-    using value_weight_type = sampling::value_and_weight<spectral_type,scalar_type>;
+    using sample_type = bxdf::SLightSample<typename isotropic_interaction_type::ray_dir_info_type>;
 };
 }
 }
@@ -260,7 +251,7 @@ SPixelSamplingInfo advanceSampleCount(const uint16_t3 coord, const uint16_t newS
 // raygen functions
 struct SRay
 {
-    using ray_dir_info_type = typename hlsl::material_compiler3::backends::default_upt::BxDFConfig::ray_dir_info_type;
+    using ray_dir_info_type = typename hlsl::material_compiler3::backends::default_upt::BxDFConfig::sample_type::ray_dir_info_type;
 
 	float32_t3 origin;
     ray_dir_info_type direction;
@@ -531,7 +522,7 @@ SEnvSample sampleEnv(const float32_t3 raydir)
     if (hlsl::dot(raydir,sunDir)>sunConeHalfAngleCos)
         retval.color = sunColor;
     // TODO: apply some tonemapping operator with exposure (first envmap's avg luma, then our own)
-    retval.aov.albedo = hlsl::min(retval.color,float32_t3(1,1,1));
+    retval.aov.albedo = hlsl::min(_static_cast<float16_t3>(retval.color),float16_t3(1,1,1));
     retval.aov.normal = -hlsl::normalize(float16_t3(raydir));
     return retval;
 }
