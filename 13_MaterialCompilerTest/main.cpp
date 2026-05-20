@@ -418,32 +418,42 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					auto* layer = forestPool.deref(layerH);
 					layer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Correlated Single Pane");
 					
-					// do fresnel first for all to have the same one
+					// do fresnel first for all to have the same spectral nodes
 					const auto fresnelH = forest->createNamedFresnel("ThF4");
-					const auto* fresnel = forestPool.deref(fresnelH);
-
-					const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
+					const auto* const fresnel = forestPool.deref(fresnelH);
+					// Top BRDF is the Air->Th4 interface
 					{
+						const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
 						auto* ct = forestPool.deref(ctH);
 						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
-						// ignored for BRDFs, needed for BTDFs
-						ct->orientedRealEta = fresnel->orientedRealEta;
 						layer->brdfTop = forest->createMul(ctH,fresnelH);
 					}
-					// the BTDF
+					// Bottom BRDF is the Th4->Air interface so its using the reciprocal of the fresnel
+					const auto rcpFresnelH = forest->reciprocate(fresnelH)._const_cast();
+					{
+						const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
+						auto* ct = forestPool.deref(ctH);
+						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
+						layer->brdfBottom = forest->createMul(ctH,rcpFresnelH);
+					}
+					// The BTDF is a bit complex and only possible because top and bottom reflectance can be different
+					// otherwise we'd need to use two separate coating layers and actually model the thindielectric semi-properly as:
+					// Fresnel RoughDiel | (1-Fresnel) DeltaTrans | Smooth Diel Fresnel | Smooth Diel RcpFresnel | (1-RcpFresnel) DeltaTrans | RcpFresnel RoughDiel
+					// And then count on the IR rewriting pass to recover the thindielectric scatter from th BTDF part containing
+					// (1-Fresnel) DeltaTrans | Smooth Diel Fresnel | Smooth Diel RcpFresnel | (1-RcpFresnel) DeltaTrans
+					// Now doing two different fresnels with V and L isn't too bad, but them being attached to a Delta Trans contributor should be exploited by the backend
 					{
 						const auto thinInfiniteScatterH = forestPool.emplace<CFrontendIR::CThinInfiniteScatterCorrection>();
 						{
 							auto* thinInfiniteScatter = forestPool.deref(thinInfiniteScatterH);
 							thinInfiniteScatter->reflectanceTop = fresnelH;
-							thinInfiniteScatter->reflectanceBottom = fresnelH;
+							thinInfiniteScatter->reflectanceBottom = rcpFresnelH;
 							// without extinction
 						}
 						layer->btdf = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),thinInfiniteScatterH);
 					}
-					// the interface on top as Air->ThF4, we need interface on bottom to be ThF4->Air so reciprocate te Eta
-					layer->brdfBottom = forest->createMul(forest->reciprocate(ctH)._const_cast(),fresnelH);
 				
+					// test that Imaginary fresnel can't be used for a dielectric
 					{
 						auto* imagEta = forestPool.deref(fresnel->orientedImagEta);
 						imagEta->setParameter(0,{.scale=std::numeric_limits<float>::min()});
