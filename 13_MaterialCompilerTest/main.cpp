@@ -501,29 +501,29 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					}
 					// the delta layering should optimize out nicely due to the sampling property
 					const auto transH = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),fresnelH);
-					// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
-					const auto bottomH = forestPool.emplace<CFrontendIR::CLayer>();
+
+					// don't add debug data or coated yet!
+					const auto protoTopH = forestPool.emplace<CFrontendIR::CLayer>();
 					{
-						auto* bottomLayer = forestPool.deref(bottomH);
-						bottomLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Rough Coating Copy");
+						auto* topLayer = forestPool.deref(protoTopH);
+						topLayer->brdfTop = dielectricH;
+						topLayer->btdf = transH;
 						// no brdf on the top of last layer, kill multiscattering
-						bottomLayer->btdf = transH;
-						// need the interface to be Air on the bottom, not Glass
-						bottomLayer->brdfBottom = forest->reciprocate(dielectricH)._const_cast();
+						// TODO: test with smooth bottom BRDF using same Mul factor (want the infinite scatter compensation)
 					}
+
+					// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to flipped onto the other side
+					const auto bottomH = forest->reverse(protoTopH);
 
 					// twosided rough plastic
 					{
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
-						auto* topLayer = forestPool.deref(rootH);
-						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Twosided Rough Plastic");
-
-						topLayer->brdfTop = dielectricH;
-						topLayer->btdf = transH;
-						// no brdf on the bottom of first layer, kill multiscattering
+						auto* root = forestPool.deref(rootH);
+						*root = *forestPool.deref(protoTopH);
+						root->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Twosided Rough Plastic");
 
 						const auto diffuseH = forestPool.emplace<CFrontendIR::CLayer>();
-						topLayer->coated = diffuseH;
+						root->coated = diffuseH;
 						{
 							auto* midLayer = forestPool.deref(diffuseH);
 							midLayer->brdfTop = roughDiffuseH;
@@ -548,15 +548,12 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 					}
 
-					// coated diffuse transmitter
+					// coated diffuse transmitter (thankfully Mitsuba can't produce this)
 					{
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
-						auto* topLayer = forestPool.deref(rootH);
-						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Transmitter");
-
-						topLayer->brdfTop = dielectricH;
-						topLayer->btdf = transH;
-						// no brdf on the bottom of first layer, kill multiscattering
+						auto* root = forestPool.deref(rootH);
+						*root = *forestPool.deref(protoTopH);
+						root->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Transmitter");
 
 						const auto midH = forestPool.emplace<CFrontendIR::CLayer>();
 						auto* midLayer = forestPool.deref(midH);
@@ -568,7 +565,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							// we could even have a BSDF with a different Roughness on the bottom layer!
 							midLayer->coated = bottomH;
 						}
-						topLayer->coated = midH;
+						root->coated = midH;
 					
 						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Transmitter");
 					}
@@ -578,7 +575,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
 						auto* topLayer = forestPool.deref(rootH);
 						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Extinction Transmitter");
-// TODO: triple check this example Material
+
 						// we have a choice of where to stick the Beer Absorption:
 						// - on the BTDF of the outside layer, means that it will be applied to the transmission so twice according to VdotN and LdotN
 						// (but delta transmission makes special weight nodes behave in a special and only once because `L=-V` is forced in a single scattering)
