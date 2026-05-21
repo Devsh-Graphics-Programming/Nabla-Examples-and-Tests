@@ -388,10 +388,11 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          data.shaderKey          = std::move(nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get()));
          Tester tester(testWorkgroupsCount);
          tester.setupPipeline(data);
-         if (const auto seed = runControl.filter.seedFor(id); seed.has_value())
-            tester.setSeed(*seed);
          tester.setFailureRecordContext(&failureManifest, "sampler", id, testName);
-         samplerPass &= tester.performTestsAndVerifyResults(logFile);
+         if (const auto seed = runControl.filter.seedFor(id); seed.has_value())
+            samplerPass &= tester.performTestsAndVerifyResults(logFile, *seed);
+         else
+            samplerPass &= tester.performTestsAndVerifyResults(logFile);
       };
 
       // --- Sampler tests ---
