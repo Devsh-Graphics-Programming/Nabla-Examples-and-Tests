@@ -216,7 +216,7 @@ public:
 			}
 			});
 
-		if (!m_hdrImage || !m_device->allocate(m_hdrImage->getMemoryReqs(), m_hdrImage.get()).isValid())
+		if (!m_hdrImage || !m_device->allocate(m_hdrImage->getMemoryReqs(), { m_hdrImage.get() }).isValid())
 			return logFail("Could not create HDR Image");
 
 		m_hdrImageView = m_device->createImageView({
@@ -1353,7 +1353,7 @@ private:
 				auto reqs = scratchBuffer->getMemoryReqs();
 				reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
 
-				auto allocation = m_device->allocate(reqs, scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+				auto allocation = m_device->allocate(reqs, { scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 				allocation.memory->map({ .offset = 0,.length = reqs.size });
 
 				scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
