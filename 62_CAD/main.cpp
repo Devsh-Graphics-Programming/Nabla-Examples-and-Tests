@@ -3824,8 +3824,7 @@ protected:
 				//drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
 				//drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 
-				//constexpr int MarkerCount = 1000000;
-				constexpr int MarkerCount = 1;
+				constexpr int MarkerCount = 1000000;
 				for (int i = 0; i < MarkerCount; ++i)
 				{
 					translateMat =

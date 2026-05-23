@@ -11,6 +11,7 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/tgmath.hlsl>
+#include <nbl/builtin/hlsl/utils/bitfield.hlsl>
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -159,10 +160,21 @@ struct MainObject
 
 struct DrawObject
 {
-    ObjectType type : 4; // 16 different object types
-    uint32_t subsectionIdx : 2; // 4 max subsections
-    uint32_t mainObjIndex : 26; // 67M main objects max
+    uint32_t packedData;
     uint32_t geometryAddress; // geometry has 8 byte alignment, max 34GB of data to reference
+
+    using TypeField       = utils::BitField<uint32_t,  0,  4>; // 16 different object types
+    using SubsectionField = utils::BitField<uint32_t,  4,  2>; // 4 max subsections
+    using MainObjField    = utils::BitField<uint32_t,  6, 26>; // 67M main objects max
+
+    ObjectType getType() { return (ObjectType)TypeField::get(packedData); }
+    void setType(ObjectType objType) { packedData = TypeField::set(packedData, (uint32_t)objType); }
+
+    uint32_t getSubsectionIdx() { return SubsectionField::get(packedData); }
+    void setSubsectionIdx(uint32_t subsectionIdx) { packedData = SubsectionField::set(packedData, subsectionIdx); }
+
+    uint32_t getMainObjIndex() { return MainObjField::get(packedData); }
+    void setMainObjIndex(uint32_t mainObjIdx) { packedData = MainObjField::set(packedData, mainObjIdx); }
 };
 
 // Goes into geometry buffer, needs to be aligned by 8

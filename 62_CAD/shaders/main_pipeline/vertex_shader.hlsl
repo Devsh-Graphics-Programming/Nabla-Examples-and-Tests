@@ -203,14 +203,14 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
         DrawObject drawObj = loadDrawObject(objectID);
 
-        ObjectType objType = drawObj.type;
-        uint32_t subsectionIdx = drawObj.subsectionIdx;
+        ObjectType objType = drawObj.getType();
+        uint32_t subsectionIdx = drawObj.getSubsectionIdx();
         outV.setObjType(objType);
-        outV.setMainObjectIdx(drawObj.mainObjIndex);
+        outV.setMainObjectIdx(drawObj.getMainObjIndex());
 
         printf("offset: %u", drawObj.geometryAddress);
 
-        MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
+        MainObject mainObj = loadMainObject(drawObj.getMainObjIndex());
         clipProjectionData = getClipProjectionData(mainObj);
         
         float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);

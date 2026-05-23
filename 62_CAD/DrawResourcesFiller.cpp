@@ -2395,9 +2395,9 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::POLYLINE_CONNECTOR;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::POLYLINE_CONNECTOR);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
@@ -2452,9 +2452,9 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::LINE;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::LINE);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
@@ -2510,15 +2510,15 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(cagesCount);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
+	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.geometryAddress = geometryBufferOffset;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
 		{
 			assert(subObject < 4); // there can be maximum 4 subsections
-			drawObj.type = ObjectType::QUAD_BEZIER;
-			drawObj.subsectionIdx = subObject;
+			drawObj.setType(ObjectType::QUAD_BEZIER);
+			drawObj.setSubsectionIdx(subObject);
 			drawObjectsToBeFilled[i * CagesPerQuadBezier + subObject] = drawObj;
 		}
 		drawObj.geometryAddress += sizeof(QuadraticBezierInfo);
@@ -2565,9 +2565,9 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIndex;
-	drawObj.type = ObjectType::CURVE_BOX;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIndex);
+	drawObj.setType(ObjectType::CURVE_BOX);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
@@ -2608,9 +2608,9 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::FONT_GLYPH;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::FONT_GLYPH);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
@@ -2646,9 +2646,9 @@ bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, ui
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::GRID_DTM;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::GRID_DTM);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
@@ -2684,9 +2684,9 @@ bool DrawResourcesFiller::addImageObject_Internal(const ImageObjectInfo& imageOb
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::STATIC_IMAGE;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::STATIC_IMAGE);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
@@ -2722,9 +2722,9 @@ bool DrawResourcesFiller::addGeoreferencedImageInfo_Internal(const Georeferenced
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type = ObjectType::STREAMED_IMAGE;
-	drawObj.subsectionIdx = 0;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::STREAMED_IMAGE);
+	drawObj.setSubsectionIdx(0);
 	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
