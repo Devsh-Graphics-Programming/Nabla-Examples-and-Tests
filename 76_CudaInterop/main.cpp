@@ -498,10 +498,12 @@ public:
               auto bitOffset = bitIdx % 32;
               cpuMatA[wordIdx] |= (1u << bitOffset);
             }
+            cpuBufferA->setContentHash(cpuBufferA->computeContentHash());
 
             std::uniform_int_distribution<uint32_t> dist;
             // Fill cpuMatB with random bits
             for (auto& val : cpuMatB) val = dist(m_randGenerator);
+            cpuBufferB->setContentHash(cpuBufferB->computeContentHash());
             
         };
         initBinaryMatrices();
