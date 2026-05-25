@@ -277,10 +277,6 @@ public:
         {
             const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
                 .barrier = {
-                    .dep = {
-                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-                        .srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-                    },
                     .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
                     .otherQueueFamilyIndex = IQueue::FamilyExternal,
                 },
@@ -635,10 +631,6 @@ public:
         {
             const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
                 .barrier = {
-                    .dep = {
-                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-                        .srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-                    },
                     .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
                     .otherQueueFamilyIndex = IQueue::FamilyExternal,
                 },
