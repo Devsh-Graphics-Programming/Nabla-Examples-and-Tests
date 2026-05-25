@@ -35,12 +35,9 @@ extern "C" __global__ void b1_wmma_gemm_kernel(int* a, int* b, int* c,
         int bRow = i / 32;
         int bCol = warpN * WMMA_N;
     
-        // Load fragments
-        // Note: load_matrix_sync handles the bit-packing layout internally
         wmma::load_matrix_sync(a_frag, a + (aRow * lda / 32 + aCol), lda);
         wmma::load_matrix_sync(b_frag, b + (bCol * ldb / 32 + bRow), ldb);
     
-        // Perform XOR-Popcount MMA
         wmma::bmma_sync(acc_frag, a_frag, b_frag, acc_frag, wmma::experimental::bmmaBitOpAND);
     }
     
