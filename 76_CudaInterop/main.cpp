@@ -265,8 +265,12 @@ public:
         
         // Create timeline semaphore for cross-API synchronization
         // Timeline values: 0=initial, 1=release vulkan output buffer ownership, 2=cuda kernel done, 3=copy done 
+        static constexpr uint64_t SyncPointInitial = 0;
+        static constexpr uint64_t SyncPointReleased = 1;
+        static constexpr uint64_t SyncPointKernelDone = 2;
+        static constexpr uint64_t SyncPointCopyDone = 3;
         ISemaphore::SCreationParams semParams;
-        semParams.initialValue = 0;
+        semParams.initialValue = SyncPointInitial;
         semParams.externalHandleTypes = CCUDADevice::ExternalSemaphoreHandleType;
         const auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
@@ -308,7 +312,7 @@ public:
     
             const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
               .semaphore = semaphore.get(), 
-              .value = 1,
+              .value = SyncPointReleased,
               .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
             };
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[0].get() };
@@ -342,14 +346,14 @@ public:
     
             // Step 2
             CUexternalSemaphore semaphore = cudaSemaphore->getInternalObject();
-            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
+            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = SyncPointReleased } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), m_cuHandler); // Wait for release op from vulkan
 
             // Step 3
             ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), m_cuHandler);
 
             // Step 4
-            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
+            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = SyncPointKernelDone } } };
             ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), m_cuHandler); // Signal the imported semaphore
         }
 
@@ -387,12 +391,12 @@ public:
             
             const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo= {
               .semaphore = semaphore.get(), 
-              .value = 2,
+              .value = SyncPointKernelDone,
               .stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
             };
             const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
               .semaphore = semaphore.get(), 
-              .value = 3,
+              .value = SyncPointCopyDone,
               .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
             };
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[1].get() };
@@ -414,7 +418,7 @@ public:
             const auto wait = std::array{
               ISemaphore::SWaitInfo{
                 .semaphore = semaphore.get(), 
-                .value = 3,
+                .value = SyncPointCopyDone,
               }
             };
             m_device->blockForSemaphores(wait, true);
