@@ -54,6 +54,8 @@ public:
     smart_refctd_ptr<CCUDAHandler> m_cuHandler;
     smart_refctd_ptr<CCUDADevice> m_cuDevice;
     smart_refctd_ptr<IUtilities> m_utils;
+    std::random_device m_randomDevice;
+    std::mt19937 m_randGenerator;
 
     IQueue* queue;
 
@@ -211,9 +213,15 @@ public:
             buf = ICPUBuffer::create(std::move(params));
         }
 
+        std::uniform_real_distribution<float32_t> dist(-RAND_MAX, RAND_MAX);
         for (auto buf_i = 0; buf_i < cpuBufs.size(); buf_i++)
+        {
             for (auto elem_i = 0; elem_i < NumElements; elem_i++)
-                reinterpret_cast<float*>(cpuBufs[buf_i]->getPointer())[elem_i] = rand() / float(RAND_MAX);
+            {
+                auto* data = reinterpret_cast<float*>(cpuBufs[buf_i]->getPointer());
+                data[elem_i] = dist(m_randGenerator);
+            }
+        }
 
         constexpr auto InputCount = 2;
         // // CUDA resources that we input to the kernel 'vectorAdd_kernel.cu'
@@ -491,8 +499,9 @@ public:
               cpuMatA[wordIdx] |= (1u << bitOffset);
             }
 
+            std::uniform_int_distribution<uint32_t> dist;
             // Fill cpuMatB with random bits
-            for (auto& val : cpuMatB) val = rand();
+            for (auto& val : cpuMatB) val = dist(m_randGenerator);
             
         };
         initBinaryMatrices();
