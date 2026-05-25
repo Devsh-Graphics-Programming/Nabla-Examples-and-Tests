@@ -101,15 +101,6 @@ public:
         return true;
     }
 
-    smart_refctd_ptr<IGPUBuffer> createExternalBuffer(uint64_t size, core::bitflag<IDeviceMemoryAllocation::E_EXTERNAL_HANDLE_TYPE> externalHandleTypes)
-    {
-        IGPUBuffer::SCreationParams params = {};
-        params.size = size;
-        params.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT;
-        params.externalHandleTypes = externalHandleTypes;
-        auto buf = m_device->createBuffer(std::move(params));
-        return buf;
-    }
 
     smart_refctd_ptr<IGPUBuffer> createExternalBuffer(IDeviceMemoryAllocation* mem)
     {
