@@ -179,6 +179,23 @@ public:
 
     void testVectorAddKernel()
     {
+        // This function demonstrates bidirectional resource sharing between CUDA and Vulkan:
+        // 
+        // Shared Resources:
+        // - 3 buffers: 2 input buffers + 1 output buffer for vector addition results
+        // - 1 semaphore for synchronization
+        //
+        // Memory Allocation Patterns:
+        // - Input buffers: Allocated by CUDA (CCUDADevice::createExportableMemory) → imported to Vulkan
+        // - Output buffer: Allocated by Vulkan → imported to CUDA (CCUDADevice::importExternalMemory)
+        //
+        // Synchronization:
+        // - Semaphore: Created by Vulkan → imported to CUDA
+        // - Demonstrates bidirectional signaling: CUDA signals → Vulkan waits, and vice versa
+        //
+        // Data Flow:
+        // - CUDA kernel writes to shared buffer → Vulkan reads the results
+
         static constexpr uint32_t GridDim[3] = { 4096,1,1 };
         static constexpr uint32_t BlockDim[3] = { 1024,1,1 };
         static constexpr size_t NumElements = GridDim[0] * BlockDim[0];
@@ -189,8 +206,7 @@ public:
 
         CUmodule   module;
         ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
-        auto moduleCleanup = nbl::core::makeRAIIExiter([&]()
-        {
+        auto moduleCleanup = nbl::core::makeRAIIExiter([&]() {
             cu.pcuModuleUnload(module);
         });
 
@@ -224,28 +240,35 @@ public:
         }
 
         constexpr auto InputCount = 2;
-        // // CUDA resources that we input to the kernel 'vectorAdd_kernel.cu'
-        // // Kernel writes to cudaInputMemories[2] which we later use to export and read on nabla side
+        // Create CUDA-allocated input buffers that will be exported to Vulkan
+        // This demonstrates the CUDA → Vulkan memory sharing pattern 
         std::array<smart_refctd_ptr<CCUDAExportableMemory>, InputCount> cudaInputMemories = {};
         std::array<smart_refctd_ptr<IDeviceMemoryAllocation>, InputCount> vulkanMemories = {};
         std::array<smart_refctd_ptr<IGPUBuffer>, InputCount> vulkanInputBuffers = {};
         std::array<smart_refctd_ptr<IGPUBuffer>, InputCount> inputStagingBuffers = {};
 
-        for (auto input_i = 0; input_i < InputCount; input_i++)
+        auto initInputBuffers = [&]
         {
-          // create and allocate CUmem with CUDA and slap it inside a simple IReferenceCounted wrapper
-          cudaInputMemories[input_i] = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
-          vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
-          vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
-          inputStagingBuffers[input_i] = createStaging(BufferSize);
-        }
+            for (auto input_i = 0; input_i < InputCount; input_i++)
+            {
+              cudaInputMemories[input_i] = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
+              vulkanMemories[input_i] = cudaInputMemories[input_i]->exportAsMemory(m_device.get(), nullptr);
+              vulkanInputBuffers[input_i] = createExternalBuffer(vulkanMemories[input_i].get());
+              inputStagingBuffers[input_i] = createStaging(BufferSize);
+            }
+        };
+        initInputBuffers();
 
+        // Create Vulkan-allocated output buffer and import to CUDA
+        // This demonstrates the Vulkan → CUDA memory sharing pattern
         auto [outputBuf, cudaOutputMemory] = createSharedBuffer(BufferSize);
         
+        // Create timeline semaphore for cross-API synchronization
+        // Timeline values: 0=initial, 1=release vulkan output buffer ownership, 2=cuda kernel done, 3=copy done 
         ISemaphore::SCreationParams semParams;
         semParams.initialValue = 0;
         semParams.externalHandleTypes = CCUDADevice::ExternalSemaphoreHandleType;
-        auto semaphore = m_device->createSemaphore(std::move(semParams));
+        const auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
           logFail("Fail to import Vulkan Semaphore into CUDA!");
@@ -256,7 +279,8 @@ public:
         
         const auto outputStagingBuffer = createStaging(BufferSize);
 
-        // First we record a release ownership transfer to let vulkan know that resources are going to be used in an external API
+        // === Phase 1: Vulkan releases ownership to external queue (CUDA) ===
+        // Signal semaphore to value=1 after ownership transfer
         {
             const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
                 .barrier = {
@@ -297,8 +321,13 @@ public:
             if (!re) logFail("Something went wrong readying resources for CUDA");
         }
         
-        // Launch kernel
+        // === Phase 2: CUDA executes kernel ===
+        // 1. Copy input data from CPU to CUDA device memory
+        // 2. Wait for semaphore value=1 (ownership released)
+        // 3. Launch vectorAdd kernel
+        // 4. Signal semaphore to value=2 (kernel complete)
         {
+            // Step 1
             CUdeviceptr outputBufPtr;
             cudaOutputMemory->getMappedBuffer(&outputBufPtr);
             CUdeviceptr ptrs[] = {
@@ -311,15 +340,22 @@ public:
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpuBufs[0]->getPointer(), BufferSize, stream), m_cuHandler);
             ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpuBufs[1]->getPointer(), BufferSize, stream), m_cuHandler);
     
+            // Step 2
             CUexternalSemaphore semaphore = cudaSemaphore->getInternalObject();
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore, &waitParams, 1, stream), m_cuHandler); // Wait for release op from vulkan
+
+            // Step 3
             ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim[0], GridDim[1], GridDim[2], BlockDim[0], BlockDim[1], BlockDim[2], 0, stream, parameters, nullptr), m_cuHandler);
+
+            // Step 4
             const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream), m_cuHandler); // Signal the imported semaphore
         }
-        
-        // After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
+
+        // === Phase 3: Vulkan acquires ownership and copies results ===
+        // Wait for semaphore value=2, then copy output to staging buffer
+        // Signal semaphore to value=3 after copy completes
         {
             const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
                 .barrier = {
@@ -372,48 +408,28 @@ public:
 
         }
 
-        struct CallbackContext
+        // === Phase 4: Validate the output buffer content ===
         {
-            core::smart_refctd_ptr<ISemaphore> semaphore;
-            std::array<core::smart_refctd_ptr<ICPUBuffer>, InputCount> cpuBuffers;
-            std::array<core::smart_refctd_ptr<IGPUBuffer>, InputCount> inputStagingBuffers;
-            core::smart_refctd_ptr<IGPUBuffer> outputStagingBuffer;
-            core::smart_refctd_ptr<video::ILogicalDevice> device;
-            core::smart_refctd_ptr<system::ILogger> logger;
-        };
-
-        CallbackContext ctx;
-        ctx.semaphore = semaphore;
-        ctx.cpuBuffers = cpuBufs;
-        ctx.inputStagingBuffers = inputStagingBuffers;
-        ctx.outputStagingBuffer = outputStagingBuffer;
-        ctx.device = m_device;
-        ctx.logger = m_logger;
-
-        auto cudaCallback = [](void* userData)
-        {
-            const auto* ctx = reinterpret_cast<CallbackContext*>(userData);
-
             // Make sure we are also done with the readback 
             const auto wait = std::array{
               ISemaphore::SWaitInfo{
-                .semaphore = ctx->semaphore.get(), 
+                .semaphore = semaphore.get(), 
                 .value = 3,
               }
             };
-            ctx->device->blockForSemaphores(wait, true);
+            m_device->blockForSemaphores(wait, true);
 
-            auto* stagingMem = ctx->outputStagingBuffer->getBoundMemory().memory;
+            auto* stagingMem = outputStagingBuffer->getBoundMemory().memory;
             if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             {
                 ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
-                ctx->device->invalidateMappedMemoryRanges(1, &range);
+                m_device->invalidateMappedMemoryRanges(1, &range);
             }
 
-            const auto* inputs1 = reinterpret_cast<float*>(ctx->cpuBuffers[0]->getPointer());
-            const auto* inputs2 = reinterpret_cast<float*>(ctx->cpuBuffers[1]->getPointer());
+            const auto* inputs1 = reinterpret_cast<float*>(cpuBufs[0]->getPointer());
+            const auto* inputs2 = reinterpret_cast<float*>(cpuBufs[1]->getPointer());
 
-            const auto* outputs = reinterpret_cast<float*>(ctx->outputStagingBuffer->getBoundMemory().memory->getMappedPointer());
+            const auto* outputs = reinterpret_cast<float*>(outputStagingBuffer->getBoundMemory().memory->getMappedPointer());
 
             for (auto elem_i = 0; elem_i < NumElements; elem_i++)
             {
@@ -423,14 +439,12 @@ public:
               const auto expected = input1 + input2;
               const auto diff = abs(output - expected);
               if (diff > 0.01)
-                ctx->logger->log("TestSharedResources: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
+                m_logger->log("TestVectorAdd: Element at index %d is incorrect!", ILogger::ELL_ERROR, elem_i);
             }
 
-            ctx->logger->log("TestSharedResources Complete", ILogger::ELL_INFO);
-        };
+            m_logger->log("TestVectorAdd Complete", ILogger::ELL_INFO);
 
-        ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), m_cuHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
+        }
 
     }
 
