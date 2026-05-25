@@ -737,14 +737,13 @@ public:
             m_device->invalidateMappedMemoryRanges(1, &range);
         }
 
-        const auto* results = reinterpret_cast<int32_t*>(stagingMem->getMappedPointer());
-        
-        // Verify results
-        bool success = true;
-        int errors = 0;
-        for (int i = 0; i < ElementCount.x * ElementCount.y; i++) {
-            const auto expected = [&]
-            {
+            const auto* results = reinterpret_cast<int32_t*>(stagingMem->getMappedPointer());
+            
+            // Verify results
+            int errorCount = 0;
+            for (int i = 0; i < ElementCount.x * ElementCount.y; i++) {
+                const auto expected = [&]
+                {
                 // Since we are multiplying reverse diagonal matrix to matrixB. The result should be matrix b but each column reversed.
                 // The calculation below is to get the index of cpuMatB if the column is reversed to get the expected bit.
                 const auto row = i / ElementCount.y;
@@ -760,17 +759,16 @@ public:
                 if (result != expected) {
                     m_logger->log("WMMA b1 test error at [%d]: GPU=%d, CPU=%d", 
                                  system::ILogger::ELL_ERROR, i, results[i], expected);
-                    errors++;
-                    success = false;
+                    errorCount++;
                     constexpr int MaxErrorsToReport = 10;
-                    if (errors == MaxErrorsToReport) break;
+                    if (errorCount == MaxErrorsToReport) break;
                 }
             }
             
-            if (success)
+            if (errorCount == 0)
                 m_logger->log("b1 WMMA test PASSED!", system::ILogger::ELL_INFO);
             else
-                m_logger->log("b1 WMMA test FAILED with %d errors!", system::ILogger::ELL_ERROR, errors);
+                m_logger->log("b1 WMMA test FAILED with %d errors!", system::ILogger::ELL_ERROR, errorCount);
         }
     }
 
