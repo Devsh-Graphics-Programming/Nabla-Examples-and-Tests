@@ -49,7 +49,7 @@ class CUDA2VKApp : public virtual MonoDeviceApplication, BuiltinResourcesApplica
 public:
     // Yay thanks to multiple inheritance we cannot forward ctors anymore
     CUDA2VKApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
-        system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+        system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD), m_randGenerator(m_randomDevice()) {}
 
     smart_refctd_ptr<CCUDAHandler> m_cuHandler;
     smart_refctd_ptr<CCUDADevice> m_cuDevice;
@@ -94,15 +94,15 @@ public:
 
         queue = getComputeQueue();
 
-        testWmmaGemB1();
         testVectorAddKernel();
+        testWmmaGemB1();
         testDestruction();
         testLargeAllocations();
 
         return true;
     }
 
-    smart_refctd_ptr<IGPUBuffer> createExternalBuffer2(uint64_t size, core::bitflag<IDeviceMemoryAllocation::E_EXTERNAL_HANDLE_TYPE> externalHandleTypes)
+    smart_refctd_ptr<IGPUBuffer> createExternalBuffer(uint64_t size, core::bitflag<IDeviceMemoryAllocation::E_EXTERNAL_HANDLE_TYPE> externalHandleTypes)
     {
         IGPUBuffer::SCreationParams params = {};
         params.size = size;
@@ -117,7 +117,7 @@ public:
         IGPUBuffer::SCreationParams params = {};
         params.size = mem->getAllocationSize();
         params.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT;
-        params.externalHandleTypes = mem->getCreationParams().externalHandleType;
+        params.externalHandleTypes = mem->getCreationParams().externalHandleTypes;
         auto buf = m_device->createBuffer(std::move(params));
         ILogicalDevice::SBindBufferMemoryInfo bindInfo = { .buffer = buf.get(), .binding = {.memory = mem } };
         m_device->bindBufferMemory(1, &bindInfo);
@@ -244,7 +244,7 @@ public:
         
         ISemaphore::SCreationParams semParams;
         semParams.initialValue = 0;
-        semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
+        semParams.externalHandleTypes = CCUDADevice::ExternalSemaphoreHandleType;
         auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
@@ -462,28 +462,20 @@ public:
         const size_t matB_size = (ElementCount.z * ElementCount.y) / 32 * sizeof(uint32_t); // K x N bits
         const size_t matC_size = ElementCount.x * ElementCount.y * sizeof(int32_t);         // M x N ints
 
-        auto [vkBufferMatA, cuMemMatA] = createSharedBuffer(matA_size);
-        auto [vkBufferMatB, cuMemMatB] = createSharedBuffer(matB_size);
         auto [vkBufferMatC, cuMemMatC] = createSharedBuffer(matC_size);
 
-        // ICPUBuffer::SCreationParams cpuBufferParamsA;
-        // cpuBufferParamsA.size = ElementCount.x * ElementCount.z / 32;
-        // const auto cpuBufferA = ICPUBuffer::create(std::move(cpuBufferParamsA));
+        ICPUBuffer::SCreationParams cpuBufferParamsA;
+        cpuBufferParamsA.size = matA_size;
+        const auto cpuBufferA = ICPUBuffer::create(std::move(cpuBufferParamsA));
+        const auto cpuBufferAData = reinterpret_cast<uint32_t*>(cpuBufferA->getPointer());
+        const auto cpuMatA = std::span(cpuBufferAData, matA_size / sizeof(uint32_t));
 
-        // ICPUBuffer::SCreationParams cpuBufferParamsB;
-        // cpuBufferParamsB.size = ElementCount.x * ElementCount.z / 32;
-        // const auto cpuBufferB = ICPUBuffer::create(std::move(cpuBufferParamsB));
-        //
-        // std::array inputBuffers = {cpuBufferA.get(), cpuBufferB.get()};
-        //
-        // CAssetConverter::SInputs inputs = {};
-        // std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = inputBuffers;
-
-        // CPU matrices for initialization and verification
-        core::vector<uint32_t> cpuMatA(ElementCount.x * ElementCount.z / 32);
-        core::vector<uint32_t> cpuMatB(ElementCount.z * ElementCount.y / 32);
-
-
+        ICPUBuffer::SCreationParams cpuBufferParamsB;
+        cpuBufferParamsB.size = matB_size;
+        const auto cpuBufferB = ICPUBuffer::create(std::move(cpuBufferParamsB));
+        const auto cpuBufferBData = reinterpret_cast<uint32_t*>(cpuBufferB->getPointer());
+        const auto cpuMatB = std::span(cpuBufferBData, matB_size / sizeof(uint32_t));
+        
         // Initialize with simple patterns for verification
         auto initBinaryMatrices = [&]()
         {
@@ -507,7 +499,81 @@ public:
             
         };
         initBinaryMatrices();
+
+        std::array inputBuffers = {cpuBufferA.get(), cpuBufferB.get()};
+
+        CAssetConverter::SInputs inputs = {};
+        std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = inputBuffers;
+        std::array<CAssetConverter::patch_t<asset::ICPUBuffer>, std::size(inputBuffers)> inputBufferPatches;
+        for (auto& inputPatch : inputBufferPatches)
+        {
+          inputPatch.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+          inputPatch.externalHandleTypes = CCUDADevice::ExternalMemoryHandleType;
+        }
+        std::get<CAssetConverter::SInputs::patch_span_t<ICPUBuffer>>(inputs.patches) = inputBufferPatches;
+        smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+        auto reservation = converter->reserve(inputs);
+        if (!reservation)
+        {
+            logFail("reserve failed!");
+            return;
+        }
+
+        // Create transfer queue resources
+        auto transferQueue = getComputeQueue();
+        auto transferCmdPool = m_device->createCommandPool(
+          transferQueue->getFamilyIndex(),
+          IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT
+        );
+
+        // SIntendedSubmitInfo needs at least one scratch cmdbuf in RECORDING state
+        smart_refctd_ptr<IGPUCommandBuffer> transferCmdBuf;
+        transferCmdPool->createCommandBuffers(
+          IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &transferCmdBuf, smart_refctd_ptr(m_logger)
+        );
+        transferCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+        auto transferScratchSemaphore = m_device->createSemaphore({ .initialValue = 0 });
+
+        IQueue::SSubmitInfo::SCommandBufferInfo transferCmdBufInfo = {
+          transferCmdBuf.get()
+        };
+        SIntendedSubmitInfo transferSubmitInfo;
+        transferSubmitInfo.queue = transferQueue;
+        transferSubmitInfo.scratchCommandBuffers = { &transferCmdBufInfo, 1 };
+        transferSubmitInfo.scratchSemaphore = {
+            .semaphore = transferScratchSemaphore.get(),
+            .value = 0,
+            .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+        };
+
+        nbl::video::CAssetConverter::SConvertParams convertParams = {};
+        convertParams.utilities = m_utils.get();
+        convertParams.transfer = &transferSubmitInfo;
   
+        auto future = reservation.convert(convertParams);
+        if (future.copy() != IQueue::RESULT::SUCCESS)
+        {
+            logFail("CAssetConverter convert failed!");
+            return;
+        }
+
+        auto gpuBuffers = reservation.getGPUObjects<ICPUBuffer>();
+        auto gpuBufferA = gpuBuffers[0].value;
+        const auto boundedMemA = gpuBufferA->getBoundMemory();
+        auto cuMemMatA = m_cuDevice->importExternalMemory(core::smart_refctd_ptr<IDeviceMemoryAllocation>(boundedMemA.memory));
+
+        auto gpuBufferB = gpuBuffers[1].value;
+        const auto boundedMemB = gpuBufferB->getBoundMemory();
+        auto cuMemMatB = m_cuDevice->importExternalMemory(
+          core::smart_refctd_ptr<IDeviceMemoryAllocation>(boundedMemB.memory));
+        
+        std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> cmd;
+        auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+        commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, cmd.size(), cmd.data(), smart_refctd_ptr(m_logger));
+
+        const auto outputStagingBuffer = createStaging(vkBufferMatC->getSize());
+
         ISemaphore::SCreationParams semParams;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
         semParams.initialValue = 0;
@@ -515,12 +581,6 @@ public:
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
           logFail("Fail to import Vulkan Semaphore into CUDA!");
-        
-        std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> cmd;
-        auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-        commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, cmd.size(), cmd.data(), smart_refctd_ptr(m_logger));
-
-        const auto outputStagingBuffer = createStaging(vkBufferMatC->getSize());
 
         // Release ownership to CUDA
         {
@@ -553,14 +613,9 @@ public:
         // Launch CUDA kernel
         {
             CUdeviceptr matrixAPtr, matrixBPtr, matrixCPtr;
-            cuMemMatA->getMappedBuffer(&matrixAPtr);
-            cuMemMatB->getMappedBuffer(&matrixBPtr);
+            cuMemMatA->getMappedBuffer(&matrixAPtr, gpuBufferA->getSize(), gpuBufferA->getBoundMemory().offset);
+            cuMemMatB->getMappedBuffer(&matrixBPtr, gpuBufferB->getSize(), gpuBufferB->getBoundMemory().offset);
             cuMemMatC->getMappedBuffer(&matrixCPtr);
-
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixAPtr, cpuMatA.data(), matA_size, stream), m_cuHandler);
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixBPtr, cpuMatB.data(), matB_size, stream), m_cuHandler);
-            core::vector<int32_t> cpuMatC(ElementCount.x * ElementCount.y, 15);
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(matrixCPtr, cpuMatC.data(), matC_size, stream), m_cuHandler);
 
             void* parameters[] = { &matrixAPtr, &matrixBPtr, &matrixCPtr, 
                                    (void*)&ElementCount.x, (void*)&ElementCount.y, (void*)&ElementCount.z };
@@ -569,9 +624,7 @@ public:
             const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore_cu, &waitParams, 1, stream), m_cuHandler);
             
-            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim.x, GridDim.y, 1, 
-                                                   BlockDim.x, BlockDim.y, 1, 
-                                                   0, stream, parameters, nullptr), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim.x, GridDim.y, 1, BlockDim.x, BlockDim.y, 1, 0, stream, parameters, nullptr), m_cuHandler);
             
             const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
             ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore_cu, &signalParams, 1, stream), m_cuHandler);
@@ -668,7 +721,7 @@ public:
             const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
             if (!cudaMemory) logFail("Fail to create exportable memory!");
 
-            auto tmpBuf = createExternalBuffer2(cudaMemory->getCreationParams().granularSize, IDeviceMemoryAllocation::EHT_OPAQUE_WIN32);
+            auto tmpBuf = createExternalBuffer(cudaMemory->getCreationParams().granularSize, IDeviceMemoryAllocation::EHT_OPAQUE_WIN32);
             escaped = cudaMemory->exportAsMemory(m_device.get(), tmpBuf.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
         
