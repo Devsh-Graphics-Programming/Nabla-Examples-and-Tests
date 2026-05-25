@@ -454,6 +454,32 @@ public:
 
     void testWmmaGemB1()
     {
+        // This function demonstrates a key advantage of CUDA-Vulkan interoperability:
+        // accessing CUDA-exclusive hardware features that Vulkan cannot natively support.
+        //
+        // WMMA (Warp Matrix Multiply-Accumulate) with b1 (1-bit) primitives leverages
+        // specialized Tensor Core instructions for ultra-efficient binary matrix operations.
+        // Since Vulkan lacks native support for 1-bit matrix operations, this test showcases
+        // how applications can:
+        // 1. Allocate and manage matrices using Vulkan's memory system
+        // 2. Share those buffers with CUDA via external memory handles
+        // 3. Execute CUDA-exclusive Tensor Core operations (b1 WMMA GEMM)
+        // 4. Retrieve results back to Vulkan for further GPU processing or readback
+        //
+        // Test methodology:
+        // - Matrix A (M×K): 1-bit reverse diagonal matrix (1s on anti-diagonal, 0s elsewhere)
+        // - Matrix B (K×N): 1-bit random matrix
+        // - Matrix C (M×N): Result stored as int32s (popcount of bitwise AND per row/col pair)
+        //
+        // Verification strategy:
+        // Multiplying a reverse diagonal matrix by any matrix B produces a result where each
+        // column of B is reversed. This makes verification trivial: C[i,j] should equal B[K-1-i, j]
+        // Example with K=4:
+        //   [0 0 0 1]   [b00 b01]   [b30 b31]
+        //   [0 0 1 0] × [b10 b11] = [b20 b21]
+        //   [0 1 0 0]   [b20 b21]   [b10 b11]
+        //   [1 0 0 0]   [b30 b31]   [b00 b01]
+
         // b1 WMMA dimensions: M=8, N=8, K=128
         constexpr auto WmmaSize = uint32_t3{ 8, 8, 128 };
         constexpr auto TileCount = uint32_t3{ 128, 128, 8 };  // Adjust for b1 dimensions
@@ -463,6 +489,7 @@ public:
             (ElementCount.x + WmmaSize.x - 1) / WmmaSize.x,  // M tiles
             (ElementCount.y + WmmaSize.y - 1) / WmmaSize.y   // N tiles
         );
+        static constexpr auto BitsPerUint32 = 32;
 
         const auto ptx = compilePtx("app_resources/wmmaGemm_b1_kernel.cu");
         auto& cu = m_cuHandler->getCUDAFunctionTable();
@@ -483,11 +510,16 @@ public:
         });
 
         // Calculate buffer sizes (bits packed into uint32_t)
-        const size_t matA_size = (ElementCount.x * ElementCount.z) / 32 * sizeof(uint32_t); // M x K bits
-        const size_t matB_size = (ElementCount.z * ElementCount.y) / 32 * sizeof(uint32_t); // K x N bits
+        const size_t matA_size = (ElementCount.x * ElementCount.z) / BitsPerUint32 * sizeof(uint32_t); // M x K bits
+        const size_t matB_size = (ElementCount.z * ElementCount.y) / BitsPerUint32 * sizeof(uint32_t); // K x N bits
         const size_t matC_size = ElementCount.x * ElementCount.y * sizeof(int32_t);         // M x N ints
 
         auto [vkBufferMatC, cuMemMatC] = createSharedBuffer(matC_size);
+        if (!vkBufferMatC || !cuMemMatC)
+        {
+            logFail("Failed to create shared buffer for matrix C");
+            return;
+        }
 
         ICPUBuffer::SCreationParams cpuBufferParamsA;
         cpuBufferParamsA.size = matA_size;
@@ -506,13 +538,12 @@ public:
         {
             // Fill cpuMatA with reverse diagonal pattern
             std::fill(cpuMatA.begin(), cpuMatA.end(), 0);
-
             for (int i = 0; i < ElementCount.x; i++)
             {
               auto j = ElementCount.z - 1 - i;
               auto bitIdx = i * ElementCount.z + j;
-              auto wordIdx = bitIdx / 32;
-              auto bitOffset = bitIdx % 32;
+              auto wordIdx = bitIdx / BitsPerUint32;
+              auto bitOffset = bitIdx % BitsPerUint32;
               cpuMatA[wordIdx] |= (1u << bitOffset);
             }
             cpuBufferA->setContentHash(cpuBufferA->computeContentHash());
@@ -599,9 +630,13 @@ public:
 
         const auto outputStagingBuffer = createStaging(vkBufferMatC->getSize());
 
+        static constexpr uint64_t SyncPointInitial = 0;
+        static constexpr uint64_t SyncPointReleased = 1;
+        static constexpr uint64_t SyncPointKernelDone = 2;
+        static constexpr uint64_t SyncPointCopyDone = 3;
         ISemaphore::SCreationParams semParams;
         semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
-        semParams.initialValue = 0;
+        semParams.initialValue = SyncPointInitial;
         auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
         if (!cudaSemaphore)
@@ -626,7 +661,7 @@ public:
             cmd[0]->end();
 
             const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
-              .semaphore = semaphore.get(), .value = 1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+              .semaphore = semaphore.get(), .value = SyncPointReleased, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
             };
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[0].get() };
             const IQueue::SSubmitInfo submitInfo = {
@@ -646,12 +681,12 @@ public:
                                    (void*)&ElementCount.x, (void*)&ElementCount.y, (void*)&ElementCount.z };
 
             CUexternalSemaphore semaphore_cu = cudaSemaphore->getInternalObject();
-            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = 1 } } };
+            const CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = { .params = {.fence = {.value = SyncPointReleased } } };
             ASSERT_CUDA_SUCCESS(cu.pcuWaitExternalSemaphoresAsync(&semaphore_cu, &waitParams, 1, stream), m_cuHandler);
             
             ASSERT_CUDA_SUCCESS(cu.pcuLaunchKernel(kernel, GridDim.x, GridDim.y, 1, BlockDim.x, BlockDim.y, 1, 0, stream, parameters, nullptr), m_cuHandler);
             
-            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 2 } } };
+            const CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = SyncPointKernelDone } } };
             ASSERT_CUDA_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore_cu, &signalParams, 1, stream), m_cuHandler);
         }
 
@@ -676,10 +711,10 @@ public:
             cmd[1]->end();
             
             const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo = {
-              .semaphore = semaphore.get(), .value = 2, .stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+              .semaphore = semaphore.get(), .value = SyncPointKernelDone, .stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
             };
             const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
-              .semaphore = semaphore.get(), .value = 3, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+              .semaphore = semaphore.get(), .value = SyncPointCopyDone, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
             };
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[1].get() };
             const IQueue::SSubmitInfo submitInfo = { 
@@ -691,10 +726,11 @@ public:
         }
 
         // Wait and verify results
-        const auto wait = std::array{ ISemaphore::SWaitInfo{.semaphore = semaphore.get(), .value = 3} };
-        m_device->blockForSemaphores(wait, true);
+        {
+            const auto wait = std::array{ ISemaphore::SWaitInfo{.semaphore = semaphore.get(), .value = SyncPointCopyDone} };
+            m_device->blockForSemaphores(wait, true);
 
-        auto* stagingMem = outputStagingBuffer->getBoundMemory().memory;
+            auto* stagingMem = outputStagingBuffer->getBoundMemory().memory;
         if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
         {
             ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
@@ -713,77 +749,78 @@ public:
                 // The calculation below is to get the index of cpuMatB if the column is reversed to get the expected bit.
                 const auto row = i / ElementCount.y;
                 const auto col = i % ElementCount.y;
-                const auto expectedCol = col;
-                const auto expectedRow = ElementCount.z - row - 1;
-                const auto expectedIdx = expectedCol * ElementCount.z + expectedRow;
-                const auto expectedWordIdx = expectedIdx / 32;
-                const auto expectedBitOffset = expectedIdx % 32;
-                return (cpuMatB[expectedWordIdx] >> expectedBitOffset) & uint32_t(1);
-            }();
-            const auto result = results[i];
-            if (result != expected) {
-                m_logger->log("WMMA b1 test error at [%d]: GPU=%d, CPU=%d", 
-                             system::ILogger::ELL_ERROR, i, results[i], expected);
-                errors++;
-                success = false;
+                    const auto expectedCol = col;
+                    const auto expectedRow = ElementCount.z - row - 1;
+                    const auto expectedIdx = expectedCol * ElementCount.z + expectedRow;
+                    const auto expectedWordIdx = expectedIdx / BitsPerUint32;
+                    const auto expectedBitOffset = expectedIdx % BitsPerUint32;
+                    return (cpuMatB[expectedWordIdx] >> expectedBitOffset) & uint32_t(1);
+                }();
+                const auto result = results[i];
+                if (result != expected) {
+                    m_logger->log("WMMA b1 test error at [%d]: GPU=%d, CPU=%d", 
+                                 system::ILogger::ELL_ERROR, i, results[i], expected);
+                    errors++;
+                    success = false;
+                    constexpr int MaxErrorsToReport = 10;
+                    if (errors == MaxErrorsToReport) break;
+                }
             }
+            
+            if (success)
+                m_logger->log("b1 WMMA test PASSED!", system::ILogger::ELL_INFO);
+            else
+                m_logger->log("b1 WMMA test FAILED with %d errors!", system::ILogger::ELL_ERROR, errors);
         }
-        
-        if (success)
-            m_logger->log("b1 WMMA test PASSED!", system::ILogger::ELL_INFO);
-        else
-            m_logger->log("b1 WMMA test FAILED with %d errors!", system::ILogger::ELL_ERROR, errors);
     }
 
     void testDestruction()
     {
+        
+        // Tests proper resource lifetime management across CUDA-Vulkan interop by creating exportable CUDA memory,
+        // copying data to it, then destroying the CUDA memory object while keeping the exported Vulkan memory alive.
+        // Verifies that the exported memory remains valid and accessible after the original CUDA object is destroyed,
+        // confirming correct reference counting and external memory handle semantics.
+
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         constexpr auto ElementCount = 1024;
         constexpr auto BufferSize = ElementCount * sizeof(int);
+
+        // Construct testData
+        core::vector<uint32_t> testData(ElementCount);
+        std::iota(testData.begin(), testData.end(), 0);
+
         auto& cu = m_cuHandler->getCUDAFunctionTable();
+
+        // This vulkan memory will outlive the CUDA memory object below
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
+            // Create exportable CUDA memory - this object will be destroyed at the end of this scope
             const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
             if (!cudaMemory) logFail("Fail to create exportable memory!");
 
-            auto tmpBuf = createExternalBuffer(cudaMemory->getCreationParams().granularSize, IDeviceMemoryAllocation::EHT_OPAQUE_WIN32);
-            escaped = cudaMemory->exportAsMemory(m_device.get(), tmpBuf.get());
+            // Export CUDA memory as Vulkan device memory - this reference will persist
+            escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
-        
-            auto staging = createStaging(BufferSize);
-        
-            auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
-            for (uint32_t i = 0; i < ElementCount; ++i)
-                ptr[i] = i;
-        
-            ISemaphore::SCreationParams semParams;
-            semParams.initialValue = 0;
-            const auto semaphore = m_device->createSemaphore(std::move(semParams));
-            IQueue::SSubmitInfo::SSemaphoreInfo semInfo;
-            semInfo.semaphore = semaphore.get();
-            semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-            semInfo.value = 1;
-        
-            smart_refctd_ptr<IGPUCommandBuffer> cmdBuffer;
-            commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmdBuffer);
-            cmdBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-            IGPUCommandBuffer::SBufferCopy region = { .size = BufferSize };
-            assert(cmdBuffer->copyBuffer(staging.get(), tmpBuf.get(), 1, &region));
-            cmdBuffer->end();
-            IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmdBuffer.get() };
-            const IQueue::SSubmitInfo submitInfo = {
-              .commandBuffers = {&cmdInfo, &cmdInfo + 1}, 
-              .signalSemaphores = {&semInfo, 1}
-            };
-            auto qre = queue->submit({ &submitInfo, &submitInfo + 1 });
-            assert(IQueue::RESULT::SUCCESS == qre);
-            m_device->waitIdle();
-        }        
+
+            // Copy testData into cudaMemory
+            CUstream stream;
+            ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
+            auto streamCleanup = nbl::core::makeRAIIExiter([&] {
+                cu.pcuStreamDestroy_v2(stream);
+            });
+            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(cudaMemory->getDeviceptr(), testData.data(), BufferSize, stream), m_cuHandler);
+            ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
+
+        }
+        // CRITICAL: cudaMemory object destroyed here, but escaped memory should remain valid
         
         {
+            // Re-import the exported memory - this tests if the memory survived CUDA object destruction
             auto tmpBuf = createExternalBuffer(escaped.get());
             auto staging = createStaging(BufferSize);
         
+            // Setup synchronization for readback
             ISemaphore::SCreationParams semParams;
             semParams.initialValue = 0;
             const auto semaphore = m_device->createSemaphore(std::move(semParams));
@@ -792,6 +829,7 @@ public:
             semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
             semInfo.value = 1;
         
+            // Copy data back from the persistent buffer to staging for verification
             smart_refctd_ptr<IGPUCommandBuffer> cmd;
             commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd);
             cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
