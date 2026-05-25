@@ -1384,13 +1384,13 @@ const DrawResourcesFiller::ResourcesCollection& DrawResourcesFiller::getResource
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
 	activeLineStyle = lineStyle;
-	activeLineStyleIndex = InvalidStyleIdx;
+	activeLineStyleIndex = MainObject::getInvalidStyleIndex();
 }
 
 void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
 	activeDTMSettings = dtmSettingsInfo;
-	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)
@@ -1410,7 +1410,7 @@ void DrawResourcesFiller::endMainObject()
 void DrawResourcesFiller::pushCustomProjection(const float64_t3x3& projection)
 {
 	activeProjections.push_back(projection);
-	activeProjectionIndices.push_back(InvalidCustomProjectionIndex);
+	activeProjectionIndices.push_back(MainObject::getInvalidCustomTransformationIndex());
 }
 
 void DrawResourcesFiller::popCustomProjection()
@@ -1425,7 +1425,7 @@ void DrawResourcesFiller::popCustomProjection()
 void DrawResourcesFiller::pushCustomClipRect(const WorldClipRect& clipRect)
 {
 	activeClipRects.push_back(clipRect);
-	activeClipRectIndices.push_back(InvalidCustomClipRectIndex);
+	activeClipRectIndices.push_back(MainObject::getInvalidCustomClipRectIndex());
 }
 
 void DrawResourcesFiller::popCustomClipRect()
@@ -2077,7 +2077,7 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
 	if (!enoughMem)
-		return InvalidStyleIdx;
+		return MainObject::getInvalidStyleIndex();
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
@@ -2100,7 +2100,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 
 	if (!enoughMem)
-		return InvalidDTMSettingsIdx;
+		return MainObject::getInvalidDtmSettingsIndex();
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	DTMSettings dtmSettings;
@@ -2200,7 +2200,7 @@ float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeLineStyleIndex == InvalidStyleIdx)
+	if (activeLineStyleIndex == MainObject::getInvalidStyleIndex())
 		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
 	
 	return activeLineStyleIndex;
@@ -2208,7 +2208,7 @@ uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntend
 
 uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeDTMSettingsIndex == InvalidDTMSettingsIdx)
+	if (activeDTMSettingsIndex == MainObject::getInvalidDtmSettingsIndex())
 		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
 	
 	return activeDTMSettingsIndex;
@@ -2217,9 +2217,9 @@ uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SInte
 uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (activeProjectionIndices.empty())
-		return InvalidCustomProjectionIndex;
+		return MainObject::getInvalidCustomTransformationIndex();
 
-	if (activeProjectionIndices.back() == InvalidCustomProjectionIndex)
+	if (activeProjectionIndices.back() == MainObject::getInvalidCustomTransformationIndex())
 		activeProjectionIndices.back() = addCustomProjection_SubmitIfNeeded(activeProjections.back(), intendedNextSubmit);
 	
 	return activeProjectionIndices.back();
@@ -2228,9 +2228,9 @@ uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(
 uint32_t DrawResourcesFiller::acquireActiveCustomClipRectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (activeClipRectIndices.empty())
-		return InvalidCustomClipRectIndex;
+		return MainObject::getInvalidCustomClipRectIndex();
 
-	if (activeClipRectIndices.back() == InvalidCustomClipRectIndex)
+	if (activeClipRectIndices.back() == MainObject::getInvalidCustomClipRectIndex())
 		activeClipRectIndices.back() = addCustomClipRect_SubmitIfNeeded(activeClipRects.back(), intendedNextSubmit);
 	
 	return activeClipRectIndices.back();
@@ -2275,11 +2275,23 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
-	mainObject.styleIdx = (needsLineStyle) ? acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidStyleIdx;
-	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
-	mainObject.customProjectionIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomProjectionIndex;
-	mainObject.customClipRectIndex = (needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex;
-	mainObject.transformationType = (uint32_t)activeMainObjectTransformationType;
+
+	assert((needsLineStyle == !needsDTMSettings) || (needsLineStyle == false && needsDTMSettings == false));
+	if (needsLineStyle)
+	{
+		mainObject.setStyleIdx(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
+	}
+	else if(needsDTMSettings)
+	{
+		mainObject.setDtmSettingsIdx(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
+	}
+	else
+	{
+		mainObject.setStyleIdx(MainObject::getInvalidStyleIndex());
+	}
+	mainObject.customTransformationIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomTransformationIndex();
+	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomClipRectIndex());
+	mainObject.setTransformationType((uint32_t)activeMainObjectTransformationType);
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
 }
@@ -2287,14 +2299,14 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == InvalidStyleIdx)
+	if (outLineStyleIdx == MainObject::getInvalidStyleIndex())
 	{
 		// There wasn't enough resource memory remaining to fit a single LineStyle
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != InvalidStyleIdx);
+		assert(outLineStyleIdx != MainObject::getInvalidStyleIndex());
 	}
 
 	return outLineStyleIdx;
@@ -2304,14 +2316,14 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 {
 	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
 	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
+	if (outDTMSettingIdx == MainObject::getInvalidDtmSettingsIndex())
 	{
 		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
+		assert(outDTMSettingIdx != MainObject::getInvalidDtmSettingsIndex());
 	}
 	return outDTMSettingIdx;
 }

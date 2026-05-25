@@ -19,7 +19,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
     
     bool resolve = false;
-    uint32_t toResolveStyleIdx = InvalidStyleIdx;
+    uint32_t toResolveStyleIdx = MainObject::getInvalidStyleIndex();
     const uint32_t packedData = pseudoStencil[fragCoord];
     const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
     const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
@@ -38,8 +38,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
         // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
         if (resolve)
         {
-            toResolveStyleIdx = loadMainObject(storedMainObjectIdx).styleIdx;
-            if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
+            toResolveStyleIdx = loadMainObject(storedMainObjectIdx).getStyleIndex();
+            if (toResolveStyleIdx == MainObject::getInvalidStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
                 color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
         }
     }
@@ -62,7 +62,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
 
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
-    if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    if (toResolveStyleIdx != MainObject::getInvalidStyleIndex()) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
     {
         color = loadLineStyle(toResolveStyleIdx).color;
         gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction

@@ -3843,7 +3843,6 @@ protected:
 						0.0, 0.0, 1.0
 					};
 
-
 					transformation = nbl::hlsl::mul(rotateMat, translateMat);
 					
 					transformation = nbl::hlsl::mul(rotateMat, nbl::hlsl::mul(translateMat, scaleMat));

@@ -30,7 +30,7 @@ using namespace nbl::core;
 using namespace nbl::asset;
 
 static_assert(sizeof(DrawObject) == 8u);
-static_assert(sizeof(MainObject) == 20u);
+static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(LineStyle) == 88u);
 
 // ! DrawResourcesFiller
@@ -859,7 +859,7 @@ protected:
 		
 		// Invalidate all the clip projection addresses because activeProjections buffer got reset
 		for (auto& addr : activeProjectionIndices)
-			addr = InvalidCustomProjectionIndex;
+			addr = MainObject::getInvalidCustomTransformationIndex();
 	}
 
 	void resetCustomClipRects()
@@ -868,19 +868,19 @@ protected:
 		
 		// Invalidate all the clip projection addresses because activeProjections buffer got reset
 		for (auto& addr : activeClipRectIndices)
-			addr = InvalidCustomClipRectIndex;
+			addr = MainObject::getInvalidCustomClipRectIndex();
 	}
 
 	void resetLineStyles()
 	{
 		resourcesCollection.lineStyles.vector.clear();
-		activeLineStyleIndex = InvalidStyleIdx;
+		activeLineStyleIndex = MainObject::getInvalidStyleIndex();
 	}
 
 	void resetDTMSettings()
 	{
 		resourcesCollection.dtmSettings.vector.clear();
-		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+		activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
 	}
 	
 	// MSDF Hashing and Caching Internal Functions 
@@ -991,10 +991,10 @@ protected:
 
 	// Active Resources we need to keep track of and push to resources buffer if needed.
 	LineStyleInfo activeLineStyle;
-	uint32_t activeLineStyleIndex = InvalidStyleIdx;
+	uint32_t activeLineStyleIndex = MainObject::getInvalidStyleIndex();
 
 	DTMSettingsInfo activeDTMSettings;
-	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	uint32_t activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
 
 	MainObjectType activeMainObjectType;
 	TransformationType activeMainObjectTransformationType;

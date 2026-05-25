@@ -32,18 +32,18 @@ struct NDCClipProjectionData
 NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     NDCClipProjectionData ret;
-    if (mainObj.customProjectionIndex != InvalidCustomProjectionIndex)
+    if (mainObj.customTransformationIndex != MainObject::getInvalidCustomTransformationIndex())
     {
         // If projection type is worldspace projection and clip:
-        pfloat64_t3x3 customProjection = loadCustomProjection(mainObj.customProjectionIndex);
+        pfloat64_t3x3 customProjection = loadCustomProjection(mainObj.customTransformationIndex);
         ret.projectionToNDC = nbl::hlsl::mul(globals.defaultProjectionToNDC, customProjection);
     }
     else
         ret.projectionToNDC = globals.defaultProjectionToNDC;
 
-    if (mainObj.customClipRectIndex != InvalidCustomClipRectIndex)
+    if (mainObj.getCustomClipRectIndex() != MainObject::getInvalidCustomClipRectIndex())
     {
-        WorldClipRect worldClipRect = loadCustomClipRect(mainObj.customClipRectIndex);
+        WorldClipRect worldClipRect = loadCustomClipRect(mainObj.getCustomClipRectIndex());
         
         /// [NOTE]: Optimization: we avoid looking for min/max in the shader because minClip and maxClip in default worldspace are defined in such a way that minClip.y > maxClip.y so minClipNDC.y < maxClipNDC.y
         ret.minClipNDC = nbl::hlsl::_static_cast<float32_t2>(transformPointNdc(globals.defaultProjectionToNDC, worldClipRect.minClip));
@@ -55,7 +55,7 @@ NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.maxClipNDC = float2(+1.0f, +1.0f);
     }
     
-    if (mainObj.transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
+    if (mainObj.getTransformationType() == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
         ret.projectionToNDC = nbl::hlsl::mul(ret.projectionToNDC, globals.screenToWorldScaleTransform);
     
     return ret;
@@ -208,11 +208,9 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         outV.setObjType(objType);
         outV.setMainObjectIdx(drawObj.getMainObjIndex());
 
-        printf("offset: %u", drawObj.geometryAddress);
-
         MainObject mainObj = loadMainObject(drawObj.getMainObjIndex());
         clipProjectionData = getClipProjectionData(mainObj);
-        
+
         float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
         float worldToScreenRatio = 1.0f / screenToWorldRatio;
         outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
@@ -220,7 +218,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         // We only need these for Outline type objects like lines and bezier curves
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
+            LineStyle lineStyle = loadLineStyle(mainObj.getStyleIndex());
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
             const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
@@ -599,7 +597,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::FONT_GLYPH)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
+            LineStyle lineStyle = loadLineStyle(mainObj.getStyleIndex());
             const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
             GlyphInfo glyphInfo;

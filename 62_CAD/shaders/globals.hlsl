@@ -151,11 +151,29 @@ enum TransformationType
 // [TODO]: pack indices and members of mainObject and DrawObject + enforce max size for autosubmit --> but do it only after the mainobject definition is finalized in gpu-driven rendering work
 struct MainObject
 {
-    uint32_t styleIdx;
-    uint32_t dtmSettingsIdx;
-    uint32_t customProjectionIndex;
-    uint32_t customClipRectIndex;
-    uint32_t transformationType; // todo pack later, it's just 2 possible values atm
+    uint32_t packedData;
+    uint32_t customTransformationIndex; // needs at least 24 bits
+
+    using StyleIdxOrDtmSettingsIdxField = utils::BitField<uint32_t, 0, 16>; // 65,536 distinct lineStyles or dtmSettings is more than enough for an n4ce frame, but make sure auto submit in drawresources filler plays nice and doesn't exceed this value
+    using CustomClipRectIndexField = utils::BitField<uint32_t, 16, 15>; // these are associated with the number of clipping rects or dwgs one could have in a frame. from experience they'll always be less than 10, 32,768 is more than enough
+    using TransformationTypeField = utils::BitField<uint32_t, 31, 1>; // todo pack later, it's just 2 possible values atm
+
+    uint32_t getStyleIndex() { return StyleIdxOrDtmSettingsIdxField::get(packedData); }
+    void setStyleIdx(uint32_t styleIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, styleIdx); }
+
+    uint32_t getDtmSettingsIndex() { return StyleIdxOrDtmSettingsIdxField::get(packedData); }
+    void setDtmSettingsIdx(uint32_t dtmSettingsIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, dtmSettingsIdx); }
+
+    uint32_t getCustomClipRectIndex() { return CustomClipRectIndexField::get(packedData); }
+    void setCustomClipRectIndex(uint32_t customClipRectIndexField) { packedData = CustomClipRectIndexField::set(packedData, customClipRectIndexField); }
+
+    uint32_t getTransformationType() { return TransformationTypeField::get(packedData); }
+    void setTransformationType(uint32_t transformationTypeField) { packedData = TransformationTypeField::set(packedData, transformationTypeField); }
+
+    static uint32_t getInvalidStyleIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max & 0xFFFF; }
+    static uint32_t getInvalidDtmSettingsIndex() { return getInvalidStyleIndex(); }
+    static uint32_t getInvalidCustomClipRectIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max & 0x7FFF; }
+    static uint32_t getInvalidCustomTransformationIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max; }
 };
 
 struct DrawObject
@@ -563,11 +581,7 @@ NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
