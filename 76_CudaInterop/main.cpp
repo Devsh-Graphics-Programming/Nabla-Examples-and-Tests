@@ -186,12 +186,20 @@ public:
         auto& cu = m_cuHandler->getCUDAFunctionTable();
 
         CUmodule   module;
-        CUfunction kernel;
-        CUstream   stream;
-
         ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
+        auto moduleCleanup = nbl::core::makeRAIIExiter([&]()
+        {
+            cu.pcuModuleUnload(module);
+        });
+
+        CUfunction kernel;
         ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"), m_cuHandler);
+
+        CUstream   stream;
         ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
+        auto streamCleanup = nbl::core::makeRAIIExiter([&] {
+            cu.pcuStreamDestroy_v2(stream);
+        });
 
         // CPU memory which we fill with random numbers between [-1,1] that will be copied to corresponding cudaMemory
         std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpuBufs;
@@ -416,8 +424,6 @@ public:
         ASSERT_CUDA_SUCCESS(cu.pcuLaunchHostFunc(stream, cudaCallback, &ctx), m_cuHandler);
         ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
 
-        ASSERT_CUDA_SUCCESS(cu.pcuModuleUnload(module), m_cuHandler);
-        ASSERT_CUDA_SUCCESS(cu.pcuStreamDestroy_v2(stream), m_cuHandler);
     }
 
     void testWmmaGemB1()
