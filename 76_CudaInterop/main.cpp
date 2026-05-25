@@ -464,12 +464,19 @@ public:
         auto& cu = m_cuHandler->getCUDAFunctionTable();
 
         CUmodule   module;
-        CUfunction kernel;
-        CUstream   stream;
-
         ASSERT_CUDA_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr), m_cuHandler);
+        auto moduleCleanup = nbl::core::makeRAIIExiter([&]() {
+            cu.pcuModuleUnload(module);
+        });
+
+        CUfunction kernel;
         ASSERT_CUDA_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "b1_wmma_gemm_kernel"), m_cuHandler);
+
+        CUstream   stream;
         ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
+        auto streamCleanup = nbl::core::makeRAIIExiter([&] {
+            cu.pcuStreamDestroy_v2(stream);
+        });
 
         // Calculate buffer sizes (bits packed into uint32_t)
         const size_t matA_size = (ElementCount.x * ElementCount.z) / 32 * sizeof(uint32_t); // M x K bits
