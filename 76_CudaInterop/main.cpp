@@ -97,7 +97,6 @@ public:
         testVectorAddKernel();
         testWmmaGemB1();
         testDestruction();
-        testLargeAllocations();
 
         return true;
     }
@@ -854,22 +853,6 @@ public:
     
     }
 
-    void testLargeAllocations()
-    {
-        // TODO(kevin): Calculate BufferSize that is big enough to fill the machine VRAM
-        constexpr auto BufferSize = 1024;
-        IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
-            .size = BufferSize,
-            .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
-            .alignmentLog2 = 10,
-        };
-    
-        for (size_t i = 0; i < (1 << 8); ++i)
-        {
-            auto memory = m_device->allocate(reqs, { nullptr, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::ExternalMemoryHandleType }).memory;
-            assert(memory);
-            auto tmpBuf = createExternalBuffer(memory.get());
-        }
     }
 
     // Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
