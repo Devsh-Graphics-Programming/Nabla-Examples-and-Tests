@@ -101,7 +101,6 @@ public:
         return true;
     }
 
-
     smart_refctd_ptr<IGPUBuffer> createExternalBuffer(IDeviceMemoryAllocation* mem)
     {
         IGPUBuffer::SCreationParams params = {};
@@ -721,11 +720,11 @@ public:
             m_device->blockForSemaphores(wait, true);
 
             auto* stagingMem = outputStagingBuffer->getBoundMemory().memory;
-        if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-        {
-            ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
-            m_device->invalidateMappedMemoryRanges(1, &range);
-        }
+            if (!stagingMem->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            {
+                ILogicalDevice::MappedMemoryRange range(stagingMem, 0, stagingMem->getAllocationSize());
+                m_device->invalidateMappedMemoryRanges(1, &range);
+            }
 
             const auto* results = reinterpret_cast<int32_t*>(stagingMem->getMappedPointer());
             
@@ -734,10 +733,10 @@ public:
             for (int i = 0; i < ElementCount.x * ElementCount.y; i++) {
                 const auto expected = [&]
                 {
-                // Since we are multiplying reverse diagonal matrix to matrixB. The result should be matrix b but each column reversed.
-                // The calculation below is to get the index of cpuMatB if the column is reversed to get the expected bit.
-                const auto row = i / ElementCount.y;
-                const auto col = i % ElementCount.y;
+                    // Since we are multiplying reverse diagonal matrix to matrixB. The result should be matrix b but each column reversed.
+                    // The calculation below is to get the index of cpuMatB if the column is reversed to get the expected bit.
+                    const auto row = i / ElementCount.y;
+                    const auto col = i % ElementCount.y;
                     const auto expectedCol = col;
                     const auto expectedRow = ElementCount.z - row - 1;
                     const auto expectedIdx = expectedCol * ElementCount.z + expectedRow;
@@ -808,14 +807,17 @@ public:
             auto tmpBuf = createExternalBuffer(escaped.get());
             auto staging = createStaging(BufferSize);
         
+
             // Setup synchronization for readback
             ISemaphore::SCreationParams semParams;
             semParams.initialValue = 0;
             const auto semaphore = m_device->createSemaphore(std::move(semParams));
+            static constexpr auto SyncPointCopyDone = 1;
+
             IQueue::SSubmitInfo::SSemaphoreInfo semInfo;
             semInfo.semaphore = semaphore.get();
             semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-            semInfo.value = 1;
+            semInfo.value = SyncPointCopyDone;
         
             // Copy data back from the persistent buffer to staging for verification
             smart_refctd_ptr<IGPUCommandBuffer> cmd;
@@ -832,18 +834,32 @@ public:
             auto qre = queue->submit({ &submitInfo, &submitInfo + 1 });
             assert(IQueue::RESULT::SUCCESS == qre);
         
+            ISemaphore::SWaitInfo waitInfo = {
+              .semaphore = semaphore.get(),
+              .value = SyncPointCopyDone
+            };
+            m_device->blockForSemaphores({ &waitInfo, 1 });
             m_device->waitIdle();
         
+            // Verify the data remains intact after CUDA object destruction
             auto& ptr = *(std::array<uint32_t, BufferSize>*)staging->getBoundMemory().memory->getMappedPointer();
+            auto errorCount = 0;
+            static const auto MaxErrorCount = 10;
             for (uint32_t i = 0; i < ElementCount; ++i)
             {
-                if (ptr[i] != i) logFail("Test Destruction: Element %d is incorrect", i);
+                if (ptr[i] != testData[i]) {
+                  logFail("Destruction test error at [%d]: value=%d, expected=%d", i, ptr[i], testData[i]);
+                  errorCount++;
+                  if (errorCount == MaxErrorCount) break;
+                }
             }
-            m_logger->log("Test Destruction complete", ILogger::ELL_INFO);
+            
+            if (errorCount == 0)
+                m_logger->log("Destruction test PASSED!", system::ILogger::ELL_INFO);
+            else
+                m_logger->log("Destruction test FAILED with %d errors!", system::ILogger::ELL_ERROR, errorCount);
         }
     
-    }
-
     }
 
     // Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
