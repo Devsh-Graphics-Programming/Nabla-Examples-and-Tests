@@ -180,7 +180,7 @@ public:
     void testVectorAddKernel()
     {
         static constexpr uint32_t GridDim[3] = { 4096,1,1 };
-        static constexpr uint32_t BlockDim[3] = { 1,1,1 };
+        static constexpr uint32_t BlockDim[3] = { 1024,1,1 };
         static constexpr size_t NumElements = GridDim[0] * BlockDim[0];
         static constexpr size_t BufferSize = sizeof(float) * NumElements;
 
