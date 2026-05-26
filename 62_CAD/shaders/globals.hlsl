@@ -12,6 +12,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 #include <nbl/builtin/hlsl/utils/bitfield.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/basic.hlsl>
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -29,6 +30,7 @@ using pfloat64_t2 = nbl::hlsl::vector<float64_t, 2>;
 using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
 #endif
 
+using pfloat64_t2x3 = portable_matrix_t2x3<pfloat64_t>;
 using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
 
 struct PushConstants
@@ -159,10 +161,10 @@ struct MainObject
     using TransformationTypeField = utils::BitField<uint32_t, 31, 1>; // todo pack later, it's just 2 possible values atm
 
     uint32_t getStyleIndex() { return StyleIdxOrDtmSettingsIdxField::get(packedData); }
-    void setStyleIdx(uint32_t styleIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, styleIdx); }
+    void setStyleIndex(uint32_t styleIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, styleIdx); }
 
     uint32_t getDtmSettingsIndex() { return StyleIdxOrDtmSettingsIdxField::get(packedData); }
-    void setDtmSettingsIdx(uint32_t dtmSettingsIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, dtmSettingsIdx); }
+    void setDtmSettingsIndex(uint32_t dtmSettingsIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, dtmSettingsIdx); }
 
     uint32_t getCustomClipRectIndex() { return CustomClipRectIndexField::get(packedData); }
     void setCustomClipRectIndex(uint32_t customClipRectIndexField) { packedData = CustomClipRectIndexField::set(packedData, customClipRectIndexField); }
@@ -170,9 +172,9 @@ struct MainObject
     uint32_t getTransformationType() { return TransformationTypeField::get(packedData); }
     void setTransformationType(uint32_t transformationTypeField) { packedData = TransformationTypeField::set(packedData, transformationTypeField); }
 
-    static uint32_t getInvalidStyleIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max & 0xFFFF; }
+    static uint32_t getInvalidStyleIndex() { return 0xFFFF; }
     static uint32_t getInvalidDtmSettingsIndex() { return getInvalidStyleIndex(); }
-    static uint32_t getInvalidCustomClipRectIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max & 0x7FFF; }
+    static uint32_t getInvalidCustomClipRectIndex() { return 0x7FFF; }
     static uint32_t getInvalidCustomTransformationIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max; }
 };
 
@@ -633,7 +635,19 @@ DTMSettings loadDTMSettings(const uint32_t index)
 }
 pfloat64_t3x3 loadCustomProjection(const uint32_t index)
 {
-    return vk::RawBufferLoad<pfloat64_t3x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t3x3), 8u);
+    pfloat64_t2x3 matrix2x3 = vk::RawBufferLoad<pfloat64_t2x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t2x3), 8u);
+
+    pfloat64_t3x3 output;
+    output.rows[0].setComponent(0, matrix2x3.rows[0].getComponent(0));
+    output.rows[0].setComponent(1, matrix2x3.rows[0].getComponent(1));
+    output.rows[0].setComponent(2, matrix2x3.rows[0].getComponent(2));
+    output.rows[1].setComponent(0, matrix2x3.rows[1].getComponent(0));
+    output.rows[1].setComponent(1, matrix2x3.rows[1].getComponent(1));
+    output.rows[1].setComponent(2, matrix2x3.rows[1].getComponent(2));
+    output.rows[2].setComponent(0, nbl::hlsl::_static_cast<pfloat64_t>(0.0));
+    output.rows[2].setComponent(1, nbl::hlsl::_static_cast<pfloat64_t>(0.0));
+    output.rows[2].setComponent(2, nbl::hlsl::_static_cast<pfloat64_t>(1.0));
+    return output;
 }
 WorldClipRect loadCustomClipRect(const uint32_t index)
 {

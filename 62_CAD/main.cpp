@@ -3290,10 +3290,9 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_6)
 		{
-			float64_t3x3 customProjection = float64_t3x3{
+			float64_t2x3 customProjection = float64_t2x3{
 				1.0, 0.0, cos(m_timeElapsed * 0.0005) * 100.0,
-				0.0, 1.0, 0.0,
-				0.0, 0.0, 1.0
+				0.0, 1.0, 0.0
 			};
 
 			/// [NOTE]: We set minClip and maxClip (in default worldspace) in such a way that minClip.y > maxClip.y so that minClipNDC.y < maxClipNDC.y
@@ -3847,7 +3846,7 @@ protected:
 					
 					transformation = nbl::hlsl::mul(rotateMat, nbl::hlsl::mul(translateMat, scaleMat));
 
-					drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+					drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, float64_t2x3(transformation[0], transformation[1]), TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 				}
 			}
 		}

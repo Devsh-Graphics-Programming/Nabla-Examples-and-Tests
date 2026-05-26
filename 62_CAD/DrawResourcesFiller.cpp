@@ -228,7 +228,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 	endMainObject();
 }
 
-void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t2x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!lineStyleInfo.isVisible())
 		return;
@@ -397,7 +397,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 		const float32_t4& foregroundColor,
 		const float32_t4& backgroundColor,
 		const HatchFillPattern fillPattern,
-		const float64_t3x3& transformation,
+		const float64_t2x3& transformation,
 		TransformationType transformationType, 
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -413,7 +413,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 	const Hatch& hatch,
 	const float32_t4& color,
 	const HatchFillPattern fillPattern,
-	const float64_t3x3& transformation,
+	const float64_t2x3& transformation,
 	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -425,7 +425,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 void DrawResourcesFiller::drawFixedGeometryHatch(
 	const Hatch& hatch,
 	const float32_t4& color,
-	const float64_t3x3& transformation,
+	const float64_t2x3& transformation,
 	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -1007,7 +1007,7 @@ void DrawResourcesFiller::drawGeoreferencedImage(image_id imageID, nbl::core::sm
 		// Georefernced Image Data in the cache was already pre-transformed from local to main worldspace coordinates for tile calculation purposes
 		// Because of this reason, the pre-transformed obb in the cache doesn't need to be transformed by custom projection again anymore.
 		// we push the identity transform to prevent any more tranformation on the obb which is already in worldspace units.
-		float64_t3x3 identity = float64_t3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+		float64_t2x3 identity = float64_t2x3(1, 0, 0, 0, 1, 0);
 		pushCustomProjection(identity);
 
 		beginMainObject(MainObjectType::STREAMED_IMAGE);
@@ -1407,7 +1407,7 @@ void DrawResourcesFiller::endMainObject()
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
-void DrawResourcesFiller::pushCustomProjection(const float64_t3x3& projection)
+void DrawResourcesFiller::pushCustomProjection(const float64_t2x3& projection)
 {
 	activeProjections.push_back(projection);
 	activeProjectionIndices.push_back(MainObject::getInvalidCustomTransformationIndex());
@@ -2152,15 +2152,15 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 
-float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const
+float64_t2x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(const float64_t2x3& transformation, TransformationType transformationType) const
 {
 	if (!activeProjections.empty())
 	{
-		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
+		float64_t3x3 newTransformation = nbl::hlsl::mul(hlsl::math::linalg::promote_affine<3,3,2,3>(activeProjections.back()), hlsl::math::linalg::promote_affine<3, 3, 2, 3>(transformation));
 
 		if (transformationType == TransformationType::TT_NORMAL)
 		{
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 		else if (transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
 		{
@@ -2183,12 +2183,12 @@ float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 			newTransformation[0][1] = column1[0];
 			newTransformation[1][1] = column1[1];
 
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 		else
 		{
 			// Fallback if transformationType is unrecognized, shouldn't happen
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 	}
 	else
@@ -2279,15 +2279,15 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	assert((needsLineStyle == !needsDTMSettings) || (needsLineStyle == false && needsDTMSettings == false));
 	if (needsLineStyle)
 	{
-		mainObject.setStyleIdx(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
 	}
 	else if(needsDTMSettings)
 	{
-		mainObject.setDtmSettingsIdx(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setDtmSettingsIndex(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
 	}
 	else
 	{
-		mainObject.setStyleIdx(MainObject::getInvalidStyleIndex());
+		mainObject.setStyleIndex(MainObject::getInvalidStyleIndex()); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
 	}
 	mainObject.customTransformationIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomTransformationIndex();
 	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomClipRectIndex());
@@ -2328,10 +2328,10 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 	return outDTMSettingIdx;
 }
 
-uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t2x3& projection, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const size_t memRequired = sizeof(float64_t3x3);
+	const size_t memRequired = sizeof(float64_t2x3);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 
 	if (!enoughMem)
