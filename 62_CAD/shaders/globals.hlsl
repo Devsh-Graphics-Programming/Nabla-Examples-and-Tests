@@ -147,6 +147,17 @@ enum TransformationType
     TT_FIXED_SCREENSPACE_SIZE
 };
 
+template <typename T, uint32_t Bits>
+struct IndexLimits
+{
+    // The universal invalid marker (all 1s for the given bit width)
+    NBL_CONSTEXPR_STATIC T Invalid = (Bits >= sizeof(T) * 8) 
+                                 ? ~T(0) 
+                                 : (T(1) << Bits) - T(1);
+
+    // The highest valid index is one less than the invalid marker
+    NBL_CONSTEXPR_STATIC T MaxIndexable = Invalid - T(1);
+};
 
 // Consists of multiple DrawObjects
 // [IDEA]: In GPU-driven rendering, to save mem for MainObject data fetching: many of these can be shared amongst different main objects, we could find these styles, settings, etc indices with upper_bound
@@ -157,8 +168,9 @@ struct MainObject
     uint32_t customTransformationIndex; // needs at least 24 bits
 
     using StyleIdxOrDtmSettingsIdxField = utils::BitField<uint32_t, 0, 16>; // 65,536 distinct lineStyles or dtmSettings is more than enough for an n4ce frame, but make sure auto submit in drawresources filler plays nice and doesn't exceed this value
-    using CustomClipRectIndexField = utils::BitField<uint32_t, 16, 15>; // these are associated with the number of clipping rects or dwgs one could have in a frame. from experience they'll always be less than 10, 32,768 is more than enough
-    using TransformationTypeField = utils::BitField<uint32_t, 31, 1>; // todo pack later, it's just 2 possible values atm
+    using CustomClipRectIndexField = utils::BitField<uint32_t, 16, 14>; // these are associated with the number of clipping rects or dwgs one could have in a frame. from experience they'll always be less than 10, 32,768 is more than enough
+    using TransformationTypeField = utils::BitField<uint32_t, 30, 1>; // todo pack later, it's just 2 possible values atm
+    using UseDtmSettingsField = utils::BitField<uint32_t, 31, 1>; // this bit indicates if MainObject uses DTM settings
 
     uint32_t getStyleIndex() { return StyleIdxOrDtmSettingsIdxField::get(packedData); }
     void setStyleIndex(uint32_t styleIdx) { packedData = StyleIdxOrDtmSettingsIdxField::set(packedData, styleIdx); }
@@ -172,9 +184,12 @@ struct MainObject
     uint32_t getTransformationType() { return TransformationTypeField::get(packedData); }
     void setTransformationType(uint32_t transformationTypeField) { packedData = TransformationTypeField::set(packedData, transformationTypeField); }
 
-    static uint32_t getInvalidStyleIndex() { return 0xFFFF; }
+    bool isUsingDtmSettings() { return (bool)UseDtmSettingsField::get(packedData); }
+    void setDtmSettingsFlag(bool isUsingDtmSettings) { packedData = UseDtmSettingsField::set(packedData, (uint32_t)isUsingDtmSettings); }
+
+    static uint32_t getInvalidStyleIndex() { return IndexLimits<uint32_t, StyleIdxOrDtmSettingsIdxField::BitCount>::Invalid; }
     static uint32_t getInvalidDtmSettingsIndex() { return getInvalidStyleIndex(); }
-    static uint32_t getInvalidCustomClipRectIndex() { return 0x7FFF; }
+    static uint32_t getInvalidCustomClipRectIndex() { return IndexLimits<uint32_t, CustomClipRectIndexField::BitCount>::Invalid; }
     static uint32_t getInvalidCustomTransformationIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max; }
 };
 

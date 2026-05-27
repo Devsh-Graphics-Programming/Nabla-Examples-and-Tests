@@ -2280,14 +2280,17 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	if (needsLineStyle)
 	{
 		mainObject.setStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setDtmSettingsFlag(false);
 	}
 	else if(needsDTMSettings)
 	{
 		mainObject.setDtmSettingsIndex(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setDtmSettingsFlag(true);
 	}
 	else
 	{
 		mainObject.setStyleIndex(MainObject::getInvalidStyleIndex()); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
+		mainObject.setDtmSettingsFlag(false);
 	}
 	mainObject.customTransformationIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomTransformationIndex();
 	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomClipRectIndex());

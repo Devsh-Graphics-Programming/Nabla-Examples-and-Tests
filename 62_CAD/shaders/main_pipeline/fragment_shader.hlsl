@@ -110,14 +110,22 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     const bool differentMainObject = currentMainObjectIdx != storedMainObjectIdx; // meaning current pixel's main object is different than what is already stored
     const bool resolve = differentMainObject && storedMainObjectIdx != InvalidMainObjectIdx;
     uint32_t toResolveStyleIdx = MainObject::getInvalidStyleIndex();
-    
+    MainObject mainObject = loadMainObject(storedMainObjectIdx);
+
     // load from colorStorage only if we want to resolve color from texture instead of style
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
     if (resolve)
     {
-        toResolveStyleIdx = loadMainObject(storedMainObjectIdx).getStyleIndex();
-        if (toResolveStyleIdx == MainObject::getInvalidStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
+        if(!mainObject.isUsingDtmSettings())
+        {
+            toResolveStyleIdx = mainObject.getStyleIndex();
+            if (toResolveStyleIdx == MainObject::getInvalidStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
+                color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+        }
+        else
+        {
             color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+        }
     }
     
     // If current localAlpha is higher than what is already stored in pseudoStencil we will update the value in pseudoStencil or the color in colorStorage, this is equivalent to programmable blending MAX operation.
