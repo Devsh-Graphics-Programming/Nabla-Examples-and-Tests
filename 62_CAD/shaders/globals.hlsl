@@ -191,6 +191,11 @@ struct MainObject
     static uint32_t getInvalidDtmSettingsIndex() { return getInvalidLineStyleIndex(); }
     static uint32_t getInvalidCustomClipRectIndex() { return IndexLimits<uint32_t, CustomClipRectIndexField::BitCount>::Invalid; }
     static uint32_t getInvalidCustomTransformationIndex() { return nbl::hlsl::numeric_limits<uint32_t>::max; }
+
+    static uint32_t getMaxIndexableLineStyles() { return IndexLimits<uint32_t, LineStyleIdxOrDtmSettingsIdxField::BitCount>::MaxIndexable; }
+    static uint32_t getMaxIndexableDtmSettings() { return getMaxIndexableLineStyles(); }
+    static uint32_t getMaxIndexableCustomClipRects() { return IndexLimits<uint32_t, CustomClipRectIndexField::BitCount>::MaxIndexable; }
+    static uint32_t getMaxIndexableCustomTransformations() { return nbl::hlsl::numeric_limits<uint32_t>::max - 1u; }
 };
 
 struct DrawObject
@@ -597,8 +602,8 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t AlphaBits = 32u - MainObjectIdxBits;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = IndexLimits<uint32_t, MainObjectIdxBits>::MaxIndexable;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = IndexLimits<uint32_t, MainObjectIdxBits>::Invalid;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches

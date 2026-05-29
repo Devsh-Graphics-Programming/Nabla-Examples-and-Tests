@@ -2076,7 +2076,8 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
-	if (!enoughMem)
+	const bool indexLimitExceeded = resourcesCollection.lineStyles.vector.size() > MainObject::getMaxIndexableLineStyles();
+	if (!enoughMem || indexLimitExceeded)
 		return MainObject::getInvalidLineStyleIndex();
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
@@ -2098,8 +2099,9 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	const size_t noOfLineStylesRequired = ((dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE) ? 1u : 0u) + dtmSettingsInfo.contourSettingsCount;
 	const size_t maxMemRequired = sizeof(DTMSettings) + noOfLineStylesRequired * sizeof(LineStyle);
 	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool indexLimitExceeded = resourcesCollection.dtmSettings.vector.size() > MainObject::getMaxIndexableDtmSettings();
 
-	if (!enoughMem)
+	if (!enoughMem || indexLimitExceeded)
 		return MainObject::getInvalidDtmSettingsIndex();
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
@@ -2263,7 +2265,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	if (needsCustomClipRect) memRequired += sizeof(WorldClipRect);
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
+	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() > MaxIndexableMainObjects);
 	
 	if (needToOverflowSubmit)
 	{
@@ -2336,8 +2338,9 @@ uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const size_t memRequired = sizeof(float64_t2x3);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool indexLimitExceeded = resourcesCollection.customProjections.vector.size() > MainObject::getMaxIndexableCustomTransformations();
 
-	if (!enoughMem)
+	if (!enoughMem || indexLimitExceeded)
 	{
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
@@ -2352,8 +2355,9 @@ uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRe
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const size_t memRequired = sizeof(WorldClipRect);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool indexLimitExceeded = resourcesCollection.customClipRects.vector.size() > MainObject::getMaxIndexableCustomClipRects();
 
-	if (!enoughMem)
+	if (!enoughMem || indexLimitExceeded)
 	{
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
