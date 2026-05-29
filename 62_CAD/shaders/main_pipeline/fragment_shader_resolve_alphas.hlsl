@@ -38,9 +38,17 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
         // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
         if (resolve)
         {
-            toResolveStyleIdx = loadMainObject(storedMainObjectIdx).getStyleIndex();
-            if (toResolveStyleIdx == MainObject::getInvalidStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
+            MainObject mainObject = loadMainObject(storedMainObjectIdx);
+            if(!mainObject.isUsingDtmSettings())
+            {
+                toResolveStyleIdx = mainObject.getStyleIndex();
+                if (toResolveStyleIdx == MainObject::getInvalidStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
+                    color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+            }
+            else
+            {
                 color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+            }
         }
     }
     else if (globals.currentlyActiveMainObjectIndex != InvalidMainObjectIdx)

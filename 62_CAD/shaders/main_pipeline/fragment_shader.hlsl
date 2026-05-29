@@ -83,9 +83,15 @@ template<>
 float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
     float32_t4 color;
-    uint32_t styleIdx = loadMainObject(currentMainObjectIdx).getStyleIndex();
+    MainObject mainObject = loadMainObject(storedMainObjectIdx);
+
+    // `colorFromTexture` is required when drawing DTMs
+    if (mainObject.isUsingDtmSettings())
+        color = float4(localTextureColor, localAlpha);
+
     if (!colorFromTexture)
     {
+        uint32_t styleIdx = loadMainObject(currentMainObjectIdx).getStyleIndex();
         color = loadLineStyle(styleIdx).color;
         color.w *= localAlpha;
     }
