@@ -1384,7 +1384,7 @@ const DrawResourcesFiller::ResourcesCollection& DrawResourcesFiller::getResource
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
 	activeLineStyle = lineStyle;
-	activeLineStyleIndex = MainObject::getInvalidStyleIndex();
+	activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
 }
 
 void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
@@ -2077,7 +2077,7 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
 	if (!enoughMem)
-		return MainObject::getInvalidStyleIndex();
+		return MainObject::getInvalidLineStyleIndex();
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
@@ -2200,7 +2200,7 @@ float64_t2x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeLineStyleIndex == MainObject::getInvalidStyleIndex())
+	if (activeLineStyleIndex == MainObject::getInvalidLineStyleIndex())
 		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
 	
 	return activeLineStyleIndex;
@@ -2279,7 +2279,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	assert((needsLineStyle == !needsDTMSettings) || (needsLineStyle == false && needsDTMSettings == false));
 	if (needsLineStyle)
 	{
-		mainObject.setStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setLineStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
 		mainObject.setDtmSettingsFlag(false);
 	}
 	else if(needsDTMSettings)
@@ -2289,7 +2289,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	}
 	else
 	{
-		mainObject.setStyleIndex(MainObject::getInvalidStyleIndex()); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
+		mainObject.setLineStyleIndex(MainObject::getInvalidLineStyleIndex()); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
 		mainObject.setDtmSettingsFlag(false);
 	}
 	mainObject.customTransformationIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomTransformationIndex();
@@ -2302,14 +2302,14 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == MainObject::getInvalidStyleIndex())
+	if (outLineStyleIdx == MainObject::getInvalidLineStyleIndex())
 	{
 		// There wasn't enough resource memory remaining to fit a single LineStyle
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != MainObject::getInvalidStyleIndex());
+		assert(outLineStyleIdx != MainObject::getInvalidLineStyleIndex());
 	}
 
 	return outLineStyleIdx;

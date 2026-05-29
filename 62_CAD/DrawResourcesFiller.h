@@ -874,7 +874,7 @@ protected:
 	void resetLineStyles()
 	{
 		resourcesCollection.lineStyles.vector.clear();
-		activeLineStyleIndex = MainObject::getInvalidStyleIndex();
+		activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
 	}
 
 	void resetDTMSettings()
@@ -991,7 +991,7 @@ protected:
 
 	// Active Resources we need to keep track of and push to resources buffer if needed.
 	LineStyleInfo activeLineStyle;
-	uint32_t activeLineStyleIndex = MainObject::getInvalidStyleIndex();
+	uint32_t activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
 
 	DTMSettingsInfo activeDTMSettings;
 	uint32_t activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();

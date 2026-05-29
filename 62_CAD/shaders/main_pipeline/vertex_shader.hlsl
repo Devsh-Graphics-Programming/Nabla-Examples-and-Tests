@@ -218,7 +218,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         // We only need these for Outline type objects like lines and bezier curves
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.getStyleIndex());
+            LineStyle lineStyle = loadLineStyle(mainObj.getLineStyleIndex());
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
             const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
@@ -597,7 +597,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::FONT_GLYPH)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.getStyleIndex());
+            LineStyle lineStyle = loadLineStyle(mainObj.getLineStyleIndex());
             const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
             GlyphInfo glyphInfo;
