@@ -22,6 +22,8 @@ void CSessionWindow::setSession(CSession* session)
 		const auto& dynamics = m_session->getActiveResources().currentSensorState;
 		m_cachedDynamics = dynamics;
 		m_state.tMax = dynamics.tMax;
+		m_state.maxSPP = static_cast<int>(dynamics.maxSPP);
+		m_state.maxPathDepth = static_cast<int>(dynamics.lastPathDepth) + 1;
 
 		// Read render mode from creation params
 		const auto& params = m_session->getConstructionParams();
@@ -93,6 +95,26 @@ void CSessionWindow::drawRenderModeSection()
 
 		if (m_session)
 			ImGui::ProgressBar(m_session->getProgress(), ImVec2(-1, 0), "Progress");
+
+		// Synchronous: the click runs the bench inline on the GUI thread.
+		// The UI will appear frozen for the bench's targetBudgetMs window;
+		// results land in the log + PTBench.json.
+		const bool canBench = m_session && m_callbacks.onBenchmarkRequested;
+		if (!canBench)
+			ImGui::BeginDisabled();
+		if (ImGui::Button("Benchmark Current Session", ImVec2(-1, 0)) && canBench)
+			m_callbacks.onBenchmarkRequested(m_session);
+		if (!canBench)
+			ImGui::EndDisabled();
+
+		// EXR readback of beauty for offline image comparisons (FLIP etc.).
+		const bool canDump = m_session && m_callbacks.onDumpImageRequested;
+		if (!canDump)
+			ImGui::BeginDisabled();
+		if (ImGui::Button("Dump Beauty (EXR)", ImVec2(-1, 0)) && canDump)
+			m_callbacks.onDumpImageRequested(m_session);
+		if (!canDump)
+			ImGui::EndDisabled();
 	}
 }
 
@@ -106,10 +128,23 @@ void CSessionWindow::drawDynamicsSection()
 		if (ImGui::DragFloat("Crop Offset Y", &m_state.cropOffsetY, 1.0f, 0.0f, 10000.0f)) changed = true;
 		if (ImGui::SliderFloat("T Max", &m_state.tMax, 0.0f, 20000.0f, "%.1f", ImGuiSliderFlags_Logarithmic)) changed = true;
 
+		// Per-pixel accumulation cap. Bounded by the maxSPP push-constant bitfield width.
+		constexpr int kMaxSPPLimit = (1 << 22) - 1;
+		if (ImGui::DragInt("Max SPP", &m_state.maxSPP, 16.0f, 1, kMaxSPPLimit, "%d", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+
+		// Max path depth (bounces). Bounded by the lastPathDepth bitfield width. Routed
+		// through its own callback (app-driven), not onDynamicsChanged, since it must
+		// restart accumulation while maxSPP must not.
+		constexpr int kMaxPathDepthLimit = (1 << MAX_PATH_DEPTH_LOG2) - 1;
+		if (ImGui::DragInt("Max Path Depth", &m_state.maxPathDepth, 0.25f, 2, kMaxPathDepthLimit, "%d", ImGuiSliderFlags_AlwaysClamp))
+			if (m_callbacks.onMaxPathDepthChanged)
+				m_callbacks.onMaxPathDepthChanged(static_cast<uint16_t>(m_state.maxPathDepth));
+
 		if (changed && m_callbacks.onDynamicsChanged)
 		{
 			SSensorDynamics newDynamics = m_cachedDynamics;
 			newDynamics.tMax = m_state.tMax;
+			newDynamics.maxSPP = static_cast<uint32_t>(m_state.maxSPP);
 			// TODO: updated crop offsets when theyre moved too
 			m_callbacks.onDynamicsChanged(newDynamics, m_session);
 		}
@@ -246,7 +281,9 @@ void CSessionWindow::drawOutputBufferSection()
 		showBufferThumbnail(BufferType::Motion, immutables.motion);
 		showBufferThumbnail(BufferType::Mask, immutables.mask);
 		showBufferThumbnail(BufferType::RWMCCascades, immutables.rwmcCascades);
-		showBufferThumbnail(BufferType::SampleCount, immutables.sampleCount);
+		// showBufferThumbnail(BufferType::SampleCount, immutables.sampleCount);
+		// SampleCount thumbnail removed: image is EF_R16_UINT, ImGui samples as
+		// float -> driver fault. See CUIManager::bindTexture comment.
 
 		ImGui::Spacing();
 		ImGui::TextDisabled("Click to select buffer for viewing");

@@ -32,6 +32,66 @@ struct PipelineStats
    std::vector<nbl::video::IGPUPipelineBase::SExecutableStatistic> unknowns;
 };
 
+// Match one driver-reported executable stat into the appropriate PipelineStats
+// slot, accumulating max. VGPR/SGPR are returned separately so callers can
+// fall back to (vgpr + sgpr) when no combined `register` stat exists (AMD).
+inline void matchPipelineStat(const nbl::video::IGPUPipelineBase::SExecutableStatistic& stat, PipelineStats& out, uint64_t& vgpr, uint64_t& sgpr)
+{
+   const uint64_t v        = stat.asUint();
+   auto           contains = [&](std::string_view kw)
+   {
+      const auto it = std::ranges::search(stat.name, kw, [&](char a, char b)
+         { return std::tolower(a) == std::tolower(b); }).begin();
+      return it != stat.name.end();
+   };
+
+   // Order matters: more specific keys first.
+   if (contains("subgroup size") || contains("subgroupsize") || contains("warp size") || contains("wave size"))
+      out.subgroupSize = std::max<uint32_t>(out.subgroupSize, uint32_t(v));
+   else if (contains("vgpr"))
+      vgpr = std::max(vgpr, v);
+   else if (contains("sgpr"))
+      sgpr = std::max(sgpr, v);
+   else if (contains("register"))
+      out.registerCount = std::max(out.registerCount, v);
+   else if (contains("binary size") || contains("binarysize") || contains("codesize") || contains("code size") || contains("isa size"))
+      out.codeSizeBytes = std::max(out.codeSizeBytes, v);
+   else if (contains("instructioncount") || contains("instruction count") || contains("numinstructions"))
+      out.codeSizeBytes = std::max(out.codeSizeBytes, v); // proxy when no byte size
+   else if (contains("shared memory") || contains("sharedmemory") || contains("groupshared") || contains("lds"))
+      out.sharedMemBytes = std::max(out.sharedMemBytes, v);
+   else if (contains("stack size") || contains("stacksize"))
+      out.stackBytes = std::max(out.stackBytes, v);
+   else if (contains("local memory") || contains("localmemory") || contains("scratch") || contains("private memory") || contains("privatememory") || contains("stack"))
+      out.privateMemBytes = std::max(out.privateMemBytes, v);
+   else
+      out.unknowns.push_back(stat);
+}
+
+// Pull executable stats off any pipeline (compute, RT, graphics) into a
+// PipelineStats. Requires the device-level pipelineExecutableInfo feature to
+// have been enabled at pipeline-create time (otherwise getExecutableInfo()
+// returns empty and `out` keeps its default zeros).
+inline void extractPipelineStats(const nbl::video::IGPUPipelineBase* pipeline, PipelineStats& out)
+{
+   if (!pipeline)
+      return;
+   auto infos = pipeline->getExecutableInfo();
+   out.raw    = nbl::system::to_string(infos);
+
+   uint64_t vgpr = 0, sgpr = 0;
+   for (const auto& info : infos)
+   {
+      if (info.subgroupSize)
+         out.subgroupSize = std::max<uint32_t>(out.subgroupSize, info.subgroupSize);
+      for (const auto& stat : info.structuredStatistics)
+         matchPipelineStat(stat, out, vgpr, sgpr);
+   }
+   // AMD-style drivers expose VGPR/SGPR separately without a combined count.
+   if (out.registerCount == 0 && (vgpr || sgpr))
+      out.registerCount = vgpr + sgpr;
+}
+
 struct TimingResult
 {
    float64_t elapsed_ns     = 0.0;

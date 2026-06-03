@@ -384,22 +384,7 @@ public:
 
       if (m_device->getEnabledFeatures().pipelineExecutableInfo)
       {
-         auto infos     = pipeline->getExecutableInfo();
-         slot.stats.raw = nbl::system::to_string(infos);
-
-         uint64_t vgpr = 0, sgpr = 0;
-         for (const auto& info : infos)
-         {
-            if (info.subgroupSize)
-               slot.stats.subgroupSize = std::max<uint32_t>(slot.stats.subgroupSize, info.subgroupSize);
-            for (const auto& stat : info.structuredStatistics)
-               matchStat(stat, slot.stats, vgpr, sgpr);
-         }
-         // AMD-style drivers expose VGPR/SGPR separately without a combined
-         // register count, so fall back to the sum.
-         if (slot.stats.registerCount == 0 && (vgpr || sgpr))
-            slot.stats.registerCount = vgpr + sgpr;
-
+         extractPipelineStats(pipeline.get(), slot.stats);
          if (!slot.stats.raw.empty())
             benchLogFmt(m_logger.get(), system::ILogger::ELL_PERFORMANCE, "{} pipeline executable report:\n{}", tag, slot.stats.raw);
       }
@@ -722,51 +707,6 @@ private:
          dispatches -= batch;
       }
       return true;
-   }
-
-   static void matchStat(const nbl::video::IGPUPipelineBase::SExecutableStatistic& stat, PipelineStats& out, uint64_t& vgpr, uint64_t& sgpr)
-   {
-      const uint64_t v = stat.asUint();
-
-      auto contains = [&](std::string_view kw)
-      {
-         const auto it = std::ranges::search(stat.name, kw,
-            [&](char a, char b)
-            { return std::tolower(a) == std::tolower(b); })
-                            .begin();
-         return it != stat.name.end();
-      };
-
-      // Order matters: more specific keys first.
-
-      if (contains("subgroup size") || contains("subgroupsize") || contains("warp size") || contains("wave size"))
-         out.subgroupSize = std::max<uint32_t>(out.subgroupSize, uint32_t(v));
-
-      else if (contains("vgpr"))
-         vgpr = std::max(vgpr, v);
-      else if (contains("sgpr"))
-         sgpr = std::max(sgpr, v);
-      else if (contains("register"))
-         out.registerCount = std::max(out.registerCount, v);
-
-      else if (contains("binary size") || contains("binarysize") || contains("codesize") || contains("code size") || contains("isa size"))
-         out.codeSizeBytes = std::max(out.codeSizeBytes, v);
-      else if (contains("instructioncount") || contains("instruction count") || contains("numinstructions"))
-         out.codeSizeBytes = std::max(out.codeSizeBytes, v); // proxy when no byte size
-
-      else if (contains("shared memory") || contains("sharedmemory") || contains("groupshared") || contains("lds"))
-         out.sharedMemBytes = std::max(out.sharedMemBytes, v);
-
-      else if (contains("stack size") || contains("stacksize"))
-         out.stackBytes = std::max(out.stackBytes, v);
-
-      else if (contains("local memory") || contains("localmemory") || contains("scratch") || contains("private memory") || contains("privatememory") || contains("stack"))
-         out.privateMemBytes = std::max(out.privateMemBytes, v);
-
-      // Vendor-specific stats
-      // get a structured copy so JSON round-trips the right numeric type.
-      else
-         out.unknowns.push_back(stat);
    }
 
    nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>    m_device;

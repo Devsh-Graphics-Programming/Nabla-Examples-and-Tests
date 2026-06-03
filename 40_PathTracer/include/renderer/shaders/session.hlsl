@@ -23,9 +23,8 @@ struct SSensorUniforms
 	hlsl::float32_t2 rcpPixelSize;
 	hlsl::rwmc::SPackedSplattingParameters splatting;
 	hlsl::uint16_t2 renderSize;
-	// bitfield
-	uint16_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
-	uint16_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
+	// bitfield (path-depth bounds moved to the SSensorDynamics push constant so the
+	// GUI can change them live and restart accumulation on change)
 	uint16_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
 	uint16_t unused0 : 12; //BOOST_PP_SUB(15, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
 	uint16_t hideEnvironment : 1;
@@ -83,7 +82,7 @@ struct SensorDSBindingCounts
 // could be uint16_t were it not for "Expected Sampled Type to be a 32-bit int, 64-bit int or 32-bit float scalar type for Vulkan environment"
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t> gSampleCount;
 [[vk::binding(SensorDSBindings::RWMCCascades,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gRWMCCascades;
-[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<uint32_t> gBeauty;
+[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<float32_t4> gBeauty;
 [[vk::binding(SensorDSBindings::Albedo,SessionDSIndex)]] RWTexture2DArray<float32_t4> gAlbedo;
 // thse two are snorm but stored as unorm, care needs to be taken to map:
 // [-1,1] <-> [0,1] but with 0 being exactly representable, so really [-1,1] <-> [1/1023,1]

@@ -25,4 +25,18 @@ struct PackedAliasABPushConstants
 	uint32_t tableSize;			// N
 };
 
+// Stochastic light-cut tree bench. Layout matches LightcutTreeNodeRecord /
+// LightcutTreeLeafRecord (defined in stochastic_lightcut_tree_test.comp.hlsl)
+// so vk::RawBufferLoad can pull decoded children + leaves directly from BDA.
+struct LightcutTreePushConstants
+{
+	uint64_t        nodesAddress;       // LightcutTreeNodeRecord[numNodes]
+	uint64_t        leavesAddress;      // LightcutTreeLeafRecord[numLeavesPadded]
+	uint64_t        outputAddress;      // uint32_t acc[threadCount]
+	uint32_t        firstLeafIdx;       // heap index of leaf 0; equals numNodes
+	uint32_t        numLeaves;          // unpadded leaf count
+	float32_t3      shadingPoint;
+	float32_t3      shadingNormal;
+};
+
 #endif

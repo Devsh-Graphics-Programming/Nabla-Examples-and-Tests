@@ -7,6 +7,8 @@
 #include "renderer/CSession.h"
 
 #include "portable-file-dialogs.h"
+#include "ImGuizmo.h"
+#include <bit>
 #include <filesystem>
 
 namespace nbl::this_example::gui
@@ -40,6 +42,7 @@ namespace nbl::this_example::gui
 					drawGlobalsSection();
 					drawSensorsSection();
 					drawEmittersSection();
+					drawDebugProbeSection();
 
 					ImGui::Separator();
 
@@ -179,6 +182,13 @@ namespace nbl::this_example::gui
 			}
 
 			ImGui::Text("Total: %zu sensor(s)", sensors.size());
+
+			ImGui::Separator();
+			if (ImGui::DragFloat("Move Speed", &m_cameraMoveSpeed, 0.1f, 0.01f, 1000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
+			{
+				if (m_callbacks.onCameraMoveSpeedChanged)
+					m_callbacks.onCameraMoveSpeedChanged(m_cameraMoveSpeed);
+			}
 		}
 	}
 
@@ -199,11 +209,47 @@ namespace nbl::this_example::gui
 
 	void CSceneWindow::drawEmittersSection()
 	{
-		if (ImGui::CollapsingHeader("Emitters"))
+		if (ImGui::CollapsingHeader("Emitters", nullptr, ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			// Placeholder - will show lights/emitters
-			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Emitters list (placeholder)");
-			ImGui::Text("Not yet implemented");
+			ImGui::SliderFloat("Density", &m_emitterDensity, 0.f, 1.f, "%.2f");
+			if (ImGui::IsItemDeactivatedAfterEdit() && m_callbacks.onEmitterDensityChanged)
+				m_callbacks.onEmitterDensityChanged(m_emitterDensity);
+
+			// Runtime A/B between the power-only alias table (O(1)) and the
+			// orientation-aware stochastic light-cut tree (O(log N)). Pushed
+			// in the next frame's push constant,no rebuild.
+			if (ImGui::Checkbox("Use Alias NEE", &m_useAliasNEE) && m_callbacks.onUseAliasNEEChanged)
+				m_callbacks.onUseAliasNEEChanged(m_useAliasNEE);
+			ImGui::SameLine();
+			ImGui::TextDisabled(m_useAliasNEE ? "(alias table, O(1))" : "(light-tree descent, O(log N))");
+
+			// MIS mode: which Beauty pipeline variant (separate shader) to run. NEE-only and BxDF-only
+			// are direct-lighting A/B anchors; Both is the full path tracer. Switching restarts
+			// accumulation in the handler (the modes converge to different images).
+			if (ImGui::Combo("MIS mode", &m_misMode, "NEE only\0BxDF only\0Both\0") && m_callbacks.onMisModeChanged)
+				m_callbacks.onMisModeChanged(m_misMode);
+
+			const auto& tree = m_scene->getLightTree();
+			if (tree.numLeavesActual == 0)
+			{
+				ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.4f, 1.0f), "No emitters in scene");
+				return;
+			}
+
+			// 4-ary tree depth: log_4(numLeavesPadded) = log_2(numLeavesPadded) / 2.
+			const uint32_t depth = (std::bit_width(tree.numLeavesPadded) - 1u) / 2u;
+			const auto& root = tree.nodes.front();
+			const auto extent = root.bbox.getExtent();
+
+			ImGui::Text("Emitters:    %u", tree.numLeavesActual);
+			ImGui::Text("Padded to:   %u (Po4)", tree.numLeavesPadded);
+			ImGui::Text("Tree nodes:  %zu", tree.nodes.size());
+			ImGui::Text("Depth:       %u", depth);
+			ImGui::Separator();
+			ImGui::Text("Root power:  %.3g", root.power);
+			ImGui::Text("Root bbox min: (%.2f, %.2f, %.2f)", root.bbox.minVx.x, root.bbox.minVx.y, root.bbox.minVx.z);
+			ImGui::Text("Root bbox max: (%.2f, %.2f, %.2f)", root.bbox.maxVx.x, root.bbox.maxVx.y, root.bbox.maxVx.z);
+			ImGui::Text("Root extent:   (%.2f, %.2f, %.2f)", extent.x, extent.y, extent.z);
 		}
 	}
 
@@ -221,6 +267,54 @@ namespace nbl::this_example::gui
 			{
 				ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Select an item to edit");
 			}
+		}
+	}
+
+	void CSceneWindow::drawDebugProbeSection()
+	{
+		if (ImGui::CollapsingHeader("Debug Probe", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			bool changed = false;
+			changed |= ImGui::DragFloat3("Point", m_probe, 0.02f);
+			changed |= ImGui::DragFloat3("Normal", m_probeN, 0.02f, -1.f, 1.f);
+
+			// ImGuizmo 3D drag: place a translation gizmo at the probe point. Needs the
+			// caller (main.cpp) to push current view + proj matrices via setGizmoCameraMatrices.
+			if (m_haveCameraMatrices)
+			{
+				const ImGuiViewport* vp = ImGui::GetMainViewport();
+				ImGuizmo::SetOrthographic(false);
+				ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
+				ImGuizmo::SetRect(vp->WorkPos.x, vp->WorkPos.y, vp->WorkSize.x, vp->WorkSize.y);
+
+				// Translation-only matrix (column-major float[16]) at the probe point.
+				float gizmoMat[16] = {
+					1.f, 0.f, 0.f, 0.f,
+					0.f, 1.f, 0.f, 0.f,
+					0.f, 0.f, 1.f, 0.f,
+					m_probe[0], m_probe[1], m_probe[2], 1.f
+				};
+				if (ImGuizmo::Manipulate(m_viewMat, m_projMat, ImGuizmo::TRANSLATE, ImGuizmo::WORLD, gizmoMat))
+				{
+					m_probe[0] = gizmoMat[12];
+					m_probe[1] = gizmoMat[13];
+					m_probe[2] = gizmoMat[14];
+					changed = true;
+				}
+			}
+
+			if (changed && m_callbacks.onProbeChanged)
+				m_callbacks.onProbeChanged(m_probe[0], m_probe[1], m_probe[2], m_probeN[0], m_probeN[1], m_probeN[2]);
+
+			ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+				"Sliders / 3D gizmo move the NEE-pdf probe (debug.hlsl).");
+
+			// Correctness invariant: the per-leaf NEE pdfs must sum to 1 (the
+			// descent partitions probability across the whole tree). Green when
+			// close, red otherwise, mirrors the screen-border tint in debug.hlsl.
+			const float err = (m_probePdfSum >= 1.f) ? (m_probePdfSum - 1.f) : (1.f - m_probePdfSum);
+			const ImVec4 col = (err < 0.05f) ? ImVec4(0.2f, 1.f, 0.3f, 1.f) : ImVec4(1.f, 0.3f, 0.2f, 1.f);
+			ImGui::TextColored(col, "sum(pdf) = %.5f  (expect 1.0)", m_probePdfSum);
 		}
 	}
 

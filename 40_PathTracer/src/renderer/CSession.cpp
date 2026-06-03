@@ -78,7 +78,9 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		auto createImage = [&](
 			const std::string_view debugName, const E_FORMAT format, const uint16_t2 resolution, const uint16_t layers,
 			const IGPUImage::E_CREATE_FLAGS extraFlags=IGPUImage::E_CREATE_FLAGS::ECF_NONE, std::bitset<E_FORMAT::EF_COUNT> viewFormats={},
-			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT|IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
+			// TRANSFER_SRC is added strictly so we can read images back to disk for
+			// offline image comparisons (e.g. FLIP); not used by the renderer itself.
+			const IGPUImage::E_USAGE_FLAGS extraUsages=IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT|IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT|IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT
 		) -> SImageWithViews
 		{
 				SImageWithViews retval = {};
@@ -160,13 +162,13 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			}
 			return createImage(debugName,format,m_params.uniforms.renderSize,layers,flags,std::forward<Args>(args)...);
 		};
-		immutables.sampleCount = createScreenSizedImage("Current Sample Count",E_FORMAT::EF_R16_UINT);
-		auto sampleCountView = immutables.sampleCount.views[E_FORMAT::EF_R16_UINT];
+		immutables.sampleCount = createScreenSizedImage("Current Sample Count",E_FORMAT::EF_R32_UINT);
+		auto sampleCountView = immutables.sampleCount.views[E_FORMAT::EF_R32_UINT];
 		addImageWrite(SensorDSBindings::SampleCount,sampleCountView);
 		immutables.rwmcCascades = createScreenSizedImage("RWMC Cascades",E_FORMAT::EF_R32G32_UINT,m_params.uniforms.lastCascadeIndex+1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R16G16B16A16_SFLOAT));
 		addImageWrite(SensorDSBindings::RWMCCascades,immutables.rwmcCascades.views[E_FORMAT::EF_R32G32_UINT]);
-		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32,1,std::bitset<E_FORMAT::EF_COUNT>().set(E_FORMAT::EF_R32_UINT));
-		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32_UINT]);
+		immutables.beauty = createScreenSizedImage("Beauty",E_FORMAT::EF_R32G32B32A32_SFLOAT);
+		addImageWrite(SensorDSBindings::Beauty,immutables.beauty.views[E_FORMAT::EF_R32G32B32A32_SFLOAT]);
 		immutables.albedo = createScreenSizedImage("Albedo",E_FORMAT::EF_A2B10G10R10_UNORM_PACK32);
 		auto albedoView = immutables.albedo.views[E_FORMAT::EF_A2B10G10R10_UNORM_PACK32];
 		addImageWrite(SensorDSBindings::Albedo,albedoView);
@@ -191,7 +193,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			viewInfos[uint8_t(index_e::ScrambleKey)].desc = scrambleKeyView;
 			viewInfos[uint8_t(index_e::SampleCount)].desc = sampleCountView;
 			viewInfos[uint8_t(index_e::RWMCCascades)].desc = immutables.rwmcCascades.views[E_FORMAT::EF_R16G16B16A16_SFLOAT];
-			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_E5B9G9R9_UFLOAT_PACK32];
+			viewInfos[uint8_t(index_e::Beauty)].desc = immutables.beauty.views[E_FORMAT::EF_R32G32B32A32_SFLOAT];
 			viewInfos[uint8_t(index_e::Albedo)].desc = albedoView;
 			viewInfos[uint8_t(index_e::Normal)].desc = normalView;
 			viewInfos[uint8_t(index_e::Motion)].desc = motionView;
@@ -356,6 +358,7 @@ bool CSession::reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& 
 		m_active.currentSensorState = newVal;
 		m_active.currentSensorState.keepAccumulating = false;
 		m_active.prevSensorState = m_active.currentSensorState;
+		m_accumulatedSpp = 0;
 	}
 	return success;
 }
@@ -367,8 +370,24 @@ bool CSession::update(const SSensorDynamics& newVal)
 
 	m_active.prevSensorState = m_active.currentSensorState;
 	m_active.currentSensorState = newVal;
-	// TODO: reset m_framesDispatched to 0 every time camera moves considerable amount
-	m_active.currentSensorState.keepAccumulating = true;
+
+	// Reset accumulation when the camera pose changes; bit-exact comparison is fine
+	// because identical frames produce identical matrices.
+	const auto& prev = m_active.prevSensorState.invView;
+	const auto& cur = m_active.currentSensorState.invView;
+	bool restart = false;
+	for (int r = 0; r < 3 && !restart; ++r)
+		for (int c = 0; c < 4 && !restart; ++c)
+			if (prev[r][c] != cur[r][c])
+				restart = true;
+	// Path-depth changes alter the image, so they restart accumulation too (unlike
+	// maxSPP, where raising the cap should keep the existing samples and add more).
+	restart = restart
+		|| m_active.prevSensorState.lastPathDepth != m_active.currentSensorState.lastPathDepth
+		|| m_active.prevSensorState.lastNoRussianRouletteDepth != m_active.currentSensorState.lastNoRussianRouletteDepth;
+	m_active.currentSensorState.keepAccumulating = !restart;
+	if (restart)
+		m_accumulatedSpp = 0;
 	return true;
 }
 

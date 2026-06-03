@@ -28,6 +28,7 @@ set(DEPENDS
   app_resources/shaders/spherical_rectangle_test.comp.hlsl
   app_resources/shaders/packed_alias_test.comp.hlsl
   app_resources/shaders/cumulative_probability_test.comp.hlsl
+  app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl
   app_resources/common/linear.hlsl
   app_resources/common/uniform_hemisphere.hlsl
   app_resources/common/uniform_sphere.hlsl
@@ -45,6 +46,7 @@ set(DEPENDS
   app_resources/common/sampler_bench_pc.hlsl
   app_resources/common/alias_table.hlsl
   app_resources/common/cumulative_probability.hlsl
+  app_resources/common/stochastic_lightcut_tree.hlsl
 )
 list(TRANSFORM DEPENDS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
@@ -65,6 +67,7 @@ target_sources(${EXECUTABLE_NAME} PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/CDiscreteTableTester.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/CAliasTableGPUTester.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/CCumulativeProbabilityGPUTester.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/CStochasticLightcutTreeTester.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/SamplerTestHelpers.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/property/CSamplerPropertyTester.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CSamplerBenchmark.h"
@@ -362,6 +365,100 @@ set(JSON "
   {
     \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",
     \"KEY\": \"cumulative_probability_test\"
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_multi_test\"
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_single_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_SINGLE_LEAF\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m0\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m1\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m2\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m3\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m0\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m1\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m2\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m3\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m0\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m1\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m2\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m3\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m0\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m1\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m2\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m3\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
+  },
+  {
+    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
+    \"KEY\": \"stochastic_lightcut_tree_bench\",
+    \"COMPILE_OPTIONS\": [${BENCH_OPTS}]
   },
   {
     \"INPUT\": \"app_resources/shaders/cumulative_probability_test.comp.hlsl\",

@@ -93,7 +93,7 @@ void main()
 	NBL_CONSTEXPR float32_t goldenRatio = 0.6180339887498949f;
 	uint32_t acc = 0u;
 
-	[loop]
+	NBL_HLSL_LOOP
 	for (uint32_t i = 0u; i < uint32_t(BENCH_ITERS); i++)
 	{
 		xi = frac(xi + goldenRatio);

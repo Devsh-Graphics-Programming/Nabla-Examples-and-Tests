@@ -28,6 +28,7 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/alias_table.hlsl"
 #include "nbl/builtin/hlsl/sampling/cumulative_probability.hlsl"
+#include "nbl/builtin/hlsl/sampling/stochastic_lightcut_tree.hlsl"
 
 // concepts header — include AFTER sampler headers, and only in the test
 #include "nbl/builtin/hlsl/sampling/concepts.hlsl"
@@ -49,6 +50,8 @@ using namespace nbl::examples;
 #include "tests/CDiscreteTableTester.h"
 #include "tests/CAliasTableGPUTester.h"
 #include "tests/CCumulativeProbabilityGPUTester.h"
+#include "tests/CStochasticLightcutTreeTester.h"
+#include "tests/CLightcutTreePackedRoundTripTester.h"
 
 #include "benchmarks/CSamplerBenchmark.h"
 #include "benchmarks/CDiscreteSamplerBenchmark.h"
@@ -108,6 +111,8 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       // ================================================================
       // Compile-time concept verification via static_assert
       // ================================================================
+      using TreeSampler = sampling::StochasticLightcutTreeSampler<float32_t, uint32_t, ReadOnlyAccessor<float32_t>, ReadOnlyAccessor<float32_t>, sampling::NoSubtreeAliasAccessor<float32_t, uint32_t>, 3u>;
+
 
       // --- BasicSampler (level 1) --- generate(domain_type) -> codomain_type
       // Note: all samplers almost satisfy BasicSampler, but they have cache parameters in generate().
@@ -118,6 +123,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BasicSampler<sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>, sampling::EYTZINGER>>);
       static_assert(sampling::concepts::BasicSampler<sampling::PackedAliasTableA<float32_t, float32_t, uint32_t, ReadOnlyAccessor<uint32_t>, ReadOnlyAccessor<float32_t>, 26>>);
       static_assert(sampling::concepts::BasicSampler<sampling::PackedAliasTableB<float32_t, float32_t, uint32_t, ArrayAccessor<sampling::PackedAliasEntryB<float>, 4>, ReadOnlyAccessor<float32_t>, 26>>);
+      static_assert(sampling::concepts::BasicSampler<TreeSampler>);
 
       // --- TractableSampler (level 2) --- generate(domain_type, out cache_type) -> codomain_type, forwardPdf(domain_type, cache_type) -> density_type
       ;
@@ -139,6 +145,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::TractableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::TractableSampler<sampling::ConcentricMapping<float32_t>>);
       static_assert(sampling::concepts::TractableSampler<sampling::PolarMapping<float32_t>>);
+      static_assert(sampling::concepts::TractableSampler<TreeSampler>);
 
       // --- ResamplableSampler (level 3, parallel) --- generate(domain_type, out cache_type) -> codomain_type, forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
       static_assert(sampling::concepts::ResamplableSampler<sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>, sampling::TRACKING>>);
@@ -159,6 +166,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::ResamplableSampler<sampling::SphericalRectangle<float>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::ConcentricMapping<float32_t>>);
       static_assert(sampling::concepts::ResamplableSampler<sampling::PolarMapping<float32_t>>);
+      static_assert(sampling::concepts::ResamplableSampler<TreeSampler>);
 
       // --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
@@ -174,6 +182,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::BoxMullerTransform<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::ConcentricMapping<float32_t>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::PolarMapping<float32_t>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<TreeSampler>);
 
       // --- BijectiveSampler (level 4) --- BackwardTractableSampler + generateInverse(codomain_type) -> domain_type
       static_assert(sampling::concepts::BijectiveSampler<sampling::UniformHemisphere<float>>);
@@ -332,6 +341,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             dsData.cumProbVariant          = GPUBenchmarkHelper::ShaderVariant::Precompiled(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_bench">(m_device.get()));
             dsData.cumProbYoloVariant      = GPUBenchmarkHelper::ShaderVariant::Precompiled(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_yolo_bench">(m_device.get()));
             dsData.cumProbEytzingerVariant = GPUBenchmarkHelper::ShaderVariant::Precompiled(nbl::this_example::builtin::build::get_spirv_key<"cumulative_probability_eytzinger_bench">(m_device.get()));
+            dsData.lightcutTreeVariant     = GPUBenchmarkHelper::ShaderVariant::Precompiled(nbl::this_example::builtin::build::get_spirv_key<"stochastic_lightcut_tree_bench">(m_device.get()));
             dsData.dispatchGroupCount      = {benchWorkgroupsCount, 1u, 1u};
             dsData.targetBudgetMs          = targetBudgetMs;
 
@@ -432,10 +442,45 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             }
          }
 
+         // --- CWBVH-4 packed light-tree round-trip (CPU) ---
+         {
+            constexpr const char* id = "sampler/LightcutTreePackedRoundTrip";
+            if (!runControl.filter.shouldRun(id))
+            {
+               m_logger->log("Skipping light-tree packed round-trip tests due to filter.", ILogger::ELL_INFO);
+            }
+            else
+            {
+               m_logger->log("Running light-tree packed round-trip tests (CPU)...", ILogger::ELL_INFO);
+               CLightcutTreePackedRoundTripTester rtTester(m_logger.get());
+               const bool ok = rtTester.run();
+               samplerPass &= ok;
+               if (!ok)
+                  failureManifest.addGroupFailure("sampler", id, "Light-tree packed round-trip");
+            }
+         }
+
          // --- GPU table sampler tests ---
          runSamplerTest.operator()<CPackedAliasAGPUTester, "packed_alias_a_test">("sampler/PackedAliasA", "PackedAliasA GPU sampler", "PackedAliasATestLog.txt");
          runSamplerTest.operator()<CPackedAliasBGPUTester, "packed_alias_b_test">("sampler/PackedAliasB", "PackedAliasB GPU sampler", "PackedAliasBTestLog.txt");
          runSamplerTest.operator()<CCumulativeProbabilityGPUTester, "cumulative_probability_test">("sampler/CumulativeProbability", "CumulativeProbability GPU sampler", "CumulativeProbabilityTestLog.txt");
+         runSamplerTest.operator()<CStochasticLightcutTreeMultiGPUTester,        "stochastic_lightcut_tree_multi_test"            >("sampler/StochasticLightcutTree(multi)",        "StochasticLightcutTree multi-leaf GPU sampler",        "StochasticLightcutTreeMultiTestLog.txt");
+         runSamplerTest.operator()<CStochasticLightcutTreeSingleGPUTester,       "stochastic_lightcut_tree_single_test"           >("sampler/StochasticLightcutTree(single)",       "StochasticLightcutTree single-leaf GPU sampler",       "StochasticLightcutTreeSingleTestLog.txt");
+         // Geometric scenarios run once per weight mode (0..3); the shader KEY suffix _mN must match
+         // the per-mode variants registered in CMakeLists.txt.
+#define LCT_SWEEP_ONE(TesterTmpl, M, KEYBASE, ID, DESC, LOG) \
+         runSamplerTest.operator()<TesterTmpl<M##u>, KEYBASE "_m" #M>(ID " m" #M, DESC " (mode " #M ")", LOG "_m" #M ".txt");
+#define LCT_SWEEP(TesterTmpl, KEYBASE, ID, DESC, LOG) \
+         LCT_SWEEP_ONE(TesterTmpl, 0, KEYBASE, ID, DESC, LOG) \
+         LCT_SWEEP_ONE(TesterTmpl, 1, KEYBASE, ID, DESC, LOG) \
+         LCT_SWEEP_ONE(TesterTmpl, 2, KEYBASE, ID, DESC, LOG) \
+         LCT_SWEEP_ONE(TesterTmpl, 3, KEYBASE, ID, DESC, LOG)
+         LCT_SWEEP(CStochasticLightcutTreeBelowPlaneGPUTester,   "stochastic_lightcut_tree_below_plane_test",      "sampler/StochasticLightcutTree(belowPlane)",   "StochasticLightcutTree below-plane cutoff",      "StochasticLightcutTreeBelowPlaneTestLog")
+         LCT_SWEEP(CStochasticLightcutTreeDistFalloffGPUTester,  "stochastic_lightcut_tree_distance_falloff_test", "sampler/StochasticLightcutTree(distFalloff)",  "StochasticLightcutTree distance-falloff",        "StochasticLightcutTreeDistFalloffTestLog")
+         LCT_SWEEP(CStochasticLightcutTreeInflatedBboxGPUTester, "stochastic_lightcut_tree_inflated_bbox_test",    "sampler/StochasticLightcutTree(inflatedBbox)", "StochasticLightcutTree inflated-bbox pathology", "StochasticLightcutTreeInflatedBboxTestLog")
+         LCT_SWEEP(CStochasticLightcutTreeDepth2GPUTester,       "stochastic_lightcut_tree_depth2_test",           "sampler/StochasticLightcutTree(depth2)",       "StochasticLightcutTree depth-2 analytic pdf",    "StochasticLightcutTreeDepth2TestLog")
+#undef LCT_SWEEP
+#undef LCT_SWEEP_ONE
       }
       logJacobianSkipCounts(m_logger.get());
       pass &= samplerPass;

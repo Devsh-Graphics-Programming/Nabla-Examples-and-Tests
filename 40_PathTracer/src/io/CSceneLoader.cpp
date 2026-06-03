@@ -244,9 +244,16 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 								dot(orientationT[1],orientationT[1]),
 								dot(orientationT[2],orientationT[2])
 							});
-							// unflip X if left handed
+							// Unflip X if left handed. The handedness flip (e.g., Mitsuba's
+							// `<scale x=-1>`) is absorbed into the orientation only; the NDC X
+							// axis below is kept un-flipped so the rendered image is not
+							// mirrored. This keeps interactive camera controls consistent with
+							// what the user sees on screen.
 							if (det<0.f)
+							{
+								logger.log("Sensor %s (%d-th in XML) has a left-handed toWorld (det<0); stripping the handedness flip - image will NOT be mirrored vs the original Mitsuba render.",ILogger::ELL_WARNING,id,i);
 								scaleRcp.x = -scaleRcp.x;
+							}
 							// Old Code View Matrix:
 							// LH X+ = Left, Y+ = Up, Z+ = Backward
 							// RH X+ = Right, Y+ = Up, Z+ = Forward
@@ -325,7 +332,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 								break;
 							}
 							// elongating camera along Z will shrink the effective FOV
-							ndc[0] = float32_t3(scaleRcp.z/scaleRcp.x,0.f,hlsl::sign(scaleRcp.x)*persp.shiftX);
+							// abs() so a flipped scaleRcp.x (det<0 stripped above) doesn't re-mirror NDC.
+							ndc[0] = float32_t3(scaleRcp.z/hlsl::abs(scaleRcp.x),0.f,persp.shiftX);
 							// column gets negated because in Vulkan NDC.y runs downwards
 							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
 						}
@@ -390,7 +398,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				if (hlsl::isnan(film.cascadeLuminanceStart))
 				{
 					const float maxRadiance = 1000.f; // TODO: take from the emitter list!
-					mutableDefaults.cascadeLuminanceStart = pow(maxRadiance/mutableDefaults.cascadeLuminanceBase,1.f/float(constants.cascadeCount-1));
+					mutableDefaults.cascadeLuminanceStart = std::pow(maxRadiance/mutableDefaults.cascadeLuminanceBase,1.f/float(constants.cascadeCount-1));
 				}
 				else
 					mutableDefaults.cascadeLuminanceStart = film.cascadeLuminanceStart;
@@ -520,7 +528,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					if (hlsl::isnan(linearStepZoomSpeed))
 						linearStepZoomSpeed = dyn_t::DefaultZoomSpeed/dyn_t::DefaultSceneSize;
 					// set Zoom Multiplier
-					const float logarithmicZoomSpeed = hlsl::pow(sceneSize,linearStepZoomSpeed);
+					const float logarithmicZoomSpeed = std::pow(sceneSize,linearStepZoomSpeed);
 					dynamicDefaults.zoomable.speed = logarithmicZoomSpeed;
 					// .getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
 				}
@@ -562,17 +570,17 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 			sensors.push_back(std::move(dummy));
 		}
 
-		// Dummy sensor 2: 5120x2880 with 128 offset
-		{
-			auto dummy = baseSensor;
-			dummy.mutableDefaults.cropWidth = 5120;
-			dummy.mutableDefaults.cropHeight = 2880;
-			dummy.mutableDefaults.cropOffsetX = 128;
-			dummy.mutableDefaults.cropOffsetY = 128;
-			dummy.constants.width = dummy.mutableDefaults.cropWidth + 2 * dummy.mutableDefaults.cropOffsetX;
-			dummy.constants.height = dummy.mutableDefaults.cropHeight + 2 * dummy.mutableDefaults.cropOffsetY;
-			sensors.push_back(std::move(dummy));
-		}
+		//// Dummy sensor 2: 5120x2880 with 128 offset
+		//{
+		//	auto dummy = baseSensor;
+		//	dummy.mutableDefaults.cropWidth = 5120;
+		//	dummy.mutableDefaults.cropHeight = 2880;
+		//	dummy.mutableDefaults.cropOffsetX = 128;
+		//	dummy.mutableDefaults.cropOffsetY = 128;
+		//	dummy.constants.width = dummy.mutableDefaults.cropWidth + 2 * dummy.mutableDefaults.cropOffsetX;
+		//	dummy.constants.height = dummy.mutableDefaults.cropHeight + 2 * dummy.mutableDefaults.cropOffsetY;
+		//	sensors.push_back(std::move(dummy));
+		//}
 
 		logger.log("Added 2 dummy test sensors (total: %d)", ILogger::ELL_INFO, sensors.size());
 	}

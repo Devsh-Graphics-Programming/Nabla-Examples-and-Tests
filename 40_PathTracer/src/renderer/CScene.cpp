@@ -35,16 +35,16 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	assert(all(params.cropOffsets+params.cropResolution<=renderSize));
 	assert(params.type!=CSession::sensor_type_e::Env || params.cropResolution==renderSize);
 
+	// path-depth bounds live in the dynamics push constant so the GUI can change them
+	const uint16_t maxPathDepth         = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth, 1, m_construction.renderer->getConstructionParams().getSequenceMaxPathDepth());
+	const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth, 1, maxPathDepth);
+
 	// fill uniforms
 	{
-		const uint16_t maxPathDepth = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth,1,m_construction.renderer->getConstructionParams().getSequenceMaxPathDepth());
-		const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth,1,maxPathDepth);
 		params.uniforms = {
 			.rcpPixelSize = promote<float32_t2>(1.f)/float32_t2(renderSize),
 			.splatting = hlsl::rwmc::SPackedSplattingParameters::create(mutDefaults.cascadeLuminanceBase,mutDefaults.cascadeLuminanceStart,constants.cascadeCount),
 			.renderSize = renderSize,
-			.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
-			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1),
 			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
 			.hideEnvironment = mutDefaults.hideEnvironment
 		};
@@ -58,7 +58,9 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 		.tMax = mutDefaults.farClip,
 		.minSPP = core::min(dynDefaults.samplesNeeded,16), // for later enhancement
 		.maxSPP = dynDefaults.samplesNeeded,
-		.orthoCam = mutDefaults.raygen.getType()==decltype(mutDefaults.raygen)::Type::Ortho
+		.orthoCam = mutDefaults.raygen.getType()==decltype(mutDefaults.raygen)::Type::Ortho,
+		.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
+		.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1)
 	};
 
 	//

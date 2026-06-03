@@ -48,8 +48,18 @@ public:
 		// Immediate update()
 		std::function<void(const SSensorDynamics& dynamics, CSession* session)> onDynamicsChanged = nullptr;
 
+		std::function<void(uint16_t maxPathDepth)> onMaxPathDepthChanged = nullptr;
+
 		// Buffer view change
 		std::function<void(int bufferIndex)> onBufferSelected = nullptr;
+
+		// "Benchmark Current Session" button. Fires synchronously; main app
+		// runs the Aggregator against the passed session.
+		std::function<void(CSession* session)> onBenchmarkRequested = nullptr;
+
+		// "Dump Beauty (EXR)" button. Reads the beauty image back and writes an
+		// EXR to disk, strictly for offline image comparisons (e.g. FLIP).
+		std::function<void(CSession* session)> onDumpImageRequested = nullptr;
 	};
 	void setCallbacks(const SCallbacks& callbacks) { m_callbacks = callbacks; }
 
@@ -89,12 +99,16 @@ private:
 		float cropOffsetX = 0.0f;
 		float cropOffsetY = 0.0f;
 		float tMax = 10000.0f;
+		// Per-pixel accumulation cap; bounded by the maxSPP push-constant bitfield.
+		int maxSPP = 0;
 
 		// Mutables
 		int cropWidth = 1920;
 		int cropHeight = 1080;
 		float nearClip = 0.1f;
 		float farClip = 10000.0f;
+		// Max path depth (number of bounces); app-driven dynamic, restarts accumulation on change.
+		int maxPathDepth = 1;
 
 		// View
 		int selectedBufferIndex = 0;

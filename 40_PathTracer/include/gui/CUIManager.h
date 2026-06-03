@@ -62,14 +62,23 @@ public:
         std::function<void(size_t sensorIndex)> onSensorSelected = nullptr;
         std::function<void(const std::string& path)> onLoadSceneRequested = nullptr;
         std::function<void()> onReloadSceneRequested = nullptr;
+        std::function<void(float density)> onEmitterDensityChanged = nullptr;
+        std::function<void(bool useAlias)> onUseAliasNEEChanged = nullptr;
+        std::function<void(int misMode)> onMisModeChanged = nullptr;
+        std::function<void(float moveSpeed)> onCameraMoveSpeedChanged = nullptr;
+        std::function<void(float px, float py, float pz, float nx, float ny, float nz)> onProbeChanged = nullptr;
 
         // Session Callbacks
         std::function<void(CSession::RenderMode mode, CSession* session)> onRenderModeChanged = nullptr;
         std::function<void(uint16_t width, uint16_t height)> onResolutionChanged = nullptr;
         std::function<void(const SSensorDynamics& dynamics, CSession* session)> onMutablesChanged = nullptr;
         std::function<void(const SSensorDynamics& dynamics, CSession* session)> onDynamicsChanged = nullptr;
+        std::function<void(uint16_t maxPathDepth)> onMaxPathDepthChanged = nullptr;
         std::function<void(int bufferIndex)> onBufferSelected = nullptr;
 
+        // Benchmark button on the session window
+        std::function<void(CSession* session)> onBenchmarkRequested = nullptr;
+        std::function<void(CSession* session)> onDumpImageRequested = nullptr;
     };
 
     static core::smart_refctd_ptr<CUIManager> create(SCreationParams&& params);
@@ -118,6 +127,9 @@ private:
 
     // Allocated texture indices for session buffers
     std::array<video::SubAllocatedDescriptorSet::value_type, static_cast<size_t>(SessionTextureIndex::Count)> m_sessionTextureIndices;
+
+    // ET_2D views of layer 0 of each session image, used for ImGui thumbnails (which sample Texture2D, not Texture2DArray)
+    std::array<core::smart_refctd_ptr<video::IGPUImageView>, static_cast<size_t>(SessionTextureIndex::Count)> m_sessionThumbnailViews;
 
     // Samplers
     struct
