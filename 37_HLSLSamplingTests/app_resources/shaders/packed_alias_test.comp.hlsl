@@ -1,5 +1,7 @@
 #pragma shader_stage(compute)
 
+#define NBL_BENCH_DEPENDENT
+
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
 #ifdef BENCH_ITERS
@@ -100,6 +102,13 @@ void main()
 		BenchPackedAlias::cache_type cache;
 		uint32_t generated = sampler.generate(xi, cache);
 		acc ^= generated ^ asuint(sampler.forwardPdf(xi, cache));
+#ifdef NBL_BENCH_DEPENDENT
+		// Next variate depends on this iteration's loaded values, so the backend
+		// cannot keep loads from multiple iterations in flight: measures latency
+		// per sample instead of throughput. Adding (acc & 3u) extra golden-ratio
+		// steps keeps the query sequence equidistributed.
+		xi = frac(xi + float32_t(acc & 3u) * goldenRatio);
+#endif
 	}
 
 	vk::RawBufferStore<uint32_t>(pc.outputAddress + uint64_t(sizeof(uint32_t)) * uint64_t(invID), acc);
