@@ -226,7 +226,7 @@ private:
          scope.endQueryIdx    = 1;
          scope.forceFreshFrame = clearAccumulation;
          scope.forceAccumulate = !clearAccumulation;
-         scope.maxSPPOverride  = 0;
+         scope.maxSPPOverride  = nbl::this_example::MaxSPP;
       }
       else
       {
