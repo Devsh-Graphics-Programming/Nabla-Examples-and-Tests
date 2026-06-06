@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/linear.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -19,6 +20,7 @@ struct LinearTestResults
 	float32_t backwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
+	float32_t jacobianProduct;
 };
 
 struct LinearTestExecutor
@@ -37,6 +39,7 @@ struct LinearTestExecutor
 			output.backwardPdf = _sampler.backwardPdf(output.generated);
 			output.backwardWeight = _sampler.backwardWeight(output.generated);
 		}
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(_sampler, input.u, 1e-3f, 3.0f);
 	}
 };
 

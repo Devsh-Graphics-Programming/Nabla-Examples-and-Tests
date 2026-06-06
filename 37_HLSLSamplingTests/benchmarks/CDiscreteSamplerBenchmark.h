@@ -5,327 +5,401 @@
 #include "nbl/examples/examples.hpp"
 #include <nbl/builtin/hlsl/sampling/alias_table_builder.h>
 #include <nbl/builtin/hlsl/sampling/cumulative_probability_builder.h>
+#include <nbl/builtin/hlsl/sampling/stochastic_lightcut_tree.hlsl> // shared 32 B pack contract
 #include "app_resources/common/discrete_sampler_bench.hlsl"
+#include "nbl/examples/Benchmark/IBenchmark.h"
+#include "nbl/examples/Benchmark/GPUBenchmarkHelper.h"
 
 #include <random>
 
 using namespace nbl;
 
-// Benchmarks alias table vs cumulative probability sampler on the GPU using BDA.
-// Builds both tables from the same weight distribution, uploads via BDA buffers,
-// and measures GPU throughput using timestamp queries.
-class CDiscreteSamplerBenchmark
+class CDiscreteSamplerBenchmark : public GPUBenchmark
 {
    public:
-   struct SetupData
+   // Declared up-front because it's used as the index domain for m_pipelineIdx[]
+   // (a member-array bound needs the type complete in declaration order).
+   enum class SamplerKind : uint32_t
    {
-      core::smart_refctd_ptr<video::ILogicalDevice> device;
-      core::smart_refctd_ptr<video::CVulkanConnection> api;
-      core::smart_refctd_ptr<asset::IAssetManager> assetMgr;
-      core::smart_refctd_ptr<system::ILogger> logger;
-      video::IPhysicalDevice* physicalDevice;
-      std::string aliasShaderKey;
-      std::string cumProbShaderKey;
-      uint32_t computeFamilyIndex;
-      uint32_t dispatchGroupCount;
-      uint32_t tableSize;
+      AliasPackedA = 0,
+      AliasPackedB,
+      CumProbCompare,
+      CumProbYolo,
+      CumProbEytzinger,
+      LightcutTree,
+      Count
    };
 
-   void setup(const SetupData& data)
+   // CWBVH-4 packed records: same canonical 32 B layout the renderer uses, from the builtin library. 
+   // The bench fills them via the library pack helpers
+   // so it benchmarks the exact encode/decode the renderer ships, with no drifting copy.
+   using LightcutTreeWideNodeRecord = nbl::hlsl::sampling::LightcutTreePackedWideNode;
+   using LightcutTreeLeafRecord     = nbl::hlsl::sampling::LightcutTreePackedLeaf;
+   static_assert(sizeof(LightcutTreeWideNodeRecord) == 32, "Wide-node record must be 32 B (CWBVH-4)");
+   static_assert(sizeof(LightcutTreeLeafRecord) == 32, "Leaf record must be 32 B");
+
+   struct SetupData
    {
-      m_device = data.device;
-      m_logger = data.logger;
-      m_dispatchGroupCount = data.dispatchGroupCount;
-      m_tableSize = data.tableSize;
-      m_physicalDevice = data.physicalDevice;
+      core::smart_refctd_ptr<IAssetManager> assetMgr;
+      // Each pipeline is independent; main.cpp can pick precompiled or runtime per
+      // pipeline by passing ShaderVariant::Precompiled(get_spirv_key<...>()) or
+      // ShaderVariant::FromSource(path, defines) respectively.
+      GPUBenchmarkHelper::ShaderVariant packedAliasAVariant;
+      GPUBenchmarkHelper::ShaderVariant packedAliasBVariant;
+      GPUBenchmarkHelper::ShaderVariant cumProbVariant;
+      GPUBenchmarkHelper::ShaderVariant cumProbYoloVariant;
+      GPUBenchmarkHelper::ShaderVariant cumProbEytzingerVariant;
+      GPUBenchmarkHelper::ShaderVariant lightcutTreeVariant;
+      hlsl::uint32_t3                   dispatchGroupCount;
+      uint64_t                          targetBudgetMs = 400; // wall-clock budget per sweep row
+      // N values the sweep cycles through. Dispatch count per row is auto-sized
+      // by runTimedBudgeted to hit the budget.
+      std::span<const uint32_t> sweepNs;
+   };
 
-      m_queue = m_device->getQueue(data.computeFamilyIndex, 0);
+   // Shape is derivable from SetupData; expose it so the caller can use it
+   // both to configure the bench and to build the matching RunContext for the
+   // span that runs this bench
+   static WorkloadShape shapeFor(const SetupData& data)
+   {
+      const uint32_t totalThreads       = data.dispatchGroupCount.x * data.dispatchGroupCount.y * data.dispatchGroupCount.z * WORKGROUP_SIZE;
+      const uint64_t samplesPerDispatch = uint64_t(totalThreads) * uint64_t(BENCH_ITERS);
+      return {
+         .workgroupSize      = {WORKGROUP_SIZE, 1u, 1u},
+         .dispatchGroupCount = data.dispatchGroupCount,
+         .samplesPerDispatch = samplesPerDispatch,
+      };
+   }
 
-      // Command pool + buffers
-      m_cmdpool = m_device->createCommandPool(data.computeFamilyIndex, video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-      m_cmdpool->createCommandBuffers(video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_benchCmdbuf);
-      m_cmdpool->createCommandBuffers(video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampBeforeCmdbuf);
-      m_cmdpool->createCommandBuffers(video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampAfterCmdbuf);
+   CDiscreteSamplerBenchmark(Aggregator& aggregator, const SetupData& data)
+      : GPUBenchmark(aggregator, GPUBenchmark::SetupData{
+                                    .name             = {}, // per-row names synthesized at run time
+                                    .warmupDispatches = 0,
+                                    .shape            = shapeFor(data),
+                                    .targetBudgetMs   = data.targetBudgetMs,
+                                 })
+   {
+      const uint32_t totalThreads = data.dispatchGroupCount.x * data.dispatchGroupCount.y * data.dispatchGroupCount.z * WORKGROUP_SIZE;
 
-      // Timestamp query pool
+      m_assetMgr = data.assetMgr;
+      m_sweepNs  = data.sweepNs;
+
+      for (const uint32_t N : m_sweepNs)
       {
-         video::IQueryPool::SCreationParams qp = {};
-         qp.queryType = video::IQueryPool::TYPE::TIMESTAMP;
-         qp.queryCount = 2;
-         qp.pipelineStatisticsFlags = video::IQueryPool::PIPELINE_STATISTICS_FLAGS::NONE;
-         m_queryPool = m_device->createQueryPool(qp);
+         const std::string nStr = std::format("N={}", N);
+         for (const auto& v : kSweepVariants)
+            registerVariant({nStr, v.family, v.leaf});
       }
 
-      // Generate random weights
-      const uint32_t N = m_tableSize;
-      std::vector<float> weights(N);
-      std::mt19937 rng(42);
+      // Shared output buffer (size only depends on thread count). GPU writes via BDA and
+      // nothing reads it on the CPU.
+      m_outputBuf = createBdaOutputBuffer(totalThreads * sizeof(uint32_t)).buf;
+
+      // Pipelines (N-independent; only push constants change per run). Indices
+      // into m_pipelines (GPUBenchmarkHelper) are stored in the same order as SamplerKind
+      // so the sweep's variant table can index by enum directly.
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::AliasPackedA)]     = createPipeline(data.packedAliasAVariant, m_assetMgr, sizeof(PackedAliasABPushConstants), "alias-packed-A");
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::AliasPackedB)]     = createPipeline(data.packedAliasBVariant, m_assetMgr, sizeof(PackedAliasABPushConstants), "alias-packed-B");
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::CumProbCompare)]   = createPipeline(data.cumProbVariant, m_assetMgr, sizeof(CumProbPushConstants), "cumprob-comparator");
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::CumProbYolo)]      = createPipeline(data.cumProbYoloVariant, m_assetMgr, sizeof(CumProbPushConstants), "cumprob-yolo");
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::CumProbEytzinger)] = createPipeline(data.cumProbEytzingerVariant, m_assetMgr, sizeof(CumProbPushConstants), "cumprob-eytzinger");
+      m_pipelineIdx[static_cast<size_t>(SamplerKind::LightcutTree)]     = createPipeline(data.lightcutTreeVariant, m_assetMgr, sizeof(LightcutTreePushConstants), "lightcut-tree");
+   }
+
+   // Rows are synthesized per (N, variant), not a single named entry, so
+   // each row checks cli.focusVariants individually. The aggregator's silent
+   // flag selects which half (focused / unfocused) we contribute to.
+   void run() override
+   {
+      const bool focusedPhase = isFocusPhase();
+      // Warmup is small and fixed; budgeted measurement auto-sizes the
+      // measured-dispatch count to hit getTargetBudgetMs().
+      constexpr uint32_t kWarmupDispatches = 64;
+
+      for (const uint32_t N : m_sweepNs)
+      {
+         const std::string nStr = std::format("N={}", N);
+         bool              built = false;
+         for (const auto& [family, leaf, kind] : kSweepVariants)
+         {
+            core::vector<core::string> name      = {nStr, family, leaf};
+            const bool                 inFocus   = isFocused(name);
+            const bool                 shouldRun = focusedPhase ? inFocus : !inFocus;
+            if (!shouldRun)
+               continue;
+            if (!built)
+            {
+               buildAndUpload(N);
+               built = true;
+            }
+            runSingle(N, std::move(name), kind, kWarmupDispatches);
+         }
+         if (built)
+            releaseTables();
+      }
+   }
+
+   private:
+   // (family, leaf, kind) for every variant the sweep runs.
+   struct SweepVariant
+   {
+      const char* family; // e.g. "AliasTable"
+      const char* leaf;   // e.g. "packed A, 4 B"
+      SamplerKind kind;
+   };
+   static constexpr SweepVariant kSweepVariants[] = {
+      {"AliasTable", "packed A, 4 B", SamplerKind::AliasPackedA},
+      {"AliasTable", "packed B, 8 B", SamplerKind::AliasPackedB},
+      {"CumulativeProbability", "comparator", SamplerKind::CumProbCompare},
+      {"CumulativeProbability", "YOLO", SamplerKind::CumProbYolo},
+      {"CumulativeProbability", "Eytzinger", SamplerKind::CumProbEytzinger},
+      {"StochasticLightcutTree", "4-ary heap, unpacked BDA", SamplerKind::LightcutTree},
+   };
+
+   void buildAndUpload(const uint32_t N)
+   {
+      m_currentN = N;
+
+      std::vector<float>                    weights(N);
+      std::mt19937                          rng(42u + N);
       std::uniform_real_distribution<float> dist(0.001f, 100.0f);
       for (uint32_t i = 0; i < N; i++)
          weights[i] = dist(rng);
 
-      // Build alias table
-      std::vector<float> aliasProb(N);
-      std::vector<uint32_t> aliasIdx(N);
-      std::vector<float> aliasPdf(N);
-      std::vector<uint32_t> workspace(N);
-      nbl::hlsl::sampling::AliasTableBuilder<float>::build({weights}, aliasProb.data(), aliasIdx.data(), aliasPdf.data(), workspace.data());
+      // Build the alias table SoA (intermediate form), then pack it for variants A and B.
+      // Builder may pad PoT N to N+1 for cache-friendly stride; returned size drives
+      // every downstream buffer / push-constant value.
+      std::vector<float>    aliasProb;
+      std::vector<uint32_t> aliasIdx;
+      std::vector<float>    aliasPdf;
+      m_aliasTableN = sampling::AliasTableBuilder<float>::build({weights}, aliasProb, aliasIdx, aliasPdf);
 
-      // Build cumulative probability table
-      std::vector<float> cumProb(N - 1);
-      nbl::hlsl::sampling::computeNormalizedCumulativeHistogram({weights}, cumProb.data());
+      constexpr uint32_t                              kPackedLog2N = 26u;
+      std::vector<uint32_t>                           packedA(m_aliasTableN);
+      std::vector<sampling::PackedAliasEntryB<float>> packedB(m_aliasTableN);
+      sampling::AliasTableBuilder<float>::packA<kPackedLog2N>({aliasProb}, {aliasIdx}, packedA.data());
+      sampling::AliasTableBuilder<float>::packB<kPackedLog2N>({aliasProb}, {aliasIdx}, {aliasPdf}, packedB.data());
 
-      // Create BDA buffers and upload data
-      auto createBdaBuffer = [&](const void* srcData, size_t bytes) -> core::smart_refctd_ptr<video::IGPUBuffer>
-      {
-         video::IGPUBuffer::SCreationParams bp = {};
-         bp.size = bytes;
-         bp.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) |
-            video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-         auto buf = m_device->createBuffer(std::move(bp));
+      // Cumulative probability (N-1 entries, last bucket implicitly 1.0)
+      std::vector<float> cumProb(N - 1u);
+      sampling::computeNormalizedCumulativeHistogram({weights}, cumProb.data());
 
-         video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buf->getMemoryReqs();
-         reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-         auto alloc = m_device->allocate(reqs, buf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+      // Eytzinger level-order tree: 2*P entries where P = nextPot(N)
+      const uint32_t     eytzingerP        = sampling::eytzingerLeafCount(N);
+      const uint32_t     eytzingerTreeSize = 2u * eytzingerP;
+      std::vector<float> cumProbEytzinger(eytzingerTreeSize);
+      sampling::buildEytzinger({weights}, cumProbEytzinger.data());
 
-         const auto allocSize = alloc.memory->getAllocationSize();
-         if (alloc.memory->map({0ull, allocSize}, video::IDeviceMemoryAllocation::EMCAF_WRITE))
-         {
-            std::memcpy(alloc.memory->getMappedPointer(), srcData, bytes);
-            // Flush so GPU can see the written data
-            video::ILogicalDevice::MappedMemoryRange flushRange(alloc.memory.get(), 0ull, allocSize);
-            m_device->flushMappedMemoryRanges(1u, &flushRange);
-            alloc.memory->unmap();
-         }
-         return buf;
-      };
+      m_aliasPdfBuf         = createBdaBuffer(aliasPdf.data(), m_aliasTableN * sizeof(float));
+      m_packedAliasABuf     = createBdaBuffer(packedA.data(), m_aliasTableN * sizeof(uint32_t));
+      m_packedAliasBBuf     = createBdaBuffer(packedB.data(), m_aliasTableN * sizeof(sampling::PackedAliasEntryB<float>));
+      m_cumProbBuf          = createBdaBuffer(cumProb.data(), (N - 1u) * sizeof(float));
+      m_cumProbEytzingerBuf = createBdaBuffer(cumProbEytzinger.data(), eytzingerTreeSize * sizeof(float));
 
-      const uint32_t totalThreads = m_dispatchGroupCount * WORKGROUP_SIZE;
-
-      // Alias table buffers
-      m_aliasProbBuf = createBdaBuffer(aliasProb.data(), N * sizeof(float));
-      m_aliasIdxBuf = createBdaBuffer(aliasIdx.data(), N * sizeof(uint32_t));
-      m_aliasPdfBuf = createBdaBuffer(aliasPdf.data(), N * sizeof(float));
-
-      // CDF buffer
-      m_cumProbBuf = createBdaBuffer(cumProb.data(), (N - 1) * sizeof(float));
-
-      // Shared output buffer
-      {
-         video::IGPUBuffer::SCreationParams bp = {};
-         bp.size = totalThreads * sizeof(uint32_t);
-         bp.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) |
-            video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-         m_outputBuf = m_device->createBuffer(std::move(bp));
-         video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputBuf->getMemoryReqs();
-         reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-         m_device->allocate(reqs, m_outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-      }
-
-      // Create pipelines (push constants only, no descriptor sets)
-      auto loadShader = [&](const std::string& key)
-      {
-         asset::IAssetLoader::SAssetLoadParams lp = {};
-         lp.logger = m_logger.get();
-         lp.workingDirectory = "app_resources";
-         auto bundle = data.assetMgr->getAsset(key, lp);
-         auto source = asset::IAsset::castDown<asset::IShader>(bundle.getContents()[0]);
-         return m_device->compileShader({.source = source.get()});
-      };
-
-      // Alias table pipeline
-      {
-         const asset::SPushConstantRange pcRange = {
-            .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-            .offset = 0,
-            .size = sizeof(AliasTablePushConstants)};
-         auto layout = m_device->createPipelineLayout({&pcRange, 1});
-         if (!layout)
-            m_logger->log("CDiscreteSamplerBenchmark: failed to create alias pipeline layout", system::ILogger::ELL_ERROR);
-         video::IGPUComputePipeline::SCreationParams pp = {};
-         pp.layout = layout.get();
-         auto shader = loadShader(data.aliasShaderKey);
-         if (!shader)
-            m_logger->log("CDiscreteSamplerBenchmark: failed to load alias shader", system::ILogger::ELL_ERROR);
-         pp.shader.shader = shader.get();
-         pp.shader.entryPoint = "main";
-
-         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-         {
-            pp.flags |= video::IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS | video::IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
-         }
-
-         if (!m_device->createComputePipelines(nullptr, {&pp, 1}, &m_aliasPipeline))
-            m_logger->log("CDiscreteSamplerBenchmark: failed to create alias compute pipeline", system::ILogger::ELL_ERROR);
-
-         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-         {
-            auto report = system::to_string(m_aliasPipeline->getExecutableInfo());
-            m_logger->log("Alias Table Sampling Pipeline Executable Report:\n%s", system::ILogger::ELL_PERFORMANCE, report.c_str());
-         }
-         m_aliasPplnLayout = std::move(layout);
-      }
-
-      // CDF pipeline
-      {
-         const asset::SPushConstantRange pcRange = {
-            .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-            .offset = 0,
-            .size = sizeof(CumProbPushConstants)};
-         auto layout = m_device->createPipelineLayout({&pcRange, 1});
-         if (!layout)
-            m_logger->log("CDiscreteSamplerBenchmark: failed to create cumprob pipeline layout", system::ILogger::ELL_ERROR);
-         video::IGPUComputePipeline::SCreationParams pp = {};
-         pp.layout = layout.get();
-         auto shader = loadShader(data.cumProbShaderKey);
-         if (!shader)
-            m_logger->log("CDiscreteSamplerBenchmark: failed to load cumprob shader", system::ILogger::ELL_ERROR);
-         pp.shader.shader = shader.get();
-         pp.shader.entryPoint = "main";
-         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-         {
-            pp.flags |= video::IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS | video::IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
-         }
-         if (!m_device->createComputePipelines(nullptr, {&pp, 1}, &m_cumProbPipeline))
-            m_logger->log("CDiscreteSamplerBenchmark: failed to create cumprob compute pipeline", system::ILogger::ELL_ERROR);
-         if (m_device->getEnabledFeatures().pipelineExecutableInfo)
-         {
-            auto report = system::to_string(m_cumProbPipeline->getExecutableInfo());
-            m_logger->log("Cumulative Probability Sampling Pipeline Executable Report:\n%s", system::ILogger::ELL_PERFORMANCE, report.c_str());
-         }
-         m_cumProbPplnLayout = std::move(layout);
-      }
+      // Build a 4-ary light-cut tree with N synthetic leaves at random positions
+      // in a unit cube around the origin. Powers reuse the alias table's weight
+      // distribution so the same N gives comparable signal scale. Leaves are
+      // padded to the next power of 4 so the heap is complete.
+      buildLightcutTree(N, weights);
    }
 
-   void run(uint32_t warmupIterations = 500, uint32_t benchmarkIterations = 5000)
+   void releaseTables()
    {
-      constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
-      const uint32_t totalThreads = m_dispatchGroupCount * benchWorkgroupSize;
-      m_logger->log("=== GPU Discrete Sampler Benchmark (N=%u, %u dispatches, %u threads/dispatch, %u iters/thread, ps/sample is per all GPU threads) ===",
-         system::ILogger::ELL_PERFORMANCE, m_tableSize, benchmarkIterations, totalThreads, BENCH_ITERS);
-
-      runSingle("AliasTable", m_aliasPipeline, m_aliasPplnLayout, true, warmupIterations, benchmarkIterations);
-      runSingle("CumulativeProbability", m_cumProbPipeline, m_cumProbPplnLayout, false, warmupIterations, benchmarkIterations);
+      m_aliasPdfBuf         = nullptr;
+      m_packedAliasABuf     = nullptr;
+      m_packedAliasBBuf     = nullptr;
+      m_cumProbBuf          = nullptr;
+      m_cumProbEytzingerBuf = nullptr;
+      m_lightcutNodesBuf    = nullptr;
+      m_lightcutLeavesBuf   = nullptr;
    }
 
-   private:
-   void runSingle(const char* name, const core::smart_refctd_ptr<video::IGPUComputePipeline>& pipeline, const core::smart_refctd_ptr<video::IGPUPipelineLayout>& layout, bool isAlias, uint32_t warmupIterations, uint32_t benchmarkIterations)
+   // Pad to next power of 4; min 1.
+   static uint32_t nextPowerOf4(uint32_t n)
    {
-      m_device->waitIdle();
-
-      // Record benchmark command buffer
-      m_benchCmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
-      m_benchCmdbuf->begin(video::IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
-      m_benchCmdbuf->bindComputePipeline(pipeline.get());
-
-      if (isAlias)
-      {
-         AliasTablePushConstants pc = {};
-         pc.probAddress = m_aliasProbBuf->getDeviceAddress();
-         pc.aliasAddress = m_aliasIdxBuf->getDeviceAddress();
-         pc.pdfAddress = m_aliasPdfBuf->getDeviceAddress();
-         pc.outputAddress = m_outputBuf->getDeviceAddress();
-         pc.tableSize = m_tableSize;
-         m_benchCmdbuf->pushConstants(layout.get(), asset::IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-      }
-      else
-      {
-         CumProbPushConstants pc = {};
-         pc.cumProbAddress = m_cumProbBuf->getDeviceAddress();
-         pc.outputAddress = m_outputBuf->getDeviceAddress();
-         pc.tableSize = m_tableSize;
-         m_benchCmdbuf->pushConstants(layout.get(), asset::IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-      }
-
-      m_benchCmdbuf->dispatch(m_dispatchGroupCount, 1, 1);
-      m_benchCmdbuf->end();
-
-      // Record timestamp command buffers
-      m_timestampBeforeCmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
-      m_timestampBeforeCmdbuf->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-      m_timestampBeforeCmdbuf->resetQueryPool(m_queryPool.get(), 0, 2);
-      m_timestampBeforeCmdbuf->writeTimestamp(asset::PIPELINE_STAGE_FLAGS::NONE, m_queryPool.get(), 0);
-      m_timestampBeforeCmdbuf->end();
-
-      m_timestampAfterCmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::NONE);
-      m_timestampAfterCmdbuf->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-      m_timestampAfterCmdbuf->writeTimestamp(asset::PIPELINE_STAGE_FLAGS::NONE, m_queryPool.get(), 1);
-      m_timestampAfterCmdbuf->end();
-
-      auto semaphore = m_device->createSemaphore(0u);
-      uint64_t semCounter = 0u;
-
-      const video::IQueue::SSubmitInfo::SCommandBufferInfo benchCmds[] = {{.cmdbuf = m_benchCmdbuf.get()}};
-      const video::IQueue::SSubmitInfo::SCommandBufferInfo beforeCmds[] = {{.cmdbuf = m_timestampBeforeCmdbuf.get()}};
-      const video::IQueue::SSubmitInfo::SCommandBufferInfo afterCmds[] = {{.cmdbuf = m_timestampAfterCmdbuf.get()}};
-
-      auto submitSerial = [&](const video::IQueue::SSubmitInfo::SCommandBufferInfo* cmds, uint32_t count)
-      {
-         const video::IQueue::SSubmitInfo::SSemaphoreInfo waitSem[] = {
-            {.semaphore = semaphore.get(), .value = semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
-         const video::IQueue::SSubmitInfo::SSemaphoreInfo signalSem[] = {
-            {.semaphore = semaphore.get(), .value = ++semCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
-         video::IQueue::SSubmitInfo submit = {};
-         submit.commandBuffers = {cmds, count};
-         submit.waitSemaphores = waitSem;
-         submit.signalSemaphores = signalSem;
-         m_queue->submit({&submit, 1u});
-      };
-
-      for (uint32_t i = 0u; i < warmupIterations; ++i)
-         submitSerial(benchCmds, 1u);
-
-      submitSerial(beforeCmds, 1u);
-      for (uint32_t i = 0u; i < benchmarkIterations; ++i)
-         submitSerial(benchCmds, 1u);
-      submitSerial(afterCmds, 1u);
-
-      m_device->waitIdle();
-
-      uint64_t timestamps[2] = {};
-      const auto flags = core::bitflag(video::IQueryPool::RESULTS_FLAGS::_64_BIT) |
-         core::bitflag(video::IQueryPool::RESULTS_FLAGS::WAIT_BIT);
-      m_device->getQueryPoolResults(m_queryPool.get(), 0, 2, timestamps, sizeof(uint64_t), flags);
-
-      constexpr uint32_t benchIters = BENCH_ITERS;
-      constexpr uint32_t benchWorkgroupSize = WORKGROUP_SIZE;
-      const float64_t timestampPeriod = float64_t(m_physicalDevice->getLimits().timestampPeriodInNanoSeconds);
-      const float64_t elapsed_ns = float64_t(timestamps[1] - timestamps[0]) * timestampPeriod;
-      const uint64_t totalThreads = uint64_t(m_dispatchGroupCount) * uint64_t(benchWorkgroupSize);
-      const uint64_t totalSamples = uint64_t(benchmarkIterations) * totalThreads * uint64_t(benchIters);
-      const float64_t ps_per_sample = elapsed_ns * 1e3 / float64_t(totalSamples);
-      const float64_t gsamples_per_s = float64_t(totalSamples) / elapsed_ns;
-      const float64_t elapsed_ms = elapsed_ns * 1e-6;
-
-      m_logger->log("[Benchmark] %-28s: %9.3f ps/sample  |  %10.3f GSamples/s  |  %10.3f ms total", system::ILogger::ELL_PERFORMANCE, name, ps_per_sample, gsamples_per_s, elapsed_ms);
+      if (n <= 1) return 1;
+      uint32_t p = std::bit_ceil(n);
+      if ((std::countr_zero(p) & 1u) != 0u)
+         p <<= 1u;
+      return p;
    }
 
-   core::smart_refctd_ptr<video::ILogicalDevice> m_device;
-   core::smart_refctd_ptr<system::ILogger> m_logger;
-   core::smart_refctd_ptr<video::IGPUCommandPool> m_cmdpool;
-   core::smart_refctd_ptr<video::IGPUCommandBuffer> m_benchCmdbuf;
-   core::smart_refctd_ptr<video::IGPUCommandBuffer> m_timestampBeforeCmdbuf;
-   core::smart_refctd_ptr<video::IGPUCommandBuffer> m_timestampAfterCmdbuf;
-   core::smart_refctd_ptr<video::IQueryPool> m_queryPool;
+   // Build a 4-ary CWBVH-4 packed light-cut tree. Two phases:
+   //  1) bottom-up bbox-union + power-sum into a temporary decoded heap;
+   //  2) per-wide-node, quantise the 4 children's bboxes / powers into a 32 B
+   //     packed record and emit. Mirrors ex40's CLightTree.cpp builder.
+   void buildLightcutTree(uint32_t N, const std::vector<float>& powers)
+   {
+      const uint32_t numLeavesPadded = nextPowerOf4(N);
+      const uint32_t numNodes        = (numLeavesPadded - 1u) / 3u;
+      m_lightcutFirstLeafIdx         = numNodes;
+      m_lightcutNumLeaves            = N;
 
-   // Alias table
-   core::smart_refctd_ptr<video::IGPUPipelineLayout> m_aliasPplnLayout;
-   core::smart_refctd_ptr<video::IGPUComputePipeline> m_aliasPipeline;
-   core::smart_refctd_ptr<video::IGPUBuffer> m_aliasProbBuf;
-   core::smart_refctd_ptr<video::IGPUBuffer> m_aliasIdxBuf;
-   core::smart_refctd_ptr<video::IGPUBuffer> m_aliasPdfBuf;
+      // Decoded heap: leaves at [numNodes, numNodes+numLeavesPadded); internals at [0, numNodes).
+      struct Decoded { float mn[3]; float mx[3]; float power; };
+      const uint32_t totalHeap = numNodes + numLeavesPadded;
+      std::vector<Decoded> heap(totalHeap, Decoded{});
 
-   // Cumulative probability
-   core::smart_refctd_ptr<video::IGPUPipelineLayout> m_cumProbPplnLayout;
-   core::smart_refctd_ptr<video::IGPUComputePipeline> m_cumProbPipeline;
-   core::smart_refctd_ptr<video::IGPUBuffer> m_cumProbBuf;
+      std::vector<LightcutTreeLeafRecord> leaves(numLeavesPadded, LightcutTreeLeafRecord{});
+      std::mt19937 rng(0xC0FFEEu + N);
+      std::uniform_real_distribution<float> posDist(-1.0f, 1.0f);
+      constexpr float kHalfExt = 0.025f;
+      for (uint32_t i = 0; i < numLeavesPadded; ++i)
+      {
+         Decoded& d = heap[numNodes + i];
+         if (i < N)
+         {
+            const float cx = posDist(rng), cy = posDist(rng), cz = posDist(rng);
+            d.mn[0] = cx - kHalfExt; d.mn[1] = cy - kHalfExt; d.mn[2] = cz - kHalfExt;
+            d.mx[0] = cx + kHalfExt; d.mx[1] = cy + kHalfExt; d.mx[2] = cz + kHalfExt;
+            d.power = powers[i];
+            leaves[i].bboxMin = hlsl::float32_t3(d.mn[0], d.mn[1], d.mn[2]);
+            leaves[i].bboxMax = hlsl::float32_t3(d.mx[0], d.mx[1], d.mx[2]);
+            leaves[i].emitterID  = i;
+         }
+         else
+         {
+            d.power = 0.f;
+            // Padding: bbox stays zero; lightcutTreeChildWeight short-circuits on power<=0.
+            leaves[i].emitterID = nbl::hlsl::sampling::LightcutTreePackedNoEmitter;
+         }
+      }
+
+      // Bottom-up merge: each internal node is the bbox-union + power-sum of its 4 children.
+      for (int32_t W = int32_t(numNodes) - 1; W >= 0; --W)
+      {
+         Decoded& p = heap[uint32_t(W)];
+         p.mn[0] = p.mn[1] = p.mn[2] = +std::numeric_limits<float>::infinity();
+         p.mx[0] = p.mx[1] = p.mx[2] = -std::numeric_limits<float>::infinity();
+         p.power = 0.f;
+         for (uint32_t s = 0; s < 4; ++s)
+         {
+            const Decoded& c = heap[4u * uint32_t(W) + 1u + s];
+            if (!(c.power > 0.f)) continue;
+            for (uint32_t a = 0; a < 3; ++a)
+            {
+               p.mn[a] = std::min(p.mn[a], c.mn[a]);
+               p.mx[a] = std::max(p.mx[a], c.mx[a]);
+            }
+            p.power += c.power;
+         }
+         if (!(p.power > 0.f))
+         {
+            p.mn[0] = p.mn[1] = p.mn[2] = 0.f;
+            p.mx[0] = p.mx[1] = p.mx[2] = 0.f;
+         }
+      }
+
+      // Encode each wide-node in CWBVH-4 packed form.
+      std::vector<LightcutTreeWideNodeRecord> wideNodes(numNodes, LightcutTreeWideNodeRecord{});
+      for (uint32_t W = 0; W < numNodes; ++W)
+      {
+         namespace pk = nbl::hlsl::sampling;
+         const Decoded& parent = heap[W];
+         const float ext[3] = { parent.mx[0] - parent.mn[0], parent.mx[1] - parent.mn[1], parent.mx[2] - parent.mn[2] };
+         // One shared exponent for all 3 axes (largest extent picks the grid). Same library pack
+         // contract as the renderer, including ceil+floor-to-1 relative power.
+         const uint32_t expS  = pk::lightcutTreePickBiasedExp(std::max({ext[0], ext[1], ext[2]}));
+         const float    scale = pk::lightcutTreeBiasedExpToScale(expS);
+
+         const float parentPowerSafe = parent.power > 0.f ? parent.power : 1.f;
+         uint32_t     childLeafMask  = 0u;
+         uint32_t     childPacked[4] = {0u, 0u, 0u, 0u};
+         for (uint32_t s = 0; s < 4; ++s)
+         {
+            const uint32_t childHeap = 4u * W + 1u + s;
+            if (childHeap >= numNodes)
+               childLeafMask |= (1u << s);
+            const Decoded& ch = heap[childHeap];
+            const hlsl::float32_t3 loRel(ch.mn[0] - parent.mn[0], ch.mn[1] - parent.mn[1], ch.mn[2] - parent.mn[2]);
+            const hlsl::float32_t3 hiRel(ch.mx[0] - parent.mn[0], ch.mx[1] - parent.mn[1], ch.mx[2] - parent.mn[2]);
+            childPacked[s] = pk::lightcutTreePackChild(loRel, hiRel, scale, ch.power, parentPowerSafe);
+         }
+
+         LightcutTreeWideNodeRecord& wn = wideNodes[W];
+         wn.origin      = hlsl::float32_t3(parent.mn[0], parent.mn[1], parent.mn[2]);
+         wn.powExpMask  = pk::lightcutTreePackPowExpMask(parent.power, expS, childLeafMask);
+         wn.childPacked = hlsl::uint32_t4(childPacked[0], childPacked[1], childPacked[2], childPacked[3]);
+      }
+
+      m_lightcutNodesBuf  = createBdaBuffer(wideNodes.data(), wideNodes.size() * sizeof(LightcutTreeWideNodeRecord));
+      m_lightcutLeavesBuf = createBdaBuffer(leaves.data(),    leaves.size()    * sizeof(LightcutTreeLeafRecord));
+   }
+
+   void runSingle(uint32_t N, core::vector<core::string> name, SamplerKind kind, uint32_t warmupIterations)
+   {
+      // Pipeline + push constants are bound *once* in bindOnce, the inner loop is just
+      // dispatch(...). Putting binds inside dispatchOne would inflate ps/sample on the
+      // tighter samplers.
+      const PipelineEntry* pe = getPipelineEntry(m_pipelineIdx[size_t(kind)], joinName(name));
+      if (!pe)
+         return;
+
+      const TimingResult timingResult = runTimedBudgeted(warmupIterations, getTargetBudgetMs(),
+         [&](IGPUCommandBuffer* cb)
+         {
+            if (kind == SamplerKind::AliasPackedA || kind == SamplerKind::AliasPackedB)
+            {
+               PackedAliasABPushConstants pc = {};
+               pc.entriesAddress             = (kind == SamplerKind::AliasPackedA ? m_packedAliasABuf : m_packedAliasBBuf)->getDeviceAddress();
+               pc.pdfAddress                 = m_aliasPdfBuf->getDeviceAddress();
+               pc.outputAddress              = m_outputBuf->getDeviceAddress();
+               pc.tableSize                  = m_aliasTableN;
+               defaultBindAndPush(cb, *pe, pc);
+            }
+            else if (kind == SamplerKind::LightcutTree)
+            {
+               LightcutTreePushConstants pc = {};
+               pc.nodesAddress              = m_lightcutNodesBuf->getDeviceAddress();
+               pc.leavesAddress             = m_lightcutLeavesBuf->getDeviceAddress();
+               pc.outputAddress             = m_outputBuf->getDeviceAddress();
+               pc.firstLeafIdx              = m_lightcutFirstLeafIdx;
+               pc.numLeaves                 = m_lightcutNumLeaves;
+               // Shading point at origin, normal +Y; matches the synthetic tree's
+               // leaf cube so weights are well-conditioned for every variant of N.
+               pc.shadingPoint              = hlsl::float32_t3(0.f, 0.f, 0.f);
+               pc.shadingNormal             = hlsl::float32_t3(0.f, 1.f, 0.f);
+               defaultBindAndPush(cb, *pe, pc);
+            }
+            else
+            {
+               CumProbPushConstants pc  = {};
+               const auto&          buf = (kind == SamplerKind::CumProbEytzinger) ? m_cumProbEytzingerBuf : m_cumProbBuf;
+               pc.cumProbAddress        = buf->getDeviceAddress();
+               pc.outputAddress         = m_outputBuf->getDeviceAddress();
+               pc.tableSize             = N;
+               defaultBindAndPush(cb, *pe, pc);
+            }
+         },
+         [this](IGPUCommandBuffer* cb) { defaultDispatch(cb); },
+         samplesForCurrentRow());
+
+      record(std::move(name), timingResult, pe->stats);
+   }
+
+   core::smart_refctd_ptr<IAssetManager> m_assetMgr;
+
+   // Indices into m_pipelines (GPUBenchmarkHelper), indexed by SamplerKind.
+   uint32_t m_pipelineIdx[size_t(SamplerKind::Count)] = {};
+
+   // Per-N data buffers (rebuilt each sweep step). pdf[] is shared between A and B.
+   core::smart_refctd_ptr<IGPUBuffer> m_aliasPdfBuf;
+   core::smart_refctd_ptr<IGPUBuffer> m_packedAliasABuf;
+   core::smart_refctd_ptr<IGPUBuffer> m_packedAliasBBuf;
+   core::smart_refctd_ptr<IGPUBuffer> m_cumProbBuf;
+   core::smart_refctd_ptr<IGPUBuffer> m_cumProbEytzingerBuf;
+
+   // Light-cut tree buffers + heap metadata (firstLeafIdx + unpadded N).
+   core::smart_refctd_ptr<IGPUBuffer> m_lightcutNodesBuf;
+   core::smart_refctd_ptr<IGPUBuffer> m_lightcutLeavesBuf;
+   uint32_t                           m_lightcutFirstLeafIdx = 0;
+   uint32_t                           m_lightcutNumLeaves    = 0;
 
    // Shared
-   core::smart_refctd_ptr<video::IGPUBuffer> m_outputBuf;
-   video::IQueue* m_queue = nullptr;
-   video::IPhysicalDevice* m_physicalDevice = nullptr;
-   uint32_t m_dispatchGroupCount = 0;
-   uint32_t m_tableSize = 0;
+   core::smart_refctd_ptr<IGPUBuffer> m_outputBuf;
+   uint32_t                           m_currentN    = 0;
+   uint32_t                           m_aliasTableN = 0;
+   std::span<const uint32_t>          m_sweepNs;
 };
 
 #endif

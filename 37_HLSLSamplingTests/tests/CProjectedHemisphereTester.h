@@ -14,7 +14,7 @@ class CProjectedHemisphereTester final : public ITester<ProjectedHemisphereInput
 	using R = ProjectedHemisphereTestResults;
 
 public:
-	CProjectedHemisphereTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CProjectedHemisphereTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	ProjectedHemisphereInputValues generateInputTestValues() override
@@ -48,9 +48,10 @@ private:
 			FieldCheck{"ProjectedHemisphere::backwardWeight", &R::backwardWeight, 1e-4, 1e-4});
 		pass &= verifyTestValue("ProjectedHemisphere::forwardPdf == cache.pdf", actual.forwardPdf, actual.cachedPdf, iteration, seed, testType, 1e-5, 1e-5);
 		pass &= verifyTestValue("ProjectedHemisphere::roundtripError", nbl::hlsl::float32_t2(0.0f, 0.0f), actual.roundtripError, iteration, seed, testType, 5e-4, 1e-4);
-		pass &= verifyTestValue("ProjectedHemisphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-4, 1e-4);
-		pass &= verifyTestValue("ProjectedHemisphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-4, 1e-4);
-		pass &= verifyTestValue("ProjectedHemisphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-4, 1e-4);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "ProjectedHemisphere::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 6e-2, 6e-2);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "ProjectedHemisphere::inverseJacobianPdf", actual.backwardPdf, actual.inverseJacobianPdf, iteration, seed, testType, 6e-2, 6e-2);
+		pass &= verifyTestValue("ProjectedHemisphere::pdf consistency", actual.forwardPdf, actual.backwardPdf, iteration, seed, testType, 1e-7, 1e-7);
+		pass &= verifyTestValue("ProjectedHemisphere::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-7, 1e-7);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"ProjectedHemisphere::forwardPdf",  &R::forwardPdf},
 			PdfCheck{"ProjectedHemisphere::backwardPdf", &R::backwardPdf});

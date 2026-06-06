@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
-#define _NBL_THIS_EXAMPLE_C_BASIC_RWMC_RESOLVER_H_INCLUDED_
+#define _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
 
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -11,6 +11,7 @@
 #include "renderer/present/IPresenter.h"
 
 #include "renderer/shaders/present/push_constants.hlsl"
+#include "renderer/shaders/session.hlsl"
 
 
 namespace nbl::this_example
@@ -47,8 +48,14 @@ class CWindowPresenter : public IPresenter
 		//
 		inline ui::ICursorControl* getCursorControl() const {return m_construction.cursorControl;}
 
+		// pick which session image (SensorDSBindings::SampledImageIndex) gets blitted to the swapchain
+		inline void setSelectedImageIndex(uint8_t index) {m_selectedImageIndex = index;}
+		inline uint8_t getSelectedImageIndex() const {return m_selectedImageIndex;}
+
 		//
 		inline const video::IGPURenderpass* getRenderpass() const {return getSwapchainResources()->getRenderpass();}
+		inline video::IGPURenderpass* getRenderpass() {return getSwapchainResources()->getRenderpass();}
+		inline ui::IWindow* getWindow() {return m_construction.window;}
 
 		//
 		bool irrecoverable() const {return m_construction.surface->irrecoverable() || !m_construction.surface->isWindowOpen();}
@@ -88,6 +95,7 @@ class CWindowPresenter : public IPresenter
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> m_present;
 		SDefaultResolvePushConstants m_pushConstants;
 		uint8_t m_currentImageIndex = ~0u;
+		uint8_t m_selectedImageIndex = uint8_t(SensorDSBindings::SampledImageIndex::Beauty);
 };
 
 }

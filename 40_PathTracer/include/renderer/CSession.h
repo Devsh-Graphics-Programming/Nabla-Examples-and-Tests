@@ -27,6 +27,32 @@ class CSession final : public core::IReferenceCounted
 			Debug,
 			Count
 		};
+		enum class MisMode : uint8_t
+		{
+			NEEOnly,
+			BxDFOnly,
+			Both,
+			Count
+		};
+
+		enum class BeautyVariant : uint8_t
+		{
+			NEEOnly_Alias, // NBL_MIS_MODE=0
+			BxDFOnly,      // NBL_MIS_MODE=1
+			Both_Tree,     // NBL_NEE_USE_ALIAS=0
+			NEEOnly_Tree,  // NBL_MIS_MODE=0, NBL_NEE_USE_ALIAS=0
+			Count
+		};
+		
+		static BeautyVariant beautyVariantFor(const MisMode misMode, const bool useAlias)
+		{
+			switch (misMode)
+			{
+				case MisMode::BxDFOnly: return BeautyVariant::BxDFOnly; // no NEE -> alias/tree irrelevant
+				case MisMode::NEEOnly:  return useAlias ? BeautyVariant::NEEOnly_Alias : BeautyVariant::NEEOnly_Tree;
+				default:                return useAlias ? BeautyVariant::Count : BeautyVariant::Both_Tree; // Both
+			}
+		}
 		struct SCachedCreationParams
 		{
 			RenderMode mode = RenderMode::Beauty;
@@ -92,16 +118,27 @@ class CSession final : public core::IReferenceCounted
 		//
 		bool update(const SSensorDynamics& newVal);
 
-		// TODO: figure this out
 		inline float getProgress() const
 		{
-			return 0.f;
+			const uint32_t maxSPP = m_active.currentSensorState.maxSPP;
+			if (maxSPP == 0)
+				return 0.f;
+			return std::min(1.f, float(m_accumulatedSpp) / float(maxSPP));
+		}
+
+		inline void onFrameRendered(uint16_t sppThisFrame)
+		{
+			if (m_active.currentSensorState.keepAccumulating)
+				m_accumulatedSpp += sppThisFrame;
+			else
+				m_accumulatedSpp = sppThisFrame;
 		}
 
 		//
 		inline void deinit()
 		{
 			m_active = {};
+			m_accumulatedSpp = 0;
 		}
 
 		//
@@ -124,6 +161,7 @@ class CSession final : public core::IReferenceCounted
 
 		const SConstructionParams m_params;
 		SActiveResources m_active = {};
+		uint32_t m_accumulatedSpp = 0;
 };
 
 }
