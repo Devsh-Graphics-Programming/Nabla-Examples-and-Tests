@@ -749,9 +749,8 @@ public:
 
 				tmpCmdBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeClearImageBarrier });
 
-				uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
 				IGPUCommandBuffer::SClearColorValue clear = {};
-				clear.uint32[0] = pseudoStencilInvalidValue;
+				clear.uint32[0] = InvalidPseudoStencilValue;
 
 				asset::IImage::SSubresourceRange subresourceRange = {};
 				subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;

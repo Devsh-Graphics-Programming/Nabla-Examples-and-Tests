@@ -107,11 +107,11 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     float32_t4 color;
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
-    const uint32_t packedData = pseudoStencil[fragCoord];
+    PseudoStencil ps = loadPseudoStencilData(fragCoord);
 
     const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
-    const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
-    const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
+    const uint32_t storedQuantizedAlpha = ps.getAlpha();
+    const uint32_t storedMainObjectIdx = ps.getMainObjectIdx();
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const bool differentMainObject = currentMainObjectIdx != storedMainObjectIdx; // meaning current pixel's main object is different than what is already stored
     const bool resolve = differentMainObject && storedMainObjectIdx != InvalidMainObjectIdx;
@@ -138,7 +138,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // OR If previous pixel has a different ID than current's  (i.e. previous either empty/invalid or a differnet mainObject), we should update our alpha and color storages.
     if (differentMainObject || localQuantizedAlpha > storedQuantizedAlpha)
     {
-        pseudoStencil[fragCoord] = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+        setPseudoStencilData(fragCoord, localQuantizedAlpha, currentMainObjectIdx);
+
         if (colorFromTexture) // writing color from texture
             colorStorage[fragCoord] = packR11G11B10_UNORM(localTextureColor);
     }

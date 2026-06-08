@@ -217,6 +217,20 @@ struct DrawObject
     void setMainObjIndex(uint32_t mainObjIdx) { packedData = MainObjField::set(packedData, mainObjIdx); }
 };
 
+struct PseudoStencil
+{
+    uint32_t packedData;
+
+    using AlphaField               = utils::BitField<uint32_t,  0,  8>;
+    using MainObjectIdxField       = utils::BitField<uint32_t,  8,  24>;
+
+    uint32_t getMainObjectIdx() { return MainObjectIdxField::get(packedData); }
+    void setMainObjectIdx(uint32_t mainObjectIdx) { packedData = MainObjectIdxField::set(packedData, mainObjectIdx); }
+
+    uint32_t getAlpha() { return AlphaField::get(packedData); }
+    void setAlpha(uint32_t alpha) { packedData = AlphaField::set(packedData, alpha); }
+};
+
 // Goes into geometry buffer, needs to be aligned by 8
 struct LinePointInfo
 {
@@ -600,11 +614,11 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 #endif
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t AlphaBits = 32u - MainObjectIdxBits;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = IndexLimits<uint32_t, MainObjectIdxBits>::MaxIndexable;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = IndexLimits<uint32_t, MainObjectIdxBits>::Invalid;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = IndexLimits<uint32_t, PseudoStencil::MainObjectIdxField::BitCount>::MaxIndexable;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = IndexLimits<uint32_t, PseudoStencil::MainObjectIdxField::BitCount>::Invalid;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidPseudoStencilValue = InvalidMainObjectIdx << PseudoStencil::AlphaField::BitCount;
+
 
 // Hatches
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
