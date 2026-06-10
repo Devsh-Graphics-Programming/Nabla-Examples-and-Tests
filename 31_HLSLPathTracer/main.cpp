@@ -439,7 +439,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						nullptr,
 						nullptr
 					);
-					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass(), 0u, {}, hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT, m_pipelineCache.object.get());
+					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass(), 0u, {}, {}, hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT, m_pipelineCache.object.get());
 					if (!m_presentPipeline)
 						return logFail("Could not create Graphics Pipeline!");
 					m_pipelineCache.dirty = true;
