@@ -4,6 +4,7 @@
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/gtml/SJsonFormatter.h"
 
 #include "renderer/CRenderer.h"
 #include "renderer/resolve/CBasicRWMCResolver.h"
@@ -34,35 +35,13 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 		using device_base_t = SimpleWindowedApplication;
 		using asset_base_t = BuiltinResourcesApplication;
 
-		// TODO: move to Nabla proper
-		static inline void jsonizeGitInfo(nlohmann::json& target, const nbl::gtml::GitInfo& info)
-		{
-			target["isPopulated"] = info.isPopulated;
-			if (info.hasUncommittedChanges.has_value())
-				target["hasUncommittedChanges"] = info.hasUncommittedChanges.value();
-			else
-				target["hasUncommittedChanges"] = "UNKNOWN, BUILT WITHOUT DIRTY-CHANGES CAPTURE";
-
-			target["commitAuthorName"] = info.commitAuthorName;
-			target["commitAuthorEmail"] = info.commitAuthorEmail;
-			target["commitHash"] = info.commitHash;
-			target["commitShortHash"] = info.commitShortHash;
-			target["commitDate"] = info.commitDate;
-			target["commitSubject"] = info.commitSubject;
-			target["commitBody"] = info.commitBody;
-			target["describe"] = info.describe;
-			target["branchName"] = info.branchName;
-			target["latestTag"] = info.latestTag;
-			target["latestTagName"] = info.latestTagName;
-		}
-
 		inline void printGitInfos() const
 		{
 			nlohmann::json j;
 
 			auto& modules = j["modules"];
-			jsonizeGitInfo(modules["nabla"],nbl::gtml::nabla_git_info);
-			jsonizeGitInfo(modules["dxc"],nbl::gtml::dxc_git_info);
+			modules["nabla"] = nlohmann::json::parse(::gtml::SJsonFormatter::toString(nbl::gtml::nabla_git_info));
+			modules["dxc"] = nlohmann::json::parse(::gtml::SJsonFormatter::toString(nbl::gtml::dxc_git_info));
 
 			m_logger->log("Build Info:\n%s",ILogger::ELL_INFO,j.dump(4).c_str());
 		}

@@ -1,10 +1,34 @@
-set(NBL_INCLUDE_SERACH_DIRECTORIES
-	"${CMAKE_CURRENT_SOURCE_DIR}/include"
+set(SRCs
+	main.cpp
+	App.hpp
+	BundleGeometryItems.h
+	AppLifecycle.cpp
+	AppLoad.cpp
+	AppPerf.cpp
+	AppRuntime.cpp
+	inputs.json
+	README.md
 )
-set(NBL_LIBRARIES)
+
+option(NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS "Enable benchmark dataset clone + benchmark payload setup for 12_MeshLoaders." OFF)
+option(NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST "When benchmark datasets are enabled, use benchmark payload as default startup test list in batch mode." OFF)
+set(NBL_MESHLOADERS_BENCHMARK_DATASET_DIR "${CMAKE_BINARY_DIR}/meshloaders_benchmark_datasets" CACHE PATH "Destination directory for cloned 12_MeshLoaders benchmark datasets.")
+set(NBL_MESHLOADERS_BENCHMARK_DATASET_REPO "https://github.com/Devsh-Graphics-Programming/Nabla-Benchmark-Datasets.git" CACHE STRING "Git repository URL for 12_MeshLoaders benchmark datasets.")
+set(NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH "inputs_benchmark.json" CACHE STRING "Relative path to committed benchmark payload JSON inside dataset repo.")
+set(NBL_MESHLOADERS_MEDIA_PAYLOAD_RELATIVE_PATH "inputs_benchmark.json" CACHE STRING "Preferred benchmark payload relative path inside examples_tests/media.")
+set(NBL_MESHLOADERS_PERF_DUMP_DIR "${CMAKE_BINARY_DIR}/meshloaders_perf_runs" CACHE PATH "Directory where 12_MeshLoaders writes structured performance run artifacts.")
+set(NBL_MESHLOADERS_PERF_REFERENCE_DIR "" CACHE PATH "Directory containing structured performance reference artifacts for 12_MeshLoaders.")
+
+set(NBL_INCLUDE_SEARCH_DIRECTORIES
+	"${CMAKE_CURRENT_SOURCE_DIR}/include"
+	"${CMAKE_SOURCE_DIR}/3rdparty"
+)
+set(NBL_LIBRARIES
+	nlohmann_json::nlohmann_json
+)
 
 if (NBL_BUILD_MITSUBA_LOADER)
-	list(APPEND NBL_INCLUDE_SERACH_DIRECTORIES
+	list(APPEND NBL_INCLUDE_SEARCH_DIRECTORIES
 		"${NBL_EXT_MITSUBA_LOADER_INCLUDE_DIRS}"
 	)
 	list(APPEND NBL_LIBRARIES
@@ -12,15 +36,101 @@ if (NBL_BUILD_MITSUBA_LOADER)
 	)
 endif()
 
-	# TODO; Arek I removed `NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET` from the last parameter here, doesn't this macro have 4 arguments anyway !?
-nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
-# TODO: Arek temporarily disabled cause I haven't figured out how to make this target yet
-# LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
+nbl_create_executable_project("${SRCs}" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "${NBL_LIBRARIES}")
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_MESHLOADERS_BUILD_CONFIG="$<CONFIG>")
 
 if (NBL_BUILD_DEBUG_DRAW)
 	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
 endif()
 
-
 add_dependencies(${EXECUTABLE_NAME} argparse)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
+
+add_dependencies(${EXECUTABLE_NAME} nlohmann_json::nlohmann_json)
+target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INCLUDE_DIRECTORIES>)
+
+if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
+	set(NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/${NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH}" CACHE FILEPATH "Committed benchmark testlist for 12_MeshLoaders." FORCE)
+	if (NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+		if (EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}" AND NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/.git")
+			message(STATUS "[meshloaders-bench] Dataset dir exists without .git, skipping fetch and using local files: ${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}")
+		else()
+			include(FetchContent)
+			FetchContent_Declare(nbl_meshloaders_benchmark_dataset
+				GIT_REPOSITORY "${NBL_MESHLOADERS_BENCHMARK_DATASET_REPO}"
+				GIT_TAG "4e8af0a9b706aca95ae16f04733f5c2bed6fdb9d"
+				GIT_SHALLOW TRUE
+				GIT_PROGRESS TRUE
+				SOURCE_DIR "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}"
+				BINARY_DIR "${CMAKE_BINARY_DIR}/CMakeFiles/nbl_meshloaders_benchmark_dataset-build"
+			)
+			FetchContent_GetProperties(nbl_meshloaders_benchmark_dataset)
+			if (NOT nbl_meshloaders_benchmark_dataset_POPULATED)
+				if (POLICY CMP0169)
+					cmake_policy(PUSH)
+					cmake_policy(SET CMP0169 OLD)
+				endif()
+				FetchContent_Populate(nbl_meshloaders_benchmark_dataset)
+				if (POLICY CMP0169)
+					cmake_policy(POP)
+				endif()
+			endif ()
+		endif ()
+	endif ()
+	if (NOT EXISTS "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+		message(FATAL_ERROR "Benchmark payload JSON not found: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}. Check NBL_MESHLOADERS_BENCHMARK_DATASET_DIR and NBL_MESHLOADERS_BENCHMARK_PAYLOAD_RELATIVE_PATH.")
+	endif ()
+	file(READ "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}" _meshloaders_payload_probe LIMIT 256)
+	string(FIND "${_meshloaders_payload_probe}" "version https://git-lfs.github.com/spec/v1" _meshloaders_payload_lfs_ix)
+	if (NOT _meshloaders_payload_lfs_ix EQUAL -1)
+		message(FATAL_ERROR "Benchmark payload JSON must be a normal Git file, not an LFS pointer: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+	endif ()
+	message(STATUS "[meshloaders-bench] Benchmark inputs payload: ${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}")
+	if (NBL_MESHLOADERS_PERF_REFERENCE_DIR STREQUAL "")
+		set(NBL_MESHLOADERS_PERF_REFERENCE_DIR "${NBL_MESHLOADERS_BENCHMARK_DATASET_DIR}/meshloaders/perf_refs" CACHE PATH "Directory containing structured performance reference artifacts for 12_MeshLoaders." FORCE)
+	endif()
+	if (NBL_MESHLOADERS_DEFAULT_START_WITH_BENCHMARK_TESTLIST)
+		file(TO_CMAKE_PATH "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}" _NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON_CMAKE)
+		target_compile_definitions(${EXECUTABLE_NAME} PRIVATE NBL_MESHLOADERS_DEFAULT_BENCHMARK_TESTLIST_PATH="${_NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON_CMAKE}")
+		message(STATUS "[meshloaders-bench] Default batch startup test list: benchmark payload")
+	else()
+		message(STATUS "[meshloaders-bench] Default batch startup test list: local inputs.json")
+	endif()
+endif()
+
+enable_testing()
+
+add_test(NAME NBL_MESHLOADERS_CI
+	COMMAND "$<TARGET_FILE:${EXECUTABLE_NAME}>" --ci --loader-content-hashes
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
+	COMMAND_EXPAND_LISTS
+)
+
+if (NBL_MESHLOADERS_ENABLE_BENCHMARK_DATASETS)
+	set(_NBL_MESHLOADERS_BENCHMARK_CI_COMMON_ARGS
+		--ci
+		--testlist "${NBL_MESHLOADERS_BENCHMARK_INPUTS_JSON}"
+		--loader-content-hashes
+		--perf-dump-dir "../../../build/dynamic/meshloaders_perf_runs"
+		--perf-ref-dir "../../../build/dynamic/meshloaders_benchmark_datasets/meshloaders/perf_refs"
+		--perf-strict
+	)
+
+	add_test(NAME NBL_MESHLOADERS_CI_BENCHMARK_HEURISTIC
+		COMMAND "$<TARGET_FILE:${EXECUTABLE_NAME}>" ${_NBL_MESHLOADERS_BENCHMARK_CI_COMMON_ARGS} --runtime-tuning heuristic
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
+		COMMAND_EXPAND_LISTS
+	)
+	add_test(NAME NBL_MESHLOADERS_CI_BENCHMARK_HYBRID
+		COMMAND "$<TARGET_FILE:${EXECUTABLE_NAME}>" ${_NBL_MESHLOADERS_BENCHMARK_CI_COMMON_ARGS} --runtime-tuning hybrid
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>"
+		COMMAND_EXPAND_LISTS
+	)
+	set_tests_properties(
+		NBL_MESHLOADERS_CI_BENCHMARK_HEURISTIC
+		NBL_MESHLOADERS_CI_BENCHMARK_HYBRID
+		PROPERTIES
+			TIMEOUT 21600
+			LABELS "meshloaders;benchmark;ci"
+	)
+endif()
