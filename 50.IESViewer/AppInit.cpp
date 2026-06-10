@@ -460,12 +460,6 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             float32_t4(0, 0, 1, 0)
         );
 
-        using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
-        const auto toCoreVec3 = [](const float32_t3& v) -> core_vec_t
-        {
-            return core_vec_t(v.x, v.y, v.z);
-        };
-
         float32_t3 cameraPosition(-5.81655884f, 2.58630896f, -4.23974705f);
         float32_t3 cameraTarget(-0.349590302f, -0.213266611f, 0.317821503f);
         const auto cameraOffset = cameraPosition - cameraTarget;
@@ -474,9 +468,17 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
         const float aspect = float(params.width) / float(params.height);
         const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
-        camera = Camera(toCoreVec3(cameraPosition), toCoreVec3(cameraTarget), projectionMatrix, 1.069f, 0.4f);
-        uiState.cameraMoveSpeed = camera.getMoveSpeed();
-        uiState.cameraRotateSpeed = camera.getRotateSpeed();
+        cameraProjection = projectionMatrix;
+        camera = CCameraSimpleFPSUtilities::createFromLookAt(
+            hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
+            hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+            {1.069, 0.4});
+        if (!camera)
+            return logFail("Could not initialize camera orientation!");
+        ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+        cameraInputRuntime.binder = &cameraInputBinder;
+        uiState.cameraMoveSpeed = 1.069f;
+        uiState.cameraRotateSpeed = 0.4f;
         uiState.cameraControlApplied = !uiState.cameraControlEnabled;
     }
 

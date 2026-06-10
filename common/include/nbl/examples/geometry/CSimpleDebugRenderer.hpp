@@ -35,7 +35,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				hlsl::examples::geometry_creator_scene::SInstanceMatrices retval = {
 					.worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj),float64_t3x4(world)))
 				};
-				const auto sub3x3 = mul(float64_t3x3(viewProj),float64_t3x3(world));
+				const auto sub3x3 = mul(float64_t3x3(view),float64_t3x3(world));
 				retval.normal = float32_t3x3(transpose(inverse(sub3x3)));
 				return retval;
 			}

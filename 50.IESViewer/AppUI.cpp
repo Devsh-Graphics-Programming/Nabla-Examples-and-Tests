@@ -95,7 +95,7 @@ void IESViewer::uiListener()
             return;
         const float aspect = float(m_plot3DWidth) / float(m_plot3DHeight);
         const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
-        camera.setProjectionMatrix(projectionMatrix);
+        cameraProjection = projectionMatrix;
     };
 
     auto draw3DControls = [&]()
@@ -196,8 +196,7 @@ void IESViewer::uiListener()
 
         if (speedChanged && uiState.cameraControlEnabled)
         {
-            camera.setMoveSpeed(uiState.cameraMoveSpeed);
-            camera.setRotateSpeed(uiState.cameraRotateSpeed);
+            CCameraSimpleFPSUtilities::applySpeedSettings(*camera, {uiState.cameraMoveSpeed, uiState.cameraRotateSpeed});
         }
 
         if (fovChanged)
@@ -534,7 +533,7 @@ void IESViewer::uiListener()
             const float ndcX = u * 2.0f - 1.0f;
             const float ndcY = v * 2.0f - 1.0f;
 
-            float32_t4x4 viewProj = camera.getConcatenatedMatrix();
+            float32_t4x4 viewProj = hlsl::math::linalg::promoted_mul(cameraProjection, hlsl::float32_t3x4(camera->getGimbal().getViewMatrix()));
             const auto invViewProj = inverse(viewProj);
 
             const float32_t4 nearPoint(ndcX, ndcY, 0.0f, 1.0f);
@@ -544,13 +543,7 @@ void IESViewer::uiListener()
             nearWorld /= nearWorld.w;
             farWorld /= farWorld.w;
 
-            using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
-            const auto toHlslVec3 = [](const core_vec_t& v)
-            {
-                return float32_t3(v.x, v.y, v.z);
-            };
-
-            const float32_t3 origin = toHlslVec3(camera.getPosition());
+            const float32_t3 origin = hlsl::CCameraMathUtilities::castVector<float>(camera->getGimbal().getPosition());
             const float32_t3 farPos = float32_t3(farWorld);
             float32_t3 direction = normalize(farPos - origin);
 

@@ -200,8 +200,15 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1f, 1000.0f);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1f, 1000.0f);
+				camera = CCameraSimpleFPSUtilities::createFromLookAt(
+					hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
+					hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+					{1.069, 0.4});
+				if (!camera)
+					return logFail("Could not initialize camera orientation!");
+				ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+				cameraInputRuntime.binder = &cameraInputBinder;
 			}
 
 			m_winMgr->show(m_window.get());
@@ -259,15 +266,24 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->beginDebugMarker("RayQueryGeometryApp Frame");
 			{
-				camera.beginInputProcessing(nextPresentationTimestamp);
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
-				camera.endInputProcessing(nextPresentationTimestamp);
+				std::vector<SMouseEvent> cameraMouseEvents;
+				std::vector<SKeyboardEvent> cameraKeyboardEvents;
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+					{
+						cameraMouseEvents.insert(cameraMouseEvents.end(), events.begin(), events.end());
+					}, m_logger.get());
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+					{
+						cameraKeyboardEvents.insert(cameraKeyboardEvents.end(), events.begin(), events.end());
+					}, m_logger.get());
+				const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
+				if (!virtualEvents.empty())
+					camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 			}
 
-			const auto viewMatrix = camera.getViewMatrix();
-			const auto projectionMatrix = camera.getProjectionMatrix();
-			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
+			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+			const auto projectionMatrix = cameraProjection;
+			const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 
 			hlsl::float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
 
@@ -303,7 +319,8 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			SPushConstants pc;
 			pc.geometryInfoBuffer = geometryInfoBuffer->getDeviceAddress();
 
-			const core::vector3df camPos = camera.getPosition().getAsVector3df();
+			const auto camPos64 = camera->getGimbal().getPosition();
+			const core::vector3df camPos(static_cast<float>(camPos64.x), static_cast<float>(camPos64.y), static_cast<float>(camPos64.z));
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
 			pc.invMVP = invModelViewProjectionMatrix;
 
@@ -982,7 +999,11 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+		core::smart_refctd_ptr<core::CFPSCamera> camera;
+		ui::CGimbalInputBinder cameraInputBinder;
+		CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
+		CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+		hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 		video::CDumbPresentationOracle oracle;
 
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;

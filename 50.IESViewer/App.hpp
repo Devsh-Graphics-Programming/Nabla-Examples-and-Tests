@@ -10,6 +10,10 @@
 #include "nbl/examples/common/CSwapchainFramebuffersAndDepth.hpp"
 #include "nbl/examples/common/CEventCallback.hpp"
 #include "nbl/examples/common/InputSystem.hpp"
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 #include "nbl/ui/ICursorControl.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
@@ -251,7 +255,11 @@ private:
 
     smart_refctd_ptr<CGeometryCreatorScene> m_scene;
     smart_refctd_ptr<CSimpleIESRenderer> m_renderer;
-    Camera camera;
+    core::smart_refctd_ptr<core::CFPSCamera> camera;
+    ui::CGimbalInputBinder cameraInputBinder;
+    CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
+    CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+    hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
     uint32_t m_plot3DWidth = 640u;
     uint32_t m_plot3DHeight = 640u;
     float m_plotRadius = 100.0f;

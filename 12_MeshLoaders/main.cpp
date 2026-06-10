@@ -117,7 +117,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (!reloadModel())
 				return false;
 
-		camera.mapKeysToArrows();
+		ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+		cameraInputRuntime.binder = &cameraInputBinder;
 
 		onAppInitializedFinish();
 		return true;
@@ -169,8 +170,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				// late latch input
 				{
 					bool reload = false;
-					camera.beginInputProcessing(nextPresentationTimestamp);
-					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
+					std::vector<SMouseEvent> cameraMouseEvents;
+					std::vector<SKeyboardEvent> cameraKeyboardEvents;
+					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+						{
+							cameraMouseEvents.insert(cameraMouseEvents.end(), events.begin(), events.end());
+						}, m_logger.get());
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 						{
 							for (const auto& event : events)
@@ -182,17 +187,19 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 									m_drawBBMode = DrawBoundingBoxMode((m_drawBBMode + 1) % DBBM_COUNT);
 								}
 							}
-							camera.keyboardProcess(events);
+							cameraKeyboardEvents.insert(cameraKeyboardEvents.end(), events.begin(), events.end());
 						},
 						m_logger.get()
 					);
-					camera.endInputProcessing(nextPresentationTimestamp);
+					const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
+					if (!virtualEvents.empty())
+						camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 					if (reload)
 						reloadModel();
 				}
 				// draw scene
-				float32_t3x4 viewMatrix = camera.getViewMatrix();
-				float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
+				float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixRH());
+				float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 #ifdef NBL_BUILD_DEBUG_DRAW
 				if (m_drawBBMode != DBBM_NONE)
@@ -521,16 +528,20 @@ private:
 		{
 			const double distance = 0.05;
 			const auto diagonal = bound.getExtent();
+			const auto pos = bound.maxVx + diagonal * distance;
+			const auto center = (bound.minVx + bound.maxVx) * 0.5;
 			{
 				const auto measure = hlsl::length(diagonal);
 				const auto aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
-				camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, distance * measure * 0.1, measure * 4.0));
-				camera.setMoveSpeed(measure * 0.04);
+				cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, distance * measure * 0.1, measure * 4.0);
+				camera = CCameraSimpleFPSUtilities::createFromLookAt(
+					hlsl::float64_t3(pos.x, pos.y, pos.z),
+					hlsl::float64_t3(center.x, center.y, center.z),
+					{measure * 0.04, cameraRotateSpeed});
+				if (!camera)
+					return logFail("Could not initialize camera orientation!");
+				cameraInputRuntime.binder = &cameraInputBinder;
 			}
-			const auto pos = bound.maxVx + diagonal * distance;
-			camera.setPosition(vectorSIMDf(pos.x, pos.y, pos.z));
-			const auto center = (bound.minVx + bound.maxVx) * 0.5;
-			camera.setTarget(vectorSIMDf(center.x, center.y, center.z));
 		}
 
 		// TODO: write out the geometry
@@ -560,7 +571,12 @@ private:
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	//
-	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+	core::smart_refctd_ptr<core::CFPSCamera> camera;
+	ui::CGimbalInputBinder cameraInputBinder;
+	CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
+	CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
+	float cameraRotateSpeed = 1.0f;
 	// mutables
 	std::string m_modelPath;
 

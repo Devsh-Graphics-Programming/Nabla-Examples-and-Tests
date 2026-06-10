@@ -76,6 +76,7 @@ endif()
 
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 target_link_libraries(${LIB_NAME} PUBLIC NblExtExamplesAPISPIRV)
+target_link_libraries(${LIB_NAME} PUBLIC Nabla::ext::Cameras)
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsBuild)
 

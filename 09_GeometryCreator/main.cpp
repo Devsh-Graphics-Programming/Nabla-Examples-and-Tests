@@ -72,10 +72,15 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 			// camera
 			{
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+				const auto cameraPosition = hlsl::float64_t3(-5.81655884, 2.58630896, -4.23974705);
+				const auto cameraTarget = hlsl::float64_t3(-0.349590302, -0.213266611, 0.317821503);
+				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
+
+				camera = CCameraSimpleFPSUtilities::createFromLookAt(cameraPosition, cameraTarget, {1.069, 0.4});
+				if (!camera)
+					return logFail("Could not initialize camera orientation!");
+				ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+				cameraInputRuntime.binder = &cameraInputBinder;
 			}
 
 			onAppInitializedFinish();
@@ -94,10 +99,18 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cb->beginDebugMarker("GeometryCreatorApp Frame");
 			{
-				camera.beginInputProcessing(nextPresentationTimestamp);
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
-				camera.endInputProcessing(nextPresentationTimestamp);
+				std::vector<ui::SMouseEvent> mouseEvents;
+				std::vector<ui::SKeyboardEvent> keyboardEvents;
+
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseEvents.insert(mouseEvents.end(), events.begin(), events.end()); }, m_logger.get());
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardEvents.insert(keyboardEvents.end(), events.begin(), events.end()); }, m_logger.get());
+
+				mouseProcess({ mouseEvents.data(), mouseEvents.size() });
+
+				const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(mouseEvents, keyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
+
+				if (!virtualEvents.empty())
+					camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 			}
 
 
@@ -140,8 +153,8 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			float32_t3x4 viewMatrix = camera.getViewMatrix();
-			float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
+			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+			const auto viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
@@ -247,16 +260,18 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		//
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+		core::smart_refctd_ptr<core::CFPSCamera> camera;
+		ui::CGimbalInputBinder cameraInputBinder;
+		CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
+		CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+		hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
 		uint16_t gcIndex = {};
 
-		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+		void mouseProcess(std::span<const nbl::ui::SMouseEvent> events)
 		{
-			for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+			for (const auto& ev : events)
 			{
-				auto ev = *eventIt;
-
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));

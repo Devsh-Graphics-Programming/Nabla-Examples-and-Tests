@@ -7,7 +7,9 @@
 #include <iostream>
 #include <nabla.h>
 
-#include "CCamera.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
 #include "../common/CommonAPI.h"
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
 #include "example_data/builtin/CArchive.h"
@@ -82,7 +84,8 @@ public:
 
   CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
   CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
-  Camera camera;
+  core::smart_refctd_ptr<core::CFPSCamera> camera;
+  hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
   int resourceIx;
   uint32_t acquiredNextFBO = {};
@@ -100,10 +103,10 @@ public:
 
   struct SPushConsts {
     struct VertStage {
-      core::matrix4SIMD VP;
+      hlsl::float32_t4x4 VP;
     } vertStage;
     struct FragStage {
-      core::vectorSIMDf campos;
+      hlsl::float32_t4 campos;
       BRDFTestNumber testNum;
       uint32_t pad[3];
     } fragStage;
@@ -322,12 +325,14 @@ public:
       renderFinished[i] = logicalDevice->createSemaphore();
     }
 
-    matrix4SIMD projectionMatrix =
-        matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(
-            core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
-    camera = Camera(core::vectorSIMDf(6.75f, 2.f, 6.f),
-                    core::vectorSIMDf(6.75f, 0.f, -1.f), projectionMatrix, 10.f,
-                    1.f);
+    cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(
+        core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
+    camera = nbl::examples::CCameraSimpleFPSUtilities::createFromLookAt(
+        hlsl::float64_t3(6.75, 2.0, 6.0),
+        hlsl::float64_t3(6.75, 0.0, -1.0),
+        {10.0, 1.0});
+    if (!camera)
+      return logFail("Could not initialize camera orientation!");
   }
 
   void workLoopBody() override {
@@ -417,8 +422,10 @@ public:
     commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 
     SPushConsts pc;
-    pc.vertStage.VP = camera.getConcatenatedMatrix();
-    pc.fragStage.campos = core::vectorSIMDf(&camera.getPosition().X);
+    pc.vertStage.VP = hlsl::math::linalg::promoted_mul(
+        cameraProjection,
+        hlsl::float32_t3x4(camera->getGimbal().getViewMatrix()));
+    pc.fragStage.campos = hlsl::float32_t4(hlsl::CCameraMathUtilities::castVector<float>(camera->getGimbal().getPosition()), 1.0f);
     pc.fragStage.testNum = currentTestNum;
     commandBuffer->pushConstants(
         gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(),

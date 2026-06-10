@@ -4,9 +4,12 @@
 
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "CCamera.hpp"
+#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -122,7 +125,11 @@ public:
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-	Camera camera = Camera(vectorSIMDf(0, 0, 0), vectorSIMDf(0, 0, 0), matrix4SIMD());
+	core::smart_refctd_ptr<core::CFPSCamera> camera;
+	ui::CGimbalInputBinder cameraInputBinder;
+	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
+	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
 	core::smart_refctd_ptr<IGPUGraphicsPipeline> gpuEnvmapPipeline;
 	core::smart_refctd_ptr<IGPUMeshBuffer> gpuEnvmapMeshBuffer;
@@ -297,10 +304,14 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		core::vectorSIMDf cameraPosition(-0.0889001, 0.678913, -4.01774);
-		core::vectorSIMDf cameraTarget(1.80119, 0.515374, -0.410544);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.03125f, 200.0f);
-		camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 10.f, 1.f);
+		const auto cameraPosition = hlsl::float64_t3(-0.0889001, 0.678913, -4.01774);
+		const auto cameraTarget = hlsl::float64_t3(1.80119, 0.515374, -0.410544);
+		cameraProjection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.03125f, 200.0f);
+		camera = nbl::examples::CCameraSimpleFPSUtilities::createFromLookAt(cameraPosition, cameraTarget, {10.0, 1.0});
+		if (!camera)
+			return logFail("Could not initialize camera orientation!");
+		ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+		cameraInputRuntime.binder = &cameraInputBinder;
 
 		descriptorPool = createDescriptorPool(1u);
 
@@ -775,10 +786,10 @@ public:
 
 	void onAppTerminated_impl() override
 	{
-		const core::vectorSIMDf& last_cam_pos = camera.getPosition();
-		const core::vectorSIMDf& last_cam_target = camera.getTarget();
-		std::cout << "Last camera position: (" << last_cam_pos.X << ", " << last_cam_pos.Y << ", " << last_cam_pos.Z << ")" << std::endl;
-		std::cout << "Last camera target: (" << last_cam_target.X << ", " << last_cam_target.Y << ", " << last_cam_target.Z << ")" << std::endl;
+		const auto& lastCamPos = camera->getGimbal().getPosition();
+		const auto lastCamTarget = camera->getGimbal().getWorldTarget();
+		std::cout << "Last camera position: (" << lastCamPos.x << ", " << lastCamPos.y << ", " << lastCamPos.z << ")" << std::endl;
+		std::cout << "Last camera target: (" << lastCamTarget.x << ", " << lastCamTarget.y << ", " << lastCamTarget.z << ")" << std::endl;
 	}
 
 	void workLoopBody() override
@@ -802,14 +813,23 @@ public:
 			inputSystem->getDefaultMouse(&mouse);
 			inputSystem->getDefaultKeyboard(&keyboard);
 
-			camera.beginInputProcessing(nextPresentationTimestamp);
-			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, logger.get());
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, logger.get());
-			camera.endInputProcessing(nextPresentationTimestamp);
+			std::vector<SMouseEvent> mouseEvents;
+			std::vector<SKeyboardEvent> keyboardEvents;
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+			{
+				mouseEvents.insert(mouseEvents.end(), events.begin(), events.end());
+			}, logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+				keyboardEvents.insert(keyboardEvents.end(), events.begin(), events.end());
+			}, logger.get());
+			const auto virtualEvents = nbl::examples::CCameraSimpleFPSUtilities::collectBasicVirtualEvents(mouseEvents, keyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
+			if (!virtualEvents.empty())
+				camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 		}
 
-		const auto& viewMatrix = camera.getViewMatrix();
-		const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
+		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;

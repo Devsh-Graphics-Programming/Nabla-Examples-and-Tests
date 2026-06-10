@@ -481,18 +481,11 @@ public:
 			[this]() -> void {
 				ImGuiIO& io = ImGui::GetIO();
 
-				m_camera.setProjectionMatrix([&]()
-					{
-						static hlsl::float32_t4x4 projection;
-
-						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
-							core::radians(m_cameraSetting.fov),
-							io.DisplaySize.x / io.DisplaySize.y,
-							m_cameraSetting.zNear,
-							m_cameraSetting.zFar);
-
-						return projection;
-					}());
+				m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
+					core::radians(m_cameraSetting.fov),
+					io.DisplaySize.x / io.DisplaySize.y,
+					m_cameraSetting.zNear,
+					m_cameraSetting.zFar);
 
 				ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 				ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -555,15 +548,21 @@ public:
 				0.01f,
 				500.0f
 			);
-			m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
+			m_cameraProjection = proj;
+			m_camera = CCameraSimpleFPSUtilities::createFromLookAt(
+				hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
+				hlsl::float64_t3(0.0, 0.0, 0.0),
+				{m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
+			if (!m_camera)
+				return logFail("Could not initialize camera orientation!");
+			ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
+			m_cameraInputRuntime.binder = &m_cameraInputBinder;
 		}
 
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 		m_winMgr->show(m_window.get());
 		m_oracle.reportBeginFrameRecord();
-		m_camera.mapKeysToWASD();
-
 		return true;
 	}
 
@@ -623,9 +622,9 @@ public:
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdbuf->beginDebugMarker("RaytracingPipelineApp Frame");
 
-		const auto viewMatrix = m_camera.getViewMatrix();
-		const auto projectionMatrix = m_camera.getProjectionMatrix();
-		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+		const auto projectionMatrix = m_cameraProjection;
+		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 
 		//hlsl::float32_t3x4 modelMatrix;
 
@@ -667,7 +666,8 @@ public:
 			pc.proceduralGeomInfoBuffer = m_proceduralGeomInfoBuffer->getDeviceAddress();
 			pc.triangleGeomInfoBuffer = m_triangleGeomInfoBuffer->getDeviceAddress();
 			pc.frameCounter = m_frameAccumulationCounter;
-			const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
+			const auto camPos64 = m_camera->getGimbal().getPosition();
+			const core::vector3df camPos(static_cast<float>(camPos64.x), static_cast<float>(camPos64.y), static_cast<float>(camPos64.z));
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
 			pc.invMVP = invModelViewProjectionMatrix;
 
@@ -806,8 +806,7 @@ public:
 
 	inline void update()
 	{
-		m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
-		m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
+			CCameraSimpleFPSUtilities::applySpeedSettings(*m_camera, {m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
 
 		static std::chrono::microseconds previousEventTimestamp{};
 
@@ -831,44 +830,44 @@ public:
 		{
 			std::vector<SMouseEvent> mouse{};
 			std::vector<SKeyboardEvent> keyboard{};
+			std::vector<SMouseEvent> cameraMouse{};
+			std::vector<SKeyboardEvent> cameraKeyboard{};
 		} capturedEvents;
 
-		m_camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			const auto& io = ImGui::GetIO();
 			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureMouse)
-						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
+					for (const auto& e : events)
 					{
 						if (e.timeStamp < previousEventTimestamp)
 							continue;
 
 						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
-
+						if (!io.WantCaptureMouse)
+							capturedEvents.cameraMouse.emplace_back(e);
 					}
 				}, m_logger.get());
 
 			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureKeyboard)
-						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
+					for (const auto& e : events)
 					{
 						if (e.timeStamp < previousEventTimestamp)
 							continue;
 
 						previousEventTimestamp = e.timeStamp;
 						capturedEvents.keyboard.emplace_back(e);
+						if (!io.WantCaptureKeyboard)
+							capturedEvents.cameraKeyboard.emplace_back(e);
 					}
 				}, m_logger.get());
 
 		}
-		m_camera.endInputProcessing(nextPresentationTimestamp);
+			const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(capturedEvents.cameraMouse, capturedEvents.cameraKeyboard, nextPresentationTimestamp, m_cameraInputRuntime, m_cameraInputConfig);
+			if (!virtualEvents.empty())
+				m_camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 
 		const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 		const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -1463,7 +1462,11 @@ private:
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 	} m_cameraSetting;
-	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+	core::smart_refctd_ptr<core::CFPSCamera> m_camera;
+	ui::CGimbalInputBinder m_cameraInputBinder;
+	CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
+	CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
+	hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 
 	Light m_light = {
 	  .direction = {-1.0f, -1.0f, -0.4f},

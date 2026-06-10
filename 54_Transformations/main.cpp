@@ -5,7 +5,6 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#include "CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
