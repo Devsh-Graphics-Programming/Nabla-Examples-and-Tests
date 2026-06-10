@@ -3,6 +3,7 @@
 
 #include <nabla.h>
 #include <nbl/system/to_string.h>
+#include <nbl/examples/Tester/FailureManifest.h>
 #include <ranges>
 #include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
 #include <nbl/builtin/hlsl/testing/approx_compare.hlsl>
@@ -169,40 +170,43 @@ class ITester
       m_queue = m_device->getQueue(m_queueFamily, 0);
    }
 
+   /**
+    * @brief Runs tests and verifies their results using the current seed (a fresh random seed is generated for the next call).
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
    bool performTestsAndVerifyResults(const std::string& logFileName)
    {
-      m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
-      if (!m_logFile.is_open())
-         m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
-
-      core::vector<InputTestValues> inputTestValues;
-      core::vector<TestResults> exceptedTestResults;
-
-      inputTestValues.reserve(m_testIterationCount);
-      exceptedTestResults.reserve(m_testIterationCount);
-
-      m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
-      for (int i = 0; i < m_testIterationCount; ++i)
-      {
-         // Set input thest values that will be used in both CPU and GPU tests
-         InputTestValues testInput = generateInputTestValues();
-         // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-         TestResults expected = determineExpectedResults(testInput);
-
-         inputTestValues.push_back(testInput);
-         exceptedTestResults.push_back(expected);
-      }
-
-      core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
-      core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
-
-      bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
-
-      m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
       reloadSeed();
+      return performTestsAndVerifyResults_impl(logFileName);
+   }
 
-      m_logFile.close();
-      return pass;
+   /**
+    * @brief Runs tests and verifies their results using a user-provided seed for test value generation.
+    *
+    * @param logFileName Name of the file where test logs will be saved.
+    * @param seed Custom seed used for generating test values, ensures deterministic and reproducible results.
+    * @return true if all tests pass and results are valid, false otherwise.
+    */
+   bool performTestsAndVerifyResults(const std::string& logFileName, const uint32_t seed)
+   {
+      setSeed(seed);
+      return performTestsAndVerifyResults_impl(logFileName);
+   }
+
+   void setFailureRecordContext(nbl::examples::testing::FailureManifest* manifest, std::string phase, std::string id, std::string name)
+   {
+      m_failureManifest = manifest;
+      m_failurePhase = std::move(phase);
+      m_failureId = std::move(id);
+      m_failureName = std::move(name);
+   }
+
+   void setSeed(uint32_t seed)
+   {
+      m_seed = seed;
+      m_mersenneTwister = std::mt19937(m_seed);
    }
 
    virtual ~ITester()
@@ -223,7 +227,6 @@ class ITester
    ITester(const uint32_t testBatchCount, const uint32_t workgroupSize = 256)
       : m_WorkgroupSize(workgroupSize), m_testBatchCount(testBatchCount), m_testIterationCount(testBatchCount * m_WorkgroupSize)
    {
-      reloadSeed();
    };
 
    virtual bool verifyTestResults(const TestResults& expectedTestValues, const TestResults& testValues, const size_t testIteration, const uint32_t seed, TestType testType) = 0;
@@ -339,8 +342,53 @@ class ITester
          ss << " DIFFERENCE: " << system::to_string(hlsl::abs(expectedVal - testVal));
       ss << " MAX RELATIVE: " << system::to_string(maxRelativeDifference) << " MAX ABSOLUTE " << system::to_string(maxAbsoluteDifference) << '\n';
 
+      if (m_failureManifest)
+      {
+         const char* side = testType == TestType::CPU ? "CPU" : "GPU";
+         m_failureManifest->addCase(m_failurePhase, m_failureId, m_failureName, memberName, side,
+            testIteration, seed, maxRelativeDifference, maxAbsoluteDifference);
+      }
+
       m_logger->log("%s", system::ILogger::ELL_ERROR, ss.str().c_str());
       m_logFile << ss.str() << '\n';
+   }
+
+   bool performTestsAndVerifyResults_impl(const std::string& logFileName)
+   {
+      m_failureLogFile = logFileName;
+      m_logFile.open(logFileName, std::ios::out | std::ios::trunc);
+      if (!m_logFile.is_open())
+         m_logger->log("Failed to open log file!", system::ILogger::ELL_ERROR);
+
+      core::vector<InputTestValues> inputTestValues;
+      core::vector<TestResults> exceptedTestResults;
+
+      inputTestValues.reserve(m_testIterationCount);
+      exceptedTestResults.reserve(m_testIterationCount);
+
+      m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
+      for (int i = 0; i < m_testIterationCount; ++i)
+      {
+         // Set input thest values that will be used in both CPU and GPU tests
+         InputTestValues testInput = generateInputTestValues();
+         // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
+         TestResults expected = determineExpectedResults(testInput);
+
+         inputTestValues.push_back(testInput);
+         exceptedTestResults.push_back(expected);
+      }
+
+      core::vector<TestResults> cpuTestResults = performCpuTests(inputTestValues);
+      core::vector<TestResults> gpuTestResults = performGpuTests(inputTestValues);
+
+      bool pass = verifyAllTestResults(cpuTestResults, gpuTestResults, exceptedTestResults);
+      if (!pass && m_failureManifest)
+         m_failureManifest->addGroupFailure(m_failurePhase, m_failureId, m_failureName, m_failureLogFile);
+
+      m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+
+      m_logFile.close();
+      return pass;
    }
 
    private:
@@ -439,6 +487,11 @@ class ITester
    uint32_t m_seed;
    std::ofstream m_logFile;
    core::unordered_map<std::string, hlsl::testing::SMaxError> m_maxErrors;
+   nbl::examples::testing::FailureManifest* m_failureManifest = nullptr;
+   std::string m_failurePhase;
+   std::string m_failureId;
+   std::string m_failureName;
+   std::string m_failureLogFile;
 };
 
 #endif

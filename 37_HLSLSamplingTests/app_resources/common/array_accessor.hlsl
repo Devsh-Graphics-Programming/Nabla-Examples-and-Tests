@@ -12,7 +12,6 @@ struct ArrayAccessor
 	using value_type = T;
 	template<typename V, typename I>
 	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = V(data[i]); }
-	T operator[](uint32_t i) NBL_CONST_MEMBER_FUNC { return data[i]; }
 	T data[N];
 };
 
