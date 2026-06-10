@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/cos_weighted_spheres.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -20,6 +21,7 @@ struct ProjectedSphereTestResults
 	float32_t backwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
+	float32_t jacobianProduct;
 };
 
 struct ProjectedSphereTestExecutor
@@ -38,6 +40,7 @@ struct ProjectedSphereTestExecutor
 		}
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 		output.backwardWeight = sampler.backwardWeight(output.generated);
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_CONCENTRIC>(sampler, input.u, 1e-3f, 5.0f);
 	}
 };
 

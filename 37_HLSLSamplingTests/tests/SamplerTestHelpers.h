@@ -34,30 +34,126 @@ struct PdfCheck
 
 // Verify expected.*field vs actual.*field for each FieldCheck.
 // Must be called from within a method that has access to verifyTestValue.
-#define VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType, ...) \
-   do \
-   { \
-      auto _checks = std::make_tuple(__VA_ARGS__); \
-      std::apply([&](const auto&... c) { ((pass &= verifyTestValue(c.name, (expected).*c.field, (actual).*c.field, \
-                                              iteration, seed, testType, c.relTol, c.absTol)), \
+#define VERIFY_FIELDS(pass, expected, actual, iteration, seed, testType, ...)                                                                                                          \
+   do                                                                                                                                                                                  \
+   {                                                                                                                                                                                   \
+      auto _checks = std::make_tuple(__VA_ARGS__);                                                                                                                                     \
+      std::apply([&](const auto&... c) { ((pass &= verifyTestValue(c.name, (expected).*c.field, (actual).*c.field,                                                                     \
+                                              iteration, seed, testType, c.relTol, c.absTol)),                                                                                         \
                                             ...); }, _checks); \
+   } while (0)
+
+// ============================================================================
+// Jacobian skip tracking
+//
+// The device-side sampler writes a reason-encoded skip sentinel (see
+// jacobian_test.hlsl) instead of a jacobianProduct value when it cannot test
+// a sample honestly. The host recognizes the sentinel, bins it by reason,
+// and NEVER counts it as a pass. After all tests run, logJacobianSkipCounts()
+// reports per-reason counts so nothing silently inflates pass rates.
+// ============================================================================
+
+namespace detail
+{
+struct JacobianStats
+{
+   uint64_t total                   = 0; // total VERIFY_JACOBIAN_OR_SKIP invocations (= samples evaluated)
+   uint64_t skipUDomain             = 0; // JACOBIAN_SKIP_U_DOMAIN             = -1.0f
+   uint64_t skipCrease              = 0; // JACOBIAN_SKIP_CREASE               = -2.0f
+   uint64_t skipHemiBoundary        = 0; // JACOBIAN_SKIP_HEMI_BOUNDARY        = -3.0f
+   uint64_t skipBwdPdfRange         = 0; // JACOBIAN_SKIP_BWD_PDF_RANGE        = -4.0f
+   uint64_t skipCodomainSingularity = 0; // JACOBIAN_SKIP_CODOMAIN_SINGULARITY = -5.0f
+};
+
+inline nbl::core::map<nbl::core::string, JacobianStats>& jacobianStats()
+{
+   static nbl::core::map<nbl::core::string, JacobianStats> s;
+   return s;
+}
+} // namespace detail
+
+inline void logJacobianSkipCounts(nbl::system::ILogger* logger)
+{
+   auto& stats = detail::jacobianStats();
+   if (stats.empty())
+      return;
+   logger->log("Jacobian skip summary (skipped samples are NOT counted as passes):", nbl::system::ILogger::ELL_INFO);
+   for (const auto& [name, s] : stats)
+   {
+      const uint64_t skipped = s.skipUDomain + s.skipCrease + s.skipHemiBoundary + s.skipBwdPdfRange + s.skipCodomainSingularity;
+      if (skipped == 0)
+         continue;
+      const double percentage = s.total ? (100.0 * double(skipped) / double(s.total)) : 0.0;
+      logger->log("  [JacobianSkip] %s: %llu / %llu skipped (%.2f%%) -- u-domain=%llu, crease=%llu, hemi-boundary=%llu, bwd-pdf-range=%llu, codomain-singularity=%llu",
+         nbl::system::ILogger::ELL_WARNING,
+         name.c_str(),
+         skipped,
+         s.total,
+         percentage,
+         s.skipUDomain,
+         s.skipCrease,
+         s.skipHemiBoundary,
+         s.skipBwdPdfRange,
+         s.skipCodomainSingularity);
+   }
+}
+
+// Verify a jacobianProduct value OR bin it by reason if it is a skip sentinel (< 0).
+// Skipped samples are counted by reason and NEVER counted as a pass.
+// Must be called from a method that has access to verifyTestValue.
+#define VERIFY_JACOBIAN_OR_SKIP(pass, name, expected, actual, iteration, seed, testType, relTol, absTol)          \
+   do                                                                                                             \
+   {                                                                                                              \
+      auto& _jstats = detail::jacobianStats()[(name)];                                                            \
+      ++_jstats.total;                                                                                            \
+      const float _jval = (actual);                                                                               \
+      if (_jval < 0.0f)                                                                                           \
+      {                                                                                                           \
+         /* Sentinel values are integers at -1..-5, so round-to-nearest on _jval picks the bin. */                \
+         const int _bin = static_cast<int>(-_jval + 0.5f);                                                        \
+         switch (_bin)                                                                                            \
+         {                                                                                                        \
+            case 1:                                                                                               \
+               ++_jstats.skipUDomain;                                                                             \
+               break;                                                                                             \
+            case 2:                                                                                               \
+               ++_jstats.skipCrease;                                                                              \
+               break;                                                                                             \
+            case 3:                                                                                               \
+               ++_jstats.skipHemiBoundary;                                                                        \
+               break;                                                                                             \
+            case 4:                                                                                               \
+               ++_jstats.skipBwdPdfRange;                                                                         \
+               break;                                                                                             \
+            case 5:                                                                                               \
+               ++_jstats.skipCodomainSingularity;                                                                 \
+               break;                                                                                             \
+            default:                                                                                              \
+               ++_jstats.skipUDomain;                                                                             \
+               break; /* fall-through bucket */                                                                   \
+         }                                                                                                        \
+      }                                                                                                           \
+      else                                                                                                        \
+      {                                                                                                           \
+         pass &= verifyTestValue((name), (expected), _jval, (iteration), (seed), (testType), (relTol), (absTol)); \
+      }                                                                                                           \
    } while (0)
 
 // Check that each PDF field is positive and finite.
 // Must be called from within a method that has access to printTestFail.
-#define VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType, ...) \
-   do \
-   { \
-      auto _pdfChecks = std::make_tuple(__VA_ARGS__); \
-      std::apply([&](const auto&... c) { (([&] { \
+#define VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType, ...)                                        \
+   do                                                                                                             \
+   {                                                                                                              \
+      auto _pdfChecks = std::make_tuple(__VA_ARGS__);                                                             \
+      std::apply([&](const auto&... c) { (([&] {                                                                  \
                                             if (!((actual).*c.field > 0.0f) || !std::isfinite((actual).*c.field)) \
-                                            { \
-                                               pass = false; \
-                                               printTestFail(std::string(c.name) + " (positive & finite)", \
-                                                  1.0f, (actual).*c.field, iteration, seed, testType, 0.0, 0.0); \
-                                            } \
-                                         }()), \
-                                            ...); }, _pdfChecks); \
+                                            {                                                                     \
+                                               pass = false;                                                      \
+                                               printTestFail(std::string(c.name) + " (positive & finite)",        \
+                                                  1.0f, (actual).*c.field, iteration, seed, testType, 0.0, 0.0);  \
+                                            }                                                                     \
+                                         }()),                                                                    \
+                                            ...); }, _pdfChecks);                                        \
    } while (0)
 
 // ============================================================================
@@ -139,7 +235,7 @@ inline float64_t gridIntegratePdf1D(const auto& sampler, uint32_t N = 100000)
 // 2D grid integration of backwardPdf over [0,1]^2
 inline float64_t gridIntegratePdf2D(const auto& sampler, uint32_t N = 1000)
 {
-   float64_t sum = 0.0;
+   float64_t sum            = 0.0;
    const float64_t cellArea = 1.0 / static_cast<float64_t>(N * N);
    for (uint32_t iy = 0; iy < N; iy++)
    {
@@ -190,17 +286,15 @@ inline void buildTangentFrame(nbl::hlsl::float32_t3 dir, nbl::hlsl::float32_t3& 
 
 // Generate a small equilateral triangle on the unit sphere around baseDir with given half-angle.
 // Also generates a random normal with decent projection onto the triangle.
-inline void generateSmallTriangle(std::mt19937& rng, float halfAngle,
-   nbl::hlsl::float32_t3& v0, nbl::hlsl::float32_t3& v1, nbl::hlsl::float32_t3& v2,
-   nbl::hlsl::float32_t3& baseDir, nbl::hlsl::float32_t3& normal)
+inline void generateSmallTriangle(std::mt19937& rng, float halfAngle, nbl::hlsl::float32_t3& v0, nbl::hlsl::float32_t3& v1, nbl::hlsl::float32_t3& v2, nbl::hlsl::float32_t3& baseDir, nbl::hlsl::float32_t3& normal)
 {
    using namespace nbl::hlsl;
    baseDir = generateRandomUnitVector(rng);
    float32_t3 t1, t2;
    buildTangentFrame(baseDir, t1, t2);
-   v0 = normalize(baseDir + t1 * halfAngle);
-   v1 = normalize(baseDir - t1 * (halfAngle * 0.5f) + t2 * (halfAngle * 0.866f));
-   v2 = normalize(baseDir - t1 * (halfAngle * 0.5f) - t2 * (halfAngle * 0.866f));
+   v0     = normalize(baseDir + t1 * halfAngle);
+   v1     = normalize(baseDir - t1 * (halfAngle * 0.5f) + t2 * (halfAngle * 0.866f));
+   v2     = normalize(baseDir - t1 * (halfAngle * 0.5f) - t2 * (halfAngle * 0.866f));
    normal = generateRandomUnitVector(rng);
    if (dot(normal, baseDir) < 0.1f)
       normal = normalize(normal + baseDir * 2.0f);
@@ -221,10 +315,10 @@ inline void generateStressTriangleVertices(std::mt19937& rng, nbl::hlsl::float32
             float32_t3 t1, t2;
             buildTangentFrame(base, t1, t2);
             float spread = 0.15f + angleDist(rng) * 0.2f;
-            v0 = normalize(base + t1 * spread);
-            v1 = normalize(base - t1 * spread);
-            float far_ = 0.8f + angleDist(rng) * 0.8f;
-            v2 = normalize(base * std::cos(far_) + t2 * std::sin(far_));
+            v0           = normalize(base + t1 * spread);
+            v1           = normalize(base - t1 * spread);
+            float far_   = 0.8f + angleDist(rng) * 0.8f;
+            v2           = normalize(base * std::cos(far_) + t2 * std::sin(far_));
             break;
          }
       case 1: // Nearly coplanar
@@ -233,12 +327,12 @@ inline void generateStressTriangleVertices(std::mt19937& rng, nbl::hlsl::float32
             float32_t3 t1, t2;
             buildTangentFrame(pole, t1, t2);
             float offset = 0.05f + angleDist(rng) * 0.1f;
-            float a1 = angleDist(rng) * 6.2832f;
-            float a2 = a1 + 0.8f + angleDist(rng);
-            float a3 = a2 + 0.8f + angleDist(rng);
-            v0 = normalize(t1 * std::cos(a1) + t2 * std::sin(a1) + pole * offset);
-            v1 = normalize(t1 * std::cos(a2) + t2 * std::sin(a2) - pole * offset * 0.5f);
-            v2 = normalize(t1 * std::cos(a3) + t2 * std::sin(a3) + pole * offset * 0.3f);
+            float a1     = angleDist(rng) * 6.2832f;
+            float a2     = a1 + 0.8f + angleDist(rng);
+            float a3     = a2 + 0.8f + angleDist(rng);
+            v0           = normalize(t1 * std::cos(a1) + t2 * std::sin(a1) + pole * offset);
+            v1           = normalize(t1 * std::cos(a2) + t2 * std::sin(a2) - pole * offset * 0.5f);
+            v2           = normalize(t1 * std::cos(a3) + t2 * std::sin(a3) + pole * offset * 0.3f);
             break;
          }
       default: // One short edge
@@ -247,9 +341,9 @@ inline void generateStressTriangleVertices(std::mt19937& rng, nbl::hlsl::float32
             float32_t3 t1, t2;
             buildTangentFrame(base, t1, t2);
             float shortAngle = 0.32f + angleDist(rng) * 0.1f;
-            v0 = normalize(base + t1 * shortAngle * 0.5f);
-            v1 = normalize(base - t1 * shortAngle * 0.5f);
-            v2 = normalize(t2 + base * (0.3f + angleDist(rng) * 0.5f));
+            v0               = normalize(base + t1 * shortAngle * 0.5f);
+            v1               = normalize(base - t1 * shortAngle * 0.5f);
+            v2               = normalize(t2 + base * (0.3f + angleDist(rng) * 0.5f));
             break;
          }
    }
@@ -262,65 +356,114 @@ inline void generateStressTriangleVertices(std::mt19937& rng, nbl::hlsl::float32
 inline void makeEquilateralTriangle(float64_t theta, nbl::hlsl::float32_t3 verts[3])
 {
    using namespace nbl::hlsl;
-   const float32_t st = static_cast<float32_t>(std::sin(theta));
-   const float32_t ct = static_cast<float32_t>(std::cos(theta));
+   const float32_t st             = static_cast<float32_t>(std::sin(theta));
+   const float32_t ct             = static_cast<float32_t>(std::cos(theta));
    constexpr float64_t twoPiOver3 = 2.0 * numbers::pi<float64_t> / 3.0;
-   verts[0] = float32_t3(st, 0.0f, ct);
-   verts[1] = float32_t3(static_cast<float>(st * std::cos(twoPiOver3)),
+   verts[0]                       = float32_t3(st, 0.0f, ct);
+   verts[1]                       = float32_t3(static_cast<float>(st * std::cos(twoPiOver3)),
       static_cast<float>(st * std::sin(twoPiOver3)), ct);
-   verts[2] = float32_t3(static_cast<float>(st * std::cos(2.0 * twoPiOver3)),
+   verts[2]                       = float32_t3(static_cast<float>(st * std::cos(2.0 * twoPiOver3)),
       static_cast<float>(st * std::sin(2.0 * twoPiOver3)), ct);
 }
 
-// Monte Carlo estimate of projected solid angle: E[abs(dot(L, normal))] * solidAngle.
-// Uses abs() to match the BSDF projected solid angle formula (which uses abs so that
-// triangles straddling the horizon contribute positively from both hemispheres).
-// Samples L uniformly from the spherical triangle.
-inline float64_t mcEstimatePSA(const nbl::hlsl::shapes::SphericalTriangle<nbl::hlsl::float32_t>& shape, nbl::hlsl::float32_t3 normal, uint32_t N, std::mt19937& rng)
+// Grid estimate of projected solid angle: mean of abs(dot(L, normal)) over a regular
+// [0,1]^2 grid, times solidAngle. Uses abs() to match the BSDF projected solid angle
+// formula (triangles/rects straddling the horizon contribute from both hemispheres).
+// `N` is the total number of samples; the grid side is ceil(sqrt(N)). Grid integration
+// is deterministic and has much lower variance than MC at the same sample count,
+// so it's a tighter ground truth for PSA-vs-formula comparisons.
+inline float64_t gridEstimatePSA(const nbl::hlsl::shapes::SphericalTriangle<nbl::hlsl::float32_t>& shape, nbl::hlsl::float32_t3 normal, uint32_t N)
 {
    using namespace nbl::hlsl;
-   auto sampler = sampling::SphericalTriangle<float32_t>::create(shape);
-   std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
-   float64_t sum = 0.0;
-   for (uint32_t i = 0; i < N; i++)
+   auto sampler            = sampling::SphericalTriangle<float32_t>::create(shape);
+   const uint32_t gridSide = static_cast<uint32_t>(std::ceil(std::sqrt(static_cast<double>(N))));
+   const float invSide     = 1.0f / static_cast<float>(gridSide);
+   float64_t sum           = 0.0;
+   for (uint32_t iy = 0; iy < gridSide; iy++)
    {
-      float32_t2 u(uDist(rng), uDist(rng));
-      typename sampling::SphericalTriangle<float32_t>::cache_type cache;
-      float32_t3 L = sampler.generate(u, cache);
-      sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+      const float uy = (static_cast<float>(iy) + 0.5f) * invSide;
+      for (uint32_t ix = 0; ix < gridSide; ix++)
+      {
+         const float ux = (static_cast<float>(ix) + 0.5f) * invSide;
+         typename sampling::SphericalTriangle<float32_t>::cache_type cache;
+         const float32_t3 L = sampler.generate(float32_t2(ux, uy), cache);
+         sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+      }
    }
-   return sum / static_cast<float64_t>(N) * static_cast<float64_t>(shape.solid_angle);
+   return sum / static_cast<float64_t>(gridSide * gridSide) * static_cast<float64_t>(shape.solid_angle);
 }
 
-// Monte Carlo estimate of projected solid angle for a rectangle: E[abs(dot(L, normal))] * solidAngle.
-// Uses abs() to match the BSDF projected solid angle formula.
-// Samples uniformly from the spherical rectangle, reconstructs world-space direction.
-inline float64_t mcEstimatePSA(
+// Sampler-independent PSA reference for rectangles. Integrates the projected-solid-angle integral
+//   PSA = integral over rect surface of |cos(theta_receiver)| * |cos(theta_rect)| / d^2 dA
+// on a uniform surface grid in (s, t) in [0, extents.x] x [0, extents.y]. No sampler involved,
+// so disagreement with a sampler-derived PSA isolates the sampler / formula.
+inline float64_t surfaceGridEstimatePSA(
    const nbl::hlsl::shapes::SphericalRectangle<nbl::hlsl::float32_t>& shape,
    const nbl::hlsl::float32_t3& observer,
    const nbl::hlsl::float32_t3& normal,
-   uint32_t N, std::mt19937& rng)
+   uint32_t N)
+{
+   using namespace nbl::hlsl;
+   const float32_t3 rdir       = shape.basis[0];
+   const float32_t3 udir       = shape.basis[1];
+   const float32_t3 rectNormal = shape.basis[2];
+   const float32_t width       = shape.extents.x;
+   const float32_t height      = shape.extents.y;
+   const uint32_t gridSide     = static_cast<uint32_t>(std::ceil(std::sqrt(static_cast<double>(N))));
+   const float64_t cellArea    = static_cast<float64_t>(width) * static_cast<float64_t>(height) / static_cast<float64_t>(gridSide * gridSide);
+   float64_t sum               = 0.0;
+   for (uint32_t iy = 0; iy < gridSide; iy++)
+   {
+      const float32_t t = (static_cast<float32_t>(iy) + 0.5f) * height / static_cast<float32_t>(gridSide);
+      for (uint32_t ix = 0; ix < gridSide; ix++)
+      {
+         const float32_t s        = (static_cast<float32_t>(ix) + 0.5f) * width / static_cast<float32_t>(gridSide);
+         const float32_t3 worldPt = shape.origin + rdir * s + udir * t;
+         const float32_t3 toSurf  = worldPt - observer;
+         const float64_t d2       = static_cast<float64_t>(dot(toSurf, toSurf));
+         const float64_t d        = std::sqrt(d2);
+         const float32_t3 L       = toSurf * static_cast<float32_t>(1.0 / d);
+         const float64_t cosRx    = static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+         const float64_t cosRt    = static_cast<float64_t>(hlsl::abs(dot(rectNormal, L)));
+         sum += cosRx * cosRt / d2;
+      }
+   }
+   return sum * cellArea;
+}
+
+// Grid estimate of projected solid angle for a rectangle: mean of abs(dot(L, normal))
+// over a regular [0,1]^2 grid, times solidAngle. See the triangle overload above.
+inline float64_t gridEstimatePSA(
+   const nbl::hlsl::shapes::SphericalRectangle<nbl::hlsl::float32_t>& shape,
+   const nbl::hlsl::float32_t3& observer,
+   const nbl::hlsl::float32_t3& normal,
+   uint32_t N)
 {
    using namespace nbl::hlsl;
    auto sampler = sampling::SphericalRectangle<float32_t>::create(shape, observer);
    if (sampler.solidAngle <= 0.0f || !std::isfinite(sampler.solidAngle))
       return 0.0;
 
-   std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
-   float64_t sum = 0.0;
-   for (uint32_t i = 0; i < N; i++)
+   const uint32_t gridSide = static_cast<uint32_t>(std::ceil(std::sqrt(static_cast<double>(N))));
+   const float invSide     = 1.0f / static_cast<float>(gridSide);
+   float64_t sum           = 0.0;
+   for (uint32_t iy = 0; iy < gridSide; iy++)
    {
-      float32_t2 u(uDist(rng), uDist(rng));
-      typename sampling::SphericalRectangle<float32_t>::cache_type cache;
-      float32_t2 gen = sampler.generateSurfaceOffset(u, cache);
-      // Reconstruct world-space direction from rectangle offset
-      float32_t3 worldPt = shape.origin
-         + shape.basis[0] * gen.x
-         + shape.basis[1] * gen.y;
-      float32_t3 L = normalize(worldPt - observer);
-      sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+      const float uy = (static_cast<float>(iy) + 0.5f) * invSide;
+      for (uint32_t ix = 0; ix < gridSide; ix++)
+      {
+         const float ux = (static_cast<float>(ix) + 0.5f) * invSide;
+         typename sampling::SphericalRectangle<float32_t>::cache_type cache;
+         // `generateLocalBasisXY` returns absolute (xu, yv) on the rectangle surface; subtract r0.xy
+         // to get the offset-from-r0 that the world-space reconstruction below expects.
+         const float32_t2 absXY   = sampler.generateLocalBasisXY(float32_t2(ux, uy), cache);
+         const float32_t2 gen     = absXY - float32_t2(sampler.r0.x, sampler.r0.y);
+         const float32_t3 worldPt = shape.origin + shape.basis[0] * gen.x + shape.basis[1] * gen.y;
+         const float32_t3 L       = normalize(worldPt - observer);
+         sum += static_cast<float64_t>(hlsl::abs(dot(normal, L)));
+      }
    }
-   return sum / static_cast<float64_t>(N) * static_cast<float64_t>(sampler.solidAngle);
+   return sum / static_cast<float64_t>(gridSide * gridSide) * static_cast<float64_t>(sampler.solidAngle);
 }
 
 // Bundles seed + rng + failCount for randomized property tests.
@@ -357,14 +500,18 @@ struct SeededTestContext
    }
 };
 
-// Generic PSA vs MC comparison.
-// ConfigGen: void(std::mt19937& rng, uint32_t index, float64_t& formulaPSA, float64_t& mcPSA, InfoLogger& info)
-//   Must set formulaPSA and mcPSA for config `index`, or set both to 0 to skip.
+// Generic PSA vs grid-integration comparison.
+// ConfigGen: void(std::mt19937& rng, uint32_t index, float64_t& formulaPSA, float64_t& gridPSA, InfoLogger& info)
+//   Must set formulaPSA and gridPSA for config `index`, or set both to 0 to skip.
 //   `info` is a callable: void(nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL) that logs
 //   sampler/shape details for the current config. Called on mismatch.
-// When diagnostic=true, failures log at ELL_WARNING instead of ELL_ERROR (non-hard-fail).
+// Two-tier tolerance:
+//   - (relTol, absTol): soft threshold. Exceedance counts as a mismatch. With diagnostic=true
+//     the run still returns true (known-limitation noise); with diagnostic=false it hard-fails.
+//   - (hardRelTol, hardAbsTol): egregious threshold. Always hard-fails regardless of diagnostic,
+//     so a catastrophic regression can't hide inside the warning stream.
 template<typename ConfigGen>
-inline bool testPSAVersusMonteCarlo(
+inline bool testPSAVersusGrid(
    nbl::system::ILogger* logger,
    const char* tag,
    const char* label,
@@ -372,49 +519,78 @@ inline bool testPSAVersusMonteCarlo(
    uint32_t numConfigs,
    float64_t relTol,
    float64_t absTol,
+   float64_t hardRelTol,
+   float64_t hardAbsTol,
    bool diagnostic = false)
 {
-   const auto failLevel = diagnostic ? nbl::system::ILogger::ELL_WARNING : nbl::system::ILogger::ELL_ERROR;
+   const auto softFailLevel = diagnostic ? nbl::system::ILogger::ELL_WARNING : nbl::system::ILogger::ELL_ERROR;
    SeededTestContext ctx;
+   uint32_t hardFailCount = 0;
+   uint32_t testedCount   = 0;
 
    for (uint32_t c = 0; c < numConfigs; c++)
    {
-      float64_t formulaPSA = 0.0, mcPSA = 0.0;
+      float64_t formulaPSA = 0.0, gridPSA = 0.0;
       std::function<void(nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL)> logInfo =
-         [](nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL) {};
-      configGenerator(ctx.rng, c, formulaPSA, mcPSA, logInfo);
+         [](nbl::system::ILogger*, nbl::system::ILogger::E_LOG_LEVEL) {
+         };
+      configGenerator(ctx.rng, c, formulaPSA, gridPSA, logInfo);
 
-      if (mcPSA == 0.0 && formulaPSA == 0.0)
+      if (gridPSA == 0.0 && formulaPSA == 0.0)
          continue;
+      testedCount++;
 
-      const float64_t absErr = std::abs(formulaPSA - mcPSA);
-      const float64_t relErr = (std::abs(mcPSA) > 1e-10) ? absErr / std::abs(mcPSA) : 0.0;
+      const float64_t absErr = std::abs(formulaPSA - gridPSA);
+      const float64_t relErr = (std::abs(gridPSA) > 1e-10) ? absErr / std::abs(gridPSA) : 0.0;
 
-      if (relErr > relTol && absErr > absTol)
+      const bool softFail = relErr > relTol && absErr > absTol;
+      const bool hardFail = relErr > hardRelTol && absErr > hardAbsTol;
+
+      if (softFail)
       {
          ctx.failCount++;
+         if (hardFail)
+            hardFailCount++;
          if (ctx.failCount <= 5)
          {
-            logger->log("  [%s] %s mismatch: formula=%f expected(MC)=%f relErr=%e absErr=%e config %u",
-               failLevel, tag, label, formulaPSA, mcPSA, relErr, absErr, c);
-            logInfo(logger, failLevel);
+            const auto level = hardFail ? nbl::system::ILogger::ELL_ERROR : softFailLevel;
+            logger->log("  [%s] %s %s: formula=%f expected(grid)=%f relErr=%e absErr=%e config %u",
+               level, tag, label, hardFail ? "HARD mismatch" : "mismatch",
+               formulaPSA, gridPSA, relErr, absErr, c);
+            logInfo(logger, level);
          }
       }
    }
 
+   const uint32_t skippedCount = numConfigs - testedCount;
+
    if (ctx.failCount == 0)
-      logger->log("  [%s] %s PASSED (%u configs, relTol=%e absTol=%e)",
-         nbl::system::ILogger::ELL_PERFORMANCE, tag, label, numConfigs, relTol, absTol);
-   else
    {
-      logger->log("  [%s] %s FAILED (%u/%u configs exceeded tolerance, relTol=%e absTol=%e)",
-         failLevel, tag, label, ctx.failCount, numConfigs, relTol, absTol);
-      if (diagnostic)
-         logger->log("  [%s] reproduce with seed=%u (diagnostic only, not a hard failure)",
-            nbl::system::ILogger::ELL_WARNING, tag, ctx.seed);
+      logger->log("  [%s] %s PASSED (%u tested, %u skipped of %u requested, relTol=%e absTol=%e)",
+         nbl::system::ILogger::ELL_PERFORMANCE, tag, label,
+         testedCount, skippedCount, numConfigs, relTol, absTol);
+      return true;
    }
 
-   return diagnostic ? true : ctx.finalize(logger, tag);
+   const bool hardFailed   = hardFailCount > 0;
+   const auto summaryLevel = hardFailed ? nbl::system::ILogger::ELL_ERROR : softFailLevel;
+   if (hardFailed)
+      logger->log("  [%s] %s FAILED (%u/%u exceeded soft tol, %u/%u exceeded HARD tol, %u skipped of %u, hardRelTol=%e hardAbsTol=%e)",
+         summaryLevel, tag, label, ctx.failCount, testedCount, hardFailCount, testedCount,
+         skippedCount, numConfigs, hardRelTol, hardAbsTol);
+   else
+      logger->log("  [%s] %s FAILED (%u/%u configs exceeded tolerance, %u skipped of %u, relTol=%e absTol=%e)",
+         summaryLevel, tag, label, ctx.failCount, testedCount, skippedCount, numConfigs, relTol, absTol);
+
+   const bool shouldHardFail = hardFailed || !diagnostic;
+   if (shouldHardFail)
+      logger->log("  [%s] reproduce with seed=%u",
+         nbl::system::ILogger::ELL_ERROR, tag, ctx.seed);
+   else
+      logger->log("  [%s] reproduce with seed=%u (diagnostic only, not a hard failure)",
+         nbl::system::ILogger::ELL_WARNING, tag, ctx.seed);
+
+   return !shouldHardFail;
 }
 
 // ============================================================================
@@ -435,23 +611,21 @@ inline void generateRandomRectangle(std::mt19937& rng,
    float32_t3 t1, t2;
    buildTangentFrame(normal, t1, t2);
 
-   const float width = sizeDist(rng);
+   const float width  = sizeDist(rng);
    const float height = sizeDist(rng);
-   const float dist = distDist(rng);
+   const float dist   = distDist(rng);
 
-   observer = float32_t3(offsetDist(rng), offsetDist(rng), offsetDist(rng));
+   observer          = float32_t3(offsetDist(rng), offsetDist(rng), offsetDist(rng));
    compressed.origin = observer - normal * dist + t1 * offsetDist(rng) + t2 * offsetDist(rng);
-   compressed.right = t1 * width;
-   compressed.up = t2 * height;
+   compressed.right  = t1 * width;
+   compressed.up     = t2 * height;
 }
 
 // Stress rectangles: ill-conditioned geometries that exercise edge cases.
 //  - Extreme aspect ratio (10:1 to 20:1)
 //  - Grazing angle (observer nearly in the rectangle plane)
 //  - Observer near corner (most of the rectangle off to one side)
-inline void generateStressRectangle(std::mt19937& rng,
-   nbl::hlsl::shapes::CompressedSphericalRectangle<nbl::hlsl::float32_t>& compressed,
-   nbl::hlsl::float32_t3& observer)
+inline void generateStressRectangle(std::mt19937& rng, nbl::hlsl::shapes::CompressedSphericalRectangle<nbl::hlsl::float32_t>& compressed, nbl::hlsl::float32_t3& observer)
 {
    using namespace nbl::hlsl;
    std::uniform_real_distribution<float> uDist(0.0f, 1.0f);
@@ -464,39 +638,39 @@ inline void generateStressRectangle(std::mt19937& rng,
    switch (caseDist(rng))
    {
       case 0: // Extreme aspect ratio
-      {
-         const float longSide = 3.0f + uDist(rng) * 5.0f;
-         const float shortSide = 0.1f + uDist(rng) * 0.2f;
-         const float dist = 1.5f + uDist(rng) * 2.0f;
-         observer = float32_t3(0.0f, 0.0f, 0.0f);
-         compressed.origin = -normal * dist - t1 * (longSide * 0.5f) - t2 * (shortSide * 0.5f);
-         compressed.right = t1 * longSide;
-         compressed.up = t2 * shortSide;
-         break;
-      }
+         {
+            const float longSide  = 3.0f + uDist(rng) * 5.0f;
+            const float shortSide = 0.1f + uDist(rng) * 0.2f;
+            const float dist      = 1.5f + uDist(rng) * 2.0f;
+            observer              = float32_t3(0.0f, 0.0f, 0.0f);
+            compressed.origin     = -normal * dist - t1 * (longSide * 0.5f) - t2 * (shortSide * 0.5f);
+            compressed.right      = t1 * longSide;
+            compressed.up         = t2 * shortSide;
+            break;
+         }
       case 1: // Grazing angle (observer nearly in the rectangle plane)
-      {
-         const float width = 1.0f + uDist(rng) * 2.0f;
-         const float height = 1.0f + uDist(rng) * 2.0f;
-         const float normalDist = 0.05f + uDist(rng) * 0.15f;
-         const float tangentOffset = 0.5f + uDist(rng) * 1.0f;
-         observer = float32_t3(0.0f, 0.0f, 0.0f);
-         compressed.origin = -normal * normalDist + t1 * tangentOffset - t2 * (height * 0.5f);
-         compressed.right = t1 * width;
-         compressed.up = t2 * height;
-         break;
-      }
+         {
+            const float width         = 1.0f + uDist(rng) * 2.0f;
+            const float height        = 1.0f + uDist(rng) * 2.0f;
+            const float normalDist    = 0.05f + uDist(rng) * 0.15f;
+            const float tangentOffset = 0.5f + uDist(rng) * 1.0f;
+            observer                  = float32_t3(0.0f, 0.0f, 0.0f);
+            compressed.origin         = -normal * normalDist + t1 * tangentOffset - t2 * (height * 0.5f);
+            compressed.right          = t1 * width;
+            compressed.up             = t2 * height;
+            break;
+         }
       default: // Observer near corner
-      {
-         const float width = 2.0f + uDist(rng) * 3.0f;
-         const float height = 2.0f + uDist(rng) * 3.0f;
-         const float dist = 0.5f + uDist(rng) * 1.0f;
-         observer = float32_t3(0.0f, 0.0f, 0.0f);
-         compressed.origin = -normal * dist - t1 * (0.05f + uDist(rng) * 0.1f) - t2 * (0.05f + uDist(rng) * 0.1f);
-         compressed.right = t1 * width;
-         compressed.up = t2 * height;
-         break;
-      }
+         {
+            const float width  = 2.0f + uDist(rng) * 3.0f;
+            const float height = 2.0f + uDist(rng) * 3.0f;
+            const float dist   = 0.5f + uDist(rng) * 1.0f;
+            observer           = float32_t3(0.0f, 0.0f, 0.0f);
+            compressed.origin  = -normal * dist - t1 * (0.05f + uDist(rng) * 0.1f) - t2 * (0.05f + uDist(rng) * 0.1f);
+            compressed.right   = t1 * width;
+            compressed.up      = t2 * height;
+            break;
+         }
    }
 }
 
@@ -590,10 +764,10 @@ inline void logRectInfo(
 {
    using namespace nbl::system;
    using namespace nbl::hlsl;
-   const float width = length(compressed.right);
-   const float height = length(compressed.up);
+   const float width       = length(compressed.right);
+   const float height      = length(compressed.up);
    const float32_t3 normal = normalize(cross(compressed.right, compressed.up));
-   const float dist = length(compressed.origin - observer);
+   const float dist        = length(compressed.origin - observer);
    logger->log("    origin=%s right=%s up=%s observer=%s",
       ILogger::ELL_ERROR,
       to_string(compressed.origin).c_str(),
@@ -617,14 +791,14 @@ inline bool anyRectCornerAboveHorizon(
    const nbl::hlsl::float32_t3& normal)
 {
    using namespace nbl::hlsl;
-   const float32_t3 r0 = mul(shape.basis, shape.origin - observer);
+   const float32_t3 r0     = mul(shape.basis, shape.origin - observer);
    const float32_t3 localN = mul(shape.basis, normal);
-   const float32_t3 v0 = normalize(r0);
-   const float32_t3 v1 = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
-   const float32_t3 v2 = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
-   const float32_t3 v3 = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
+   const float32_t3 v0     = normalize(r0);
+   const float32_t3 v1     = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
+   const float32_t3 v2     = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
+   const float32_t3 v3     = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
    return dot(localN, v0) > 0.0f || dot(localN, v1) > 0.0f ||
-          dot(localN, v2) > 0.0f || dot(localN, v3) > 0.0f;
+      dot(localN, v2) > 0.0f || dot(localN, v3) > 0.0f;
 }
 
 // True if all rectangle corners have positive NdotL with the given normal.
@@ -635,14 +809,14 @@ inline bool allRectCornersAboveHorizon(
    const nbl::hlsl::float32_t3& normal)
 {
    using namespace nbl::hlsl;
-   const float32_t3 r0 = mul(shape.basis, shape.origin - observer);
+   const float32_t3 r0     = mul(shape.basis, shape.origin - observer);
    const float32_t3 localN = mul(shape.basis, normal);
-   const float32_t3 v0 = normalize(r0);
-   const float32_t3 v1 = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
-   const float32_t3 v2 = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
-   const float32_t3 v3 = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
+   const float32_t3 v0     = normalize(r0);
+   const float32_t3 v1     = normalize(r0 + float32_t3(shape.extents.x, 0.0f, 0.0f));
+   const float32_t3 v2     = normalize(r0 + float32_t3(shape.extents.x, shape.extents.y, 0.0f));
+   const float32_t3 v3     = normalize(r0 + float32_t3(0.0f, shape.extents.y, 0.0f));
    return dot(localN, v0) > 0.0f && dot(localN, v1) > 0.0f &&
-          dot(localN, v2) > 0.0f && dot(localN, v3) > 0.0f;
+      dot(localN, v2) > 0.0f && dot(localN, v3) > 0.0f;
 }
 
 #endif
