@@ -86,17 +86,16 @@ float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAl
     MainObject mainObject = loadMainObject(currentMainObjectIdx);
 
     // `colorFromTexture` is required when drawing DTMs
-    if (mainObject.isUsingDtmSettings())
+    if (!mainObject.colorFromLineStyle() || colorFromTexture)
+    {
         color = float4(localTextureColor, localAlpha);
-
-    if (!colorFromTexture)
+    }
+    else
     {
         uint32_t styleIdx = mainObject.getLineStyleIndex();
         color = loadLineStyle(styleIdx).color;
         color.w *= localAlpha;
     }
-    else
-        color = float4(localTextureColor, localAlpha);
         
     color.rgb *= color.a;
     return color;
@@ -115,23 +114,18 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const bool differentMainObject = currentMainObjectIdx != storedMainObjectIdx; // meaning current pixel's main object is different than what is already stored
     const bool resolve = differentMainObject && storedMainObjectIdx != InvalidMainObjectIdx;
-    uint32_t toResolveStyleIdx = MainObject::getInvalidLineStyleIndex();
-    MainObject mainObject = loadMainObject(storedMainObjectIdx);
+    uint32_t toResolveStyleIdx = InvalidLineStyleIndex;
 
     // load from colorStorage only if we want to resolve color from texture instead of style
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
     if (resolve)
     {
-        if(!mainObject.isUsingDtmSettings())
-        {
+        MainObject mainObject = loadMainObject(storedMainObjectIdx);
+        if(mainObject.colorFromLineStyle())
             toResolveStyleIdx = mainObject.getLineStyleIndex();
-            if (toResolveStyleIdx == MainObject::getInvalidLineStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
-                color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
-        }
         else
-        {
             color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
-        }
+        
     }
     
     // If current localAlpha is higher than what is already stored in pseudoStencil we will update the value in pseudoStencil or the color in colorStorage, this is equivalent to programmable blending MAX operation.
@@ -151,7 +145,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
-    if (toResolveStyleIdx != MainObject::getInvalidLineStyleIndex()) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    if (toResolveStyleIdx != InvalidLineStyleIndex) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
     {
         color = loadLineStyle(toResolveStyleIdx).color;
         gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction

@@ -859,7 +859,7 @@ protected:
 		
 		// Invalidate all the clip projection addresses because activeProjections buffer got reset
 		for (auto& addr : activeProjectionIndices)
-			addr = MainObject::getInvalidCustomTransformationIndex();
+			addr = InvalidCustomTransformationIndex;
 	}
 
 	void resetCustomClipRects()
@@ -868,19 +868,19 @@ protected:
 		
 		// Invalidate all the clip projection addresses because activeProjections buffer got reset
 		for (auto& addr : activeClipRectIndices)
-			addr = MainObject::getInvalidCustomClipRectIndex();
+			addr = InvalidCustomClipRectIndex;
 	}
 
 	void resetLineStyles()
 	{
 		resourcesCollection.lineStyles.vector.clear();
-		activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
+		activeLineStyleIndex = InvalidLineStyleIndex;
 	}
 
 	void resetDTMSettings()
 	{
 		resourcesCollection.dtmSettings.vector.clear();
-		activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
+		activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 	}
 	
 	// MSDF Hashing and Caching Internal Functions 
@@ -991,10 +991,10 @@ protected:
 
 	// Active Resources we need to keep track of and push to resources buffer if needed.
 	LineStyleInfo activeLineStyle;
-	uint32_t activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
+	uint32_t activeLineStyleIndex = InvalidLineStyleIndex;
 
 	DTMSettingsInfo activeDTMSettings;
-	uint32_t activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
+	uint32_t activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 
 	MainObjectType activeMainObjectType;
 	TransformationType activeMainObjectTransformationType;

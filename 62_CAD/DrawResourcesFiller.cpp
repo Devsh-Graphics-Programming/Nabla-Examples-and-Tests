@@ -1384,13 +1384,13 @@ const DrawResourcesFiller::ResourcesCollection& DrawResourcesFiller::getResource
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
 	activeLineStyle = lineStyle;
-	activeLineStyleIndex = MainObject::getInvalidLineStyleIndex();
+	activeLineStyleIndex = InvalidLineStyleIndex;
 }
 
 void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
 	activeDTMSettings = dtmSettingsInfo;
-	activeDTMSettingsIndex = MainObject::getInvalidDtmSettingsIndex();
+	activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)
@@ -1410,7 +1410,7 @@ void DrawResourcesFiller::endMainObject()
 void DrawResourcesFiller::pushCustomProjection(const float64_t2x3& projection)
 {
 	activeProjections.push_back(projection);
-	activeProjectionIndices.push_back(MainObject::getInvalidCustomTransformationIndex());
+	activeProjectionIndices.push_back(InvalidCustomTransformationIndex);
 }
 
 void DrawResourcesFiller::popCustomProjection()
@@ -1425,7 +1425,7 @@ void DrawResourcesFiller::popCustomProjection()
 void DrawResourcesFiller::pushCustomClipRect(const WorldClipRect& clipRect)
 {
 	activeClipRects.push_back(clipRect);
-	activeClipRectIndices.push_back(MainObject::getInvalidCustomClipRectIndex());
+	activeClipRectIndices.push_back(InvalidCustomClipRectIndex);
 }
 
 void DrawResourcesFiller::popCustomClipRect()
@@ -2076,9 +2076,9 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
-	const bool indexLimitExceeded = resourcesCollection.lineStyles.vector.size() > MainObject::getMaxIndexableLineStyles();
-	if (!enoughMem || indexLimitExceeded)
-		return MainObject::getInvalidLineStyleIndex();
+	const bool lineStyleIndexLimitExceeded = resourcesCollection.lineStyles.vector.size() >= MaxLineStylesCount;
+	if (!enoughMem || lineStyleIndexLimitExceeded)
+		return InvalidLineStyleIndex;
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
@@ -2099,10 +2099,10 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	const size_t noOfLineStylesRequired = ((dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE) ? 1u : 0u) + dtmSettingsInfo.contourSettingsCount;
 	const size_t maxMemRequired = sizeof(DTMSettings) + noOfLineStylesRequired * sizeof(LineStyle);
 	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool indexLimitExceeded = resourcesCollection.dtmSettings.vector.size() > MainObject::getMaxIndexableDtmSettings();
+	const bool DTMSettingsIndexLimitExceeded = resourcesCollection.dtmSettings.vector.size() >= MaxDtmSettingsCount;
 
-	if (!enoughMem || indexLimitExceeded)
-		return MainObject::getInvalidDtmSettingsIndex();
+	if (!enoughMem || DTMSettingsIndexLimitExceeded)
+		return InvalidDtmSettingsIndex;
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	DTMSettings dtmSettings;
@@ -2202,7 +2202,7 @@ float64_t2x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeLineStyleIndex == MainObject::getInvalidLineStyleIndex())
+	if (activeLineStyleIndex == InvalidLineStyleIndex)
 		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
 	
 	return activeLineStyleIndex;
@@ -2210,7 +2210,7 @@ uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntend
 
 uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeDTMSettingsIndex == MainObject::getInvalidDtmSettingsIndex())
+	if (activeDTMSettingsIndex == InvalidDtmSettingsIndex)
 		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
 	
 	return activeDTMSettingsIndex;
@@ -2219,9 +2219,9 @@ uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SInte
 uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (activeProjectionIndices.empty())
-		return MainObject::getInvalidCustomTransformationIndex();
+		return InvalidCustomTransformationIndex;
 
-	if (activeProjectionIndices.back() == MainObject::getInvalidCustomTransformationIndex())
+	if (activeProjectionIndices.back() == InvalidCustomTransformationIndex)
 		activeProjectionIndices.back() = addCustomProjection_SubmitIfNeeded(activeProjections.back(), intendedNextSubmit);
 	
 	return activeProjectionIndices.back();
@@ -2230,9 +2230,9 @@ uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(
 uint32_t DrawResourcesFiller::acquireActiveCustomClipRectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (activeClipRectIndices.empty())
-		return MainObject::getInvalidCustomClipRectIndex();
+		return InvalidCustomClipRectIndex;
 
-	if (activeClipRectIndices.back() == MainObject::getInvalidCustomClipRectIndex())
+	if (activeClipRectIndices.back() == InvalidCustomClipRectIndex)
 		activeClipRectIndices.back() = addCustomClipRect_SubmitIfNeeded(activeClipRects.back(), intendedNextSubmit);
 	
 	return activeClipRectIndices.back();
@@ -2265,7 +2265,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	if (needsCustomClipRect) memRequired += sizeof(WorldClipRect);
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() > MaxIndexableMainObjects);
+	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxMainObjectCount);
 	
 	if (needToOverflowSubmit)
 	{
@@ -2278,24 +2278,25 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
 
-	assert((needsLineStyle == !needsDTMSettings) || (needsLineStyle == false && needsDTMSettings == false));
+	assert(!needsLineStyle || !needsDTMSettings); // both cannot be true at the same time, at least one must be false
 	if (needsLineStyle)
 	{
 		mainObject.setLineStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
-		mainObject.setDtmSettingsFlag(false);
+		const bool isLineStyleIndexValid = mainObject.getLineStyleIndex() != InvalidLineStyleIndex;
+		mainObject.setColorFromLineStyleFlag(isLineStyleIndexValid);
 	}
 	else if(needsDTMSettings)
 	{
 		mainObject.setDtmSettingsIndex(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
-		mainObject.setDtmSettingsFlag(true);
+		mainObject.setColorFromLineStyleFlag(false);
 	}
 	else
 	{
-		mainObject.setLineStyleIndex(MainObject::getInvalidLineStyleIndex()); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
-		mainObject.setDtmSettingsFlag(false);
+		mainObject.setLineStyleIndex(InvalidLineStyleIndex); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
+		mainObject.setColorFromLineStyleFlag(false);
 	}
-	mainObject.customTransformationIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomTransformationIndex();
-	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : MainObject::getInvalidCustomClipRectIndex());
+	mainObject.setCustomTransformationIndex((needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomTransformationIndex);
+	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex);
 	mainObject.setTransformationType((uint32_t)activeMainObjectTransformationType);
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
@@ -2304,14 +2305,14 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == MainObject::getInvalidLineStyleIndex())
+	if (outLineStyleIdx == InvalidLineStyleIndex)
 	{
 		// There wasn't enough resource memory remaining to fit a single LineStyle
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != MainObject::getInvalidLineStyleIndex());
+		assert(outLineStyleIdx != InvalidLineStyleIndex);
 	}
 
 	return outLineStyleIdx;
@@ -2321,14 +2322,14 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 {
 	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
 	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-	if (outDTMSettingIdx == MainObject::getInvalidDtmSettingsIndex())
+	if (outDTMSettingIdx == InvalidDtmSettingsIndex)
 	{
 		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-		assert(outDTMSettingIdx != MainObject::getInvalidDtmSettingsIndex());
+		assert(outDTMSettingIdx != InvalidDtmSettingsIndex);
 	}
 	return outDTMSettingIdx;
 }
@@ -2338,7 +2339,7 @@ uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const size_t memRequired = sizeof(float64_t2x3);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool indexLimitExceeded = resourcesCollection.customProjections.vector.size() > MainObject::getMaxIndexableCustomTransformations();
+	const bool indexLimitExceeded = resourcesCollection.customProjections.vector.size() >= MaxCustomTransformationsCount;
 
 	if (!enoughMem || indexLimitExceeded)
 	{
@@ -2355,7 +2356,7 @@ uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRe
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const size_t memRequired = sizeof(WorldClipRect);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool indexLimitExceeded = resourcesCollection.customClipRects.vector.size() > MainObject::getMaxIndexableCustomClipRects();
+	const bool indexLimitExceeded = resourcesCollection.customClipRects.vector.size() >= MaxCustomClipRectsCount;
 
 	if (!enoughMem || indexLimitExceeded)
 	{
@@ -2417,11 +2418,11 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::POLYLINE_CONNECTOR);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(PolylineConnector);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(PolylineConnector)));
 	} 
 
 	currentPolylineConnectorObj += objectsToUpload;
@@ -2474,11 +2475,11 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::LINE);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(LinePointInfo);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(LinePointInfo)));
 	} 
 
 	currentObjectInSection += objectsToUpload;
@@ -2530,7 +2531,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(cagesCount);
 	DrawObject drawObj = {};
 	drawObj.setMainObjIndex(mainObjIdx);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
@@ -2540,7 +2541,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 			drawObj.setSubsectionIdx(subObject);
 			drawObjectsToBeFilled[i * CagesPerQuadBezier + subObject] = drawObj;
 		}
-		drawObj.geometryAddress += sizeof(QuadraticBezierInfo);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(QuadraticBezierInfo)));
 	}
 
 
@@ -2587,11 +2588,11 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	drawObj.setMainObjIndex(mainObjIndex);
 	drawObj.setType(ObjectType::CURVE_BOX);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(Hatch::CurveHatchBox);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(Hatch::CurveHatchBox)));
 	}
 
 	// Add Indices
@@ -2630,7 +2631,7 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::FONT_GLYPH);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2668,7 +2669,7 @@ bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, ui
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::GRID_DTM);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2706,7 +2707,7 @@ bool DrawResourcesFiller::addImageObject_Internal(const ImageObjectInfo& imageOb
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::STATIC_IMAGE);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2744,7 +2745,7 @@ bool DrawResourcesFiller::addGeoreferencedImageInfo_Internal(const Georeferenced
 	drawObj.setMainObjIndex(mainObjIdx);
 	drawObj.setType(ObjectType::STREAMED_IMAGE);
 	drawObj.setSubsectionIdx(0);
-	drawObj.geometryAddress = geometryBufferOffset;
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;

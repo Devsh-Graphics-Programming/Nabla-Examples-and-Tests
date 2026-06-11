@@ -19,7 +19,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
     
     bool resolve = false;
-    uint32_t toResolveStyleIdx = MainObject::getInvalidLineStyleIndex();
+    uint32_t toResolveStyleIdx = InvalidLineStyleIndex;
     PseudoStencil ps = loadPseudoStencilData(fragCoord);
     const uint32_t storedQuantizedAlpha = ps.getAlpha();
     const uint32_t storedMainObjectIdx = ps.getMainObjectIdx();
@@ -39,16 +39,10 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
         if (resolve)
         {
             MainObject mainObject = loadMainObject(storedMainObjectIdx);
-            if(!mainObject.isUsingDtmSettings())
-            {
+            if(mainObject.colorFromLineStyle())
                 toResolveStyleIdx = mainObject.getLineStyleIndex();
-                if (toResolveStyleIdx == MainObject::getInvalidLineStyleIndex()) // if style idx to resolve is invalid, then it means we should resolve from color
-                    color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
-            }
             else
-            {
                 color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
-            }
         }
     }
     else if (globals.currentlyActiveMainObjectIndex != InvalidMainObjectIdx)
@@ -70,7 +64,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
 
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
-    if (toResolveStyleIdx != MainObject::getInvalidLineStyleIndex()) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    if (toResolveStyleIdx != InvalidLineStyleIndex) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
     {
         color = loadLineStyle(toResolveStyleIdx).color;
         gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction
