@@ -32,7 +32,7 @@ struct CCascades
     inline uint16_t3 __getCoord(const uint16_t cascadeIx)
     {
         uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
-        coord.z = coord.z*uint16_t(6)+cascadeIx;
+        coord.z = coord.z+cascadeIx*uint16_t(spirv::LaunchSizeKHR.z);
         return coord;
     }
 
@@ -249,7 +249,7 @@ void raygen()
             // fetch random variable from memory
             const float32_t3 randVec = randgen(0u,sampleIndex);
             // TODO: motion blur and lens DOF triplet
-            
+
             // get our NDC coordinates and ray
             const float32_t2 pixelSizeNDC = promote<float32_t2>(2.f)/float32_t2(spirv::LaunchSizeKHR.xy);
             const float32_t2 NDC = float32_t2(launchID.xy)*pixelSizeNDC - promote<float32_t2>(1.f);
