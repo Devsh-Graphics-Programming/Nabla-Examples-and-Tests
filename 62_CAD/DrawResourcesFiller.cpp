@@ -228,7 +228,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 	endMainObject();
 }
 
-void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t2x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!lineStyleInfo.isVisible())
 		return;
@@ -397,7 +397,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 		const float32_t4& foregroundColor,
 		const float32_t4& backgroundColor,
 		const HatchFillPattern fillPattern,
-		const float64_t3x3& transformation,
+		const float64_t2x3& transformation,
 		TransformationType transformationType, 
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -413,7 +413,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 	const Hatch& hatch,
 	const float32_t4& color,
 	const HatchFillPattern fillPattern,
-	const float64_t3x3& transformation,
+	const float64_t2x3& transformation,
 	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -425,7 +425,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 void DrawResourcesFiller::drawFixedGeometryHatch(
 	const Hatch& hatch,
 	const float32_t4& color,
-	const float64_t3x3& transformation,
+	const float64_t2x3& transformation,
 	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -1007,7 +1007,7 @@ void DrawResourcesFiller::drawGeoreferencedImage(image_id imageID, nbl::core::sm
 		// Georefernced Image Data in the cache was already pre-transformed from local to main worldspace coordinates for tile calculation purposes
 		// Because of this reason, the pre-transformed obb in the cache doesn't need to be transformed by custom projection again anymore.
 		// we push the identity transform to prevent any more tranformation on the obb which is already in worldspace units.
-		float64_t3x3 identity = float64_t3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+		float64_t2x3 identity = float64_t2x3(1, 0, 0, 0, 1, 0);
 		pushCustomProjection(identity);
 
 		beginMainObject(MainObjectType::STREAMED_IMAGE);
@@ -1384,13 +1384,13 @@ const DrawResourcesFiller::ResourcesCollection& DrawResourcesFiller::getResource
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
 	activeLineStyle = lineStyle;
-	activeLineStyleIndex = InvalidStyleIdx;
+	activeLineStyleIndex = InvalidLineStyleIndex;
 }
 
 void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
 	activeDTMSettings = dtmSettingsInfo;
-	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)
@@ -1407,10 +1407,10 @@ void DrawResourcesFiller::endMainObject()
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
-void DrawResourcesFiller::pushCustomProjection(const float64_t3x3& projection)
+void DrawResourcesFiller::pushCustomProjection(const float64_t2x3& projection)
 {
 	activeProjections.push_back(projection);
-	activeProjectionIndices.push_back(InvalidCustomProjectionIndex);
+	activeProjectionIndices.push_back(InvalidCustomTransformationIndex);
 }
 
 void DrawResourcesFiller::popCustomProjection()
@@ -2076,8 +2076,9 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
-	if (!enoughMem)
-		return InvalidStyleIdx;
+	const bool lineStyleIndexLimitExceeded = resourcesCollection.lineStyles.vector.size() >= MaxLineStylesCount;
+	if (!enoughMem || lineStyleIndexLimitExceeded)
+		return InvalidLineStyleIndex;
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
@@ -2098,9 +2099,10 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	const size_t noOfLineStylesRequired = ((dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE) ? 1u : 0u) + dtmSettingsInfo.contourSettingsCount;
 	const size_t maxMemRequired = sizeof(DTMSettings) + noOfLineStylesRequired * sizeof(LineStyle);
 	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool DTMSettingsIndexLimitExceeded = resourcesCollection.dtmSettings.vector.size() >= MaxDtmSettingsCount;
 
-	if (!enoughMem)
-		return InvalidDTMSettingsIdx;
+	if (!enoughMem || DTMSettingsIndexLimitExceeded)
+		return InvalidDtmSettingsIndex;
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	DTMSettings dtmSettings;
@@ -2152,15 +2154,15 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 
-float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const
+float64_t2x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(const float64_t2x3& transformation, TransformationType transformationType) const
 {
 	if (!activeProjections.empty())
 	{
-		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
+		float64_t3x3 newTransformation = nbl::hlsl::mul(hlsl::math::linalg::promote_affine<3,3,2,3>(activeProjections.back()), hlsl::math::linalg::promote_affine<3, 3, 2, 3>(transformation));
 
 		if (transformationType == TransformationType::TT_NORMAL)
 		{
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 		else if (transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
 		{
@@ -2183,12 +2185,12 @@ float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 			newTransformation[0][1] = column1[0];
 			newTransformation[1][1] = column1[1];
 
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 		else
 		{
 			// Fallback if transformationType is unrecognized, shouldn't happen
-			return newTransformation;
+			return float64_t2x3(newTransformation[0], newTransformation[1]);
 		}
 	}
 	else
@@ -2200,7 +2202,7 @@ float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(cons
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeLineStyleIndex == InvalidStyleIdx)
+	if (activeLineStyleIndex == InvalidLineStyleIndex)
 		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
 	
 	return activeLineStyleIndex;
@@ -2208,7 +2210,7 @@ uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntend
 
 uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeDTMSettingsIndex == InvalidDTMSettingsIdx)
+	if (activeDTMSettingsIndex == InvalidDtmSettingsIndex)
 		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
 	
 	return activeDTMSettingsIndex;
@@ -2217,9 +2219,9 @@ uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SInte
 uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (activeProjectionIndices.empty())
-		return InvalidCustomProjectionIndex;
+		return InvalidCustomTransformationIndex;
 
-	if (activeProjectionIndices.back() == InvalidCustomProjectionIndex)
+	if (activeProjectionIndices.back() == InvalidCustomTransformationIndex)
 		activeProjectionIndices.back() = addCustomProjection_SubmitIfNeeded(activeProjections.back(), intendedNextSubmit);
 	
 	return activeProjectionIndices.back();
@@ -2263,7 +2265,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	if (needsCustomClipRect) memRequired += sizeof(WorldClipRect);
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
+	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxMainObjectCount);
 	
 	if (needToOverflowSubmit)
 	{
@@ -2275,11 +2277,27 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
-	mainObject.styleIdx = (needsLineStyle) ? acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidStyleIdx;
-	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
-	mainObject.customProjectionIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomProjectionIndex;
-	mainObject.customClipRectIndex = (needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex;
-	mainObject.transformationType = (uint32_t)activeMainObjectTransformationType;
+
+	assert(!needsLineStyle || !needsDTMSettings); // both cannot be true at the same time, at least one must be false
+	if (needsLineStyle)
+	{
+		mainObject.setLineStyleIndex(acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit));
+		const bool isLineStyleIndexValid = mainObject.getLineStyleIndex() != InvalidLineStyleIndex;
+		mainObject.setColorFromLineStyleFlag(isLineStyleIndexValid);
+	}
+	else if(needsDTMSettings)
+	{
+		mainObject.setDtmSettingsIndex(acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit));
+		mainObject.setColorFromLineStyleFlag(false);
+	}
+	else
+	{
+		mainObject.setLineStyleIndex(InvalidLineStyleIndex); // line style and dtm settings indices share the same memory, so no need to invalidate dtm settings here
+		mainObject.setColorFromLineStyleFlag(false);
+	}
+	mainObject.setCustomTransformationIndex((needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomTransformationIndex);
+	mainObject.setCustomClipRectIndex((needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex);
+	mainObject.setTransformationType((uint32_t)activeMainObjectTransformationType);
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
 }
@@ -2287,14 +2305,14 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == InvalidStyleIdx)
+	if (outLineStyleIdx == InvalidLineStyleIndex)
 	{
 		// There wasn't enough resource memory remaining to fit a single LineStyle
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != InvalidStyleIdx);
+		assert(outLineStyleIdx != InvalidLineStyleIndex);
 	}
 
 	return outLineStyleIdx;
@@ -2304,25 +2322,26 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 {
 	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
 	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
+	if (outDTMSettingIdx == InvalidDtmSettingsIndex)
 	{
 		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
+		assert(outDTMSettingIdx != InvalidDtmSettingsIndex);
 	}
 	return outDTMSettingIdx;
 }
 
-uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t2x3& projection, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const size_t memRequired = sizeof(float64_t3x3);
+	const size_t memRequired = sizeof(float64_t2x3);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool indexLimitExceeded = resourcesCollection.customProjections.vector.size() >= MaxCustomTransformationsCount;
 
-	if (!enoughMem)
+	if (!enoughMem || indexLimitExceeded)
 	{
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
@@ -2337,8 +2356,9 @@ uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRe
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	const size_t memRequired = sizeof(WorldClipRect);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool indexLimitExceeded = resourcesCollection.customClipRects.vector.size() >= MaxCustomClipRectsCount;
 
-	if (!enoughMem)
+	if (!enoughMem || indexLimitExceeded)
 	{
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
@@ -2395,13 +2415,14 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::POLYLINE_CONNECTOR) | 0 << 16);
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::POLYLINE_CONNECTOR);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(PolylineConnector);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(PolylineConnector)));
 	} 
 
 	currentPolylineConnectorObj += objectsToUpload;
@@ -2451,13 +2472,14 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::LINE);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(LinePointInfo);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(LinePointInfo)));
 	} 
 
 	currentObjectInSection += objectsToUpload;
@@ -2508,16 +2530,18 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(cagesCount);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
 		{
-			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (subObject << 16));
+			assert(subObject < 4); // there can be maximum 4 subsections
+			drawObj.setType(ObjectType::QUAD_BEZIER);
+			drawObj.setSubsectionIdx(subObject);
 			drawObjectsToBeFilled[i * CagesPerQuadBezier + subObject] = drawObj;
 		}
-		drawObj.geometryAddress += sizeof(QuadraticBezierInfo);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(QuadraticBezierInfo)));
 	}
 
 
@@ -2561,13 +2585,14 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIndex;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIndex);
+	drawObj.setType(ObjectType::CURVE_BOX);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		drawObjectsToBeFilled[i] = drawObj;
-		drawObj.geometryAddress += sizeof(Hatch::CurveHatchBox);
+		assert(drawObj.setGeometryAddress(drawObj.getGeometryAddress() + sizeof(Hatch::CurveHatchBox)));
 	}
 
 	// Add Indices
@@ -2603,9 +2628,10 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::FONT_GLYPH);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2640,9 +2666,10 @@ bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, ui
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::GRID_DTM) | (0 << 16));
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::GRID_DTM);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2677,9 +2704,10 @@ bool DrawResourcesFiller::addImageObject_Internal(const ImageObjectInfo& imageOb
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::STATIC_IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::STATIC_IMAGE);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2714,9 +2742,10 @@ bool DrawResourcesFiller::addGeoreferencedImageInfo_Internal(const Georeferenced
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
 	DrawObject drawObj = {};
-	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::STREAMED_IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
-	drawObj.geometryAddress = geometryBufferOffset;
+	drawObj.setMainObjIndex(mainObjIdx);
+	drawObj.setType(ObjectType::STREAMED_IMAGE);
+	drawObj.setSubsectionIdx(0);
+	assert(drawObj.setGeometryAddress(geometryBufferOffset));
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;

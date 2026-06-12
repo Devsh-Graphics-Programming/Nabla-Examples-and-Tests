@@ -11,6 +11,8 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/tgmath.hlsl>
+#include <nbl/builtin/hlsl/utils/bitfield.hlsl>
+#include <nbl/builtin/hlsl/math/linalg/basic.hlsl>
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -28,6 +30,7 @@ using pfloat64_t2 = nbl::hlsl::vector<float64_t, 2>;
 using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
 #endif
 
+using pfloat64_t2x3 = portable_matrix_t2x3<pfloat64_t>;
 using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
 
 struct PushConstants
@@ -144,24 +147,92 @@ enum TransformationType
     TT_FIXED_SCREENSPACE_SIZE
 };
 
+template <typename T, uint32_t Bits>
+struct IndexLimits
+{
+    // The universal invalid marker (all 1s for the given bit width)
+    NBL_CONSTEXPR_STATIC T Invalid = (Bits >= sizeof(T) * 8) 
+                                 ? ~T(0) 
+                                 : (T(1) << Bits) - T(1);
+
+    NBL_CONSTEXPR_STATIC T MaxCount = Invalid;
+};
 
 // Consists of multiple DrawObjects
 // [IDEA]: In GPU-driven rendering, to save mem for MainObject data fetching: many of these can be shared amongst different main objects, we could find these styles, settings, etc indices with upper_bound
 // [TODO]: pack indices and members of mainObject and DrawObject + enforce max size for autosubmit --> but do it only after the mainobject definition is finalized in gpu-driven rendering work
 struct MainObject
 {
-    uint32_t styleIdx;
-    uint32_t dtmSettingsIdx;
-    uint32_t customProjectionIndex;
-    uint32_t customClipRectIndex;
-    uint32_t transformationType; // todo pack later, it's just 2 possible values atm
+    uint32_t packedData;
+    uint32_t customTransformationIndex; // needs at least 24 bits
+
+    using LineStyleIdxOrDtmSettingsIdxField = utils::BitField<uint32_t, 0, 16>; // 65,536 distinct lineStyles or dtmSettings is more than enough for an n4ce frame, but make sure auto submit in drawresources filler plays nice and doesn't exceed this value
+    using CustomClipRectIndexField = utils::BitField<uint32_t, 16, 14>; // these are associated with the number of clipping rects or dwgs one could have in a frame. from experience they'll always be less than 10, 32,768 is more than enough
+    using TransformationTypeField = utils::BitField<uint32_t, 30, 1>; // todo pack later, it's just 2 possible values atm
+    using ResolveColorFromLineStyle = utils::BitField<uint32_t, 31, 1>; // this bit indicates if MainObject uses a line style
+
+    uint32_t getLineStyleIndex() { return LineStyleIdxOrDtmSettingsIdxField::get(packedData); }
+    void setLineStyleIndex(uint32_t styleIdx) { packedData = LineStyleIdxOrDtmSettingsIdxField::set(packedData, styleIdx); }
+
+    uint32_t getDtmSettingsIndex() { return LineStyleIdxOrDtmSettingsIdxField::get(packedData); }
+    void setDtmSettingsIndex(uint32_t dtmSettingsIdx) { packedData = LineStyleIdxOrDtmSettingsIdxField::set(packedData, dtmSettingsIdx); }
+
+    uint32_t getCustomClipRectIndex() { return CustomClipRectIndexField::get(packedData); }
+    void setCustomClipRectIndex(uint32_t customClipRectIndexField) { packedData = CustomClipRectIndexField::set(packedData, customClipRectIndexField); }
+
+    uint32_t getTransformationType() { return TransformationTypeField::get(packedData); }
+    void setTransformationType(uint32_t transformationTypeField) { packedData = TransformationTypeField::set(packedData, transformationTypeField); }
+
+    uint32_t getCustomTransformationIndex() { return customTransformationIndex; }
+    void setCustomTransformationIndex(uint32_t transformationIndex) { customTransformationIndex = transformationIndex; }
+
+    // when this function returns true then it can be assumed that `getLineStyleIndex()` will return a valid index to a line style data
+    bool colorFromLineStyle() { return (bool)ResolveColorFromLineStyle::get(packedData); }
+    void setColorFromLineStyleFlag(bool resolveColorFromLineStyle) { packedData = ResolveColorFromLineStyle::set(packedData, (uint32_t)resolveColorFromLineStyle); }
 };
 
 struct DrawObject
 {
-    uint32_t type_subsectionIdx; // packed two uint16 into uint32
-    uint32_t mainObjIndex;
-    uint64_t geometryAddress;
+    uint32_t packedData;
+    uint32_t geometryAddressDividedByAlignment; // geometry has 8 byte alignment, max 32GB of data to reference
+
+    using TypeField       = utils::BitField<uint32_t,  0,  4>; // 16 different object types
+    using SubsectionField = utils::BitField<uint32_t,  4,  2>; // 4 max subsections
+    using MainObjField    = utils::BitField<uint32_t,  6, 26>; // 67M main objects max
+
+    ObjectType getType() { return (ObjectType)TypeField::get(packedData); }
+    void setType(ObjectType objType) { packedData = TypeField::set(packedData, (uint32_t)objType); }
+
+    uint32_t getSubsectionIdx() { return SubsectionField::get(packedData); }
+    void setSubsectionIdx(uint32_t subsectionIdx) { packedData = SubsectionField::set(packedData, subsectionIdx); }
+
+    uint32_t getMainObjIndex() { return MainObjField::get(packedData); }
+    void setMainObjIndex(uint32_t mainObjIdx) { packedData = MainObjField::set(packedData, mainObjIdx); }
+
+    uint64_t getGeometryAddress() { return geometryAddressDividedByAlignment << 3; } // multiplies `geometryAddressDividedByAlignment` by 8 by shifting to the left by log2(8)
+    bool setGeometryAddress(uint64_t geometryAddress)
+    {
+        const bool isEightByteAligned = !(geometryAddress & 0x7ull);
+        if (!isEightByteAligned)
+            return false;
+
+        geometryAddressDividedByAlignment = geometryAddress >> 3; // divides `geometryAddressDividedByAlignment` by 8 by shifting to the right by log2(8)
+        return true;
+    }
+};
+
+struct PseudoStencil
+{
+    uint32_t packedData;
+
+    using AlphaField               = utils::BitField<uint32_t,  0,  8>;
+    using MainObjectIdxField       = utils::BitField<uint32_t,  8,  24>;
+
+    uint32_t getMainObjectIdx() { return MainObjectIdxField::get(packedData); }
+    void setMainObjectIdx(uint32_t mainObjectIdx) { packedData = MainObjectIdxField::set(packedData, mainObjectIdx); }
+
+    uint32_t getAlpha() { return AlphaField::get(packedData); }
+    void setAlpha(uint32_t alpha) { packedData = AlphaField::set(packedData, alpha); }
 };
 
 // Goes into geometry buffer, needs to be aligned by 8
@@ -547,15 +618,22 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 #endif
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t AlphaBits = 32u - MainObjectIdxBits;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidPseudoStencilValue = InvalidMainObjectIdx << PseudoStencil::AlphaField::BitCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectMinBitCount = PseudoStencil::MainObjectIdxField::BitCount; // using the bit count in pseudo stencil instead of DrawObj bitfield, because it's the lowest bitcount reference to mainObject and more limiting
+using MainObjectIndexLimits = IndexLimits<uint32_t, MainObjectMinBitCount>;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxMainObjectCount = MainObjectIndexLimits::MaxCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MainObjectIndexLimits::Invalid;
+
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidLineStyleIndex = IndexLimits<uint32_t, MainObject::LineStyleIdxOrDtmSettingsIdxField::BitCount>::Invalid;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDtmSettingsIndex = InvalidLineStyleIndex;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomClipRectIndex = IndexLimits<uint32_t, MainObject::CustomClipRectIndexField::BitCount>::Invalid;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidCustomTransformationIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxLineStylesCount = IndexLimits<uint32_t, MainObject::LineStyleIdxOrDtmSettingsIdxField::BitCount>::MaxCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxDtmSettingsCount = MaxLineStylesCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxCustomClipRectsCount = IndexLimits<uint32_t, MainObject::CustomClipRectIndexField::BitCount>::MaxCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxCustomTransformationsCount = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
@@ -604,9 +682,10 @@ DTMSettings loadDTMSettings(const uint32_t index)
 {
     return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 4u);
 }
-pfloat64_t3x3 loadCustomProjection(const uint32_t index)
+// TODO: could we actually have the type be "affineTransformation" and avoid using general float64_t2x3? this would help with readability and compile time type checks, making sure the inputs are affine transformations
+pfloat64_t2x3 loadCustomProjection(const uint32_t index)
 {
-    return vk::RawBufferLoad<pfloat64_t3x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t3x3), 8u);
+    return vk::RawBufferLoad<pfloat64_t2x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t2x3), 8u);
 }
 WorldClipRect loadCustomClipRect(const uint32_t index)
 {
@@ -618,7 +697,7 @@ MainObject loadMainObject(const uint32_t index)
 }
 DrawObject loadDrawObject(const uint32_t index)
 {
-    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
+    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 4u);
 }
 #else
 static_assert(alignof(LineStyle)==4u);
@@ -626,7 +705,7 @@ static_assert(alignof(DTMSettings)==4u);
 static_assert(alignof(pfloat64_t3x3)==8u);
 static_assert(alignof(WorldClipRect)==8u);
 static_assert(alignof(MainObject)==4u);
-static_assert(alignof(DrawObject)==8u);
+static_assert(alignof(DrawObject)==4u);
 #endif
 
 

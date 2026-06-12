@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_10;
 
 class Camera2D
 {
@@ -749,9 +749,8 @@ public:
 
 				tmpCmdBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeClearImageBarrier });
 
-				uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
 				IGPUCommandBuffer::SClearColorValue clear = {};
-				clear.uint32[0] = pseudoStencilInvalidValue;
+				clear.uint32[0] = InvalidPseudoStencilValue;
 
 				asset::IImage::SSubresourceRange subresourceRange = {};
 				subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -3290,10 +3289,9 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_6)
 		{
-			float64_t3x3 customProjection = float64_t3x3{
+			float64_t2x3 customProjection = float64_t2x3{
 				1.0, 0.0, cos(m_timeElapsed * 0.0005) * 100.0,
-				0.0, 1.0, 0.0,
-				0.0, 0.0, 1.0
+				0.0, 1.0, 0.0
 			};
 
 			/// [NOTE]: We set minClip and maxClip (in default worldspace) in such a way that minClip.y > maxClip.y so that minClipNDC.y < maxClipNDC.y
@@ -3752,7 +3750,7 @@ protected:
 			
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+			style.color = float32_t4(0.2f, 0.2f, 0.2f, 0.5f);
 
 			for (uint32_t i = 0; i < 128u; ++i)
 			{
@@ -3809,7 +3807,7 @@ protected:
 					0.0, 0.0, 1.0
 				};
 
-				float64_t2 scale = float64_t2{ 100.0, 100.0 };
+				float64_t2 scale = float64_t2{ 10.0, 10.0 };
 				float64_t3x3 scaleMat =
 				{
 					scale.x, 0.0, 0.0,
@@ -3821,8 +3819,34 @@ protected:
 				polyline.addLinePoints(line0);
 				polyline.addLinePoints(line1);
 				polyline.preprocessPolylineWithStyle(style);
-				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
-				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				//drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
+				//drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+
+				constexpr int MarkerCount = 1000000;
+				for (int i = 0; i < MarkerCount; ++i)
+				{
+					translateMat =
+					{
+						1.0, 0.0, static_cast<float64_t>(i) / static_cast<float64_t>(MarkerCount*0.2),
+						0.0, 1.0, 0.0,
+						0.0, 0.0, 1.0
+					};
+
+					const float64_t rotationAngle = (core::radians(360.0) / static_cast<float64_t>(MarkerCount)) * static_cast<float64_t>(i) * 10.0;
+					dir = float64_t2{ std::cos(rotationAngle), std::sin(rotationAngle) };
+					rotateMat =
+					{
+						dir.x, -dir.y, 0.0,
+						dir.y, dir.x,  0.0,
+						0.0, 0.0, 1.0
+					};
+
+					transformation = nbl::hlsl::mul(rotateMat, translateMat);
+					
+					transformation = nbl::hlsl::mul(rotateMat, nbl::hlsl::mul(translateMat, scaleMat));
+
+					drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, float64_t2x3(transformation[0], transformation[1]), TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				}
 			}
 		}
 		else if (mode == ExampleMode::CASE_11)
