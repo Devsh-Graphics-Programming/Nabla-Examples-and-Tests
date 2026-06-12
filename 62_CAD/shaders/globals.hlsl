@@ -194,7 +194,7 @@ struct MainObject
 struct DrawObject
 {
     uint32_t packedData;
-    uint32_t geometryAddressDividedByAlignment; // geometry has 8 byte alignment, max 34GB of data to reference
+    uint32_t geometryAddressDividedByAlignment; // geometry has 8 byte alignment, max 32GB of data to reference
 
     using TypeField       = utils::BitField<uint32_t,  0,  4>; // 16 different object types
     using SubsectionField = utils::BitField<uint32_t,  4,  2>; // 4 max subsections
@@ -618,12 +618,12 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 #endif
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxMainObjectCount = IndexLimits<uint32_t, PseudoStencil::MainObjectIdxField::BitCount>::MaxCount;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = IndexLimits<uint32_t, PseudoStencil::MainObjectIdxField::BitCount>::Invalid;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidPseudoStencilValue = InvalidMainObjectIdx << PseudoStencil::AlphaField::BitCount;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectMinBitCount = PseudoStencil::MainObjectIdxField::BitCount; // using the bit count in pseudo stencil instead of DrawObj bitfield, because it's the lowest bitcount reference to mainObject and more limiting
 using MainObjectIndexLimits = IndexLimits<uint32_t, MainObjectMinBitCount>;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxMainObjectCount = MainObjectIndexLimits::MaxCount;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MainObjectIndexLimits::Invalid;
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidLineStyleIndex = IndexLimits<uint32_t, MainObject::LineStyleIdxOrDtmSettingsIdxField::BitCount>::Invalid;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDtmSettingsIndex = InvalidLineStyleIndex;
