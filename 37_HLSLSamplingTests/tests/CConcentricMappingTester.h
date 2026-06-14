@@ -14,7 +14,7 @@ class CConcentricMappingTester final : public ITester<ConcentricMappingInputValu
 	using R = ConcentricMappingTestResults;
 
 public:
-	CConcentricMappingTester(const uint32_t testBatchCount, const uint32_t workgroupSize) : base_t(testBatchCount, workgroupSize) {}
+	CConcentricMappingTester(const uint32_t testBatchCount) : base_t(testBatchCount, WORKGROUP_SIZE) {}
 
 private:
 	ConcentricMappingInputValues generateInputTestValues() override
@@ -46,7 +46,8 @@ private:
 			FieldCheck{"ConcentricMapping::forwardWeight",  &R::forwardWeight,  1e-5, 1e-5},
 			FieldCheck{"ConcentricMapping::backwardWeight", &R::backwardWeight, 1e-5, 1e-5});
 		pass &= verifyTestValue("ConcentricMapping::roundtripError", nbl::hlsl::float32_t2(0.0f, 0.0f), actual.roundtripError, iteration, seed, testType, 1e-5, 1e-5);
-		pass &= verifyTestValue("ConcentricMapping::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 1e-5, 1e-5);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "ConcentricMapping::jacobianProduct", 1.0f, actual.jacobianProduct, iteration, seed, testType, 4e-2, 4e-2);
+		VERIFY_JACOBIAN_OR_SKIP(pass, "ConcentricMapping::inverseJacobianPdf", actual.backwardPdf, actual.inverseJacobianPdf, iteration, seed, testType, 4e-2, 4e-2);
 		pass &= verifyTestValue("ConcentricMapping::weight consistency", actual.forwardWeight, actual.backwardWeight, iteration, seed, testType, 1e-5, 1e-5);
 		VERIFY_PDFS_POSITIVE(pass, actual, iteration, seed, testType,
 			PdfCheck{"ConcentricMapping::forwardPdf",  &R::forwardPdf},

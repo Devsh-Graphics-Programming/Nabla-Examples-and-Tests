@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/box_muller_transform.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -21,6 +22,7 @@ struct BoxMullerTransformTestResults
 	float32_t forwardWeight;
 	float32_t backwardWeight;
 	float32_t2 separateBackwardPdf;
+	float32_t jacobianProduct;
 };
 
 struct BoxMullerTransformTestExecutor
@@ -40,6 +42,7 @@ struct BoxMullerTransformTestExecutor
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 		output.backwardWeight = sampler.backwardWeight(output.generated);
 		output.separateBackwardPdf = sampler.separateBackwardPdf(output.generated);
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 10.0f);
 	}
 };
 
