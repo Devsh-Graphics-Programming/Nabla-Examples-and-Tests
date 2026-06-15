@@ -605,7 +605,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								creationParams.viewFormats.set(outImageFormat,true);
 								creationParams.viewFormats.set(outImageViewFormat,true);
 								outImage = device->createImage(std::move(creationParams));
-								if (!outImage || !device->allocate(outImage->getMemoryReqs(),outImage.get()).isValid())
+								if (!outImage || !device->allocate(outImage->getMemoryReqs(), { outImage.get() }).isValid())
 								{
 									logger->log("Failed to create output GPU image!",ILogger::ELL_ERROR);
 									return false;
@@ -630,7 +630,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								creationParams.viewFormats.reset();
 								creationParams.viewFormats.set(format,true);
 								auto image = device->createImage(std::move(creationParams));
-								if (!image || !device->allocate(image->getMemoryReqs(), image.get()).isValid())
+								if (!image || !device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 								{
 									logger->log("Failed to create intermediate alpha GPU image!",ILogger::ELL_ERROR);
 									return false;
@@ -671,7 +671,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							creationParams.usage = IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_TRANSFER_DST_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 							creationParams.size = normalizationScratchSize+lutSize;
 							scratchAndScaledKernelPhasedLUT = device->createBuffer(std::move(creationParams));
-							if (!device->allocate(scratchAndScaledKernelPhasedLUT->getMemoryReqs(),scratchAndScaledKernelPhasedLUT.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT).isValid())
+							if (!device->allocate(scratchAndScaledKernelPhasedLUT->getMemoryReqs(), { scratchAndScaledKernelPhasedLUT.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT }).isValid())
 							{
 								logger->log("Failed to create the Phase LUT and coverage buffer!",ILogger::ELL_ERROR);
 								return false;
@@ -956,7 +956,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 
 							auto memReqs = downloadBuffer->getMemoryReqs();
 							memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDownStreamingMemoryTypeBits();
-							m_parentApp->m_device->allocate(memReqs, downloadBuffer.get());
+							m_parentApp->m_device->allocate(memReqs, { downloadBuffer.get() });
 
 							core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
 							m_parentApp->m_device->createCommandBuffers(m_parentApp->commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);

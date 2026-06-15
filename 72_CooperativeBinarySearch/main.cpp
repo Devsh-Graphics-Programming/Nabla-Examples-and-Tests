@@ -129,7 +129,7 @@ public:
             auto reqs = m_buffers[i]->getMemoryReqs();
             reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
 
-            m_allocations[i] = m_device->allocate(reqs, m_buffers[i].get());
+            m_allocations[i] = m_device->allocate(reqs, { m_buffers[i].get() });
             
             auto allocationType = i == 0 ? IDeviceMemoryAllocation::EMCAF_WRITE : IDeviceMemoryAllocation::EMCAF_READ;
             auto mapResult = m_allocations[i].memory->map({ 0ull,m_allocations[i].memory->getAllocationSize() }, allocationType);

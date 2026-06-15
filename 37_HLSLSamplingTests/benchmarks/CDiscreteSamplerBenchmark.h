@@ -86,7 +86,7 @@ class CDiscreteSamplerBenchmark
 
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buf->getMemoryReqs();
          reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-         auto alloc = m_device->allocate(reqs, buf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+         auto alloc = m_device->allocate(reqs, { buf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 
          const auto allocSize = alloc.memory->getAllocationSize();
          if (alloc.memory->map({0ull, allocSize}, video::IDeviceMemoryAllocation::EMCAF_WRITE))
@@ -119,7 +119,7 @@ class CDiscreteSamplerBenchmark
          m_outputBuf = m_device->createBuffer(std::move(bp));
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputBuf->getMemoryReqs();
          reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-         m_device->allocate(reqs, m_outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+         m_device->allocate(reqs, { m_outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
       }
 
       // Create pipelines (push constants only, no descriptor sets)

@@ -186,7 +186,7 @@ bool DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		auto image = logicalDevice->createImage(std::move(imgInfo));
 		auto imageMemReqs = image->getMemoryReqs();
 		imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-		const auto allocation = logicalDevice->allocate(imageMemReqs, image.get());
+		const auto allocation = logicalDevice->allocate(imageMemReqs, { image.get() });
 
 		if (!allocation.isValid())
 			return false;

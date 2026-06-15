@@ -119,7 +119,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT
 				}
 			});
-			if (!outHDRImage || !m_device->allocate(outHDRImage->getMemoryReqs(), outHDRImage.get()).isValid())
+			if (!outHDRImage || !m_device->allocate(outHDRImage->getMemoryReqs(), { outHDRImage.get() }).isValid())
 				return logFail("Could not create HDR Image");
 
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
@@ -801,7 +801,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 #ifndef TEST_REBAR_FALLBACK
 					reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
 #endif
-					auto allocation = m_device->allocate(reqs,scratchBuffer.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+					auto allocation = m_device->allocate(reqs, { scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 #ifndef TEST_REBAR_FALLBACK
 					allocation.memory->map({.offset=0,.length=reqs.size});
 #endif

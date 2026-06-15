@@ -355,7 +355,7 @@ private:
                     nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
                     reqs.memoryTypeBits &= base.m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-                    m_allocation = base.m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                    m_allocation = base.m_device->allocate(reqs, { outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
                     if (!m_allocation.isValid())
                         base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
@@ -1025,7 +1025,7 @@ private:
 
                     nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = dummyBuff->getMemoryReqs();
 
-                    m_allocation = base.m_device->allocate(reqs, dummyBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                    m_allocation = base.m_device->allocate(reqs, { dummyBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
                     if (!m_allocation.isValid())
                         base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
