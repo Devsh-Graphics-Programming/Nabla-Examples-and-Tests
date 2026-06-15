@@ -29,8 +29,8 @@ using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
 
-static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 20u);
+static_assert(sizeof(DrawObject) == 8u);
+static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(LineStyle) == 88u);
 
 // ! DrawResourcesFiller
@@ -109,7 +109,7 @@ public:
 		// auto-submission level 0 resources (settings that mainObj references)
 		CPUGeneratedResource<LineStyle> lineStyles;
 		CPUGeneratedResource<DTMSettings> dtmSettings;
-		CPUGeneratedResource<float64_t3x3> customProjections;
+		CPUGeneratedResource<float64_t2x3> customProjections;
 		CPUGeneratedResource<WorldClipRect> customClipRects;
 	
 		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
@@ -229,7 +229,7 @@ public:
 
 	//! Draws a fixed-geometry polyline using a custom transformation.
 	//! TODO: Change `polyline` input to an ID referencing a possibly cached instance in our buffers, allowing reuse and avoiding redundant uploads.
-	void drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t2x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Use this in a begin/endMainObject scope when you want to draw different polylines that should essentially be a single main object (no self-blending between components of a single main object)
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
@@ -267,7 +267,7 @@ public:
 		const float32_t4& foregroundColor,
 		const float32_t4& backgroundColor,
 		const HatchFillPattern fillPattern,
-		const float64_t3x3& transformation,
+		const float64_t2x3& transformation,
 		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -276,7 +276,7 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		const HatchFillPattern fillPattern,
-		const float64_t3x3& transformation,
+		const float64_t2x3& transformation,
 		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -284,7 +284,7 @@ public:
 	void drawFixedGeometryHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		const float64_t3x3& transformation,
+		const float64_t2x3& transformation,
 		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
@@ -490,13 +490,13 @@ public:
 	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::TT_NORMAL);
 	void endMainObject();
 
-	void pushCustomProjection(const float64_t3x3& projection);
+	void pushCustomProjection(const float64_t2x3& projection);
 	void popCustomProjection();
 	
 	void pushCustomClipRect(const WorldClipRect& clipRect);
 	void popCustomClipRect();
 
-	const std::deque<float64_t3x3>& getCustomProjectionStack() const { return activeProjections; }
+	const std::deque<float64_t2x3>& getCustomProjectionStack() const { return activeProjections; }
 	const std::deque<WorldClipRect>& getCustomClipRectsStack() const { return activeClipRects; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
@@ -719,7 +719,7 @@ protected:
 	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Attempts to add custom projection to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
-	uint32_t addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addCustomProjection_SubmitIfNeeded(const float64_t2x3& projection, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Attempts to add custom clip to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
 	uint32_t addCustomClipRect_SubmitIfNeeded(const WorldClipRect& clipRect, SIntendedSubmitInfo& intendedNextSubmit);
@@ -748,7 +748,7 @@ protected:
 	 * @param transformationType The type of transformation to apply (e.g., TT_NORMAL or TT_FIXED_SCREENSPACE_SIZE).
 	 *
 	 */
-	float64_t3x3 getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const;
+	float64_t2x3 getFixedGeometryFinalTransformationMatrix(const float64_t2x3& transformation, TransformationType transformationType) const;
 
 	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
@@ -859,7 +859,7 @@ protected:
 		
 		// Invalidate all the clip projection addresses because activeProjections buffer got reset
 		for (auto& addr : activeProjectionIndices)
-			addr = InvalidCustomProjectionIndex;
+			addr = InvalidCustomTransformationIndex;
 	}
 
 	void resetCustomClipRects()
@@ -874,13 +874,13 @@ protected:
 	void resetLineStyles()
 	{
 		resourcesCollection.lineStyles.vector.clear();
-		activeLineStyleIndex = InvalidStyleIdx;
+		activeLineStyleIndex = InvalidLineStyleIndex;
 	}
 
 	void resetDTMSettings()
 	{
 		resourcesCollection.dtmSettings.vector.clear();
-		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+		activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 	}
 	
 	// MSDF Hashing and Caching Internal Functions 
@@ -991,10 +991,10 @@ protected:
 
 	// Active Resources we need to keep track of and push to resources buffer if needed.
 	LineStyleInfo activeLineStyle;
-	uint32_t activeLineStyleIndex = InvalidStyleIdx;
+	uint32_t activeLineStyleIndex = InvalidLineStyleIndex;
 
 	DTMSettingsInfo activeDTMSettings;
-	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	uint32_t activeDTMSettingsIndex = InvalidDtmSettingsIndex;
 
 	MainObjectType activeMainObjectType;
 	TransformationType activeMainObjectTransformationType;
@@ -1002,7 +1002,7 @@ protected:
 	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 
 	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
-	std::deque<float64_t3x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
+	std::deque<float64_t2x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint32_t> activeProjectionIndices; // stack of projection gpu addresses in geometry buffer. to keep track of them in push/pops
 	
 	std::deque<WorldClipRect> activeClipRects; // stack of clips stored so we can resubmit them if geometry buffer got reset.

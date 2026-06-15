@@ -303,6 +303,7 @@ void raygen()
 
                 // TODO: possible SER point based on NEE status, and material flags
 
+                // TODO: do after the emissive part
                 // TODO: get AoVs from material and emission
                 SAOVThroughputs nextThroughput;
                 nextThroughput.clear(0.f);
