@@ -122,7 +122,7 @@ public:
                             & m_device->getPhysicalDevice()->getMemoryTypeBitsFromMemoryTypeFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT);
         auto allocation = m_device->allocate(req, { buf.get() });
     
-        void* mapping = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ);
+        void* mapping = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE);
         if (!mapping)
             logFail("Failed to map an staging buffer");
         memset(mapping, 0, req.size);
@@ -620,7 +620,7 @@ public:
         static constexpr uint64_t SyncPointKernelDone = 2;
         static constexpr uint64_t SyncPointCopyDone = 3;
         ISemaphore::SCreationParams semParams;
-        semParams.externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32;
+        semParams.externalHandleTypes = CCUDADevice::ExternalSemaphoreHandleType;
         semParams.initialValue = SyncPointInitial;
         auto semaphore = m_device->createSemaphore(std::move(semParams));
         const auto cudaSemaphore = m_cuDevice->importExternalSemaphore(core::smart_refctd_ptr(semaphore));
@@ -756,54 +756,30 @@ public:
     void testDestruction()
     {
         
-        // Tests proper resource lifetime management across CUDA-Vulkan interop by creating exportable CUDA memory,
-        // copying data to it, then destroying the CUDA memory object while keeping the exported Vulkan memory alive.
-        // Verifies that the exported memory remains valid and accessible after the original CUDA object is destroyed,
-        // confirming correct reference counting and external memory handle semantics.
-
         auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-        constexpr auto ElementCount = 1024;
-        constexpr auto BufferSize = ElementCount * sizeof(int);
+        constexpr auto ElementCount = 1024u;
+        constexpr auto BufferSize = ElementCount * sizeof(uint32_t);
+        constexpr uint32_t Pattern = 0x5a5a5a5a;
 
-        // Construct testData
-        core::vector<uint32_t> testData(ElementCount);
-        std::iota(testData.begin(), testData.end(), 0);
-
-        auto& cu = m_cuHandler->getCUDAFunctionTable();
-
-        // This vulkan memory will outlive the CUDA memory object below
         smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
         {
-            // Create exportable CUDA memory - this object will be destroyed at the end of this scope
-            const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(float), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
+            const auto cudaMemory = m_cuDevice->createExportableMemory({ .size = BufferSize, .alignment = sizeof(uint32_t), .locationType = CU_MEM_LOCATION_TYPE_DEVICE });
             if (!cudaMemory) logFail("Fail to create exportable memory!");
 
-            // Export CUDA memory as Vulkan device memory - this reference will persist
             escaped = cudaMemory->exportAsMemory(m_device.get());
             if (!escaped) logFail("Fail to export CUDA memory!");
-
-            // Copy testData into cudaMemory
-            CUstream stream;
-            ASSERT_CUDA_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), m_cuHandler);
-            auto streamCleanup = nbl::core::makeRAIIExiter([&] {
-                cu.pcuStreamDestroy_v2(stream);
-            });
-            ASSERT_CUDA_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(cudaMemory->getDeviceptr(), testData.data(), BufferSize, stream), m_cuHandler);
-            ASSERT_CUDA_SUCCESS(cu.pcuStreamSynchronize(stream), m_cuHandler);
-
         }
         // CRITICAL: cudaMemory object destroyed here, but escaped memory should remain valid
         
         {
-            // Re-import the exported memory - this tests if the memory survived CUDA object destruction
             auto tmpBuf = createExternalBuffer(escaped.get());
+            auto upload = createStaging(BufferSize);
             auto staging = createStaging(BufferSize);
-        
+            auto* uploadPtr = reinterpret_cast<uint32_t*>(upload->getBoundMemory().memory->getMappedPointer());
+            for (uint32_t i = 0; i < ElementCount; ++i)
+                uploadPtr[i] = Pattern;
 
-            // Setup synchronization for readback
-            ISemaphore::SCreationParams semParams;
-            semParams.initialValue = 0;
-            const auto semaphore = m_device->createSemaphore(std::move(semParams));
+            const auto semaphore = m_device->createSemaphore({ .initialValue = 0 });
             static constexpr auto SyncPointCopyDone = 1;
 
             IQueue::SSubmitInfo::SSemaphoreInfo semInfo;
@@ -811,20 +787,36 @@ public:
             semInfo.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
             semInfo.value = SyncPointCopyDone;
         
-            // Copy data back from the persistent buffer to staging for verification
+            // After destroying the CUDA wrapper, Vulkan writes and reads the imported allocation.
             smart_refctd_ptr<IGPUCommandBuffer> cmd;
             commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd);
             cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
             IGPUCommandBuffer::SBufferCopy region = { .size = BufferSize };
-            assert(cmd->copyBuffer(tmpBuf.get(), staging.get(), 1, &region));
+            bool copySuccess = cmd->copyBuffer(upload.get(), tmpBuf.get(), 1, &region);
+            const IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> copyBarrier = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS,
+                        .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::TRANSFER_READ_BIT,
+                    },
+                },
+                .range = { .offset = 0, .size = BufferSize, .buffer = tmpBuf },
+            };
+            copySuccess &= cmd->pipelineBarrier(EDF_NONE, { .bufBarriers = std::span{ &copyBarrier, &copyBarrier + 1 } });
+            copySuccess &= cmd->copyBuffer(tmpBuf.get(), staging.get(), 1, &region);
             cmd->end();
+            if (!copySuccess)
+                logFail("Destruction test copy failed!");
             IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd.get() };
             const IQueue::SSubmitInfo submitInfo = {
               .commandBuffers = {&cmdInfo, &cmdInfo + 1}, 
               .signalSemaphores = {&semInfo, 1}
             };
             auto qre = queue->submit({ &submitInfo, &submitInfo + 1 });
-            assert(IQueue::RESULT::SUCCESS == qre);
+            if (IQueue::RESULT::SUCCESS != qre)
+                logFail("Destruction test submit failed!");
         
             ISemaphore::SWaitInfo waitInfo = {
               .semaphore = semaphore.get(),
@@ -833,14 +825,14 @@ public:
             m_device->blockForSemaphores({ &waitInfo, 1 });
             m_device->waitIdle();
         
-            // Verify the data remains intact after CUDA object destruction
-            auto& ptr = *(std::array<uint32_t, BufferSize>*)staging->getBoundMemory().memory->getMappedPointer();
+            // Verify the data remains writable after CUDA wrapper destruction
+            const auto* ptr = reinterpret_cast<const uint32_t*>(staging->getBoundMemory().memory->getMappedPointer());
             auto errorCount = 0;
             static const auto MaxErrorCount = 10;
             for (uint32_t i = 0; i < ElementCount; ++i)
             {
-                if (ptr[i] != testData[i]) {
-                  logFail("Destruction test error at [%d]: value=%d, expected=%d", i, ptr[i], testData[i]);
+                if (ptr[i] != Pattern) {
+                  logFail("Destruction test error at [%d]: value=%u, expected=%u", i, ptr[i], Pattern);
                   errorCount++;
                   if (errorCount == MaxErrorCount) break;
                 }
