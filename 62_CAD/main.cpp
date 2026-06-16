@@ -1,4 +1,4 @@
-﻿// TODO: Copyright notice
+// TODO: Copyright notice
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
@@ -587,7 +587,7 @@ public:
 
 			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = m_globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
+			auto globalsBufferMem = m_device->allocate(memReq, { m_globalsBuffer.get() });
 		}
 		
 		// pseudoStencil
@@ -611,7 +611,7 @@ public:
 				auto image = m_device->createImage(std::move(imgInfo));
 				auto imageMemReqs = image->getMemoryReqs();
 				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				m_device->allocate(imageMemReqs, image.get());
+				m_device->allocate(imageMemReqs, { image.get() });
 
 				image->setObjectDebugName("pseudoStencil Image");
 
@@ -651,7 +651,7 @@ public:
 				auto image = m_device->createImage(std::move(imgInfo));
 				auto imageMemReqs = image->getMemoryReqs();
 				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				m_device->allocate(imageMemReqs, image.get());
+				m_device->allocate(imageMemReqs, { image.get() });
 
 				image->setObjectDebugName("colorStorage Image");
 

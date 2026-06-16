@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025-2026 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2025-2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "renderer/CRenderer.h"
@@ -553,7 +553,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				auto retval = device->allocate(info);
 				// map what is mappable by default so ReBAR checks succeed
 				if (retval.isValid() && retval.memory->isMappable())
-					retval.memory->map({.offset=0,.length=info.size});
+					retval.memory->map({.offset=0,.length=info.allocationSize});
 				return retval;
 			}
 
@@ -609,7 +609,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
 				auto reqs = scratchBuffer->getMemoryReqs();
 				reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
 
-				auto allocation = device->allocate(reqs,scratchBuffer.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+				auto allocation = device->allocate(reqs, { scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 				allocation.memory->map({.offset=0,.length=reqs.size});
 
 				scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(

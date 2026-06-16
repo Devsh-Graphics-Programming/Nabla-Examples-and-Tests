@@ -512,7 +512,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					.arrayLayers = 1,
 					.usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT|IGPUImage::EUF_SAMPLED_BIT
 				}});
-				if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
+				if (!m_device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 					return nullptr;
 				IGPUImageView::SCreationParams params = {
 					.image = std::move(image),

@@ -267,7 +267,7 @@ public:
 			mreq.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 			assert(mreq.memoryTypeBits);
 
-			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			auto bufferMem = m_device->allocate(mreq, { outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 			assert(bufferMem.isValid());
 		}
 		for (auto i = 0u; i < OutputBufferCount; i++)
