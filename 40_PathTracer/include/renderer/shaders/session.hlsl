@@ -15,6 +15,23 @@ NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t PrimaryRayRandTripletsUsed = 2;
 // [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t RandDimTriplesPerDepth = 3;
 
+// ReSTIR relevant buffers
+enum class SensorUBOBufferAddresses : uint16_t
+{
+	SUA_ReconnectionDataBuf = 0u,
+
+    SUA_InitialReservoirsBuf,	// initial reservoir generated from current frame samples
+	SUA_PreviousReservoirsBuf,	// combined reservoirs from previous frame
+    SUA_CurrentReservoirsBuf,	// combined reservoirs from current frame
+
+    SUA_CellStorageBuf,		// offset index of cells in hash grid
+    SUA_IndexBuf,				// index of reservoirs in each cell
+    SUA_CheckSumBuf,			// secondary hash key for each cell
+    SUA_CellCountersBuf,		// count of reservoirs in each cell
+
+	SUA_Count
+};
+
 struct SSensorUniforms
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ScrambleKeyTextureSize = 512;
@@ -28,6 +45,8 @@ struct SSensorUniforms
 	uint16_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
 	uint16_t unused0 : 12; //BOOST_PP_SUB(15, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
 	uint16_t hideEnvironment : 1;
+
+	uint64_t pStorageBuffers[SSensorUBOBufferAddresses::Count];
 };
 
 struct SensorDSBindings

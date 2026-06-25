@@ -532,6 +532,75 @@ SEnvSample sampleEnv(const float32_t3 raydir)
     return retval;
 }
 
+// ReSTIR stuff
+struct SInitialSample
+{
+    float32_t3 preRcVertexPos;
+    float32_t3 preRcVertexNorm;
+    float32_t3 rcVertexPos;
+    float32_t3 rcVertexNorm;
+    float32_t3 rcVertexLo;
+    float32_t pdf;
+};
+
+// TODO: the paper claims that reservoir data is packed accordingly -- maybe try at some point?
+// radiance: half-precision float
+// position + normal: compressed into single float4
+// sample count + age: compressed in 4 byte uint
+struct SReservoir
+{
+    float32_t3 vPosition;
+    float32_t3 vNormal;
+    float32_t3 sPosition;
+    float32_t3 sNormal;
+    float32_t3 radiance;
+
+    uint16_t M;
+    float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
+    uint16_t age;   // sample age, discard if > maxSampleAge
+
+    static SReservoir create(SInitialSample s)
+    {
+        Reservoir retval;
+
+        retval.vPosition = s.preRcVertexPos;
+        retval.vNormal = s.preRcVertexNorm;
+        retval.sPosition = s.rcVertexPos;
+        retval.sNormal = s.rcVertexNorm;
+        retval.radiance = s.rcVertexLo;
+
+        retval.weightF = hlsl::mix(float32_t(0.0), float32_t(1.0) / s.pdf, s.pdf > float32_t(0.0));
+        retval.M = uint16_t(1u);
+        retval.age = uint16_t(0u);
+
+        return retval;
+    }
+
+    bool merge(NBL_CONST_REF_ARG(SReservoir) other, float32_t rand, float32_t pdf, NBL_REF_ARG(float32_t) weightS)
+    {
+        float32_t weight = other.M * hlsl::max(float32_t(0.0), other.weightF) * pdf;
+
+        weightS += weight;
+        M += other.M;
+    
+        bool isUpdate = rand * weightS <= weight;
+        if (isUpdate)
+        {
+            sPosition = other.sPosition;
+            sNormal = other.sNormal;
+            radiance = other.radiance;
+            age = other.age;
+        }
+        return isUpdate;
+    }
+
+    void updateFinalWeight(float32_t targetPdf, float32_t weightS)
+    {
+        float32_t weight = targetPdf * M;
+        weightF = hlsl::mix(float32_t(0.0), weightS / weight, weight > float32_t(0.0));
+    }
+};
+
 }
 }
  
