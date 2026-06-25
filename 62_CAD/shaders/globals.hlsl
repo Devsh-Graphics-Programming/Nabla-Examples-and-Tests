@@ -618,12 +618,12 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 #endif
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t ImagesBindingArraySize = 128;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidPseudoStencilValue = InvalidMainObjectIdx << PseudoStencil::AlphaField::BitCount;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MainObjectMinBitCount = PseudoStencil::MainObjectIdxField::BitCount; // using the bit count in pseudo stencil instead of DrawObj bitfield, because it's the lowest bitcount reference to mainObject and more limiting
 using MainObjectIndexLimits = IndexLimits<uint32_t, MainObjectMinBitCount>;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t MaxMainObjectCount = MainObjectIndexLimits::MaxCount;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidMainObjectIdx = MainObjectIndexLimits::Invalid;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidPseudoStencilValue = InvalidMainObjectIdx << PseudoStencil::AlphaField::BitCount;
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidLineStyleIndex = IndexLimits<uint32_t, MainObject::LineStyleIdxOrDtmSettingsIdxField::BitCount>::Invalid;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t InvalidDtmSettingsIndex = InvalidLineStyleIndex;

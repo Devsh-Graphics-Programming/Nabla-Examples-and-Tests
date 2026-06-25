@@ -68,13 +68,11 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	video::IDeviceMemoryAllocator::SAllocation allocation = {};
 	for (const auto& memoryTypeIdx : memoryTypeIndexTryOrder)
 	{
-		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
-		{
-			.size = totalResourcesSize,
-			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT, // for the buffers
-			.memoryTypeIndex = memoryTypeIdx,
-			.dedication = nullptr,
-		};
+		IDeviceMemoryAllocator::SAllocateInfo allocationInfo = {};
+		allocationInfo.allocationSize = totalResourcesSize;
+		allocationInfo.allocateFlags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT; // for the buffers
+		allocationInfo.memoryTypeIndex = memoryTypeIdx;
+		allocationInfo.dedication = nullptr;
 
 		allocation = logicalDevice->allocate(allocationInfo);
 			
