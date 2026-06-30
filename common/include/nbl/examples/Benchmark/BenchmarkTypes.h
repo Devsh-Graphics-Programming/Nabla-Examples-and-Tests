@@ -16,7 +16,11 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <cstdint>
 
+using float64_t = double;
+
+using namespace nbl;
 struct PipelineStats
 {
    uint64_t    registerCount   = 0;
