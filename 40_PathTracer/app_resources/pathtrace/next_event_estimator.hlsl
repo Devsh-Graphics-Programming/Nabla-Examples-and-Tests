@@ -373,12 +373,12 @@ struct NextEventEstimator
 
    // Emission on a BSDF-sampled hit, deweighted against the NEE technique via the power heuristic.
    // otherTechniqueHeuristic is 1/bsdfWeight from the previous bounce.
-   spectral_type shadeEmission(const uint32_t emitterIdx, const float32_t3 currentHitPos, const float32_t otherTechniqueHeuristic, const spectral_type throughput)
+   spectral_type shadeEmission(const uint32_t emitterIdx, const float32_t3 currentHitPos, const float32_t otherTechniqueHeuristic, const spectral_type throughput, NBL_REF_ARG(spectral_type) emission)
    {
       if (!(emitterIdx < NonEmitterCustomIndex && gScene.init.pEmitters != 0))
          return spectral_type(0, 0, 0);
 
-      float32_t3 emission = vk::RawBufferLoad<float32_t3>(gScene.init.pEmitters + uint64_t(emitterIdx) * uint64_t(EmitterRecordSize));
+      emission = vk::RawBufferLoad<float32_t3>(gScene.init.pEmitters + uint64_t(emitterIdx) * uint64_t(EmitterRecordSize));
 
 #if NBL_MIS_MODE == NBL_MIS_MODE_BOTH
       if (otherTechniqueHeuristic > MISWeightThreshold && gScene.init.pEmitterToLeafIdx != 0)

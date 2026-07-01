@@ -543,7 +543,82 @@ struct SInitialSample
     float32_t pdf;
 };
 
-// TODO: the paper claims that reservoir data is packed accordingly -- maybe try at some point?
+struct PathFlags
+{
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t Active = 0x0001;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t Specular = 0x0002;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t Delta = 0x0004;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t DiffuseBounce = 0x0008;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t SpecularBounce = 0x0010;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t LastVertexlightSampled = 0x0020;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t PathHasSpecularBounce = 0x0040;
+};
+
+struct SPathState
+{
+    uint16_t flags;
+    uint32_t currentVertexIndex;    // vertexIndex along the path, intialized value is 1
+    uint32_t rcVertexLength;
+
+    bool isLastVertexRough;
+
+    // probably don't need
+    // float32_t3 origin;
+    // float32_t3 normal;
+    // float32_t3 direction;
+    
+    float32_t pdf;
+
+    // TODO ReSTIR: double check usage, we might already do all this in ray
+    float32_t3 prefixThroughput;
+    float32_t3 throughput;
+    float32_t3 radiance;
+
+    // float32_t3 LoForDelta;   // TODO ReSTIR: maybe do later, with delta distributions?
+
+    float32_t3 prefixPathRadiance;
+    float32_t3 rcVertexRadiance;
+
+    // TODO ReSTIR: pack this?
+    float32_t2 preRcVertexBarycentrics;
+    uint32_t preRcVertexInstancedGeometryID;
+    uint32_t preRcVertexPrimitiveID;
+    float32_t3 preRcVertexL;
+
+    float32_t3 rcVertexPosition;
+    float32_t3 rcVertexNormal;
+    float32_t rcPdf;
+
+    uint64_t2 rngSeed;
+
+    static SPathState create(uint32_t2 pixel, uint16_t depth)
+    {
+        SPathState retval;
+        retval.currentVertexIndex = 0;
+        retval.rcVertexLength = depth;
+
+        retval.isLastVertexRough = false;
+
+        retval.prefixThroughput = 1.f;
+        retval.throughput = 1.f;
+        retval.flags = PathFlags::Active;
+
+        // TODO: get seed from scramblebuf based on pixel
+        // retval.rngSeed = 0;
+        return retval;
+    }
+
+    void updatePrefixThp()
+    {
+        prefixThroughput *= throughput;
+        throughput = 1.f;
+    }
+};
+
+// TODO ReSTIR: the paper claims that reservoir data is packed accordingly -- maybe try at some point?
 // radiance: half-precision float
 // position + normal: compressed into single float4
 // sample count + age: compressed in 4 byte uint
@@ -561,7 +636,7 @@ struct SReservoir
 
     static SReservoir create(SInitialSample s)
     {
-        Reservoir retval;
+        SReservoir retval;
 
         retval.vPosition = s.preRcVertexPos;
         retval.vNormal = s.preRcVertexNorm;

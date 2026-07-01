@@ -345,6 +345,11 @@ void raygen()
             nbl::this_example::NextEventEstimator neeEstimator            = nbl::this_example::NextEventEstimator::create();
             SAOVThroughputs                       aovThroughput;
             aovThroughput.clear(rcpSamplesThisFrame);
+
+            SPathState pathState = SPathState::create(launchID.xy, lastPathDepth);
+            pathState.direction = primaryRayDir;
+            pathState.pdf = 1.0f;
+
             NBL_HLSL_LOOP
             for (uint16_t depth = 1; true; depth++) // ideally peel this loop once
             {
@@ -361,6 +366,9 @@ void raygen()
                 closestInfo.geometricNormal *= sign(GdotV);
 
                 float32_t3 shadingNormal = closestInfo.geometricNormal;
+
+                pathState.currentVertexIndex++;
+                pathState.normal = shadingNormal;
 
                 // TODO: possible SER point based on NEE status, and material flags
 
@@ -380,7 +388,23 @@ void raygen()
                 // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
                 {
                     const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+                    const spectral_t emission;
+                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, emission);
+                    
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && !isPrimaryHit)
+                        pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput;
+                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                        pathState.rcVertexRadiance += emission * pathState.throughput;
+                }
+
+                const bool canConnect = pathState.isLastVertexRough && pathState.currentVertexIndex == pathState.rcVertexLength;
+
+                if (canConnect)
+                {
+                    pathState.rcVertexPosition = closestInfo.hitPos;
+                    pathState.rcVertexNormal = shadingNormal;
+                    pathState.rcPdf = pathState.pdf;
+                    pathState.throughput = 1.f; // reset at reconnect vertex
                 }
 
                 // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
@@ -458,6 +482,11 @@ void raygen()
                         // albedo: NEE direct must be tinted by the surface reflectance, same as the BSDF path.
                         if (shadowHitsEmitter)
                             color += nee.contribution * albedo;
+
+                        if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                            pathState.prefixPathRadiance += nee.contribution * pathState.throughput * pathState.prefixThroughput;
+                        else
+                            pathState.rcVertexRadiance += nee.contribution * pathState.throughput;
                     }
                 }
 #endif // NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
@@ -479,7 +508,26 @@ void raygen()
                     if (forwardWeight < 0.00000001f)
                         break;
 
+                    pathState.pdf = forwardWeight;
+                    spectral_t weight = qAw.quotient();
+
+                    // TODO ReSTIR: check roughness greater than threshold and not specular/delta bounce
+                    pathState.isLastVertexRough = true;
+                    if (pathState.currentVertexIndex < pathState.rcVertexLength && pathState.isLastVertexRough)
+                        pathState.rcVertexLength = pathState.currentVertexIndex + 1;
+
+                    // TODO ReSTIR: condition when first bounce surface is not rough enough
+                    // if (pathState.currentVertexIndex == 1 && sd.linearRoughness < kRoughnessThreshold)
+                    // {
+                    // }
+
                     throughput = throughput * qAw.quotient() * albedo;
+                    pathState.throughput *= weight;
+
+                    if (hlsl::any(pathState.throughput > hlsl::promote<float32_t3>(0.f)) && pathState.currentVertexIndex + 1 < pathState.rcVertexLength)
+                    {
+                        pathState.UpdatePrefixThp();
+                    }
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f / forwardWeight;
