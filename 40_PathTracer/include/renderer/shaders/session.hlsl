@@ -32,6 +32,13 @@ struct SensorUBOBufferAddresses
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t Count = 8;
 };
 
+struct SReSTIRParams
+{
+	hlsl::float32_t3 sceneMinPos;
+    float32_t fov;
+    float32_t minCellSize;
+};
+
 struct SSensorUniforms
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ScrambleKeyTextureSize = 512;
@@ -46,6 +53,7 @@ struct SSensorUniforms
 	uint16_t unused0 : 12; //BOOST_PP_SUB(15, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
 	uint16_t hideEnvironment : 1;
 
+	SReSTIRParams restirParams;
 	uint64_t pStorageBuffers[SensorUBOBufferAddresses::Count];
 };
 

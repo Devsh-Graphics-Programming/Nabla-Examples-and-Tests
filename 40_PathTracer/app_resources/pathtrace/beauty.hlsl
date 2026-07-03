@@ -284,8 +284,9 @@ void raygen()
     // Held live across the path-tracing loop; summed per sample, written to gBeauty as an fp32 mean
     // after the loop (alongside the per-sample RWMC cascade splat).
     float32_t3 referenceFrameSum = float32_t3(0, 0, 0);
-    NBL_HLSL_LOOP
-    for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
+    uint32_t sampleIndex = 0u;
+    // NBL_HLSL_LOOP
+    // for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
     {
         // For RWMC to work, every sample must be splatted individually
         spectral_t color;
@@ -331,6 +332,11 @@ void raygen()
             color                    = float16_t3(_sample.color);
             aovs                     = aovs + _sample.aov * rcpSamplesThisFrame;
             transparency += rcpSamplesThisFrame;
+
+            if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput * _sample.aov;
+            else
+                pathState.rcVertexRadiance += emission * pathState.throughput * _sample.aov;
         }
         else // trace further rays
         {
@@ -391,7 +397,7 @@ void raygen()
                     const spectral_t emission;
                     color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, emission);
                     
-                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && !isPrimaryHit)
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
                         pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput;
                     else if (pathState.currentVertexIndex > pathState.rcVertexLength)
                         pathState.rcVertexRadiance += emission * pathState.throughput;
@@ -496,6 +502,15 @@ void raygen()
                 break;
 #endif
 
+                if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                {
+                    pathState.preRcHitPosition = closestInfo.hitPos;
+                    pathState.preRcVertexBarycentrics = closestInfo.barycentrics;
+                    pathState.preRcVertexInstancedGeometryID = closestInfo.instancedGeometryID;
+                    pathState.preRcNormal = closestInfo.geometricNormal;
+                    pathState.preRcVertexL = pathState.direction;
+                }
+
                 // TODO: perform shading
                 light_sample_t bxdfSample;
                 {
@@ -508,6 +523,7 @@ void raygen()
                     if (forwardWeight < 0.00000001f)
                         break;
 
+                    pathState.direction = bxdfSample.getL().getDirection();
                     pathState.pdf = forwardWeight;
                     spectral_t weight = qAw.quotient();
 
@@ -560,6 +576,49 @@ void raygen()
                 }
             }
         }
+
+        // Fill in ReSTIR data
+        SReservoir initialReservoir = SReservoir::create(pathState);
+        SHashAppendData data;
+        data.reservoirIdx = launchID.y * gSensor.renderSize.x + launchID.x;
+        data.isValid = 0;
+        if (hlsl::any(hlsl::abs(initialReservoir.vNormal) > hlsl::promote<float32_t3>(0.0)))
+        {
+            float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
+            int cellIdx = findOrInsertCell(initialReservoir.vPosition, initialReservoir.vNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
+
+            if (cellIdx != -1)
+            {
+                bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf]);
+                BdaAccessor<uint32_t> cellCounterPtr = BdaAccessor<uint32_t>::create(ptr);
+                uint32_t inCellIdx = cellCounterPtr.atomicAdd(cellIdx, 1);
+                data.isValid = 1;
+                data.cellIdx = cellIdx;
+                data.inCellIdx = inCellIdx;
+            }
+        }
+
+        if (data.isValid)
+        {
+            bda::__ptr<uint32_t> ptr0 = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf]);
+            BdaAccessor<uint32_t> indexPtr = BdaAccessor<uint32_t>::create(ptr0);
+            uint32_t baseIdx;
+            indexPtr.get(data.cellIdx, baseIdx);
+            bda::__ptr<uint32_t> ptr1 = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
+            BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(ptr1);
+            cellStoragePtr.set(baseIdx + data.inCellIdx, data.reservoirIdx);    // is setting cellStorage necessary? or just the hash stuff?
+            // might need two sets of buffers or just set this stuff after reading already
+        }
+
+        SReconnectionData rcData;
+        rcData.preRcVertexHitInfo = pathState.preRcVertexBarycentrics;
+        rcData.preRcVertexInstancedGeometryID = pathState.preRcVertexInstancedGeometryID;
+        rcData.preRcVertexPrimitiveID = pathState.preRcVertexPrimitiveID;
+        rcData.pathPreThroughput = pathState.prefixThroughput;
+        rcData.pathPreRadiance = pathState.prefixPathRadiance;
+        rcData.preRcVertexL = pathState.preRcVertexL;
+        rcData.pathLength = pathState.rcVertexLength - 1;
+
         // Every sample feeds both outputs: the fp32 plain running mean (summed here, written to gBeauty
         // after the loop) and the fp16 RWMC cascade splat. First sample clears the RWMC; can't use
         // pc.keepAccumulating because of the variable sampling we want to do later.

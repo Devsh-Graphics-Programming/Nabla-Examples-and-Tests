@@ -533,16 +533,6 @@ SEnvSample sampleEnv(const float32_t3 raydir)
 }
 
 // ReSTIR stuff
-struct SInitialSample
-{
-    float32_t3 preRcVertexPos;
-    float32_t3 preRcVertexNorm;
-    float32_t3 rcVertexPos;
-    float32_t3 rcVertexNorm;
-    float32_t3 rcVertexLo;
-    float32_t pdf;
-};
-
 struct PathFlags
 {
     NBL_CONSTEXPR_STATIC_INLINE uint16_t Active = 0x0001;
@@ -582,10 +572,12 @@ struct SPathState
     float32_t3 prefixPathRadiance;
     float32_t3 rcVertexRadiance;
 
-    // TODO ReSTIR: pack this?
+    // TODO ReSTIR: pack this? it's the same as SClosestHitInfo
+    float32_t3 preRcHitPosition;
     float32_t2 preRcVertexBarycentrics;
     uint32_t preRcVertexInstancedGeometryID;
     uint32_t preRcVertexPrimitiveID;
+    float32_t3 preRcNormal;
     float32_t3 preRcVertexL;
 
     float32_t3 rcVertexPosition;
@@ -618,6 +610,83 @@ struct SPathState
     }
 };
 
+struct SReconnectionData
+{
+    float32_t2 preRcVertexBarycentrics;
+    uint32_t preRcVertexInstancedGeometryID;
+    uint32_t preRcVertexPrimitiveID;
+    float3_t pathPreThroughput;            // indicates path throughput before the preRcVertex
+    float3_t pathPreRadiance;
+    float3_t preRcVertexL;
+    uint32_t pathLength;
+};
+
+struct SHashAppendData
+{
+    uint32_t isValid;
+    uint32_t reservoirIdx;
+    uint32_t cellIdx;
+    uint32_t inCellIdx;
+};
+
+// wonder if we can use random::PCG32 in Nabla instead, but input is uint32_t
+uint32_t pcg32(uint32_t input)
+{
+    const uint32_t state = input * 747796405u + 2891336453u;
+    const uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// 32-bit (non-cryptographic) hash function by Robert Jenkins
+uint32_t jenkinsHash(uint32_t a)
+{
+    a = (a + 0x7ed55d16) + (a << 12);
+    a = (a ^ 0xc761c23c) ^ (a >> 19);
+    a = (a + 0x165667b1) + (a << 5);
+    a = (a + 0xd3a2646c) ^ (a << 9);
+    a = (a + 0xfd7046c5) + (a << 3);
+    a = (a ^ 0xb55a4f09) ^ (a >> 16);
+    return a;
+}
+
+uint32_t binaryNorm(float32_t3 norm)
+{
+    uint32_t a = hlsl::mix(0u, 1u, norm.x > 0.f);
+    uint32_t b = hlsl::mix(0u, 1u, norm.y > 0.f);
+    uint32_t c = hlsl::mix(0u, 1u, norm.z > 0.f);
+    return a * 100 + b * 10 + c;
+}
+
+float32_t calculateCellSize(float32_t3 pos, float32_t3 cameraPos, uint16_t2 renderSize, NBL_CONST_REF_ARG(SReSTIRParams) params)
+{
+    float32_t cellSizeStep = hlsl::length(pos - cameraPos) * hlsl::tan(120.f * params.fov * hlsl::max(1.0 / renderSize.y, renderSize.y / float((renderSize.x * renderSize.x))));
+    uint32_t logStep = hlsl::floor(hlsl::log2(cellSizeStep / params.minCellSize));
+   
+    return params.minCellSize * hlsl::max(0.12f, hlsl::exp2(logStep));
+}
+
+int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
+{
+    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneBBMin) / hlsl::promote<float32_t3>(cellSize)));
+    uint32_t normprint = binaryNorm(norm);
+
+    uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
+    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1);
+
+    NBL_HLSL_LOOP
+    for (uint32_t i = 0; i < 32; i++)
+    {
+        uint32_t idx = cellIndex * 32 + i;
+
+        bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
+        uint32_t checkSumPre = glsl::atomicCompSwap((checkSumPtr + idx).template deref().ptr.value, 0, checkSum);
+        if (checkSumPre == 0 || checkSumPre == checkSum)
+            return idx;
+    }
+
+    return -1;
+}
+
 // TODO ReSTIR: the paper claims that reservoir data is packed accordingly -- maybe try at some point?
 // radiance: half-precision float
 // position + normal: compressed into single float4
@@ -634,15 +703,15 @@ struct SReservoir
     float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
     uint16_t age;   // sample age, discard if > maxSampleAge
 
-    static SReservoir create(SInitialSample s)
+    static SReservoir create(NBL_CONST_REF_ARG(SPathState) state)
     {
         SReservoir retval;
 
-        retval.vPosition = s.preRcVertexPos;
-        retval.vNormal = s.preRcVertexNorm;
-        retval.sPosition = s.rcVertexPos;
-        retval.sNormal = s.rcVertexNorm;
-        retval.radiance = s.rcVertexLo;
+        retval.vPosition = state.preRcHitPosition;
+        retval.vNormal = state.preRcNormal;
+        retval.sPosition = state.rcVertexPosition;
+        retval.sNormal = state.rcVertexNormal;
+        retval.radiance = pathState.rcVertexRadiance;
 
         retval.weightF = hlsl::mix(float32_t(0.0), float32_t(1.0) / s.pdf, s.pdf > float32_t(0.0));
         retval.M = uint16_t(1u);
