@@ -267,8 +267,6 @@ public:
 		m_logger->log("Setup complete. Running benchmarks.", ILogger::ELL_PERFORMANCE);
 
 		runAllBenchmarks();
-		//this will be removed after PR review, only exist to check if I have done test correct
-		//runHostImageCopyTests();
 
 		return true;
 	}
@@ -335,205 +333,7 @@ private:
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	smart_refctd_ptr<IGPUCommandBuffer> m_cmdbuf;
 	smart_refctd_ptr<ISemaphore> m_sem;
-/*
-	void runHostImageCopyTests()
-	{
-		if (!m_physicalDevice->getLimits().hostImageCopy)
-		{
-			m_logger->log("Host Image Copy NOT available - skipping tests", ILogger::ELL_ERROR);
-			return;
-		}
-		m_logger->log("\n=== Host Image Copy Tests ===", ILogger::ELL_PERFORMANCE);
 
-		constexpr uint32_t W = 256u;
-		constexpr uint32_t H = 256u;
-		constexpr uint32_t TEXEL_BYTES = 4u;
-		const uint32_t imageBytes = W * H * TEXEL_BYTES;
-
-		auto createHostImage = [&](const char* name) -> smart_refctd_ptr<IGPUImage>
-		{
-			IGPUImage::SCreationParams p{};
-			p.type = IImage::E_TYPE::ET_2D;
-			p.extent.width = W;
-			p.extent.height = H;
-			p.extent.depth = 1u;
-			p.format = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
-			p.mipLevels = 1u;
-			p.arrayLayers = 1u;
-			p.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-			p.flags = IImage::ECF_NONE;
-			p.tiling = IGPUImage::TILING::OPTIMAL;
-			p.usage = IImage::EUF_HOST_TRANSFER_BIT;
-			p.preinitialized = false;
-
-			auto img = m_device->createImage(std::move(p));
-			if (!img)
-			{
-				m_logger->log("Failed to create image %s", ILogger::ELL_ERROR, name);
-				return nullptr;
-			}
-			img->setObjectDebugName(name);
-
-			auto reqs = img->getMemoryReqs();
-			auto alloc = m_device->allocate(reqs, img.get(), IDeviceMemoryAllocation::EMAF_NONE);
-			if (!alloc.isValid())
-			{
-				m_logger->log("Failed to allocate memory for %s", ILogger::ELL_ERROR, name);
-				return nullptr;
-			}
-			return img;
-		};
-
-		auto fullLayers = []()
-		{
-			IImage::SSubresourceLayers s{};
-			s.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			s.mipLevel = 0u;
-			s.baseArrayLayer = 0u;
-			s.layerCount = 1u;
-			return s;
-		};
-
-		auto transitionToGeneral = [&](IGPUImage* img) -> bool
-		{
-			ILogicalDevice::SImageLayoutTransition t{};
-			t.image = img;
-			t.oldLayout = IImage::LAYOUT::UNDEFINED;
-			t.newLayout = IImage::LAYOUT::GENERAL;
-			t.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			t.subresourceRange.baseMipLevel = 0u;
-			t.subresourceRange.levelCount = 1u;
-			t.subresourceRange.baseArrayLayer = 0u;
-			t.subresourceRange.layerCount = 1u;
-			return m_device->transitionImageLayout({ &t, 1 });
-		};
-
-		auto bytesEqual = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) -> bool
-		{
-			if (a.size() != b.size())
-				return false;
-			for (size_t i = 0; i < a.size(); i++)
-				if (a[i] != b[i])
-					return false;
-			return true;
-		};
-
-		auto imgA = createHostImage("HostCopy Image A");
-		auto imgB = createHostImage("HostCopy Image B");
-		if (!imgA || !imgB)
-			return;
-
-		m_api->startCapture();
-
-		if (!transitionToGeneral(imgA.get()) || !transitionToGeneral(imgB.get()))
-		{
-			m_logger->log("transitionImageLayout FAILED", ILogger::ELL_ERROR);
-			m_api->endCapture();
-			return;
-		}
-		m_logger->log("transitionImageLayout: OK", ILogger::ELL_PERFORMANCE);
-
-		std::vector<uint8_t> src(imageBytes);
-		for (uint32_t y = 0; y < H; y++)
-		for (uint32_t x = 0; x < W; x++)
-		{
-			uint8_t* px = src.data() + (y * W + x) * TEXEL_BYTES;
-			px[0] = uint8_t(x);   // R: left -> right
-			px[1] = uint8_t(y);   // G: top -> bottom
-			px[2] = 0u;           // B
-			px[3] = 255u;         // A
-		}
-
-		{
-			IGPUImage::SMemoryToImageCopy region{};
-			region.hostPointer = src.data();
-			region.memoryRowLength = 0u;
-			region.memoryImageHeight = 0u;
-			region.imageSubresource = fullLayers();
-			region.imageOffset = { 0, 0, 0 };
-			region.imageExtent = { W, H, 1u };
-			if (!m_device->copyMemoryToImage(imgA.get(), IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { &region, 1 }))
-			{
-				m_logger->log("copyMemoryToImage FAILED", ILogger::ELL_ERROR);
-				m_api->endCapture();
-				return;
-			}
-			m_logger->log("copyMemoryToImage: OK", ILogger::ELL_PERFORMANCE);
-		}
-
-		{
-			IImage::SSubresource sub{};
-			sub.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			sub.mipLevel = 0u;
-			sub.arrayLayer = 0u;
-			IImage::SSubresourceLayout sl{};
-			if (!m_device->getImageSubresourceLayout(imgA.get(), sub, sl))
-			{
-				m_logger->log("getImageSubresourceLayout FAILED", ILogger::ELL_ERROR);
-				m_api->endCapture();
-				return;
-			}
-			m_logger->log("getImageSubresourceLayout: OK offset=%llu size=%llu rowPitch=%llu hostMemcpySize=%llu",
-				ILogger::ELL_PERFORMANCE,
-				(unsigned long long)sl.offset, (unsigned long long)sl.size,
-				(unsigned long long)sl.rowPitch, (unsigned long long)sl.hostMemcpySize);
-		}
-
-		{
-			std::vector<uint8_t> readbackA(imageBytes, 0u);
-			IGPUImage::SImageToMemoryCopy region{};
-			region.hostPointer = readbackA.data();
-			region.memoryRowLength = 0u;
-			region.memoryImageHeight = 0u;
-			region.imageSubresource = fullLayers();
-			region.imageOffset = { 0, 0, 0 };
-			region.imageExtent = { W, H, 1u };
-			if (!m_device->copyImageToMemory(imgA.get(), IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { &region, 1 }))
-			{
-				m_logger->log("copyImageToMemory FAILED", ILogger::ELL_ERROR);
-				m_api->endCapture();
-				return;
-			}
-			const bool match = bytesEqual(src, readbackA);
-			m_logger->log("copyImageToMemory round-trip: %s", match ? ILogger::ELL_PERFORMANCE : ILogger::ELL_ERROR, match ? "PASS" : "FAIL");
-		}
-
-		{
-			IGPUImage::SImageCopy region{};
-			region.srcSubresource = fullLayers();
-			region.srcOffset = { 0, 0, 0 };
-			region.dstSubresource = fullLayers();
-			region.dstOffset = { 0, 0, 0 };
-			region.extent = { W, H, 1u };
-			if (!m_device->copyImageToImage(imgA.get(), IImage::LAYOUT::GENERAL, imgB.get(), IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { &region, 1 }))
-			{
-				m_logger->log("copyImageToImage FAILED", ILogger::ELL_ERROR);
-				m_api->endCapture();
-				return;
-			}
-
-			std::vector<uint8_t> readbackB(imageBytes, 0u);
-			IGPUImage::SImageToMemoryCopy rb{};
-			rb.hostPointer = readbackB.data();
-			rb.memoryRowLength = 0u;
-			rb.memoryImageHeight = 0u;
-			rb.imageSubresource = fullLayers();
-			rb.imageOffset = { 0, 0, 0 };
-			rb.imageExtent = { W, H, 1u };
-			if (!m_device->copyImageToMemory(imgB.get(), IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { &rb, 1 }))
-			{
-				m_logger->log("copyImageToImage readback FAILED", ILogger::ELL_ERROR);
-				m_api->endCapture();
-				return;
-			}
-			const bool match = bytesEqual(src, readbackB);
-			m_logger->log("copyImageToImage round-trip: %s", match ? ILogger::ELL_PERFORMANCE : ILogger::ELL_ERROR, match ? "PASS" : "FAIL");
-		}
-
-		m_api->endCapture();
-		m_logger->log("=== Host Image Copy Tests done ===\n", ILogger::ELL_PERFORMANCE);
-	}
-*/
 	void runAllBenchmarks()
 	{
 		constexpr uint32_t STAGING_BUFFER_SIZE = 64 * 1024 * 1024;
@@ -639,8 +439,9 @@ private:
 		if (hostImageCopyAvailable)
 		{
 			m_logger->log("\n--- HostImageCopyEXT ---", ILogger::ELL_PERFORMANCE);
-			auto rCopy = runBenchmarkHostImageCopy("HostImageCopy", m_destinationImage.get(), TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, TOTAL_FRAMES);
-			results.push_back({ "HostImageCopy", rCopy.wallGBps, rCopy.gpuGBps, rCopy.memcpyGBps });
+			auto rHost = runBenchmarkHostImageCopy("HostImageCopy", m_destinationImage.get(), TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, TOTAL_FRAMES);
+			results.push_back({ "HostImageCopy", rHost.tiled.wallGBps, rHost.tiled.gpuGBps, rHost.tiled.memcpyGBps });
+			results.push_back({ "HostImageCopy (MEMCPY)", rHost.memcpyBit.wallGBps, rHost.memcpyBit.gpuGBps, rHost.memcpyBit.memcpyGBps });
 		}
 
 		//Summary table
@@ -659,6 +460,12 @@ private:
 		double wallGBps;
 		double gpuGBps;
 		double memcpyGBps;
+	};
+
+	struct HostCopyBenchResults
+	{
+		BenchResult tiled;
+		BenchResult memcpyBit;
 	};
 
 	static uint32_t packDstTileLocation(uint32_t tileX, uint32_t tileY)
@@ -1299,7 +1106,7 @@ private:
 		return { wallThroughputGBps, gpuThroughputGBps, memcpyGBps };
 	}
 
-	BenchResult	runBenchmarkHostImageCopy(
+	HostCopyBenchResults runBenchmarkHostImageCopy(
 		const char* strategyName,
 		IGPUImage* destinationImage,
 		uint32_t tileSize,
@@ -1307,6 +1114,7 @@ private:
 		uint32_t tilesPerFrame,
 		uint32_t totalFrames)
 	{
+		HostCopyBenchResults result = {};
 		{
 			ILogicalDevice::SImageLayoutTransition transition = {};
 			transition.image = destinationImage;
@@ -1321,11 +1129,14 @@ private:
 			if (!m_device->transitionImageLayout({ &transition, 1 }))
 			{
 				m_logger->log("%s: host-side layout transition failed", ILogger::ELL_ERROR, strategyName);
-				return {};
+				return result;
 			}
 		}
 
-		uint32_t imageWidth = destinationImage->getCreationParameters().extent.width;
+		const auto extent = destinationImage->getCreationParameters().extent;
+		const uint32_t width = extent.width;
+		const uint32_t height = extent.height;
+		const uint64_t linearSize = (uint64_t)width * height * PIXEL_BYTE_SIZE;
 		uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
 
 		std::vector<uint8_t> cpuSourceData(partitionSize);
@@ -1338,12 +1149,12 @@ private:
 		}
 
 		std::vector<IGPUImage::SMemoryToImageCopy> regions(tilesPerFrame);
-		generateTileHostCopyRegions(regions.data(), cpuSourceData.data(), tilesPerFrame, tileSize, tileSizeBytes, imageWidth);
+		generateTileHostCopyRegions(regions.data(), cpuSourceData.data(), tilesPerFrame, tileSize, tileSizeBytes, width);
 
 		if (!m_device->copyMemoryToImage(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { regions.data(), regions.size() }))
 		{
 			m_logger->log("%s: copyMemoryToImage failed", ILogger::ELL_ERROR, strategyName);
-			return {};
+			return result;
 		}
 
 		auto startTime = std::chrono::high_resolution_clock::now();
@@ -1357,12 +1168,155 @@ private:
 		double wallGBps = totalGB / totalSeconds;
 
 		m_logger->log("%s: %.2f GB/s (%u frames, %.3f s)", ILogger::ELL_PERFORMANCE, strategyName, wallGBps, totalFrames, totalSeconds);
+		result.tiled.wallGBps = wallGBps;
 
-		BenchResult result = {};
-		result.wallGBps = wallGBps;
-		result.gpuGBps = 0.0;
-		result.memcpyGBps = 0.0;
+		std::vector<uint8_t> gradientData(linearSize);
+		{
+			int32_t* pixels = reinterpret_cast<int32_t*>(gradientData.data());
+			for (uint32_t y = 0; y < height; y++)
+			for (uint32_t x = 0; x < width; x++)
+			{
+				float32_t4 color = float32_t4(float(x) / float(width - 1u), float(y) / float(height - 1u), 0.f, 1.f);
+				pixels[y * width + x] = packUnorm4x8(color);
+			}
+		}
+
+		IGPUImage::SMemoryToImageCopy gradientRegion = {};
+		gradientRegion.hostPointer = gradientData.data();
+		gradientRegion.memoryRowLength = 0;
+		gradientRegion.memoryImageHeight = 0;
+		gradientRegion.imageOffset = { 0, 0, 0 };
+		gradientRegion.imageExtent = { width, height, 1 };
+		gradientRegion.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		gradientRegion.imageSubresource.mipLevel = 0;
+		gradientRegion.imageSubresource.baseArrayLayer = 0;
+		gradientRegion.imageSubresource.layerCount = 1;
+
+		if (!m_device->copyMemoryToImage(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, { &gradientRegion, 1 }))
+		{
+			m_logger->log("%s: gradient upload failed", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		IGPUImage::SSubresource subresource = {};
+		subresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		subresource.mipLevel = 0;
+		subresource.arrayLayer = 0;
+		IGPUImage::SSubresourceLayout layout = {};
+		if (!m_device->getImageSubresourceLayout(destinationImage, subresource, layout) || layout.hostMemcpySize == 0)
+		{
+			m_logger->log("%s: getImageSubresourceLayout failed", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+		m_logger->log("%s: hostMemcpySize = %llu bytes, linear size = %llu bytes", ILogger::ELL_PERFORMANCE,
+			strategyName, (unsigned long long)layout.hostMemcpySize, (unsigned long long)linearSize);
+
+		std::vector<uint8_t> tiledData(layout.hostMemcpySize);
+		IGPUImage::SImageToMemoryCopy downloadRegion = {};
+		downloadRegion.hostPointer = tiledData.data();
+		downloadRegion.memoryRowLength = 0;
+		downloadRegion.memoryImageHeight = 0;
+		downloadRegion.imageOffset = { 0, 0, 0 };
+		downloadRegion.imageExtent = { width, height, 1 };
+		downloadRegion.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		downloadRegion.imageSubresource.mipLevel = 0;
+		downloadRegion.imageSubresource.baseArrayLayer = 0;
+		downloadRegion.imageSubresource.layerCount = 1;
+
+		if (!m_device->copyImageToMemory(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_MEMCPY_BIT, { &downloadRegion, 1 }))
+		{
+			m_logger->log("%s: MEMCPY download failed", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		IGPUImage::SMemoryToImageCopy memcpyRegion = gradientRegion;
+		memcpyRegion.hostPointer = tiledData.data();
+
+		if (!m_device->copyMemoryToImage(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_MEMCPY_BIT, { &memcpyRegion, 1 }))
+		{
+			m_logger->log("%s: MEMCPY upload failed", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		startTime = std::chrono::high_resolution_clock::now();
+		for (uint32_t frame = 0; frame < totalFrames; frame++)
+			m_device->copyMemoryToImage(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_MEMCPY_BIT, { &memcpyRegion, 1 });
+		endTime = std::chrono::high_resolution_clock::now();
+
+		totalSeconds = std::chrono::duration<double>(endTime - startTime).count();
+		totalBytes = (uint64_t)totalFrames * linearSize;
+		totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0);
+		wallGBps = totalGB / totalSeconds;
+
+		m_logger->log("%s (1 region, MEMCPY): %.2f GB/s (%u frames, %.3f s)", ILogger::ELL_PERFORMANCE, strategyName, wallGBps, totalFrames, totalSeconds);
+
+		{
+			std::vector<uint8_t> verifyData(layout.hostMemcpySize);
+			IGPUImage::SImageToMemoryCopy verifyRegion = downloadRegion;
+			verifyRegion.hostPointer = verifyData.data();
+			bool match = m_device->copyImageToMemory(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_MEMCPY_BIT, { &verifyRegion, 1 })
+				&& memcmp(tiledData.data(), verifyData.data(), tiledData.size()) == 0;
+			m_logger->log("%s: round-trip verification: %s", match ? ILogger::ELL_PERFORMANCE : ILogger::ELL_ERROR, strategyName, match ? "PASS" : "FAIL");
+		}
+
+		writeImagePNG("hostcopy_gradient.png", gradientData.data(), width, height);
+
+		const uint32_t rowBytes = width * PIXEL_BYTE_SIZE;
+		const uint32_t paddedHeight = (uint32_t)((layout.hostMemcpySize + rowBytes - 1) / rowBytes);
+		std::vector<uint8_t> paddedTiledData((size_t)paddedHeight * rowBytes, 0u);
+		memcpy(paddedTiledData.data(), tiledData.data(), tiledData.size());
+		writeImagePNG("hostcopy_optimal_tiling_raw.png", paddedTiledData.data(), width, paddedHeight);
+
+		result.memcpyBit.wallGBps = wallGBps;
 		return result;
+	}
+
+	bool writeImagePNG(const char* path, const uint8_t* pixels, uint32_t width, uint32_t height)
+	{
+		ICPUImage::SCreationParams imgParams = {};
+		imgParams.type = IImage::E_TYPE::ET_2D;
+		imgParams.extent = { width, height, 1u };
+		imgParams.format = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
+		imgParams.mipLevels = 1u;
+		imgParams.flags = IImage::ECF_NONE;
+		imgParams.arrayLayers = 1u;
+		imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+
+		ICPUImageView::SCreationParams viewParams = {};
+		viewParams.image = ICPUImage::create(std::move(imgParams));
+		if (!viewParams.image)
+		{
+			m_logger->log("Failed to create ICPUImage for %s", ILogger::ELL_ERROR, path);
+			return false;
+		}
+		{
+			auto cpuBuffer = ICPUBuffer::create({ { (size_t)width * height * PIXEL_BYTE_SIZE }, const_cast<uint8_t*>(pixels), core::getNullMemoryResource() }, core::adopt_memory_t());
+			ICPUImage::SBufferCopy region = {};
+			region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			region.imageSubresource.layerCount = 1u;
+			region.imageExtent = { width, height, 1u };
+			viewParams.image->setBufferAndRegions(std::move(cpuBuffer), core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u, region));
+		}
+		viewParams.viewType = ICPUImageView::ET_2D;
+		viewParams.format = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
+		viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		viewParams.subresourceRange.layerCount = 1u;
+
+		auto cpuImageView = ICPUImageView::create(std::move(viewParams));
+		if (!cpuImageView)
+		{
+			m_logger->log("Failed to create ICPUImageView for %s", ILogger::ELL_ERROR, path);
+			return false;
+		}
+
+		asset::IAssetWriter::SAssetWriteParams writeParams(cpuImageView.get());
+		if (!m_assetMgr->writeAsset(path, writeParams))
+		{
+			m_logger->log("Failed to write %s", ILogger::ELL_ERROR, path);
+			return false;
+		}
+		m_logger->log("Wrote %s (%ux%u)", ILogger::ELL_PERFORMANCE, path, width, height);
+		return true;
 	}
 
 	bool createStagingBuffer(
