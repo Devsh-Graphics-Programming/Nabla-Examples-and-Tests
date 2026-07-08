@@ -612,11 +612,13 @@ struct SPathState
 
 struct SReconnectionData
 {
+    float32_t3 preRcHitPosition;
     float32_t2 preRcVertexBarycentrics;
     uint32_t preRcVertexInstancedGeometryID;
     uint32_t preRcVertexPrimitiveID;
-    float3_t pathPreThroughput;            // indicates path throughput before the preRcVertex
-    float3_t pathPreRadiance;
+    float32_t3 preRcNormal;
+    float3_t pathPreRcThroughput;            // indicates path throughput before the preRcVertex
+    float3_t pathPreRcRadiance;
     float3_t preRcVertexL;
     uint32_t pathLength;
 };
@@ -673,14 +675,38 @@ int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CO
     uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
     uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1);
 
+    bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     NBL_HLSL_LOOP
     for (uint32_t i = 0; i < 32; i++)
     {
         uint32_t idx = cellIndex * 32 + i;
 
-        bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
         uint32_t checkSumPre = glsl::atomicCompSwap((checkSumPtr + idx).template deref().ptr.value, 0, checkSum);
         if (checkSumPre == 0 || checkSumPre == checkSum)
+            return idx;
+    }
+
+    return -1;
+}
+
+int findCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
+{
+    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneBBMin) / hlsl::promote<float32_t3>(cellSize)));
+    uint32_t normprint = binaryNorm(norm);
+
+    uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
+    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1);
+
+    bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
+    BdaAccessor<uint32_t> checksumPtr = BdaAccessor<uint32_t>::create(ptr);
+    NBL_HLSL_LOOP
+    for (uint32_t i = 0; i < 32; i++)
+    {
+        uint32_t idx = cellIndex * 32 + i;
+
+        uint32_t cs;
+        checksumPtr.get(idx, cs);
+        if (cs == checkSum)
             return idx;
     }
 

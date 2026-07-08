@@ -245,7 +245,7 @@ void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
     ec.deweight             = (backPdf > 0.f) ? nee.__emissionDeweight(ec.emitterIdx, ec.currentHitPos, backPdf, ec.otherTechniqueHeuristic) : 1.f;
 }
 
-[shader("raygeneration")] 
+[shader("raygeneration")]
 void raygen()
 {
     const uint16_t3                        launchID        = uint16_t3(spirv::LaunchIdKHR);
@@ -440,7 +440,7 @@ void raygen()
                 // TODO: start at 0 or numeric_limits::min?
                 const float32_t tMin = 0.f;
                 // should the offset be the same for NEE and Path Continuation?
-                const float32_t3 originMagnitude = max(abs(closestInfo.hitPos), abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+                const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
                 // TODO: should probably also take `tMax` of found hit into account
                 const float      offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
                 const float32_t3 newRayOrigin    = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
@@ -578,9 +578,14 @@ void raygen()
         }
 
         // Fill in ReSTIR data
+        const uint32_t linearIdx = launchID.y * gSensor.renderSize.x + launchID.x;
         SReservoir initialReservoir = SReservoir::create(pathState);
+        {
+            LegacyBdaAccessor<SReservoir> reservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
+            reservoirsPtr.set(linearIdx, initialReservoir);
+        }
         SHashAppendData data;
-        data.reservoirIdx = launchID.y * gSensor.renderSize.x + launchID.x;
+        data.reservoirIdx = linearIdx;
         data.isValid = 0;
         if (hlsl::any(hlsl::abs(initialReservoir.vNormal) > hlsl::promote<float32_t3>(0.0)))
         {
@@ -610,14 +615,21 @@ void raygen()
             // might need two sets of buffers or just set this stuff after reading already
         }
 
-        SReconnectionData rcData;
-        rcData.preRcVertexHitInfo = pathState.preRcVertexBarycentrics;
-        rcData.preRcVertexInstancedGeometryID = pathState.preRcVertexInstancedGeometryID;
-        rcData.preRcVertexPrimitiveID = pathState.preRcVertexPrimitiveID;
-        rcData.pathPreThroughput = pathState.prefixThroughput;
-        rcData.pathPreRadiance = pathState.prefixPathRadiance;
-        rcData.preRcVertexL = pathState.preRcVertexL;
-        rcData.pathLength = pathState.rcVertexLength - 1;
+        {
+            SReconnectionData rcData;
+            rcData.preRcHitPosition = pathState.preRcHitPosition;
+            rcData.preRcVertexBarycentrics = pathState.preRcVertexBarycentrics;
+            rcData.preRcVertexInstancedGeometryID = pathState.preRcVertexInstancedGeometryID;
+            rcData.preRcVertexPrimitiveID = pathState.preRcVertexPrimitiveID;
+            rcData.preRcNormal = pathState.preRcNormal;
+            rcData.pathPreThroughput = pathState.prefixThroughput;
+            rcData.pathPreRadiance = pathState.prefixPathRadiance;
+            rcData.preRcVertexL = pathState.preRcVertexL;
+            rcData.pathLength = pathState.rcVertexLength - 1;
+
+            LegacyBdaAccessor<SReconnectionData> reconnDataPtr = LegacyBdaAccessor<SReconnectionData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf]);
+            reconnDataPtr.set(linearIdx, rcData);
+        }
 
         // Every sample feeds both outputs: the fp32 plain running mean (summed here, written to gBeauty
         // after the loop) and the fp16 RWMC cascade splat. First sample clears the RWMC; can't use
