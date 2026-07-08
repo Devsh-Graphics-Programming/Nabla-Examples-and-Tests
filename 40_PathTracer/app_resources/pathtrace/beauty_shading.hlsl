@@ -136,7 +136,7 @@ void raygen()
     int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, params, checkSum);
     if (cellIdx == -1)
     {
-        setReservoirs(currentReservoirs, linearIdx, 1, spatialReservoir);
+        setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
         return;
     }
     uint32_t cellBaseIdx, sampleCount;
@@ -274,14 +274,14 @@ void raygen()
             break;
     }
 
-    float tpNewS = EvalTargetPdf(spatialReservoir.radiance, spatialReservoir.vPos, spatialReservoir.sPos, sd); /* dot(normalList[reuseID], spatialReservoir.vNorm);*/
+    float tpNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
     float weight = tpNewS * z;
-    float avgWeight = weight > 0.f ? wSumS / weight: 0.f;
-    spatialReservoir.M = clamp(spatialReservoir.M, 0, 100);
-    spatialReservoir.weightF = clamp(avgWeight, 0.f, 10.f);
+    float avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
+    spatialReservoir.M = hlsl::clamp(spatialReservoir.M, uint16_t(0u), uint16_t(100u));
+    spatialReservoir.weightF = hlsl::clamp(avgWeight, 0.f, 10.f);
     spatialReservoir.age++;
 
-    setReservoirs(currentReservoirs, currentIDx, 1, spatialReservoir);
+    setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
 
     // TODO ReSTIR: apply final shading
 }
