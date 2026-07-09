@@ -76,6 +76,8 @@ void raygen()
         return;
     }
 
+    uint32_t sampleIndex = 0u;
+
     using namespace nbl::hlsl::bxdf;
     using namespace nbl::hlsl::material_compiler3::backends::default_upt;
     using bxdf_config_t           = BxDFConfig;
@@ -89,7 +91,7 @@ void raygen()
     spirv::HitObjectEXT hitObject;
     {
         // fetch random variable from memory
-        const float32_t3 randVec = randgen(0u, 0u);
+        const float32_t3 randVec = randgen(0u, sampleIndex++);
         // TODO: motion blur and lens DOF triplet
 
         // get our NDC coordinates and ray
@@ -124,6 +126,7 @@ void raygen()
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
 
     // TODO ReSTIR: TEMPORAL REUSE HERE
+    setReservoirs(currentReservoirsPtr, linearIdx, 0, initialReservoir);
 
     // spatial reuse
     SReservoir spatialReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0);
@@ -131,7 +134,7 @@ void raygen()
     spatialReservoir.vNormal = rcData.preRcNormal;
 
     float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
-    float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(0u, 1u) * 2.0f - 1.0f) * 0.1f * cellSize;
+    float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(0u, sampleIndex++) * 2.0f - 1.0f) * 0.1f * cellSize;
 
     int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, params, checkSum);
     if (cellIdx == -1)
@@ -160,7 +163,7 @@ void raygen()
     uint32_t maxSpatialIteration = 3u;  // spatialReservoir.M > 10 ? 3u : 10u;
 
     uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
-    uint32_t offset = round(sampleNext1D(sg) * (increment - 1));
+    uint32_t offset = hlsl::round(randgen(0u, sampleIndex++).x * (increment - 1));
 
     float32_t3 positionList[10];
     float32_t3 normalList[10];
@@ -220,7 +223,7 @@ void raygen()
         const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
         const float32_t3 visRayDir = hlsl::normalize(neighborReservoir.sPosition - visRayOrigin);
 
-        const float32_t3 randVis = randgen(0u, 2u + i); // need this? maybe any hit can be reduced
+        const float32_t3 randVis = randgen(0u, sampleIndex++); // need this? maybe any hit can be reduced
 
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
         visibilityPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
@@ -261,6 +264,8 @@ void raygen()
             const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
             const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
             const float32_t3 newRayDir = hlsl::normalize(spatialReservoir.sPosition - newRayOrigin);
+
+            const float32_t3 randVis = randgen(0u, sampleIndex++);
 
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
             newPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
