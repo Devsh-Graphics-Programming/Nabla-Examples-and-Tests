@@ -283,5 +283,30 @@ void raygen()
 
     setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
 
-    // TODO ReSTIR: apply final shading
+    float32_t3 finalDir = hlsl::normalize(spatialReservoir.sPosition - spatialReservoir.vPosition);
+    spectral_t finalLi = spatialReservoir.radiance * hlsl::max(0.f, spatialReservoir.weightF);
+
+    // TODO ReSTIR: check material roughness
+    const quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);
+    {
+        isotropic_interaction_t interaction = isotropic_interaction_t::create(finalDir, rcData.preRcNormal, throughput);
+        typename light_sample_t::ray_dir_info_type L;
+        L.direction = rcData.preRcVertexL;
+        light_sample_t _sample = light_sample_t::create(L, rcData.preRcNormal);
+
+        // TODO set up material properly
+        using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+        brdf_t::SCreationParams cParams;
+        cParams.A = 0.f;
+        const brdf_t diffuse = brdf_t::create(cParams);
+        typename brdf_t::isocache_type cache;
+        // TODO: cache
+        final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
+    }
+
+    spectral_t color = (rcData.pathPreRadiance + rcData.pathPreThroughput * final_quo * finalLi) / params.numGIInstance;
+    rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
+    colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
+
+    gBeauty[launchID] = float32_t4(color, 1.0);
 }
