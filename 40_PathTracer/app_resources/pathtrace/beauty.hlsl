@@ -643,11 +643,11 @@ void raygen()
     }
     // Plain fp32 running mean across dispatches: gBeauty holds the mean over all
     // samples this pixel has accumulated. firstSample==0 means a fresh start.
-    {
-        float32_t3 mean = (samplingInfo.firstSample != 0u) ? gBeauty[launchID].rgb : float32_t3(0, 0, 0);
-        mean += (referenceFrameSum - mean * float32_t(samplesThisFrame)) * samplingInfo.rcpNewSampleCount;
-        gBeauty[launchID] = float32_t4(mean, 1.0);
-    }
+    // {
+    //     float32_t3 mean = (samplingInfo.firstSample != 0u) ? gBeauty[launchID].rgb : float32_t3(0, 0, 0);
+    //     mean += (referenceFrameSum - mean * float32_t(samplesThisFrame)) * samplingInfo.rcpNewSampleCount;
+    //     gBeauty[launchID] = float32_t4(mean, 1.0);
+    // }
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
     albedoAcc.accumulate(launchID.xy, launchID.z, aovs.albedo, newSamplesOverTotal, keepAccumulating);

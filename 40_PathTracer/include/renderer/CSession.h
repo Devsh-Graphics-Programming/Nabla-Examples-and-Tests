@@ -107,6 +107,13 @@ class CSession final : public core::IReferenceCounted
 			};
 			SImmutables immutables = {};
 			SSensorDynamics currentSensorState = {}, prevSensorState = {};
+
+			core::smart_refctd_ptr<video::IGPUBuffer> initialReservoirs;
+			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> resamplingReservoirs;
+			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> cellCounter;
+			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> indices;
+			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> checkSum;
+			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> cellStorage;
 		};
 
 		//

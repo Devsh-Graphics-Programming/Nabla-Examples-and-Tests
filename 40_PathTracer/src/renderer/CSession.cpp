@@ -3,6 +3,8 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "renderer/CRenderer.h"
 
+#include "../app_resources/pathtrace/common.hlsl"
+
 namespace nbl::this_example
 {
 using namespace nbl::core;
@@ -72,6 +74,55 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			// pipeline barrier in `reset` will take care of sync for this
 			info.getCommandBufferForRecording()->cmdbuf->updateBuffer({.size=sizeof(m_params.uniforms),.buffer=ubo},&m_params.uniforms);
 			addWrite(SensorDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(m_params.uniforms),.buffer=ubo});
+		}
+		// create storage buffers
+		{
+			const uint32_t elementCount = m_params.uniforms.renderSize.x * m_params.uniforms.renderSize.y;
+		    {
+		        IGPUBuffer::SCreationParams params = {};
+		        params.size = sizeof(SReservoir) * elementCount;
+		        using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+		        params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+		        m_active.initialReservoirs = device->createBuffer(std::move(params));
+		        if (!dedicatedAllocate(m_active.initialReservoirs.get(), "Initial Reservoirs"))
+		            return false;
+		    }
+
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = sizeof(SReservoir) * elementCount * 2u;
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				m_active.resamplingReservoirs[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.resamplingReservoirs[i].get(), "Resampling Reservoirs"))
+					return false;
+			}
+
+			const uint32_t hashBufferSize = 3200000 * sizeof(uint32_t);	// TODO: why 3200000? double check source
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = hashBufferSize;
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+				m_active.cellCounter[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.cellCounter[i].get(), "Cell Counter"))
+					return false;
+
+				m_active.indices[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.indices[i].get(), "Index buffer"))
+					return false;
+
+				m_active.checkSum[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.checkSum[i].get(), "Checksum"))
+					return false;
+
+				m_active.cellStorage[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.cellStorage[i].get(), "Cell storage"))
+					return false;
+			}
 		}
 
 		const auto allowedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling();
