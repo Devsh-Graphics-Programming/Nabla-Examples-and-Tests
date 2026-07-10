@@ -638,8 +638,8 @@ void raygen()
         const bool doClear = (sampleIndex++) == 0;
         // don't precompute `rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting)` and keep it
         // as live state, it will spill anyway
-        rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
-        colorAcc.addSample(_static_cast<uint16_t>(sampleIndex), accum_t(color));
+        // rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
+        // colorAcc.addSample(_static_cast<uint16_t>(sampleIndex), accum_t(color));
     }
     // Plain fp32 running mean across dispatches: gBeauty holds the mean over all
     // samples this pixel has accumulated. firstSample==0 means a fresh start.

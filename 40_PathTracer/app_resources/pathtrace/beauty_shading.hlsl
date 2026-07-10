@@ -122,7 +122,7 @@ void raygen()
     uint32_t2 previousID = hlsl::clamp(previousUV * gSensor.renderSize, hlsl::promote<uint32_t2>(0), gSensor.renderSize - hlsl::promote<uint32_t2>(1));
     uint32_t previousIdx = previousID.y * gSensor.renderSize.x + previousID.x;
 
-    bool isPreviousValid = params.frameCount > 0 && all(previousUV > 0.f) && all(previousUV < 1.f);
+    bool isPreviousValid = gSampleCount[launchID] > 0 && hlsl::all(previousUV > hlsl::promote<float32_t2>(0.0)) && hlsl::all(previousUV < hlsl::promote<float32_t2>(1.0));
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
 
     // TODO ReSTIR: TEMPORAL REUSE HERE
@@ -136,7 +136,7 @@ void raygen()
     float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
     float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(0u, sampleIndex++) * 2.0f - 1.0f) * 0.1f * cellSize;
 
-    int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, params, checkSum);
+    int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
     if (cellIdx == -1)
     {
         setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
@@ -309,7 +309,7 @@ void raygen()
         final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
     }
 
-    spectral_t color = (rcData.pathPreRadiance + rcData.pathPreThroughput * final_quo * finalLi) / params.numGIInstance;
+    spectral_t color = (rcData.pathPreRadiance + rcData.pathPreThroughput * final_quo * finalLi);
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 
