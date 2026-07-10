@@ -93,7 +93,7 @@ public:
 			auto reqs = m_destinationImage->getMemoryReqs();
 			reqs.memoryTypeBits &= deviceLocalBits;
 
-			auto allocation = m_device->allocate(reqs, m_destinationImage.get(), IDeviceMemoryAllocation::EMAF_NONE);
+			auto allocation = m_device->allocate(reqs, { m_destinationImage.get(), IDeviceMemoryAllocation::EMAF_NONE });
 			if (!allocation.isValid())
 				return logFail("Failed to allocate DEVICE_LOCAL memory for destination image!\n");
 		}
@@ -1339,7 +1339,7 @@ private:
 		auto reqs = outBuffer->getMemoryReqs();
 		reqs.memoryTypeBits &= memoryTypeBits;
 
-		outAllocation = m_device->allocate(reqs, outBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+		outAllocation = m_device->allocate(reqs, { outBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 		if (!outAllocation.isValid())
 			return logFail("Failed to allocate Device Memory!\n");
 
