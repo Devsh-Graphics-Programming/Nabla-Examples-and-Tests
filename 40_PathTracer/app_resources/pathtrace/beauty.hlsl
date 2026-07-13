@@ -602,17 +602,9 @@ void raygen()
                 data.inCellIdx = inCellIdx;
             }
         }
-
-        if (data.isValid)
         {
-            bda::__ptr<uint32_t> ptr0 = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf]);
-            BdaAccessor<uint32_t> indexPtr = BdaAccessor<uint32_t>::create(ptr0);
-            uint32_t baseIdx;
-            indexPtr.get(data.cellIdx, baseIdx);
-            bda::__ptr<uint32_t> ptr1 = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
-            BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(ptr1);
-            cellStoragePtr.set(baseIdx + data.inCellIdx, data.reservoirIdx);    // is setting cellStorage necessary? or just the hash stuff?
-            // might need two sets of buffers or just set this stuff after reading already
+            LegacyBdaAccessor<SHashAppendData> hashAppendDataPtr = LegacyBdaAccessor<SHashAppendData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf]);
+            hashAppendDataPtr.set(linearIdx, data);
         }
 
         {

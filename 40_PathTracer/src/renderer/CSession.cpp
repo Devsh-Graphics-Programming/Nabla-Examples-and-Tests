@@ -87,6 +87,15 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		        if (!dedicatedAllocate(m_active.initialReservoirs.get(), "Initial Reservoirs"))
 		            return false;
 		    }
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = sizeof(SHashAppendData) * elementCount;
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				m_active.hashAppend = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.hashAppend.get(), "Hash Append Data"))
+					return false;
+			}
 
 			for (uint32_t i = 0; i < 2; i++)
 			{

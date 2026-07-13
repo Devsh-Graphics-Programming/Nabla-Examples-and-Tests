@@ -109,6 +109,7 @@ class CSession final : public core::IReferenceCounted
 			SSensorDynamics currentSensorState = {}, prevSensorState = {};
 
 			core::smart_refctd_ptr<video::IGPUBuffer> initialReservoirs;
+			core::smart_refctd_ptr<video::IGPUBuffer> hashAppend;
 			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> resamplingReservoirs;
 			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> cellCounter;
 			std::array<core::smart_refctd_ptr<video::IGPUBuffer>, 2> indices;

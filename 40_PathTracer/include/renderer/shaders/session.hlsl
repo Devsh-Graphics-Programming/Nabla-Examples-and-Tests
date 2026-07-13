@@ -19,17 +19,18 @@ NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t RandDimTriplesPerDepth = 3;
 struct SensorUBOBufferAddresses
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ReconnectionDataBuf = 0;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t HashAppendDataBuf = 1;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t InitialReservoirsBuf = 1;	// initial reservoir generated from current frame samples
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousReservoirsBuf = 2;	// combined reservoirs from previous frame
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t CurrentReservoirsBuf = 3;	// combined reservoirs from current frame
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t InitialReservoirsBuf = 2;	// initial reservoir generated from current frame samples
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousReservoirsBuf = 3;	// combined reservoirs from previous frame
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CurrentReservoirsBuf = 4;	// combined reservoirs from current frame
 
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellStorageBuf = 4;		// offset index of cells in hash grid
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t IndexBuf = 5;				// index of reservoirs in each cell
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t CheckSumBuf = 6;			// secondary hash key for each cell
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellCountersBuf = 7;		// count of reservoirs in each cell
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellStorageBuf = 5;		// offset index of cells in hash grid
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t IndexBuf = 6;				// index of reservoirs in each cell
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CheckSumBuf = 7;			// secondary hash key for each cell
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellCountersBuf = 8;		// count of reservoirs in each cell
 
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t Count = 8;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t Count = 9;
 };
 
 struct SReSTIRParams
