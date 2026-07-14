@@ -2,6 +2,9 @@
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <algorithm>
+#include <execution>
 
 using namespace nbl;
 using namespace nbl::core;
@@ -442,6 +445,10 @@ private:
 			auto rHost = runBenchmarkHostImageCopy("HostImageCopy", m_destinationImage.get(), TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, TOTAL_FRAMES);
 			results.push_back({ "HostImageCopy", rHost.tiled.wallGBps, rHost.tiled.gpuGBps, rHost.tiled.memcpyGBps });
 			results.push_back({ "HostImageCopy (MEMCPY)", rHost.memcpyBit.wallGBps, rHost.memcpyBit.gpuGBps, rHost.memcpyBit.memcpyGBps });
+
+			m_logger->log("\n--- HostImageCopyEXT multithreaded ---", ILogger::ELL_PERFORMANCE);
+			auto rHostMT = runBenchmarkHostImageCopyMT("HostImageCopy MT", m_destinationImage.get(), TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, TOTAL_FRAMES, 0);
+			results.push_back({ "HostImageCopy MT", rHostMT.wallGBps, rHostMT.gpuGBps, rHostMT.memcpyGBps });
 		}
 
 		//Summary table
@@ -1268,6 +1275,111 @@ private:
 		writeImagePNG("hostcopy_optimal_tiling_raw.png", paddedTiledData.data(), width, paddedHeight);
 
 		result.memcpyBit.wallGBps = wallGBps;
+		return result;
+	}
+
+	BenchResult runBenchmarkHostImageCopyMT(
+		const char* strategyName,
+		IGPUImage* destinationImage,
+		uint32_t tileSize,
+		uint32_t tileSizeBytes,
+		uint32_t tilesPerFrame,
+		uint32_t totalFrames,
+		uint32_t threadCount)
+	{
+		BenchResult result = {};
+		{
+			ILogicalDevice::SImageLayoutTransition transition = {};
+			transition.image = destinationImage;
+			transition.oldLayout = IImage::LAYOUT::UNDEFINED;
+			transition.newLayout = IImage::LAYOUT::GENERAL;
+			transition.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+
+			transition.subresourceRange.baseMipLevel = 0;
+			transition.subresourceRange.levelCount = 1;
+			transition.subresourceRange.baseArrayLayer = 0;
+			transition.subresourceRange.layerCount = 1;
+			if (!m_device->transitionImageLayout({ &transition, 1 }))
+			{
+				m_logger->log("%s: host-side layout transition failed", ILogger::ELL_ERROR, strategyName);
+				return result;
+			}
+		}
+
+		const auto extent = destinationImage->getCreationParameters().extent;
+		const uint32_t width = extent.width;
+		uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
+
+		std::vector<uint8_t> cpuSourceData(partitionSize);
+		{
+			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			std::mt19937 g(seed);
+			uint32_t* data = reinterpret_cast<uint32_t*>(cpuSourceData.data());
+			for (uint32_t i = 0; i < partitionSize / sizeof(uint32_t); i++)
+				data[i] = g();
+		}
+
+		std::vector<IGPUImage::SMemoryToImageCopy> regions(tilesPerFrame);
+		generateTileHostCopyRegions(regions.data(), cpuSourceData.data(), tilesPerFrame, tileSize, tileSizeBytes, width);
+
+		uint32_t workerCount = threadCount ? threadCount : std::thread::hardware_concurrency();
+		if (workerCount == 0)
+		{
+			m_logger->log("%s: std::thread::hardware_concurrency() returned 0", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+		if (workerCount > tilesPerFrame)
+			workerCount = tilesPerFrame;
+
+		std::atomic<bool> anyFailed = false;
+
+		const uint32_t chunk = tilesPerFrame / workerCount;
+		const uint32_t remaining = tilesPerFrame % workerCount;
+
+		std::vector<std::span<const IGPUImage::SMemoryToImageCopy>> slices(workerCount);
+		{
+			uint32_t begin = 0;
+			for (uint32_t i = 0; i < workerCount; ++i)
+			{
+				const uint32_t count = chunk + (i < remaining ? 1u : 0u);
+				slices[i] = { regions.data() + begin, count };
+				begin += count;
+			}
+			if (begin != tilesPerFrame)
+			{
+				m_logger->log("%s: region partition mismatch (%u != %u)", ILogger::ELL_ERROR, strategyName, begin, tilesPerFrame);
+				return result;
+			}
+		}
+
+		auto startTime = std::chrono::high_resolution_clock::now();
+		std::for_each(std::execution::par, slices.begin(), slices.end(),
+			[this, destinationImage, totalFrames, &anyFailed](const std::span<const IGPUImage::SMemoryToImageCopy> slice)
+			{
+				for (uint32_t frame = 0; frame < totalFrames; frame++)
+				{
+					if (!m_device->copyMemoryToImage(destinationImage, IImage::LAYOUT::GENERAL, IGPUImage::EHICF_NONE, slice))
+					{
+						anyFailed.store(true, std::memory_order_relaxed);
+						return;
+					}
+				}
+			});
+		auto endTime = std::chrono::high_resolution_clock::now();
+
+		if (anyFailed.load())
+		{
+			m_logger->log("%s: copyMemoryToImage failed on a worker thread", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		double totalSeconds = std::chrono::duration<double>(endTime - startTime).count();
+		uint64_t totalBytes = (uint64_t)totalFrames * tilesPerFrame * tileSizeBytes;
+		double totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0);
+		double wallGBps = totalGB / totalSeconds;
+
+		m_logger->log("%s: %u slices (execution::par), %.2f GB/s (%u frames, %.3f s)", ILogger::ELL_PERFORMANCE, strategyName, workerCount, wallGBps, totalFrames, totalSeconds);
+		result.wallGBps = wallGBps;
 		return result;
 	}
 
