@@ -25,6 +25,13 @@ public:
 	ImageUploadBenchmarkApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
+	{
+		auto retval = device_base_t::getAPIFeaturesToEnable();
+		retval.validations = false;
+		return retval;
+	}
+
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
