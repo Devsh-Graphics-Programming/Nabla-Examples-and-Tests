@@ -1,12 +1,10 @@
- #pragma shader_stage(compute)
-
-#define operation_t nbl::hlsl::OPERATION
+#pragma shader_stage(compute)
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
-#include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 #include "nbl/builtin/hlsl/scan/chained_scan.hlsl"
 
 using config_t = WORKGROUP_CONFIG_T;
@@ -159,7 +157,7 @@ void test()
     subtest<arithmetic::maximum<uint32_t> >();
 }
 
-[numthreads(WORKGROUP_SIZE,1,1)]
+[numthreads(config_t::WorkgroupSize,1,1)]
 void main()
 {
     test();
