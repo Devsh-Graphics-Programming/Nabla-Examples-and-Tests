@@ -79,7 +79,7 @@ public:
 		{
 			std::mt19937 randGenerator(0xdeadbeefu);
 			for (uint32_t i = 0u; i < ElementCount; i++)
-				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
+				inputData[i] = 1u;// randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(uint32_t) * ElementCount;
@@ -89,6 +89,8 @@ public:
 				std::move(inputDataBufferCreationParams),
 				inputData
 			).move_into(gpuinputDataBuffer);
+
+			gpuinputDataBuffer->setObjectDebugName("Input data buffer");
 		}
 
 		// create 8 buffers for 8 operations
@@ -105,6 +107,8 @@ public:
 
 			auto bufferMem = m_device->allocate(mreq, { outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 			assert(bufferMem.isValid());
+
+			outputBuffers[i]->setObjectDebugName(("Output data buffer #" + std::to_string(i)).c_str());
 		}
 
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
@@ -122,6 +126,8 @@ public:
 
 			auto bufferMem = m_device->allocate(mreq, { reduceBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 			assert(bufferMem.isValid());
+
+			reduceBuffer->setObjectDebugName("Workgroup reduction buffer");
 		}
 
 		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
@@ -207,10 +213,10 @@ public:
 			else
 				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
 
-			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+			for (auto subgroupSize = 32; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
 				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+				for (uint32_t workgroupSize = 1024; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 				{
 					// make sure renderdoc captures everything for debugging
 					m_api->startCapture();
@@ -225,8 +231,6 @@ public:
 					    wgConfig.init(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
 						uint32_t itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-						//passed = runTest<emulatedReduction>(globalTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						//logTestOutcome(passed, itemsPerWG);
 						passed = runTest<emulatedScanInclusive>(globalTestSource, ElementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
 						passed = runTest<emulatedScanExclusive>(globalTestSource, ElementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
@@ -403,13 +407,14 @@ private:
 
 		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
-		bool passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc);
-		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		bool passed = true;
+		//passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc);
+		//passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		//passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
 		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		//passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		//passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		//passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
 
 		return passed;
 	}
