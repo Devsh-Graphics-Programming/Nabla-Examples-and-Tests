@@ -118,9 +118,6 @@ class AcosCscBenchmarkApp final : public MonoDeviceApplication, public BuiltinRe
 
    bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
    {
-      // since emulated_float64_t rounds to zero
-      std::fesetround(FE_TOWARDZERO);
-
       if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
          return false;
       if (!asset_base_t::onAppInitialized(std::move(system)))
@@ -165,9 +162,13 @@ class AcosCscBenchmarkApp final : public MonoDeviceApplication, public BuiltinRe
       auto       shaderVariant = GPUBenchmarkHelper::ShaderVariant::Precompiled(shaderKey);
 
       constexpr std::pair<BENCHMARK_MODE, const char*> kModes[] = {
-         {BM_EXACT, "exact"},
-         {BM_ORDER1, "order1"},
-         {BM_ORDER2, "order2"},
+        {BM_SETUP, "setup"},
+        {BM_EXACT, "baseline"},
+        {BM_ORDER1, "order1"},
+        {BM_ORDER2, "order2"},
+        {BM_POLYNOMIAL0, "polynomial_order2_sign_c"},
+        {BM_POLYNOMIAL1, "polynomial_order2_sign_abc"},
+        {BM_POLYNOMIAL_ORDER3, "polynomial_order3"},
       };
       constexpr size_t            N = std::size(kModes);
       std::vector<AcosCscBenchmark> benches;
