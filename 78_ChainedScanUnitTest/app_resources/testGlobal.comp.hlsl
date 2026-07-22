@@ -104,6 +104,11 @@ struct ReduceAccessor
         return target.template deref().store(value);
     }
 
+    T atomicMax(const uint64_t index, const T value)
+    {
+        bda::__ptr<T> target = ptr + index;
+        return glsl::atomicMax(target.template deref().ptr.value, value);
+    }
     T atomicExchange(const uint64_t index, const T value)
     {
         bda::__ptr<T> target = ptr + index;
