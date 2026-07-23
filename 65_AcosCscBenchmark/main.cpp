@@ -151,47 +151,51 @@ class AcosCscBenchmarkApp final : public MonoDeviceApplication, public BuiltinRe
       constexpr uint32_t WarmupDispatches = 1000;
       constexpr uint64_t TargetBudgetMs   = 400; // ~400ms per row
 
-      Aggregator agg(m_logger, m_device, m_physicalDevice, getComputeQueue()->getFamilyIndex());
-      agg.applyCli({
-         .argv              = this->argv,
-         .defaultOutputPath = "AcosCscBench.json",
-         .appName           = "65_AcosCscBenchmark",
-      });
+      auto runBenchmark = [&](const std::string& outputPath, const std::string& shaderKey, const std::string& name, std::span<const std::pair<BENCHMARK_MODE, const char*>> modes)
+      {
+          Aggregator agg(m_logger, m_device, m_physicalDevice, getComputeQueue()->getFamilyIndex());
+          agg.applyCli({
+             .argv              = this->argv,
+             .defaultOutputPath = outputPath,
+             .appName           = "65_AcosCscBenchmark",
+          });
 
-      const auto shaderKey     = nbl::this_example::builtin::build::get_spirv_key<"benchmark">(m_device.get());
-      auto       shaderVariant = GPUBenchmarkHelper::ShaderVariant::Precompiled(shaderKey);
+          auto       shaderVariant = GPUBenchmarkHelper::ShaderVariant::Precompiled(shaderKey);
 
+          std::vector<AcosCscBenchmark> benches;
+          benches.reserve(modes.size());
+          for (size_t i = 0; i < modes.size(); ++i)
+          {
+             const auto& [mode, leaf] = modes[i];
+             benches.emplace_back(agg, AcosCscBenchmark::SetupData{
+                .assetMgr         = m_assetMgr,
+                .name             = {name, leaf},
+                .mode             = mode,
+                .variant          = shaderVariant,
+                .warmupDispatches = WarmupDispatches,
+                .targetBudgetMs   = TargetBudgetMs,
+             });
+          }
+
+          const RunContext ctx = {
+             .shape          = AcosCscBenchmark::shape(),
+             .targetBudgetMs = TargetBudgetMs,
+             .sectionLabel   = AcosCscBenchmark::kSectionLabel,
+          };
+          agg.runSessionAndReport(Aggregator::makeSpan(benches, ctx));
+
+      };
       constexpr std::pair<BENCHMARK_MODE, const char*> kModes[] = {
         {BM_SETUP, "setup"},
         {BM_EXACT, "baseline"},
         {BM_ORDER1, "order1"},
         {BM_ORDER2, "order2"},
-        {BM_POLYNOMIAL0, "polynomial_order2_sign_c"},
-        {BM_POLYNOMIAL1, "polynomial_order2_sign_abc"},
-        {BM_POLYNOMIAL_ORDER3, "polynomial_order3"},
+        {BM_ORDER3, "order3"},
+        {BM_SIGN_FLIP, "sign_flip"},
       };
-      constexpr size_t            N = std::size(kModes);
-      std::vector<AcosCscBenchmark> benches;
-      benches.reserve(N);
-      for (size_t i = 0; i < N; ++i)
-      {
-         const auto& [mode, leaf] = kModes[i];
-         benches.emplace_back(agg, AcosCscBenchmark::SetupData{
-            .assetMgr         = m_assetMgr,
-            .name             = {"AcosCsc", leaf},
-            .mode             = mode,
-            .variant          = shaderVariant,
-            .warmupDispatches = WarmupDispatches,
-            .targetBudgetMs   = TargetBudgetMs,
-         });
-      }
-
-      const RunContext ctx = {
-         .shape          = AcosCscBenchmark::shape(),
-         .targetBudgetMs = TargetBudgetMs,
-         .sectionLabel   = AcosCscBenchmark::kSectionLabel,
-      };
-      agg.runSessionAndReport(Aggregator::makeSpan(benches, ctx));
+      runBenchmark("AcosCscBench.json", nbl::this_example::builtin::build::get_spirv_key<"acos_csc_benchmark">(m_device.get()), "AcosCsc", std::span(kModes, BM_ORDER3 + 1));
+      
+      runBenchmark("IntegrateEdge.json", nbl::this_example::builtin::build::get_spirv_key<"integrate_edge_benchmark">(m_device.get()), "IntegrateEdge", std::span(kModes));
    }
 
 

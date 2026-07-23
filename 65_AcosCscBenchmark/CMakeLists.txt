@@ -35,8 +35,12 @@ set(SM 6_8)
 set(JSON [=[
 [
 	  {
-        "INPUT": "app_resources/benchmark/benchmark.comp.hlsl",
-        "KEY": "benchmark",
+        "INPUT": "app_resources/benchmark/acos_csc_benchmark.comp.hlsl",
+        "KEY": "acos_csc_benchmark",
+    },
+	  {
+        "INPUT": "app_resources/benchmark/integrate_edge_benchmark.comp.hlsl",
+        "KEY": "integrate_edge_benchmark",
     },
 ]
 ]=])
