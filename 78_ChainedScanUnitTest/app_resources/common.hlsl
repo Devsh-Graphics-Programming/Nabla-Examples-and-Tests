@@ -6,6 +6,7 @@ struct PushConstantData
     uint64_t pInputBuf;
     uint64_t pOutputBuf[8];
 	uint64_t pReduceBuf;
+	uint64_t pWgCounterBuf;
 };
 
 namespace arithmetic

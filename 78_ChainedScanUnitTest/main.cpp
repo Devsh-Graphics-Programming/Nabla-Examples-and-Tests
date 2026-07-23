@@ -78,8 +78,9 @@ public:
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 		{
 			std::mt19937 randGenerator(0xdeadbeefu);
+			std::uniform_int_distribution<> distrib(0, 100);
 			for (uint32_t i = 0u; i < ElementCount; i++)
-				inputData[i] = 1u;// randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
+				inputData[i] = i % 1024;// distrib(randGenerator); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(uint32_t) * ElementCount;
@@ -129,9 +130,25 @@ public:
 
 			reduceBuffer->setObjectDebugName("Workgroup reduction buffer");
 		}
+		{
+			IGPUBuffer::SCreationParams params = {};
+			params.size = sizeof(uint32_t);
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+			wgCounterBuffer = m_device->createBuffer(std::move(params));
+			auto mreq = wgCounterBuffer->getMemoryReqs();
+			mreq.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			assert(mreq.memoryTypeBits);
+
+			auto bufferMem = m_device->allocate(mreq, { wgCounterBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
+			assert(bufferMem.isValid());
+
+			wgCounterBuffer->setObjectDebugName("Workgroup counter buffer");
+		}
 
 		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
 		pc.pReduceBuf = reduceBuffer->getDeviceAddress();
+		pc.pWgCounterBuf = wgCounterBuffer->getDeviceAddress();
 		for (uint32_t i = 0; i < OutputBufferCount; i++)
 			pc.pOutputBuf[i] = outputBuffers[i]->getDeviceAddress();
 
@@ -191,7 +208,6 @@ public:
 		};
 
 		auto globalTestSource = getShaderSource("app_resources/testGlobal.comp.hlsl");
-		//auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
@@ -353,23 +369,37 @@ private:
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->fillBuffer({ .offset = 0,.size = reduceBuffer->getSize(),.buffer = reduceBuffer}, 0);
+		cmdbuf->fillBuffer({ .offset = 0,.size = wgCounterBuffer->getSize(),.buffer = wgCounterBuffer }, 0);
 		{
 			using buffer_barrier_t = IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
-			const buffer_barrier_t bufBarrier = {
-									.barrier = {
-										.dep = {
-											.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
-											.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-											.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-											.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
-										} // no ownership transfers, etc.
-									},
-				.range = {.offset = 0,.size = reduceBuffer->getSize(),.buffer = reduceBuffer}
+			buffer_barrier_t bufBarrier[2];
+			bufBarrier[0] = {
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+					} // no ownership transfers, etc.
+				},
+			    .range = {.offset = 0,.size = reduceBuffer->getSize(),.buffer = reduceBuffer}
 			};
+			bufBarrier[1] = {
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+					} // no ownership transfers, etc.
+				},
+				.range = {.offset = 0,.size = wgCounterBuffer->getSize(),.buffer = wgCounterBuffer}
+			};
+		    
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {
-									.memBarriers = {},
-									.bufBarriers = {&bufBarrier,1},
-									.imgBarriers = {}
+					.memBarriers = {},
+					.bufBarriers = bufBarrier,
+					.imgBarriers = {}
 				});
 		}
 
@@ -468,6 +498,7 @@ private:
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 	smart_refctd_ptr<IGPUBuffer> reduceBuffer;
+	smart_refctd_ptr<IGPUBuffer> wgCounterBuffer;
 	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 	PushConstantData pc;
 

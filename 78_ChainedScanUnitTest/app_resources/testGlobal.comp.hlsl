@@ -50,7 +50,15 @@ struct DataProxy
         DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> retval;
         const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * VirtualWorkgroupSize * sizeof(dtype_t);
         retval.accessor = DoubleLegacyBdaAccessor<dtype_t>::create(inputBuf + workgroupOffset, outputBuf + workgroupOffset);
+        retval.inputAddress = inputBuf;
+        retval.outputAddress = outputBuf;
         return retval;
+    }
+
+    void initAtWorkgroupID(const uint32_t workgroupID)
+    {
+        const uint32_t workgroupOffset = workgroupID * VirtualWorkgroupSize * sizeof(dtype_t);
+        accessor = DoubleLegacyBdaAccessor<dtype_t>::create(inputAddress + workgroupOffset, outputAddress + workgroupOffset);
     }
 
     template<typename AccessType, typename IndexType>
@@ -66,11 +74,11 @@ struct DataProxy
 
     uint64_t getInputBufAddr()
     {
-        return accessor.inputAddress;
+        return inputAddress;
     }
     uint64_t getOutputBufAddr()
     {
-        return accessor.outputAddress;
+        return outputAddress;
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -80,6 +88,7 @@ struct DataProxy
     }
 
     DoubleLegacyBdaAccessor<dtype_t> accessor;
+    uint64_t inputAddress, outputAddress;
 };
 
 template<typename T>
@@ -118,6 +127,24 @@ struct ReduceAccessor
     bda::__ptr<T> ptr;
 };
 
+struct WorkgroupCounter
+{
+    static WorkgroupCounter create(const uint64_t addr)
+    {
+        WorkgroupCounter retval;
+        retval.ptr = bda::__ptr<uint32_t>::create(addr);
+        return retval;
+    }
+
+    uint32_t atomicAdd(const uint64_t index, const uint32_t value)  // TODO: maybe it should be just increment
+    {
+        bda::__ptr<uint32_t> target = ptr + index;
+        return glsl::atomicAdd(target.template deref().ptr.value, value);
+    }
+
+    bda::__ptr<uint32_t> ptr;
+};
+
 static ScratchProxy arithmeticAccessor;
 
 template<class Binop, class device_capabilities>
@@ -135,7 +162,9 @@ struct operation_t
         bda::__ptr<otype_t> ptr = bda::__ptr<otype_t>::create(pc.pReduceBuf);
         reduce_proxy_t reduceAccessor = reduce_proxy_t::create(ptr);
 
-        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy, reduce_proxy_t>(dataAccessor,arithmeticAccessor,reduceAccessor);
+        WorkgroupCounter wgCounter = WorkgroupCounter::create(pc.pWgCounterBuf);
+
+        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy, reduce_proxy_t, WorkgroupCounter>(dataAccessor,arithmeticAccessor,reduceAccessor,wgCounter);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
     }
