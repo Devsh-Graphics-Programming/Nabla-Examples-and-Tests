@@ -80,7 +80,7 @@ public:
 			std::mt19937 randGenerator(0xdeadbeefu);
 			std::uniform_int_distribution<> distrib(0, 100);
 			for (uint32_t i = 0u; i < ElementCount; i++)
-				inputData[i] = i % 1024;// distrib(randGenerator); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
+				inputData[i] = distrib(randGenerator); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(uint32_t) * ElementCount;
@@ -365,7 +365,7 @@ private:
 		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		uint32_t workgroupCount = min(elementCount / itemsPerWG, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
+		uint32_t workgroupCount = min((elementCount + itemsPerWG - 1) / itemsPerWG, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->fillBuffer({ .offset = 0,.size = reduceBuffer->getSize(),.buffer = reduceBuffer}, 0);
