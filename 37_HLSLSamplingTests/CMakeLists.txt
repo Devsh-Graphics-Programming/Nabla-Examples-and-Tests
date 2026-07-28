@@ -377,83 +377,23 @@ set(JSON "
   },
   {
     \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m0\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
+    \"KEY\": \"stochastic_lightcut_tree_below_plane_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m1\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
+    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m2\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
+    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_below_plane_test_m3\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_BELOW_PLANE\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m0\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m1\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m2\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_distance_falloff_test_m3\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DISTANCE_FALLOFF\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m0\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m1\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m2\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_inflated_bbox_test_m3\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_INFLATED_BBOX\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m0\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=0\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m1\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=1\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m2\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=2\"]
-  },
-  {
-    \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",
-    \"KEY\": \"stochastic_lightcut_tree_depth2_test_m3\",
-    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\", \"-DNBL_LIGHTCUT_TREE_TEST_MODE=3\"]
+    \"KEY\": \"stochastic_lightcut_tree_depth2_test\",
+    \"COMPILE_OPTIONS\": [\"-DNBL_LIGHTCUT_TREE_DEPTH2\"]
   },
   {
     \"INPUT\": \"app_resources/shaders/stochastic_lightcut_tree_test.comp.hlsl\",

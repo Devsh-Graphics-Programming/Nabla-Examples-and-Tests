@@ -1,14 +1,12 @@
 #ifndef _NBL_THIS_EXAMPLE_LIGHT_TREE_HLSL_INCLUDED_
 #define _NBL_THIS_EXAMPLE_LIGHT_TREE_HLSL_INCLUDED_
 
+#include "renderer/shaders/pt_config.hlsl"
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/sampling/alias_table.hlsl"
 #include "renderer/shaders/bda_accessors.hlsl"
-
-
 #include "nbl/builtin/hlsl/sampling/stochastic_lightcut_tree.hlsl"
-#define NBL_LIGHTTREE_ALIAS_LOG2N 16u
 
 namespace nbl
 {
@@ -26,6 +24,30 @@ struct SEmitterGPU
    hlsl::float32_t2 _pad;
 };
 NBL_CONSTEXPR_STATIC_INLINE uint32_t EmitterRecordSize = sizeof(SEmitterGPU);
+
+// Each row is (linear.xyz | translation.w) of the world->model inverse affine. Origin gets the .w,
+// direction does NOT and stays un-renormalized, so ray 1's committed t is already the world-space
+// distance that ray 2 uses as tMax.
+struct SEmitterRayQuery
+{
+   hlsl::float32_t4 worldToModelRow0;
+   hlsl::float32_t4 worldToModelRow1;
+   hlsl::float32_t4 worldToModelRow2;
+   uint32_t         tlasSlot;
+   uint32_t         _pad[3];
+};
+NBL_CONSTEXPR_STATIC_INLINE uint32_t EmitterRayQueryRecordSize = sizeof(SEmitterRayQuery);
+
+// Row-major 3x4. Columns 0..2 are the oriented edge vectors, each row's .w is the 000 corner. A flat
+// emitter has its zero-length axis permuted into column 0 and zeroed, so the silhouette classify takes
+// the single-face path.
+struct SEmitterOBB
+{
+   hlsl::float32_t4 row0;
+   hlsl::float32_t4 row1;
+   hlsl::float32_t4 row2;
+};
+NBL_CONSTEXPR_STATIC_INLINE uint32_t EmitterOBBRecordSize = sizeof(SEmitterOBB);
 
 #ifdef __HLSL_VERSION
 

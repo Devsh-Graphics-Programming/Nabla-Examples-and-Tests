@@ -39,7 +39,9 @@ shapes::OBBView<float32_t> makePerturbedView(float32_t3 baseOffset, NBL_REF_ARG(
    cM[0][3] += baseOffset.x + cJ.x;
    cM[1][3] += baseOffset.y + cJ.y;
    cM[2][3] += baseOffset.z + cJ.z;
-   return shapes::OBBView<float32_t>::create(cM);
+   shapes::OBBView<float32_t> view = shapes::OBBView<float32_t>::create(cM);
+   view.minCorner -= pc.shadingPoint;
+   return view;
 }
 
 // Shared create-and-sample loop for any sampler with the standard
@@ -52,7 +54,7 @@ uint32_t runCreateAndSample(uint32_t creations, NBL_REF_ARG(Xoroshiro64Star) rng
    for (uint32_t c = 0; c < creations; c++)
    {
       shapes::OBBView<float32_t> view       = makePerturbedView(rndOffset, rng, rcpU32);
-      ClippedSilhouette          silhouette = ClippedSilhouette::create(view, pc.shadingPoint);
+      ClippedSilhouette          silhouette = ClippedSilhouette::create(view);
       SamplerT                   sampler    = SamplerT::create(silhouette, view);
 
       for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
@@ -77,7 +79,7 @@ uint32_t runCreateAndSampleNoSilhouette(uint32_t creations, NBL_REF_ARG(Xoroshir
    for (uint32_t c = 0; c < creations; c++)
    {
       shapes::OBBView<float32_t> view    = makePerturbedView(rndOffset, rng, rcpU32);
-      SamplerT                   sampler = SamplerT::create(view, pc.shadingPoint);
+      SamplerT                   sampler = SamplerT::create(view);
 
       for (uint32_t s = 0; s < pc.samplesPerCreation; s++)
       {
@@ -165,7 +167,7 @@ void main()
       for (uint32_t i = 0; i < pc.sampleCount; i++)
       {
          shapes::OBBView<float32_t> iterView       = makePerturbedView(rndOffset, rng, rcpU32);
-         ClippedSilhouette          iterSilhouette = ClippedSilhouette::create(iterView, pc.shadingPoint);
+         ClippedSilhouette          iterSilhouette = ClippedSilhouette::create(iterView);
          float32_t3                 iterVerts[MAX_SILHOUETTE_VERTICES];
          iterSilhouette.materialize(iterView, iterVerts);
 

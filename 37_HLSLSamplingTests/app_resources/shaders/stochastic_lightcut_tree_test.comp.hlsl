@@ -70,10 +70,11 @@ using BenchLightcutTree = nbl::hlsl::sampling::StochasticLightcutTreeSampler<
 	float32_t, uint32_t, BdaLightcutTreeNodeAccessor, BdaLightcutTreeLeafAccessor, BenchSubAcc, NBL_LIGHTCUT_TREE_WEIGHT_MODE>;
 
 #else
-// Weight mode swept by the geometric scenarios (one shader variant per mode). The
-// multi/single consistency scenarios ignore it and use the library default.
-#ifndef NBL_LIGHTCUT_TREE_TEST_MODE
-#define NBL_LIGHTCUT_TREE_TEST_MODE NBL_LIGHTCUT_TREE_WEIGHT_MODE
+#ifndef NBL_LIGHTCUT_TREE_PDF_FLOOR_ENABLED
+#define NBL_LIGHTCUT_TREE_PDF_FLOOR_ENABLED 0
+#endif
+#ifndef NBL_LIGHTCUT_TREE_STOP_MAX_RATIO_ENABLED
+#define NBL_LIGHTCUT_TREE_STOP_MAX_RATIO_ENABLED 0
 #endif
 #include "../common/stochastic_lightcut_tree.hlsl"
 
@@ -110,13 +111,13 @@ void main()
 #if   defined(NBL_LIGHTCUT_TREE_SINGLE_LEAF)
 	LightcutTreeSingleLeafExecutor                                     executor;
 #elif defined(NBL_LIGHTCUT_TREE_BELOW_PLANE)
-	LightcutTreeBelowPlaneExecutor<NBL_LIGHTCUT_TREE_TEST_MODE>        executor;
+	LightcutTreeBelowPlaneExecutor<LightcutTestWeightMode>            executor;
 #elif defined(NBL_LIGHTCUT_TREE_DISTANCE_FALLOFF)
-	LightcutTreeDistanceFalloffExecutor<NBL_LIGHTCUT_TREE_TEST_MODE>   executor;
+	LightcutTreeDistanceFalloffExecutor<LightcutTestWeightMode>       executor;
 #elif defined(NBL_LIGHTCUT_TREE_INFLATED_BBOX)
-	LightcutTreeInflatedBboxExecutor<NBL_LIGHTCUT_TREE_TEST_MODE>      executor;
+	LightcutTreeInflatedBboxExecutor<LightcutTestWeightMode>          executor;
 #elif defined(NBL_LIGHTCUT_TREE_DEPTH2)
-	LightcutTreeDepth2Executor<NBL_LIGHTCUT_TREE_TEST_MODE>            executor;
+	LightcutTreeDepth2Executor<LightcutTestWeightMode>                executor;
 #else
 	LightcutTreeMultiLeafExecutor                                     executor;
 #endif

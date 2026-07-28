@@ -109,6 +109,275 @@ set(JSON [=[
         "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_USE_ALIAS=0"],
     },
     {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_uniform",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_uniform_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_arvo",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_arvo_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_projected",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_projected_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_uniform_alias",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_uniform_alias_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_arvo_alias",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_arvo_alias_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_projected_alias",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_projected_alias_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_nee_only_deferred",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_DEFERRED=1", "-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_nee_only_deferred",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_DEFERRED=1", "-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_deferred",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_DEFERRED=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty.hlsl",
+        "KEY": "pathtrace_beauty_tri_deferred",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_DEFERRED=1", "-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_obb_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_obb_tree",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_uniform",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_arvo",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_projected",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_obb_alias_both",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_obb_tree_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_uniform_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_arvo_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_projected_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_uniform_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_uniform_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_arvo_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=2"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_arvo_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_projected_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=3"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/nee_deferred.comp.hlsl",
+        "KEY": "nee_deferred_tri_projected_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_init.comp.hlsl",
+        "KEY": "wavefront_init",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_fixup_first.comp.hlsl",
+        "KEY": "wavefront_fixup_first",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_fixup_bounce.comp.hlsl",
+        "KEY": "wavefront_fixup_bounce",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront.comp.hlsl",
+        "KEY": "wavefront_obb_both",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront.comp.hlsl",
+        "KEY": "wavefront_obb_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront.comp.hlsl",
+        "KEY": "wavefront_tri_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront.comp.hlsl",
+        "KEY": "wavefront_tri_nee_only",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_obb_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_obb_alias_both",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_obb_tree",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_obb_tree_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_uniform",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_uniform_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_arvo",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_arvo_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_projected",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_projected_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3", "-DNBL_NEE_USE_ALIAS=0"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_uniform_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_uniform_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=1"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_arvo_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=2"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_arvo_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=2"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_projected_alias",
+        "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_LEAF_MODE=3"],
+    },
+    {
+        "INPUT": "app_resources/pathtrace/wavefront_nee.comp.hlsl",
+        "KEY": "wavefront_nee_tri_projected_alias_both",
+        "COMPILE_OPTIONS": ["-DNBL_NEE_LEAF_MODE=3"],
+    },
+    {
         "INPUT": "app_resources/pathtrace/debug.hlsl",
         "KEY": "pathtrace_debug",
     },
@@ -126,6 +395,14 @@ set(COMPILE_OPTIONS
     -T lib_${SM}
 )
 
+# The NSC depfile misses header edits, so every rule depends on all reachable shader sources.
+file(GLOB_RECURSE NBL_SHADER_DEPENDS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/*.hlsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/renderer/shaders/*.hlsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../common/include/*.hlsl"
+    "${NBL_ROOT_PATH}/include/nbl/builtin/hlsl/*.hlsl"
+)
+
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
     LINK_TO ${EXECUTABLE_NAME}
@@ -135,6 +412,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
     OUTPUT_VAR KEYS
     INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
     NAMESPACE nbl::this_example::builtin::build
+    DEPENDS ${NBL_SHADER_DEPENDS}
     INPUTS ${JSON}
 )
 

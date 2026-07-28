@@ -1,6 +1,8 @@
 #ifndef _NBL_THIS_EXAMPLE_APP_PATHTRACE_COMMON_HLSL_INCLUDED_
 #define _NBL_THIS_EXAMPLE_APP_PATHTRACE_COMMON_HLSL_INCLUDED_
 
+#include "renderer/shaders/pt_config.hlsl"
+
 #include "renderer/shaders/pathtrace/common.hlsl"
 
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
@@ -268,7 +270,8 @@ struct SPrimaryRay
     float32_t tMin;
 };
 
-SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi)
+// launchSizeZ parameter instead of spirv::LaunchSizeKHR so compute (wavefront init) can call it too
+SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi, const uint32_t launchSizeZ)
 {
     using namespace nbl::hlsl;
 
@@ -289,11 +292,11 @@ SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSi
     {
         retval.ray.origin = hlsl::transpose(sensor.invView)[3];
         float32_t3 viewDir;
-        if (spirv::LaunchSizeKHR.z != 6u)
+        if (launchSizeZ != 6u)
             viewDir = float32_t3(hlsl::mul(sensor.ndcToRay, adjNDC), -1.0);
         else
         {
-            // TODO: handle cubemap cameras 
+            // TODO: handle cubemap cameras
         }
         viewDir = hlsl::normalize(viewDir);
         retval.tMin = sensor.nearClip / hlsl::abs(viewDir.z);
@@ -371,6 +374,11 @@ struct SAOVThroughputs
 };
 
 using spectral_t = float32_t3;
+
+// Surface diffuse reflectance, single source for raygen's BSDF-continuation throughput and NEE direct
+// tinting (inline AND deferred NEE compute must apply the SAME albedo or they diverge).
+// TODO: comes from the material system later.
+float32_t3 surfaceAlbedo() { return float32_t3(0.8, 0.7, 0.5); }
 
 
 struct SArbitraryOutputValues

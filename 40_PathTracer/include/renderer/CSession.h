@@ -35,17 +35,78 @@ class CSession final : public core::IReferenceCounted
 			Count
 		};
 
-		enum class BeautyVariant : uint8_t
+		// OBB is the paper's method, the three Tri* are the prior-art baseline. All Tri* share one
+		// per-triangle light tree and differ only in the shader, so only switching to or from OBB rebuilds.
+		enum class LightSampler : uint8_t
 		{
-			NEEOnly_Alias, // NBL_MIS_MODE=0
-			BxDFOnly,      // NBL_MIS_MODE=1
-			Both_Tree,     // NBL_NEE_USE_ALIAS=0
-			NEEOnly_Tree,  // NBL_MIS_MODE=0, NBL_NEE_USE_ALIAS=0
+			OBB,
+			TriUniform,
+			TriArvo,
+			TriProjected,
 			Count
 		};
-		
-		static BeautyVariant beautyVariantFor(const MisMode misMode, const bool useAlias)
+
+		enum class BeautyVariant : uint8_t
 		{
+			NEEOnly_Alias,      // NBL_MIS_MODE=0
+			BxDFOnly,           // NBL_MIS_MODE=1
+			Both_Tree,          // NBL_NEE_USE_ALIAS=0
+			NEEOnly_Tree,       // NBL_MIS_MODE=0, NBL_NEE_USE_ALIAS=0
+			TriUniform_Both,    // NBL_NEE_LEAF_MODE=1
+			TriUniform_NEEOnly, // NBL_NEE_LEAF_MODE=1, NBL_MIS_MODE=0
+			TriArvo_Both,       // NBL_NEE_LEAF_MODE=2
+			TriArvo_NEEOnly,    // NBL_NEE_LEAF_MODE=2, NBL_MIS_MODE=0
+			TriProjected_Both,  // NBL_NEE_LEAF_MODE=3
+			TriProjected_NEEOnly, // NBL_NEE_LEAF_MODE=3, NBL_MIS_MODE=0
+			// Triangle + alias-table selection (NBL_NEE_USE_ALIAS=1); the tree variants above are USE_ALIAS=0.
+			TriUniform_Alias_Both,      // NBL_NEE_LEAF_MODE=1
+			TriUniform_Alias_NEEOnly,   // NBL_NEE_LEAF_MODE=1, NBL_MIS_MODE=0
+			TriArvo_Alias_Both,         // NBL_NEE_LEAF_MODE=2
+			TriArvo_Alias_NEEOnly,      // NBL_NEE_LEAF_MODE=2, NBL_MIS_MODE=0
+			TriProjected_Alias_Both,    // NBL_NEE_LEAF_MODE=3
+			TriProjected_Alias_NEEOnly, // NBL_NEE_LEAF_MODE=3, NBL_MIS_MODE=0
+			// Raygen only writes per-bounce request slots and differs solely by emitter-ID resolution, so
+			// one variant per (leaf granularity, MIS mode). The sampler choice lives in the compute pipeline.
+			NEEOnly_Deferred,    // NBL_NEE_DEFERRED=1, NBL_MIS_MODE=0
+			TriNEEOnly_Deferred, // NBL_NEE_DEFERRED=1, NBL_MIS_MODE=0, NBL_NEE_LEAF_MODE=1
+			Both_Deferred,       // NBL_NEE_DEFERRED=1
+			TriBoth_Deferred,    // NBL_NEE_DEFERRED=1, NBL_NEE_LEAF_MODE=1
+			Count
+		};
+
+		// Maps a triangle sampler + MIS mode onto its precompiled variant. BxDFOnly disables NEE so the
+		// leaf sampler is irrelevant there (handled by the caller, which returns BxDFOnly).
+		static BeautyVariant triBeautyVariant(const LightSampler sampler, const bool neeOnly, const bool useAlias)
+		{
+			if (useAlias)
+				switch (sampler)
+				{
+					case LightSampler::TriUniform:   return neeOnly ? BeautyVariant::TriUniform_Alias_NEEOnly   : BeautyVariant::TriUniform_Alias_Both;
+					case LightSampler::TriArvo:      return neeOnly ? BeautyVariant::TriArvo_Alias_NEEOnly      : BeautyVariant::TriArvo_Alias_Both;
+					default:                         return neeOnly ? BeautyVariant::TriProjected_Alias_NEEOnly : BeautyVariant::TriProjected_Alias_Both;
+				}
+			switch (sampler)
+			{
+				case LightSampler::TriUniform:   return neeOnly ? BeautyVariant::TriUniform_NEEOnly   : BeautyVariant::TriUniform_Both;
+				case LightSampler::TriArvo:      return neeOnly ? BeautyVariant::TriArvo_NEEOnly      : BeautyVariant::TriArvo_Both;
+				default:                         return neeOnly ? BeautyVariant::TriProjected_NEEOnly : BeautyVariant::TriProjected_Both;
+			}
+		}
+
+		static BeautyVariant beautyVariantFor(const MisMode misMode, const bool useAlias, const LightSampler sampler = LightSampler::OBB, const bool deferredNEE = false)
+		{
+			// Wavefront NEE: BxDF-only has no NEE so it falls through to the inline variant.
+			if (deferredNEE && misMode == MisMode::NEEOnly)
+				return (sampler == LightSampler::OBB) ? BeautyVariant::NEEOnly_Deferred : BeautyVariant::TriNEEOnly_Deferred;
+			if (deferredNEE && misMode == MisMode::Both)
+				return (sampler == LightSampler::OBB) ? BeautyVariant::Both_Deferred : BeautyVariant::TriBoth_Deferred;
+			if (sampler != LightSampler::OBB)
+			{
+				// Triangle baseline selects by alias table or tree descent (useAlias); BxDFOnly has no NEE.
+				if (misMode == MisMode::BxDFOnly)
+					return BeautyVariant::BxDFOnly;
+				return triBeautyVariant(sampler, misMode == MisMode::NEEOnly, useAlias);
+			}
 			switch (misMode)
 			{
 				case MisMode::BxDFOnly: return BeautyVariant::BxDFOnly; // no NEE -> alias/tree irrelevant

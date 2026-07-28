@@ -39,11 +39,11 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		inline CRenderer* getRenderer() const {return m_construction.renderer.get();}
 
 		//
-		inline video::IGPURayTracingPipeline* getPipeline(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true) const
+		inline video::IGPURayTracingPipeline* getPipeline(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true, const CSession::LightSampler sampler = CSession::LightSampler::OBB, const bool deferredNEE = false) const
 		{
 			if (mode == CSession::RenderMode::Beauty)
 			{
-				const auto variant = CSession::beautyVariantFor(misMode, useAlias);
+				const auto variant = CSession::beautyVariantFor(misMode, useAlias, sampler, deferredNEE);
 				if (variant != CSession::BeautyVariant::Count)
 					return m_construction.beautyVariantPipelines[static_cast<uint8_t>(variant)].get();
 			}
@@ -51,11 +51,11 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		}
 
 		//
-		inline const auto& getSBT(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true) const
+		inline const auto& getSBT(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true, const CSession::LightSampler sampler = CSession::LightSampler::OBB, const bool deferredNEE = false) const
 		{
 			if (mode == CSession::RenderMode::Beauty)
 			{
-				const auto variant = CSession::beautyVariantFor(misMode, useAlias);
+				const auto variant = CSession::beautyVariantFor(misMode, useAlias, sampler, deferredNEE);
 				if (variant != CSession::BeautyVariant::Count)
 					return m_construction.beautyVariantSbts[static_cast<uint8_t>(variant)];
 			}
@@ -71,6 +71,9 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 
 		//
 		inline const SLightTree& getLightTree() const {return m_construction.lightTree;}
+
+		// Host-coherent SDebugProbe buffer; null when the scene has no emitters.
+		inline video::IGPUBuffer* getDebugProbeBuffer() const {return m_construction.debugProbe.get();}
 
 		//
 		core::smart_refctd_ptr<CSession> createSession(const CSession::SCreationParams& sensor);
@@ -107,6 +110,12 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			core::smart_refctd_ptr<video::IGPUBuffer> lightTreeLeaves;
 			// device-local buffer of SEmitterGPU (radiance etc.), one entry per emitter; BDA in the UBO
 			core::smart_refctd_ptr<video::IGPUBuffer> emitters;
+			// PerTriangle only, null in OBB mode, which keeps SEmitterGPU at 48 B.
+			core::smart_refctd_ptr<video::IGPUBuffer> emitterTriVerts;
+			// OBB two-ray NEE only, null in PerTriangle mode, which already knows the exact point.
+			core::smart_refctd_ptr<video::IGPUBuffer> emitterRayQuery;
+			// Null unless OBB leaves are enabled.
+			core::smart_refctd_ptr<video::IGPUBuffer> emitterOBB;
 			// device-local buffer of uint32_t mapping emitterID -> heap leaf index; BDA in the UBO
 			core::smart_refctd_ptr<video::IGPUBuffer> emitterToLeafIdx;
 			// device-local uint32_t-per-geometry buffer: instancedGeometryID (= instanceCustomIndex +

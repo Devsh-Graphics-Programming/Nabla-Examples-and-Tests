@@ -98,6 +98,7 @@ private:
 		// Dynamics
 		float cropOffsetX = 0.0f;
 		float cropOffsetY = 0.0f;
+		float tMin = 0.0f;
 		float tMax = 10000.0f;
 		// Per-pixel accumulation cap; bounded by the maxSPP push-constant bitfield.
 		int maxSPP = 0;

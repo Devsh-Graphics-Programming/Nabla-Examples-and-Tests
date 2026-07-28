@@ -1,16 +1,12 @@
 #ifndef _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_STOCHASTIC_LIGHTCUT_TREE_INCLUDED_
 #define _NBL_EXAMPLES_TESTS_37_SAMPLING_COMMON_STOCHASTIC_LIGHTCUT_TREE_INCLUDED_
 
-// The geometric test scenarios (DistFalloff / BelowPlane / Depth2) validate the full
-// distance + orientation importance weighting (mode 0), which is now the library
-// default -- so no #define is needed here. (A header-level define would be unreliable
-// anyway: main.cpp includes the library before this header, locking the C++ TU's mode
-// before the define could take effect.)
-
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/stochastic_lightcut_tree.hlsl>
 
 using namespace nbl::hlsl;
+
+NBL_CONSTEXPR uint32_t LightcutTestWeightMode = 4u;
 
 NBL_CONSTEXPR uint32_t LightcutTestNumLeaves = 4u;
 
@@ -192,9 +188,8 @@ struct LightcutTreeTestExecutorImpl
    }
 };
 
-// multi/single are mode-agnostic CPU-vs-GPU consistency checks; pin them to the library default.
-using LightcutTreeMultiLeafExecutor  = LightcutTreeTestExecutorImpl<false, NBL_LIGHTCUT_TREE_WEIGHT_MODE>;
-using LightcutTreeSingleLeafExecutor = LightcutTreeTestExecutorImpl<true, NBL_LIGHTCUT_TREE_WEIGHT_MODE>;
+using LightcutTreeMultiLeafExecutor  = LightcutTreeTestExecutorImpl<false, LightcutTestWeightMode>;
+using LightcutTreeSingleLeafExecutor = LightcutTreeTestExecutorImpl<true, LightcutTestWeightMode>;
 
 // --- AABB-driven scenarios ---------------------------------------------------
 // All four executors below share the multi-leaf wide-node layout (firstLeafIdx
@@ -326,7 +321,7 @@ struct LightcutTreeDistanceFalloffExecutor
 // and one with a huge inflated bbox spanning the shading point. Equal power.
 // With the nearest-point distance + halfDiagSq floor (mode 0), the huge box's
 // distSq floors to its own (large) half-diagonal^2 instead of collapsing to a
-// tiny number, so it no longer steals weight from the tight near emitter -- the
+// tiny number, so it no longer steals weight from the tight near emitter, the
 // inverse of the old centroid-distance behaviour. The tester only checks
 // consistency (fwd==bwd, jacobian==1), not which leaf wins, so it passes either
 // way; this scenario guards that the floor keeps the inflated box well-conditioned.
@@ -422,7 +417,7 @@ struct LightcutTreeDepth2Executor
 
       // Build 5 wide-nodes:
       //  [0] root: 4 children (groups 0..3), all internal. childLeafMask = 0.
-      //  [1..4]: leaf parents -- 4 children each, all leaves. childLeafMask = 0xF.
+      //  [1..4]: leaf parents, 4 children each, all leaves. childLeafMask = 0xF.
       LightcutTestNodeArrayAccessor nodeAcc;
 
       // Root: each child's bbox is the union of its group's 4 leaf bboxes,

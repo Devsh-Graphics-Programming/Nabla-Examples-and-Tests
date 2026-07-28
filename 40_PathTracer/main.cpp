@@ -108,10 +108,7 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 
 
 public:
-   inline PathTracingApp(const path& _localInputCWD,
-      const path&                    _localOutputCWD,
-      const path&                    _sharedInputCWD,
-      const path&                    _sharedOutputCWD)
+   inline PathTracingApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
       : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
    {
    }
@@ -159,24 +156,18 @@ public:
             uint64_t    largestVRAMHeap = 0;
             using heap_flags_e          = IDeviceMemoryAllocation::E_MEMORY_HEAP_FLAGS;
             for (uint32_t h = 0; h < props.memoryHeapCount; h++)
-               if (const auto& heap = props.memoryHeaps[h];
-                  heap.flags.hasFlags(heap_flags_e::EMHF_DEVICE_LOCAL_BIT))
+               if (const auto& heap = props.memoryHeaps[h]; heap.flags.hasFlags(heap_flags_e::EMHF_DEVICE_LOCAL_BIT))
                   largestVRAMHeap = nbl::hlsl::max(largestVRAMHeap, heap.size);
             const auto typeBits = device->getDirectVRAMAccessMemoryTypeBits();
             for (uint32_t t = 0; t < props.memoryTypeCount; t++)
-               if (((typeBits >> t) & 0x1u) &&
-                  props.memoryHeaps[props.memoryTypes[t].heapIndex].size == largestVRAMHeap)
+               if (((typeBits >> t) & 0x1u) && props.memoryHeaps[props.memoryTypes[t].heapIndex].size == largestVRAMHeap)
                   return false;
-            m_logger->log("Filtering out Device %p (%s) due to lack of ReBAR",
-               ILogger::ELL_WARNING,
-               device,
-               device->getProperties().deviceName);
+            m_logger->log("Filtering out Device %p (%s) due to lack of ReBAR", ILogger::ELL_WARNING, device, device->getProperties().deviceName);
             return true;
          });
    }
 
-   inline nbl::core::vector<SPhysicalDeviceFilter::SurfaceCompatibility>
-   getSurfaces() const override
+   inline nbl::core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
    {
       if (m_args.headless)
          return {};
@@ -184,13 +175,11 @@ public:
       if (!m_presenter)
       {
          const_cast<std::remove_reference_t<decltype(m_presenter)>&>(m_presenter) =
-            CWindowPresenter::create(
-               { { .assMan = m_assetMgr, .logger = smart_refctd_ptr(m_logger) },
-                  { .winMgr = m_winMgr },
-                  m_api,
-                  make_smart_refctd_ptr<CEventCallback>(
-                     smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger)),
-                  "Path Tracer" });
+            CWindowPresenter::create({ { .assMan = m_assetMgr, .logger = smart_refctd_ptr(m_logger) },
+               { .winMgr = m_winMgr },
+               m_api,
+               make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger)),
+               "Path Tracer" });
       }
 
       if (m_presenter)
@@ -207,8 +196,7 @@ public:
       m_args = parsePTArgs(this->argv);
 
       if (!m_args.headless)
-         m_inputSystem =
-            make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+         m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
       if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
          return false;
@@ -233,9 +221,7 @@ public:
                                           .uploadQueue  = getTransferUpQueue(),
                                           .utilities    = smart_refctd_ptr(m_utils) },
          m_assetMgr.get(),
-         (sharedOutputCWD /
-            nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename)
-            .string() });
+         (sharedOutputCWD / nbl::examples::CCachedOwenScrambledSequence::SCreationParams::DefaultFilename).string() });
       if (!m_renderer)
          return logFail("Failed to create CRenderer");
 
@@ -249,17 +235,14 @@ public:
          return logFail("Failed to create CBasicRWMCResolver");
 
       // set up the scene loader
-      m_sceneLoader = CSceneLoader::create(
-         { { .assMan = smart_refctd_ptr(m_assetMgr), .logger = smart_refctd_ptr(m_logger) } });
+      m_sceneLoader = CSceneLoader::create({ { .assMan = smart_refctd_ptr(m_assetMgr), .logger = smart_refctd_ptr(m_logger) } });
 
       // TODO: tmp code
       {
          m_api->startCapture();
          m_currentScenePath = (sharedInputCWD / "mitsuba/ditt/render_720p.xml").string();
          m_currentScene     = m_renderer->createScene(
-            { .load = m_sceneLoader->load(
-                 { .relPath = m_currentScenePath, .workingDirectory = localOutputCWD }),
-                   .converter = nullptr });
+            { .load = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD }), .converter = nullptr });
          auto scene_daily_pt = m_currentScene;
 
          // the UI would have you load the zip first, then present a dropdown of what to load
@@ -291,15 +274,12 @@ public:
          }
          for (auto i = 1; i < 3; i++)
          {
-            sensors[i].constants.width =
-               sensors[i].mutableDefaults.cropWidth + 2 * sensors[i].mutableDefaults.cropOffsetX;
-            sensors[i].constants.height =
-               sensors[i].mutableDefaults.cropHeight + 2 * sensors[i].mutableDefaults.cropOffsetY;
+            sensors[i].constants.width  = sensors[i].mutableDefaults.cropWidth + 2 * sensors[i].mutableDefaults.cropOffsetX;
+            sensors[i].constants.height = sensors[i].mutableDefaults.cropHeight + 2 * sensors[i].mutableDefaults.cropOffsetY;
          }
          //				sensors.erase(sensors.begin());
          for (const auto& sensor : sensors)
-            m_sessionQueue.push(scene_daily_pt->createSession(
-               { { .mode = CSession::RenderMode::Beauty }, &sensor }));
+            m_sessionQueue.push(scene_daily_pt->createSession({ { .mode = CSession::RenderMode::Beauty }, &sensor }));
       }
 
       // Initialize UI Manager (non-headless only)
@@ -322,13 +302,11 @@ public:
                   const auto sensors = m_currentScene->getSensors();
                   if (sensorIdx < sensors.size())
                   {
-                     const auto mode = m_pendingSession
-                        ? m_pendingSession->getConstructionParams().mode
-                        : (m_resolver->getActiveSession()
-                                ? m_resolver->getActiveSession()->getConstructionParams().mode
-                                : CSession::RenderMode::Beauty);
-                     auto       newSession =
-                        m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
+                     const auto mode       = m_pendingSession
+                              ? m_pendingSession->getConstructionParams().mode
+                              : (m_resolver->getActiveSession() ? m_resolver->getActiveSession()->getConstructionParams().mode
+                                                                : CSession::RenderMode::Beauty);
+                     auto       newSession = m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
                      if (newSession)
                      {
                         m_currentSensorIdx = sensorIdx;
@@ -347,8 +325,7 @@ public:
                m_logger->log("Loading scene: %s", ILogger::ELL_INFO, path.c_str());
 
                // Load the scene
-               auto                   loadResult =
-                  m_sceneLoader->load({ .relPath = path, .workingDirectory = localOutputCWD });
+               auto                   loadResult   = m_sceneLoader->load({ .relPath = path, .workingDirectory = localOutputCWD });
 
                if (!loadResult)
                {
@@ -357,13 +334,11 @@ public:
                }
 
                // Create the scene
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto                   newScene     = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
 
                if (!newScene)
                {
-                  m_logger->log(
-                     "Failed to create scene from: %s", ILogger::ELL_ERROR, path.c_str());
+                  m_logger->log("Failed to create scene from: %s", ILogger::ELL_ERROR, path.c_str());
                   return;
                }
 
@@ -381,8 +356,7 @@ public:
                initCameraFromSensor(m_currentSensorIdx);
                {
                   const auto& sensors    = m_currentScene->getSensors();
-                  auto        newSession = m_currentScene->createSession(
-                     { { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
+                  auto        newSession = m_currentScene->createSession({ { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
                   if (newSession)
                      m_pendingSession = std::move(newSession);
                }
@@ -401,24 +375,19 @@ public:
                m_logger->log("Reloading scene: %s", ILogger::ELL_INFO, m_currentScenePath.c_str());
 
                // Reload the scene
-               auto                   loadResult   = m_sceneLoader->load(
-                  { .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+               auto                   loadResult   = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
 
                if (!loadResult)
                {
-                  m_logger->log(
-                     "Failed to reload scene: %s", ILogger::ELL_ERROR, m_currentScenePath.c_str());
+                  m_logger->log("Failed to reload scene: %s", ILogger::ELL_ERROR, m_currentScenePath.c_str());
                   return;
                }
 
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto                   newScene     = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
 
                if (!newScene)
                {
-                  m_logger->log("Failed to create scene from: %s",
-                     ILogger::ELL_ERROR,
-                     m_currentScenePath.c_str());
+                  m_logger->log("Failed to create scene from: %s", ILogger::ELL_ERROR, m_currentScenePath.c_str());
                   return;
                }
 
@@ -437,8 +406,7 @@ public:
                   CSession::RenderMode mode = CSession::RenderMode::Beauty;
                   if (auto* active = m_resolver->getActiveSession())
                      mode = active->getConstructionParams().mode;
-                  auto newSession =
-                     m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
+                  auto newSession = m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
                   if (newSession)
                      m_pendingSession = std::move(newSession);
                }
@@ -451,15 +419,12 @@ public:
                if (!m_currentScene || m_currentScenePath.empty())
                   return;
                m_renderer->setEmitterDensity(density);
-               m_logger->log(
-                  "Emitter density -> %.3f, rebuilding scene", ILogger::ELL_INFO, density);
+               m_logger->log("Emitter density -> %.3f, rebuilding scene", ILogger::ELL_INFO, density);
 
-               auto                   loadResult   = m_sceneLoader->load(
-                  { .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+               auto                   loadResult   = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
                if (!loadResult)
                   return;
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto                   newScene     = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
                if (!newScene)
                   return;
                m_currentScene                      = std::move(newScene);
@@ -471,8 +436,7 @@ public:
                CSession::RenderMode   mode         = CSession::RenderMode::Beauty;
                if (auto* active = m_resolver->getActiveSession())
                   mode = active->getConstructionParams().mode;
-               auto                   newSession =
-                  m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
+               auto                   newSession   = m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
                if (newSession)
                   m_pendingSession = std::move(newSession);
             },
@@ -481,6 +445,18 @@ public:
             {
                if (m_renderer)
                   m_renderer->setUseAliasNEE(useAlias);
+            },
+            .onDeferredNEEChanged =
+               [this](int deferredMode)
+            {
+               if (m_renderer)
+                  m_renderer->setDeferredNEEMode(static_cast<CRenderer::DeferredNEEMode>(deferredMode));
+            },
+            .onNeeBandCountChanged =
+               [this](int bandCount)
+            {
+               if (m_renderer)
+                  m_renderer->setNeeBandCount(uint32_t(bandCount));
             },
             .onMisModeChanged =
                [this](int misMode)
@@ -493,8 +469,36 @@ public:
                   m_restartAccumOnNextFrame = true;
                }
             },
-            .onCameraMoveSpeedChanged              = [this](float moveSpeed)
-            { m_camera.setMoveSpeed(moveSpeed); },
+            .onLeafSamplerChanged =
+               [this](int sampler)
+            {
+               if (!m_renderer || !m_currentScene || m_currentScenePath.empty())
+                  return;
+               m_renderer->setLeafSampler(static_cast<CSession::LightSampler>(sampler));
+               // Leaf set and emitter buffers differ per granularity. Tri sub-mode swaps only need the new
+               // pipeline, but rebuilding anyway is harmless.
+               m_logger->log("Light sampler -> %d, rebuilding scene", ILogger::ELL_INFO, sampler);
+               auto loadResult = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+               if (!loadResult)
+                  return;
+               auto newScene = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               if (!newScene)
+                  return;
+               m_currentScene = std::move(newScene);
+               if (m_uiManager)
+                  m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
+               const auto&  sensors   = m_currentScene->getSensors();
+               const size_t sensorIdx = std::min<size_t>(m_currentSensorIdx, sensors.size() - 1);
+               m_currentSensorIdx     = sensorIdx;
+               CSession::RenderMode mode = CSession::RenderMode::Beauty;
+               if (auto* active = m_resolver->getActiveSession())
+                  mode = active->getConstructionParams().mode;
+               auto newSession = m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
+               if (newSession)
+                  m_pendingSession = std::move(newSession);
+               m_restartAccumOnNextFrame = true;
+            },
+            .onCameraMoveSpeedChanged              = [this](float moveSpeed) { m_camera.setMoveSpeed(moveSpeed); },
             .onProbeChanged =
                [this](float px, float py, float pz, float nx, float ny, float nz)
             {
@@ -513,25 +517,21 @@ public:
                const auto             sensors      = m_currentScene->getSensors();
                if (m_currentSensorIdx >= sensors.size())
                   return;
-               auto                   newSession =
-                  m_currentScene->createSession({ { .mode = mode }, &sensors[m_currentSensorIdx] });
+               auto                   newSession   = m_currentScene->createSession({ { .mode = mode }, &sensors[m_currentSensorIdx] });
                if (newSession)
                   m_pendingSession = std::move(newSession);
             },
-            .onResolutionChanged = [this](uint16_t w, uint16_t h)
-            { m_logger->log("Resolution changed to %dx%d (TODO)", ILogger::ELL_INFO, w, h); },
+            .onResolutionChanged = [this](uint16_t w, uint16_t h) { m_logger->log("Resolution changed to %dx%d (TODO)", ILogger::ELL_INFO, w, h); },
             .onMutablesChanged =
                [this](const SSensorDynamics& dyn, CSession* session)
             {
                session->update(dyn);
                m_logger->log("Mutables changed (Reset TODO)", ILogger::ELL_INFO);
             },
-            .onDynamicsChanged                     = [this](const SSensorDynamics& dyn, CSession* session)
-            { session->update(dyn); },
+            .onDynamicsChanged                     = [this](const SSensorDynamics& dyn, CSession* session) { session->update(dyn); },
             // App-driven (not committed via update()): applied into the dynamics each
             // frame so the change reads as a delta and restarts accumulation.
-            .onMaxPathDepthChanged                 = [this](uint16_t maxPathDepth)
-            { m_maxPathDepth                       = maxPathDepth; },
+            .onMaxPathDepthChanged                 = [this](uint16_t maxPathDepth) { m_maxPathDepth = maxPathDepth; },
             .onBufferSelected =
                [this](int id)
             {
@@ -568,8 +568,7 @@ public:
                }
                m_presenter->setSelectedImageIndex(static_cast<uint8_t>(imageIndex));
             },
-            .onBenchmarkRequested                  = [this](CSession* session)
-            { runBenchmarkOnce(session, benchSceneLabel(), m_currentSensorIdx); },
+            .onBenchmarkRequested                  = [this](CSession* session) { runBenchmarkOnce(session, benchSceneLabel(), m_currentSensorIdx); },
             .onDumpImageRequested =
                [this](CSession* session)
             {
@@ -589,8 +588,7 @@ public:
          {
             const auto& sensors = m_currentScene->getSensors();
             initCameraFromSensor(m_currentSensorIdx);
-            auto initialSession = m_currentScene->createSession(
-               { { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
+            auto initialSession = m_currentScene->createSession({ { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
 
             m_pendingSession = std::move(initialSession);
          }
@@ -611,8 +609,8 @@ public:
             m_sessionQueue.pop();
 
          CSession* const sessionPtr = session.get();
-         m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() },
-            [sessionPtr](SIntendedSubmitInfo& info) -> bool { return sessionPtr->init(info); });
+         m_utils->autoSubmit<SIntendedSubmitInfo>(
+            { .queue = getGraphicsQueue() }, [sessionPtr](SIntendedSubmitInfo& info) -> bool { return sessionPtr->init(info); });
          m_resolver->changeSession(std::move(session));
 
          runBenchmarkOnce(m_resolver->getActiveSession(), benchSceneLabel(), m_currentSensorIdx);
@@ -636,34 +634,27 @@ public:
 
       // Per-run artifact dir under ./benchmarks/, used by the FLIP compare
       // script: bench.json + one beauty EXR per row land here together.
-      const std::filesystem::path runDir = std::filesystem::current_path() / "benchmarks" /
-         std::format("{}_s{}_{}", sceneLabel, sensorIdx, nowStamp());
+      const std::filesystem::path runDir =
+         std::filesystem::current_path() / "benchmarks" / std::format("{}_s{}_{}", sceneLabel, sensorIdx, nowStamp());
       std::error_code ec;
       std::filesystem::create_directories(runDir, ec);
 
-      Aggregator agg(smart_refctd_ptr(m_logger),
-         smart_refctd_ptr(m_device),
-         m_physicalDevice,
-         getComputeQueue()->getFamilyIndex());
+      Aggregator agg(smart_refctd_ptr(m_logger), smart_refctd_ptr(m_device), m_physicalDevice, getComputeQueue()->getFamilyIndex());
       agg.applyCli({
          .argv              = this->argv,
          .defaultOutputPath = (runDir / "bench.json").string(),
          .appName           = "40_PathTracer",
       });
 
-      constexpr uint64_t targetBudgetMs =
-         2000; // unused in equal-spp mode (fixedTimedFrames), kept for the time-budget path
+      constexpr uint64_t targetBudgetMs = 1000; // unused in equal-spp mode (fixedTimedFrames), kept for the time-budget path
       // Equal-spp comparison: run every row to the SAME samples-per-pixel so FLIP isolates
       // per-sample variance (selection quality), not throughput. Must be <= the renderOnce
       // maxSPPOverride cap and the 22-bit maxSPP field. Frame count is derived from the
       // per-frame spp below.
-      constexpr uint64_t targetSamplesPerPixel =
-         3000; // high-spp reference run (fp32 Beauty accumulation, RWMC bypassed)
-      const auto     renderSize = session->getConstructionParams().uniforms.renderSize;
-      const uint32_t depth =
-         session->getConstructionParams().type != CSession::sensor_type_e::Env ? 1u : 6u;
-      const uint64_t totalThreads =
-         uint64_t(renderSize.x) * uint64_t(renderSize.y) * uint64_t(depth);
+      constexpr uint64_t targetSamplesPerPixel = 64; // high-spp reference run (fp32 Beauty accumulation, RWMC bypassed)
+      const auto         renderSize            = session->getConstructionParams().uniforms.renderSize;
+      const uint32_t     depth                 = session->getConstructionParams().type != CSession::sensor_type_e::Env ? 1u : 6u;
+      const uint64_t     totalThreads          = uint64_t(renderSize.x) * uint64_t(renderSize.y) * uint64_t(depth);
 
       // Query the RT pipeline's executable info up front so the banner shows
       // the actual subgroup size as `wg=<sgSize>x1x1`. Falls back to the 3D
@@ -696,37 +687,6 @@ public:
       const bool              savedToggle  = m_renderer->getUseAliasNEE();
       const CSession::MisMode savedMisMode = m_renderer->getMisMode();
 
-      // misLabel is its own name segment (the MIS mode), techLabel is the last (the
-      // selector compared within that mode). So group_key = everything up to and
-      // including misLabel: rows are grouped per MIS mode, and each mode gets its own
-      // converged reference (subfoldered by misLabel). EXRs dump to runDir/<misLabel>/
-      // <techLabel>.exr so the per-mode references mirror the run layout exactly.
-      auto makeBenchData =
-         [&](const std::string& misLabel, const std::string& techLabel, int useAlias, int misMode)
-      {
-         CPathTracerBenchmark::SetupData data = {};
-         data.name                            = { "PathTracer",
-                                       modeStr,
-                                       sceneLabel + "/sensor" + std::to_string(sensorIdx),
-                                       misLabel,
-                                       techLabel };
-         data.shape                           = ctx.shape;
-         data.targetBudgetMs                  = ctx.targetBudgetMs;
-         data.warmupDispatches                = 5;
-         // Same frame count for every row -> same total spp, so the slower selector
-         // can't look cleaner just by banking more samples in a fixed time budget.
-         //data.fixedTimedFrames                = uint32_t((targetSamplesPerPixel + sppPerInvocation - 1ull) / sppPerInvocation);
-         data.renderer           = m_renderer.get();
-         data.session            = session;
-         data.useAliasNEE        = useAlias;
-         data.misMode            = misMode;
-         data.onAfterTimedFrames = [this, session, runDir, misLabel, techLabel]()
-         {
-            dumpBeautyToEXR(session, runDir / misLabel / (techLabel + ".exr"));
-         };
-         return data;
-      };
-
       m_logger->log(
          "ps/sample is GPU time per samplesPerDispatch (= renderSize.x * renderSize.y * depth * maxSppPerDispatch = %u * %u * %u * %u = %llu samples/frame)",
          ILogger::ELL_INFO,
@@ -736,25 +696,123 @@ public:
          uint32_t(sppPerInvocation),
          static_cast<uint64_t>(shape.samplesPerDispatch));
 
-      // Rows span the MIS-mode axis (separate Beauty pipelines) x the NEE-selection axis. For the
-      // NEE-bearing modes (Both, NEEOnly) both alias and tree are meaningful; BxDFOnly has no NEE, so
-      // selection is irrelevant and it gets a single anchor row. BxDFOnly is the unbiased reference:
-      // BOTH's direct lighting must match it (partition-of-unity), the extra brightness being indirect.
-      using MisMode = CSession::MisMode;
-      // One span (contiguous vector) so every row shares a single banner/header and one report write,
-      // instead of one table per row. reserve() avoids reallocation so the benches never move.
-      std::vector<CPathTracerBenchmark> benches;
-      benches.reserve(5);
-      benches.emplace_back(agg, makeBenchData("Both", "nee-alias", 1, int(MisMode::Both)));
-      benches.emplace_back(agg, makeBenchData("Both", "nee-tree", 0, int(MisMode::Both)));
-      benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-alias", 1, int(MisMode::NEEOnly)));
-      benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-tree", 0, int(MisMode::NEEOnly)));
-      benches.emplace_back(agg, makeBenchData("BxDFOnly", "bxdf", -1, int(MisMode::BxDFOnly)));
+      const CSession::LightSampler savedSampler = m_renderer->getLeafSampler();
 
-      agg.runSessionAndReport(Aggregator::makeSpan(benches, ctx));
+      // Triangle modes need a different light tree and emitter buffers, so each sampler group rebuilds
+      // the scene (deterministic, fixed emitter seed) and runs sequentially on its own session, with the
+      // aggregator accumulating rows across groups. BxDFOnly has no NEE, so it is covered once under OBB.
+      using MisMode = CSession::MisMode;
+      struct SamplerGroup
+      {
+         CSession::LightSampler sampler;
+         const char*            label;
+         bool                   triangle;
+      };
+      const SamplerGroup groups[] = {
+         { CSession::LightSampler::OBB, "obb-silhouette", false },
+         { CSession::LightSampler::TriUniform, "tri-uniform", true },
+         { CSession::LightSampler::TriArvo, "tri-arvo", true },
+         { CSession::LightSampler::TriProjected, "tri-projected", true },
+      };
+
+      // Triangle modes need a rebuild (different leaf set); without a scene path to reload, only the
+      // already-built OBB session can be benchmarked.
+      const bool canRebuild = !m_currentScenePath.empty();
+
+      for (const auto& g : groups)
+      {
+         if (g.triangle && !canRebuild)
+            continue;
+
+         m_renderer->setLeafSampler(g.sampler);
+
+         // OBB is rebuilt too, so every group is on equal footing regardless of which sampler was active.
+         core::smart_refctd_ptr<CScene>   groupScene;
+         core::smart_refctd_ptr<CSession> groupSessionOwned;
+         CSession*                        groupSession = session;
+         if (canRebuild)
+         {
+            auto loadResult = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+            if (!loadResult)
+               continue;
+            groupScene = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+            if (!groupScene)
+               continue;
+            const auto&  sensors = groupScene->getSensors();
+            const size_t sIdx    = std::min<size_t>(sensorIdx, sensors.size() - 1);
+            groupSessionOwned    = groupScene->createSession({ { .mode = mode }, &sensors[sIdx] });
+            if (!groupSessionOwned)
+               continue;
+            groupSession = groupSessionOwned.get();
+            // A freshly created session must be initialized (GPU resources) before render() will submit,
+            // exactly like the app's session-activation path does.
+            CSession* const initPtr = groupSession;
+            m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() }, [initPtr](SIntendedSubmitInfo& info) -> bool { return initPtr->init(info); });
+            if (!groupSession->isInitialized())
+               continue;
+            // Rebuilt sessions come up with the SCENE-default path depth; honor the app's GUI-driven
+            // value like the interactive loop does, so bench rows run at the depth the user set.
+            if (m_maxPathDepth != 0u)
+            {
+               SSensorDynamics dyn = groupSession->getActiveResources().currentSensorState;
+               dyn.lastPathDepth   = m_maxPathDepth - 1u;
+               groupSession->update(dyn);
+            }
+         }
+
+         const int samplerArg = int(g.sampler);
+
+         // name = ...//<sampler>/<misLabel>/<techLabel>; group_key is everything up to misLabel, so each
+         // (sampler, MIS mode) gets its own converged reference. EXRs mirror the layout for FLIP.
+         auto makeBenchData = [&](const std::string& misLabel, const std::string& techLabel, int useAlias, int misMode)
+         {
+            CPathTracerBenchmark::SetupData data = {};
+            data.name                            = { "PathTracer", modeStr, sceneLabel + "/sensor" + std::to_string(sensorIdx), g.label, misLabel, techLabel };
+            data.shape                           = ctx.shape;
+            data.targetBudgetMs                  = ctx.targetBudgetMs;
+            data.warmupDispatches                = 5;
+            data.renderer                        = m_renderer.get();
+            data.session                         = groupSession;
+            data.useAliasNEE                     = useAlias;
+            data.misMode                         = misMode;
+            data.leafSampler                     = samplerArg;
+            //data.fixedTimedFrames   = uint32_t((targetSamplesPerPixel + sppPerInvocation - 1ull) / sppPerInvocation);
+            const std::string sampLabel          = g.label;
+            data.onAfterTimedFrames              = [this, groupSession, runDir, sampLabel, misLabel, techLabel]()
+            {
+               dumpBeautyToEXR(groupSession, runDir / sampLabel / misLabel / (techLabel + ".exr"));
+            };
+            return data;
+         };
+
+         std::vector<CPathTracerBenchmark> benches;
+         if (!g.triangle)
+         {
+            // OBB: MIS-mode axis x NEE-selection axis (alias vs tree). BxDFOnly is the unbiased anchor.
+            benches.reserve(5);
+            benches.emplace_back(agg, makeBenchData("Both", "nee-alias", 1, int(MisMode::Both)));
+            benches.emplace_back(agg, makeBenchData("Both", "nee-tree", 0, int(MisMode::Both)));
+            benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-alias", 1, int(MisMode::NEEOnly)));
+            benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-tree", 0, int(MisMode::NEEOnly)));
+            benches.emplace_back(agg, makeBenchData("BxDFOnly", "bxdf", -1, int(MisMode::BxDFOnly)));
+         }
+         else
+         {
+            // useAlias is explicit here now that the triangle path honors it; -1 would leave it at the GUI
+            // state and mislabel the row.
+            benches.reserve(4);
+            benches.emplace_back(agg, makeBenchData("Both", "nee-alias", 1, int(MisMode::Both)));
+            benches.emplace_back(agg, makeBenchData("Both", "nee-tree", 0, int(MisMode::Both)));
+            benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-alias", 1, int(MisMode::NEEOnly)));
+            benches.emplace_back(agg, makeBenchData("NEEOnly", "nee-tree", 0, int(MisMode::NEEOnly)));
+         }
+
+         agg.runSessionAndReport(Aggregator::makeSpan(benches, ctx));
+      }
 
       m_renderer->setUseAliasNEE(savedToggle);
       m_renderer->setMisMode(savedMisMode);
+      m_renderer->setLeafSampler(savedSampler);
    }
 
    // Which session image gets read back when dumping EXRs (both for the
@@ -806,9 +864,7 @@ public:
       }
       if (!srcGPUImage)
       {
-         m_logger->log("Dump: %s source image missing",
-            ILogger::ELL_ERROR,
-            std::string(dumpTargetTag(kDumpTarget)).c_str());
+         m_logger->log("Dump: %s source image missing", ILogger::ELL_ERROR, std::string(dumpTargetTag(kDumpTarget)).c_str());
          return false;
       }
 
@@ -834,16 +890,11 @@ public:
       if (out.has_parent_path())
          std::filesystem::create_directories(out.parent_path(), ec);
 
-      auto cpuView = ext::ScreenShot::createScreenShot(m_device.get(),
-         getGraphicsQueue()->getUnderlyingQueue(),
-         nullptr,
-         view,
-         ACCESS_FLAGS::SHADER_WRITE_BITS,
-         IImage::LAYOUT::GENERAL);
+      auto cpuView = ext::ScreenShot::createScreenShot(
+         m_device.get(), getGraphicsQueue()->getUnderlyingQueue(), nullptr, view, ACCESS_FLAGS::SHADER_WRITE_BITS, IImage::LAYOUT::GENERAL);
       if (!cpuView)
       {
-         m_logger->log(
-            "Dump: GPU readback failed for \"%s\"", ILogger::ELL_ERROR, out.string().c_str());
+         m_logger->log("Dump: GPU readback failed for \"%s\"", ILogger::ELL_ERROR, out.string().c_str());
          return false;
       }
 
@@ -856,9 +907,7 @@ public:
       cleanParams.format      = viewFormat;
       auto cleanImage         = ICPUImage::create(std::move(cleanParams));
       if (!cleanImage ||
-         !cleanImage->setBufferAndRegions(
-            smart_refctd_ptr<ICPUBuffer>(const_cast<ICPUBuffer*>(srcImage->getBuffer())),
-            srcImage->getRegionArray()))
+         !cleanImage->setBufferAndRegions(smart_refctd_ptr<ICPUBuffer>(const_cast<ICPUBuffer*>(srcImage->getBuffer())), srcImage->getRegionArray()))
       {
          m_logger->log("Dump: failed to rebuild clean CPU image", ILogger::ELL_ERROR);
          return false;
@@ -869,7 +918,7 @@ public:
       cleanViewParams.image                       = std::move(cleanImage);
       cleanViewParams.format                      = viewFormat;
       cleanViewParams.subresourceRange.layerCount = 1u;
-      auto cleanView = ICPUImageView::create(std::move(cleanViewParams));
+      auto cleanView                              = ICPUImageView::create(std::move(cleanViewParams));
       if (!cleanView)
       {
          m_logger->log("Dump: failed to rebuild clean CPU view", ILogger::ELL_ERROR);
@@ -896,11 +945,7 @@ public:
    void dumpBeautyToEXR(CSession* session)
    {
       const auto out = std::filesystem::current_path() / "dumps" /
-         std::format("{}_{}_s{}_{}.exr",
-            dumpTargetTag(kDumpTarget),
-            benchSceneLabel(),
-            m_currentSensorIdx,
-            nowStamp());
+         std::format("{}_{}_s{}_{}.exr", dumpTargetTag(kDumpTarget), benchSceneLabel(), m_currentSensorIdx, nowStamp());
       dumpBeautyToEXR(session, out);
    }
 
@@ -926,8 +971,8 @@ public:
                return;
             session = m_sessionQueue.front().get();
             // init
-            m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() },
-               [&session](SIntendedSubmitInfo& info) -> bool { return session->init(info); });
+            m_utils->autoSubmit<SIntendedSubmitInfo>(
+               { .queue = getGraphicsQueue() }, [&session](SIntendedSubmitInfo& info) -> bool { return session->init(info); });
             m_resolver->changeSession(std::move(m_sessionQueue.front()));
             m_sessionQueue.pop();
          }
@@ -953,9 +998,8 @@ public:
          if (m_pendingSession)
          {
             auto pendingSession = m_pendingSession.get();
-            m_utils->autoSubmit<SIntendedSubmitInfo>({ .queue = getGraphicsQueue() },
-               [pendingSession](SIntendedSubmitInfo& info) -> bool
-               { return pendingSession->init(info); });
+            m_utils->autoSubmit<SIntendedSubmitInfo>(
+               { .queue = getGraphicsQueue() }, [pendingSession](SIntendedSubmitInfo& info) -> bool { return pendingSession->init(info); });
             m_resolver->changeSession(std::move(m_pendingSession));
 
             // New session may have a different scene-default path depth; re-seed.
@@ -981,8 +1025,7 @@ public:
                for (int j = 0; j < 3; ++j)
                   invView[i][j] = V[j][i];
             for (int i = 0; i < 3; ++i)
-               invView[i][3] =
-                  -(invView[i][0] * V[0][3] + invView[i][1] * V[1][3] + invView[i][2] * V[2][3]);
+               invView[i][3] = -(invView[i][0] * V[0][3] + invView[i][1] * V[1][3] + invView[i][2] * V[2][3]);
             dyn.invView = invView;
             // Max path depth is app-driven like the camera: lazily seed from the
             // session, then apply our copy every frame so a GUI change shows up as a
@@ -1031,8 +1074,7 @@ public:
             pushGizmoCameraMatrices();
             m_uiManager->drawWindows();
 
-            const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_presenter->getSemaphore(),
-               .value = m_presenter->getPresentCount() + 1 };
+            const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_presenter->getSemaphore(), .value = m_presenter->getPresentCount() + 1 };
 
             // Render ImGui
             auto* const cb = m_presenter->beginRenderpass();
@@ -1061,8 +1103,7 @@ public:
       const bool     imguiTakesMouse    = io.WantCaptureMouse;
       const bool     imguiTakesKeyboard = io.WantCaptureKeyboard;
 
-      const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
-         std::chrono::steady_clock::now().time_since_epoch());
+      const auto now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch());
       m_camera.beginInputProcessing(now);
 
       static std::chrono::microseconds previousEventTimestamp {};
@@ -1099,20 +1140,18 @@ public:
 
       if (m_uiManager)
       {
-         const SRange<const SMouseEvent> mouseEvents(
-            capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
-         const SRange<const SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(),
-            capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+         const SRange<const SMouseEvent>    mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+         const SRange<const SKeyboardEvent> keyboardEvents(
+            capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
          auto*      window         = m_presenter->getWindow();
          const auto cursorPosition = window->getCursorControl()->getPosition();
-         const auto mousePosition  = float32_t2(cursorPosition.x, cursorPosition.y) -
-            float32_t2(window->getX(), window->getY());
+         const auto mousePosition  = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(window->getX(), window->getY());
 
          const nbl::ext::imgui::UI::SUpdateParameters params = { .mousePosition = mousePosition,
-            .displaySize    = { window->getWidth(), window->getHeight() },
-            .mouseEvents    = mouseEvents,
-            .keyboardEvents = keyboardEvents };
+            .displaySize                                                        = { window->getWidth(), window->getHeight() },
+            .mouseEvents                                                        = mouseEvents,
+            .keyboardEvents                                                     = keyboardEvents };
          m_uiManager->update(params);
       }
    }
@@ -1150,7 +1189,7 @@ private:
    smart_refctd_ptr<CSceneLoader> m_sceneLoader;
    //
    nbl::core::queue<smart_refctd_ptr<CSession>> m_sessionQueue; // for headless mode
-   smart_refctd_ptr<CSession> m_pendingSession; // for GUI mode (set by double-clicking sensor)
+   smart_refctd_ptr<CSession>                   m_pendingSession; // for GUI mode (set by double-clicking sensor)
    //
    smart_refctd_ptr<CScene>          m_currentScene;
    std::string                       m_currentScenePath;
@@ -1185,10 +1224,9 @@ private:
       proj[14]             = (2.f * zF * zN) / (zN - zF);
 
       // Right-handed look-at from the camera pose (right = forward x up), written column-major.
-      using vec3     = nbl::hlsl::float32_t3;
-      const vec3 pos = nbl::core::convertToHLSLVector(m_camera.getPosition()).xyz;
-      const vec3 fwd =
-         nbl::hlsl::normalize(nbl::core::convertToHLSLVector(m_camera.getTarget()).xyz - pos);
+      using vec3          = nbl::hlsl::float32_t3;
+      const vec3 pos      = nbl::core::convertToHLSLVector(m_camera.getPosition()).xyz;
+      const vec3 fwd      = nbl::hlsl::normalize(nbl::core::convertToHLSLVector(m_camera.getTarget()).xyz - pos);
       const vec3 up0      = nbl::core::convertToHLSLVector(m_camera.getUpVector()).xyz;
       const vec3 right    = nbl::hlsl::normalize(nbl::hlsl::cross(fwd, up0));
       const vec3 up       = nbl::hlsl::cross(right, fwd);
@@ -1212,7 +1250,10 @@ private:
       };
       m_uiManager->getSceneWindow().setGizmoCameraMatrices(view, proj);
       if (m_renderer)
+      {
          m_uiManager->getSceneWindow().setProbePdfSum(m_renderer->getProbePdfSum());
+         m_uiManager->getSceneWindow().setNeeStats(m_renderer->getNeeStats().data());
+      }
    }
 
    // Seed the camera from the current scene/sensor pose.
@@ -1229,11 +1270,10 @@ private:
       const vectorSIMDf  fwd(-absT[0][2], -absT[1][2], -absT[2][2]);
       const vectorSIMDf  target = pos + fwd;
       const vectorSIMDf  upHint(0.f, 1.f, 0.f);
-      const float32_t4x4 proj      = math::linalg::diagonal<float32_t4x4>(1.f);
-      const float        moveSpeed = s.dynamicDefaults.moveSpeed * 0.005f;
-      const float        rotateSpeed =
-         nbl::hlsl::isnan(s.dynamicDefaults.rotateSpeed) ? 1.f : s.dynamicDefaults.rotateSpeed;
-      m_camera = Camera(pos, target, proj, moveSpeed, rotateSpeed, upHint, upHint);
+      const float32_t4x4 proj        = math::linalg::diagonal<float32_t4x4>(1.f);
+      const float        moveSpeed   = s.dynamicDefaults.moveSpeed * 0.005f;
+      const float        rotateSpeed = nbl::hlsl::isnan(s.dynamicDefaults.rotateSpeed) ? 1.f : s.dynamicDefaults.rotateSpeed;
+      m_camera                       = Camera(pos, target, proj, moveSpeed, rotateSpeed, upHint, upHint);
       m_camera.mapKeysToWASD();
       if (m_uiManager)
          m_uiManager->getSceneWindow().setCameraMoveSpeed(moveSpeed);

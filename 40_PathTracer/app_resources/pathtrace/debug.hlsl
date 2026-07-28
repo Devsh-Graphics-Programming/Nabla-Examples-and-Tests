@@ -191,7 +191,7 @@ float aabbEdgeProximity(float32_t3 p, float32_t3 bMin, float32_t3 bMax)
    // Deterministic centre-of-pixel ray: the box wireframe is overwritten (not
    // accumulated), so any sub-pixel jitter would make it shimmer frame to frame.
    const float16_t2 randVec = float16_t2(0.5h, 0.5h);
-   SPrimaryRay      primary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, randVec);
+   SPrimaryRay      primary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, randVec, spirv::LaunchSizeKHR.z);
    spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, primary.ray.origin, primary.tMin, primary.ray.direction.getDirection(), pc.sensorDynamics.tMax, payload);
 
    const float32_t3 rayO = primary.ray.origin;

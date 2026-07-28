@@ -28,7 +28,7 @@ void main()
    float32_t3 u3 = float32_t3(0.5, 0.5, 0.5);
    float32_t4 acc = float32_t4(0, 0, 0, 0);
 
-   // ConcentricMapping — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // ConcentricMapping
    sampling::ConcentricMapping<float32_t>::cache_type cache;
    float32_t2 concentric = sampling::ConcentricMapping<float32_t>::generate(u2, cache);
    acc.xy += concentric;
@@ -38,7 +38,7 @@ void main()
    acc.x += sampling::ConcentricMapping<float32_t>::forwardWeight(u2, cache);
    acc.x += sampling::ConcentricMapping<float32_t>::backwardWeight(concentric);
 
-   // PolarMapping — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // PolarMapping
    sampling::PolarMapping<float32_t>::cache_type polarCache;
    float32_t2 polar = sampling::PolarMapping<float32_t>::generate(u2, polarCache);
    acc.xy += polar;
@@ -48,7 +48,7 @@ void main()
    acc.x += sampling::PolarMapping<float32_t>::forwardWeight(u2, polarCache);
    acc.x += sampling::PolarMapping<float32_t>::backwardWeight(polar);
 
-   // Linear — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // Linear
    sampling::Linear<float32_t> lin = sampling::Linear<float32_t>::create(u2);
    sampling::Linear<float32_t>::cache_type linCache;
    float32_t linSample = lin.generate(0.5f, linCache);
@@ -58,7 +58,7 @@ void main()
    acc.x += lin.backwardPdf(linSample);
    acc.x += lin.backwardWeight(linSample);
 
-   // Bilinear — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // Bilinear
    sampling::Bilinear<float32_t> bilinear = sampling::Bilinear<float32_t>::create(float32_t4(1, 2, 3, 4));
    sampling::Bilinear<float32_t>::cache_type bilCache;
    float32_t2 bilSample = bilinear.generate(u2, bilCache);
@@ -68,7 +68,7 @@ void main()
    acc.x += bilinear.backwardPdf(bilSample);
    acc.x += bilinear.backwardWeight(bilSample);
 
-   // UniformHemisphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // UniformHemisphere
    sampling::UniformHemisphere<float32_t> uniHemi;
    sampling::UniformHemisphere<float32_t>::cache_type uniHemiCache;
    float32_t3 uniHemiSample = uniHemi.generate(u2, uniHemiCache);
@@ -79,7 +79,7 @@ void main()
    acc.x += uniHemi.backwardPdf(uniHemiSample);
    acc.x += uniHemi.backwardWeight(uniHemiSample);
 
-   // UniformSphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // UniformSphere
    sampling::UniformSphere<float32_t> uniSph;
    sampling::UniformSphere<float32_t>::cache_type uniSphCache;
    float32_t3 uniSphSample = uniSph.generate(u2, uniSphCache);
@@ -90,7 +90,7 @@ void main()
    acc.x += uniSph.backwardPdf(uniSphSample);
    acc.x += uniSph.backwardWeight(uniSphSample);
 
-   // ProjectedHemisphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // ProjectedHemisphere
    sampling::ProjectedHemisphere<float32_t>::cache_type projHemiCache;
    float32_t3 projHemi = sampling::ProjectedHemisphere<float32_t>::generate(u2, projHemiCache);
    acc.xyz += projHemi;
@@ -100,7 +100,7 @@ void main()
    acc.x += sampling::ProjectedHemisphere<float32_t>::backwardPdf(projHemi);
    acc.x += sampling::ProjectedHemisphere<float32_t>::backwardWeight(projHemi);
 
-   // ProjectedSphere — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // ProjectedSphere
    sampling::ProjectedSphere<float32_t> projSphSampler;
    sampling::ProjectedSphere<float32_t>::cache_type projSphCache;
    float32_t3 projSphereSample = u3;
@@ -111,7 +111,7 @@ void main()
    acc.x += projSphSampler.backwardPdf(projSphere);
    acc.x += projSphSampler.backwardWeight(projSphere);
 
-   // BoxMullerTransform — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // BoxMullerTransform
    sampling::BoxMullerTransform<float32_t> bmt = sampling::BoxMullerTransform<float32_t>::create(1.0);
    sampling::BoxMullerTransform<float32_t>::cache_type bmtCache;
    float32_t2 bmtSample = bmt.generate(u2, bmtCache);
@@ -122,7 +122,7 @@ void main()
    acc.x += bmt.backwardWeight(bmtSample);
    acc.xy += bmt.separateBackwardPdf(bmtSample);
 
-   // SphericalTriangle — generate, generateInverse, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // SphericalTriangle
    // Octant triangle: all dot products between vertices are 0, so cos_sides=0, csc_sides=1
    const float32_t3 triVerts[3] = {float32_t3(1, 0, 0), float32_t3(0, 1, 0), float32_t3(0, 0, 1)};
    shapes::SphericalTriangle<float32_t> shapeTri = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(triVerts);
@@ -136,7 +136,7 @@ void main()
    acc.x += sphTri.backwardPdf(stSample);
    acc.x += sphTri.backwardWeight(stSample);
 
-   // SphericalRectangle — generate, generateSurfaceOffset, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // SphericalRectangle
    shapes::CompressedSphericalRectangle<float32_t> csr;
    csr.origin = float32_t3(0.0, 0.0, -1.0);
    csr.right = float32_t3(1.0, 0.0, 0.0);
@@ -153,7 +153,7 @@ void main()
    acc.x += sphRect.backwardPdf(srSample);
    acc.x += sphRect.backwardWeight(srSample);
 
-   // ProjectedSphericalTriangle — generate, forwardPdf, forwardWeight, backwardWeight(L)
+   // ProjectedSphericalTriangle
    sampling::ProjectedSphericalTriangle<float32_t> projTri = sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri, float32_t3(0.0, 0.0, 1.0), false);
    sampling::ProjectedSphericalTriangle<float32_t>::cache_type projTriCache;
    float32_t3 ptSample = projTri.generate(u2, projTriCache);
@@ -162,7 +162,7 @@ void main()
    acc.x += projTri.forwardWeight(u2, projTriCache);
    acc.x += projTri.backwardWeight(ptSample);
 
-   // ProjectedSphericalRectangle (UsePdfAsWeight=true) — generate, forwardPdf, forwardWeight, backwardWeight(L)
+   // ProjectedSphericalRectangle (UsePdfAsWeight=true)
    const float32_t3 psrNormal = float32_t3(0.0, 0.0, 1.0);
    sampling::ProjectedSphericalRectangle<float32_t, true> projRectPdf =
       sampling::ProjectedSphericalRectangle<float32_t, true>::create(shapeRect, srObserver, psrNormal, false);
@@ -173,7 +173,7 @@ void main()
    acc.x += projRectPdf.forwardWeight(u2, projRectPdfCache);
    acc.x += projRectPdf.backwardWeight(prPdfSample);
 
-   // ProjectedSphericalRectangle (UsePdfAsWeight=false) — exercise the MIS-weight path
+   // ProjectedSphericalRectangle (UsePdfAsWeight=false) - exercise the MIS-weight path
    sampling::ProjectedSphericalRectangle<float32_t, false> projRectMis =
       sampling::ProjectedSphericalRectangle<float32_t, false>::create(shapeRect, srObserver, psrNormal, true);
    sampling::ProjectedSphericalRectangle<float32_t, false>::cache_type projRectMisCache;
@@ -183,7 +183,7 @@ void main()
    acc.x += projRectMis.forwardWeight(u2, projRectMisCache);
    acc.x += projRectMis.backwardWeight(prMisSample);
 
-   // AliasTable — generate (with/without cache), forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // AliasTable
    ArrayAccessor<float32_t, 4> aliasProb;
    aliasProb.data[0] = 0.25; aliasProb.data[1] = 0.5; aliasProb.data[2] = 0.75; aliasProb.data[3] = 1.0;
    ArrayAccessor<uint32_t, 4> aliasIdx;
@@ -191,7 +191,7 @@ void main()
    ArrayAccessor<float32_t, 4> aliasPdf;
    aliasPdf.data[0] = 0.25; aliasPdf.data[1] = 0.25; aliasPdf.data[2] = 0.25; aliasPdf.data[3] = 0.25;
 
-   // CumulativeProbabilitySampler — generate (with/without cache), forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // CumulativeProbabilitySampler
    ArrayAccessor<float32_t, 3> cumProb;
    cumProb.data[0] = 0.25; cumProb.data[1] = 0.5; cumProb.data[2] = 0.75;
    sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 3> > cumSampler =
@@ -205,7 +205,7 @@ void main()
    acc.x += cumSampler.backwardPdf(cumBin);
    acc.x += cumSampler.backwardWeight(cumBin);
 
-   // PartitionRandVariable — operator() partitions u into a left/right branch
+   // PartitionRandVariable - operator() partitions u into a left/right branch
    sampling::PartitionRandVariable<float32_t> partition;
    partition.leftProb = 0.25;
    float32_t partXi = 0.5;

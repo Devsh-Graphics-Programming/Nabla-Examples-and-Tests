@@ -15,6 +15,7 @@ namespace this_example
 NBL_CONSTEXPR_STATIC_INLINE uint16_t MaxSPPLog2 = MAX_SPP_LOG2;
 // need to be able to count (represent) both 0 and Max, but the count needs to be PoT because Sobol Sequence
 NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxSPP = 0x1u << (MaxSPPLog2 - 1);
+NBL_CONSTEXPR_STATIC_INLINE uint16_t SequenceSamplesLog2 = 15; // TODO: remove later, no need to decouple
 struct SSensorDynamics
 {
 	// assuming input will be ndc = [-1,1]^2 x {-1}
@@ -74,6 +75,16 @@ struct SBeautyPushConstants
 #else
 	S16BitData __16BitData;
 #endif
+	// Deferred (wavefront) NEE request buffer BDA; 0 unless an NBL_NEE_DEFERRED raygen variant + the
+	// NEE/resolve compute passes are bound. Shared by all three so the slot addressing agrees.
+	uint64_t pNeeRequests;
+	// per-bounce wavefront mode only, re-pushed per dispatch
+	uint32_t wavefrontBounce : MAX_PATH_DEPTH_LOG2;
+	uint32_t wavefrontWave : 24;
+	// batched deferral only, re-pushed per horizontal band; raygen launches (W, tileHeight) so
+	// LaunchIdKHR/LaunchSizeKHR are band-local, the pixel coord adds tileOffsetY
+	uint32_t tileOffsetY : 16;
+	uint32_t tileHeight : 16;
 };
 #undef MAX_SPP_PER_DISPATCH_LOG2
 

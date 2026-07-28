@@ -30,7 +30,7 @@ struct BdaPackedWordAccessor
 };
 
 // Variant B accessor: 8 B PackedAliasEntryB. Loads a uint2 and decomposes it
-// into the POD entry so DXC never sees a bitfield — avoids the Insert/Extract
+// into the POD entry so DXC never sees a bitfield, avoids the Insert/Extract
 // round-trip we observed when the sampler read from a bitfield struct.
 struct BdaPackedAliasBAccessor
 {

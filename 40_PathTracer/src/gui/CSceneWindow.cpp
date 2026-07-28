@@ -223,11 +223,45 @@ namespace nbl::this_example::gui
 			ImGui::SameLine();
 			ImGui::TextDisabled(m_useAliasNEE ? "(alias table, O(1))" : "(light-tree descent, O(log N))");
 
+			if (ImGui::Combo("NEE architecture", &m_deferredNEE, "Inline megakernel\0Deferred (batched)\0Wavefront (per-bounce)\0") && m_callbacks.onDeferredNEEChanged)
+				m_callbacks.onDeferredNEEChanged(m_deferredNEE);
+
+			if (m_deferredNEE == 1)
+			{
+				// commit on release: every committed value can grow the request buffer (a waitIdle)
+				ImGui::SliderInt("Batched bands", &m_neeBandCount, 1, 16);
+				if (ImGui::IsItemDeactivatedAfterEdit() && m_callbacks.onNeeBandCountChanged)
+					m_callbacks.onNeeBandCountChanged(m_neeBandCount);
+			}
+
 			// MIS mode: which Beauty pipeline variant (separate shader) to run. NEE-only and BxDF-only
 			// are direct-lighting A/B anchors; Both is the full path tracer. Switching restarts
 			// accumulation in the handler (the modes converge to different images).
 			if (ImGui::Combo("MIS mode", &m_misMode, "NEE only\0BxDF only\0Both\0") && m_callbacks.onMisModeChanged)
 				m_callbacks.onMisModeChanged(m_misMode);
+
+			// Light sampler A/B: the paper's OBB-silhouette method vs single triangles in the light tree
+			// (uniform = "without Arvo", Arvo solid-angle, projected). Switching to/from OBB rebuilds the
+			// light tree (different leaf set); the handler restarts accumulation.
+			if (ImGui::Combo("Light sampler", &m_leafSampler, "OBB silhouette\0Triangle (uniform)\0Triangle (Arvo)\0Triangle (projected)\0") && m_callbacks.onLeafSamplerChanged)
+				m_callbacks.onLeafSamplerChanged(m_leafSampler);
+
+			// NEE sampler stats, rolled over 64-frame windows (NBL_NEE_STATS).
+			if (m_neeStats[0] && ImGui::TreeNodeEx("NEE stats", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				const auto pct = [](uint32_t n, uint32_t d) -> float { return d ? 100.f * float(n) / float(d) : 0.f; };
+				ImGui::Text("NEE attempts:    %u", m_neeStats[0]);
+				ImGui::Text("  OBB below horizon:      %.2f%%", pct(m_neeStats[1], m_neeStats[0]));
+				ImGui::Text("  no silhouette:          %.2f%%", pct(m_neeStats[2], m_neeStats[0]));
+				ImGui::Text("pyramid samples: %u", m_neeStats[3]);
+				ImGui::Text("  missed the silhouette:  %.2f%%", pct(m_neeStats[4], m_neeStats[3]));
+				ImGui::Text("  below the horizon:      %.2f%%", pct(m_neeStats[5], m_neeStats[3]));
+				ImGui::Text("  zero contribution:      %.2f%%", pct(m_neeStats[8], m_neeStats[3]));
+				ImGui::Text("  no usable sample:       %.2f%%", pct(m_neeStats[9], m_neeStats[3]));
+				ImGui::Text("shadow rays:     %u -> reached the light %u (%.1f%%)", m_neeStats[6], m_neeStats[7], pct(m_neeStats[7], m_neeStats[6]));
+				ImGui::Text("usable samples per attempt: %.1f%%", pct(m_neeStats[7], m_neeStats[0]));
+				ImGui::TreePop();
+			}
 
 			const auto& tree = m_scene->getLightTree();
 			if (tree.numLeavesActual == 0)
