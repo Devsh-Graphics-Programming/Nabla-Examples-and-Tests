@@ -63,14 +63,19 @@ float acos_csc_approx_sign_flip(const float arg, bool isPositive)
     // u = log2(1 + cosTheta)
     float u = log2(1.0 + arg);
 
-    float a = 0.646153;
-    float b = -0.63452;
+    float a1 = 0.646153;
+    float a2 = 0.656153;
+    float b1 = -0.63452;
+    float b2 = -0.5;
 
     float c1 = -0.01163;
     float c2 = -0.00609;
 
     // select directly between the two folded literals instead of computing at runtime
-    float c = isPositive ? c2 : c1;
-    float poly = hlsl::fma(u, hlsl::fma(u, c, b), a);
+    float a = isPositive ? a1 : a2;
+    float c = isPositive ? c1 : c2;
+    float b = isPositive ? b1 : b2;
+    float poly = hlsl::fma(u, hlsl::fma(u, a, b), c);
     return hlsl::exp2<float>(poly);
 }
+

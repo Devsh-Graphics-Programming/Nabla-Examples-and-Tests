@@ -77,7 +77,7 @@ float integrate_edge(uint32_t seed)
     }
     else if (mode==BM_SIGN_FLIP)
     {
-      result += cross_result * acos_csc_approx_sign_flip(cos_theta, sign(cross_result));
+      result += cross_result * acos_csc_approx_sign_flip(cos_theta, cross_result > 0);
     }    
   }
   return result;
