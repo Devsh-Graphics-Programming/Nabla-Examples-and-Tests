@@ -124,6 +124,11 @@ struct ReduceAccessor
         return glsl::atomicExchange(target.template deref().ptr.value, value);
     }
 
+    void memoryBarrier()
+    {
+        spirv::memoryBarrier(spv::ScopeDevice, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
+    }
+
     bda::__ptr<T> ptr;
 };
 

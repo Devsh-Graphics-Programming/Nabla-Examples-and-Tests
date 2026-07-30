@@ -229,10 +229,10 @@ public:
 			else
 				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
 
-			for (auto subgroupSize = 32; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
 				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-				for (uint32_t workgroupSize = 1024; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 				{
 					// make sure renderdoc captures everything for debugging
 					m_api->startCapture();
