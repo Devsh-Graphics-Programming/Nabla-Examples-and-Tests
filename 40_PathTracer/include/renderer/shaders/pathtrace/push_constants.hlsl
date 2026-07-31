@@ -83,6 +83,14 @@ struct SDebugPushConstants
 	// some enum/choice of what to debug
 };
 
+struct SScanPushConstants
+{
+	uint64_t pInputBuf;
+    uint64_t pOutputBuf;
+	uint64_t pReduceBuf;
+	uint64_t pWgCounterBuf;
+};
+
 }
 }
 #endif  // _NBL_THIS_EXAMPLE_PATHTRACE_PUSH_CONSTANTS_HLSL_INCLUDED_
