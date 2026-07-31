@@ -102,12 +102,14 @@ struct ReduceAccessor
         return retval;
     }
 
-    void get(const uint64_t index, NBL_REF_ARG(T) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType index, NBL_REF_ARG(AccessType) value)
     {
         bda::__ptr<T> target = ptr + index;
         value = target.template deref().load();
     }
-    void set(const uint64_t index, const T value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType index, const AccessType value)
     {
         bda::__ptr<T> target = ptr + index;
         return target.template deref().store(value);
