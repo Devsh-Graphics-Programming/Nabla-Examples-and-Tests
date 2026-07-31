@@ -624,7 +624,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					auto image = m_device->createImage(std::move(imgInfo));
 					auto imageMemReqs = image->getMemoryReqs();
 					imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					m_device->allocate(imageMemReqs, image.get());
+					m_device->allocate(imageMemReqs, { image.get() });
 
 					return image;
 				};

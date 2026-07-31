@@ -29,21 +29,37 @@ struct NDCClipProjectionData
     float32_t2 maxClipNDC;
 };
 
+pfloat64_t3x3 promote2x3TransformationMatrixTo3x3(in pfloat64_t2x3 transformationMatrix)
+{
+    pfloat64_t3x3 output;
+    output.rows[0].setComponent(0, transformationMatrix.rows[0].getComponent(0));
+    output.rows[0].setComponent(1, transformationMatrix.rows[0].getComponent(1));
+    output.rows[0].setComponent(2, transformationMatrix.rows[0].getComponent(2));
+    output.rows[1].setComponent(0, transformationMatrix.rows[1].getComponent(0));
+    output.rows[1].setComponent(1, transformationMatrix.rows[1].getComponent(1));
+    output.rows[1].setComponent(2, transformationMatrix.rows[1].getComponent(2));
+    output.rows[2].setComponent(0, nbl::hlsl::_static_cast<pfloat64_t>(0.0));
+    output.rows[2].setComponent(1, nbl::hlsl::_static_cast<pfloat64_t>(0.0));
+    output.rows[2].setComponent(2, nbl::hlsl::_static_cast<pfloat64_t>(1.0));
+
+    return output;
+}
+
 NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     NDCClipProjectionData ret;
-    if (mainObj.customProjectionIndex != InvalidCustomProjectionIndex)
+    if (mainObj.getCustomTransformationIndex() != InvalidCustomTransformationIndex)
     {
         // If projection type is worldspace projection and clip:
-        pfloat64_t3x3 customProjection = loadCustomProjection(mainObj.customProjectionIndex);
-        ret.projectionToNDC = nbl::hlsl::mul(globals.defaultProjectionToNDC, customProjection);
+        pfloat64_t2x3 customProjection = loadCustomProjection(mainObj.getCustomTransformationIndex());
+        ret.projectionToNDC = nbl::hlsl::mul(globals.defaultProjectionToNDC, promote2x3TransformationMatrixTo3x3(customProjection));
     }
     else
         ret.projectionToNDC = globals.defaultProjectionToNDC;
 
-    if (mainObj.customClipRectIndex != InvalidCustomClipRectIndex)
+    if (mainObj.getCustomClipRectIndex() != InvalidCustomClipRectIndex)
     {
-        WorldClipRect worldClipRect = loadCustomClipRect(mainObj.customClipRectIndex);
+        WorldClipRect worldClipRect = loadCustomClipRect(mainObj.getCustomClipRectIndex());
         
         /// [NOTE]: Optimization: we avoid looking for min/max in the shader because minClip and maxClip in default worldspace are defined in such a way that minClip.y > maxClip.y so minClipNDC.y < maxClipNDC.y
         ret.minClipNDC = nbl::hlsl::_static_cast<float32_t2>(transformPointNdc(globals.defaultProjectionToNDC, worldClipRect.minClip));
@@ -55,7 +71,7 @@ NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.maxClipNDC = float2(+1.0f, +1.0f);
     }
     
-    if (mainObj.transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
+    if (mainObj.getTransformationType() == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
         ret.projectionToNDC = nbl::hlsl::mul(ret.projectionToNDC, globals.screenToWorldScaleTransform);
     
     return ret;
@@ -203,14 +219,14 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
         DrawObject drawObj = loadDrawObject(objectID);
 
-        ObjectType objType = (ObjectType)(drawObj.type_subsectionIdx & 0x0000FFFF);
-        uint32_t subsectionIdx = drawObj.type_subsectionIdx >> 16;
+        ObjectType objType = drawObj.getType();
+        uint32_t subsectionIdx = drawObj.getSubsectionIdx();
         outV.setObjType(objType);
-        outV.setMainObjectIdx(drawObj.mainObjIndex);
+        outV.setMainObjectIdx(drawObj.getMainObjIndex());
 
-        MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
+        MainObject mainObj = loadMainObject(drawObj.getMainObjIndex());
         clipProjectionData = getClipProjectionData(mainObj);
-        
+
         float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
         float worldToScreenRatio = 1.0f / screenToWorldRatio;
         outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
@@ -218,7 +234,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         // We only need these for Outline type objects like lines and bezier curves
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
+            LineStyle lineStyle = loadLineStyle(mainObj.getLineStyleIndex());
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
             const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
@@ -230,11 +246,11 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             if (objType == ObjectType::LINE)
             {
                 pfloat64_t2 points[2u];
-                points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-                points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+                points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+                points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(LinePointInfo), 8u);
 
-                const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-                const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float), 8u);
+                const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 8u);
+                const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float), 8u);
                 outV.setCurrentPhaseShift(phaseShift);
                 outV.setPatternStretch(patternStretch);
 
@@ -270,12 +286,12 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             else if (objType == ObjectType::QUAD_BEZIER)
             {
                 pfloat64_t2 points[3u];
-                points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-                points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-                points[2u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2u, 8u);
+                points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+                points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 8u);
+                points[2u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) * 2u, 8u);
 
-                const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u, 8u);
-                const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u + sizeof(float), 8u);
+                const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) * 3u, 8u);
+                const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) * 3u + sizeof(float), 8u);
                 outV.setCurrentPhaseShift(phaseShift);
                 outV.setPatternStretch(patternStretch);
 
@@ -444,9 +460,9 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
                 if (lineStyle.isRoadStyleFlag)
                 {
-                    const pfloat64_t2 circleCenter = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-                    const float2 v = vk::RawBufferLoad<float2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-                    const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 8u);
+                    const pfloat64_t2 circleCenter = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+                    const float2 v = vk::RawBufferLoad<float2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 8u);
+                    const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float2), 8u);
 
                     const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                     outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
@@ -510,13 +526,13 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         else if (objType == ObjectType::CURVE_BOX)
         {
             CurveBox curveBox;
-            curveBox.aabbMin = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            curveBox.aabbMax = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            curveBox.aabbMin = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+            curveBox.aabbMax = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 8u);
 
             for (uint32_t i = 0; i < 3; i ++)
             {
-                curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * i, 4u);
-                curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
+                curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * i, 4u);
+                curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
             }
 
             pfloat64_t2 aabbMaxXMinY;
@@ -597,14 +613,14 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::FONT_GLYPH)
         {
-            LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
+            LineStyle lineStyle = loadLineStyle(mainObj.getLineStyleIndex());
             const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
             GlyphInfo glyphInfo;
-            glyphInfo.topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-            glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-            glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+            glyphInfo.topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+            glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 4u);
+            glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+            glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
             float32_t2 minUV = glyphInfo.getMinUV();
             uint16_t textureID = glyphInfo.getTextureID();
@@ -652,10 +668,10 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::STATIC_IMAGE)
         {
-            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-            float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+            float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 4u);
+            float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
             // TODO[DEVSH]: make sure it's documented properly that for topLeft+dirV+aspectRatio to work it's computing dirU like below (they need to be careful with transformations when y increases when you go down in screen
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
@@ -674,11 +690,11 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::GRID_DTM)
         {
-            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            const pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2), 8u);
-            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
-            float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
+            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+            const pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 8u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + 2 * sizeof(pfloat64_t2), 8u);
+            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
+            float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
 
             // TODO: remove
             // test large dilation
@@ -740,12 +756,12 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {
-            const pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-            const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
-            const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
-            const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
-            const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
+            const pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress(), 8u);
+            const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2), 4u);
+            const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
+            const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
+            const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
+            const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.getGeometryAddress() + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
 
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
             const float32_t2 ndcTopLeft = _static_cast<float32_t2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
