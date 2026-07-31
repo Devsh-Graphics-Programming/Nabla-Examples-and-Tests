@@ -1,4 +1,4 @@
-// Copyright (C) 2023-2023 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _NBL_EXAMPLES_COMMON_MONO_WINDOW_APPLICATION_HPP_INCLUDED_
@@ -42,7 +42,7 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 					params.x = 32;
 					params.y = 32;
 					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE | IWindow::ECF_CAN_MINIMIZE;
-					params.windowCaption = "MonoWindowApplication";
+					params.windowCaption = getWindowCaption();
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
@@ -70,6 +70,7 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 				return false;
 			
 			ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
+			amendSwapchainCreateParams(swapchainParams);
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 			
@@ -140,6 +141,8 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 		//
 		virtual inline bool keepRunning() override
 		{
+			if (!shouldKeepRunning())
+				return false;
 			if (m_surface->irrecoverable())
 				return false;
 
@@ -159,6 +162,17 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 		}
 
 	protected:
+		virtual inline const char* getWindowCaption() const
+		{
+			return "MonoWindowApplication";
+		}
+		virtual inline void amendSwapchainCreateParams(video::ISwapchain::SCreationParams&) const
+		{
+		}
+		virtual inline bool shouldKeepRunning() const
+		{
+			return true;
+		}
 		inline void onAppInitializedFinish()
 		{
 			m_winMgr->show(m_window.get());
