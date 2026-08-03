@@ -237,7 +237,7 @@ public:
       auto buf  = m_device->createBuffer(std::move(bp));
       auto reqs = buf->getMemoryReqs();
       reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-      auto alloc = m_device->allocate(reqs, buf.get(), allocFlags);
+      auto alloc = m_device->allocate(reqs, {buf.get(), allocFlags});
       if (!alloc.isValid())
          benchLogFmt(m_logger.get(), nbl::system::ILogger::ELL_ERROR, "GPUBenchmarkHelper: failed to allocate {}", label);
       return buf;

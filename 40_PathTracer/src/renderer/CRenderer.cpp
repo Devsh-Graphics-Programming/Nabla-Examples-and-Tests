@@ -659,7 +659,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          {
             auto reqs = probeBuf->getMemoryReqs();
             reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
-            auto alloc = device->allocate(reqs, probeBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+            auto alloc = device->allocate(reqs, { probeBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
             if (alloc.memory)
             {
                alloc.memory->map({ .offset = 0, .length = reqs.size });
@@ -689,7 +689,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          {
             auto reqs = pdfsBuf->getMemoryReqs();
             reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
-            auto alloc = device->allocate(reqs, pdfsBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+            auto alloc = device->allocate(reqs, { pdfsBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
             if (alloc.memory)
             {
                alloc.memory->map({ .offset = 0, .length = reqs.size });
@@ -720,7 +720,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          {
             auto reqs = nodePdfsBuf->getMemoryReqs();
             reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
-            auto alloc = device->allocate(reqs, nodePdfsBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+            auto alloc = device->allocate(reqs, { nodePdfsBuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
             if (alloc.memory)
             {
                alloc.memory->map({ .offset = 0, .length = reqs.size });
@@ -860,7 +860,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
             auto retval = device->allocate(info);
             // map what is mappable by default so ReBAR checks succeed
             if (retval.isValid() && retval.memory->isMappable())
-               retval.memory->map({ .offset = 0, .length = info.size });
+               retval.memory->map({ .offset = 0, .length = info.allocationSize });
             return retval;
          }
 
@@ -916,7 +916,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
             auto reqs = scratchBuffer->getMemoryReqs();
             reqs.memoryTypeBits &= device->getPhysicalDevice()->getDirectVRAMAccessMemoryTypeBits();
 
-            auto allocation = device->allocate(reqs, scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+            auto allocation = device->allocate(reqs, { scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
             allocation.memory->map({ .offset = 0, .length = reqs.size });
 
             scratchAlloc =
