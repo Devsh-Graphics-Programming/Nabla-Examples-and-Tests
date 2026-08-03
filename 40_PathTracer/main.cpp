@@ -136,6 +136,7 @@ public:
       if (m_args.headless)
          retval.swapchainMode = E_SWAPCHAIN_MODE::ESM_NONE;
       retval.pipelineExecutableInfo = true;
+      retval.rayQuery = true;
       return retval.unionWith(CRenderer::PreferredDeviceFeatures());
    }
 

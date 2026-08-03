@@ -36,8 +36,8 @@ struct SensorUBOBufferAddresses
 struct SReSTIRParams
 {
 	hlsl::float32_t3 sceneMinPos;
-    float32_t fov;
-    float32_t minCellSize;
+    hlsl::float32_t fov;
+    hlsl::float32_t minCellSize;
 };
 
 struct SSensorUniforms
