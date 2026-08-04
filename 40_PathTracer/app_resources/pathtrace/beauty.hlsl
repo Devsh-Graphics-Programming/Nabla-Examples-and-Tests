@@ -2,6 +2,7 @@
 
 #include "common.hlsl"
 #include "renderer/shaders/bda_accessors.hlsl"
+#include "renderer/shaders/legacy_bda_accessors.hlsl"
 #include "next_event_estimator.hlsl"
 
 // Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
@@ -323,36 +324,37 @@ void raygen()
             // TODO: do something with the payload's reported transparency
         }
         // TODO: Possible SER point
-        const bool       primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
+        const bool primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
         const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
+        const uint16_t lastPathDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastPathDepth);
+
+        SPathState pathState = SPathState::create(launchID.xy, lastPathDepth);
 
         if (primaryMissed)
         {
             const SEnvSample _sample = nbl::this_example::NextEventEstimator::shadeEnvmap(primaryRayDir, 0.f);
-            color                    = float16_t3(_sample.color);
-            aovs                     = aovs + _sample.aov * rcpSamplesThisFrame;
+            color = spectral_t(_sample.color);
+            aovs = aovs + _sample.aov * rcpSamplesThisFrame;
             transparency += rcpSamplesThisFrame;
 
             if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput * _sample.aov;
+                pathState.prefixPathRadiance += color * pathState.throughput * pathState.prefixThroughput;  // * aov?
             else
-                pathState.rcVertexRadiance += emission * pathState.throughput * _sample.aov;
+                pathState.rcVertexRadiance += color * pathState.throughput; // * aov?
         }
         else // trace further rays
         {
             //
-            MaxContributionEstimator contribEstimator           = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
-            const uint16_t           lastPathDepth              = _static_cast<uint16_t>(pc.sensorDynamics.lastPathDepth);
-            const uint16_t           lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
+            MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
+            const uint16_t lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
             //
-            color                                                         = spectral_t(0, 0, 0);
-            spectral_t                            throughput              = spectral_t(1, 1, 1);
-            float32_t                             otherTechniqueHeuristic = 0.f;
-            nbl::this_example::NextEventEstimator neeEstimator            = nbl::this_example::NextEventEstimator::create();
-            SAOVThroughputs                       aovThroughput;
+            color = spectral_t(0, 0, 0);
+            spectral_t throughput = spectral_t(1, 1, 1);
+            float32_t otherTechniqueHeuristic = 0.f;
+            nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
+            SAOVThroughputs aovThroughput;
             aovThroughput.clear(rcpSamplesThisFrame);
 
-            SPathState pathState = SPathState::create(launchID.xy, lastPathDepth);
             pathState.direction = primaryRayDir;
             pathState.pdf = 1.0f;
 
@@ -427,7 +429,7 @@ void raygen()
 
                 using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
                 brdf_t::SCreationParams cParams;
-                cParams.A            = 0.f;
+                cParams.A = 0.f;
                 const brdf_t diffuse = brdf_t::create(cParams);
                 // Surface diffuse reflectance. The OrenNayar eval is cos/pi WITHOUT albedo, so albedo must
                 // be applied to BOTH the NEE direct contribution and the BSDF-continuation throughput, or
@@ -543,7 +545,7 @@ void raygen()
 
                     if (hlsl::any(pathState.throughput > hlsl::promote<float32_t3>(0.f)) && pathState.currentVertexIndex + 1 < pathState.rcVertexLength)
                     {
-                        pathState.UpdatePrefixThp();
+                        pathState.updatePrefixThroughput();
                     }
 
                     // TODO: include neeProb here
@@ -558,7 +560,7 @@ void raygen()
                 {
                     // continue the path
                     {
-                        const float32_t3                                                        L = bxdfSample.getL().getDirection();
+                        const float32_t3 L = bxdfSample.getL().getDirection();
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval contPayload;
                         contPayload.init(randBRDF.z);
                         spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, newRayOrigin, tMin, L, hlsl::numeric_limits<float32_t>::max, contPayload);
