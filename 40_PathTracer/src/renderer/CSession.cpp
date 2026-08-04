@@ -3,7 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "renderer/CRenderer.h"
 
-#include "../app_resources/pathtrace/common.hlsl"
+#include "renderer/shaders/pathtrace/resampling.hlsl"
 
 namespace nbl::this_example
 {
@@ -62,22 +62,18 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			return true;
 		};
 
-		// create UBO
-		{
-			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(m_params.uniforms);
-			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
-			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			auto ubo = device->createBuffer(std::move(params));
-			if (!dedicatedAllocate(ubo.get(),"Sensor UBO"))
-				return false;
-			// pipeline barrier in `reset` will take care of sync for this
-			info.getCommandBufferForRecording()->cmdbuf->updateBuffer({.size=sizeof(m_params.uniforms),.buffer=ubo},&m_params.uniforms);
-			addWrite(SensorDSBindings::UBO,SBufferRange<IGPUBuffer>{.offset=0,.size=sizeof(m_params.uniforms),.buffer=ubo});
-		}
 		// create storage buffers
 		{
 			const uint32_t elementCount = m_params.uniforms.renderSize.x * m_params.uniforms.renderSize.y;
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = sizeof(SReconnectionData) * elementCount;
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				m_active.reconnectionData = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.reconnectionData.get(), "Reconnection Data"))
+					return false;
+			}
 		    {
 		        IGPUBuffer::SCreationParams params = {};
 		        params.size = sizeof(SReservoir) * elementCount;
@@ -108,11 +104,13 @@ bool CSession::init(SIntendedSubmitInfo& info)
 					return false;
 			}
 
-			const uint32_t hashBufferSize = 3200000 * sizeof(uint32_t);	// TODO: why 3200000? double check source
+			// section 5.2 of paper states: All the buffers for the hash grid are allocated with a fixed size corresponding to the maximum cell count, set as 3.2M in practice.
+			// we set it to divide evenly by max workgroup size with similar size so 1024*1024*3=3,145,728
+			const uint32_t hashBufferElemCount = 3145728u;
 			for (uint32_t i = 0; i < 2; i++)
 			{
 				IGPUBuffer::SCreationParams params = {};
-				params.size = hashBufferSize;
+				params.size = hashBufferElemCount * sizeof(uint32_t);
 				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
 				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -132,6 +130,50 @@ bool CSession::init(SIntendedSubmitInfo& info)
 				if (!dedicatedAllocate(m_active.cellStorage[i].get(), "Cell storage"))
 					return false;
 			}
+
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = sizeof(uint32_t) * hashBufferElemCount / device->getPhysicalDevice()->getLimits().maxSubgroupSize;	// TODO: could probably reduce size
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT;
+				m_active.workgroupReductions = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.workgroupReductions.get(), "Workgroup reductions"))
+					return false;
+			}
+			{
+				IGPUBuffer::SCreationParams params = {};
+				params.size = sizeof(uint32_t);
+				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT;
+				m_active.workgroupCounter = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.workgroupCounter.get(), "Workgroup counter"))
+					return false;
+			}
+		}
+		// create UBO
+		{
+			// maybe we can defer updating this portion to the render function only?
+			auto uniforms = m_params.uniforms;
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] = m_active.reconnectionData->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] = m_active.hashAppend->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] = m_active.initialReservoirs->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = m_active.resamplingReservoirs[0]->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = m_active.resamplingReservoirs[1]->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf] = m_active.cellStorage[0]->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] = m_active.indices[0]->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf] = m_active.checkSum[0]->getDeviceAddress();
+			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] = m_active.cellCounter[0]->getDeviceAddress();
+
+			IGPUBuffer::SCreationParams params = {};
+			params.size = sizeof(m_params.uniforms);
+			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
+			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			auto ubo = device->createBuffer(std::move(params));
+			if (!dedicatedAllocate(ubo.get(), "Sensor UBO"))
+				return false;
+			// pipeline barrier in `reset` will take care of sync for this
+			info.getCommandBufferForRecording()->cmdbuf->updateBuffer({ .size = sizeof(m_params.uniforms),.buffer = ubo }, &m_params.uniforms);
+			addWrite(SensorDSBindings::UBO, SBufferRange<IGPUBuffer>{.offset = 0, .size = sizeof(m_params.uniforms), .buffer = ubo});
 		}
 
 		const auto allowedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling();
