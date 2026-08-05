@@ -2,6 +2,7 @@
 
 #include "common.hlsl"
 #include "renderer/shaders/bda_accessors.hlsl"
+#include "renderer/shaders/legacy_bda_accessors.hlsl"
 #include "next_event_estimator.hlsl"
 
 // Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
@@ -195,7 +196,7 @@ enum E_SBT_OFFSETS : uint16_t
 uint32_t resolveEmitterID(const uint32_t instanceCustomIndex, const uint32_t geometryIndex)
 {
     if (gScene.init.pInstancedGeometryToEmitter == 0)
-      return nbl::this_example::NonEmitterCustomIndex;
+        return nbl::this_example::NonEmitterCustomIndex;
     return vk::RawBufferLoad<uint32_t>(gScene.init.pInstancedGeometryToEmitter + uint64_t(instanceCustomIndex + geometryIndex) * 4ull);
 }
 
@@ -245,7 +246,7 @@ void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
     ec.deweight             = (backPdf > 0.f) ? nee.__emissionDeweight(ec.emitterIdx, ec.currentHitPos, backPdf, ec.otherTechniqueHeuristic) : 1.f;
 }
 
-[shader("raygeneration")] 
+[shader("raygeneration")]
 void raygen()
 {
     const uint16_t3                        launchID        = uint16_t3(spirv::LaunchIdKHR);
@@ -258,7 +259,7 @@ void raygen()
     const uint32_t endSample        = samplingInfo.newSampleCount;
     const uint32_t samplesThisFrame = endSample - samplingInfo.firstSample;
     if (samplesThisFrame == 0)
-      return;
+        return;
 
 #if NBL_NEE_PROPOSAL_PROBE
     // Diagnostic-only takeover (body in nee_proposal_probe.hlsl): visualize the K NEE candidate
@@ -284,8 +285,9 @@ void raygen()
     // Held live across the path-tracing loop; summed per sample, written to gBeauty as an fp32 mean
     // after the loop (alongside the per-sample RWMC cascade splat).
     float32_t3 referenceFrameSum = float32_t3(0, 0, 0);
-    NBL_HLSL_LOOP
-    for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
+    uint32_t sampleIndex = 0u;
+    // NBL_HLSL_LOOP
+    // for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
     {
         // For RWMC to work, every sample must be splatted individually
         spectral_t color;
@@ -322,29 +324,40 @@ void raygen()
             // TODO: do something with the payload's reported transparency
         }
         // TODO: Possible SER point
-        const bool       primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
+        const bool primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
         const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
+        const uint16_t lastPathDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastPathDepth);
+
+        SPathState pathState = SPathState::create(launchID.xy, lastPathDepth);
 
         if (primaryMissed)
         {
             const SEnvSample _sample = nbl::this_example::NextEventEstimator::shadeEnvmap(primaryRayDir, 0.f);
-            color                    = float16_t3(_sample.color);
-            aovs                     = aovs + _sample.aov * rcpSamplesThisFrame;
+            color = spectral_t(_sample.color);
+            aovs = aovs + _sample.aov * rcpSamplesThisFrame;
             transparency += rcpSamplesThisFrame;
+
+            if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                pathState.prefixPathRadiance += color * pathState.throughput * pathState.prefixThroughput;  // * aov?
+            else
+                pathState.rcVertexRadiance += color * pathState.throughput; // * aov?
         }
         else // trace further rays
         {
             //
-            MaxContributionEstimator contribEstimator           = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
-            const uint16_t           lastPathDepth              = _static_cast<uint16_t>(pc.sensorDynamics.lastPathDepth);
-            const uint16_t           lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
+            MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
+            const uint16_t lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
             //
-            color                                                         = spectral_t(0, 0, 0);
-            spectral_t                            throughput              = spectral_t(1, 1, 1);
-            float32_t                             otherTechniqueHeuristic = 0.f;
-            nbl::this_example::NextEventEstimator neeEstimator            = nbl::this_example::NextEventEstimator::create();
-            SAOVThroughputs                       aovThroughput;
+            color = spectral_t(0, 0, 0);
+            spectral_t throughput = spectral_t(1, 1, 1);
+            float32_t otherTechniqueHeuristic = 0.f;
+            nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
+            SAOVThroughputs aovThroughput;
             aovThroughput.clear(rcpSamplesThisFrame);
+
+            pathState.direction = primaryRayDir;
+            pathState.pdf = 1.0f;
+
             NBL_HLSL_LOOP
             for (uint16_t depth = 1; true; depth++) // ideally peel this loop once
             {
@@ -362,8 +375,12 @@ void raygen()
 
                 float32_t3 shadingNormal = closestInfo.geometricNormal;
 
+                pathState.currentVertexIndex++;
+                pathState.normal = shadingNormal;
+
                 // TODO: possible SER point based on NEE status, and material flags
 
+                // TODO: do after the emissive part
                 // TODO: get AoVs from material and emission
                 SAOVThroughputs nextThroughput;
                 nextThroughput.clear(0.f);
@@ -380,7 +397,23 @@ void raygen()
                 // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
                 {
                     const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+                    const spectral_t emission;
+                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, emission);
+                    
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
+                        pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput;
+                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                        pathState.rcVertexRadiance += emission * pathState.throughput;
+                }
+
+                const bool canConnect = pathState.isLastVertexRough && pathState.currentVertexIndex == pathState.rcVertexLength;
+
+                if (canConnect)
+                {
+                    pathState.rcVertexPosition = closestInfo.hitPos;
+                    pathState.rcVertexNormal = shadingNormal;
+                    pathState.rcPdf = pathState.pdf;
+                    pathState.throughput = 1.f; // reset at reconnect vertex
                 }
 
                 // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
@@ -396,7 +429,7 @@ void raygen()
 
                 using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
                 brdf_t::SCreationParams cParams;
-                cParams.A            = 0.f;
+                cParams.A = 0.f;
                 const brdf_t diffuse = brdf_t::create(cParams);
                 // Surface diffuse reflectance. The OrenNayar eval is cos/pi WITHOUT albedo, so albedo must
                 // be applied to BOTH the NEE direct contribution and the BSDF-continuation throughput, or
@@ -410,7 +443,7 @@ void raygen()
                 // TODO: start at 0 or numeric_limits::min?
                 const float32_t tMin = 0.f;
                 // should the offset be the same for NEE and Path Continuation?
-                const float32_t3 originMagnitude = max(abs(closestInfo.hitPos), abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+                const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
                 // TODO: should probably also take `tMax` of found hit into account
                 const float      offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
                 const float32_t3 newRayOrigin    = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
@@ -458,6 +491,11 @@ void raygen()
                         // albedo: NEE direct must be tinted by the surface reflectance, same as the BSDF path.
                         if (shadowHitsEmitter)
                             color += nee.contribution * albedo;
+
+                        if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                            pathState.prefixPathRadiance += nee.contribution * pathState.throughput * pathState.prefixThroughput;
+                        else
+                            pathState.rcVertexRadiance += nee.contribution * pathState.throughput;
                     }
                 }
 #endif // NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
@@ -466,6 +504,15 @@ void raygen()
                 // Direct-only: stop before BSDF sampling so only camera-visible emission + NEE contribute.
                 break;
 #endif
+
+                if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                {
+                    pathState.preRcHitPosition = closestInfo.hitPos;
+                    pathState.preRcVertexBarycentrics = closestInfo.barycentrics;
+                    pathState.preRcVertexInstancedGeometryID = closestInfo.instancedGeometryID;
+                    pathState.preRcNormal = closestInfo.geometricNormal;
+                    pathState.preRcVertexL = pathState.direction;
+                }
 
                 // TODO: perform shading
                 light_sample_t bxdfSample;
@@ -477,9 +524,29 @@ void raygen()
                     const quotient_weight_type qAw           = diffuse.quotientAndWeight(bxdfSample, interaction, cache);
                     const float                forwardWeight = qAw.weight();
                     if (forwardWeight < 0.00000001f)
-                    break;
+                        break;
+
+                    pathState.direction = bxdfSample.getL().getDirection();
+                    pathState.pdf = forwardWeight;
+                    spectral_t weight = qAw.quotient();
+
+                    // TODO ReSTIR: check roughness greater than threshold and not specular/delta bounce
+                    pathState.isLastVertexRough = true;
+                    if (pathState.currentVertexIndex < pathState.rcVertexLength && pathState.isLastVertexRough)
+                        pathState.rcVertexLength = pathState.currentVertexIndex + 1;
+
+                    // TODO ReSTIR: condition when first bounce surface is not rough enough
+                    // if (pathState.currentVertexIndex == 1 && sd.linearRoughness < kRoughnessThreshold)
+                    // {
+                    // }
 
                     throughput = throughput * qAw.quotient() * albedo;
+                    pathState.throughput *= weight;
+
+                    if (hlsl::any(pathState.throughput > hlsl::promote<float32_t3>(0.f)) && pathState.currentVertexIndex + 1 < pathState.rcVertexLength)
+                    {
+                        pathState.updatePrefixThroughput();
+                    }
 
                     // TODO: include neeProb here
                     otherTechniqueHeuristic = 1.f / forwardWeight;
@@ -512,6 +579,53 @@ void raygen()
                 }
             }
         }
+
+        // Fill in ReSTIR data
+        const uint32_t linearIdx = launchID.y * gSensor.renderSize.x + launchID.x;
+        SReservoir initialReservoir = SReservoir::create(pathState);
+        {
+            LegacyBdaAccessor<SReservoir> reservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
+            reservoirsPtr.set(linearIdx, initialReservoir);
+        }
+        SHashAppendData data;
+        data.reservoirIdx = linearIdx;
+        data.isValid = 0;
+        if (hlsl::any(hlsl::abs(initialReservoir.vNormal) > hlsl::promote<float32_t3>(0.0)))
+        {
+            float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
+            int cellIdx = findOrInsertCell(initialReservoir.vPosition, initialReservoir.vNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
+
+            if (cellIdx != -1)
+            {
+                bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf]);
+                BdaAccessor<uint32_t> cellCounterPtr = BdaAccessor<uint32_t>::create(ptr);
+                uint32_t inCellIdx = cellCounterPtr.atomicAdd(cellIdx, 1);
+                data.isValid = 1;
+                data.cellIdx = cellIdx;
+                data.inCellIdx = inCellIdx;
+            }
+        }
+        {
+            LegacyBdaAccessor<SHashAppendData> hashAppendDataPtr = LegacyBdaAccessor<SHashAppendData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf]);
+            hashAppendDataPtr.set(linearIdx, data);
+        }
+
+        {
+            SReconnectionData rcData;
+            rcData.preRcHitPosition = pathState.preRcHitPosition;
+            rcData.preRcVertexBarycentrics = pathState.preRcVertexBarycentrics;
+            rcData.preRcVertexInstancedGeometryID = pathState.preRcVertexInstancedGeometryID;
+            rcData.preRcVertexPrimitiveID = pathState.preRcVertexPrimitiveID;
+            rcData.preRcNormal = pathState.preRcNormal;
+            rcData.pathPreThroughput = pathState.prefixThroughput;
+            rcData.pathPreRadiance = pathState.prefixPathRadiance;
+            rcData.preRcVertexL = pathState.preRcVertexL;
+            rcData.pathLength = pathState.rcVertexLength - 1;
+
+            LegacyBdaAccessor<SReconnectionData> reconnDataPtr = LegacyBdaAccessor<SReconnectionData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf]);
+            reconnDataPtr.set(linearIdx, rcData);
+        }
+
         // Every sample feeds both outputs: the fp32 plain running mean (summed here, written to gBeauty
         // after the loop) and the fp16 RWMC cascade splat. First sample clears the RWMC; can't use
         // pc.keepAccumulating because of the variable sampling we want to do later.
@@ -519,16 +633,16 @@ void raygen()
         const bool doClear = (sampleIndex++) == 0;
         // don't precompute `rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting)` and keep it
         // as live state, it will spill anyway
-        rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
-        colorAcc.addSample(_static_cast<uint16_t>(sampleIndex), accum_t(color));
+        // rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
+        // colorAcc.addSample(_static_cast<uint16_t>(sampleIndex), accum_t(color));
     }
     // Plain fp32 running mean across dispatches: gBeauty holds the mean over all
     // samples this pixel has accumulated. firstSample==0 means a fresh start.
-    {
-        float32_t3 mean = (samplingInfo.firstSample != 0u) ? gBeauty[launchID].rgb : float32_t3(0, 0, 0);
-        mean += (referenceFrameSum - mean * float32_t(samplesThisFrame)) * samplingInfo.rcpNewSampleCount;
-        gBeauty[launchID] = float32_t4(mean, 1.0);
-    }
+    // {
+    //     float32_t3 mean = (samplingInfo.firstSample != 0u) ? gBeauty[launchID].rgb : float32_t3(0, 0, 0);
+    //     mean += (referenceFrameSum - mean * float32_t(samplesThisFrame)) * samplingInfo.rcpNewSampleCount;
+    //     gBeauty[launchID] = float32_t4(mean, 1.0);
+    // }
     // albedo
     Accumulator<ImageAccessor_gAlbedo> albedoAcc;
     albedoAcc.accumulate(launchID.xy, launchID.z, aovs.albedo, newSamplesOverTotal, keepAccumulating);

@@ -109,6 +109,22 @@ set(JSON [=[
         "COMPILE_OPTIONS": ["-DNBL_MIS_MODE=0", "-DNBL_NEE_USE_ALIAS=0"],
     },
     {
+        "INPUT": "app_resources/pathtrace/beauty_reservoir.hlsl",
+        "KEY": "pathtrace_beauty_reservoir",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty_hashgrid.hlsl",
+        "KEY": "pathtrace_beauty_hashgrid",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty_scan.hlsl",
+        "KEY": "pathtrace_beauty_scan",
+    },
+    {
+        "INPUT": "app_resources/pathtrace/beauty_shading.hlsl",
+        "KEY": "pathtrace_beauty_shading",
+    },
+    {
         "INPUT": "app_resources/pathtrace/debug.hlsl",
         "KEY": "pathtrace_debug",
     },
