@@ -24,6 +24,7 @@ class CSession final : public core::IReferenceCounted
 		{
 			Previs,
 			Beauty,
+			Beauty_ReSTIR,
 			Debug,
 			Count
 		};
@@ -35,6 +36,19 @@ class CSession final : public core::IReferenceCounted
 			Count
 		};
 
+	    // TODO: maybe combine these two
+	    enum class RestirRayTracingPipeline : uint8_t
+	    {
+			Reservoir,
+			Shading,
+			Count
+	    };
+        enum class RestirComputePipeline : uint8_t
+        {
+			Scan,
+			Hashgrid,
+			Count
+        };
 		enum class BeautyVariant : uint8_t
 		{
 			NEEOnly_Alias, // NBL_MIS_MODE=0

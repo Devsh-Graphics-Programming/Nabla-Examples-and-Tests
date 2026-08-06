@@ -185,6 +185,17 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
          if (checkNullObject(params.renderingLayouts[t], debugName))
             return nullptr;
       }
+
+      SPushConstantRange computePcRanges[uint8_t(CSession::RestirComputePipeline::Count)];
+      computePcRanges[0] = {.stageFlags = hlsl::ESS_COMPUTE, .offset = 0, .size = sizeof(SScanPushConstants)};
+      computePcRanges[1] = { .stageFlags = hlsl::ESS_COMPUTE, .offset = 0, .size = sizeof(SBeautyPushConstants) };
+       for (uint8_t t = 0; t < uint8_t(CSession::RestirComputePipeline::Count); t++)
+       {
+           params.computeLayouts[t] = device->createPipelineLayout({ computePcRanges + t, 1 });
+           string debugName = to_string(static_cast<render_mode_e>(t)) + "Compute Pipeline Layout";
+           if (checkNullObject(params.computeLayouts[t], debugName))
+               return nullptr;
+       }
    }
 
    // TODO: create the generic pipelines
@@ -210,6 +221,23 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
          logger.log("Failed to Load Beauty MIS-mode variant Shader %d!", ILogger::ELL_ERROR, int(i));
          return nullptr;
       }
+    // Beauty ReSTIR shaders (not variants)
+   params.beautyRestirShaders[uint8_t(CSession::RestirRayTracingPipeline::Reservoir)] = loadPrecompiledShader<"pathtrace_beauty_reservoir">(_params.assMan, device, logger);
+   params.beautyRestirShaders[uint8_t(CSession::RestirRayTracingPipeline::Shading)] = loadPrecompiledShader<"pathtrace_beauty_shading">(_params.assMan, device, logger);
+   for (auto i = 0; i < params.beautyRestirShaders.size(); i++)
+       if (!params.beautyRestirShaders[i])
+       {
+           logger.log("Failed to Load Beauty ReSTIR Shader %d!", ILogger::ELL_ERROR, int(i));
+           return nullptr;
+       }
+   params.beautyRestirComputeShaders[uint8_t(CSession::RestirComputePipeline::Scan)] = loadPrecompiledShader<"pathtrace_beauty_scan">(_params.assMan, device, logger);
+   params.beautyRestirComputeShaders[uint8_t(CSession::RestirComputePipeline::Hashgrid)] = loadPrecompiledShader<"pathtrace_beauty_hashgrid">(_params.assMan, device, logger);
+   for (auto i = 0; i < params.beautyRestirComputeShaders.size(); i++)
+       if (!params.beautyRestirComputeShaders[i])
+       {
+           logger.log("Failed to Load ReSTIR Compute Shader %d!", ILogger::ELL_ERROR, int(i));
+           return nullptr;
+       }
 
    // command buffers
    for (uint8_t i = 0; i < SConstructorParams::FramesInFlight; i++)
@@ -309,7 +337,8 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
    // modes so they share the single asset-converter pass below; the default (Both+alias) is the regular
    // Beauty slot.
    constexpr uint8_t BeautyVariantCount = uint8_t(CSession::BeautyVariant::Count);
-   constexpr uint8_t SBTCount           = RenderModeCount + BeautyVariantCount;
+   constexpr uint8_t BeautyRestirCount = uint8_t(CSession::RestirRayTracingPipeline::Count);
+   constexpr uint8_t SBTCount           = RenderModeCount + BeautyVariantCount + BeautyRestirCount;
    // create the pipelines
    {
       IGPURayTracingPipeline::SCreationParams creationParams[RenderModeCount] = {};
@@ -403,6 +432,49 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
             m_creation.logger.log("Failed to create Beauty MIS-mode variant Pipelines", ILogger::ELL_ERROR);
             return nullptr;
          }
+      }
+
+       // ReSTIR raytracing pipelines
+      {
+          constexpr uint8_t                       beautySlot = uint8_t(CSession::RenderMode::Beauty);
+          IGPURayTracingPipeline::SCreationParams restirParams[BeautyRestirCount] = {};
+          IGPURayTracingPipeline::SShaderSpecInfo restirMiss[BeautyRestirCount] = {};
+          IGPURayTracingPipeline::SHitGroup       restirHit[BeautyRestirCount] = {};
+          IGPURayTracingPipeline::SShaderSpecInfo restirCallable[BeautyRestirCount][2] = {};
+          for (uint8_t k = 0; k < BeautyRestirCount; k++)
+          {
+              const auto* const shader = m_construction.beautyRestirShaders[k].get();
+              restirMiss[k] = { .shader = shader, .entryPoint = "miss" };
+              restirHit[k].closestHit = { .shader = shader, .entryPoint = "closestHit" };
+              restirCallable[k][0] = { .shader = shader, .entryPoint = "neeCallable" };
+              restirCallable[k][1] = { .shader = shader, .entryPoint = "emissionCallable" };
+              restirParams[k] = creationParams[beautySlot];
+              restirParams[k].shaderGroups.raygen = { .shader = shader, .entryPoint = "raygen" };
+              restirParams[k].shaderGroups.misses = { restirMiss + k, creationParams[beautySlot].shaderGroups.misses.size() };
+              restirParams[k].shaderGroups.hits = { restirHit + k, creationParams[beautySlot].shaderGroups.hits.size() };
+              restirParams[k].shaderGroups.callables = { restirCallable[k], 2ull };
+          }
+          if (!device->createRayTracingPipelines(nullptr, restirParams, params.beautyRestirPipelines))
+          {
+              m_creation.logger.log("Failed to create Beauty ReSTIR Pipelines", ILogger::ELL_ERROR);
+              return nullptr;
+          }
+      }
+       // ReSTIR compute pipelines
+      {
+          for (uint8_t t = 0; t < uint8_t(CSession::RestirComputePipeline::Count); t++)
+          {
+              IGPUComputePipeline::SCreationParams computeParams = {};
+              computeParams.layout = m_construction.computeLayouts[t].get();
+              computeParams.shader.entryPoint = "main";
+              computeParams.shader.shader = m_construction.beautyRestirComputeShaders[t].get();
+              if (device->getEnabledFeatures().pipelineExecutableInfo)
+              {
+                  computeParams.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+                  computeParams.flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+              }
+              device->createComputePipelines(nullptr, { &computeParams,1 }, &params.beautyRestirComputePipelines[t]);
+          }
       }
    }
 
@@ -768,7 +840,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
       {
          // Slots [0,RenderModeCount) are the real render modes; the trailing BeautyVariantCount slots
          // are the Beauty MIS-mode variants. Both feed one converter pass via tmpBuffers.sbts.
-         auto* const pipeline        = (i < RenderModeCount) ? params.pipelines[i].get() : params.beautyVariantPipelines[i - RenderModeCount].get();
+         auto* const pipeline        = (i < RenderModeCount) ? params.pipelines[i].get() : ((i < RenderModeCount + BeautyVariantCount) ? params.beautyVariantPipelines[i - RenderModeCount].get() : params.beautyRestirPipelines[i - RenderModeCount - BeautyVariantCount].get());
          const auto  hitHandles      = pipeline->getHitHandles();
          const auto  missHandles     = pipeline->getMissHandles();
          const auto  callableHandles = pipeline->getCallableHandles();
@@ -810,7 +882,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
                   }
                   return range;
                };
-               auto& sbt      = (i < RenderModeCount) ? params.sbts[i] : params.beautyVariantSbts[i - RenderModeCount];
+               auto& sbt      = (i < RenderModeCount) ? params.sbts[i] : ((i < RenderModeCount + BeautyVariantCount) ? params.beautyVariantSbts[i - RenderModeCount] : params.beautyRestirSbts[i - RenderModeCount - BeautyVariantCount]);
                sbt.raygen     = copyShaderHandles({ &pipeline->getRaygen(), 1 });
                sbt.miss.range = copyShaderHandles(pipeline->getMissHandles());
                // TODO: the material compiler with an RT pipeline backend should give 3 or 4 hitgroups depending on opacity and other funny things

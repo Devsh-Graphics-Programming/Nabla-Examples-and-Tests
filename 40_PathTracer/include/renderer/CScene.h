@@ -95,6 +95,11 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			core::smart_refctd_ptr<video::IGPURayTracingPipeline> beautyVariantPipelines[uint8_t(CSession::BeautyVariant::Count)];
 			//
 			video::IGPURayTracingPipeline::SShaderBindingTable beautyVariantSbts[uint8_t(CSession::BeautyVariant::Count)];
+			// Beauty ReSTIR requires more than a single ray tracing pass per frame
+            // so it is handled separately from the others
+			core::smart_refctd_ptr<video::IGPURayTracingPipeline> beautyRestirPipelines[uint8_t(CSession::RestirRayTracingPipeline::Count)];
+			video::IGPURayTracingPipeline::SShaderBindingTable beautyRestirSbts[uint8_t(CSession::RestirRayTracingPipeline::Count)];
+			core::smart_refctd_ptr<video::IGPUComputePipeline> beautyRestirComputePipelines[uint8_t(CSession::RestirComputePipeline::Count)];
 			// descriptor set for a scene shall contain sampled textures and compiled materials
 			core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> sceneDS;
 			// main TLAS

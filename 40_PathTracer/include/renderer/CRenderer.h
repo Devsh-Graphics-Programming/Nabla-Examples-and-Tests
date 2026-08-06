@@ -114,7 +114,10 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
          // temporary
          std::array<core::smart_refctd_ptr<asset::IShader>,uint8_t(CSession::RenderMode::Count)> shaders;
          std::array<core::smart_refctd_ptr<asset::IShader>,uint8_t(CSession::BeautyVariant::Count)> beautyVariantShaders;
+         std::array<core::smart_refctd_ptr<asset::IShader>, uint8_t(CSession::RestirRayTracingPipeline::Count)> beautyRestirShaders;
+         std::array<core::smart_refctd_ptr<asset::IShader>, uint8_t(CSession::RestirComputePipeline::Count)> beautyRestirComputeShaders;
          std::array<core::smart_refctd_ptr<video::IGPUPipelineLayout>,uint8_t(CSession::RenderMode::Count)> renderingLayouts;
+         std::array<core::smart_refctd_ptr<video::IGPUPipelineLayout>, uint8_t(CSession::RestirComputePipeline::Count)> computeLayouts;
          // TODO
 //			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(CSession::RenderMode::Count)> genericPipelines;
 
