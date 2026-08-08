@@ -33,10 +33,7 @@ template<typename T, int order=2>
 T acos_csc_approx(const T arg)
 {
     const T u = hlsl::log2(_static_cast<T>(1)+arg);
-    // See https://www.desmos.com/calculator/sdptomhbju
-    // Furthermore we could clip the polynomial calc to `Cu+D or `(Bu+C)u+D` for small arguments
     T poly;
-    // TODO: actually optimize these constants in real world scenarios (renders)
     if (order==1)
         poly = (_static_cast<T>(1)-u)*_static_cast<T>(0.6);
     else if (order==2)
