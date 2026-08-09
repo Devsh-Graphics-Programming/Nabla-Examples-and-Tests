@@ -39,7 +39,7 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		inline CRenderer* getRenderer() const {return m_construction.renderer.get();}
 
 		//
-		inline video::IGPURayTracingPipeline* getPipeline(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true) const
+		inline video::IGPURayTracingPipeline* getPipeline(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true, const CSession::RestirRayTracingPipeline restirMode = CSession::RestirRayTracingPipeline::Reservoir) const
 		{
 			if (mode == CSession::RenderMode::Beauty)
 			{
@@ -47,17 +47,35 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 				if (variant != CSession::BeautyVariant::Count)
 					return m_construction.beautyVariantPipelines[static_cast<uint8_t>(variant)].get();
 			}
+			else if (mode == CSession::RenderMode::Beauty_ReSTIR)
+			{
+				return m_construction.beautyRestirPipelines[static_cast<uint8_t>(restirMode)].get();
+			}
 			return m_construction.pipelines[static_cast<uint8_t>(mode)].get();
 		}
 
+	    //
+		inline video::IGPUComputePipeline* getComputePipeline(const CSession::RenderMode mode, const CSession::RestirComputePipeline restirMode = CSession::RestirComputePipeline::Scan) const
+		{
+			if (mode == CSession::RenderMode::Beauty_ReSTIR)
+			{
+				return m_construction.beautyRestirComputePipelines[static_cast<uint8_t>(restirMode)].get();
+			}
+			return nullptr;
+		}
+
 		//
-		inline const auto& getSBT(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true) const
+		inline const auto& getSBT(const CSession::RenderMode mode, const CSession::MisMode misMode = CSession::MisMode::Both, const bool useAlias = true, const CSession::RestirRayTracingPipeline restirMode = CSession::RestirRayTracingPipeline::Reservoir) const
 		{
 			if (mode == CSession::RenderMode::Beauty)
 			{
 				const auto variant = CSession::beautyVariantFor(misMode, useAlias);
 				if (variant != CSession::BeautyVariant::Count)
 					return m_construction.beautyVariantSbts[static_cast<uint8_t>(variant)];
+			}
+			else if (mode == CSession::RenderMode::Beauty_ReSTIR)
+			{
+				return m_construction.beautyRestirSbts[static_cast<uint8_t>(restirMode)];
 			}
 			return m_construction.sbts[static_cast<uint8_t>(mode)];
 		}

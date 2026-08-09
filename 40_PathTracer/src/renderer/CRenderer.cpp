@@ -1160,6 +1160,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
 
    bool success;
    // push constants
+   SBeautyPushConstants beautyPc;
    {
       // Bench mode forces a fresh-start frame so the shader always does work,
       // independent of how much sample accumulation the session built up.
@@ -1180,14 +1181,15 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                break;
             }
          case CSession::RenderMode::Beauty:
+         case CSession::RenderMode::Beauty_ReSTIR:
             {
-               SBeautyPushConstants pc = { .sensorDynamics = dynForRender };
+                beautyPc = { .sensorDynamics = dynForRender };
                // TODOs
-               pc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later LumaConversionCoeffs
-               pc.__16BitData.maxSppPerDispatch   = m_maxSppPerDispatch;
+                beautyPc.__16BitData.rrThroughputWeights = hlsl::promote<hlsl::float16_t3>(hlsl::numeric_limits<hlsl::float16_t>::max); // always pass RR, later LumaConversionCoeffs
+                beautyPc.__16BitData.maxSppPerDispatch   = m_maxSppPerDispatch;
                // alias-vs-tree is now a compiled Beauty variant (NBL_NEE_USE_ALIAS), picked via
                // getPipeline(mode, m_misMode, m_useAliasNEE) above, no longer a push constant.
-               success = cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_ALL_RAY_TRACING, 0, sizeof(pc), &pc);
+               success = cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_ALL_RAY_TRACING, 0, sizeof(beautyPc), &beautyPc);
                break;
             }
          default:
@@ -1205,6 +1207,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    }
 
    // barrier against previous usages of accumulation targets (so that RMW cycles sync up properly)
+    // TODO may be able to reduce targets when doing restir (because of multiple stages)
    {
       constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
       using image_barrier_t           = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
@@ -1243,6 +1246,130 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
 
    const auto renderSize = sessionParams.uniforms.renderSize;
    success               = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
+
+    if (mode == CSession::RenderMode::Beauty_ReSTIR)
+    {
+        using buffer_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t;
+        const auto& resources = session->getActiveResources();
+
+        // scan
+        {
+            success = success && cb->fillBuffer({ .offset = 0,.size = resources.workgroupReductions->getSize(),.buffer = resources.workgroupReductions }, 0);
+            success = success && cb->fillBuffer({ .offset = 0,.size = resources.workgroupCounter->getSize(),.buffer = resources.workgroupCounter }, 0);
+            buffer_barrier_t bufBarrier[2];
+            bufBarrier[0] = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.workgroupReductions->getSize(),.buffer = resources.workgroupReductions}
+            };
+            bufBarrier[1] = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.workgroupCounter->getSize(),.buffer = resources.workgroupCounter}
+            };
+
+            success = cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {
+                    .memBarriers = {},
+                    .bufBarriers = bufBarrier,
+                    .imgBarriers = {}
+                });
+
+
+            SScanPushConstants pc;
+            pc.pInputBuf = resources.cellCounter[0]->getDeviceAddress();    // TODO ping pong properly
+            pc.pOutputBuf = resources.indices[0]->getDeviceAddress();   // TODO ping pong properly
+            pc.pReduceBuf = resources.workgroupReductions->getDeviceAddress();
+            pc.pWgCounterBuf = resources.workgroupCounter->getDeviceAddress();
+
+            const uint32_t workgroupCount = 1024u;  // TODO make it dependent on workgroup config
+            const auto* scanPipeline = scene->getComputePipeline(mode, CSession::RestirComputePipeline::Scan);
+            success = success && cb->bindComputePipeline(scanPipeline);
+            success = success && cb->pushConstants(scanPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SScanPushConstants), &pc);
+            success = success && cb->dispatch(workgroupCount, 1, 1);
+        }
+
+        // hashgrid
+        {
+            buffer_barrier_t bufBarrier[1];
+            bufBarrier[0] = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT | PIPELINE_STAGE_FLAGS::COPY_BIT,
+                        .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.indices[0]->getSize(),.buffer = resources.indices[0]} // TODO ping pong properly
+            };
+            success = cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {
+                    .memBarriers = {},
+                    .bufBarriers = bufBarrier,
+                    .imgBarriers = {}
+                });
+
+            const auto* hashPipeline = scene->getComputePipeline(mode, CSession::RestirComputePipeline::Hashgrid);
+            success = success && cb->bindComputePipeline(hashPipeline);
+            success = success && cb->pushConstants(hashPipeline->getLayout(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(beautyPc), &beautyPc);
+            success = success && cb->dispatch(renderSize.x, renderSize.y, 1);
+        }
+
+        // final shading
+        {
+            const auto* shadingPipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE, CSession::RestirRayTracingPipeline::Shading);
+            success = success && cb->bindRayTracingPipeline(shadingPipeline);
+            success = success && cb->pushConstants(shadingPipeline->getLayout(), hlsl::ShaderStage::ESS_ALL_RAY_TRACING, 0, sizeof(beautyPc), &beautyPc);
+
+            // TODO split with the other barrier?
+            constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;
+            using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+            core::vector<image_barrier_t> barr;
+            {
+                constexpr image_barrier_t base = {
+                   .barrier = {
+                      .dep = {
+                        // Any of the images can be read by Debug/Presenter, ideally we should be aware of that and inject it here via a Command Graph
+                        // but to keep code decoupled we'll have those subsystems use one more pipeline barrier after their own dispatch
+                        .srcStageMask = raytracingStages,
+                        .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+                        .dstStageMask = raytracingStages,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS } },
+                  .subresourceRange = {}
+                };
+                barr.reserve(SensorDSBindingCounts::AsSampledImages);
+
+                auto enqueueBarrier = [&barr, base](const CSession::SImageWithViews& img) -> void
+                    {
+                        auto& out = barr.emplace_back(base);
+                        out.image = img.image.get();
+                        out.subresourceRange = { .aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT, .levelCount = 1, .layerCount = out.image->getCreationParameters().arrayLayers };
+                    };
+                enqueueBarrier(sessionImmutables.sampleCount);
+                enqueueBarrier(sessionImmutables.rwmcCascades);
+                // Beauty is a per-frame read-modify-write accumulation target in reference mode.
+                enqueueBarrier(sessionImmutables.beauty);
+                enqueueBarrier(sessionImmutables.albedo);
+                enqueueBarrier(sessionImmutables.normal);
+                enqueueBarrier(sessionImmutables.motion);
+                enqueueBarrier(sessionImmutables.mask);
+            }
+            success = cb->pipelineBarrier(asset::EDF_NONE, { .imgBarriers = barr });
+            
+            success = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE, CSession::RestirRayTracingPipeline::Shading), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
+        }
+    }
 
    if (timing.queryPool)
       cb->writeTimestamp(PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, timing.queryPool, timing.endQueryIdx);
