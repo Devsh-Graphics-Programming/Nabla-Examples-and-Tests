@@ -15,6 +15,10 @@ NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t PrimaryRayRandTripletsUsed = 2;
 // [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t RandDimTriplesPerDepth = 3;
 
+// section 5.2 of paper states: All the buffers for the hash grid are allocated with a fixed size corresponding to the maximum cell count, set as 3.2M in practice.
+// we set it to divide evenly by max workgroup size with similar size so 1024*1024*3=3,145,728
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t HashBufferElementCount = 3145728u;
+
 // ReSTIR relevant buffers
 struct SensorUBOBufferAddresses
 {

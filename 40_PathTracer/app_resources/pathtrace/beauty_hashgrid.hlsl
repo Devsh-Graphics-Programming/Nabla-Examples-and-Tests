@@ -3,7 +3,7 @@
 
 #include "common.hlsl"
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = WORKGROUP_SIZE;
+NBL_CONSTEXPR uint32_t WorkgroupSize = 16u;
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 

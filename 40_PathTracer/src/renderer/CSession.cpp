@@ -104,13 +104,10 @@ bool CSession::init(SIntendedSubmitInfo& info)
 					return false;
 			}
 
-			// section 5.2 of paper states: All the buffers for the hash grid are allocated with a fixed size corresponding to the maximum cell count, set as 3.2M in practice.
-			// we set it to divide evenly by max workgroup size with similar size so 1024*1024*3=3,145,728
-			const uint32_t hashBufferElemCount = 3145728u;
 			for (uint32_t i = 0; i < 2; i++)
 			{
 				IGPUBuffer::SCreationParams params = {};
-				params.size = hashBufferElemCount * sizeof(uint32_t);
+				params.size = HashBufferElementCount * sizeof(uint32_t);
 				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
 				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -133,7 +130,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 
 			{
 				IGPUBuffer::SCreationParams params = {};
-				params.size = sizeof(uint32_t) * hashBufferElemCount / device->getPhysicalDevice()->getLimits().maxSubgroupSize;	// TODO: could probably reduce size
+				params.size = sizeof(uint32_t) * HashBufferElementCount / device->getPhysicalDevice()->getLimits().maxSubgroupSize;	// TODO: could probably reduce size
 				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
 				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT;
 				m_active.workgroupReductions = device->createBuffer(std::move(params));
