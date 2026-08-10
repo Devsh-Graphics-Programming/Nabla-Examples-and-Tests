@@ -32,45 +32,45 @@ struct SPathState
 
     // probably don't need
     // float32_t3 origin;
-    float32_t3 normal;
-    float32_t3 direction;
+    hlsl::float32_t3 normal;
+    hlsl::float32_t3 direction;
     
-    float32_t pdf;
+    hlsl::float32_t pdf;
 
     // TODO ReSTIR: double check usage, we might already do all this in ray
-    float32_t3 prefixThroughput;
-    float32_t3 throughput;
-    float32_t3 radiance;
+    hlsl::float32_t3 prefixThroughput;
+    hlsl::float32_t3 throughput;
+    hlsl::float32_t3 radiance;
 
     // float32_t3 LoForDelta;   // TODO ReSTIR: maybe do later, with delta distributions?
 
-    float32_t3 prefixPathRadiance;
-    float32_t3 rcVertexRadiance;
+    hlsl::float32_t3 prefixPathRadiance;
+    hlsl::float32_t3 rcVertexRadiance;
 
     // TODO ReSTIR: pack this? it's the same as SClosestHitInfo
-    float32_t3 preRcHitPosition;
-    float32_t2 preRcVertexBarycentrics;
+    hlsl::float32_t3 preRcHitPosition;
+    hlsl::float32_t2 preRcVertexBarycentrics;
     uint32_t preRcVertexInstancedGeometryID;
     uint32_t preRcVertexPrimitiveID;
-    float32_t3 preRcNormal;
-    float32_t3 preRcVertexL;
+    hlsl::float32_t3 preRcNormal;
+    hlsl::float32_t3 preRcVertexL;
 
-    float32_t3 rcVertexPosition;
-    float32_t3 rcVertexNormal;
-    float32_t rcPdf;
+    hlsl::float32_t3 rcVertexPosition;
+    hlsl::float32_t3 rcVertexNormal;
+    hlsl::float32_t rcPdf;
 
-    uint64_t2 rngSeed;
+    hlsl::uint64_t2 rngSeed;
 
-    static SPathState create(uint32_t2 pixel, uint16_t depth)
+    static SPathState create(hlsl::uint32_t2 pixel, uint16_t depth)
     {
         SPathState retval;
         retval.currentVertexIndex = 0;
-        retval.rcVertexLength = depth;
+        retval.rcVertexLength = uint32_t(depth);
 
         retval.isLastVertexRough = false;
 
-        retval.prefixThroughput = 1.f;
-        retval.throughput = 1.f;
+        retval.prefixThroughput = hlsl::promote<hlsl::float32_t3>(1.f);
+        retval.throughput = hlsl::promote<hlsl::float32_t3>(1.f);
         retval.flags = PathFlags::Active;
 
         // TODO: get seed from scramblebuf based on pixel
@@ -81,20 +81,20 @@ struct SPathState
     void updatePrefixThroughput()
     {
         prefixThroughput *= throughput;
-        throughput = 1.f;
+        throughput = hlsl::promote<hlsl::float32_t3>(1.f);
     }
 };
 
 struct SReconnectionData
 {
-    float32_t3 preRcHitPosition;
-    float32_t2 preRcVertexBarycentrics;
+    hlsl::float32_t3 preRcHitPosition;
+    hlsl::float32_t2 preRcVertexBarycentrics;
     uint32_t preRcVertexInstancedGeometryID;
     uint32_t preRcVertexPrimitiveID;
-    float32_t3 preRcNormal;
-    float3_t pathPreRcThroughput;            // indicates path throughput before the preRcVertex
-    float3_t pathPreRcRadiance;
-    float3_t preRcVertexL;
+    hlsl::float32_t3 preRcNormal;
+    hlsl::float32_t pathPreRcThroughput;            // indicates path throughput before the preRcVertex
+    hlsl::float32_t pathPreRcRadiance;
+    hlsl::float32_t preRcVertexL;
     uint32_t pathLength;
 };
 
@@ -112,14 +112,14 @@ struct SHashAppendData
 // sample count + age: compressed in 4 byte uint
 struct SReservoir
 {
-    float32_t3 vPosition;
-    float32_t3 vNormal;
-    float32_t3 sPosition;
-    float32_t3 sNormal;
-    float32_t3 radiance;
+    hlsl::float32_t3 vPosition;
+    hlsl::float32_t3 vNormal;
+    hlsl::float32_t3 sPosition;
+    hlsl::float32_t3 sNormal;
+    hlsl::float32_t3 radiance;
 
     uint16_t M;
-    float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
+    hlsl::float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
     uint16_t age;   // sample age, discard if > maxSampleAge
 
     static SReservoir create(NBL_CONST_REF_ARG(SPathState) state)
@@ -130,18 +130,18 @@ struct SReservoir
         retval.vNormal = state.preRcNormal;
         retval.sPosition = state.rcVertexPosition;
         retval.sNormal = state.rcVertexNormal;
-        retval.radiance = pathState.rcVertexRadiance;
+        retval.radiance = state.rcVertexRadiance;
 
-        retval.weightF = hlsl::mix(float32_t(0.0), float32_t(1.0) / state.pdf, state.pdf > float32_t(0.0));
+        retval.weightF = hlsl::mix(hlsl::float32_t(0.0), hlsl::float32_t(1.0) / state.pdf, state.pdf > hlsl::float32_t(0.0));
         retval.M = uint16_t(1u);
         retval.age = uint16_t(0u);
 
         return retval;
     }
 
-    bool merge(NBL_CONST_REF_ARG(SReservoir) other, float32_t rand, float32_t pdf, NBL_REF_ARG(float32_t) weightS)
+    bool merge(NBL_CONST_REF_ARG(SReservoir) other, hlsl::float32_t rand, hlsl::float32_t pdf, NBL_REF_ARG(hlsl::float32_t) weightS)
     {
-        float32_t weight = other.M * hlsl::max(float32_t(0.0), other.weightF) * pdf;
+        hlsl::float32_t weight = other.M * hlsl::max(hlsl::float32_t(0.0), other.weightF) * pdf;
 
         weightS += weight;
         M += other.M;
@@ -157,15 +157,14 @@ struct SReservoir
         return isUpdate;
     }
 
-    void updateFinalWeight(float32_t targetPdf, float32_t weightS)
+    void updateFinalWeight(hlsl::float32_t targetPdf, hlsl::float32_t weightS)
     {
-        float32_t weight = targetPdf * M;
-        weightF = hlsl::mix(float32_t(0.0), weightS / weight, weight > float32_t(0.0));
+        hlsl::float32_t weight = targetPdf * M;
+        weightF = hlsl::mix(hlsl::float32_t(0.0), weightS / weight, weight > hlsl::float32_t(0.0));
     }
 };
 
 }
 }
-
 
 #endif  // _NBL_THIS_EXAMPLE_PATHTRACE_RESAMPLING_HLSL_INCLUDED_

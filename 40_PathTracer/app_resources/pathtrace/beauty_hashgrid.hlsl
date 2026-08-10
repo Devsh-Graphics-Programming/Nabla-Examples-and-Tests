@@ -1,5 +1,7 @@
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
+
 #include "common.hlsl"
-#include "renderer/shaders/bda_accessors.hlsl"
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = WORKGROUP_SIZE;
 

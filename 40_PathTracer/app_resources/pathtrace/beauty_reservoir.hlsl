@@ -1,8 +1,8 @@
 #include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 
 #include "common.hlsl"
-#include "renderer/shaders/bda_accessors.hlsl"
-#include "renderer/shaders/legacy_bda_accessors.hlsl"
 #include "next_event_estimator.hlsl"
 
 // Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
