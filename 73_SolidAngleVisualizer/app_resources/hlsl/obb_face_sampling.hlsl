@@ -13,7 +13,7 @@
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
 
-// Multi-face OBB sampler -- Matt's design with shared tip vertex T as origin
+// Multi-face OBB sampler with shared tip vertex T as origin
 // and silhouette pipeline skipped entirely. NO horizon clipping (option A):
 // samples below z=0 just get pdf=0, biased for OBBs near receiver horizon.
 //
@@ -79,14 +79,14 @@ struct OBBFaceSampler
       return sampling::SphericalRectangle<float32_t>::create(shapeRect, float32_t3(0.0f, 0.0f, 0.0f));
    }
 
-   // create(view, shadingPoint) -- region derived inline from view, no silhouette pipeline.
-   static OBBFaceSampler create(shapes::OBBView<float32_t> view, float32_t3 shadingPoint)
+   // create(view), region derived inline from the shading-point-relative view, no silhouette pipeline.
+   static OBBFaceSampler create(shapes::OBBView<float32_t> view)
    {
       OBBFaceSampler self;
 
       // Region inline (mirrors silhouette.hlsl ClippedSilhouette::create); all
       // in shading-point-relative coords.
-      const float32_t3 toMin    = view.minCorner - shadingPoint;
+      const float32_t3 toMin    = view.minCorner;
       const float32_t3 sqScales = float32_t3(dot(view.columns[0], view.columns[0]), dot(view.columns[1], view.columns[1]), dot(view.columns[2], view.columns[2]));
       const float32_t3 proj     = -float32_t3(dot(view.columns[0], toMin), dot(view.columns[1], toMin), dot(view.columns[2], toMin));
       const uint32_t3 below     = uint32_t3(proj < float32_t3(0, 0, 0));
@@ -102,7 +102,7 @@ struct OBBFaceSampler
       const uint32_t T_idx = (uint32_t(region.x == 0u) << 0)
                            | (uint32_t(region.y == 0u) << 1)
                            | (uint32_t(region.z == 0u) << 2);
-      const float32_t3 T_pos = view.getVertex(T_idx) - shadingPoint;
+      const float32_t3 T_pos = view.getVertex(T_idx);
 
       const bool swap = (countbits(T_idx) & 1u) == 0u;
 
@@ -137,12 +137,11 @@ struct OBBFaceSampler
       return self;
    }
 
-   // Uniform interface compatibility: ignores `silhouette`'s geometry (region
-   // is derived inline from view) but reads its baked-in shadingPoint so the
-   // sampler agrees with the silhouette's classification frame.
+   // Uniform interface compatibility: the silhouette carries nothing the view
+   // doesn't already, so it is ignored.
    static OBBFaceSampler create(NBL_CONST_REF_ARG(ClippedSilhouette) silhouette, shapes::OBBView<float32_t> view)
    {
-      return create(view, silhouette.shadingPoint);
+      return create(view);
    }
 
    codomain_type generate(domain_type u, NBL_REF_ARG(cache_type) cache)

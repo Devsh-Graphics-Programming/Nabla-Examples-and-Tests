@@ -285,7 +285,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
  					m_renderer->render(cb,viewParams);
 				}
-				// Always draw debug camera's frustum — viewed from whichever camera is active.
+				// Always draw debug camera's frustum - viewed from whichever camera is active.
 				if (interface.showFrustum)
 				{
 					const auto& viewCamera = interface.useDebugCameraView ? interface.debugCamera : interface.camera;

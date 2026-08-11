@@ -25,6 +25,9 @@ struct KeyedQuantizedSequence
     // sampleIndex: iteration number of current pixel (samples per pixel)
     return_type operator()(uint32_t baseDimension, const uint32_t sampleIndex)
     {
+        // Only 2^sequenceSamplesLog2 base points exist per dimension, past that the index bleeds into
+        // the baseDimension bits and reads a neighbouring dimension (or off the end of the buffer).
+        assert(sampleIndex < (uint32_t(1) << sequenceSamplesLog2));
         const uint32_t address = sampleIndex|(baseDimension<<sequenceSamplesLog2);
         sequence_type tmpSeq = vk::RawBufferLoad<sequence_type>(pSampleBuffer + address * sizeof(sequence_type));
         sequence_type scramble;

@@ -30,7 +30,7 @@ void runNeeProposalProbe(const uint16_t3 launchID, NBL_CONST_REF_ARG(SPixelSampl
 
    //, Self primary: see what THIS pixel is looking at.
    const float32_t2  selfNDC     = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
-   const SPrimaryRay selfPrimary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, selfNDC, float16_t2(randVec0.xy));
+   const SPrimaryRay selfPrimary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, selfNDC, float16_t2(randVec0.xy), spirv::LaunchSizeKHR.z);
    spirv::HitObjectEXT                                                   selfHitObj;
    [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval selfPayload;
    selfPayload.init(randVec0.z, pc.sensorDynamics.tMax);
@@ -52,7 +52,7 @@ void runNeeProposalProbe(const uint16_t3 launchID, NBL_CONST_REF_ARG(SPixelSampl
    if (!selfMissed && selfInstanceCustom < nbl::this_example::NonEmitterCustomIndex)
    {
       const float32_t2  centerNDC     = float32_t2(centerXY) * pixelSizeNDC - promote<float32_t2>(1.f);
-      const SPrimaryRay centerPrimary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, centerNDC, float16_t2(randVec0.xy));
+      const SPrimaryRay centerPrimary = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, centerNDC, float16_t2(randVec0.xy), spirv::LaunchSizeKHR.z);
       spirv::HitObjectEXT                                                   centerHitObj;
       [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval centerPayload;
       centerPayload.init(randVec0.z, pc.sensorDynamics.tMax);

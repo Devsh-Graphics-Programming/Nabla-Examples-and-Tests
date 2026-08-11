@@ -17,6 +17,11 @@ struct SDebugProbe
 	hlsl::float32_t  pdfSum;
 	hlsl::float32_t3 normal;
 	uint32_t         descentLeafHeap;
+	// NEE sampler stats (NBL_NEE_STATS): GPU atomics, CPU logs rates and resets periodically.
+	// [0] forwardNEE calls  [1] selection fail (no candidate above horizon)  [2] silhouette degenerate
+	// [3] direction draws   [4] draw degenerate (pdf<=0)  [5] draw zero-target  [6] winners traced
+	// [7] shadow ray confirmed the picked emitter  [8] valid draw, zero unshadowed contribution
+	uint32_t neeStats[12];
 };
 
 struct SSceneUniforms
@@ -42,6 +47,9 @@ struct SSceneUniforms
 		uint64_t pProbeDebugPdfs;
 		uint64_t pNodePdfs;
 		uint64_t pQuantQuality;
+		uint64_t pEmitterTriVerts;
+		uint64_t pEmitterRayQuery;
+		uint64_t pEmitterOBB;
 		uint32_t aliasTableSize;
 		uint32_t lightTreeFirstLeafIndex;
 		uint32_t lightTreeNumLeavesPadded;

@@ -65,8 +65,9 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
    computeSpherePos(vx, ndc, spherePos);
    VisContext::begin(ndc, spherePos, aaWidth);
 
-   shapes::OBBView<float32_t> view       = shapes::OBBView<float32_t>::create(pc.modelMatrix);
-   ClippedSilhouette          silhouette = createClippedSilhouetteDbg(view, pc.shadingPoint);
+   shapes::OBBView<float32_t> view = shapes::OBBView<float32_t>::create(pc.modelMatrix);
+   view.minCorner -= pc.shadingPoint;
+   ClippedSilhouette silhouette = createClippedSilhouetteDbg(view);
 
    SelectedSampler sampler = SelectedSampler::create(silhouette, view);
    PyramidDebugVis<SelectedSampler>::apply(sampler, silhouette, view);
@@ -93,7 +94,7 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
       }
    }
 
-   // Silhouette edges + debug recording. Re-materialize verts here -- the
+   // Silhouette edges + debug recording. Re-materialize verts here, the
    // sampler may have absorbed its own copy already, but `verts` is local to
    // this scope and dies at function end anyway.
    {

@@ -64,7 +64,10 @@ public:
         std::function<void()> onReloadSceneRequested = nullptr;
         std::function<void(float density)> onEmitterDensityChanged = nullptr;
         std::function<void(bool useAlias)> onUseAliasNEEChanged = nullptr;
+        std::function<void(int deferredMode)> onDeferredNEEChanged = nullptr;
+        std::function<void(int bandCount)> onNeeBandCountChanged = nullptr;
         std::function<void(int misMode)> onMisModeChanged = nullptr;
+        std::function<void(int sampler)> onLeafSamplerChanged = nullptr;
         std::function<void(float moveSpeed)> onCameraMoveSpeedChanged = nullptr;
         std::function<void(float px, float py, float pz, float nx, float ny, float nz)> onProbeChanged = nullptr;
 

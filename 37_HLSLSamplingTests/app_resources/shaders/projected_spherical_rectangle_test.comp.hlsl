@@ -46,7 +46,7 @@ void main()
       acc ^= asuint(sampler.forwardPdf(float32_t2(0.5f, 0.5f), pdfCache));
    }
 #else
-   // Unified create:generate loop — one create per BENCH_SAMPLES_PER_CREATE generates.
+   // Unified create:generate loop - one create per BENCH_SAMPLES_PER_CREATE generates.
    const uint32_t outerIters = uint32_t(BENCH_ITERS) / uint32_t(BENCH_SAMPLES_PER_CREATE);
    for (uint32_t j = 0u; j < outerIters; j++)
    {

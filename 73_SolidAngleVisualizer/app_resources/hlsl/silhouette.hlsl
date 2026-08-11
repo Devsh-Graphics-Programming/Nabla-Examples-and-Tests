@@ -29,11 +29,11 @@ using SilEdgeNormals    = nbl::hlsl::shapes::SilEdgeNormals;
 // Debug-recording wrapper around ClippedSilhouette::create. Re-derives clipMask,
 // rotateAmount, wrapAround, rotatedClipMask, rotatedSil by re-running the same
 // classifier the builtin uses, then emits DebugRecorder::recordClipResult.
-ClippedSilhouette createClippedSilhouetteDbg(shapes::OBBView<float32_t> view, float32_t3 shadingPoint)
+ClippedSilhouette createClippedSilhouetteDbg(shapes::OBBView<float32_t> view)
 {
-   ClippedSilhouette result = ClippedSilhouette::create(view, shadingPoint);
+   ClippedSilhouette result = ClippedSilhouette::create(view);
 
-   const float32_t3 toMin    = view.minCorner - shadingPoint;
+   const float32_t3 toMin    = view.minCorner;
    const float32_t3 sqScales = float32_t3(dot(view.columns[0], view.columns[0]), dot(view.columns[1], view.columns[1]), dot(view.columns[2], view.columns[2]));
    const float32_t3 proj     = -float32_t3(dot(view.columns[0], toMin), dot(view.columns[1], toMin), dot(view.columns[2], toMin));
    const uint32_t3  below    = uint32_t3(proj < float32_t3(0, 0, 0));
@@ -47,7 +47,7 @@ ClippedSilhouette createClippedSilhouetteDbg(shapes::OBBView<float32_t> view, fl
    uint32_t       clipMask    = 0u;
    NBL_UNROLL
    for (uint32_t i = 0; i < 6; i++)
-      clipMask |= (hlsl::select(view.getVertexZ(sil.getVertexIndex(i)) < shadingPoint.z, 1u, 0u)) << i;
+      clipMask |= (hlsl::select(view.getVertexZ(sil.getVertexIndex(i)) < 0.0f, 1u, 0u)) << i;
    clipMask &= validMask;
    const uint32_t clipCount    = countbits(clipMask);
    const uint32_t invertedMask = ~clipMask & validMask;

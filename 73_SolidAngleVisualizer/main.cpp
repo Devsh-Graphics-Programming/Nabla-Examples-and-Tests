@@ -35,7 +35,7 @@
 //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, nbl::hlsl::sampling::ProjectedSphericalRectangle<float32_t>>>);
 //static_assert(nbl::hlsl::sampling::concepts::TractableSampler<SphericalPyramid<false, BilinearSampler>>);
 
-// App execution mode -- pick at compile time via -DAPP_MODE=N
+// App execution mode, pick at compile time via -DAPP_MODE=N
 //   APP_MODE_VISUALIZER       (1) full visualization with debug + ImGui editor (default)
 //   APP_MODE_NSIGHT_BENCHMARKS(2) submits one dispatch per SAMPLING_MODE_FLAGS in a single capture, then exits
 #define APP_MODE_VISUALIZER 1
@@ -1830,7 +1830,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
       }
 
       // Many dispatches per SAMPLING_MODE_FLAGS, all in a single capture. Intended for NSight submit-mode
-      // captures with the Shader Profiler -- each mode's range needs sustained execution so PC sampling
+      // captures with the Shader Profiler, each mode's range needs sustained execution so PC sampling
       // can gather enough source-line hits.
       void runNSightOneShot()
       {
@@ -1954,7 +1954,7 @@ class SolidAngleVisualizer final : public MonoWindowApplication, public BuiltinR
          m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
 
          // Serialize back-to-back dispatches so each completes before the next begins
-         // (matches the original semaphore-chain methodology — measurement is per-dispatch
+         // (matches the original semaphore-chain methodology - measurement is per-dispatch
          // time, not pipelined throughput).
          const asset::SMemoryBarrier serializeDispatch = {
             .srcStageMask  = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,

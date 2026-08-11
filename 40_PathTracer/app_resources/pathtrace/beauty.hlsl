@@ -1,65 +1,9 @@
-#include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
-
 #include "common.hlsl"
 #include "renderer/shaders/bda_accessors.hlsl"
 #include "next_event_estimator.hlsl"
-
-// Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
-// Beauty image (gBeauty) AND the fp16 RWMC cascade splat (gRWMCCascades). Both buffers are always
-// populated, so a single run yields the unbiased fp32 mean alongside the RWMC result with no build-
-// time toggle. Caveat: the RWMC 16-bit per-cascade sample count wraps past 65535 spp, so for very-
-// high-spp reference renders read gBeauty (fp32), the cascades are stale there.
-struct CCascades
-{
-   using layer_type        = float16_t3;
-   using sample_count_type = uint16_t;
-   using weight_t          = float16_t;
-
-   inline uint16_t getLastCascade() { return gSensor.lastCascadeIndex; }
-
-   inline void clear()
-   {
-      for (uint16_t i = 0u; i <= getLastCascade(); ++i)
-         gRWMCCascades[__getCoord(i)] = uint32_t2(0, 0);
-   }
-
-   inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
-   {
-      const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
-      uint16_t3      coord                 = __getCoord(lowerCascadeIndex);
-      __splatToLayer(coord, _sample * lowerCascadeLevelWeight, sampleCount, reciprocalSampleCount);
-      if (higherCascadeLevelWeight > weight_t(0))
-      {
-         coord.z++;
-         __splatToLayer(coord, _sample * higherCascadeLevelWeight, sampleCount, reciprocalSampleCount);
-      }
-   }
-
-   inline uint16_t3 __getCoord(const uint16_t cascadeIx)
-   {
-      uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
-      coord.z         = coord.z * uint16_t(6) + cascadeIx;
-      return coord;
-   }
-
-   inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
-   {
-      uint16_t4 data = uint16_t4(0, 0, 0, 0);
-      if (sampleCount > 1)
-         data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
-      layer_type              value          = bit_cast<layer_type>(data.xyz);
-      const sample_count_type oldSampleCount = data.w;
-#if NBL_RWMC_FP32_REWEIGHT
-      float32_t3 v = float32_t3(value);
-      v += (float32_t3(weightedSample) - v * float32_t(sampleCount - oldSampleCount)) / float32_t(sampleCount);
-      value = layer_type(v);
-#else
-      value += (weightedSample - value * weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
-#endif
-      data                 = uint16_t4(bit_cast<uint16_t3>(value), sampleCount);
-      gRWMCCascades[coord] = bit_cast<uint32_t2>(data);
-   }
-};
+#include "emitter_resolve.hlsl"
+#include "accumulation.hlsl"
+#include "renderer/shaders/pathtrace/nee_deferred_common.hlsl"
 
 // TODO: move this to material_compiler3
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
@@ -192,63 +136,21 @@ enum E_SBT_OFFSETS : uint16_t
    ESBTO_NEE
 };
 
-uint32_t resolveEmitterID(const uint32_t instanceCustomIndex, const uint32_t geometryIndex)
-{
-   if (gScene.init.pInstancedGeometryToEmitter == 0)
-      return nbl::this_example::NonEmitterCustomIndex;
-   return vk::RawBufferLoad<uint32_t>(gScene.init.pInstancedGeometryToEmitter + uint64_t(instanceCustomIndex + geometryIndex) * 4ull);
-}
-
 [[vk::push_constant]] SBeautyPushConstants pc;
 
 // Diagnostic-only NEE-proposal probe takeover
 #include "nee_proposal_probe.hlsl"
 
-// forwardNEE as a ray-tracing callable (see NBL_NEE_CALLABLE in next_event_estimator.hlsl).
-[shader("callable")] 
-void neeCallable(inout nbl::this_example::SNeeCallableData cd)
-{
-   using NEE = nbl::this_example::NextEventEstimator;
-
-   NEE::ray_dir_info_t V;
-   V.setDirection(cd.V);
-   NEE::isotropic_interaction_t interaction = NEE::isotropic_interaction_t::create(V, cd.shadingNormal, cd.throughput);
-
-   NEE::brdf_t::SCreationParams cParams;
-   cParams.A                 = 0.f;
-   const NEE::brdf_t diffuse = NEE::brdf_t::create(cParams);
-
-   NEE nee                     = NEE::create();
-   nee.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
-   nee.prevDescentNeePdf       = cd.prevDescentNeePdf;
-
-   const NEE::SForwardSample s = nee.forwardNEE(cd.hitPos, cd.shadingNormal, interaction, diffuse, cd.throughput, cd.randNEE, cd.randNEE2);
-
-   cd.pickedDir               = s.pickedDir;
-   cd.contribution            = s.contribution;
-   cd.pickedEmitterID         = s.pickedEmitterID;
-   cd.valid                   = s.valid ? 1u : 0u;
-   cd.prevDescentNeeEmitterID = nee.prevDescentNeeEmitterID;
-   cd.prevDescentNeePdf       = nee.prevDescentNeePdf;
-}
-
-[shader("callable")] 
-void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
-{
-   using NEE             = nbl::this_example::NextEventEstimator;
-   NEE nee               = NEE::create();
-   nee.prevShadingHitPos = ec.prevShadingHitPos;
-   nee.prevShadingNormal = ec.prevShadingNormal;
-   // Negative sentinel = same-emitter cache miss: run the backward selection-pdf climb here in the
-   // callable stage so its register / i-cache footprint stays out of raygen. >= 0 is the cached pdf.
-   const float32_t backPdf = (ec.emitterSelectBackPdf < 0.f) ? nee.__emitterSelectBackPdf(ec.emitterIdx) : ec.emitterSelectBackPdf;
-   ec.deweight             = (backPdf > 0.f) ? nee.__emissionDeweight(ec.emitterIdx, ec.currentHitPos, backPdf, ec.otherTechniqueHeuristic) : 1.f;
-}
-
 [shader("raygeneration")] 
 void raygen()
 {
-   const uint16_t3                        launchID        = uint16_t3(spirv::LaunchIdKHR);
+#if NBL_NEE_DEFERRED
+   // banded launch: LaunchIdKHR/LaunchSizeKHR are band-local and key the slot addressing
+   const uint16_t3 bandLocalID = uint16_t3(spirv::LaunchIdKHR);
+   const uint16_t3 launchID    = bandLocalID + uint16_t3(0, uint16_t(pc.tileOffsetY), 0);
+#else
+   const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
+#endif
    const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
 
    // Take n samples per frame
@@ -257,6 +159,16 @@ void raygen()
    // took max samples
    const uint32_t endSample        = samplingInfo.newSampleCount;
    const uint32_t samplesThisFrame = endSample - samplingInfo.firstSample;
+   gAccumulationCoord              = launchID;
+#if NBL_NEE_DEFERRED
+   const uint32_t bandPixels    = spirv::LaunchSizeKHR.x * spirv::LaunchSizeKHR.y;
+   const uint32_t bandPixelIdx  = uint32_t(bandLocalID.y) * spirv::LaunchSizeKHR.x + bandLocalID.x;
+   const uint32_t neePoolCount  = bandPixels * uint32_t(unpacked16BitPC.maxSppPerDispatch);
+   // records persist across dispatches, mark untaken slots' headers dead before any early return
+   NBL_HLSL_LOOP
+   for (uint32_t s = samplesThisFrame; s < uint32_t(unpacked16BitPC.maxSppPerDispatch); s++)
+      nbl::this_example::NeeDeferredRecords::create(pc.pNeeRequests, s * bandPixels + bandPixelIdx, neePoolCount).markHeaderDead();
+#endif
    if (samplesThisFrame == 0)
       return;
 
@@ -289,6 +201,12 @@ void raygen()
    {
       // For RWMC to work, every sample must be splatted individually
       spectral_t color;
+#if NBL_NEE_DEFERRED
+      // highest bounce slot written this sample (0 = none), the header tells the fused pass how many to walk
+      uint32_t bounceSlotsWritten = 0u;
+      nbl::this_example::NeeDeferredRecords neeRecords =
+         nbl::this_example::NeeDeferredRecords::create(pc.pNeeRequests, (sampleIndex - samplingInfo.firstSample) * bandPixels + bandPixelIdx, neePoolCount);
+#endif
 
       using namespace nbl::hlsl::bxdf;
       using namespace nbl::hlsl::material_compiler3::backends::default_upt;
@@ -307,9 +225,14 @@ void raygen()
          // TODO: motion blur and lens DOF triplet
 
          // get our NDC coordinates and ray
-         const float32_t2  pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
+#if NBL_NEE_DEFERRED
+         // LaunchSizeKHR is the band size under tiling; the NDC mapping needs the full render size.
+         const float32_t2 pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(uint32_t2(gSensor.renderSize));
+#else
+         const float32_t2 pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
+#endif
          const float32_t2  NDC          = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
-         const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy));
+         const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy), spirv::LaunchSizeKHR.z);
          const SRay        ray          = primary.ray;
 
          // TODO: possible SER point, sorting by ray direction
@@ -378,16 +301,37 @@ void raygen()
 
             // Emission shading: resolve the hit's emitter ID from the per-geometry aux map
             // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
+#if NBL_NEE_DEFERRED
+            uint32_t slotEmitterFlags = nbl::this_example::NonEmitterCustomIndex;
+#endif
             {
-               const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-               color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+               const uint32_t emitterIdx = resolveHitEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject), closestInfo.primitiveID);
+#if NBL_NEE_DEFERRED && NBL_MIS_MODE == NBL_MIS_MODE_BOTH
+               // deweight-needing hits go to the fused pass; backwardNEE here compiles without deweight
+               if (emitterIdx < nbl::this_example::NonEmitterCustomIndex && otherTechniqueHeuristic > nbl::this_example::NextEventEstimator::MISWeightThreshold && gScene.init.pEmitterToLeafIdx != 0)
+                  slotEmitterFlags = emitterIdx | nbl::this_example::NeeDeferredFlagEmission;
+               else
+                  color += neeEstimator.backwardNEE(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+#else
+               color += neeEstimator.backwardNEE(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+#endif
             }
 
             // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
 
             // to keep path depths equal for NEE and BxDF sampling, we can't continue and do NEE
             if (depth == lastPathDepth)
+            {
+#if NBL_NEE_DEFERRED
+               // emission-only slot, no NEE happens at lastPathDepth
+               if (slotEmitterFlags != nbl::this_example::NonEmitterCustomIndex)
+               {
+                  neeRecords.storeBounceEmission(depth, closestInfo.hitPos, slotEmitterFlags, float32_t3(throughput), otherTechniqueHeuristic);
+                  bounceSlotsWritten = depth;
+               }
+#endif
                break;
+            }
 
             // TODO: embed a bit in the material stream whether:
             // 1. anisotropic interaction is needed
@@ -398,10 +342,9 @@ void raygen()
             brdf_t::SCreationParams cParams;
             cParams.A            = 0.f;
             const brdf_t diffuse = brdf_t::create(cParams);
-            // Surface diffuse reflectance. The OrenNayar eval is cos/pi WITHOUT albedo, so albedo must
-            // be applied to BOTH the NEE direct contribution and the BSDF-continuation throughput, or
-            // NEE direct is too bright by 1/albedo (it was, the BOTH-vs-BxDF energy bias).
-            const float32_t3 albedo = float32_t3(0.8, 0.7, 0.5);
+            // the OrenNayar eval is cos/pi WITHOUT albedo; apply it to BOTH the NEE direct
+            // contribution and the BSDF-continuation throughput
+            const float32_t3 albedo = surfaceAlbedo();
 
             // get next random number, compensate for the triplets ray generation used
             const uint16_t sequenceProtoDim = (depth - uint16_t(1)) * RandDimTriplesPerDepth + PrimaryRayRandTripletsUsed;
@@ -420,45 +363,25 @@ void raygen()
 #if NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
             if (gScene.init.pLightTreeLeaves != 0 && gScene.init.pEmitters != 0)
             {
+#if NBL_NEE_DEFERRED
+               // The fused pass replays the whole random stream from gScrambleKey, valid at 1 spp per
+               // dispatch, so no snapshot is stored. The 4 dummy advances keep this kernel's later
+               // fetches aligned with the inline variant.
+               randgen.rng();
+               randgen.rng();
+               randgen.rng();
+               randgen.rng();
+               neeRecords.storeBounceNEE(depth, closestInfo.hitPos, slotEmitterFlags | nbl::this_example::NeeDeferredFlagNEE, shadingNormal, float32_t3(throughput), otherTechniqueHeuristic);
+               bounceSlotsWritten = depth;
+#else
                const float32_t3 randNEE  = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
                const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
-#if NBL_NEE_CALLABLE
-               // Route forwardNEE through the callable shader stage so its heavy register/i-cache
-               // footprint stays out of raygen. The payload spills to the RT stack across the call.
-               [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]] nbl::this_example::SNeeCallableData cd;
-               cd.hitPos                  = closestInfo.hitPos;
-               cd.shadingNormal           = shadingNormal;
-               cd.V                       = V.getDirection();
-               cd.throughput              = throughput;
-               cd.randNEE                 = randNEE;
-               cd.randNEE2                = randNEE2;
-               cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;
-               cd.prevDescentNeePdf       = neeEstimator.prevDescentNeePdf;
-               spirv::executeCallable(0u, cd);
-               // Carry the estimator's same-emitter MIS cache back for the next bounce's shadeEmission.
-               neeEstimator.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
-               neeEstimator.prevDescentNeePdf       = cd.prevDescentNeePdf;
-               nbl::this_example::NextEventEstimator::SForwardSample nee;
-               nee.pickedDir       = cd.pickedDir;
-               nee.pickedEmitterID = cd.pickedEmitterID;
-               nee.contribution    = cd.contribution;
-               nee.valid           = cd.valid != 0u;
-#else
-               const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, throughput, randNEE, randNEE2);
-#endif
+               // forwardNEE owns both shadow rays and only returns a valid sample once the emitter is visible.
+               const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, newRayOrigin, shadingNormal, interaction, diffuse, throughput, randNEE, randNEE2);
                if (nee.valid)
-               {
-                  [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval shadowPayload;
-                  shadowPayload.init(randNEE.z, hlsl::numeric_limits<float32_t>::max);
-                  spirv::HitObjectEXT shadowHit;
-                  spirv::hitObjectTraceRayEXT(shadowHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, nee.pickedDir, hlsl::numeric_limits<float32_t>::max, shadowPayload);
-                  const bool shadowHitsEmitter = !spirv::hitObjectIsMissEXT(shadowHit) && resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(shadowHit), spirv::hitObjectGetGeometryIndexEXT(shadowHit)) == nee.pickedEmitterID;
-
-                  // albedo: NEE direct must be tinted by the surface reflectance, same as the BSDF path.
-                  if (shadowHitsEmitter)
-                     color += nee.contribution * albedo;
-               }
+                  color += nee.contribution * albedo;
+#endif // NBL_NEE_DEFERRED
             }
 #endif // NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
 
@@ -512,16 +435,20 @@ void raygen()
             }
          }
       }
-      // Every sample feeds both outputs: the fp32 plain running mean (summed here, written to gBeauty
-      // after the loop) and the fp16 RWMC cascade splat. First sample clears the RWMC; can't use
-      // pc.keepAccumulating because of the variable sampling we want to do later.
+#if NBL_NEE_DEFERRED
+      neeRecords.storeHeader(float32_t3(color), sampleIndex, bounceSlotsWritten);
+      sampleIndex++;
+#else
+      // first sample clears the RWMC; can't use pc.keepAccumulating because of variable sampling
       referenceFrameSum += float32_t3(color);
       const bool doClear = (sampleIndex++) == 0;
       // don't precompute `rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting)` and keep it
       // as live state, it will spill anyway
       rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
       colorAcc.addSample(_static_cast<uint16_t>(sampleIndex), accum_t(color));
+#endif
    }
+#if !NBL_NEE_DEFERRED
    // Plain fp32 running mean across dispatches: gBeauty holds the mean over all
    // samples this pixel has accumulated. firstSample==0 means a fresh start.
    {
@@ -529,6 +456,7 @@ void raygen()
       mean += (referenceFrameSum - mean * float32_t(samplesThisFrame)) * samplingInfo.rcpNewSampleCount;
       gBeauty[launchID] = float32_t4(mean, 1.0);
    }
+#endif
    // albedo
    Accumulator<ImageAccessor_gAlbedo> albedoAcc;
    albedoAcc.accumulate(launchID.xy, launchID.z, aovs.albedo, newSamplesOverTotal, keepAccumulating);

@@ -15,12 +15,25 @@
 namespace nbl::this_example
 {
 
+// A/B leaf granularity: PerInstanceOBB is the paper's method, PerTriangle the prior-art baseline. All
+// triangle sampling sub-modes (uniform / Arvo / projected) share one leaf set and differ only in the sampler.
+enum class ELightLeafMode : uint8_t
+{
+   PerInstanceOBB,
+   PerTriangle
+};
+
 struct SLightTreeLeaf
 {
    nbl::hlsl::shapes::AABB<3, float> worldAABB;
    nbl::hlsl::float32_t3             radiance;
-   float                             power; // luma(radiance) * surfaceArea, used by tree descent weighting
+   float                             power; // luma(radiance) * surfaceArea (triangle area in PerTriangle mode)
    uint32_t                          emitterID;
+   // PerTriangle only, zero otherwise. Uploaded to pEmitterTriVerts, NOT SEmitterGPU, so the OBB
+   // path's 48 B record is untouched.
+   nbl::hlsl::float32_t3 v0;
+   nbl::hlsl::float32_t3 v1;
+   nbl::hlsl::float32_t3 v2;
 };
 
 struct SLightTreeNode
@@ -71,7 +84,9 @@ struct SLightTree
    uint32_t                 firstLeafIndex  = 0;
 };
 
-SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves);
+// `mode` selects the alias-index width and skips the global power alias table for PerTriangle, which
+// selects by tree descent. Asserts loudly if the leaf count overflows the chosen width.
+SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafMode mode = ELightLeafMode::PerInstanceOBB);
 
 // CPU-side per-emitter backward NEE pdf at a fixed probe (point + normal), mirroring
 // StochasticLightcutTreeSampler::backwardPdf over `tree.nodes` so the debug viz matches the shader
@@ -113,18 +128,34 @@ struct SEmitterSelectionDiagnostics
    float sceneOverallMaxExtent   = 0.f; // union AABB of every PICKED leaf's longest axis
 };
 
+// Per-emitter link back to its instance, indexed by emitterID. `transform` is the model->world affine.
+struct SEmitterInstanceRef
+{
+   nbl::hlsl::float32_t3x4                                          transform;
+   nbl::core::smart_refctd_ptr<nbl::asset::ICPUBottomLevelAccelerationStructure> blas;
+};
+
 // Picks emitters from the TLAS instance list by seeded RNG and computes each emitter's world AABB from
 // its BLAS geometry collection. Sets each instance's instanceCustomIndex to a per-geometry BASE (prefix
 // sum of geometry counts), NOT the emitter ID, and fills `outInstancedGeometryToEmitter` (keyed by
 // instancedGeometryID = instanceCustomIndex + GeometryIndex(), NonEmitterCustomIndex for non-emissive),
 // so the shader resolves a hit's emitter via this map rather than treating instanceCustomIndex as it.
 // If emitterDensity > 0 and at least one candidate is eligible but the roll picks none, one is forced.
+// In PerTriangle mode each selected instance is exploded into one leaf per emissive triangle, and
+// outInstancedGeometryToEmitter holds the BASE emitter ID of each geometry's first triangle, so a hit
+// resolves its emitter as base + PrimitiveIndex().
 nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<nbl::asset::ICPUTopLevelAccelerationStructure::PolymorphicInstance> instances,
    const blas_cache_t&                                                                                                              blasCache,
    float                                                                                                                            emitterDensity,
    uint32_t                                                                                                                         rngSeed,
    nbl::core::vector<uint32_t>&                                                                                                     outInstancedGeometryToEmitter,
-   SEmitterSelectionDiagnostics*                                                                                                    diagnostics = nullptr);
+   ELightLeafMode                                                                                                                   mode        = ELightLeafMode::PerInstanceOBB,
+   SEmitterSelectionDiagnostics*                                                                                                    diagnostics = nullptr,
+   // PerInstanceOBB only: filled with one entry per emitter (sized like the returned leaves). Left
+   // untouched in PerTriangle mode.
+   nbl::core::vector<SEmitterInstanceRef>*                                                                                          outEmitterInstanceRefs = nullptr,
+   // PerInstanceOBB only: per-emitter tight world-space OBB (SEmitterOBB), sized like the returned leaves.
+   nbl::core::vector<SEmitterOBB>*                                                                                                  outEmitterOBBs = nullptr);
 
 } // namespace nbl::this_example
 #endif

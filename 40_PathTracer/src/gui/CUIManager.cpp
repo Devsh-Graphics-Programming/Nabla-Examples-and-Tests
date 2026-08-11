@@ -35,7 +35,10 @@ bool CUIManager::init(const SInitParams& params)
       .onReloadRequested                          = params.onReloadSceneRequested,
       .onEmitterDensityChanged                    = params.onEmitterDensityChanged,
       .onUseAliasNEEChanged                       = params.onUseAliasNEEChanged,
+      .onDeferredNEEChanged                       = params.onDeferredNEEChanged,
+      .onNeeBandCountChanged                      = params.onNeeBandCountChanged,
       .onMisModeChanged                           = params.onMisModeChanged,
+      .onLeafSamplerChanged                       = params.onLeafSamplerChanged,
       .onCameraMoveSpeedChanged                   = params.onCameraMoveSpeedChanged,
       .onProbeChanged                             = params.onProbeChanged });
    m_sessionWindow.setCallbacks({ .onRenderModeChanged = params.onRenderModeChanged,

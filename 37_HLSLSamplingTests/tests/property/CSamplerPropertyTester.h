@@ -500,7 +500,7 @@ class CSphericalTriangleGenerateTester
             {
                if (tinyTriangle)
                {
-                  m_logger->log("[SphericalTriangle::generate] %s half-space: observed=%f expected=%f absErr=%e (tol=%e) tri %u cut %u -- solid angle %e too small for float32, especially on GPU",
+                  m_logger->log("[SphericalTriangle::generate] %s half-space: observed=%f expected=%f absErr=%e (tol=%e) tri %u cut %u, solid angle %e too small for float32, especially on GPU",
                      system::ILogger::ELL_WARNING, label, observedFraction, expectedFraction, absErr, relTol, t, c, SA);
                }
                else
@@ -777,7 +777,7 @@ class CSphericalTriangleGenerateTester
          }
          else
          {
-            // Diagnostic only -- log but don't fail
+            // Diagnostic only, log but don't fail
             if (!halfSpaceOK || !roundtripOK)
                m_logger->log("  [SphericalTriangle::generate] %s DIAGNOSTIC (precision limit, not a hard failure)",
                   system::ILogger::ELL_PERFORMANCE, label);
@@ -817,7 +817,7 @@ class CProjectedSphericalTriangleGeometricTester
       // PSA formula tests
       pass &= testPSAKnownCases();
       // NOTE: PSA formula uses abs() on individual edge-normal dot products for BSDF support.
-      // This is NOT equivalent to integrating |cos(theta)| over the solid angle -- that requires
+      // This is NOT equivalent to integrating |cos(theta)| over the solid angle, that requires
       // hemisphere clipping (hemispherical_triangle.hlsl). The abs()-based formula overcounts
       // when edge normals have mixed signs, even when all vertices are above the horizon.
       // These tests are diagnostic-only until proper hemisphere clipping is implemented.
@@ -837,7 +837,7 @@ class CProjectedSphericalTriangleGeometricTester
          buildTangentFrame(triCenter, tangent, unused);
          std::uniform_real_distribution<float> grazeDist(0.02f, 0.15f);
          normal = normalize(tangent + triCenter * grazeDist(rng)); }, 200, 500000, 0.1, 0.01, 3.0, 0.3, true);
-      // Also diagnostic -- same abs() issue affects small triangles
+      // Also diagnostic, same abs() issue affects small triangles
       testPSASmallTriangle();
 
       // PST sampler diagnostics (non-failing) and convergence tests
@@ -969,7 +969,7 @@ class CProjectedSphericalTriangleGeometricTester
    }
 
    // Helper: run grid-integration comparison of formulaPSA vs PSA reference for a set of triangle configs.
-   // TriConfigGen: void(rng, index, v0, v1, v2, normal) — generates triangle vertices + normal.
+   // TriConfigGen: void(rng, index, v0, v1, v2, normal), generates triangle vertices + normal.
    template<typename TriConfigGen>
    bool testPSAVersusGrid(const char* label, TriConfigGen triConfigGenerator, uint32_t numConfigs, uint32_t gridSamples,
       float64_t relTol, float64_t absTol, float64_t hardRelTol, float64_t hardAbsTol, bool diagnostic = false)
@@ -997,7 +997,7 @@ class CProjectedSphericalTriangleGeometricTester
          numConfigs, relTol, absTol, hardRelTol, hardAbsTol, diagnostic);
    }
 
-   // Small triangles -- PSA should approach grid ground truth
+   // Small triangles, PSA should approach grid ground truth
    bool testPSASmallTriangle()
    {
       constexpr float64_t smallTriMeanRelErrTol = 0.1;
@@ -1070,10 +1070,10 @@ class CProjectedSphericalTriangleGeometricTester
          }
       }
 
-      m_logger->log("  [TriPSA] small triangle test complete (%u trials across %u sizes, %u grid samples each, meanRelErrTol=%e) -- diagnostic only",
+      m_logger->log("  [TriPSA] small triangle test complete (%u trials across %u sizes, %u grid samples each, meanRelErrTol=%e), diagnostic only",
          system::ILogger::ELL_PERFORMANCE, numTrials, numSizes, smallTriGridSamples, smallTriMeanRelErrTol);
 
-      return true; // diagnostic only -- abs()-based PSA overestimates, not a hard failure
+      return true; // diagnostic only, abs()-based PSA overestimates, not a hard failure
    }
 
    // =========================================================================
@@ -1081,14 +1081,14 @@ class CProjectedSphericalTriangleGeometricTester
    // =========================================================================
 
    // -------------------------------------------------------------------------
-   // Combined diagnostic -- bilinear NdotL accuracy, MIS weight
+   // Combined diagnostic, bilinear NdotL accuracy, MIS weight
    // comparison, and PDF vs NdotL/PSA binned by NdotL.
    //
    // Single pass over random + grazing configs. For each sample collects:
    //  - bilinear NdotL vs true NdotL (overestimate rate, mean error)
    //  - pstPdf vs idealPdf=NdotL/PSA (MIS weight ratio, pstLower rate)
    //  - signed relErr binned by NdotL
-   // Diagnostic only -- logs warnings but does not fail the test.
+   // Diagnostic only, logs warnings but does not fail the test.
    // -------------------------------------------------------------------------
    void runSamplerDiagnostics()
    {
@@ -1985,7 +1985,7 @@ public:
    bool run()
    {
       // NOTE: PSA formula uses abs() on individual edge-normal dot products for BSDF support.
-      // This overcounts when edge normals have mixed signs -- same issue as the triangle PSA.
+      // This overcounts when edge normals have mixed signs, same issue as the triangle PSA.
       // Diagnostic-only until proper hemisphere clipping is implemented.
       // TODO: make these hard failures once projectedSolidAngle clips to the hemisphere.
       // Hard-fail thresholds (relErr > 3.0 AND absErr > 0.3) still catch catastrophic regressions.

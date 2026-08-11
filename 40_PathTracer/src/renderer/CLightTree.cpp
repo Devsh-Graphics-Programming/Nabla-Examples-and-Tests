@@ -5,6 +5,7 @@
 
 #include "nbl/builtin/hlsl/morton.hlsl"
 #include "nbl/builtin/hlsl/sampling/alias_table_builder.h"
+#include "nbl/asset/utils/COBBGenerator.h"
 
 #include <algorithm>
 #include <bit>
@@ -108,6 +109,136 @@ aabb_t worldSpaceAABB(const nbl::asset::ICPUGeometryCollection* coll, const nbl:
    return out;
 }
 
+// A flat emitter's zero-length axis is permuted into column 0 and collapsed, so the 27-config classify
+// resolves it to the single col1xcol2 face; a solid box is forced right-handed for that same classify.
+SEmitterOBB encodeEmitterOBB(const nbl::hlsl::shapes::OBB<>& obb)
+{
+   const auto& T = obb.transform; // 3x4: columns 0..2 = scaled axes, column 3 = 000 corner
+   nbl::hlsl::float32_t3 col[3];
+   for (int k = 0; k < 3; ++k)
+      col[k] = nbl::hlsl::float32_t3(T[0][k], T[1][k], T[2][k]);
+   const nbl::hlsl::float32_t3 origin(T[0][3], T[1][3], T[2][3]);
+
+   const auto  lenSq = [](const nbl::hlsl::float32_t3& v) { return v.x * v.x + v.y * v.y + v.z * v.z; };
+   const float l[3]  = { lenSq(col[0]), lenSq(col[1]), lenSq(col[2]) };
+   const float eps   = std::max({ l[0], l[1], l[2] }) * 1e-8f; // squared, relative to the largest extent
+   const int   flat  = (l[0] <= eps) ? 0 : ((l[1] <= eps) ? 1 : ((l[2] <= eps) ? 2 : -1));
+
+   // Flat axis -> column 0 via cyclic rotation (an even permutation, preserves handedness).
+   const int             f  = (flat >= 0) ? flat : 0;
+   nbl::hlsl::float32_t3 c0 = col[f], c1 = col[(f + 1) % 3], c2 = col[(f + 2) % 3];
+   nbl::hlsl::float32_t3 org = origin;
+
+   if (flat < 0)
+   {
+      // Solid box: the 27-config classify assumes a right-handed basis; flip one axis (shifting the 000
+      // corner so the box is unchanged) if COBBGenerator returned a left-handed one.
+      if (nbl::hlsl::dot(nbl::hlsl::cross(c0, c1), c2) < 0.f)
+      {
+         org = org + c2;
+         c2  = -c2;
+      }
+   }
+   else
+      c0 = nbl::hlsl::float32_t3(0.f, 0.f, 0.f); // collapse the thin axis: all 8 corners fold onto the quad
+
+   SEmitterOBB rec;
+   rec.row0 = nbl::hlsl::float32_t4(c0.x, c1.x, c2.x, org.x);
+   rec.row1 = nbl::hlsl::float32_t4(c0.y, c1.y, c2.y, org.y);
+   rec.row2 = nbl::hlsl::float32_t4(c0.z, c1.z, c2.z, org.z);
+   return rec;
+}
+
+// Calls cb(geomIdx, primIdx, v0, v1, v2) per emissive triangle in WORLD space. Composes M with the
+// geometry-ref transform by the same rule as worldSpaceAABB, triangle lists only.
+template<typename Cb>
+void forEachWorldTriangle(const nbl::asset::ICPUGeometryCollection* coll, const nbl::hlsl::float32_t3x4& M, Cb&& cb)
+{
+   using namespace nbl::asset;
+   if (!coll)
+      return;
+   uint32_t geomIdx = 0u;
+   for (const auto& ref : coll->getGeometries())
+   {
+      const auto* geo = ref.geometry.get();
+      if (!geo || geo->getPrimitiveType() != IGeometryBase::EPrimitiveType::Polygon)
+      {
+         ++geomIdx;
+         continue;
+      }
+      const auto* poly = static_cast<const ICPUPolygonGeometry*>(geo);
+      const auto* indexing = poly->getIndexingCallback();
+      const auto& posView  = poly->getPositionView();
+      // Single-triangle leaves only make sense for triangle lists (also what BLAS export requires).
+      if (!indexing || indexing->knownTopology() != EPT_TRIANGLE_LIST || !posView)
+      {
+         ++geomIdx;
+         continue;
+      }
+
+      const nbl::hlsl::float32_t3x4 effective = ref.hasTransform() ? composeAffine(M, ref.transform) : M;
+      const auto&                   indexView = poly->getIndexView();
+      const uint64_t                primCount = poly->getPrimitiveCount();
+
+      auto fetchWorld = [&](uint64_t vertexRef) -> point_t
+      {
+         nbl::hlsl::float32_t4 p = { 0, 0, 0, 1 };
+         posView.template decodeElement<nbl::hlsl::float32_t4, uint64_t>(vertexRef, p);
+         return transformPoint(effective, point_t(p.x, p.y, p.z));
+      };
+
+      for (uint64_t prim = 0; prim < primCount; ++prim)
+      {
+         uint64_t vref[3];
+         if (indexView)
+         {
+            for (uint32_t k = 0; k < 3u; ++k)
+            {
+               nbl::hlsl::vector<uint32_t, 1> idx(0u);
+               indexView.template decodeElement<nbl::hlsl::vector<uint32_t, 1>, uint64_t>(prim * 3ull + k, idx);
+               vref[k] = idx.x;
+            }
+         }
+         else
+         {
+            for (uint32_t k = 0; k < 3u; ++k)
+               vref[k] = prim * 3ull + k;
+         }
+         cb(geomIdx, uint32_t(prim), fetchWorld(vref[0]), fetchWorld(vref[1]), fetchWorld(vref[2]));
+      }
+      ++geomIdx;
+   }
+}
+
+// COBBGenerator PCA fit plus the area-weighted emitting normal taken from triangle winding.
+SEmitterOBB worldSpaceOBB(const nbl::asset::ICPUGeometryCollection* coll, const nbl::hlsl::float32_t3x4& M)
+{
+   nbl::core::vector<nbl::hlsl::float32_t3> verts;
+   if (coll)
+      for (const auto& ref : coll->getGeometries())
+      {
+         const auto* geo = ref.geometry.get();
+         if (!geo || geo->getPrimitiveType() != nbl::asset::IGeometryBase::EPrimitiveType::Polygon)
+            continue;
+         const auto* poly    = static_cast<const nbl::asset::ICPUPolygonGeometry*>(geo);
+         const auto& posView = poly->getPositionView();
+         if (!posView)
+            continue;
+         const nbl::hlsl::float32_t3x4 effective = ref.hasTransform() ? composeAffine(M, ref.transform) : M;
+         const auto                    count     = posView.getElementCount();
+         for (uint64_t i = 0; i < count; ++i)
+         {
+            nbl::hlsl::float32_t4 pt = { 0, 0, 0, 1 };
+            if (posView.template decodeElement<nbl::hlsl::float32_t4, uint64_t>(i, pt))
+               verts.push_back(transformPoint(effective, point_t(pt.x, pt.y, pt.z)));
+         }
+      }
+
+   if (verts.empty())
+      return encodeEmitterOBB(nbl::hlsl::shapes::OBB<>::createAxisAligned({}, {}));
+   return encodeEmitterOBB(nbl::asset::COBBGenerator::compute(verts.size(), [&](size_t i) { return verts[i]; }, 1e-7f));
+}
+
 SLightTreeNode mergeNodes(const SLightTreeNode& a, const SLightTreeNode& b, const SLightTreeNode& c, const SLightTreeNode& d)
 {
    SLightTreeNode n;
@@ -129,16 +260,32 @@ uint32_t nextPowerOf4(uint32_t n)
    return p;
 }
 
+// Alias-index width is a compile-time template on packA<> but the leaf mode is a runtime toggle, so both
+// widths are instantiated and dispatched. Keeps the OBB path's stayProb precision byte-identical.
+uint32_t aliasLog2NForMode(ELightLeafMode mode) { return (mode == ELightLeafMode::PerTriangle) ? NBL_LIGHTTREE_ALIAS_LOG2N_TRI : NBL_LIGHTTREE_ALIAS_LOG2N_OBB; }
+
+void packAliasByMode(ELightLeafMode mode, std::span<const float> prob, std::span<const uint32_t> alias, uint32_t* out)
+{
+   if (mode == ELightLeafMode::PerTriangle)
+      nbl::hlsl::sampling::AliasTableBuilder<float>::packA<NBL_LIGHTTREE_ALIAS_LOG2N_TRI>(prob, alias, out);
+   else
+      nbl::hlsl::sampling::AliasTableBuilder<float>::packA<NBL_LIGHTTREE_ALIAS_LOG2N_OBB>(prob, alias, out);
+}
+
 } // namespace
 
 
-SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves)
+SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafMode mode)
 {
    SLightTree tree;
    if (leaves.empty())
       return tree;
 
    const uint32_t numActual = uint32_t(leaves.size());
+   // Overflowing the alias-index width corrupts indices silently, and PerTriangle scenes can exceed 2^22.
+   const uint32_t aliasCapacity = 1u << aliasLog2NForMode(mode);
+   assert(numActual <= aliasCapacity && "light tree emitter count exceeds alias-index width; raise NBL_LIGHTTREE_ALIAS_LOG2N_TRI");
+   (void)aliasCapacity;
    // 4-ary heap: pad to power-of-4, total = (4*N - 1)/3, firstLeafIdx = (N - 1)/3.
    const uint32_t numPadded    = nextPowerOf4(numActual);
    const uint32_t totalNodes   = (4 * numPadded - 1) / 3;
@@ -275,7 +422,7 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves)
       tree.aliasEntries.resize(tableSize);
       // Log2N = NBL_LIGHTTREE_ALIAS_LOG2N (single source of truth in light_tree.hlsl): supports up to
       // 2^Log2N emitters, the rest of the word is stayProb precision. Must match the GPU AliasSampler.
-      nbl::hlsl::sampling::AliasTableBuilder<float>::packA<NBL_LIGHTTREE_ALIAS_LOG2N>(std::span<const float>(prob.data(), prob.size()), std::span<const uint32_t>(alias.data(), alias.size()), tree.aliasEntries.data());
+      packAliasByMode(mode, std::span<const float>(prob.data(), prob.size()), std::span<const uint32_t>(alias.data(), alias.size()), tree.aliasEntries.data());
       tree.aliasPdf.resize(tableSize);
       for (uint32_t i = 0; i < tableSize; ++i)
          tree.aliasPdf[i] = pdfs[i];
@@ -333,7 +480,7 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves)
          const uint32_t        tableSize = nbl::hlsl::sampling::AliasTableBuilder<float>::build(std::span<const float>(weights.data(), weights.size()), prob, alias, pdfs);
 
          perWEntries[W].resize(tableSize);
-         nbl::hlsl::sampling::AliasTableBuilder<float>::packA<NBL_LIGHTTREE_ALIAS_LOG2N>(std::span<const float>(prob.data(), prob.size()), std::span<const uint32_t>(alias.data(), alias.size()), perWEntries[W].data());
+         packAliasByMode(mode, std::span<const float>(prob.data(), prob.size()), std::span<const uint32_t>(alias.data(), alias.size()), perWEntries[W].data());
          perWPdfs[W].resize(tableSize);
          for (uint32_t k = 0; k < tableSize; ++k)
             perWPdfs[W][k] = pdfs[k];
@@ -376,9 +523,13 @@ nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<n
    float                                                                                                                                           emitterDensity,
    uint32_t                                                                                                                                        rngSeed,
    nbl::core::vector<uint32_t>&                                                                                                                    outInstancedGeometryToEmitter,
-   SEmitterSelectionDiagnostics*                                                                                                                   diagnostics)
+   ELightLeafMode                                                                                                                                  mode,
+   SEmitterSelectionDiagnostics*                                                                                                                   diagnostics,
+   nbl::core::vector<SEmitterInstanceRef>*                                                                                                         outEmitterInstanceRefs,
+   nbl::core::vector<SEmitterOBB>*                                                                                                                 outEmitterOBBs)
 {
    using namespace nbl::asset;
+   const bool perTriangle = (mode == ELightLeafMode::PerTriangle);
 
    nbl::core::unordered_map<const ICPUBottomLevelAccelerationStructure*, const ICPUGeometryCollection*> blasToCollection;
    blasToCollection.reserve(blasCache.size());
@@ -392,8 +543,11 @@ nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<n
 
    struct SEligible
    {
-      uint32_t instanceIdx;
-      aabb_t   worldAABB;
+      uint32_t                                  instanceIdx;
+      aabb_t                                    worldAABB;
+      const nbl::asset::ICPUGeometryCollection* coll;      // for PerTriangle leaf explosion
+      nbl::hlsl::float32_t3x4                   transform; // instance world transform
+      nbl::asset::ICPUBottomLevelAccelerationStructure* blas; // emitter geometry, for the per-geometry ray-1 TLAS
    };
    nbl::core::vector<SEligible> eligible;
    eligible.reserve(instances.size());
@@ -422,7 +576,7 @@ nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<n
          ++diag.skippedEmptyAABB;
          continue;
       }
-      eligible.push_back({ i, world });
+      eligible.push_back({ i, world, it->second, staticInst.transform, staticInst.base.blas.get() });
    }
    diag.eligible = uint32_t(eligible.size());
 
@@ -466,31 +620,78 @@ nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<n
 
    nbl::core::vector<SLightTreeLeaf> leaves;
    leaves.reserve(eligible.size());
-   auto pushAsLeaf = [&](const SEligible& e)
+
+   const auto luma = [](const nbl::hlsl::float32_t3& r) { return 0.2126f * r.x + 0.7152f * r.y + 0.0722f * r.z; };
+
+   // PerTriangle: base emitter ID of each (instanceIdx, geometryIdx)'s first emissive triangle. The
+   // final map loop reads this so a hit resolves emitter = base + PrimitiveIndex(). Key = inst<<32 | geom.
+   nbl::core::unordered_map<uint64_t, uint32_t> baseByInstGeom;
+   const auto                                   instGeomKey = [](uint32_t inst, uint32_t geom) { return (uint64_t(inst) << 32) | uint64_t(geom); };
+
+   auto emitInstance = [&](const SEligible& e)
    {
-      const uint32_t emitterID = uint32_t(leaves.size());
-      assert(emitterID < NonEmitterCustomIndex);
-      const auto  extent                 = e.worldAABB.getExtent();
-      const float surfaceArea            = 2.f * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x);
-      const float radianceScale          = (equalizeEmitterPower && surfaceArea > 0.f) ? (meanArea / surfaceArea) : 1.f;
-      const auto  radiance               = randomRadiance() * radianceScale;
-      const float luma                   = 0.2126f * radiance.x + 0.7152f * radiance.y + 0.0722f * radiance.z;
-      instanceToEmitterID[e.instanceIdx] = emitterID;
-      leaves.push_back({ e.worldAABB, radiance, luma * surfaceArea, emitterID });
+      if (!perTriangle)
+      {
+         const uint32_t emitterID = uint32_t(leaves.size());
+         assert(emitterID < NonEmitterCustomIndex);
+         const auto  extent        = e.worldAABB.getExtent();
+         const float surfaceArea   = 2.f * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x);
+         const float radianceScale = (equalizeEmitterPower && surfaceArea > 0.f) ? (meanArea / surfaceArea) : 1.f;
+         const auto  radiance      = randomRadiance() * radianceScale;
+         instanceToEmitterID[e.instanceIdx] = emitterID;
+         SLightTreeLeaf leaf                = {};
+         leaf.worldAABB                     = e.worldAABB;
+         leaf.radiance                      = radiance;
+         leaf.power                         = luma(radiance) * surfaceArea;
+         leaf.emitterID                     = emitterID;
+         leaves.push_back(leaf);
+         if (outEmitterInstanceRefs)
+         {
+            assert(outEmitterInstanceRefs->size() == emitterID);
+            outEmitterInstanceRefs->push_back({ e.transform, nbl::core::smart_refctd_ptr<nbl::asset::ICPUBottomLevelAccelerationStructure>(e.blas) });
+         }
+         if (outEmitterOBBs)
+         {
+            assert(outEmitterOBBs->size() == emitterID);
+            outEmitterOBBs->push_back(worldSpaceOBB(e.coll, e.transform));
+         }
+         return;
+      }
+
+      // One leaf per emissive triangle; radiance is shared across the whole instance.
+      const auto radiance = randomRadiance();
+      const float lum     = luma(radiance);
+      forEachWorldTriangle(e.coll, e.transform,
+         [&](uint32_t geomIdx, uint32_t primIdx, const point_t& v0, const point_t& v1, const point_t& v2)
+         {
+            const uint32_t emitterID = uint32_t(leaves.size());
+            assert(emitterID < NonEmitterCustomIndex);
+            if (primIdx == 0u)
+               baseByInstGeom[instGeomKey(e.instanceIdx, geomIdx)] = emitterID;
+
+            aabb_t tri = aabb_t::create();
+            tri.addPoint(v0);
+            tri.addPoint(v1);
+            tri.addPoint(v2);
+            const point_t e0       = v1 - v0;
+            const point_t e1       = v2 - v0;
+            const float   triArea  = 0.5f * std::sqrt(nbl::hlsl::dot<point_t>(nbl::hlsl::cross<point_t>(e0, e1), nbl::hlsl::cross<point_t>(e0, e1)));
+            leaves.push_back({ tri, radiance, lum * triArea, emitterID, v0, v1, v2 });
+         });
    };
    for (const auto& e : eligible)
    {
       if (uni(rng) >= emitterDensity)
          continue;
       ++diag.pickedByRng;
-      pushAsLeaf(e);
+      emitInstance(e);
    }
 
    // Guarantee at least one emitter so small scenes don't render to a dead tree.
    if (leaves.empty() && !eligible.empty() && emitterDensity > 0.f)
    {
       std::uniform_int_distribution<size_t> pickOne(0, eligible.size() - 1);
-      pushAsLeaf(eligible[pickOne(rng)]);
+      emitInstance(eligible[pickOne(rng)]);
       ++diag.forcedPick;
    }
 
@@ -535,10 +736,22 @@ nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<n
       auto&          base      = instances[i].getBase();
       const auto     it        = blasToCollection.find(base.blas.get());
       const uint32_t geomCount = (it != blasToCollection.end()) ? uint32_t(it->second->getGeometries().size()) : 1u;
-      const uint32_t emitterID = instanceToEmitterID[i];
       base.instanceCustomIndex = uint32_t(outInstancedGeometryToEmitter.size());
       for (uint32_t g = 0; g < geomCount; ++g)
-         outInstancedGeometryToEmitter.push_back(emitterID);
+      {
+         if (perTriangle)
+         {
+            // Per-geometry base: a hit resolves its emitter as this base + PrimitiveIndex(). Geometries
+            // with no emissive triangles (or in non-emitter instances) were never recorded -> NonEmitter.
+            const auto found = baseByInstGeom.find(instGeomKey(i, g));
+            outInstancedGeometryToEmitter.push_back(found != baseByInstGeom.end() ? found->second : NonEmitterCustomIndex);
+         }
+         else
+         {
+            // OBB: every geometry of an emissive instance maps to that instance's single emitter ID.
+            outInstancedGeometryToEmitter.push_back(instanceToEmitterID[i]);
+         }
+      }
    }
 
    if (diagnostics)

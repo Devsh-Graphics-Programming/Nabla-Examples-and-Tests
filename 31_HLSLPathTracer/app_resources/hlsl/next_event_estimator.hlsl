@@ -339,7 +339,7 @@ struct EffectivePolygonMethod<PST_SPHERE, PPM>
 
 // Projected solid angle NEE for rectangles using "Practical Warps":
 // bilinear warp over 4-corner NdotL + spherical rectangle sampling.
-// Same grazing-angle limitations as the triangle variant -- see comments
+// Same grazing-angle limitations as the triangle variant, see comments
 // in projected_spherical_triangle.hlsl and projected_spherical_rectangle.hlsl.
 template<typename T>
 struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>

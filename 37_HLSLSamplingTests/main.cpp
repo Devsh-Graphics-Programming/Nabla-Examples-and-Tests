@@ -30,7 +30,7 @@ using namespace nbl::examples;
 #include "nbl/builtin/hlsl/sampling/cumulative_probability.hlsl"
 #include "nbl/builtin/hlsl/sampling/stochastic_lightcut_tree.hlsl"
 
-// concepts header — include AFTER sampler headers, and only in the test
+// concepts header, include AFTER sampler headers, and only in the test
 #include "nbl/builtin/hlsl/sampling/concepts.hlsl"
 
 // ITester-based testers
@@ -284,7 +284,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             addBench(name, GPUBenchmarkHelper::ShaderVariant::FromSource(sourcePath, std::move(all)), outputSize);
          };
 
-         // Bench shaders don't read input -- output is BDA via push constants.
+         // Bench shaders don't read input, output is BDA via push constants.
          if constexpr (true)
          {
             constexpr size_t benchOutputBytes = sizeof(uint32_t) * totalThreadsPerDispatch;
@@ -327,7 +327,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             // ---- Runtime-compiled demo variants (no CMake JSON edit needed) ----
             // Same .hlsl source as the precompiled "linear_bench_1_*" entries, but with
             // a `BENCH_SAMPLES_PER_CREATE` value that has no JSON entry. Add as many
-            // here as you want -- each is a one-liner, no reconfigure required.
+            // here as you want, each is a one-liner, no reconfigure required.
             //addRuntime({"Linear", "Linear", "1:4 (rt)"}, "shaders/linear_test.comp.hlsl", {{"BENCH_SAMPLES_PER_CREATE", "4"}}, benchOutputBytes);
             //addRuntime({"Linear", "Linear", "1:8 (rt)"}, "shaders/linear_test.comp.hlsl", {{"BENCH_SAMPLES_PER_CREATE", "8"}}, benchOutputBytes);
          }
@@ -345,7 +345,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             dsData.dispatchGroupCount      = {benchWorkgroupsCount, 1u, 1u};
             dsData.targetBudgetMs          = targetBudgetMs;
 
-            // Just the N values now -- runTimedBudgeted sizes dispatches per
+            // Just the N values now, runTimedBudgeted sizes dispatches per
             // row to hit the budget. The old per-N tuning table is gone.
             static constexpr uint32_t kSweepNs[] = {
                2u, 4u, 8u, 16u, 32u, 64u, 100u, 128u, 256u, 400u,
@@ -362,7 +362,7 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             };
 
             // Single call. Each span contributes its own focus rows first, then
-            // every span's unfocused rows -- the aggregator iterates both packs
+            // every span's unfocused rows, the aggregator iterates both packs
             // in each phase. CDiscrete's overridden run() does per-row filtering
             // against cli.focusVariants since its rows aren't a flat list.
             agg.runSessionAndReport(
@@ -468,19 +468,10 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
          runSamplerTest.operator()<CStochasticLightcutTreeSingleGPUTester,       "stochastic_lightcut_tree_single_test"           >("sampler/StochasticLightcutTree(single)",       "StochasticLightcutTree single-leaf GPU sampler",       "StochasticLightcutTreeSingleTestLog.txt");
          // Geometric scenarios run once per weight mode (0..3); the shader KEY suffix _mN must match
          // the per-mode variants registered in CMakeLists.txt.
-#define LCT_SWEEP_ONE(TesterTmpl, M, KEYBASE, ID, DESC, LOG) \
-         runSamplerTest.operator()<TesterTmpl<M##u>, KEYBASE "_m" #M>(ID " m" #M, DESC " (mode " #M ")", LOG "_m" #M ".txt");
-#define LCT_SWEEP(TesterTmpl, KEYBASE, ID, DESC, LOG) \
-         LCT_SWEEP_ONE(TesterTmpl, 0, KEYBASE, ID, DESC, LOG) \
-         LCT_SWEEP_ONE(TesterTmpl, 1, KEYBASE, ID, DESC, LOG) \
-         LCT_SWEEP_ONE(TesterTmpl, 2, KEYBASE, ID, DESC, LOG) \
-         LCT_SWEEP_ONE(TesterTmpl, 3, KEYBASE, ID, DESC, LOG)
-         LCT_SWEEP(CStochasticLightcutTreeBelowPlaneGPUTester,   "stochastic_lightcut_tree_below_plane_test",      "sampler/StochasticLightcutTree(belowPlane)",   "StochasticLightcutTree below-plane cutoff",      "StochasticLightcutTreeBelowPlaneTestLog")
-         LCT_SWEEP(CStochasticLightcutTreeDistFalloffGPUTester,  "stochastic_lightcut_tree_distance_falloff_test", "sampler/StochasticLightcutTree(distFalloff)",  "StochasticLightcutTree distance-falloff",        "StochasticLightcutTreeDistFalloffTestLog")
-         LCT_SWEEP(CStochasticLightcutTreeInflatedBboxGPUTester, "stochastic_lightcut_tree_inflated_bbox_test",    "sampler/StochasticLightcutTree(inflatedBbox)", "StochasticLightcutTree inflated-bbox pathology", "StochasticLightcutTreeInflatedBboxTestLog")
-         LCT_SWEEP(CStochasticLightcutTreeDepth2GPUTester,       "stochastic_lightcut_tree_depth2_test",           "sampler/StochasticLightcutTree(depth2)",       "StochasticLightcutTree depth-2 analytic pdf",    "StochasticLightcutTreeDepth2TestLog")
-#undef LCT_SWEEP
-#undef LCT_SWEEP_ONE
+         runSamplerTest.operator()<CStochasticLightcutTreeBelowPlaneGPUTester,   "stochastic_lightcut_tree_below_plane_test"     >("sampler/StochasticLightcutTree(belowPlane)",   "StochasticLightcutTree below-plane cutoff",      "StochasticLightcutTreeBelowPlaneTestLog.txt");
+         runSamplerTest.operator()<CStochasticLightcutTreeDistFalloffGPUTester,  "stochastic_lightcut_tree_distance_falloff_test">("sampler/StochasticLightcutTree(distFalloff)",  "StochasticLightcutTree distance-falloff",        "StochasticLightcutTreeDistFalloffTestLog.txt");
+         runSamplerTest.operator()<CStochasticLightcutTreeInflatedBboxGPUTester, "stochastic_lightcut_tree_inflated_bbox_test"   >("sampler/StochasticLightcutTree(inflatedBbox)", "StochasticLightcutTree inflated-bbox pathology", "StochasticLightcutTreeInflatedBboxTestLog.txt");
+         runSamplerTest.operator()<CStochasticLightcutTreeDepth2GPUTester,       "stochastic_lightcut_tree_depth2_test"          >("sampler/StochasticLightcutTree(depth2)",       "StochasticLightcutTree depth-2 analytic pdf",    "StochasticLightcutTreeDepth2TestLog.txt");
       }
       logJacobianSkipCounts(m_logger.get());
       pass &= samplerPass;

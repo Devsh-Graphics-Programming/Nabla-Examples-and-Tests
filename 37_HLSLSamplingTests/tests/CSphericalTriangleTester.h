@@ -205,7 +205,6 @@ struct SphericalTriangleStressConfig
 			}
 		}
 
-		// Validate — if degenerate (shouldn't be common), fall back to random valid triangle
 		if (!isValidSphericalTriangle(v0, v1, v2))
 			generateRandomTriangleVertices(rng, v0, v1, v2);
 
