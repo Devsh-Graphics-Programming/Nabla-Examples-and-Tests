@@ -1165,6 +1165,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
       // Bench mode forces a fresh-start frame so the shader always does work,
       // independent of how much sample accumulation the session built up.
       SSensorDynamics dynForRender = sessionResources.currentSensorState;
+      dynForRender.prevViewProj = sessionResources.prevSensorState.prevViewProj;
       if (timing.forceFreshFrame)
          dynForRender.keepAccumulating = 0;
       else if (timing.forceAccumulate)

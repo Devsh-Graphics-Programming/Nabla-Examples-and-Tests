@@ -11,7 +11,7 @@ NBL_CONSTEXPR uint32_t WorkgroupSize = 16u;
 [shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-	uint linearIdx = pixel.y * params.frameDim.x + pixel.x;
+	uint linearIdx = ID.y * gSensor.renderSize.x + ID.x;
     SHashAppendData data;
     LegacyBdaAccessor<SHashAppendData> hashAppendDataPtr = LegacyBdaAccessor<SHashAppendData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf]);
     hashAppendDataPtr.get(linearIdx, data);

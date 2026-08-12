@@ -1,11 +1,13 @@
 #include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 
 #include "common.hlsl"
-#include "renderer/shaders/bda_accessors.hlsl"
 #include "next_event_estimator.hlsl"
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
 struct[raypayload] SAnyHitRetval
 {
     // before sending the ray by the caller
@@ -34,6 +36,59 @@ struct[raypayload] SAnyHitRetval
     // essentially the probability of transmission
     float16_t transparency : read(caller) : write(anyhit);
     // can use additional `float16` to store BxDF mixture weights or other things so they don't need recomputing/re-fetching during shading
+};
+
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
+struct SClosestHitRetval
+{
+    static inline SClosestHitRetval create(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
+    {
+        SClosestHitRetval retval;
+        {
+            [[vk::ext_storage_class(spv::StorageClassHitObjectAttributeEXT)]] float32_t2 tmp;
+            spirv::hitObjectGetAttributesEXT(hitObject, tmp);
+            retval.barycentrics = tmp;
+        }
+        // Which method of barycentric interpolation is more precise? Pick your poison!
+#define POSITION_RECON_METHOD 0
+#if POSITION_RECON_METHOD != 0
+        // compute worldspace hit position
+        const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+#if POSITION_RECON_METHOD != 2
+        // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
+        const float32_t3 modelSpacePos = vertices[0] + (vertices[1] - vertices[0]) * retval.barycentrics[0] + (vertices[2] - vertices[0]) * retval.barycentrics[1];
+#else
+        // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
+        const float32_t3 modelSpacePos = vertices[0] * (1.f - retval.barycentrics[0] - retval.barycentrics[1]) + vertices[1] * retval.barycentrics[0] + vertices[2] * retval.barycentrics[1];
+#endif
+        retval.hitPos = math::linalg::promoted_mul(hlsl::transpose(spirv::hitObjectGetObjectToWorldEXT(hitObject)), modelSpacePos);
+#else
+        // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
+        retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
+#endif
+#undef POSITION_RECON_METHOD
+        retval.instancedGeometryID = spirv::hitObjectGetInstanceCustomIndexEXT(hitObject) + spirv::hitObjectGetGeometryIndexEXT(hitObject);
+        retval.primitiveID         = spirv::hitObjectGetPrimitiveIndexEXT(hitObject);
+        retval.geometricNormal     = reconstructGeometricNormal(hitObject);
+        return retval;
+    }
+
+    float32_t3 hitPos;
+    // to interpolate our vertex attributes
+    float32_t2 barycentrics;
+    // to get our material and geometry data back
+    uint32_t instancedGeometryID;
+    // to get particular Triangle's indices
+    uint32_t primitiveID;
+    //
+    float32_t3 geometricNormal;
+};
+
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
+enum E_SBT_OFFSETS : uint16_t
+{
+    ESBTO_PATH,
+    ESBTO_NEE
 };
 
 SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint baseIndex, uint sampleIndex)
@@ -76,6 +131,10 @@ void raygen()
         return;
     }
 
+    // don't advance sample?
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 0u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
+    decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
+
     uint32_t sampleIndex = 0u;
 
     using namespace nbl::hlsl::bxdf;
@@ -116,11 +175,11 @@ void raygen()
     SClosestHitRetval closestInfo = SClosestHitRetval::create(hitObject);
 
     // get previous sample
-    float32_t4 previousClip = prevViewProj * closestInfo.hitPos;
-    float32_t3 previousScreen = previousClip.xyz / previousClip.w;
-    float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + 0.5f;
-    uint32_t2 previousID = hlsl::clamp(previousUV * gSensor.renderSize, hlsl::promote<uint32_t2>(0), gSensor.renderSize - hlsl::promote<uint32_t2>(1));
-    uint32_t previousIdx = previousID.y * gSensor.renderSize.x + previousID.x;
+    const float32_t4 previousClip = pc.sensorDynamics.prevViewProj * closestInfo.hitPos;
+    const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
+    const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + 0.5f;
+    const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
+    const uint32_t previousIdx = previousID.y * gSensor.renderSize.x + previousID.x;
 
     bool isPreviousValid = gSampleCount[launchID] > 0 && hlsl::all(previousUV > hlsl::promote<float32_t2>(0.0)) && hlsl::all(previousUV < hlsl::promote<float32_t2>(1.0));
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);

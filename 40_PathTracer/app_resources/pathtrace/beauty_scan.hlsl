@@ -3,6 +3,7 @@
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 
 #include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 #include "nbl/builtin/hlsl/scan/chained_scan.hlsl"
 
 #include "common.hlsl"
@@ -158,7 +159,7 @@ struct WorkgroupCounter
 
 static ScratchProxy arithmeticAccessor;
 
-[numthreads(config_t::WorkgroupSize, config_t::WorkgroupSize, 1)]
+[numthreads(config_t::WorkgroupSize, 1, 1)]
 [shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {

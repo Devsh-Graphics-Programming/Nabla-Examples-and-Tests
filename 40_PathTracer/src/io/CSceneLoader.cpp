@@ -5,6 +5,7 @@
 #include "io/CSceneLoader.h"
 
 #include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -277,6 +278,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				}
 				// raygen
 				auto& ndc = mutableDefaults.raygen.encoded;
+				auto& viewProj = mutableDefaults.viewProjection;
 				switch (_sensor.type)
 				{
 					case mts_sensor_t::Type::THINLENS:
@@ -286,7 +288,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 						{
 							const auto& persp = _sensor.perspective;
 							// calculations for the projection plane behind the aperture (or in-front if thinking virtual)
-							const float halfFoVRad = hlsl::radians(persp.fov)*0.5f;
+							const float fovRad = hlsl::radians(persp.fov);
+							const float halfFoVRad = fovRad * 0.5f;
 							const auto halfSize = hlsl::tan(halfFoVRad);
 							// by default FoV is y-axis
 							float halfHeight = halfSize;
@@ -336,6 +339,11 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							ndc[0] = float32_t3(scaleRcp.z/hlsl::abs(scaleRcp.x),0.f,persp.shiftX);
 							// column gets negated because in Vulkan NDC.y runs downwards
 							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
+
+							const auto viewMat = math::linalg::pseudoInverse3x4(mutableDefaults.absoluteTransform);
+							const auto projMat = buildProjectionMatrixPerspectiveFovRH(fovRad, aspectRatio, persp.nearClip, persp.farClip);
+							// TODO: account for shiftX and shiftY?
+							viewProj = math::linalg::promoted_mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::TELECENTRIC:
@@ -347,12 +355,17 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							// extract and negate the scale from the 
 							ndc[0] = float32_t3(1.f/scaleRcp.x,0.f,0.f);
 							ndc[1] = float32_t3(0.f,1.f/scaleRcp.y*float(constants.height)/float(constants.width),0.f);
+
+							const auto viewMat = math::linalg::pseudoInverse3x4(mutableDefaults.absoluteTransform);
+							const auto projMat = buildProjectionMatrixOrthoRH(float(constants.width), float(constants.height), ortho.nearClip, ortho.farClip);
+							viewProj = math::linalg::promoted_mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::SPHERICAL:
 						// irrelevant for spherical cameras, we send rays everywhere
 						ndc[0] = promote<float32_t3>(0);
 						ndc[1] = promote<float32_t3>(0);
+						// TODO: viewProj?
 						break;
 					default:
 						ndc[0][0] = core::nan<float>();

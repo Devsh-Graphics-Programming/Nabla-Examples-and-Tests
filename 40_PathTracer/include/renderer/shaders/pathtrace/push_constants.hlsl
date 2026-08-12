@@ -20,6 +20,7 @@ struct SSensorDynamics
 	// assuming input will be ndc = [-1,1]^2 x {-1}
 	hlsl::float32_t3x4 invView;
 	hlsl::float32_t2x3 ndcToRay;
+	hlsl::float32_t4x4 prevViewProj;
 	hlsl::float32_t nearClip;
 	hlsl::float32_t tMax;
 	// we can adaptively sample per-pixel, but some bounds need to be kept

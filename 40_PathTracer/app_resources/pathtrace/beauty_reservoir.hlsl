@@ -291,6 +291,7 @@ void raygen()
     {
         // For RWMC to work, every sample must be splatted individually
         spectral_t color;
+        float32_t3 cameraPos;
 
         using namespace nbl::hlsl::bxdf;
         using namespace nbl::hlsl::material_compiler3::backends::default_upt;
@@ -313,6 +314,7 @@ void raygen()
             const float32_t2  NDC          = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
             const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy));
             const SRay        ray          = primary.ray;
+            cameraPos = ray.origin;
 
             // TODO: possible SER point, sorting by ray direction
             //spirv::reorderThreadWithHintEXT<uint32_t>(,);
@@ -617,8 +619,8 @@ void raygen()
             rcData.preRcVertexInstancedGeometryID = pathState.preRcVertexInstancedGeometryID;
             rcData.preRcVertexPrimitiveID = pathState.preRcVertexPrimitiveID;
             rcData.preRcNormal = pathState.preRcNormal;
-            rcData.pathPreThroughput = pathState.prefixThroughput;
-            rcData.pathPreRadiance = pathState.prefixPathRadiance;
+            rcData.pathPreRcThroughput = pathState.prefixThroughput;
+            rcData.pathPreRcRadiance = pathState.prefixPathRadiance;
             rcData.preRcVertexL = pathState.preRcVertexL;
             rcData.pathLength = pathState.rcVertexLength - 1;
 
