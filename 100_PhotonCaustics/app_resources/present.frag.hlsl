@@ -3,6 +3,8 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #pragma wave shader_stage(fragment)
 
+#include "app_resources/common.hlsl"
+
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
 
 using namespace nbl::hlsl;
@@ -10,12 +12,7 @@ using namespace ext::FullScreenTriangle;
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D    hdrTexture;
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState hdrSampler;
-
-struct SPresentPushConstants
-{
-    float32_t exposure;
-    uint32_t  tonemapOperator;
-};
+        
 [[vk::push_constant]] SPresentPushConstants pc;
 
 float32_t3 reinhard(float32_t3 x)

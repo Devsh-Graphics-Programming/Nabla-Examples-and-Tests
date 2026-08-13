@@ -1,16 +1,11 @@
 include(common)
 
-set(NBL_INCLUDE_SERACH_DIRECTORIES
-	"${CMAKE_CURRENT_SOURCE_DIR}/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src"
-	"${CMAKE_CURRENT_SOURCE_DIR}/shaders"
-)
-
 if(NOT NBL_BUILD_IMGUI)
 	return()
 endif()
 
 set(NBL_INCLUDE_SEARCH_DIRECTORIES
+	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	"${CMAKE_CURRENT_SOURCE_DIR}/app_resources"
 )
@@ -40,6 +35,18 @@ set(JSON [=[
         "INPUT": "app_resources/present.frag.hlsl",
         "KEY": "present_frag",
     },
+    {
+        "INPUT": "app_resources/raytrace.rgen.hlsl",
+        "KEY": "raytrace_rgen",
+    },
+    {
+        "INPUT": "app_resources/raytrace.rchit.hlsl",
+        "KEY": "raytrace_rchit",
+    },
+    {
+        "INPUT": "app_resources/raytrace.rmiss.hlsl",
+        "KEY": "raytrace_rmiss",
+    }
 ]
 ]=])
 string(CONFIGURE "${JSON}" JSON)
