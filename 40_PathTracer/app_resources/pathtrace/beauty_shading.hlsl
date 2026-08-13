@@ -7,6 +7,65 @@
 
 [[vk::push_constant]] SBeautyPushConstants pc;
 
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float32_t NormalCompareThreshold = 0.8f;
+
+// Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
+// Beauty image (gBeauty) AND the fp16 RWMC cascade splat (gRWMCCascades). Both buffers are always
+// populated, so a single run yields the unbiased fp32 mean alongside the RWMC result with no build-
+// time toggle. Caveat: the RWMC 16-bit per-cascade sample count wraps past 65535 spp, so for very-
+// high-spp reference renders read gBeauty (fp32), the cascades are stale there.
+struct CCascades
+{
+    using layer_type        = float16_t3;
+    using sample_count_type = uint16_t;
+    using weight_t          = float16_t;
+
+    inline uint16_t getLastCascade() { return gSensor.lastCascadeIndex; }
+
+    inline void clear()
+    {
+        for (uint16_t i = 0u; i <= getLastCascade(); ++i)
+            gRWMCCascades[__getCoord(i)] = uint32_t2(0, 0);
+    }
+
+    inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
+    {
+        const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
+        uint16_t3      coord                 = __getCoord(lowerCascadeIndex);
+        __splatToLayer(coord, _sample * lowerCascadeLevelWeight, sampleCount, reciprocalSampleCount);
+        if (higherCascadeLevelWeight > weight_t(0))
+        {
+            coord.z++;
+            __splatToLayer(coord, _sample * higherCascadeLevelWeight, sampleCount, reciprocalSampleCount);
+        }
+    }
+
+    inline uint16_t3 __getCoord(const uint16_t cascadeIx)
+    {
+        uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
+        coord.z         = coord.z * uint16_t(6) + cascadeIx;
+        return coord;
+    }
+
+    inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
+    {
+        uint16_t4 data = uint16_t4(0, 0, 0, 0);
+        if (sampleCount > 1)
+            data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
+        layer_type              value          = bit_cast<layer_type>(data.xyz);
+        const sample_count_type oldSampleCount = data.w;
+#if NBL_RWMC_FP32_REWEIGHT
+        float32_t3 v = float32_t3(value);
+        v += (float32_t3(weightedSample) - v * float32_t(sampleCount - oldSampleCount)) / float32_t(sampleCount);
+        value = layer_type(v);
+#else
+        value += (weightedSample - value * weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
+#endif
+        data                 = uint16_t4(bit_cast<uint16_t3>(value), sampleCount);
+        gRWMCCascades[coord] = bit_cast<uint32_t2>(data);
+    }
+};
+
 // TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
 struct[raypayload] SAnyHitRetval
 {
@@ -136,6 +195,7 @@ void raygen()
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
 
     uint32_t sampleIndex = 0u;
+    float32_t3 cameraPos;
 
     using namespace nbl::hlsl::bxdf;
     using namespace nbl::hlsl::material_compiler3::backends::default_upt;
@@ -158,12 +218,13 @@ void raygen()
         const float32_t2  NDC          = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
         const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy));
         const SRay        ray          = primary.ray;
+        cameraPos = ray.origin;
 
         // TODO: possible SER point, sorting by ray direction
         //spirv::reorderThreadWithHintEXT<uint32_t>(,);
 
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
-        const float                                                             tMax = pc.sensorDynamics.tMax;
+        const float tMax = pc.sensorDynamics.tMax;
         payload.init(randVec.z, tMax);
         spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, ray.origin, primary.tMin, ray.direction.getDirection(), tMax, payload);
         // TODO: do something with the payload's reported transparency
@@ -175,7 +236,7 @@ void raygen()
     SClosestHitRetval closestInfo = SClosestHitRetval::create(hitObject);
 
     // get previous sample
-    const float32_t4 previousClip = pc.sensorDynamics.prevViewProj * closestInfo.hitPos;
+    const float32_t4 previousClip = hlsl::math::linalg::promoted_mul(pc.sensorDynamics.prevViewProj, closestInfo.hitPos);
     const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
     const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + 0.5f;
     const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
@@ -213,7 +274,7 @@ void raygen()
         cellCounterPtr.get(cellIdx, sampleCount);
     }
 
-    spatialReservoir.M = hlsl::clamp(spatialReservoir.M, 0, 100);
+    spatialReservoir.M = hlsl::clamp(spatialReservoir.M, uint16_t(0u), uint16_t(100u));
     if (spatialReservoir.age > 100)
     {
         spatialReservoir.M = 0;
@@ -237,17 +298,17 @@ void raygen()
     bda::__ptr<uint32_t> _csptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
     BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
 
-    uint32_t reuseID = 0;
-    int count = 0;
-    for (uint32_t i = 0; i < sampleCount; i += increment)
+    uint32_t reuseID = 0u;
+    uint32_t count = 0u;
+    for (uint32_t i = 0u; i < sampleCount; i += increment)
     {
         count++;
 
         uint32_t neighborPixelIndex;
         cellStoragePtr.get(cellBaseIdx + (offset + i) % sampleCount, neighborPixelIndex);
-        SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1) % 2);
+        SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1u) % 2);
 
-        if (neighborReservoir.M <= 0 || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < normalThreshold)
+        if (neighborReservoir.M <= uint16_t(0u) || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < NormalCompareThreshold)
             continue;
 
         float32_t targetPdf = hlsl::dot(neighborReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
@@ -292,12 +353,11 @@ void raygen()
         bool visRayMissed = spirv::hitObjectIsMissEXT(visibilityHit);
         if (visRayMissed)
             targetPdf = 0.f;
-        //targetPdf *= dot(spatialReservoir.vNormal, neighborReservoir.vNormal);
-        bool updated = spatialReservoir.merge(sg, neighborReservoir, targetPdf, wSumS);
+        bool updated = spatialReservoir.merge(neighborReservoir, randVis.y, targetPdf, wSumS);
         if (updated)
             reuseID = count;
 
-        positionList[nReuse] = neighborReservoir.vPos;
+        positionList[nReuse] = neighborReservoir.vPosition;
         normalList[nReuse] = neighborReservoir.vNormal;
         MList[nReuse] = neighborReservoir.M;
         nReuse++;
@@ -351,9 +411,11 @@ void raygen()
     spectral_t finalLi = spatialReservoir.radiance * hlsl::max(0.f, spatialReservoir.weightF);
 
     // TODO ReSTIR: check material roughness
-    const quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);
+    quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);
     {
-        isotropic_interaction_t interaction = isotropic_interaction_t::create(finalDir, rcData.preRcNormal, throughput);
+        typename light_sample_t::ray_dir_info_type V;
+        V.direction = finalDir;
+        isotropic_interaction_t interaction = isotropic_interaction_t::create(V, rcData.preRcNormal, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
         typename light_sample_t::ray_dir_info_type L;
         L.direction = rcData.preRcVertexL;
         light_sample_t _sample = light_sample_t::create(L, rcData.preRcNormal);
@@ -368,7 +430,7 @@ void raygen()
         final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
     }
 
-    spectral_t color = (rcData.pathPreRadiance + rcData.pathPreThroughput * final_quo * finalLi);
+    spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 

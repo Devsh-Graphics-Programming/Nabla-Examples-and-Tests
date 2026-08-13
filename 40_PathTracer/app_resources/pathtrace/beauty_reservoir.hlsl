@@ -5,63 +5,6 @@
 #include "common.hlsl"
 #include "next_event_estimator.hlsl"
 
-// Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
-// Beauty image (gBeauty) AND the fp16 RWMC cascade splat (gRWMCCascades). Both buffers are always
-// populated, so a single run yields the unbiased fp32 mean alongside the RWMC result with no build-
-// time toggle. Caveat: the RWMC 16-bit per-cascade sample count wraps past 65535 spp, so for very-
-// high-spp reference renders read gBeauty (fp32), the cascades are stale there.
-struct CCascades
-{
-    using layer_type        = float16_t3;
-    using sample_count_type = uint16_t;
-    using weight_t          = float16_t;
-
-    inline uint16_t getLastCascade() { return gSensor.lastCascadeIndex; }
-
-    inline void clear()
-    {
-        for (uint16_t i = 0u; i <= getLastCascade(); ++i)
-            gRWMCCascades[__getCoord(i)] = uint32_t2(0, 0);
-    }
-
-    inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
-    {
-        const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
-        uint16_t3      coord                 = __getCoord(lowerCascadeIndex);
-        __splatToLayer(coord, _sample * lowerCascadeLevelWeight, sampleCount, reciprocalSampleCount);
-        if (higherCascadeLevelWeight > weight_t(0))
-        {
-            coord.z++;
-            __splatToLayer(coord, _sample * higherCascadeLevelWeight, sampleCount, reciprocalSampleCount);
-        }
-    }
-
-    inline uint16_t3 __getCoord(const uint16_t cascadeIx)
-    {
-        uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
-        coord.z         = coord.z * uint16_t(6) + cascadeIx;
-        return coord;
-    }
-
-    inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
-    {
-        uint16_t4 data = uint16_t4(0, 0, 0, 0);
-        if (sampleCount > 1)
-            data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
-        layer_type              value          = bit_cast<layer_type>(data.xyz);
-        const sample_count_type oldSampleCount = data.w;
-#if NBL_RWMC_FP32_REWEIGHT
-        float32_t3 v = float32_t3(value);
-        v += (float32_t3(weightedSample) - v * float32_t(sampleCount - oldSampleCount)) / float32_t(sampleCount);
-        value = layer_type(v);
-#else
-        value += (weightedSample - value * weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
-#endif
-        data                 = uint16_t4(bit_cast<uint16_t3>(value), sampleCount);
-        gRWMCCascades[coord] = bit_cast<uint32_t2>(data);
-    }
-};
-
 // TODO: move this to material_compiler3
 // There's actually a huge problem with doing any throughput or accumulation modification in AnyHit shaders, they run out of order (BVH order) and a hit behind your eventual closest hit can invoke the anyhit stage.
 //
@@ -399,7 +342,7 @@ void raygen()
                 // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
                 {
                     const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-                    const spectral_t emission;
+                    spectral_t emission;
                     color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, emission);
                     
                     if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)

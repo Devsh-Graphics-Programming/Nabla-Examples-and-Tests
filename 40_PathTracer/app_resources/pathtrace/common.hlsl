@@ -4,6 +4,7 @@
 #include "renderer/shaders/pathtrace/common.hlsl"
 
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 
 #include "nbl/examples/common/KeyedQuantizedSequence.hlsl"
 
@@ -575,11 +576,11 @@ float32_t calculateCellSize(float32_t3 pos, float32_t3 cameraPos, uint16_t2 rend
 
 int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
 {
-    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneBBMin) / hlsl::promote<float32_t3>(cellSize)));
+    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneMinPos) / hlsl::promote<float32_t3>(cellSize)));
     uint32_t normprint = binaryNorm(norm);
 
     uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
-    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1);
+    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
 
     bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     NBL_HLSL_LOOP
@@ -587,9 +588,9 @@ int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CO
     {
         uint32_t idx = cellIndex * 32 + i;
 
-        uint32_t checkSumPre = glsl::atomicCompSwap((checkSumPtr + idx).template deref().ptr.value, 0, checkSum);
+        uint32_t checkSumPre = glsl::atomicCompSwap((checkSumPtr + idx).template deref().ptr.value, 0u, checkSum);
         if (checkSumPre == 0 || checkSumPre == checkSum)
-            return idx;
+            return int(idx);
     }
 
     return -1;
@@ -597,11 +598,11 @@ int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CO
 
 int findCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
 {
-    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneBBMin) / hlsl::promote<float32_t3>(cellSize)));
+    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneMinPos) / hlsl::promote<float32_t3>(cellSize)));
     uint32_t normprint = binaryNorm(norm);
 
     uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
-    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1);
+    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
 
     bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     BdaAccessor<uint32_t> checksumPtr = BdaAccessor<uint32_t>::create(ptr);
@@ -613,7 +614,7 @@ int findCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_
         uint32_t cs;
         checksumPtr.get(idx, cs);
         if (cs == checkSum)
-            return idx;
+            return int(idx);
     }
 
     return -1;
