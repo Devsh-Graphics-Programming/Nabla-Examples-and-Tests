@@ -24,9 +24,12 @@ class CSession final : public core::IReferenceCounted
 		{
 			Previs,
 			Beauty,
-			Beauty_ReSTIR,
 			Debug,
-			Count
+			Count,
+
+			// TODO: not sure where to best put this, so I leave it out of count for now
+			// can reuse the same pipeline layout as beauty, but also it's a different render mode entirely
+			Beauty_ReSTIR
 		};
 		enum class MisMode : uint8_t
 		{

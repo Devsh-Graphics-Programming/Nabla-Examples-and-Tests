@@ -164,6 +164,50 @@ void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint
     reservoirBuf.set(index, reservoir);
 }
 
+// Diagnostic-only NEE-proposal probe takeover
+#include "nee_proposal_probe.hlsl"
+
+// forwardNEE as a ray-tracing callable (see NBL_NEE_CALLABLE in next_event_estimator.hlsl).
+[shader("callable")] 
+void neeCallable(inout nbl::this_example::SNeeCallableData cd)
+{
+    using NEE = nbl::this_example::NextEventEstimator;
+
+    NEE::ray_dir_info_t V;
+    V.setDirection(cd.V);
+    NEE::isotropic_interaction_t interaction = NEE::isotropic_interaction_t::create(V, cd.shadingNormal, cd.throughput);
+
+    NEE::brdf_t::SCreationParams cParams;
+    cParams.A                 = 0.f;
+    const NEE::brdf_t diffuse = NEE::brdf_t::create(cParams);
+
+    NEE nee                     = NEE::create();
+    nee.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
+    nee.prevDescentNeePdf       = cd.prevDescentNeePdf;
+
+    const NEE::SForwardSample s = nee.forwardNEE(cd.hitPos, cd.shadingNormal, interaction, diffuse, cd.throughput, cd.randNEE, cd.randNEE2);
+
+    cd.pickedDir               = s.pickedDir;
+    cd.contribution            = s.contribution;
+    cd.pickedEmitterID         = s.pickedEmitterID;
+    cd.valid                   = s.valid ? 1u : 0u;
+    cd.prevDescentNeeEmitterID = nee.prevDescentNeeEmitterID;
+    cd.prevDescentNeePdf       = nee.prevDescentNeePdf;
+}
+
+[shader("callable")] 
+void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
+{
+    using NEE             = nbl::this_example::NextEventEstimator;
+    NEE nee               = NEE::create();
+    nee.prevShadingHitPos = ec.prevShadingHitPos;
+    nee.prevShadingNormal = ec.prevShadingNormal;
+    // Negative sentinel = same-emitter cache miss: run the backward selection-pdf climb here in the
+    // callable stage so its register / i-cache footprint stays out of raygen. >= 0 is the cached pdf.
+    const float32_t backPdf = (ec.emitterSelectBackPdf < 0.f) ? nee.__emitterSelectBackPdf(ec.emitterIdx) : ec.emitterSelectBackPdf;
+    ec.deweight             = (backPdf > 0.f) ? nee.__emissionDeweight(ec.emitterIdx, ec.currentHitPos, backPdf, ec.otherTechniqueHeuristic) : 1.f;
+}
+
 [shader("raygeneration")]
 void raygen()
 {

@@ -177,6 +177,7 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
       };
       setPCRange.operator()<SPrevisPushConstants>(render_mode_e::Previs);
       setPCRange.operator()<SBeautyPushConstants>(render_mode_e::Beauty);
+      setPCRange.operator()<SBeautyPushConstants>(render_mode_e::Beauty_ReSTIR);
       setPCRange.operator()<SDebugPushConstants>(render_mode_e::Debug);
       for (uint8_t t = 0; t < uint8_t(render_mode_e::Count); t++)
       {
@@ -191,7 +192,10 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
       computePcRanges[1] = { .stageFlags = hlsl::ESS_COMPUTE, .offset = 0, .size = sizeof(SBeautyPushConstants) };
        for (uint8_t t = 0; t < uint8_t(CSession::RestirComputePipeline::Count); t++)
        {
-           params.computeLayouts[t] = device->createPipelineLayout({ computePcRanges + t, 1 });
+           if (t == uint8_t(CSession::RestirComputePipeline::Hashgrid))
+               params.computeLayouts[t] = device->createPipelineLayout({ computePcRanges + t, 1 }, nullptr, params.sensorDSLayout);
+           else
+               params.computeLayouts[t] = device->createPipelineLayout({ computePcRanges + t, 1 });
            string debugName = to_string(static_cast<render_mode_e>(t)) + "Compute Pipeline Layout";
            if (checkNullObject(params.computeLayouts[t], debugName))
                return nullptr;
@@ -1053,12 +1057,12 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          for (uint8_t i = 0; i < SBTCount; i++)
          {
             const auto& buffer       = buffers[i + 1].value;
-            auto        setSBTBuffer = [&buffer](SStridedRange<const IGPUBuffer>& stRange) -> void
+            auto setSBTBuffer = [&buffer](SStridedRange<const IGPUBuffer>& stRange) -> void
             {
                stRange.range.buffer = stRange.range.size ? buffer : nullptr;
             };
             // Same slot mapping as the build loop: real modes first, then the Beauty MIS variants.
-            auto& sbt         = (i < RenderModeCount) ? params.sbts[i] : params.beautyVariantSbts[i - RenderModeCount];
+            auto& sbt = (i < RenderModeCount) ? params.sbts[i] : ((i < RenderModeCount + BeautyVariantCount) ? params.beautyVariantSbts[i - RenderModeCount] : params.beautyRestirSbts[i - RenderModeCount - BeautyVariantCount]);
             sbt.raygen.buffer = buffer;
             setSBTBuffer(sbt.miss);
             setSBTBuffer(sbt.hit);
