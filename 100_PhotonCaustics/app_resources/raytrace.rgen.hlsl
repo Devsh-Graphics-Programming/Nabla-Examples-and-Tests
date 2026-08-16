@@ -99,6 +99,13 @@ float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
     return albedo * flux / (numbers::pi<float32_t> * numbers::pi<float32_t> * r2);
 }
     
+#define ELPE_NONE       0
+#define ELPE_LIGHT      (1u << 0) // L: started from a light
+#define ELPE_DIFFUSE    (1u << 1) // D: hit diffuse
+#define ELPE_SPECULAR   (1u << 2) // S: hit specular
+#define ELPE_TRANSMIT   (1u << 3) // T: transmitted/refracted
+#define ELPE_EYE        (1u << 4) // E: reached the camera/eye
+#define ELPE_CAUSTIC    (1u << 5) // C: hit specular and then diffuse hence its a caustic
     
 [shader("raygeneration")]
 void main()
@@ -135,7 +142,10 @@ void main()
         float32_t3 throughput = (float32_t3)1.0f;
             
         const bool debugPhotons = (pc.debugFlags & DEBUG_PHOTONS_BIT) != 0u;
-
+        bool caustGathered = false; // don't want to keep gathering at same point again and again
+            
+        uint32_t lightPath = 0;
+            
         for (uint32_t bounce = 0; bounce < NUM_MAX_BOUNCES; ++bounce)
         {
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
@@ -158,13 +168,27 @@ void main()
                     break;
                 }
             }
-
-            // Light is found by walking into it, wven miss shader can contribute light which is why we test for misses after adding radiance
-            radiance += throughput * payload.emission;
+                
+            const bool isMetalHit = payload.metallic > 0.5f;
+            const bool isGlassHit = payload.transmission > 0.5f;
+                
+            // Light is found by walking into it, even miss shader can contribute light which is why we test for misses after adding radiance
+            // path is owned by the caustics map
+            bool ownedByphotonMap = ((lightPath & ELPE_CAUSTIC) == ELPE_CAUSTIC);
+            if (!ownedByphotonMap)
+                radiance += throughput * payload.emission;
+                            
+            //radiance += throughput * gatherPhotons(payload.position, payload.normal, payload.albedo);;
 
             if (payload.missed)
                 break;
-
+                
+            if (!debugPhotons && !isMetalHit && !isGlassHit && !caustGathered && pc.photonCount > 0)
+            {
+                radiance += throughput * gatherPhotons(payload.position, payload.normal, payload.albedo);
+                caustGathered = true;
+            }
+                
             // The whole Lambertian BRDF, after the pi and cosine cancel
             throughput *= payload.albedo; // whats left after absorption of light
 
@@ -182,6 +206,10 @@ void main()
                 if (dot(reflected, payload.normal) <= 0.0f)
                     break;
                 direction = reflected;
+                
+                lightPath |= ELPE_SPECULAR;
+                if(lightPath & ELPE_DIFFUSE)
+                    lightPath |= ELPE_CAUSTIC;
             }
             else if (payload.transmission > 0.5f)
             {
@@ -215,11 +243,17 @@ void main()
                     direction = refracted;
                     origin    = payload.position - payload.normal * RAY_ORIGIN_OFFSET;
                 }
+                    
+                lightPath |= ELPE_SPECULAR;
+                if(lightPath & ELPE_DIFFUSE)
+                    lightPath |= ELPE_CAUSTIC;
             }
             else
             {
                 // diffuse ==> so randomly walk somewhere
                 direction = cosineSampleHemisphere(payload.normal, rng);
+                lightPath |= ELPE_DIFFUSE;
+                lightPath &= ~ELPE_CAUSTIC; // resets the caustics path since we hit diffuse
             }
         }
         pixelRadiance += radiance;

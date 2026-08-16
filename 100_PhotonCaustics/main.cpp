@@ -805,7 +805,7 @@ private:
 				SceneObject{
 					.data = geometryCreator->createIcoSphere(SphereRadius, 4, true),
 					.material = {.albedo = {1.f,1.f,1.f}, .emission = {0,0,0}, .metallic = 0.f, .roughness = 0.f, .ior = 1.5f, .transmission = 1.f },
-					.transform = placeAt(-0.7f, 1.5f, -0.2f),
+					.transform = placeAt(-0.7f, 1.5f * SphereRadius, -0.2f),
 					.boundsRadius = SphereRadius,
 				},
 				SceneObject{
