@@ -43,6 +43,8 @@ class PhotonCausticsApp final : public SimpleWindowedApplication, public Builtin
 	constexpr static inline uint32_t MaxPhotonInScene = 8 * 1024;;
 	constexpr static inline float EmitterHalfExtent = 0.5f;
 	constexpr static inline float SphereRadius = 0.75f;
+	static inline const core::vectorSIMDf InitialCamPos = core::vectorSIMDf(0, 3, 8);
+	static inline const core::vectorSIMDf InitialCamTarget = core::vectorSIMDf(0, 1, 0);
 
 public:
 	inline PhotonCausticsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -375,7 +377,7 @@ public:
 				float(WIN_W) / float(WIN_H),
 				m_cameraSetting.zNear, m_cameraSetting.zFar);
 			// Initial position of the camera
-			m_camera = Camera(core::vectorSIMDf(0, 3, 8), core::vectorSIMDf(0, 1, 0), proj);
+			m_camera = Camera(InitialCamPos, InitialCamTarget, proj);
 			// cache this to reset it
 			m_InitialMVP = m_camera.getConcatenatedMatrix();
 			m_camera.mapKeysToWASD();
@@ -493,6 +495,7 @@ public:
 					pc.lightCount = m_lightCount;
 					pc.photonCount = emittedPhotons;
 					pc.photonScale = 1.0f / float(emittedPhotons);
+					pc.debugFlags = m_disableSpecularConcentration ? DEBUG_PHOTON_MAP_DISABLE_SPECULAR_CONCENTRATION : 0u;
 					pc.accumulatedFrames = 0;
 
 					cmdbuf->bindRayTracingPipeline(m_photonRayTracingPipeline.get());
@@ -1484,8 +1487,13 @@ private:
 
 				ImGui::SliderFloat("Move speed", &m_cameraSetting.moveSpeed, 0.1f, 10.f);
 				ImGui::SliderFloat("Rotate speed", &m_cameraSetting.rotateSpeed, 0.1f, 10.f);
-				bool resetCamera = ImGui::Button("Reset Camera");
-				(void)resetCamera;
+				if (ImGui::Button("Reset Camera"))
+				{
+					m_camera.setPosition(InitialCamPos);
+					m_camera.setTarget(InitialCamTarget);
+					m_cachedMVP = m_InitialMVP;
+					m_accumulatedFrames = 0;
+				}
 				ImGui::Separator();
 
 				bool causticsDirty = false;
@@ -1496,9 +1504,13 @@ private:
 					m_present.tonemapOperator = m_debugPhotonView ? 0u : 2u;
 					m_present.exposure = 1.0f;
 				}
+				if (ImGui::Checkbox("Debug: no specular concentration", &m_disableSpecularConcentration))
+				{
+					m_photonMapBuilt = false;
+					causticsDirty    = true;
+				}
 				if (ImGui::SliderFloat("Gather radius", &m_gatherRadius, 0.005f, 0.25f, "%.4f"))
 					m_accumulatedFrames = 0;
-				// photon count changes the map itself -> force a rebuild
 				if (ImGui::SliderInt("Photons", &m_photonsEmitCount, 1024, MaxPhotonInScene))
 				{
 					m_photonMapBuilt = false;
@@ -1564,6 +1576,7 @@ private:
 	uint32_t m_storedPhotonsCount = 0;
 	bool m_enablePhotonCaustics = true;
 	bool m_debugPhotonView = false;
+	bool m_disableSpecularConcentration = false;
 	float m_gatherRadius = 0.06f;
 
 	struct ImGuiRes

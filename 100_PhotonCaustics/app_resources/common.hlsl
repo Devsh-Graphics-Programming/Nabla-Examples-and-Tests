@@ -20,6 +20,7 @@ NBL_CONSTEXPR float    RAY_ORIGIN_OFFSET     = 1.0e-4f;
 NBL_CONSTEXPR float    RAY_TMIN              = 1.0e-4f;
 NBL_CONSTEXPR float    RAY_TMAX              = 10000.0f;
 NBL_CONSTEXPR uint32_t DEBUG_PHOTONS_BIT     = 0x00000001u;
+NBL_CONSTEXPR uint32_t DEBUG_PHOTON_MAP_DISABLE_SPECULAR_CONCENTRATION = 0x00000002u;
 //-----------------------------------------------------------------------------
 // Compat types
 using namespace nbl::hlsl;

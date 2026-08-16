@@ -25,6 +25,35 @@ using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 //--------------------------------------------------------------------------
+// https://www.shadertoy.com/view/WlfXRN
+float32_t3 viridis(float32_t t)
+{
+    t = saturate(t);
+
+    const float32_t3 c0 = float32_t3(0.277727f, 0.005407f, 0.334099f);
+    const float32_t3 c1 = float32_t3(0.105093f, 1.404613f, 1.384590f);
+    const float32_t3 c2 = float32_t3(-0.330861f, 0.214847f, 0. - 1.197111f);
+    const float32_t3 c3 = float32_t3(-4.634230f, -5.799100f, 3.471838f);
+    const float32_t3 c4 = float32_t3(6.228269f, 14.179933f, -13.745145f);
+    const float32_t3 c5 = float32_t3(4.776384f, -13.745145f, 13.514902f);
+
+    return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))));
+}
+    
+    
+float32_t3 plasma(float t) 
+{
+    const float32_t3 c0 = float32_t3(0.05873234392399702, 0.02333670892565664, 0.5433401826748754);
+    const float32_t3 c1 = float32_t3(2.176514634195958, 0.2383834171260182, 0.7539604599784036);
+    const float32_t3 c2 = float32_t3(-2.689460476458034, -7.455851135738909, 3.110799939717086);
+    const float32_t3 c3 = float32_t3(6.130348345893603, 42.3461881477227, -28.51885465332158);
+    const float32_t3 c4 = float32_t3(-11.10743619062271, -82.66631109428045, 60.13984767418263);
+    const float32_t3 c5 = float32_t3(10.02306557647065, 71.41361770095349, -54.07218655560067);
+    const float32_t3 c6 = float32_t3(-3.658713842777788, -22.93153465461149, 18.19190778539828);
+
+    return c0+t*(c1+t*(c2+t*(c3+t*(c4+t*(c5+t*c6)))));
+}
+    
 float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
 {
     if (pc.photonCount == 0)
@@ -57,12 +86,13 @@ float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
         found++;
     }
 
+    // heatmap: https://www.shadertoy.com/view/WlfXRN
     if (pc.debugFlags & DEBUG_PHOTONS_BIT)
     {
-        const float32_t t = saturate(log2(1.0f + float32_t(found)) / 8.0f);
-        return float32_t3(saturate(t * 3.0f),
-                          saturate(t * 3.0f - 1.0f),
-                          saturate(t * 3.0f - 2.0f));
+        const float32_t photonLog = log2(1.0f + float32_t(found));
+        const float32_t t = saturate(photonLog / log2(1.0f + 64.0f));
+
+        return plasma(t);
     }
 
     // albedo/pi is the Lambertian BRDF, 1/(pi r^2) is the disk area.

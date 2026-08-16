@@ -37,6 +37,65 @@ void storePhotonAtomic(float32_t3 position, float32_t3 arrivedFrom, float32_t3 p
     const static uint64_t PhotonAlign = nbl::hlsl::alignment_of_v<SPhoton>;
     vk::BufferPointer<SPhoton, PhotonAlign>(pc.photonBuffer + PHOTON_ARRAY_OFFSET + slot * sizeof(SPhoton)).Get() = ph;
 }
+
+//--------------------------------------------------------------------------
+// Projection map: aim the emission cone at the specular geometry's bounding
+// sphere instead of spraying the whole hemisphere, so nearly every photon
+// becomes a caustic photon. Jensen calls this a projection map
+//     https://graphics.stanford.edu/~henrik/papers/ewr7/ewr7.html
+bool sampleSpecularConcentratedEmission(SLight light, float32_t3 start, float32_t3 lightN,
+                                        uint32_t lightCount, inout random::PCG32 rng,
+                                        out float32_t3 direction, out float32_t3 power)
+{
+    const SPhotonMapHeader header = loadPhotonMapHeader();
+
+    const bool concentrationDisabled = (pc.debugFlags & DEBUG_PHOTON_MAP_DISABLE_SPECULAR_CONCENTRATION) != 0u;
+    const bool aimAtSpecular = !concentrationDisabled && header.photonMapRadius > 0.0f;
+
+    if (aimAtSpecular)
+    {
+        const float32_t3 toTarget = header.photonMapCenter - start;
+        const float32_t  dist     = length(toTarget);
+        const float32_t3 axis     = toTarget / dist;
+
+        // Half-angle of the cone that just contains the bounding sphere.
+        // Clamped so a light *inside* the bounds degrades to a hemisphere.
+        const float32_t sinMax   = min(header.photonMapRadius / max(dist, 1e-4f), 1.0f);
+        const float32_t cosMax   = sqrt(max(0.0f, 1.0f - sinMax * sinMax));
+
+        // uniform direction inside that cone
+        const float32_t cosT = 1.0f - rnd(rng) * (1.0f - cosMax);
+        const float32_t sinT = sqrt(max(0.0f, 1.0f - cosT * cosT));
+        const float32_t phi  = 2.0f * numbers::pi<float32_t> * rnd(rng);
+
+        float32_t3 t, b;
+        math::frisvad<float32_t3>(axis, t, b);
+        direction = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + axis * cosT);
+
+        const float32_t cosN = dot(direction, lightN);
+        if (cosN <= 0.0f)
+        {
+            power = (float32_t3)0.0f;
+            return false;           // points into the emitter's back face: carries no energy
+        }
+
+        // pdf is uniform-in-cone, 1/(2*pi*(1-cosMax)), NOT cos/pi, so the flux
+        // has to be recomputed rather than reusing the hemisphere form below.
+        const float32_t solidAngle = 2.0f * numbers::pi<float32_t> * (1.0f - cosMax);
+        power = light.emission * light.area * cosN * solidAngle
+              * float32_t(lightCount) * pc.photonScale;
+    }
+    else
+    {
+        // no specular geometry: fall back to plain cosine-weighted emission
+        direction = cosineSampleHemisphere(lightN, rng);
+        power = light.emission
+              * (numbers::pi<float32_t> * light.area * float32_t(lightCount))
+              * pc.photonScale;
+    }
+    return true;
+}
+
 //--------------------------------------------------------------------------
 [shader("raygeneration")]
 void main()
@@ -66,11 +125,11 @@ void main()
     const float32_t3 lightN = normalize(cross(light.v1 - light.v0, light.v2 - light.v0));
 
     // set initial direction and light flux
-    float32_t3 origin    = start + lightN * RAY_ORIGIN_OFFSET;
-    float32_t3 direction = cosineSampleHemisphere(lightN, rng);
-    float32_t3 power     = light.emission
-                            * (numbers::pi<float32_t> * light.area * float32_t(lightCount))
-                            * pc.photonScale;
+    float32_t3 origin = start + lightN * RAY_ORIGIN_OFFSET;
+    float32_t3 direction;
+    float32_t3 power;
+    if (!sampleSpecularConcentratedEmission(light, start, lightN, lightCount, rng, direction, power))
+        return;
 
     uint32_t specularBounces = 0; // this is a caustic only map!
 
