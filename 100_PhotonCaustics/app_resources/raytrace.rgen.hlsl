@@ -77,27 +77,36 @@ float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
     BdaAccessor<uint32_t> cellCounts  = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellCountsAddr));
     BdaAccessor<uint32_t> cellPhotons = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellPhotonsAddr));
 
-    // cells are much wider than the gather radius, so just take the one we're in
-    const uint32_t cell = photonGridFlatten(photonGridCoord(x, header.gridMin, header.gridInvCellSize));
-    const uint32_t inCell = min(cellCounts.get(uint64_t(cell)), pc.photonCount);
-    const uint64_t cellBase = uint64_t(cell) * uint64_t(pc.photonCount);
+    // every cell the gather sphere overlaps, a photon lives in exactly one cell
+    // so visiting distinct cells cannot double count
+    const int32_t3 lo = photonGridCoord(x - pc.gatherRadius, header.gridMin, header.gridInvCellSize);
+    const int32_t3 hi = photonGridCoord(x + pc.gatherRadius, header.gridMin, header.gridInvCellSize);
 
-    for (uint32_t j = 0; j < inCell; ++j)
+    for (int32_t cz = lo.z; cz <= hi.z; ++cz)
+    for (int32_t cy = lo.y; cy <= hi.y; ++cy)
+    for (int32_t cx = lo.x; cx <= hi.x; ++cx)
     {
-        const uint32_t i = cellPhotons.get(cellBase + uint64_t(j));
+        const uint32_t cell = photonGridFlatten(int32_t3(cx, cy, cz));
+        const uint32_t inCell = min(cellCounts.get(uint64_t(cell)), pc.photonCount);
+        const uint64_t cellBase = uint64_t(cell) * uint64_t(pc.photonCount);
 
-        const SPhoton ph = vk::BufferPointer<SPhoton, PhotonAlign>(
-            pc.photonBuffer + PHOTON_ARRAY_OFFSET + i * sizeof(SPhoton)).Get();
+        for (uint32_t j = 0; j < inCell; ++j)
+        {
+            const uint32_t i = cellPhotons.get(cellBase + uint64_t(j));
 
-        const float32_t3 d = ph.position - x;
-        if (dot(d, d) > r2)
-            continue;
+            const SPhoton ph = vk::BufferPointer<SPhoton, PhotonAlign>(
+                pc.photonBuffer + PHOTON_ARRAY_OFFSET + i * sizeof(SPhoton)).Get();
 
-        if (dot(ph.direction, n) <= 0.0f)
-            continue;
+            const float32_t3 d = ph.position - x;
+            if (dot(d, d) > r2)
+                continue;
 
-        flux += ph.power;
-        found++;
+            if (dot(ph.direction, n) <= 0.0f)
+                continue;
+
+            flux += ph.power;
+            found++;
+        }
     }
 
     // heatmap: https://www.shadertoy.com/view/WlfXRN
