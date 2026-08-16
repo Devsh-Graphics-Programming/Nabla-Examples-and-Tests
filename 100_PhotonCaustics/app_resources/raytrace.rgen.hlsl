@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2026 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-//--------------------------------------------------------------------------///
+//--------------------------------------------------------------------------
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
@@ -24,44 +24,6 @@ using namespace nbl::hlsl;
 [[vk::binding(2, 0)]] RWTexture2D<float32_t4> accumulationImage;
 
 [[vk::push_constant]] SPushConstants pc;
-//--------------------------------------------------------------------------
-// Material eval
-// normalize [0, 1] because we need this to add a random jitter UV offset in that range
-// TODO: do we have UINT32_MAX in HLSL?
-float32_t rnd(inout random::PCG32 rng)
-{
-    return float32_t(rng()) * (1.0f / 4294967296.0f);
-}
-
-// get normal aligned ranom direction for diffuse reflections
-float32_t3 cosineSampleHemisphere(float32_t3 n, inout random::PCG32 rng)
-{
-    // sample in a canonical frame where the normal is +Z, then rotate to world
-    const float32_t3 local = sampling::ProjectedHemisphere<float32_t>::__generate(float32_t2(rnd(rng), rnd(rng)));
-
-    // adjust to world normal
-    float32_t3 tangent, bitangent;
-    math::frisvad<float32_t3>(n, tangent, bitangent);
-    return normalize(tangent * local.x + bitangent * local.y + n * local.z);
-}
-
-// Fresnel Schlick approximation for Dielectrics:
-// F = F0 + (1 - F0) * (1 - cosTheta)^5
-//
-// F0 = ((etaIncident - etaTransmitted) /
-//       (etaIncident + etaTransmitted))^2
-float32_t fresnelDielectric(float32_t cosTheta, float32_t etaI, float32_t etaT)
-{
-    const float32_t etaRatio = etaI / etaT;
-    const float32_t f0Ratio = (1.0f - etaRatio) / (1.0f + etaRatio);
-    const float32_t f0 = f0Ratio * f0Ratio;
-
-    const float32_t m = 1.0f - clamp(cosTheta, 0.0f, 1.0f);
-    const float32_t m2 = m * m;
-
-    return f0 + (1.0f - f0) * (m2 * m2 * m);
-}
-
 //--------------------------------------------------------------------------
 [shader("raygeneration")]
 void main()

@@ -11,6 +11,9 @@
 #include <nbl/builtin/hlsl/math/quaternions.hlsl> // math
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl> // for perspective matrix utils
 
+// Build command:
+// cmake -S C:/work/Nabla -B C:/work/Nabla/build -D_NBL_JOBS_AMOUNT_=2 -DNBL_MEMORY_CONSUMPTION_CHECK_SKIP=ON -DNBL_UPDATE_GIT_SUBMODULE=OFF -DNBL_BUILD_EXAMPLES=ON -DNBL_BUILD_IMGUI=ON
+
 // just bored
 namespace nbl
 {
@@ -37,6 +40,7 @@ class PhotonCausticsApp final : public SimpleWindowedApplication, public Builtin
 	constexpr static inline uint32_t WIN_H = 720;
 	constexpr static inline uint32_t MaxFramesInFlight = 3;
 	constexpr static inline uint8_t  MaxUITextureCount = 1;
+	constexpr static inline uint32_t MaxPhotonInScene = 8 * 1024;;
 
 public:
 	inline PhotonCausticsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -144,6 +148,7 @@ public:
 		const auto raygenShader = loadPreCompiledShader.operator() < "raytrace_rgen" > ();
 		const auto closestHitShader = loadPreCompiledShader.operator() < "raytrace_rchit" > ();
 		const auto missShader = loadPreCompiledShader.operator() < "raytrace_rmiss" > ();
+		const auto photonShader = loadPreCompiledShader.operator() < "photon_rgen" > ();
 		if (!fragmentShader)
 		{
 			logFail("Could not load present fragment shader");
@@ -162,6 +167,11 @@ public:
 		if (!missShader)
 		{
 			logFail("Could not load miss shader");
+			return false;
+		};
+		if (!photonShader)
+		{
+			logFail("Could not load photon shader");
 			return false;
 		};
 
@@ -267,6 +277,29 @@ public:
 			return logFail("Could not create accumulation image");
 
 		//-------------------------------------
+		// Photon mapping resources
+		//-------------------------------------
+		auto createRWBuffer = [&](size_t size, smart_refctd_ptr<IGPUBuffer>& out) -> bool
+			{
+				IGPUBuffer::SCreationParams p;
+				p.size = size;
+				p.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)
+					| IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT
+					| IGPUBuffer::EUF_TRANSFER_DST_BIT
+					| IGPUBuffer::EUF_TRANSFER_SRC_BIT; // readback total amount of written counters, better to use a GPU buffer instead of PushCosntants for this but idk, for now fineish, keep it GPU driven
+				out = m_device->createBuffer(std::move(p));
+				if (!out) return false;
+				auto reqs = out->getMemoryReqs();
+				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				return m_device->allocate(reqs, { out.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT }).isValid();
+			};
+
+		if (!createRWBuffer(sizeof(SPhoton) * MaxPhotonInScene, m_photonBuffer))
+			return logFail("Could not create Photon buffer");
+		if (!createRWBuffer(sizeof(uint32_t) * 4, m_photonCounterBuffer))
+			return logFail("Could not create photons count");
+
+		//-------------------------------------
 		// Create Scene geometry
 		//-------------------------------------
 		if (!createScene())
@@ -275,8 +308,11 @@ public:
 		//-------------------------------------
 		// Create RT stuff
 		//-------------------------------------
-		if (!createRayTracingPipeline(raygenShader, closestHitShader, missShader))
+		if (!createRayTracingPipeline(raygenShader, closestHitShader, missShader, nbl_move(m_rayTracingPipeline), m_shaderBindingTable, m_rayTracingStackSize))
 			return logFail("Could not create ray tracing pipeline");
+
+		if (!createRayTracingPipeline(photonShader, closestHitShader, missShader, nbl_move(m_photonRayTracingPipeline), m_photonSBT, m_photonRTStackSize))
+			return logFail("Could not create Photon ray tracing pipeline");
 
 		//-------------------------------------
 		// ImGui
@@ -400,6 +436,17 @@ public:
 		return b;
 	}
 
+	static inline void bufferBarrier(IGPUCommandBuffer* cmdbuf, IGPUBuffer* buffer,
+		PIPELINE_STAGE_FLAGS srcStage, ACCESS_FLAGS srcAccess,
+		PIPELINE_STAGE_FLAGS dstStage, ACCESS_FLAGS dstAccess)
+	{
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t b = {};
+		b.barrier.dep = { .srcStageMask = srcStage, .srcAccessMask = srcAccess,
+						  .dstStageMask = dstStage, .dstAccessMask = dstAccess };
+		b.range = { .offset = 0, .size = buffer->getSize(), .buffer = smart_refctd_ptr<IGPUBuffer>(buffer) };
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {&b, 1} });
+	}
+
 	inline void workLoopBody() override
 	{
 		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
@@ -434,6 +481,23 @@ public:
 		const hlsl::float32_t4x4 invMVP = hlsl::inverse(viewProjectionMatrix);
 		const bool restarting = (m_accumulatedFrames == 0);
 
+
+		// Build photon once map per static light
+		{
+			if (m_enablePhotonCaustics && !m_photonMapBuilt)
+			{
+				// zero out counter buffer
+				{
+					cmdbuf->fillBuffer({ .offset = 0, .size = sizeof(uint32_t) * 4, .buffer = m_photonCounterBuffer }, 0u);
+					bufferBarrier(cmdbuf, m_photonCounterBuffer.get(),
+						PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS, ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS);
+				}
+
+				// trace rays from lights
+
+			}
+		}
 
 		// PathTracing the entire scene
 		{
@@ -958,7 +1022,7 @@ private:
 		return bool(m_geomInfoBuffer);
 	}
 
-	bool createRayTracingPipeline(smart_refctd_ptr<IShader> rgen, smart_refctd_ptr<IShader> rchit, smart_refctd_ptr<IShader> rmiss)
+	bool createRayTracingPipeline(smart_refctd_ptr<IShader> rgen, smart_refctd_ptr<IShader> rchit, smart_refctd_ptr<IShader> rmiss, smart_refctd_ptr<IGPURayTracingPipeline>&& rayTracingPipeline, IGPURayTracingPipeline::SShaderBindingTable& sbt, uint64_t& rtStackSize)
 	{
 		//-------------------------------------
 		// Descriptor Layout
@@ -1038,14 +1102,14 @@ private:
 		if (reservation.convert(params).copy() != IQueue::RESULT::SUCCESS)
 			return logFail("Failed to convert ray tracing pipeline");
 
-		m_rayTracingPipeline = reservation.getGPUObjects<ICPURayTracingPipeline>()[0].value;
-		if (!m_rayTracingPipeline)
+		rayTracingPipeline = reservation.getGPUObjects<ICPURayTracingPipeline>()[0].value;
+		if (!rayTracingPipeline)
 			return false;
 
 		//-------------------------------------
 		// Create Descriptor Set
 		//-------------------------------------
-		const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
+		const auto* gpuDsLayout = rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
 		const std::array<const IGPUDescriptorSetLayout*, 1> dsLayoutPtrs = { gpuDsLayout };
 		m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs));
 		m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
@@ -1069,11 +1133,11 @@ private:
 		};
 		m_device->updateDescriptorSets(std::span(writes), {});
 
-		calculateRayTracingStackSize();
-		return createShaderBindingTable();
+		rtStackSize = calculateRayTracingStackSize(std::forward<smart_refctd_ptr<IGPURayTracingPipeline>>(rayTracingPipeline));
+		return createShaderBindingTable(std::forward<smart_refctd_ptr<IGPURayTracingPipeline>>(rayTracingPipeline), sbt);
 	}
 
-	void calculateRayTracingStackSize()
+	uint32_t calculateRayTracingStackSize(smart_refctd_ptr<IGPURayTracingPipeline>&& rayTracingPipeline)
 	{
 		const auto raygenStackSize = m_rayTracingPipeline->getRaygenStackSize();
 		auto getMaxSize = [&](auto ranges, auto valProj) -> uint16_t
@@ -1086,10 +1150,10 @@ private:
 
 		const auto closestHitMax = getMaxSize(m_rayTracingPipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::closestHit);
 		const auto missMax = getMaxSize(m_rayTracingPipeline->getMissStackSizes(), std::identity{});
-		m_rayTracingStackSize = raygenStackSize + std::max(closestHitMax, missMax);
+		return raygenStackSize + std::max(closestHitMax, missMax);
 	}
 
-	bool createShaderBindingTable()
+	bool createShaderBindingTable(smart_refctd_ptr<IGPURayTracingPipeline>&& rayTracingPipeline, IGPURayTracingPipeline::SShaderBindingTable& shaderBindingTable)
 	{
 		const auto& limits = m_device->getPhysicalDevice()->getLimits();
 		const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
@@ -1101,18 +1165,18 @@ private:
 		//-------------------------------------
 		// Calculate Ranges
 		//-------------------------------------
-		auto& raygenRange = m_shaderBindingTable.raygen;
-		auto& missRange = m_shaderBindingTable.miss.range;
-		auto& hitRange = m_shaderBindingTable.hit.range;
+		auto& raygenRange = shaderBindingTable.raygen;
+		auto& missRange = shaderBindingTable.miss.range;
+		auto& hitRange = shaderBindingTable.hit.range;
 
 		{
 			raygenRange = { .offset = 0, .size = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment) };
 
 			missRange = { .offset = raygenRange.size, .size = core::alignUp(missHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment) };
-			m_shaderBindingTable.miss.stride = handleSizeAligned;
+			shaderBindingTable.miss.stride = handleSizeAligned;
 
 			hitRange = { .offset = missRange.offset + missRange.size, .size = core::alignUp(hitHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment) };
-			m_shaderBindingTable.hit.stride = handleSizeAligned;
+			shaderBindingTable.hit.stride = handleSizeAligned;
 		}
 
 		const auto bufferSize = raygenRange.size + missRange.size + hitRange.size;
@@ -1132,14 +1196,14 @@ private:
 			for (const auto& h : missHandles)
 			{
 				memcpy(p, &h, handleSize);
-				p += m_shaderBindingTable.miss.stride;
+				p += shaderBindingTable.miss.stride;
 			}
 
 			p = pData + hitRange.offset;
 			for (const auto& h : hitHandles)
 			{
 				memcpy(p, &h, handleSize);
-				p += m_shaderBindingTable.hit.stride;
+				p += shaderBindingTable.hit.stride;
 			}
 		}
 
@@ -1223,6 +1287,29 @@ private:
 				(void)resetCamera;
 				ImGui::Separator();
 
+				ImGui::Text("Photons: %u stored / %u emitted", m_storedPhotonsCount, uint32_t(m_photonsEmitCount) * 1024u);
+				bool causticsDirty = false;
+				causticsDirty |= ImGui::Checkbox("Caustics", &m_photon.enabled);
+				if (ImGui::Checkbox("Debug: photon density", &m_photon.debugView))
+				{
+					causticsDirty = true;
+					m_present.tonemapOperator = m_photon.debugView ? 0u : 2u;
+					m_present.exposure = 1.0f;
+				}
+				if (ImGui::SliderFloat("Gather radius", &m_photon.radius, 0.005f, 0.25f, "%.4f"))
+					m_accumulatedFrames = 0;
+				// photon count changes the map itself -> force a rebuild
+				if (ImGui::SliderInt("Photons (K)", &m_photonsEmitCount, 1, MaxPhotonInScene))
+				{
+					m_photonMapBuilt     = false;
+					m_storedPhotonsCount = 0;
+					causticsDirty        = true;
+				}
+
+				if (causticsDirty)
+					m_accumulatedFrames = 0;
+
+				ImGui::Separator();
 				ImGui::SliderFloat("Exposure", &m_present.exposure, 0.01f, 8.f);
 				ImGui::Combo("Tonemap", (int*)&m_present.tonemapOperator, "None\0Reinhard\0ACES\0");
 
@@ -1261,6 +1348,17 @@ private:
 	smart_refctd_ptr<IGPURayTracingPipeline> m_rayTracingPipeline;
 	uint64_t m_rayTracingStackSize = 0;
 	IGPURayTracingPipeline::SShaderBindingTable m_shaderBindingTable;
+
+	smart_refctd_ptr<IGPUBuffer> m_photonBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_photonCounterBuffer;
+	smart_refctd_ptr<IGPURayTracingPipeline> m_photonRayTracingPipeline;
+	IGPURayTracingPipeline::SShaderBindingTable m_photonSBT;
+	uint64_t m_photonRTStackSize = 0;
+
+	int32_t m_photonsEmitCount{ MaxPhotonInScene };
+	bool m_photonMapBuilt = false;
+	uint32_t m_storedPhotonsCount = 0;
+	bool m_enablePhotonCaustics = true;
 
 	struct ImGuiRes
 	{

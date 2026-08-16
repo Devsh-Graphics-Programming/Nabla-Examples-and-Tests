@@ -6,6 +6,12 @@
 //-----------------------------------------------------------------------------
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat/basic.h"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#ifdef __HLSL_VERSION
+#include "nbl/builtin/hlsl/random/pcg.hlsl"
+#include "nbl/builtin/hlsl/math/functions.hlsl"
+#include "nbl/builtin/hlsl/sampling/cos_weighted_spheres.hlsl"
+#endif
 //-----------------------------------------------------------------------------
 // Defines/Constants
 NBL_CONSTEXPR uint32_t NUM_MAX_BOUNCES       = 8;
@@ -13,8 +19,10 @@ NBL_CONSTEXPR uint32_t NUM_SAMPLES_PER_PIXEL = 16;
 NBL_CONSTEXPR float    RAY_ORIGIN_OFFSET     = 1.0e-4f;
 NBL_CONSTEXPR float    RAY_TMIN              = 1.0e-4f;
 NBL_CONSTEXPR float    RAY_TMAX              = 10000.0f;
+NBL_CONSTEXPR uint32_t DEBUG_PHOTONS_BIT     = 0x00000001u;
 //-----------------------------------------------------------------------------
 // Compat types
+using namespace nbl::hlsl;
 
 struct SPresentPushConstants
 {
@@ -29,6 +37,16 @@ struct SPushConstants
     uint32_t accumulatedFrames;
 
     uint64_t geomInfoBuffer;
+    uint64_t lightBuffer;
+    uint64_t photonBuffer;
+    uint64_t photonCounterBuffer;
+    
+    uint32_t lightCount;
+    uint32_t photonCount;
+    float32_t gatherRadius;
+    float32_t photonScale;
+    
+    uint32_t debugFlags;
 };
 
 // Sooo... we use custom geometry and scene data for the RayTracing pipeline which means we need our own DS for scene/vertex/mats
@@ -61,11 +79,70 @@ struct SVertex
     float32_t3 normal;
 };
 
-enum NormalType : uint32_t
+// An emissive triangle. The eye pass finds lights by bumping into them, but
+// photons have to START somewhere, so the light geometry needs an explicit
+// list. Area is precomputed so the shader never redoes a cross product.
+struct SLight
 {
-    NT_R8G8B8A8_SNORM,
-    NT_R32G32B32_SFLOAT,
+    float32_t3 v0, v1, v2;
+    float32_t3 emission;
+    float32_t area;
 };
+#ifdef __HLSL_VERSION
+NBL_REGISTER_OBJ_TYPE(SLight, 4)
+#endif
+
+struct SPhoton
+{
+    float32_t3 position;
+    float32_t3 direction;
+    float32_t3 power;
+};
+#ifdef __HLSL_VERSION
+NBL_REGISTER_OBJ_TYPE(SPhoton, 4)
+#endif
+
+//--------------------------------------------------------------------------
+// Common Functions
+#ifdef __HLSL_VERSION
+// Material eval
+// normalize [0, 1] because we need this to add a random jitter UV offset in that range
+// TODO: do we have UINT32_MAX in HLSL?
+float32_t rnd(inout random::PCG32 rng)
+{
+    return float32_t(rng()) * (1.0f / 4294967296.0f);
+}
+
+// get normal aligned ranom direction for diffuse reflections
+float32_t3 cosineSampleHemisphere(float32_t3 n, inout random::PCG32 rng)
+{
+    // sample in a canonical frame where the normal is +Z, then rotate to world
+    const float32_t3 local = sampling::ProjectedHemisphere < float32_t > ::
+    __generate(float32_t2(rnd(rng), rnd(rng)));
+
+    // adjust to world normal
+    float32_t3 tangent, bitangent;
+    math::frisvad < float32_t3 > (n, tangent, bitangent);
+    return normalize(tangent * local.x + bitangent * local.y + n * local.z);
+}
+
+// Fresnel Schlick approximation for Dielectrics:
+// F = F0 + (1 - F0) * (1 - cosTheta)^5
+//
+// F0 = ((etaIncident - etaTransmitted) /
+//       (etaIncident + etaTransmitted))^2
+float32_t fresnelDielectric(float32_t cosTheta, float32_t etaI, float32_t etaT)
+{
+    const float32_t etaRatio = etaI / etaT;
+    const float32_t f0Ratio = (1.0f - etaRatio) / (1.0f + etaRatio);
+    const float32_t f0 = f0Ratio * f0Ratio;
+
+    const float32_t m = 1.0f - clamp(cosTheta, 0.0f, 1.0f);
+    const float32_t m2 = m * m;
+
+    return f0 + (1.0f - f0) * (m2 * m2 * m);
+}
+#endif
 //-----------------------------------------------------------------------------
 
 #ifdef __HLSL_VERSION

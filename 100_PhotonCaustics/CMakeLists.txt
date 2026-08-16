@@ -46,6 +46,10 @@ set(JSON [=[
     {
         "INPUT": "app_resources/raytrace.rmiss.hlsl",
         "KEY": "raytrace_rmiss",
+    },
+    {
+        "INPUT": "app_resources/photon.rgen.hlsl",
+        "KEY": "photon_rgen",
     }
 ]
 ]=])
