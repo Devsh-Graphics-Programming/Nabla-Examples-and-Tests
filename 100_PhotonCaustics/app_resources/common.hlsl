@@ -102,18 +102,40 @@ struct SPhoton
 NBL_REGISTER_OBJ_TYPE(SPhoton, 4)
 #endif
 
+// uniform grid over the scene, photons are binned into it at emission time
+NBL_CONSTEXPR uint32_t GRID_DIM   = 16;
+NBL_CONSTEXPR uint32_t GRID_CELLS = GRID_DIM * GRID_DIM * GRID_DIM;
+
+// uint64 first so they stay 8 byte aligned under scalar layout
 struct SPhotonMapHeader
 {
+    uint64_t cellCountsAddr;
+    uint64_t cellPhotonsAddr;
     float32_t3 photonMapCenter;
     float32_t photonMapRadius;
+    float32_t3 gridMin;
+    float32_t pad0;
+    float32_t3 gridInvCellSize;
     uint32_t photonCounter;
 };
 #ifdef __HLSL_VERSION
-NBL_REGISTER_OBJ_TYPE(SPhotonMapHeader, 4)
+NBL_REGISTER_OBJ_TYPE(SPhotonMapHeader, 8)
 #endif
 
-NBL_CONSTEXPR uint64_t PHOTON_COUNTER_OFFSET = 16;
-NBL_CONSTEXPR uint64_t PHOTON_ARRAY_OFFSET = 32;
+NBL_CONSTEXPR uint64_t PHOTON_COUNTER_OFFSET = 60;
+NBL_CONSTEXPR uint64_t PHOTON_ARRAY_OFFSET = 64;
+
+#ifdef __HLSL_VERSION
+int32_t3 photonGridCoord(float32_t3 p, float32_t3 gridMin, float32_t3 gridInvCellSize)
+{
+    return clamp(int32_t3((p - gridMin) * gridInvCellSize), (int32_t3)0, (int32_t3)(GRID_DIM - 1));
+}
+
+uint32_t photonGridFlatten(int32_t3 c)
+{
+    return uint32_t((c.z * GRID_DIM + c.y) * GRID_DIM + c.x);
+}
+#endif
 
 //--------------------------------------------------------------------------
 // Common Functions

@@ -9,6 +9,8 @@
 #include "nbl/builtin/hlsl/random/pcg.hlsl" // for random seed
 #include "nbl/builtin/hlsl/math/functions.hlsl" // why not some math
 #include "nbl/builtin/hlsl/sampling/cos_weighted_spheres.hlsl" // diffuse ray random direction thingy
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 //--------------------------------------------------------------------------
 // Lets get some naming straight for debug views etc.
 // L = light
@@ -69,9 +71,21 @@ float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
     // how many actually landed, not the buffer capacity
     const SPhotonMapHeader header = vk::BufferPointer<SPhotonMapHeader, HeaderAlign>(pc.photonBuffer).Get();
     const uint32_t storedPhotons = min(header.photonCounter, pc.photonCount);
+    if (storedPhotons == 0)
+        return (float32_t3)0.0f;
 
-    for (uint32_t i = 0; i < storedPhotons; ++i)
+    BdaAccessor<uint32_t> cellCounts  = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellCountsAddr));
+    BdaAccessor<uint32_t> cellPhotons = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellPhotonsAddr));
+
+    // cells are much wider than the gather radius, so just take the one we're in
+    const uint32_t cell = photonGridFlatten(photonGridCoord(x, header.gridMin, header.gridInvCellSize));
+    const uint32_t inCell = min(cellCounts.get(uint64_t(cell)), pc.photonCount);
+    const uint64_t cellBase = uint64_t(cell) * uint64_t(pc.photonCount);
+
+    for (uint32_t j = 0; j < inCell; ++j)
     {
+        const uint32_t i = cellPhotons.get(cellBase + uint64_t(j));
+
         const SPhoton ph = vk::BufferPointer<SPhoton, PhotonAlign>(
             pc.photonBuffer + PHOTON_ARRAY_OFFSET + i * sizeof(SPhoton)).Get();
 

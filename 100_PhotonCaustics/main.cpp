@@ -36,13 +36,14 @@ class PhotonCausticsApp final : public SimpleWindowedApplication, public Builtin
 	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = BuiltinResourcesApplication;
 
-	constexpr static inline uint32_t WIN_W = 1280;
-	constexpr static inline uint32_t WIN_H = 720;
+	constexpr static inline uint32_t WIN_W = 1920;
+	constexpr static inline uint32_t WIN_H = 1080;
 	constexpr static inline uint32_t MaxFramesInFlight = 3;
 	constexpr static inline uint8_t  MaxUITextureCount = 1;
 	constexpr static inline uint32_t MaxPhotonInScene = 8 * 1024;;
 	constexpr static inline float EmitterHalfExtent = 0.5f;
 	constexpr static inline float SphereRadius = 0.75f;
+	constexpr static inline float SceneHalfExtent = 2.f;
 	static inline const core::vectorSIMDf InitialCamPos = core::vectorSIMDf(0, 3, 8);
 	static inline const core::vectorSIMDf InitialCamTarget = core::vectorSIMDf(0, 1, 0);
 
@@ -477,10 +478,18 @@ public:
 				// photon map bounds and the slot counter live in the head of the photon buffer
 				{
 					SPhotonMapHeader header = {};
+					header.cellCountsAddr = m_cellCountsBuffer->getDeviceAddress();
+					header.cellPhotonsAddr = m_cellPhotonsBuffer->getDeviceAddress();
 					header.photonMapCenter = m_photonMapCenter;
 					header.photonMapRadius = m_photonMapRadius;
+					header.gridMin = m_gridMin;
+					header.gridInvCellSize = m_gridInvCellSize;
 					header.photonCounter = 0u;
 					cmdbuf->updateBuffer({ .offset = 0, .size = sizeof(SPhotonMapHeader), .buffer = m_photonBuffer }, &header);
+					cmdbuf->fillBuffer({ .offset = 0, .size = sizeof(uint32_t) * GRID_CELLS, .buffer = m_cellCountsBuffer }, 0u);
+					bufferBarrier(cmdbuf, m_cellCountsBuffer.get(),
+						PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS, ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS);
 					bufferBarrier(cmdbuf, m_photonBuffer.get(),
 						PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS, ACCESS_FLAGS::TRANSFER_WRITE_BIT,
 						PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS);
@@ -506,6 +515,12 @@ public:
 				}
 
 				bufferBarrier(cmdbuf, m_photonBuffer.get(),
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS,
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS);
+				bufferBarrier(cmdbuf, m_cellCountsBuffer.get(),
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS,
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS);
+				bufferBarrier(cmdbuf, m_cellPhotonsBuffer.get(),
 					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS,
 					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS);
 
@@ -764,7 +779,7 @@ private:
 				return placeQuad(hlsl::float32_t3(1.f, 0.f, 0.f), 0.f, hlsl::float32_t3(x, y, z));
 			};
 
-		constexpr float R = 2.f;
+		constexpr float R = SceneHalfExtent;
 		const hlsl::float32_t3 X_AXIS(1.f, 0.f, 0.f);
 		const hlsl::float32_t3 Y_AXIS(0.f, 1.f, 0.f);
 
@@ -844,6 +859,10 @@ private:
 
 		if (!createRWBuffer(PHOTON_ARRAY_OFFSET + sizeof(SPhoton) * MaxPhotonInScene, m_photonBuffer))
 			return logFail("Could not create Photon buffer");
+		if (!createRWBuffer(sizeof(uint32_t) * GRID_CELLS, m_cellCountsBuffer))
+			return logFail("Could not create photon grid cell counts buffer");
+		if (!createRWBuffer(sizeof(uint32_t) * size_t(GRID_CELLS) * size_t(MaxPhotonInScene), m_cellPhotonsBuffer))
+			return logFail("Could not create photon grid cell buffer");
 
 		//-------------------------------------
 		// Emissive triangles
@@ -933,6 +952,24 @@ private:
 			}
 			else
 				m_logger->log("No specular geometry, photons will use hemisphere emission.", ILogger::ELL_WARNING);
+		}
+
+		//-------------------------------------
+		// Uniform grid over the scene
+		//-------------------------------------
+		{
+			const hlsl::float32_t3 gridMin(-SceneHalfExtent, 0.f, -SceneHalfExtent);
+			const hlsl::float32_t3 gridMax( SceneHalfExtent, 2.f * SceneHalfExtent, SceneHalfExtent);
+
+			m_gridMin = gridMin;
+			const hlsl::float32_t3 extent = gridMax - gridMin;
+			m_gridInvCellSize = hlsl::float32_t3(
+				float(GRID_DIM) / extent.x, float(GRID_DIM) / extent.y, float(GRID_DIM) / extent.z);
+
+			m_logger->log("Photon grid: %ux%ux%u cells over (%.2f, %.2f, %.2f)..(%.2f, %.2f, %.2f), cell size (%.3f, %.3f, %.3f)",
+				ILogger::ELL_INFO, GRID_DIM, GRID_DIM, GRID_DIM,
+				gridMin.x, gridMin.y, gridMin.z, gridMax.x, gridMax.y, gridMax.z,
+				1.f / m_gridInvCellSize.x, 1.f / m_gridInvCellSize.y, 1.f / m_gridInvCellSize.z);
 		}
 
 		return true;
@@ -1482,6 +1519,7 @@ private:
 				ImGui::SetNextWindowSize(ImVec2(320, 260), ImGuiCond_Appearing);
 				ImGui::Begin("Photon Caustics");
 
+				ImGui::Text("%.1f FPS (%.2f ms)", ImGui::GetIO().Framerate, 1000.f / ImGui::GetIO().Framerate);
 				ImGui::Text("Accumulated frames: %u", m_accumulatedFrames);
 				ImGui::Separator();
 
@@ -1561,6 +1599,10 @@ private:
 	IGPURayTracingPipeline::SShaderBindingTable m_shaderBindingTable;
 
 	smart_refctd_ptr<IGPUBuffer> m_photonBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_cellCountsBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_cellPhotonsBuffer;
+	hlsl::float32_t3 m_gridMin = {};
+	hlsl::float32_t3 m_gridInvCellSize = {};
 	smart_refctd_ptr<IGPURayTracingPipeline> m_photonRayTracingPipeline;
 	IGPURayTracingPipeline::SShaderBindingTable m_photonSBT;
 	uint64_t m_photonRTStackSize = 0;

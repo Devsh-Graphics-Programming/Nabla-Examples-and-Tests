@@ -36,6 +36,16 @@ void storePhotonAtomic(float32_t3 position, float32_t3 arrivedFrom, float32_t3 p
 
     const static uint64_t PhotonAlign = nbl::hlsl::alignment_of_v<SPhoton>;
     vk::BufferPointer<SPhoton, PhotonAlign>(pc.photonBuffer + PHOTON_ARRAY_OFFSET + slot * sizeof(SPhoton)).Get() = ph;
+
+    // bin it into the uniform grid so the gather doesn't have to scan everything
+    const SPhotonMapHeader header = loadPhotonMapHeader();
+    const uint32_t cell = photonGridFlatten(photonGridCoord(position, header.gridMin, header.gridInvCellSize));
+
+    BdaAccessor<uint32_t> cellCounts = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellCountsAddr));
+    const uint32_t inCell = cellCounts.atomicAdd(uint64_t(cell), 1u);
+
+    BdaAccessor<uint32_t> cellPhotons = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellPhotonsAddr));
+    cellPhotons.set(uint64_t(cell) * uint64_t(pc.photonCount) + uint64_t(inCell), slot);
 }
 
 //--------------------------------------------------------------------------
