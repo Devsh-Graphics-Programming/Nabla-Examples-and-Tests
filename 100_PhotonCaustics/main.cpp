@@ -1612,14 +1612,14 @@ private:
 	hlsl::float32_t3 m_photonMapCenter = {};
 	float m_photonMapRadius = 0.f;
 
-	int32_t m_photonsEmitCount{ MaxPhotonInScene };
+	int32_t m_photonsEmitCount{ 2048 };
 	bool m_photonMapBuilt = false;
 	bool m_needPhotonCountReadback = false;
 	uint32_t m_storedPhotonsCount = 0;
 	bool m_enablePhotonCaustics = true;
 	bool m_debugPhotonView = false;
 	bool m_disableSpecularConcentration = false;
-	float m_gatherRadius = 0.06f;
+	float m_gatherRadius = 0.25f;
 
 	struct ImGuiRes
 	{
