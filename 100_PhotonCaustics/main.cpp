@@ -41,6 +41,8 @@ class PhotonCausticsApp final : public SimpleWindowedApplication, public Builtin
 	constexpr static inline uint32_t MaxFramesInFlight = 3;
 	constexpr static inline uint8_t  MaxUITextureCount = 1;
 	constexpr static inline uint32_t MaxPhotonInScene = 8 * 1024;;
+	constexpr static inline float EmitterHalfExtent = 0.5f;
+	constexpr static inline float SphereRadius = 0.75f;
 
 public:
 	inline PhotonCausticsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -277,33 +279,16 @@ public:
 			return logFail("Could not create accumulation image");
 
 		//-------------------------------------
-		// Photon mapping resources
-		//-------------------------------------
-		auto createRWBuffer = [&](size_t size, smart_refctd_ptr<IGPUBuffer>& out) -> bool
-			{
-				IGPUBuffer::SCreationParams p;
-				p.size = size;
-				p.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)
-					| IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT
-					| IGPUBuffer::EUF_TRANSFER_DST_BIT
-					| IGPUBuffer::EUF_TRANSFER_SRC_BIT; // readback total amount of written counters, better to use a GPU buffer instead of PushCosntants for this but idk, for now fineish, keep it GPU driven
-				out = m_device->createBuffer(std::move(p));
-				if (!out) return false;
-				auto reqs = out->getMemoryReqs();
-				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				return m_device->allocate(reqs, { out.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT }).isValid();
-			};
-
-		if (!createRWBuffer(sizeof(SPhoton) * MaxPhotonInScene, m_photonBuffer))
-			return logFail("Could not create Photon buffer");
-		if (!createRWBuffer(sizeof(uint32_t) * 4, m_photonCounterBuffer))
-			return logFail("Could not create photons count");
-
-		//-------------------------------------
 		// Create Scene geometry
 		//-------------------------------------
 		if (!createScene())
 			return logFail("Could not build the scene");
+
+		//-------------------------------------
+		// Photon mapping resources
+		//-------------------------------------
+		if (!createPhotonResources())
+			return logFail("Could not create photon mapping resources");
 
 		//-------------------------------------
 		// Create RT stuff
@@ -484,18 +469,45 @@ public:
 
 		// Build photon once map per static light
 		{
-			if (m_enablePhotonCaustics && !m_photonMapBuilt)
+			const uint32_t emittedPhotons = uint32_t(m_photonsEmitCount);
+			if (m_enablePhotonCaustics && !m_photonMapBuilt && m_lightCount > 0)
 			{
-				// zero out counter buffer
+				// photon map bounds and the slot counter live in the head of the photon buffer
 				{
-					cmdbuf->fillBuffer({ .offset = 0, .size = sizeof(uint32_t) * 4, .buffer = m_photonCounterBuffer }, 0u);
-					bufferBarrier(cmdbuf, m_photonCounterBuffer.get(),
+					SPhotonMapHeader header = {};
+					header.photonMapCenter = m_photonMapCenter;
+					header.photonMapRadius = m_photonMapRadius;
+					header.photonCounter = 0u;
+					cmdbuf->updateBuffer({ .offset = 0, .size = sizeof(SPhotonMapHeader), .buffer = m_photonBuffer }, &header);
+					bufferBarrier(cmdbuf, m_photonBuffer.get(),
 						PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS, ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-						PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS);
+						PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS);
 				}
 
 				// trace rays from lights
+				{
+					SPushConstants pc = {};
+					pc.geomInfoBuffer = m_geomInfoBuffer->getDeviceAddress();
+					pc.lightBuffer = m_lightBuffer->getDeviceAddress();
+					pc.photonBuffer = m_photonBuffer->getDeviceAddress();
+					pc.lightCount = m_lightCount;
+					pc.photonCount = emittedPhotons;
+					pc.photonScale = 1.0f / float(emittedPhotons);
+					pc.accumulatedFrames = 0;
 
+					cmdbuf->bindRayTracingPipeline(m_photonRayTracingPipeline.get());
+					cmdbuf->setRayTracingPipelineStackSize(m_photonRTStackSize);
+					cmdbuf->pushConstants(m_photonRayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
+					cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_photonRayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
+					cmdbuf->traceRays(m_photonSBT, emittedPhotons, 1, 1);
+				}
+
+				bufferBarrier(cmdbuf, m_photonBuffer.get(),
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_WRITE_BITS,
+					PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT, ACCESS_FLAGS::SHADER_READ_BITS);
+
+				m_photonMapBuilt = true;
+				m_needPhotonCountReadback = true;
 			}
 		}
 
@@ -549,6 +561,12 @@ public:
 			pc.camPos = float32_t3(camPos.X, camPos.Y, camPos.Z);
 			pc.accumulatedFrames = m_accumulatedFrames;
 			pc.geomInfoBuffer = m_geomInfoBuffer->getDeviceAddress();
+			pc.lightBuffer = m_lightBuffer->getDeviceAddress();
+			pc.photonBuffer = m_photonBuffer->getDeviceAddress();
+			pc.lightCount = m_lightCount;
+			pc.photonCount = (m_enablePhotonCaustics && m_photonMapBuilt) ? uint32_t(m_photonsEmitCount) : 0u;
+			pc.gatherRadius = m_gatherRadius;
+			pc.debugFlags = m_debugPhotonView ? DEBUG_PHOTONS_BIT : 0u;
 
 			cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
 			cmdbuf->setRayTracingPipelineStackSize(m_rayTracingStackSize);
@@ -627,6 +645,12 @@ public:
 		}
 		m_api->endCapture();
 		m_accumulatedFrames++;
+
+		if (m_needPhotonCountReadback)
+		{
+			m_needPhotonCountReadback = false;
+			readbackPhotonCount();
+		}
 	}
 
 	inline void update()
@@ -711,6 +735,7 @@ private:
 		core::smart_refctd_ptr<asset::ICPUPolygonGeometry> data;
 		Material material;
 		hlsl::float32_t3x4 transform;
+		float boundsRadius = 0.f;
 	};
 
 	bool createScene()
@@ -775,9 +800,10 @@ private:
 					.transform = placeQuad(Y_AXIS, -90.f, {R, R, 0.f}),
 				},
 				SceneObject{
-					.data = geometryCreator->createIcoSphere(0.75f, 4, true),
+					.data = geometryCreator->createIcoSphere(SphereRadius, 4, true),
 					.material = {.albedo = {1.f,1.f,1.f}, .emission = {0,0,0}, .metallic = 0.f, .roughness = 0.f, .ior = 1.5f, .transmission = 1.f },
 					.transform = placeAt(-0.7f, 1.5f, -0.2f),
+					.boundsRadius = SphereRadius,
 				},
 				SceneObject{
 					.data = geometryCreator->createCube({0.6f, 1.2f, 0.6f}),
@@ -785,7 +811,7 @@ private:
 					.transform = placeAt(0.85f, 0.6f, -0.6f),
 				},
 				SceneObject{
-					.data = geometryCreator->createRectangle({0.5f, 0.5f}),
+					.data = geometryCreator->createRectangle({EmitterHalfExtent, EmitterHalfExtent}),
 					.material = {.albedo = {0.f,0.f,0.f}, .emission = {22.f,19.f,14.f}, .metallic = 0.f, .roughness = 1.f, .ior = 1.f, .transmission = 0.f },
 					.transform = placeQuad(X_AXIS, 90.f, {0.f, 2.f * R - 0.02f, 0.f}),
 				},
@@ -793,6 +819,177 @@ private:
 		}
 
 		return createAccelerationStructuresAndGeomInfo();
+	}
+
+	bool createPhotonResources()
+	{
+		auto createRWBuffer = [&](size_t size, smart_refctd_ptr<IGPUBuffer>& out) -> bool
+			{
+				IGPUBuffer::SCreationParams p;
+				p.size = size;
+				p.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)
+					| IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT
+					| IGPUBuffer::EUF_TRANSFER_DST_BIT
+					| IGPUBuffer::EUF_TRANSFER_SRC_BIT
+					| IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+				out = m_device->createBuffer(std::move(p));
+				if (!out) return false;
+				auto reqs = out->getMemoryReqs();
+				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				return m_device->allocate(reqs, { out.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT }).isValid();
+			};
+
+		if (!createRWBuffer(PHOTON_ARRAY_OFFSET + sizeof(SPhoton) * MaxPhotonInScene, m_photonBuffer))
+			return logFail("Could not create Photon buffer");
+
+		//-------------------------------------
+		// Emissive triangles
+		//-------------------------------------
+		core::vector<SLight> lights;
+		for (const auto& obj : m_sceneObjects)
+		{
+			const auto& e = obj.material.emission;
+			if (e.x + e.y + e.z <= 0.f)
+				continue;
+
+			const hlsl::float32_t3 local[4] = {
+				{-EmitterHalfExtent, 0.f, -EmitterHalfExtent},
+				{ EmitterHalfExtent, 0.f, -EmitterHalfExtent},
+				{ EmitterHalfExtent, 0.f,  EmitterHalfExtent},
+				{-EmitterHalfExtent, 0.f,  EmitterHalfExtent},
+			};
+			const hlsl::float32_t3 origin(obj.transform[0][3], obj.transform[1][3], obj.transform[2][3]);
+
+			hlsl::float32_t3 world[4];
+			for (int i = 0; i < 4; i++)
+				world[i] = origin + local[i];
+
+			auto pushTri = [&](const hlsl::float32_t3& a, const hlsl::float32_t3& b, const hlsl::float32_t3& c)
+				{
+					SLight l = {};
+					l.v0 = a;
+					l.v1 = b;
+					l.v2 = c;
+					l.emission = e;
+					l.area = 0.5f * hlsl::length(hlsl::cross(b - a, c - a));
+					lights.push_back(l);
+				};
+			pushTri(world[0], world[1], world[2]);
+			pushTri(world[0], world[2], world[3]);
+		}
+
+		m_lightCount = uint32_t(lights.size());
+		if (m_lightCount == 0)
+		{
+			m_logger->log("No emissive geometry, photon pass will do nothing.", ILogger::ELL_WARNING);
+			lights.push_back({});
+		}
+
+		{
+			IGPUBuffer::SCreationParams params;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT
+				| IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = lights.size() * sizeof(SLight);
+			m_utils->createFilledDeviceLocalBufferOnDedMem(
+				SIntendedSubmitInfo{ .queue = getGraphicsQueue() }, nbl_move(params), lights.data())
+				.move_into(m_lightBuffer);
+		}
+		if (!m_lightBuffer)
+			return logFail("Could not create light buffer");
+
+		//-------------------------------------
+		// Photon map bounds
+		//-------------------------------------
+		{
+			m_photonMapCenter = hlsl::float32_t3(0.f, 0.f, 0.f);
+			m_photonMapRadius = 0.f;
+
+			uint32_t specularCount = 0;
+			for (const auto& obj : m_sceneObjects)
+			{
+				const bool isSpecular = obj.material.metallic > 0.5f || obj.material.transmission > 0.5f;
+				if (!isSpecular || obj.boundsRadius <= 0.f)
+					continue;
+				m_photonMapCenter = m_photonMapCenter + hlsl::float32_t3(obj.transform[0][3], obj.transform[1][3], obj.transform[2][3]);
+				specularCount++;
+			}
+
+			if (specularCount > 0)
+			{
+				m_photonMapCenter = m_photonMapCenter / float(specularCount);
+				for (const auto& obj : m_sceneObjects)
+				{
+					const bool isSpecular = obj.material.metallic > 0.5f || obj.material.transmission > 0.5f;
+					if (!isSpecular || obj.boundsRadius <= 0.f)
+						continue;
+					const hlsl::float32_t3 c(obj.transform[0][3], obj.transform[1][3], obj.transform[2][3]);
+					m_photonMapRadius = std::max(m_photonMapRadius, hlsl::length(c - m_photonMapCenter) + obj.boundsRadius);
+				}
+				m_logger->log("Photon map bounds: center (%.2f, %.2f, %.2f) radius %.2f", ILogger::ELL_INFO,
+					m_photonMapCenter.x, m_photonMapCenter.y, m_photonMapCenter.z, m_photonMapRadius);
+			}
+			else
+				m_logger->log("No specular geometry, photons will use hemisphere emission.", ILogger::ELL_WARNING);
+		}
+
+		return true;
+	}
+
+	void readbackPhotonCount()
+	{
+		auto queue = getGraphicsQueue();
+		m_device->waitIdle();
+
+		smart_refctd_ptr<IGPUBuffer> hostBuffer;
+		{
+			IGPUBuffer::SCreationParams p;
+			p.size = sizeof(uint32_t);
+			p.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			hostBuffer = m_device->createBuffer(std::move(p));
+			if (!hostBuffer)
+				return;
+			auto reqs = hostBuffer->getMemoryReqs();
+			reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
+			if (!m_device->allocate(reqs, { hostBuffer.get() }).isValid())
+				return;
+		}
+
+		auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+		pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf);
+
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		const IGPUCommandBuffer::SBufferCopy region = { .srcOffset = PHOTON_COUNTER_OFFSET, .dstOffset = 0, .size = sizeof(uint32_t) };
+		cmdbuf->copyBuffer(m_photonBuffer.get(), hostBuffer.get(), 1u, &region);
+		cmdbuf->end();
+
+		auto semaphore = m_device->createSemaphore(0u);
+		{
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get() } };
+			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.get(), .value = 1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS } };
+			const IQueue::SSubmitInfo infos[] = { {.commandBuffers = cmdbufs, .signalSemaphores = signals } };
+			queue->submit(infos);
+		}
+
+		const ISemaphore::SWaitInfo waits[] = { {.semaphore = semaphore.get(), .value = 1 } };
+		m_device->blockForSemaphores(waits);
+
+		auto* memory = hostBuffer->getBoundMemory().memory;
+		auto* mapped = memory->map({ 0ull, sizeof(uint32_t) }, IDeviceMemoryAllocation::EMCAF_READ);
+		if (!mapped)
+			return;
+
+		const ILogicalDevice::MappedMemoryRange range(memory, 0ull, sizeof(uint32_t));
+		if (memory->haveToMakeVisible())
+			m_device->invalidateMappedMemoryRanges(1, &range);
+
+		const uint32_t* counters = reinterpret_cast<const uint32_t*>(mapped);
+		const uint32_t emitted = uint32_t(m_photonsEmitCount);
+		m_storedPhotonsCount = std::min(counters[0], emitted);
+
+		m_logger->log("Photon map: emitted %u, stored %u (%.1f%%)", ILogger::ELL_INFO,
+			emitted, m_storedPhotonsCount, 100.0 * double(m_storedPhotonsCount) / double(emitted));
+		memory->unmap();
 	}
 
 	bool createAccelerationStructuresAndGeomInfo()
@@ -1048,6 +1245,7 @@ private:
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
 				.count = 1
+
 			},
 		};
 		auto cpuDsLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
@@ -1109,29 +1307,32 @@ private:
 		//-------------------------------------
 		// Create Descriptor Set
 		//-------------------------------------
-		const auto* gpuDsLayout = rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
-		const std::array<const IGPUDescriptorSetLayout*, 1> dsLayoutPtrs = { gpuDsLayout };
-		m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs));
-		m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
-
-		//-------------------------------------
-		// Write Descriptors
-		//-------------------------------------
-		IGPUDescriptorSet::SDescriptorInfo infos[3] = {};
+		if (!m_rayTracingDs)
 		{
-			infos[0].desc = m_gpuTlas;
-			infos[1].desc = m_hdrImageView;
-			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-			infos[2].desc = m_accumImageView;
-			infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-		}
+			const auto* gpuDsLayout = rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
+			const std::array<const IGPUDescriptorSetLayout*, 1> dsLayoutPtrs = { gpuDsLayout };
+			m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs));
+			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
 
-		IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
-			{.dstSet = m_rayTracingDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-			{.dstSet = m_rayTracingDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-			{.dstSet = m_rayTracingDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-		};
-		m_device->updateDescriptorSets(std::span(writes), {});
+			//-------------------------------------
+			// Write Descriptors
+			//-------------------------------------
+			IGPUDescriptorSet::SDescriptorInfo infos[3] = {};
+			{
+				infos[0].desc = m_gpuTlas;
+				infos[1].desc = m_hdrImageView;
+				infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[2].desc = m_accumImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+			}
+
+			IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
+				{.dstSet = m_rayTracingDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+				{.dstSet = m_rayTracingDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+				{.dstSet = m_rayTracingDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+			};
+			m_device->updateDescriptorSets(std::span(writes), {});
+		}
 
 		rtStackSize = calculateRayTracingStackSize(std::forward<smart_refctd_ptr<IGPURayTracingPipeline>>(rayTracingPipeline));
 		return createShaderBindingTable(std::forward<smart_refctd_ptr<IGPURayTracingPipeline>>(rayTracingPipeline), sbt);
@@ -1139,7 +1340,7 @@ private:
 
 	uint32_t calculateRayTracingStackSize(smart_refctd_ptr<IGPURayTracingPipeline>&& rayTracingPipeline)
 	{
-		const auto raygenStackSize = m_rayTracingPipeline->getRaygenStackSize();
+		const auto raygenStackSize = rayTracingPipeline->getRaygenStackSize();
 		auto getMaxSize = [&](auto ranges, auto valProj) -> uint16_t
 			{
 				uint16_t maxValue = 0;
@@ -1148,8 +1349,8 @@ private:
 				return maxValue;
 			};
 
-		const auto closestHitMax = getMaxSize(m_rayTracingPipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::closestHit);
-		const auto missMax = getMaxSize(m_rayTracingPipeline->getMissStackSizes(), std::identity{});
+		const auto closestHitMax = getMaxSize(rayTracingPipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::closestHit);
+		const auto missMax = getMaxSize(rayTracingPipeline->getMissStackSizes(), std::identity{});
 		return raygenStackSize + std::max(closestHitMax, missMax);
 	}
 
@@ -1159,8 +1360,8 @@ private:
 		const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
 		const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
-		const auto missHandles = m_rayTracingPipeline->getMissHandles();
-		const auto hitHandles = m_rayTracingPipeline->getHitHandles();
+		const auto missHandles = rayTracingPipeline->getMissHandles();
+		const auto hitHandles = rayTracingPipeline->getHitHandles();
 
 		//-------------------------------------
 		// Calculate Ranges
@@ -1190,7 +1391,7 @@ private:
 		uint8_t* pData = reinterpret_cast<uint8_t*>(cpuBuffer->getPointer());
 
 		{
-			memcpy(pData, &m_rayTracingPipeline->getRaygen(), handleSize);
+			memcpy(pData, &rayTracingPipeline->getRaygen(), handleSize);
 
 			uint8_t* p = pData + missRange.offset;
 			for (const auto& h : missHandles)
@@ -1287,23 +1488,21 @@ private:
 				(void)resetCamera;
 				ImGui::Separator();
 
-				ImGui::Text("Photons: %u stored / %u emitted", m_storedPhotonsCount, uint32_t(m_photonsEmitCount) * 1024u);
 				bool causticsDirty = false;
-				causticsDirty |= ImGui::Checkbox("Caustics", &m_photon.enabled);
-				if (ImGui::Checkbox("Debug: photon density", &m_photon.debugView))
+				causticsDirty |= ImGui::Checkbox("Caustics", &m_enablePhotonCaustics);
+				if (ImGui::Checkbox("Debug: photon density", &m_debugPhotonView))
 				{
 					causticsDirty = true;
-					m_present.tonemapOperator = m_photon.debugView ? 0u : 2u;
+					m_present.tonemapOperator = m_debugPhotonView ? 0u : 2u;
 					m_present.exposure = 1.0f;
 				}
-				if (ImGui::SliderFloat("Gather radius", &m_photon.radius, 0.005f, 0.25f, "%.4f"))
+				if (ImGui::SliderFloat("Gather radius", &m_gatherRadius, 0.005f, 0.25f, "%.4f"))
 					m_accumulatedFrames = 0;
 				// photon count changes the map itself -> force a rebuild
-				if (ImGui::SliderInt("Photons (K)", &m_photonsEmitCount, 1, MaxPhotonInScene))
+				if (ImGui::SliderInt("Photons", &m_photonsEmitCount, 1024, MaxPhotonInScene))
 				{
-					m_photonMapBuilt     = false;
-					m_storedPhotonsCount = 0;
-					causticsDirty        = true;
+					m_photonMapBuilt = false;
+					causticsDirty    = true;
 				}
 
 				if (causticsDirty)
@@ -1350,15 +1549,22 @@ private:
 	IGPURayTracingPipeline::SShaderBindingTable m_shaderBindingTable;
 
 	smart_refctd_ptr<IGPUBuffer> m_photonBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_photonCounterBuffer;
 	smart_refctd_ptr<IGPURayTracingPipeline> m_photonRayTracingPipeline;
 	IGPURayTracingPipeline::SShaderBindingTable m_photonSBT;
 	uint64_t m_photonRTStackSize = 0;
 
+	smart_refctd_ptr<IGPUBuffer> m_lightBuffer;
+	uint32_t m_lightCount = 0;
+	hlsl::float32_t3 m_photonMapCenter = {};
+	float m_photonMapRadius = 0.f;
+
 	int32_t m_photonsEmitCount{ MaxPhotonInScene };
 	bool m_photonMapBuilt = false;
+	bool m_needPhotonCountReadback = false;
 	uint32_t m_storedPhotonsCount = 0;
 	bool m_enablePhotonCaustics = true;
+	bool m_debugPhotonView = false;
+	float m_gatherRadius = 0.06f;
 
 	struct ImGuiRes
 	{

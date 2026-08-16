@@ -25,6 +25,51 @@ using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 //--------------------------------------------------------------------------
+float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
+{
+    if (pc.photonCount == 0)
+        return (float32_t3)0.0f;
+
+    const float32_t r2 = pc.gatherRadius * pc.gatherRadius;
+    float32_t3 flux = (float32_t3)0.0f;
+    uint32_t   found = 0;
+
+    const static uint64_t PhotonAlign = nbl::hlsl::alignment_of_v<SPhoton>;
+    const static uint64_t HeaderAlign = nbl::hlsl::alignment_of_v<SPhotonMapHeader>;
+
+    // how many actually landed, not the buffer capacity
+    const SPhotonMapHeader header = vk::BufferPointer<SPhotonMapHeader, HeaderAlign>(pc.photonBuffer).Get();
+    const uint32_t storedPhotons = min(header.photonCounter, pc.photonCount);
+
+    for (uint32_t i = 0; i < storedPhotons; ++i)
+    {
+        const SPhoton ph = vk::BufferPointer<SPhoton, PhotonAlign>(
+            pc.photonBuffer + PHOTON_ARRAY_OFFSET + i * sizeof(SPhoton)).Get();
+
+        const float32_t3 d = ph.position - x;
+        if (dot(d, d) > r2)
+            continue;
+
+        if (dot(ph.direction, n) <= 0.0f)
+            continue;
+
+        flux += ph.power;
+        found++;
+    }
+
+    if (pc.debugFlags & DEBUG_PHOTONS_BIT)
+    {
+        const float32_t t = saturate(log2(1.0f + float32_t(found)) / 8.0f);
+        return float32_t3(saturate(t * 3.0f),
+                          saturate(t * 3.0f - 1.0f),
+                          saturate(t * 3.0f - 2.0f));
+    }
+
+    // albedo/pi is the Lambertian BRDF, 1/(pi r^2) is the disk area.
+    return albedo * flux / (numbers::pi<float32_t> * numbers::pi<float32_t> * r2);
+}
+    
+    
 [shader("raygeneration")]
 void main()
 {
@@ -58,6 +103,8 @@ void main()
         // throughput = surviving fraction of it, attenuated at every bounce
         float32_t3 radiance   = (float32_t3)0.0f;
         float32_t3 throughput = (float32_t3)1.0f;
+            
+        const bool debugPhotons = (pc.debugFlags & DEBUG_PHOTONS_BIT) != 0u;
 
         for (uint32_t bounce = 0; bounce < NUM_MAX_BOUNCES; ++bounce)
         {
@@ -69,6 +116,18 @@ void main()
                                 spv::RayFlagsOpaqueKHRMask,
                                 0xFF, 0, 0, 0,
                                 origin, RAY_TMIN, direction, RAY_TMAX, payload);
+                
+            if (debugPhotons)
+            {
+                if (payload.missed)
+                    break;
+                if (payload.metallic <= 0.5f && payload.transmission <= 0.5f)
+                {
+                    if (pc.photonCount > 0)
+                        radiance = gatherPhotons(payload.position, payload.normal, payload.albedo);
+                    break;
+                }
+            }
 
             // Light is found by walking into it, wven miss shader can contribute light which is why we test for misses after adding radiance
             radiance += throughput * payload.emission;

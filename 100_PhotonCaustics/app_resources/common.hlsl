@@ -39,13 +39,12 @@ struct SPushConstants
     uint64_t geomInfoBuffer;
     uint64_t lightBuffer;
     uint64_t photonBuffer;
-    uint64_t photonCounterBuffer;
-    
+
     uint32_t lightCount;
     uint32_t photonCount;
     float32_t gatherRadius;
     float32_t photonScale;
-    
+
     uint32_t debugFlags;
 };
 
@@ -101,6 +100,19 @@ struct SPhoton
 #ifdef __HLSL_VERSION
 NBL_REGISTER_OBJ_TYPE(SPhoton, 4)
 #endif
+
+struct SPhotonMapHeader
+{
+    float32_t3 photonMapCenter;
+    float32_t photonMapRadius;
+    uint32_t photonCounter;
+};
+#ifdef __HLSL_VERSION
+NBL_REGISTER_OBJ_TYPE(SPhotonMapHeader, 4)
+#endif
+
+NBL_CONSTEXPR uint64_t PHOTON_COUNTER_OFFSET = 16;
+NBL_CONSTEXPR uint64_t PHOTON_ARRAY_OFFSET = 32;
 
 //--------------------------------------------------------------------------
 // Common Functions

@@ -13,10 +13,16 @@
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure sceneTLAS;
 
 //--------------------------------------------------------------------------
+SPhotonMapHeader loadPhotonMapHeader()
+{
+    const static uint64_t HeaderAlign = nbl::hlsl::alignment_of_v<SPhotonMapHeader>;
+    return vk::BufferPointer<SPhotonMapHeader, HeaderAlign>(pc.photonBuffer).Get();
+}
+
 void storePhotonAtomic(float32_t3 position, float32_t3 arrivedFrom, float32_t3 power)
 {
     // Claim a slot with an atomic bump
-    BdaAccessor<uint32_t> counter = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(pc.photonCounterBuffer));
+    BdaAccessor<uint32_t> counter = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(pc.photonBuffer + PHOTON_COUNTER_OFFSET));
     const uint32_t slot = counter.atomicAdd(0ull, 1u);
 
     // if we are full bail out
@@ -29,7 +35,7 @@ void storePhotonAtomic(float32_t3 position, float32_t3 arrivedFrom, float32_t3 p
     ph.power     = power;
 
     const static uint64_t PhotonAlign = nbl::hlsl::alignment_of_v<SPhoton>;
-    vk::BufferPointer<SPhoton, PhotonAlign>(pc.photonBuffer + slot * sizeof(SPhoton)).Get() = ph;
+    vk::BufferPointer<SPhoton, PhotonAlign>(pc.photonBuffer + PHOTON_ARRAY_OFFSET + slot * sizeof(SPhoton)).Get() = ph;
 }
 //--------------------------------------------------------------------------
 [shader("raygeneration")]
