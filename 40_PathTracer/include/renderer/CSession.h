@@ -125,6 +125,7 @@ class CSession final : public core::IReferenceCounted
 			SImmutables immutables = {};
 			SSensorDynamics currentSensorState = {}, prevSensorState = {};
 
+			core::smart_refctd_ptr<video::IGPUBuffer> ubo;
 			// restir buffers
 			core::smart_refctd_ptr<video::IGPUBuffer> reconnectionData;
 			core::smart_refctd_ptr<video::IGPUBuffer> initialReservoirs;

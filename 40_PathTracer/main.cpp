@@ -348,8 +348,7 @@ public:
                m_logger->log("Loading scene: %s", ILogger::ELL_INFO, path.c_str());
 
                // Load the scene
-               auto                   loadResult =
-                  m_sceneLoader->load({ .relPath = path, .workingDirectory = localOutputCWD });
+               auto loadResult = m_sceneLoader->load({ .relPath = path, .workingDirectory = localOutputCWD });
 
                if (!loadResult)
                {
@@ -358,8 +357,7 @@ public:
                }
 
                // Create the scene
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto newScene = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
 
                if (!newScene)
                {
@@ -381,8 +379,8 @@ public:
                m_currentSensorIdx                  = 0;
                initCameraFromSensor(m_currentSensorIdx);
                {
-                  const auto& sensors    = m_currentScene->getSensors();
-                  auto        newSession = m_currentScene->createSession(
+                  const auto& sensors= m_currentScene->getSensors();
+                  auto newSession = m_currentScene->createSession(
                      { { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
                   if (newSession)
                      m_pendingSession = std::move(newSession);
@@ -402,8 +400,7 @@ public:
                m_logger->log("Reloading scene: %s", ILogger::ELL_INFO, m_currentScenePath.c_str());
 
                // Reload the scene
-               auto                   loadResult   = m_sceneLoader->load(
-                  { .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+               auto loadResult   = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
 
                if (!loadResult)
                {
@@ -412,8 +409,7 @@ public:
                   return;
                }
 
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto newScene = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
 
                if (!newScene)
                {
@@ -423,7 +419,7 @@ public:
                   return;
                }
 
-               m_currentScene                      = std::move(newScene);
+               m_currentScene = std::move(newScene);
 
                if (m_uiManager)
                   m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
@@ -455,25 +451,22 @@ public:
                m_logger->log(
                   "Emitter density -> %.3f, rebuilding scene", ILogger::ELL_INFO, density);
 
-               auto                   loadResult   = m_sceneLoader->load(
-                  { .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
+               auto loadResult = m_sceneLoader->load({ .relPath = m_currentScenePath, .workingDirectory = localOutputCWD });
                if (!loadResult)
                   return;
-               auto                   newScene =
-                  m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
+               auto newScene = m_renderer->createScene({ .load = std::move(loadResult), .converter = nullptr });
                if (!newScene)
                   return;
-               m_currentScene                      = std::move(newScene);
+               m_currentScene = std::move(newScene);
                if (m_uiManager)
                   m_uiManager->setScene(m_currentScene.get(), m_currentScenePath);
-               const auto&            sensors      = m_currentScene->getSensors();
-               const size_t           sensorIdx    = std::min<size_t>(m_currentSensorIdx, sensors.size() - 1);
-               m_currentSensorIdx                  = sensorIdx;
-               CSession::RenderMode   mode         = CSession::RenderMode::Beauty;
+               const auto& sensors      = m_currentScene->getSensors();
+               const size_t sensorIdx    = std::min<size_t>(m_currentSensorIdx, sensors.size() - 1);
+               m_currentSensorIdx = sensorIdx;
+               CSession::RenderMode mode = CSession::RenderMode::Beauty;
                if (auto* active = m_resolver->getActiveSession())
                   mode = active->getConstructionParams().mode;
-               auto                   newSession =
-                  m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
+               auto newSession = m_currentScene->createSession({ { .mode = mode }, &sensors[sensorIdx] });
                if (newSession)
                   m_pendingSession = std::move(newSession);
             },
@@ -511,11 +504,10 @@ public:
             {
                if (!m_currentScene)
                   return;
-               const auto             sensors      = m_currentScene->getSensors();
+               const auto sensors= m_currentScene->getSensors();
                if (m_currentSensorIdx >= sensors.size())
                   return;
-               auto                   newSession =
-                  m_currentScene->createSession({ { .mode = mode }, &sensors[m_currentSensorIdx] });
+               auto newSession = m_currentScene->createSession({ { .mode = mode }, &sensors[m_currentSensorIdx] });
                if (newSession)
                   m_pendingSession = std::move(newSession);
             },
@@ -591,7 +583,7 @@ public:
             const auto& sensors = m_currentScene->getSensors();
             initCameraFromSensor(m_currentSensorIdx);
             auto initialSession = m_currentScene->createSession(
-               { { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
+               { { .mode = CSession::RenderMode::Beauty_ReSTIR }, &sensors.front() });
 
             m_pendingSession = std::move(initialSession);
          }

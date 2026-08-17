@@ -1162,6 +1162,24 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    // mode's pipeline). Both pick which compiled Beauty variant binds.
    const auto* const pipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE);
 
+    // ping pong buffers for restir
+    if (mode == CSession::RenderMode::Beauty_ReSTIR)
+   {
+        const uint32_t pingpongIx = m_frameIx % 2u;
+       auto uniforms = sessionParams.uniforms;
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] = sessionResources.reconnectionData->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] = sessionResources.hashAppend->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] = sessionResources.initialReservoirs->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = sessionResources.resamplingReservoirs[pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = sessionResources.resamplingReservoirs[1u-pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf] = sessionResources.cellStorage[pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] = sessionResources.indices[pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf] = sessionResources.checkSum[pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] = sessionResources.cellCounter[pingpongIx]->getDeviceAddress();
+
+       cb->updateBuffer({ .size = sizeof(uniforms),.buffer = sessionResources.ubo }, &uniforms);
+   }
+
    bool success;
    // push constants
    SBeautyPushConstants beautyPc;
@@ -1328,6 +1346,10 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
             const auto* hashPipeline = scene->getComputePipeline(mode, CSession::RestirComputePipeline::Hashgrid);
             success = success && cb->bindComputePipeline(hashPipeline);
             success = success && cb->pushConstants(hashPipeline->getLayout(), hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(beautyPc), &beautyPc);
+            {
+                const IGPUDescriptorSet* sets[1] = { sessionImmutables.ds.get() };
+                success = success && cb->bindDescriptorSets(EPBP_COMPUTE, hashPipeline->getLayout(), 1, 1, sets);
+            }
             success = success && cb->dispatch(renderSize.x, renderSize.y, 1);
         }
 
@@ -1336,6 +1358,10 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
             const auto* shadingPipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE, CSession::RestirRayTracingPipeline::Shading);
             success = success && cb->bindRayTracingPipeline(shadingPipeline);
             success = success && cb->pushConstants(shadingPipeline->getLayout(), hlsl::ShaderStage::ESS_ALL_RAY_TRACING, 0, sizeof(beautyPc), &beautyPc);
+            {
+                const IGPUDescriptorSet* sets[2] = { sessionParams.scene->getDescriptorSet(), sessionImmutables.ds.get() };
+                success = success && cb->bindDescriptorSets(EPBP_RAY_TRACING, shadingPipeline->getLayout(), 0, 2, sets);
+            }
 
             // TODO split with the other barrier?
             constexpr auto raytracingStages = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT;

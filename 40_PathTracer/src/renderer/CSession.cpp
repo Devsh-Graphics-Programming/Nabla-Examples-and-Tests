@@ -149,28 +149,16 @@ bool CSession::init(SIntendedSubmitInfo& info)
 		}
 		// create UBO
 		{
-			// maybe we can defer updating this portion to the render function only?
-			auto uniforms = m_params.uniforms;
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] = m_active.reconnectionData->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] = m_active.hashAppend->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] = m_active.initialReservoirs->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = m_active.resamplingReservoirs[0]->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = m_active.resamplingReservoirs[1]->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf] = m_active.cellStorage[0]->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] = m_active.indices[0]->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf] = m_active.checkSum[0]->getDeviceAddress();
-			uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] = m_active.cellCounter[0]->getDeviceAddress();
-
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(m_params.uniforms);
 			using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
 			params.usage = usage_flags_e::EUF_UNIFORM_BUFFER_BIT | usage_flags_e::EUF_TRANSFER_DST_BIT | usage_flags_e::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			auto ubo = device->createBuffer(std::move(params));
-			if (!dedicatedAllocate(ubo.get(), "Sensor UBO"))
+			m_active.ubo = device->createBuffer(std::move(params));
+			if (!dedicatedAllocate(m_active.ubo.get(), "Sensor UBO"))
 				return false;
 			// pipeline barrier in `reset` will take care of sync for this
-			info.getCommandBufferForRecording()->cmdbuf->updateBuffer({ .size = sizeof(m_params.uniforms),.buffer = ubo }, &m_params.uniforms);
-			addWrite(SensorDSBindings::UBO, SBufferRange<IGPUBuffer>{.offset = 0, .size = sizeof(m_params.uniforms), .buffer = ubo});
+			info.getCommandBufferForRecording()->cmdbuf->updateBuffer({ .size = sizeof(m_params.uniforms),.buffer = m_active.ubo }, &m_params.uniforms);
+			addWrite(SensorDSBindings::UBO, SBufferRange<IGPUBuffer>{.offset = 0, .size = sizeof(m_params.uniforms), .buffer = m_active.ubo});
 		}
 
 		const auto allowedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling();
