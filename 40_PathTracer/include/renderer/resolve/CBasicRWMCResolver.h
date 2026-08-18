@@ -77,7 +77,8 @@ class CBasicRWMCResolver : public IResolver
 				case CSession::RenderMode::Previs: [[fallthrough]];
 				case CSession::RenderMode::Debug:
 					return 0ull;
-				case CSession::RenderMode::Beauty:
+				case CSession::RenderMode::Beauty: [[fallthrough]];
+				case CSession::RenderMode::Beauty_ReSTIR:
 					return 0ull; // for now, as long as we blit
 				default:
 					break;

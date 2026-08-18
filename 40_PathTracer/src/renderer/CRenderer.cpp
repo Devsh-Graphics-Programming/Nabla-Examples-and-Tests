@@ -320,7 +320,6 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
    auto        converter = core::smart_refctd_ptr<CAssetConverter>(_params.converter);
 
    CScene::SConstructorParams params = { std::move(_params) };
-   //	params.sceneBound = ;
    params.sensors  = std::move(_params.load.sensors);
    params.renderer = smart_refctd_ptr<CRenderer>(this);
    {
@@ -501,7 +500,9 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          constexpr auto baseTLASFlags = tlas_build_f::PREFER_FAST_TRACE_BIT | tlas_build_f::ALLOW_COMPACTION_BIT;
 
          auto& main = tmpTLASes.emplace_back();
-         main       = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
+         main = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
+         using aabb_t = hlsl::shapes::AABB<3, float>;
+         aabb_t sceneBounds = aabb_t::create();
          {
             auto& cpuInstances = cpuScene->getInstances();
             // need to convert weird topologies to lists
@@ -516,6 +517,11 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
                         if (geo->getPrimitiveType() != IGeometryBase::EPrimitiveType::Polygon)
                            continue;
                         ref.geometry = CPolygonGeometryManipulator::createTriangleListIndexing(static_cast<const ICPUPolygonGeometry*>(geo));
+
+                        // TODO: double check this
+                        const auto aabb = ref.geometry->getAABB<aabb_t>();
+                        const auto worldAABB = hlsl::shapes::util::transform(ref.transform, aabb);
+                        sceneBounds = hlsl::shapes::util::union_(worldAABB, sceneBounds);
                      }
                   }
             ICPUScene::CDefaultTLASExporter exporter(cpuInstances);
@@ -576,6 +582,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
             }
             main->setInstances(std::move(exported.instances));
          }
+         params.sceneBound = sceneBounds;
          // de-instancing and welding BLASes
          {
             // TODO: de-instancing step, need AS memory budget and a heuristic of which instances to eliminate (out of the ones we don't want to be movable)
@@ -1163,15 +1170,15 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    const auto* const pipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE);
 
     // ping pong buffers for restir
-    if (mode == CSession::RenderMode::Beauty_ReSTIR)
+   const uint32_t pingpongIx = m_frameIx % 2u;
+   if (mode == CSession::RenderMode::Beauty_ReSTIR)
    {
-        const uint32_t pingpongIx = m_frameIx % 2u;
        auto uniforms = sessionParams.uniforms;
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] = sessionResources.reconnectionData->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] = sessionResources.hashAppend->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] = sessionResources.initialReservoirs->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = sessionResources.resamplingReservoirs[pingpongIx]->getDeviceAddress();
-       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = sessionResources.resamplingReservoirs[1u-pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = sessionResources.resamplingReservoirs[1u - pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf] = sessionResources.cellStorage[pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] = sessionResources.indices[pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf] = sessionResources.checkSum[pingpongIx]->getDeviceAddress();
@@ -1268,7 +1275,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    }
 
    const auto renderSize = sessionParams.uniforms.renderSize;
-   success               = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
+   success = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
 
     if (mode == CSession::RenderMode::Beauty_ReSTIR)
     {
@@ -1311,8 +1318,8 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
 
 
             SScanPushConstants pc;
-            pc.pInputBuf = resources.cellCounter[0]->getDeviceAddress();    // TODO ping pong properly
-            pc.pOutputBuf = resources.indices[0]->getDeviceAddress();   // TODO ping pong properly
+            pc.pInputBuf = resources.cellCounter[pingpongIx]->getDeviceAddress();
+            pc.pOutputBuf = resources.indices[pingpongIx]->getDeviceAddress();
             pc.pReduceBuf = resources.workgroupReductions->getDeviceAddress();
             pc.pWgCounterBuf = resources.workgroupCounter->getDeviceAddress();
 
@@ -1335,7 +1342,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                         .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
                     } // no ownership transfers, etc.
                 },
-                .range = {.offset = 0,.size = resources.indices[0]->getSize(),.buffer = resources.indices[0]} // TODO ping pong properly
+                .range = {.offset = 0,.size = resources.indices[pingpongIx]->getSize(),.buffer = resources.indices[pingpongIx]}
             };
             success = cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {
                     .memBarriers = {},

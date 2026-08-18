@@ -583,7 +583,7 @@ public:
             const auto& sensors = m_currentScene->getSensors();
             initCameraFromSensor(m_currentSensorIdx);
             auto initialSession = m_currentScene->createSession(
-               { { .mode = CSession::RenderMode::Beauty_ReSTIR }, &sensors.front() });
+               { { .mode = CSession::RenderMode::Beauty }, &sensors.front() });
 
             m_pendingSession = std::move(initialSession);
          }

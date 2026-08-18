@@ -40,7 +40,7 @@ struct SensorUBOBufferAddresses
 struct SReSTIRParams
 {
 	hlsl::float32_t3 sceneMinPos;
-    hlsl::float32_t fov;
+    hlsl::float32_t fov;	// TODO: will not work with orthographic projection, need to find a combined way to handle this
     hlsl::float32_t minCellSize;
 };
 

@@ -82,10 +82,14 @@ void CSessionWindow::drawRenderModeSection()
 {
 	if (ImGui::CollapsingHeader("Render Mode", ImGuiTreeNodeFlags_DefaultOpen))
 	{
-		const char* modes[] = { "Previs", "Beauty", "Debug" };
+		const char* modes[] = { "Previs", "Beauty", "Debug", "Beauty ReSTIR" };
 		int modeIndex = static_cast<int>(m_state.renderMode);
+		if (modeIndex > static_cast<int>(CSession::RenderMode::Count))	// TODO how to best handle this? maybe restir mode should be part of count?
+			modeIndex -= 1;
 		if (ImGui::Combo("Mode", &modeIndex, modes, IM_ARRAYSIZE(modes)))
 		{
+			if (modeIndex >= static_cast<int>(CSession::RenderMode::Count)) // TODO how to best handle this? maybe restir mode should be part of count?
+				modeIndex += 1;
 			m_state.renderMode = static_cast<CSession::RenderMode>(modeIndex);
 			if (m_callbacks.onRenderModeChanged)
 			{

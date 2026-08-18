@@ -179,6 +179,9 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 		inline CScene(SConstructorParams&& _params) : m_creation(std::move(_params)), m_construction(std::move(_params)) {}
 		virtual inline ~CScene() {}
 
+		// TODO: make this configurable from outside?
+		uint32_t numGridCells = 80u;
+
 		SCachedCreationParams m_creation;
 		SCachedConstructorParams m_construction;
 };

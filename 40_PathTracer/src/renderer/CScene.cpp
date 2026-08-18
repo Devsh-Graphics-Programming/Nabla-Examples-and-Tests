@@ -41,12 +41,18 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 
 	// fill uniforms
 	{
+		const float32_t3 boundsSize = abs(m_construction.sceneBound.getExtent() / static_cast<float>(numGridCells));
 		params.uniforms = {
-			.rcpPixelSize = promote<float32_t2>(1.f)/float32_t2(renderSize),
+			.rcpPixelSize = promote<float32_t2>(1.f) / float32_t2(renderSize),
 			.splatting = hlsl::rwmc::SPackedSplattingParameters::create(mutDefaults.cascadeLuminanceBase,mutDefaults.cascadeLuminanceStart,constants.cascadeCount),
 			.renderSize = renderSize,
-			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
-			.hideEnvironment = mutDefaults.hideEnvironment
+			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount - 1),
+			.hideEnvironment = mutDefaults.hideEnvironment,
+			.restirParams = {
+				.sceneMinPos = m_construction.sceneBound.minVx,
+				.fov = hlsl::radians(60.f),	// TODO: get fov value from sensor/don't use fov because it won't work with ortho proj,
+				.minCellSize = hlsl::max(boundsSize.x, hlsl::max(boundsSize.y, boundsSize.z))
+			}
 		};
 	}
 

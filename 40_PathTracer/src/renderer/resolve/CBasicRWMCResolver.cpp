@@ -55,7 +55,8 @@ bool CBasicRWMCResolver::resolve(video::IGPUCommandBuffer* cb, video::IGPUBuffer
 		case CSession::RenderMode::Previs: [[fallthrough]];
 		case CSession::RenderMode::Debug:
 			return true; // do nothing
-		case CSession::RenderMode::Beauty:
+		case CSession::RenderMode::Beauty: [[fallthrough]];
+		case CSession::RenderMode::Beauty_ReSTIR:
 			break;
 		default:
 			return false;
