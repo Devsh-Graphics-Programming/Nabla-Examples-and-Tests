@@ -115,6 +115,7 @@ if(NBL_BUILD_EXAMPLES)
 		add_subdirectory(76_CudaInterop)
 	endif()
 
+	add_subdirectory(78_ChainedScanUnitTest)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
