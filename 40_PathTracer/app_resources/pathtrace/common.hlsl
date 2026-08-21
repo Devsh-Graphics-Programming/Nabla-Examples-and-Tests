@@ -584,7 +584,7 @@ int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CO
     uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
 
     bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
-    NBL_HLSL_LOOP
+    NBL_UNROLL
     for (uint32_t i = 0; i < 32; i++)
     {
         uint32_t idx = cellIndex * 32 + i;
@@ -607,7 +607,7 @@ int findCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_
 
     bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     BdaAccessor<uint32_t> checksumPtr = BdaAccessor<uint32_t>::create(ptr);
-    NBL_HLSL_LOOP
+    NBL_UNROLL
     for (uint32_t i = 0; i < 32; i++)
     {
         uint32_t idx = cellIndex * 32 + i;

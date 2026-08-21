@@ -3,11 +3,9 @@
 
 #include "common.hlsl"
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 16u;
-
 [[vk::push_constant]] SBeautyPushConstants pc;
 
-[numthreads(WorkgroupSize, WorkgroupSize, 1)]
+[numthreads(HashGridWorkgroupSize, HashGridWorkgroupSize, 1)]
 [shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
@@ -24,6 +22,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
         indexPtr.get(data.cellIdx, baseIdx);
         bda::__ptr<uint32_t> ptr1 = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
         BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(ptr1);
-        cellStoragePtr.set(baseIdx + data.inCellIdx, data.reservoirIdx);
+        if (baseIdx + data.inCellIdx < HashBufferElementCount)  // TODO: don't know why this is necessary, but sometimes we end up outside buffer range
+            cellStoragePtr.set(baseIdx + data.inCellIdx, data.reservoirIdx);
     }
 }

@@ -111,6 +111,11 @@ bool CSession::init(SIntendedSubmitInfo& info)
 				using usage_flags_e = IGPUBuffer::E_USAGE_FLAGS;
 				params.usage = usage_flags_e::EUF_STORAGE_BUFFER_BIT | usage_flags_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
+				m_active.cellStorage[i] = device->createBuffer(std::move(params));
+				if (!dedicatedAllocate(m_active.cellStorage[i].get(), "Cell storage"))
+					return false;
+
+				params.usage |= usage_flags_e::EUF_TRANSFER_DST_BIT;
 				m_active.cellCounter[i] = device->createBuffer(std::move(params));
 				if (!dedicatedAllocate(m_active.cellCounter[i].get(), "Cell Counter"))
 					return false;
@@ -121,10 +126,6 @@ bool CSession::init(SIntendedSubmitInfo& info)
 
 				m_active.checkSum[i] = device->createBuffer(std::move(params));
 				if (!dedicatedAllocate(m_active.checkSum[i].get(), "Checksum"))
-					return false;
-
-				m_active.cellStorage[i] = device->createBuffer(std::move(params));
-				if (!dedicatedAllocate(m_active.cellStorage[i].get(), "Cell storage"))
 					return false;
 			}
 

@@ -8,6 +8,8 @@ namespace nbl
 namespace this_example
 {
 
+NBL_CONSTEXPR uint32_t HashGridWorkgroupSize = 16u;
+
 struct PathFlags
 {
     NBL_CONSTEXPR_STATIC_INLINE uint16_t Active = 0x0001;

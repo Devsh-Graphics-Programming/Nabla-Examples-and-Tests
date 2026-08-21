@@ -395,13 +395,11 @@ void raygen()
 
                 // perform NEE
                 const float32_t neeProb = 1.f;
-#if NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
                 if (gScene.init.pLightTreeLeaves != 0 && gScene.init.pEmitters != 0)
                 {
                     const float32_t3 randNEE  = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
                     const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
-#if NBL_NEE_CALLABLE
                     // Route forwardNEE through the callable shader stage so its heavy register/i-cache
                     // footprint stays out of raygen. The payload spills to the RT stack across the call.
                     [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]] nbl::this_example::SNeeCallableData cd;
@@ -422,9 +420,7 @@ void raygen()
                     nee.pickedEmitterID = cd.pickedEmitterID;
                     nee.contribution    = cd.contribution;
                     nee.valid           = cd.valid != 0u;
-#else
-                    const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, throughput, randNEE, randNEE2);
-#endif
+
                     if (nee.valid)
                     {
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval shadowPayload;
@@ -443,12 +439,6 @@ void raygen()
                             pathState.rcVertexRadiance += nee.contribution * pathState.throughput;
                     }
                 }
-#endif // NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
-
-#if NBL_MIS_MODE == NBL_MIS_MODE_NEE_ONLY
-                // Direct-only: stop before BSDF sampling so only camera-visible emission + NEE contribute.
-                break;
-#endif
 
                 if (pathState.currentVertexIndex < pathState.rcVertexLength)
                 {

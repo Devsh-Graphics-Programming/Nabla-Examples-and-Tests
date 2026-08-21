@@ -10,9 +10,9 @@
 #include "renderer/shaders/bda_accessors.hlsl"
 
 // TODO: this corresponds to wg size log2, sg size log2, items per invoc
-// for workgroup size 1024, subgroup size 32, buffer size strictly is 3,145,728 (was 3.2M in the paper)
+// for workgroup size 1024, subgroup size 32, buffer size strictly is 3.2M (like in the paper)
 // define this somewhere
-using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<10,5,3>;
+using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<10,5,1>;
 
 [[vk::push_constant]] SScanPushConstants pc;
 
