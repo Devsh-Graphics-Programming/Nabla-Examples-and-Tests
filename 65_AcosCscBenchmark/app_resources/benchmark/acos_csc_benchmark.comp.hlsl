@@ -5,6 +5,7 @@
 
 #include "app_resources/benchmark/common.hlsl"
 #include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+#include <nbl/builtin/hlsl/math/fast_acos.hlsl>
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -28,20 +29,20 @@ T calcAcosCsc(uint32_t seed)
     }
     if (benchmarkMode == BM_EXACT)
     {
-			float theta = nbl::hlsl::acos(cosTheta);
-			result += (theta * nbl::hlsl::rsqrt(1 - (cosTheta * cosTheta)));
+			T theta = nbl::hlsl::acos<T>(cosTheta);
+			result += (theta * nbl::hlsl::rsqrt<T>(T(1.0) - (cosTheta * cosTheta)));
     }
     else if (benchmarkMode == BM_ORDER1)
     {
-      result += acos_csc_approx<T, 1>(cosTheta);
+      result += fast_acos_csc_call<T, 1>(cosTheta);
     } 
 	  else if (benchmarkMode == BM_ORDER2)
     {
-      result += acos_csc_approx<T, 2>(cosTheta);
+      result += fast_acos_csc_call<T, 2>(cosTheta);
     }
     else if (benchmarkMode == BM_ORDER3)
     {
-      result += acos_csc_approx<T, 3>(cosTheta);
+      result += fast_acos_csc_call<T, 3>(cosTheta);
     }
     else
 		{
@@ -59,22 +60,19 @@ void main(uint3 invocationID : SV_DispatchThreadID)
   switch (pc.benchmarkMode)
   {
   case BM_SETUP:    
-    output = calcAcosCsc<float32_t, BM_SETUP>(invocationID.x);
+    output = calcAcosCsc<real_t, BM_SETUP>(invocationID.x);
     break;
   case BM_EXACT:
-    output = calcAcosCsc<float32_t, BM_EXACT>(invocationID.x);
+    output = calcAcosCsc<real_t, BM_EXACT>(invocationID.x);
     break;
   case BM_ORDER1:
-    output = calcAcosCsc<float32_t, BM_ORDER1>(invocationID.x);
+    output = calcAcosCsc<real_t, BM_ORDER1>(invocationID.x);
     break;
   case BM_ORDER2:
-    output = calcAcosCsc<float32_t, BM_ORDER2>(invocationID.x);
+    output = calcAcosCsc<real_t, BM_ORDER2>(invocationID.x);
     break;
   case BM_ORDER3:
-    output = calcAcosCsc<float32_t, BM_ORDER3>(invocationID.x);
-    break;
-  case BM_SIGN_FLIP:
-    output = calcAcosCsc<float32_t, BM_SIGN_FLIP>(invocationID.x);
+    output = calcAcosCsc<real_t, BM_ORDER3>(invocationID.x);
     break;
   }
 

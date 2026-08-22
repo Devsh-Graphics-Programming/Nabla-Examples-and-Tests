@@ -4,15 +4,18 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/tgmath.hlsl>
+#include <nbl/builtin/hlsl/math/fast_acos.hlsl>
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_WORKGROUP_DIMENSION_SIZE_X = 128u;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y = 1u;
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z = 1u;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_WORKGROUP_COUNT = 1024u;
-NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_SAMPLE_PER_THREAD = 1000u;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_WORKGROUP_COUNT = 3280;
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t BENCHMARK_SAMPLE_PER_THREAD = 10000;
 
 using namespace nbl;
 using namespace nbl::hlsl;
+
+using real_t = float;
 
 enum BENCHMARK_MODE
 {
@@ -29,50 +32,14 @@ struct BenchmarkPushConstants
     BENCHMARK_MODE benchmarkMode;
 };
 
-template<typename T, int order=2>
-T acos_csc_approx(const T arg)
+template <typename T, int order>
+T fast_acos_csc_call(const T val)
 {
-    const T u = hlsl::log2(_static_cast<T>(1)+arg);
-    T poly;
-    if (order==1)
-        poly = (_static_cast<T>(1)-u)*_static_cast<T>(0.6);
-    else if (order==2)
-    {
-        const T a = -0.637;
-        const T b = -0.0115;
-        const T c = -(a + b);
-        poly = hlsl::fma(u, hlsl::fma(u, a, b), c);
-
-    }
-    else if (order==3)
-    {
-        const T a = 0.6494;
-        const T b = -0.6311;
-        const T c = -0.0122;
-        const T d = -0.00039;
-        poly = hlsl::fma(u, hlsl::fma(u, hlsl::fma(u, d, c), b), a);
-    }
-    return hlsl::exp2<T>(poly);
+  return nbl::hlsl::math::fast_acos_csc<T, order>::__call(val);
 }
 
-float acos_csc_approx_sign_flip(const float arg, bool isPositive)
+template <typename T>
+T fast_acos_csc_directed_call(const T val, bool overestimate)
 {
-    // u = log2(1 + cosTheta)
-    float u = log2(1.0 + arg);
-
-    float a1 = 0.646153;
-    float a2 = 0.656153;
-    float b1 = -0.63452;
-    float b2 = -0.5;
-
-    float c1 = -0.01163;
-    float c2 = -0.00609;
-
-    // select directly between the two folded literals instead of computing at runtime
-    float a = isPositive ? a1 : a2;
-    float c = isPositive ? c1 : c2;
-    float b = isPositive ? b1 : b2;
-    float poly = hlsl::fma(u, hlsl::fma(u, a, b), c);
-    return hlsl::exp2<float>(poly);
+  return nbl::hlsl::math::fast_acos_csc_directed<T>::__call(val, overestimate);
 }
-
