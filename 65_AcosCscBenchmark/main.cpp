@@ -193,7 +193,7 @@ class AcosCscBenchmarkApp final : public MonoDeviceApplication, public BuiltinRe
         {BM_ORDER3, "order3"},
         {BM_SIGN_FLIP, "sign_flip"},
       };
-      runBenchmark("AcosCscBench.json", nbl::this_example::builtin::build::get_spirv_key<"acos_csc_benchmark">(m_device.get()), "AcosCsc", std::span(kModes));
+      runBenchmark("AcosCscBench.json", nbl::this_example::builtin::build::get_spirv_key<"acos_csc_benchmark">(m_device.get()), "AcosCsc", std::span(kModes, BM_ORDER3 + 1));
       
       runBenchmark("IntegrateEdge.json", nbl::this_example::builtin::build::get_spirv_key<"integrate_edge_benchmark">(m_device.get()), "IntegrateEdge", std::span(kModes));
    }
