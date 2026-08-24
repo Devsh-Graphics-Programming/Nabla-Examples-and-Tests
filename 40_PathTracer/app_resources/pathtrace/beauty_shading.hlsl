@@ -213,7 +213,7 @@ void raygen()
 {
     const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
     const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
-    const uint32_t linearIdx = launchID.y * gSensor.renderSize.x + launchID.x;
+    const uint32_t linearIdx = uint32_t(launchID.y) * uint32_t(gSensor.renderSize.x) + uint32_t(launchID.x);
 
     LegacyBdaAccessor<SReconnectionData> reconnDataPtr = LegacyBdaAccessor<SReconnectionData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf]);
     SReconnectionData rcData;

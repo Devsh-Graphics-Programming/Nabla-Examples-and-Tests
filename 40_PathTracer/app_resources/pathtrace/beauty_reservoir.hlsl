@@ -192,8 +192,9 @@ void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
 [shader("raygeneration")]
 void raygen()
 {
-    const uint16_t3                        launchID        = uint16_t3(spirv::LaunchIdKHR);
+    const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
     const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
+    const uint32_t linearIdx = uint32_t(launchID.y) * uint32_t(gSensor.renderSize.x) + uint32_t(launchID.x);
 
     // Take n samples per frame
     // TODO: establish min/max - adaptive sampling
@@ -516,7 +517,6 @@ void raygen()
         }
 
         // Fill in ReSTIR data
-        const uint32_t linearIdx = launchID.y * gSensor.renderSize.x + launchID.x;
         SReservoir initialReservoir = SReservoir::create(pathState);
         {
             LegacyBdaAccessor<SReservoir> reservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
