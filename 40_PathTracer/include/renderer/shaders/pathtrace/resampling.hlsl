@@ -121,8 +121,8 @@ struct SReservoir
     hlsl::float32_t3 radiance;
 
     uint16_t M;
-    hlsl::float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
     uint16_t age;   // sample age, discard if > maxSampleAge
+    hlsl::float32_t weightF;  // used for final illuminance computation W = weight / (M * pdf)
 
     static SReservoir create(NBL_CONST_REF_ARG(SPathState) state)
     {
@@ -134,7 +134,8 @@ struct SReservoir
         retval.sNormal = state.rcVertexNormal;
         retval.radiance = state.rcVertexRadiance;
 
-        retval.weightF = hlsl::mix(hlsl::float32_t(0.0), hlsl::float32_t(1.0) / state.pdf, state.pdf > hlsl::float32_t(0.0));
+        // retval.weightF = hlsl::mix(hlsl::float32_t(0.0), hlsl::float32_t(1.0) / state.pdf, state.pdf > hlsl::float32_t(0.0));
+        retval.weightF = hlsl::mix(0.0f, 0.1f, state.pdf > hlsl::float32_t(0.0));
         retval.M = uint16_t(1u);
         retval.age = uint16_t(0u);
 
@@ -143,7 +144,7 @@ struct SReservoir
 
     bool merge(NBL_CONST_REF_ARG(SReservoir) other, hlsl::float32_t rand, hlsl::float32_t pdf, NBL_REF_ARG(hlsl::float32_t) weightS)
     {
-        hlsl::float32_t weight = other.M * hlsl::max(hlsl::float32_t(0.0), other.weightF) * pdf;
+        hlsl::float32_t weight = other.M * hlsl::max(0.0f, other.weightF) * pdf;
 
         weightS += weight;
         M += other.M;

@@ -457,8 +457,8 @@ void raygen()
                     typename brdf_t::isocache_type cache;
                     bxdfSample = diffuse.generate(interaction, randBRDF.xy, cache);
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
-                    const quotient_weight_type qAw           = diffuse.quotientAndWeight(bxdfSample, interaction, cache);
-                    const float                forwardWeight = qAw.weight();
+                    const quotient_weight_type qAw = diffuse.quotientAndWeight(bxdfSample, interaction, cache);
+                    const float forwardWeight = qAw.weight();
                     if (forwardWeight < 0.00000001f)
                         break;
 

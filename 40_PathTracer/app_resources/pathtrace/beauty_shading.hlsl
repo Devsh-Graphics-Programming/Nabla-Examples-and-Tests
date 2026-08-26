@@ -150,18 +150,22 @@ enum E_SBT_OFFSETS : uint16_t
     ESBTO_NEE
 };
 
-SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint baseIndex, uint sampleIndex)
+SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint32_t baseIndex, uint32_t sampleIndex)
 {
-    uint32_t index = baseIndex + sampleIndex * gSensor.renderSize.x * gSensor.renderSize.y;
+    const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
+    const uint32_t index = baseIndex + sampleIndex * framePixelCount;
     SReservoir reservoir;
-    reservoirBuf.get(index, reservoir);
+    if (index < framePixelCount * 2u)  // TODO: find out why I need this check, it's only crashing in nsight
+        reservoirBuf.get(index, reservoir);
     return reservoir;
 }
 
-void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint baseIndex, uint sampleIndex, SReservoir reservoir)
+void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint32_t baseIndex, uint32_t sampleIndex, NBL_REF_ARG(SReservoir) reservoir)
 {
-    uint32_t index = baseIndex + sampleIndex * gSensor.renderSize.x * gSensor.renderSize.y;
-    reservoirBuf.set(index, reservoir);
+    const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
+    const uint32_t index = baseIndex + sampleIndex * framePixelCount;
+    if (index < framePixelCount * 2u)  // TODO: find out why I need this check, it's only crashing in nsight
+        reservoirBuf.set(index, reservoir);
 }
 
 // Diagnostic-only NEE-proposal probe takeover
@@ -284,7 +288,7 @@ void raygen()
     const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
     const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + 0.5f;
     const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
-    const uint32_t previousIdx = previousID.y * gSensor.renderSize.x + previousID.x;
+    const uint32_t previousIdx = previousID.y * uint32_t(gSensor.renderSize.x) + previousID.x;
 
     bool isPreviousValid = gSampleCount[launchID] > 0 && hlsl::all(previousUV > hlsl::promote<float32_t2>(0.0)) && hlsl::all(previousUV < hlsl::promote<float32_t2>(1.0));
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
@@ -475,6 +479,8 @@ void raygen()
     }
 
     spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
+    // spectral_t color = rcData.preRcNormal * hlsl::promote<spectral_t>(0.5) + hlsl::promote<spectral_t>(0.5);
+    // spectral_t color = final_quo.quotient() * finalLi;
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 

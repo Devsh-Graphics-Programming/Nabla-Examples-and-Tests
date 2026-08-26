@@ -9,7 +9,7 @@
 [shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-	uint linearIdx = ID.y * gSensor.renderSize.x + ID.x;
+	uint32_t linearIdx = ID.y * uint32_t(gSensor.renderSize.x) + ID.x;
     SHashAppendData data;
     LegacyBdaAccessor<SHashAppendData> hashAppendDataPtr = LegacyBdaAccessor<SHashAppendData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf]);
     hashAppendDataPtr.get(linearIdx, data);

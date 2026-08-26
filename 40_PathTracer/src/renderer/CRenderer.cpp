@@ -1179,8 +1179,8 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] = sessionResources.reconnectionData->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] = sessionResources.hashAppend->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] = sessionResources.initialReservoirs->getDeviceAddress();
-       uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = sessionResources.resamplingReservoirs[pingpongIx]->getDeviceAddress();
-       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = sessionResources.resamplingReservoirs[1u - pingpongIx]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf] = sessionResources.resamplingReservoirs[(m_frameIx + 1u) % 2u]->getDeviceAddress();
+       uniforms.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf] = sessionResources.resamplingReservoirs[pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf] = sessionResources.cellStorage[pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] = sessionResources.indices[pingpongIx]->getDeviceAddress();
        uniforms.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf] = sessionResources.checkSum[pingpongIx]->getDeviceAddress();
