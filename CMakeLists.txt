@@ -104,6 +104,7 @@ if(NBL_BUILD_EXAMPLES)
   	add_subdirectory(70_FLIPFluids)
 	add_subdirectory(71_RayTracingPipeline)
 	add_subdirectory(72_CooperativeBinarySearch)
+	add_subdirectory(XX_NewFFT)
 
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(73_GeometryInspector)
