@@ -115,6 +115,9 @@ if(NBL_BUILD_EXAMPLES)
 		add_subdirectory(76_CudaInterop)
 	endif()
 
+if(NBL_BUILD_IMGUI)
+	add_subdirectory(100_PhotonCaustics)
+endif()
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
