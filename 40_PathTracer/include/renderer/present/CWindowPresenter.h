@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #ifndef _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
-#define _NBL_THIS_EXAMPLE_C_BASIC_RWMC_RESOLVER_H_INCLUDED_
+#define _NBL_THIS_EXAMPLE_C_WINDOW_PRESENTER_H_INCLUDED_
 
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -49,6 +49,8 @@ class CWindowPresenter : public IPresenter
 
 		//
 		inline const video::IGPURenderpass* getRenderpass() const {return getSwapchainResources()->getRenderpass();}
+		inline video::IGPURenderpass* getRenderpass() {return getSwapchainResources()->getRenderpass();}
+		inline ui::IWindow* getWindow() {return m_construction.window;}
 
 		//
 		bool irrecoverable() const {return m_construction.surface->irrecoverable() || !m_construction.surface->isWindowOpen();}
