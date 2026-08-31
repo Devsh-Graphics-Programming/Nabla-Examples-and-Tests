@@ -155,8 +155,7 @@ SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf
     const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
     const uint32_t index = baseIndex + sampleIndex * framePixelCount;
     SReservoir reservoir;
-    if (index < framePixelCount * 2u)  // TODO: find out why I need this check, it's only crashing in nsight
-        reservoirBuf.get(index, reservoir);
+    reservoirBuf.get(index, reservoir);
     return reservoir;
 }
 
@@ -164,8 +163,7 @@ void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint
 {
     const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
     const uint32_t index = baseIndex + sampleIndex * framePixelCount;
-    if (index < framePixelCount * 2u)  // TODO: find out why I need this check, it's only crashing in nsight
-        reservoirBuf.set(index, reservoir);
+    reservoirBuf.set(index, reservoir);
 }
 
 // Diagnostic-only NEE-proposal probe takeover
@@ -479,8 +477,6 @@ void raygen()
     }
 
     spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
-    // spectral_t color = rcData.preRcNormal * hlsl::promote<spectral_t>(0.5) + hlsl::promote<spectral_t>(0.5);
-    // spectral_t color = final_quo.quotient() * finalLi;
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 

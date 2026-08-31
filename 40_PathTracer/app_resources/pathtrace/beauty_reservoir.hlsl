@@ -1,6 +1,5 @@
 #include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
-#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 
 #include "common.hlsl"
 #include "next_event_estimator.hlsl"
@@ -518,10 +517,8 @@ void raygen()
 
         // Fill in ReSTIR data
         SReservoir initialReservoir = SReservoir::create(pathState);
-        {
-            LegacyBdaAccessor<SReservoir> reservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
-            reservoirsPtr.set(linearIdx, initialReservoir);
-        }
+        vk::RawBufferStore<SReservoir>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] + linearIdx * sizeof(SReservoir), initialReservoir);
+
         SHashAppendData data;
         data.reservoirIdx = linearIdx;
         data.isValid = 0;
@@ -540,10 +537,7 @@ void raygen()
                 data.inCellIdx = inCellIdx;
             }
         }
-        {
-            LegacyBdaAccessor<SHashAppendData> hashAppendDataPtr = LegacyBdaAccessor<SHashAppendData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf]);
-            hashAppendDataPtr.set(linearIdx, data);
-        }
+        vk::RawBufferStore<SHashAppendData>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::HashAppendDataBuf] + linearIdx * sizeof(SHashAppendData), data);
 
         {
             SReconnectionData rcData;
@@ -557,8 +551,7 @@ void raygen()
             rcData.preRcVertexL = pathState.preRcVertexL;
             rcData.pathLength = pathState.rcVertexLength - 1;
 
-            LegacyBdaAccessor<SReconnectionData> reconnDataPtr = LegacyBdaAccessor<SReconnectionData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf]);
-            reconnDataPtr.set(linearIdx, rcData);
+            vk::RawBufferStore<SReconnectionData>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] + linearIdx * sizeof(SReconnectionData), rcData);
         }
 
         // Every sample feeds both outputs: the fp32 plain running mean (summed here, written to gBeauty
