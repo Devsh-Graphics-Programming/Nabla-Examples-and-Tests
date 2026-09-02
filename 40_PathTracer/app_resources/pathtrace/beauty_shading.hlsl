@@ -155,7 +155,8 @@ SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf
     const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
     const uint32_t index = baseIndex + sampleIndex * framePixelCount;
     SReservoir reservoir;
-    reservoirBuf.get(index, reservoir);
+    if (index < framePixelCount * 2u)
+        reservoirBuf.get(index, reservoir);
     return reservoir;
 }
 
@@ -163,7 +164,8 @@ void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint
 {
     const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
     const uint32_t index = baseIndex + sampleIndex * framePixelCount;
-    reservoirBuf.set(index, reservoir);
+    if (index < framePixelCount * 2u)
+        reservoirBuf.set(index, reservoir);
 }
 
 // Diagnostic-only NEE-proposal probe takeover
@@ -292,7 +294,39 @@ void raygen()
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
 
     // TODO ReSTIR: TEMPORAL REUSE HERE
-    setReservoirs(currentReservoirsPtr, linearIdx, 0, initialReservoir);
+    SReservoir temporalReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0);
+    if (isPreviousValid)
+    {
+        float32_t3 cameraPrePos = cameraPos; // TODO!!!!!!!!!!!!!!!! REALLY BIG TODO: we're not moving the camera yet, but need to address this at some point
+        isPreviousValid &= hlsl::length(temporalReservoir.vPosition - rcData.preRcHitPosition) < 0.1f && hlsl::dot(temporalReservoir.vNormal, rcData.preRcNormal) > 0.8f;
+        float32_t viewDepth = hlsl::length(rcData.preRcHitPosition - cameraPos);
+        float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - cameraPrePos);
+        const float32_t3 randVec = randgen(0u, sampleIndex++);
+        if (viewDepth / prevViewDepth < 0.98f && randVec.z < 0.15f)
+            isPreviousValid = false;
+    }
+
+    temporalReservoir.M = hlsl::clamp(temporalReservoir.M, uint16_t(0u), uint16_t(30u));
+    if (!isPreviousValid || temporalReservoir.age > uint16_t(100u))
+    {
+        temporalReservoir.M = 0;
+    }
+
+    float32_t wSum = temporalReservoir.M * hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * max(0.f, temporalReservoir.weightF);  // evalTargetPdf
+    float32_t throughutCurr = hlsl::dot(initialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);  // evalTargetPdf
+    {
+        const float32_t3 randVec = randgen(0u, sampleIndex++);
+        temporalReservoir.merge(initialReservoir, randVec.z, throughutCurr, wSum);
+    }
+    
+    float32_t throughputNew = hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
+    temporalReservoir.updateFinalWeight(throughputNew, wSum);
+    temporalReservoir.M = hlsl::clamp(temporalReservoir.M, uint16_t(0u), uint16_t(30u));
+    temporalReservoir.age += uint16_t(1u);
+
+    temporalReservoir.vPosition = initialReservoir.vPosition;
+    temporalReservoir.vNormal = initialReservoir.vNormal;
+    setReservoirs(currentReservoirsPtr, linearIdx, 0, temporalReservoir);
 
     // spatial reuse
     SReservoir spatialReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0);
@@ -409,9 +443,9 @@ void raygen()
         nReuse++;
     }
 
-    float z = 0;
-    float chosenWeight = 0.f;
-    float totalWeight = 0.f;
+    float32_t z = 0.f;
+    float32_t chosenWeight = 0.f;
+    float32_t totalWeight = 0.f;
     for (uint32_t i = 0; i < nReuse; i++)
     {
         bool shouldTest = true;
@@ -439,22 +473,22 @@ void raygen()
             isVisible = spirv::hitObjectIsMissEXT(newHit);
         }
         if (isVisible)
-            z += MList[i];
+            z += float32_t(MList[i]);
         else if (i == 0)
             break;
     }
 
-    float tpNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
-    float weight = tpNewS * z;
-    float avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
+    float32_t throughputNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
+    float32_t weight = throughputNewS * z;
+    float32_t avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
     spatialReservoir.M = hlsl::clamp(spatialReservoir.M, uint16_t(0u), uint16_t(100u));
     spatialReservoir.weightF = hlsl::clamp(avgWeight, 0.f, 10.f);
-    spatialReservoir.age++;
+    spatialReservoir.age += uint16_t(1u);
 
     setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
 
     float32_t3 finalDir = hlsl::normalize(spatialReservoir.sPosition - spatialReservoir.vPosition);
-    spectral_t finalLi = spatialReservoir.radiance * hlsl::max(0.f, spatialReservoir.weightF);
+    spectral_t finalLi = spatialReservoir.radiance * hlsl::promote<spectral_t>(spatialReservoir.weightF);
 
     // TODO ReSTIR: check material roughness
     quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);

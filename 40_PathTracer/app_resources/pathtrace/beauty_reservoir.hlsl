@@ -283,9 +283,9 @@ void raygen()
             transparency += rcpSamplesThisFrame;
 
             if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                pathState.prefixPathRadiance += color * pathState.throughput * pathState.prefixThroughput;  // * aov?
+                pathState.prefixPathRadiance = spectral_t(_sample.color);
             else
-                pathState.rcVertexRadiance += color * pathState.throughput; // * aov?
+                pathState.rcVertexRadiance = spectral_t(_sample.color);
         }
         else // trace further rays
         {
@@ -341,14 +341,15 @@ void raygen()
                 // Emission shading: resolve the hit's emitter ID from the per-geometry aux map
                 // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
                 {
+                    const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1);
                     const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-                    spectral_t emission;
-                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, emission);
+                    spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, thp_curr);
+                    color += emission;
                     
                     if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
-                        pathState.prefixPathRadiance += emission * pathState.throughput * pathState.prefixThroughput;
+                        pathState.prefixPathRadiance += emission;
                     else if (pathState.currentVertexIndex > pathState.rcVertexLength)
-                        pathState.rcVertexRadiance += emission * pathState.throughput;
+                        pathState.rcVertexRadiance += emission;
                 }
 
                 const bool canConnect = pathState.isLastVertexRough && pathState.currentVertexIndex == pathState.rcVertexLength;
@@ -358,7 +359,7 @@ void raygen()
                     pathState.rcVertexPosition = closestInfo.hitPos;
                     pathState.rcVertexNormal = shadingNormal;
                     pathState.rcPdf = pathState.pdf;
-                    pathState.throughput = 1.f; // reset at reconnect vertex
+                    pathState.throughput = hlsl::promote<spectral_t>(1.f); // reset at reconnect vertex
                 }
 
                 // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
@@ -400,13 +401,14 @@ void raygen()
                     const float32_t3 randNEE  = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
                     const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
+#if NBL_NEE_CALLABLE
                     // Route forwardNEE through the callable shader stage so its heavy register/i-cache
                     // footprint stays out of raygen. The payload spills to the RT stack across the call.
                     [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]] nbl::this_example::SNeeCallableData cd;
                     cd.hitPos                  = closestInfo.hitPos;
                     cd.shadingNormal           = shadingNormal;
                     cd.V                       = V.getDirection();
-                    cd.throughput              = throughput;
+                    cd.throughput              = hlsl::promote<spectral_t>(1.f);    // mult throughput manually because this doesn't like conditionals for some reaosn
                     cd.randNEE                 = randNEE;
                     cd.randNEE2                = randNEE2;
                     cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;
@@ -420,7 +422,9 @@ void raygen()
                     nee.pickedEmitterID = cd.pickedEmitterID;
                     nee.contribution    = cd.contribution;
                     nee.valid           = cd.valid != 0u;
-
+#else
+                    const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, hlsl::promote<spectral_t>(1.f), randNEE, randNEE2);
+#endif
                     if (nee.valid)
                     {
                         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval shadowPayload;
@@ -431,12 +435,16 @@ void raygen()
 
                         // albedo: NEE direct must be tinted by the surface reflectance, same as the BSDF path.
                         if (shadowHitsEmitter)
-                            color += nee.contribution * albedo;
+                        {
+                            const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
+                            const spectral_t shadowedEmission = nee.contribution * albedo;
+                            color += shadowedEmission;
 
-                        if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                            pathState.prefixPathRadiance += nee.contribution * pathState.throughput * pathState.prefixThroughput;
-                        else
-                            pathState.rcVertexRadiance += nee.contribution * pathState.throughput;
+                            if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                                pathState.prefixPathRadiance += shadowedEmission * thp_curr;
+                            else
+                                pathState.rcVertexRadiance += shadowedEmission * thp_curr;
+                        }
                     }
                 }
 
@@ -458,11 +466,12 @@ void raygen()
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
                     const quotient_weight_type qAw = diffuse.quotientAndWeight(bxdfSample, interaction, cache);
                     const float forwardWeight = qAw.weight();
-                    if (forwardWeight < 0.00000001f)
-                        break;
 
                     pathState.direction = bxdfSample.getL().getDirection();
                     pathState.pdf = forwardWeight;
+                    if (forwardWeight < 0.00000001f)
+                        break;
+
                     spectral_t weight = qAw.quotient();
 
                     // TODO ReSTIR: check roughness greater than threshold and not specular/delta bounce
@@ -476,7 +485,7 @@ void raygen()
                     // }
 
                     throughput = throughput * qAw.quotient() * albedo;
-                    pathState.throughput *= weight;
+                    pathState.throughput = pathState.throughput * qAw.quotient() * albedo;
 
                     if (hlsl::any(pathState.throughput > hlsl::promote<float32_t3>(0.f)) && pathState.currentVertexIndex + 1 < pathState.rcVertexLength)
                     {
@@ -504,10 +513,16 @@ void raygen()
                         // TODO: do something with the payload's reported transparency
                         if (bounceMissed)
                         {
+                            const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
                             const SEnvSample _sample = neeEstimator.shadeEnvmap(bounceRayDir, otherTechniqueHeuristic);
                             color += float16_t3(_sample.color * throughput);
                             aovs = aovs + _sample.aov * aovThroughput;
                             transparency += aovThroughput.transparency;
+
+                            if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                                pathState.prefixPathRadiance += _sample.color * thp_curr;
+                            else
+                                pathState.rcVertexRadiance += _sample.color * thp_curr;
                             break;
                         }
                     }

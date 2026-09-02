@@ -94,9 +94,9 @@ struct SReconnectionData
     uint32_t preRcVertexInstancedGeometryID;
     uint32_t preRcVertexPrimitiveID;
     hlsl::float32_t3 preRcNormal;
-    hlsl::float32_t pathPreRcThroughput;            // indicates path throughput before the preRcVertex
-    hlsl::float32_t pathPreRcRadiance;
-    hlsl::float32_t preRcVertexL;
+    hlsl::float32_t3 pathPreRcThroughput;            // indicates path throughput before the preRcVertex
+    hlsl::float32_t3 pathPreRcRadiance;
+    hlsl::float32_t3 preRcVertexL;
     uint32_t pathLength;
 };
 
@@ -134,8 +134,7 @@ struct SReservoir
         retval.sNormal = state.rcVertexNormal;
         retval.radiance = state.rcVertexRadiance;
 
-        // retval.weightF = hlsl::mix(hlsl::float32_t(0.0), hlsl::float32_t(1.0) / state.pdf, state.pdf > hlsl::float32_t(0.0));
-        retval.weightF = hlsl::mix(0.0f, 0.1f, state.pdf > hlsl::float32_t(0.0));
+        retval.weightF = hlsl::mix(hlsl::float32_t(0.0), hlsl::float32_t(1.0) / state.pdf, state.pdf > hlsl::float32_t(0.0));
         retval.M = uint16_t(1u);
         retval.age = uint16_t(0u);
 
