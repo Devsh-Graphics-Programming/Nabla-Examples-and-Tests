@@ -530,6 +530,25 @@ void raygen()
             }
         }
 
+        {
+            // TODO: when material compiler is here, need a way to either save first hit material for this step or do this step in advance
+            using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+            brdf_t::SCreationParams cParams;
+            cParams.A = 0.f;
+            const brdf_t diffuse = brdf_t::create(cParams);
+
+            typename light_sample_t::ray_dir_info_type rcV;
+            rcV.direction = -pathState.preRcVertexL;
+            isotropic_interaction_t rc_interaction = isotropic_interaction_t::create(rcV, pathState.preRcNormal, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
+
+            typename light_sample_t::ray_dir_info_type rcL;
+            rcL.direction = pathState.rcVertexPosition - pathState.preRcHitPosition;
+            light_sample_t reconnSample = light_sample_t::create(rcL, pathState.preRcNormal);
+            typename brdf_t::isocache_type cache;
+            // TODO probably don't need to assign pathState.pdf elsewhere above
+            pathState.pdf = diffuse.forwardPdf(reconnSample, rc_interaction, cache);
+        }
+
         // Fill in ReSTIR data
         SReservoir initialReservoir = SReservoir::create(pathState);
         vk::RawBufferStore<SReservoir>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf] + linearIdx * sizeof(SReservoir), initialReservoir);

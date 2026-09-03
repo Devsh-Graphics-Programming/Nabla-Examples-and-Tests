@@ -313,10 +313,10 @@ void raygen()
     }
 
     float32_t wSum = temporalReservoir.M * hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * max(0.f, temporalReservoir.weightF);  // evalTargetPdf
-    float32_t throughutCurr = hlsl::dot(initialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);  // evalTargetPdf
+    float32_t throughputCurr = hlsl::dot(initialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);  // evalTargetPdf
     {
         const float32_t3 randVec = randgen(0u, sampleIndex++);
-        temporalReservoir.merge(initialReservoir, randVec.z, throughutCurr, wSum);
+        temporalReservoir.merge(initialReservoir, randVec.z, throughputCurr, wSum);
     }
     
     float32_t throughputNew = hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
@@ -470,7 +470,7 @@ void raygen()
             newPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
             spirv::HitObjectEXT newHit;
             spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, hlsl::numeric_limits<float32_t>::max, newPayload);
-            isVisible = spirv::hitObjectIsMissEXT(newHit);
+            isVisible = !spirv::hitObjectIsMissEXT(newHit);
         }
         if (isVisible)
             z += float32_t(MList[i]);
@@ -497,7 +497,7 @@ void raygen()
         V.direction = finalDir;
         isotropic_interaction_t interaction = isotropic_interaction_t::create(V, rcData.preRcNormal, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
         typename light_sample_t::ray_dir_info_type L;
-        L.direction = rcData.preRcVertexL;
+        L.direction = -rcData.preRcVertexL;
         light_sample_t _sample = light_sample_t::create(L, rcData.preRcNormal);
 
         // TODO set up material properly
@@ -511,6 +511,7 @@ void raygen()
     }
 
     spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
+    // spectral_t color = finalLi;
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 

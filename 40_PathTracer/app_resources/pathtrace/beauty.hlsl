@@ -380,8 +380,7 @@ void raygen()
                 // (instanceCustomIndex is a base, not the emitter ID); NonEmitterCustomIndex if non-emissive.
                 {
                     const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
-                    spectral_t dummy;
-                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput, dummy);
+                    color += neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
                 }
 
                 // TODO: SER point: Russian roulette / termination > Material Flags/Lengths > Material ID
