@@ -1,0 +1,335 @@
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#include "nbl/builtin/hlsl/random/pcg.hlsl"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include "nbl/builtin/hlsl/sampling/warps/spherical.hlsl"
+#include "nbl/builtin/hlsl/sampling/hierarchical_image.hlsl"
+#ifdef PERSISTENT_WORKGROUPS
+#include "nbl/builtin/hlsl/math/morton.hlsl"
+#endif
+
+#include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
+#include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+
+// add these defines (one at a time) using -D argument to dxc
+// #define SPHERE_LIGHT
+// #define TRIANGLE_LIGHT
+// #define RECTANGLE_LIGHT
+
+#include <render_common.hlsl>
+#include <rwmc_global_settings_common.hlsl>
+
+#ifdef RWMC_ENABLED
+#include <nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl>
+#include <render_rwmc_common.hlsl>
+#endif
+
+#ifdef RWMC_ENABLED
+[[vk::push_constant]] RenderRWMCPushConstants pc;
+#else
+[[vk::push_constant]] RenderPushConstants pc;
+#endif
+
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState envSampler;
+
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf;
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
+
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] Texture2D<float> lumaMap;
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] SamplerState lumaSampler;
+[[vk::binding(4, 2)]] Texture2D<float2> warpMap;
+
+[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
+
+#include "example_common.hlsl"
+#include "scene.hlsl"
+#include "rand_gen.hlsl"
+#include "ray_gen.hlsl"
+#include "intersector.hlsl"
+#include "material_system.hlsl"
+#include "next_event_estimator.hlsl"
+#include "accumulator.hlsl"
+#include "pathtracer.hlsl"
+
+using namespace nbl;
+using namespace hlsl;
+
+#ifdef SPHERE_LIGHT
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_SPHERE;
+#endif
+#ifdef TRIANGLE_LIGHT
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
+#endif
+#ifdef RECTANGLE_LIGHT
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_RECTANGLE;
+#endif
+#ifdef ENVMAP_LIGHT
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_NONE;
+#endif
+
+NBL_CONSTEXPR path_tracing::PTPolygonMethod POLYGON_METHOD = path_tracing::PPM_SOLID_ANGLE;
+
+int32_t2 getCoordinates()
+{
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
+    return int32_t2(glsl::gl_GlobalInvocationID().x % width, glsl::gl_GlobalInvocationID().x / width);
+}
+
+float32_t2 getTexCoords()
+{
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
+    int32_t2 iCoords = getCoordinates();
+    return float32_t2(float(iCoords.x) / width, 1.0 - float(iCoords.y) / height);
+}
+
+using spectral_t = vector<float, 3>;
+using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
+using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
+using sample_t = bxdf::SLightSample<ray_dir_info_t>;
+using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
+using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
+using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
+
+using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
+using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
+
+using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
+using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;
+using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
+using iri_conductor_bxdf_type = bxdf::reflection::SIridescent<iso_microfacet_config_t>;
+using iri_dielectric_bxdf_type = bxdf::transmission::SIridescent<iso_microfacet_config_t>;
+
+using ray_type = Ray<float>;
+
+#ifdef ENVMAP_LIGHT
+struct EnvmapAccessor
+{
+  template <typename ValT, typename IndexT 
+    NBL_FUNC_REQUIRES(
+      concepts::same_as<IndexT, float32_t2> && 
+      concepts::same_as<ValT, spectral_t>
+    )
+  void get(IndexT index, NBL_REF_ARG(ValT) val)
+  {
+    val = envMap.SampleLevel(envSampler, index, 0);
+  }
+};
+
+struct LuminanceAccessor
+{
+  template <typename ValT, typename IndexT 
+    NBL_FUNC_REQUIRES(
+      concepts::same_as<IndexT, float32_t2> && 
+      concepts::same_as<ValT, float32_t>
+    )
+  void get(IndexT index, NBL_REF_ARG(ValT) val)
+  {
+    val = lumaMap.SampleLevel(lumaSampler, index, 0);
+  }
+
+};
+
+struct WarpAccessor
+{
+     matrix<float, 4, 2> sampleUvs(uint32_t2 sampleCoord) NBL_CONST_MEMBER_FUNC
+     {
+        const float32_t2 dir0 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(0, 1), 0));
+        const float32_t2 dir1 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 1), 0));
+        const float32_t2 dir2 = warpMap.Load(int32_t3(sampleCoord + uint32_t2(1, 0), 0));
+        const float32_t2 dir3 = warpMap.Load(int32_t3(sampleCoord, 0));
+        return matrix<float, 4, 2>(
+          dir0,
+          dir1,
+          dir2,
+          dir3
+        );
+     }
+};
+
+using hierarchical_image_type = sampling::HierarchicalImage<float, LuminanceAccessor, WarpAccessor, sampling::warp::Spherical>;
+using light_type = EnvmapLight<EnvmapAccessor, hierarchical_image_type>;
+#else
+using light_type = Light<spectral_t>;
+#endif
+
+using bxdfnode_type = BxDFNode<spectral_t>;
+using scene_type = Scene<LIGHT_TYPE>;
+using randgen_type = RandGen::Uniform3D<Xoroshiro64Star>;
+using raygen_type = RayGen::Basic<ray_type>;
+using intersector_type = Intersector<ray_type, scene_type>;
+using material_system_type = MaterialSystem<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, iri_conductor_bxdf_type, iri_dielectric_bxdf_type, scene_type>;
+
+#ifdef ENVMAP_LIGHT
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_ENVMAP, LIGHT_TYPE, POLYGON_METHOD>;
+#else
+using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
+#endif
+
+#ifdef RWMC_ENABLED
+using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
+#else
+using accumulator_type = Accumulator::DefaultAccumulator<float32_t3>;
+#endif
+
+using pathtracer_type = path_tracing::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
+
+#ifdef SPHERE_LIGHT
+static const Shape<float, PST_SPHERE> spheres[scene_type::SCENE_LIGHT_COUNT] = {
+    Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+};
+#endif
+
+#ifdef TRIANGLE_LIGHT
+static const Shape<float, PST_TRIANGLE> triangles[scene_type::SCENE_LIGHT_COUNT] = {
+    Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+};
+#endif
+
+#ifdef RECTANGLE_LIGHT
+static const Shape<float, PST_RECTANGLE> rectangles[scene_type::SCENE_LIGHT_COUNT] = {
+    Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+};
+#endif
+
+#ifdef ENVMAP_LIGHT
+static const EnvmapAccessor envmapAccessor;
+static const LuminanceAccessor luminanceAccessor;
+static const WarpAccessor warpAccessor;
+static const hierarchical_image_type hierarchicalImage = hierarchical_image_type::create(luminanceAccessor, warpAccessor, uint32_t2(2048, 1024), pc.avgLuma);
+static const light_type light = light_type::create(envmapAccessor, hierarchicalImage);
+#else
+static const light_type light =
+light_type::create(LightEminence,
+#ifdef SPHERE_LIGHT
+  scene_type::SCENE_SPHERE_COUNT,
+#else
+  0u,
+#endif
+  IM_PROCEDURAL, LIGHT_TYPE);
+#endif
+
+static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
+    bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
+    bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
+    bxdfnode_type::create(MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
+    bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
+    bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+    bxdfnode_type::create(MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+    bxdfnode_type::create(MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5)),
+    bxdfnode_type::create(MaterialType::IRIDESCENT_CONDUCTOR, false, 0.0, 505.0, spectral_t(1.39,1.39,1.39), spectral_t(1.2,1.2,1.2), spectral_t(0.5,0.5,0.5)),
+    bxdfnode_type::create(MaterialType::IRIDESCENT_DIELECTRIC, false, 0.0, 400.0, spectral_t(1.7,1.7,1.7), spectral_t(1.0,1.0,1.0), spectral_t(0,0,0))
+};
+
+RenderPushConstants retireveRenderPushConstants()
+{
+#ifdef RWMC_ENABLED
+    return pc.renderPushConstants;
+#else
+    return pc;
+#endif
+}
+
+[numthreads(RenderWorkgroupSize, 1, 1)]
+void main(uint32_t3 threadID : SV_DispatchThreadID)
+{
+    const RenderPushConstants renderPushConstants = retireveRenderPushConstants();
+
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
+#ifdef PERSISTENT_WORKGROUPS
+    uint32_t virtualThreadIndex;
+    [loop]
+    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * RenderWorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * RenderWorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
+    {
+        virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
+        const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);
+#else
+    const int32_t2 coords = getCoordinates();
+#endif
+    float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
+    texCoord.y = 1.0 - texCoord.y;
+
+    if (false == (all((int32_t2)0 < coords)) && all(int32_t2(width, height) < coords)) {
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
+        return;
+#endif
+    }
+
+    if (((renderPushConstants.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((renderPushConstants.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
+    {
+        float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
+        outImage[uint3(coords.x, coords.y, 0)] = pixelCol;
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
+        return;
+#endif
+    }
+
+    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
+
+    // set up scene
+    scene_type scene;
+#ifdef SPHERE_LIGHT
+    scene.light_spheres[0] = spheres[0];
+#endif
+#ifdef TRIANGLE_LIGHT
+    scene.light_triangles[0] = triangles[0];
+#endif
+#ifdef RECTANGLE_LIGHT
+    scene.light_rectangles[0] = rectangles[0];
+#endif
+
+    // set up path tracer
+    pathtracer_type pathtracer;
+    pathtracer.randGen = randgen_type::construct(scramblebuf[coords].rg);     // TODO concept this create
+
+    uint2 scrambleDim;
+    scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
+    float32_t2 pixOffsetParam = (float2)1.0 / float2(scrambleDim);
+
+    float32_t4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    float32_t3 camPos;
+    {
+        float4 tmp = mul(renderPushConstants.invMVP, NDC);
+        camPos = tmp.xyz / tmp.w;
+        NDC.z = 1.0;
+    }
+    
+    scene.updateLight(renderPushConstants.generalPurposeLightMatrix);
+    pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, renderPushConstants.invMVP);
+    pathtracer.nee.lights[0] = light;
+    pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
+    pathtracer.materialSystem.bxdfs = bxdfs;
+    pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
+    pathtracer.pSampleBuffer = renderPushConstants.pSampleSequence;
+
+#ifdef RWMC_ENABLED
+    const float32_t2 unpacked = hlsl::unpackHalf2x16(pc.packedSplattingParams);
+    rwmc::SplattingParameters splattingParameters = rwmc::SplattingParameters::create(unpacked[0], unpacked[1], CascadeCount);
+    accumulator_type accumulator = accumulator_type::create(splattingParameters);
+#else
+    accumulator_type accumulator = accumulator_type::create();
+#endif
+    // path tracing loop
+    for(int i = 0; i < renderPushConstants.sampleCount; ++i)
+        pathtracer.sampleMeasure(i, renderPushConstants.depth, scene, accumulator);
+
+#ifdef RWMC_ENABLED
+    for (uint32_t i = 0; i < CascadeCount; ++i)
+        cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.data[i], 1.0f);
+#else
+    outImage[uint3(coords.x, coords.y, 0)] = float32_t4(accumulator.accumulation, 1.0);
+#endif
+
+#ifdef PERSISTENT_WORKGROUPS
+    }
+#endif
+}

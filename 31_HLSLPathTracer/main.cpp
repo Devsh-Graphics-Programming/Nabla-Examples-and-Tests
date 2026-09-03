@@ -11,6 +11,8 @@
 #include "nbl/this_example/transform.hpp"
 #include "nbl/this_example/render_variant_strings.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/EnvmapImportanceSampling/CEnvmapImportanceSampling.h"
+#include "nbl/builtin/hlsl/surface_transform.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
@@ -59,12 +61,55 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
+<<<<<<< HEAD
+		enum E_LIGHT_GEOMETRY : uint8_t
+		{
+			ELG_SPHERE,
+			// ELG_TRIANGLE,
+			// ELG_RECTANGLE,
+			ELG_ENVMAP,
+			ELG_COUNT
+		};
+
+		enum E_RENDER_MODE : uint8_t
+		{
+			ERM_GLSL,
+			ERM_HLSL,
+			// ERM_CHECKERED,
+			ERM_COUNT
+		};
+
+		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
+		constexpr static inline uint32_t MaxFramesInFlight = 5;
+		constexpr static inline uint32_t MaxDescriptorCount = 256u;
+		constexpr static inline uint8_t MaxUITextureCount = 1u;
+		static inline std::string DefaultImagePathsFile = "envmap/envmap_2.exr";
+		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
+		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
+		    "SPHERE_LIGHT",
+        "ENVMAP_LIGHT",
+		};
+		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
+		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
+
+		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
+			"ELG_SPHERE",
+      "ELG_ENVMAP",
+		};
+
+		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
+			"ERM_GLSL",
+			"ERM_HLSL"
+		};
+=======
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		static constexpr std::string_view BuildConfigName = PATH_TRACER_BUILD_CONFIG_NAME;
 		static constexpr uint32_t CiFramesBeforeCapture = 3u;
 		static constexpr std::string_view RuntimeConfigFilename = "path_tracer.runtime.json";
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
+>>>>>>> master
 
 	public:
 		inline HLSLComputePathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -262,7 +307,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return gpuDS;
 					};
 
+<<<<<<< HEAD
+				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 4> descriptorSet2Bindings = {};
+=======
 				std::array<ICPUDescriptorSetLayout::SBinding, 4> descriptorSetBindings = {};
+>>>>>>> master
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSetBindings[0] = {
@@ -289,9 +339,40 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
+<<<<<<< HEAD
+
+				descriptorSet2Bindings[0] = {
+					.binding = 0u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSet2Bindings[1] = {
+					.binding = 2u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+=======
 				descriptorSetBindings[3] = {
 					.binding = 3u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+>>>>>>> master
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSet2Bindings[2] = {
+				  .binding = 3u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1u,
+					.immutableSamplers = nullptr
+				};
+				descriptorSet2Bindings[3] = {
+				  .binding = 4u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -307,7 +388,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.immutableSamplers = &defaultSampler
 				};
 
+<<<<<<< HEAD
+				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
+				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet2Bindings);
+=======
 				auto cpuDescriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSetBindings);
+>>>>>>> master
 
 				auto gpuDescriptorSetLayout = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout);
 				auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(presentDescriptorSetBindings);
@@ -327,6 +413,181 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const uint32_t deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
 				m_requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::log2(float(deviceMinSubgroupSize)));
 
+<<<<<<< HEAD
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
+					// The down-cast should not fail!
+					assert(source);
+
+					auto compiler = make_smart_refctd_ptr<asset::CGLSLCompiler>(smart_refctd_ptr(m_system));
+					CGLSLCompiler::SOptions options = {};
+					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+					options.spirvOptimizer = opt.get();
+#endif
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+					options.preprocessorOptions.logger = m_logger.get();
+					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+
+					const IShaderCompiler::SMacroDefinition persistentDefine = { "PERSISTENT_WORKGROUPS", "1" };
+					if (persistentWorkGroups)
+						options.preprocessorOptions.extraDefines = { &persistentDefine, &persistentDefine + 1 };
+
+					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+
+					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
+					if (!shader)
+					{
+						m_logger->log("GLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
+
+					return shader;
+				};
+
+				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.workingDirectory = localInputCWD;
+					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+					{
+						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
+
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
+					// The down-cast should not fail!
+					assert(source);
+
+					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+					CHLSLCompiler::SOptions options = {};
+					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+					options.spirvOptimizer = opt.get();
+#endif
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+					options.preprocessorOptions.logger = m_logger.get();
+					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+					
+					core::vector<IShaderCompiler::SMacroDefinition> defines;
+					defines.reserve(3);
+					if (!defineMacro.empty())
+						defines.push_back({ defineMacro, "" });
+					if(persistentWorkGroups)
+						defines.push_back({ "PERSISTENT_WORKGROUPS", "1" });
+					if(rwmc)
+						defines.push_back({ "RWMC_ENABLED", "" });
+
+					options.preprocessorOptions.extraDefines = defines;
+
+					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+					
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
+					if (!shader)
+					{
+						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
+
+					return shader;
+				};
+
+				const auto deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
+				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				{
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = pipelineLayout;
+					params.shader.shader = shader;
+					params.shader.entryPoint = "main";
+					params.shader.entries = nullptr;
+					params.cached.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+
+					return params;
+				};
+
+				// Create compute pipelines
+				{
+					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++)
+					{
+						const nbl::asset::SPushConstantRange pcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(RenderPushConstants)
+						};
+						auto ptPipelineLayout = m_device->createPipelineLayout(
+							{ &pcRange, 1 },
+							core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+							nullptr,
+							core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+							nullptr
+						);
+						if (!ptPipelineLayout)
+							return logFail("Failed to create Pathtracing pipeline layout");
+
+						const nbl::asset::SPushConstantRange rwmcPcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(RenderRWMCPushConstants)
+						};
+						auto rwmcPtPipelineLayout = m_device->createPipelineLayout(
+							{ &rwmcPcRange, 1 },
+							core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+							nullptr,
+							core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+							nullptr
+						);
+						if (!rwmcPtPipelineLayout)
+							return logFail("Failed to create RWMC Pathtracing pipeline layout");
+
+						{
+							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
+							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+							
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
+								return logFail("Failed to create HLSL compute pipeline!\n");
+						}
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+						// 	
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
+						// 		return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
+						// }
+						//
+						// // rwmc pipelines
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+						//
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
+						// 		return logFail("Failed to create HLSL RWMC compute pipeline!\n");
+						// }
+						// {
+						// 	auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
+						// 	auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+						//
+						// 	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
+						// 		return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
+						// }
+					}
+				}
+
+				// Create resolve pipelines
+=======
+>>>>>>> master
 				{
 					const nbl::asset::SPushConstantRange pcRange = {
 						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -666,6 +927,114 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				cascade->setObjectDebugName("Cascade");
 				m_cascadeView = createHDRIImageView(cascade, CascadeCount, IGPUImageView::ET_2D_ARRAY);
 				m_cascadeView->setObjectDebugName("Cascade View");
+<<<<<<< HEAD
+
+        // Create resources related to envmap importance sampling
+        {
+          ext::envmap_importance_sampling::EnvmapSampler::SCreationParameters params = {};
+          params.assetManager = m_assetMgr;
+          params.utilities = m_utils;
+          params.envMap = m_envMapView;
+          m_envmapImportanceSampling = nbl::ext::envmap_importance_sampling::EnvmapSampler::create(std::move(params));
+					m_envmapImportanceSampling->computeWarpMap(getGraphicsQueue());
+        }
+
+				// TODO: change cascade layout to general
+			}
+
+			// create sequence buffer view
+			{
+				// TODO: do this better use asset manager to get the ICPUBuffer from `.bin`
+				auto createBufferFromCacheFile = [this](
+					system::path filename,
+					size_t bufferSize,
+					void *data,
+					smart_refctd_ptr<ICPUBuffer>& buffer
+				) -> std::pair<smart_refctd_ptr<IFile>, bool>
+				{
+					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
+					ISystem::future_t<size_t> owenSamplerFileReadFuture;
+					size_t owenSamplerFileBytesRead;
+
+					m_system->createFile(owenSamplerFileFuture, localOutputCWD / filename, IFile::ECF_READ);
+					smart_refctd_ptr<IFile> owenSamplerFile;
+
+					if (owenSamplerFileFuture.wait())
+					{
+						owenSamplerFileFuture.acquire().move_into(owenSamplerFile);
+						if (!owenSamplerFile)
+							return { nullptr, false };
+
+						owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, bufferSize);
+						if (owenSamplerFileReadFuture.wait())
+						{
+							owenSamplerFileReadFuture.acquire().move_into(owenSamplerFileBytesRead);
+
+							if (owenSamplerFileBytesRead < bufferSize)
+							{
+								buffer = asset::ICPUBuffer::create({ sizeof(uint32_t) * bufferSize });
+								return { owenSamplerFile, false };
+							}
+
+							buffer = asset::ICPUBuffer::create({ { sizeof(uint32_t) * bufferSize }, data });
+						}
+					}
+
+					return { owenSamplerFile, true };
+				};
+				auto writeBufferIntoCacheFile = [this](smart_refctd_ptr<IFile> file, size_t bufferSize, void* data)
+				{
+					ISystem::future_t<size_t> owenSamplerFileWriteFuture;
+					size_t owenSamplerFileBytesWritten;
+
+					file->write(owenSamplerFileWriteFuture, data, 0, bufferSize);
+					if (owenSamplerFileWriteFuture.wait())
+						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
+				};
+
+				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
+				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
+				using sequence_type = sampling::QuantizedSequence<uint32_t2, 3>;
+				std::array<sequence_type, bufferSize> data = {};
+				smart_refctd_ptr<ICPUBuffer> sampleSeq;
+
+				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
+				if (!cacheBufferResult.second)
+				{
+					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
+
+					ICPUBuffer::SCreationParams params = {};
+					params.size = quantizedDimensions * MaxBufferSamples * sizeof(sequence_type);
+					sampleSeq = ICPUBuffer::create(std::move(params));
+
+					auto out = reinterpret_cast<sequence_type*>(sampleSeq->getPointer());
+					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						{
+							const uint32_t quant_dim = dim / 3u;
+							const uint32_t offset = dim % 3u;
+							auto& seq = out[i * quantizedDimensions + quant_dim];
+							const uint32_t sample = sampler.sample(dim, i);
+							seq.set(offset, sample);
+						}
+					if (cacheBufferResult.first)
+						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
+				}
+
+				IGPUBuffer::SCreationParams params = {};
+				params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				params.size = bufferSize;
+
+				// we don't want to overcomplicate the example with multi-queue
+				m_utils->createFilledDeviceLocalBufferOnDedMem(
+					SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
+					std::move(params),
+					sampleSeq->getPointer()
+				).move_into(m_sequenceBuffer);
+
+				m_sequenceBuffer->setObjectDebugName("Sequence buffer");
+=======
+>>>>>>> master
 			}
 
 			// Update Descriptors
@@ -697,23 +1066,34 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 7> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+
 				writeDSInfos[1].desc = m_cascadeView;
 				writeDSInfos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+
 				writeDSInfos[2].desc = m_envMapView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
 				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
 				writeDSInfos[3].desc = m_scrambleView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
 				writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
 				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[4].desc = m_outImgView;
-				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
+				writeDSInfos[4].desc = m_envmapImportanceSampling->getLumaMapView();
+				writeDSInfos[4].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				writeDSInfos[5].desc = m_envmapImportanceSampling->getWarpMapView();
+				writeDSInfos[5].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				writeDSInfos[6].desc = m_outImgView;
+				writeDSInfos[6].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 7> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet.get(),
 					.binding = 2,
@@ -743,11 +1123,25 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.info = &writeDSInfos[3]
 				};
 				writeDescriptorSets[4] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 3,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 4,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
+				};
+				writeDescriptorSets[6] = {
 					.dstSet = m_presentDescriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
-					.info = &writeDSInfos[4]
+					.info = &writeDSInfos[6]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -1083,7 +1477,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						);
 					}
 
+<<<<<<< HEAD
+					if (E_LIGHT_GEOMETRY::ELG_ENVMAP == PTPipeline)
+=======
 					if (E_LIGHT_GEOMETRY::ELG_SPHERE == guiControlled.PTPipeline)
+>>>>>>> master
 					{
 						m_transformParams.allowedOp = ImGuizmo::OPERATION::TRANSLATE | ImGuizmo::OPERATION::SCALEU;
 						m_transformParams.isSphere = true;
@@ -1095,7 +1493,11 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					}
 					EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &m_lightModelMatrix[0][0], m_transformParams);
 
+<<<<<<< HEAD
+					if (E_LIGHT_GEOMETRY::ELG_ENVMAP == PTPipeline)
+=======
 					if (E_LIGHT_GEOMETRY::ELG_SPHERE == guiControlled.PTPipeline)
+>>>>>>> master
 					{
 						// keep uniform scale for sphere
 						float32_t uniformScale = (m_lightModelMatrix[0][0] + m_lightModelMatrix[1][1] + m_lightModelMatrix[2][2]) / 3.0f;
@@ -1255,7 +1657,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						},
 						.oldLayout = IImage::LAYOUT::UNDEFINED,
 						.newLayout = IImage::LAYOUT::GENERAL
-					}
+					},
 				};
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 			}
@@ -1644,8 +2046,19 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			const auto assets = assetBundle.getContents();
 			if (assets.empty())
 			{
+<<<<<<< HEAD
+				memcpy(&rwmcPushConstants.renderPushConstants.invMVP, invMVP.pointer(), sizeof(rwmcPushConstants.renderPushConstants.invMVP));
+				rwmcPushConstants.renderPushConstants.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+				rwmcPushConstants.renderPushConstants.depth = depth;
+				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				rwmcPushConstants.renderPushConstants.avgLuma = m_envmapImportanceSampling->getAvgLuma();
+				float32_t2 packParams = float32_t2(rwmcBase, rwmcStart);
+				rwmcPushConstants.packedSplattingParams = hlsl::packHalf2x16(packParams);
+=======
 				m_logger->log("Could not load precompiled shader: %s", ILogger::ELL_ERROR, key.c_str());
 				return nullptr;
+>>>>>>> master
 			}
 
 			auto shader = IAsset::castDown<IShader>(assets[0]);
@@ -1936,8 +2349,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			if (m_sceneScreenshotExitAfterCapture)
 			{
+<<<<<<< HEAD
+				memcpy(&pc.invMVP, invMVP.pointer(), sizeof(pc.invMVP));
+				pc.generalPurposeLightMatrix = hlsl::float32_t3x4(transpose(m_lightModelMatrix));
+				pc.sampleCount = spp;
+				pc.depth = depth;
+				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
+				pc.avgLuma = m_envmapImportanceSampling->getAvgLuma();
+=======
 				m_ciScreenshotCaptured = true;
 				requestExit();
+>>>>>>> master
 			}
 			m_sceneScreenshotExitAfterCapture = false;
 		}
@@ -2843,6 +3265,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 
+		smart_refctd_ptr<ext::envmap_importance_sampling::EnvmapSampler> m_envmapImportanceSampling;
+
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 		SRenderPipelineStorage m_renderPipelines;
@@ -2903,6 +3327,25 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		uint16_t gcIndex = {};
 
+<<<<<<< HEAD
+		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
+		float viewWidth = 10.f;
+		float camYAngle = 165.f / 180.f * 3.14159f;
+		float camXAngle = 32.f / 180.f * 3.14159f;
+		int PTPipeline = E_LIGHT_GEOMETRY::ELG_ENVMAP;
+		int renderMode = E_RENDER_MODE::ERM_HLSL;
+		int spp = 32;
+		int depth = 3;
+		float rwmcMinReliableLuma;
+		float rwmcKappa;
+		float rwmcStart;
+		float rwmcBase;
+		bool usePersistentWorkGroups = false;
+		bool useRWMC = false;
+		RenderRWMCPushConstants rwmcPushConstants;
+		RenderPushConstants pc;
+		ResolvePushConstants resolvePushConstants;
+=======
 		struct GUIControllables
 		{
 			float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
@@ -2917,6 +3360,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			bool useRWMC = false;
 		};
 		GUIControllables guiControlled;
+>>>>>>> master
 
 		hlsl::float32_t4x4 m_lightModelMatrix = {
 			0.3f, 0.0f, 0.0f, 0.0f,

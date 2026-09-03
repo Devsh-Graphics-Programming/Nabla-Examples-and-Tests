@@ -36,7 +36,8 @@ struct RenderPushConstants
     }
 
     uint64_t pSampleSequence;
-	float32_t4x4 invMVP;
+    float avgLuma;
+	  float32_t4x4 invMVP;
     float32_t3 lightX;
     float32_t3 lightY;
     float32_t lightZscale;
