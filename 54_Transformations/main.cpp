@@ -268,7 +268,7 @@ class TransformationApp : public ApplicationBase
 			ssboCreationParams.size = ssboSz;
 
 			auto ssbo_buf = device->createBuffer(std::move(ssboCreationParams));
-			device->allocate(ssbo_buf->getMemoryReqs(), ssbo_buf.get());
+			device->allocate(ssbo_buf->getMemoryReqs(), { ssbo_buf.get() });
 
 			asset::SBufferRange<video::IGPUBuffer> propBufs[transform_tree_t::property_pool_t::PropertyCount];
 			for (uint32_t i=0u; i<transform_tree_t::property_pool_t::PropertyCount; ++i)
@@ -458,7 +458,7 @@ class TransformationApp : public ApplicationBase
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 				scratchParams.size = utils->getDefaultPropertyPoolHandler()->getMaxScratchSize();
 				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createBuffer(std::move(scratchParams)) };
-				device->allocate(scratch.buffer->getMemoryReqs(), scratch.buffer.get());
+				device->allocate(scratch.buffer->getMemoryReqs(), { scratch.buffer.get() });
 				scratch.buffer->setObjectDebugName("Scratch Buffer");
 				{
 					video::CPropertyPoolHandler::TransferRequest transfers[scene::ITransformTreeManager::TransferCount];
@@ -531,7 +531,7 @@ class TransformationApp : public ApplicationBase
 			colorBufCreationParams.size = ColorBufSz;
 
 			auto gpuColorBuf = device->createBuffer(std::move(colorBufCreationParams));
-			device->allocate(gpuColorBuf->getMemoryReqs(), gpuColorBuf.get());
+			device->allocate(gpuColorBuf->getMemoryReqs(), { gpuColorBuf.get() });
 			core::vectorSIMDf colors[ObjectCount]{
 				core::vectorSIMDf(0.f, 0.f, 1.f),
 				core::vectorSIMDf(0.f, 1.f, 0.f),
@@ -636,9 +636,9 @@ class TransformationApp : public ApplicationBase
 			nodeIdsBufParams.size = std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull);
 			nodeIdsBuf = device->createBuffer(std::move(nodeIdsBufParams));
 
-			device->allocate(modRangesBuf->getMemoryReqs(), modRangesBuf.get());
-			device->allocate(relTformModsBuf->getMemoryReqs(), relTformModsBuf.get());
-			device->allocate(nodeIdsBuf->getMemoryReqs(), nodeIdsBuf.get());
+			device->allocate(modRangesBuf->getMemoryReqs(), { modRangesBuf.get() });
+			device->allocate(relTformModsBuf->getMemoryReqs(), { relTformModsBuf.get() });
+			device->allocate(nodeIdsBuf->getMemoryReqs(), { nodeIdsBuf.get() });
 			{
 				//update `nodeIdsBuf`
 				uint32_t countAndIds[1u + ObjectCount];

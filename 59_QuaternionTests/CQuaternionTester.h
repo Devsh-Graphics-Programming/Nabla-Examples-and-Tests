@@ -159,7 +159,7 @@ private:
             nbl::hlsl::testing::vectorLengthCompare(expectedVal, testVal, maxAbsoluteDifference, maxRelativeDifference))
             return true;
 
-        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType, maxRelativeDifference, maxAbsoluteDifference);
         return false;
     }
 
@@ -167,10 +167,10 @@ private:
     bool verifyVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
         const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAllowedDifference, const bool testOrientation)
     {
-        if (compareVectorTestValues<T>(expectedVal, testVal, maxAllowedDifference, testOrientation))
+		if (compareVectorTestValues<T>(expectedVal, testVal, maxAllowedDifference, testOrientation))
             return true;
 
-        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType);
+        printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType, maxAllowedDifference, 0.0f);
         return false;
     }
 

@@ -71,12 +71,10 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(29_Arithmetic2Bench)
 	# add_subdirectory(36_CUDAInterop)
 
-	# Showcase compute pathtracing
-	add_subdirectory(30_ComputeShaderPathTracer)
-
 	add_subdirectory(31_HLSLPathTracer)
 	add_subdirectory(34_DebugDraw)
 
+	add_subdirectory(37_HLSLSamplingTests)
 	add_subdirectory(38_EXRSplit)
 	if (NBL_BUILD_MITSUBA_LOADER)
 		# if (NBL_BUILD_OPTIX)
@@ -99,7 +97,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(64_EmulatedFloatTest)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
-	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
+	add_subdirectory(66_HLSLBxDFTests)
 	add_subdirectory(67_RayQueryGeometry)
 	add_subdirectory(68_JpegLoading)
 
@@ -113,6 +111,14 @@ if(NBL_BUILD_EXAMPLES)
 
 	add_subdirectory(74_QuantizedSequenceTests)
 	add_subdirectory(75_EnvmapImportanceSamplingTest)
+	add_subdirectory(75_ImageUploadBenchmark)
+	if (NBL_COMPILE_WITH_CUDA)
+		add_subdirectory(76_CudaInterop)
+	endif()
+
+if(NBL_BUILD_IMGUI)
+	add_subdirectory(100_PhotonCaustics)
+endif()
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)

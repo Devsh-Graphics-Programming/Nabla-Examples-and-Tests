@@ -5,7 +5,7 @@ endif()
 
 # keep the sources here for a while so we can quickly iterate
 set(NBL_EXTRA_SOURCES
-	"${NBL_ROOT_PATH}/src/nbl/asset/material_compiler3/CFrontendIR.cpp"
+#	"${NBL_ROOT_PATH}/src/nbl/asset/material_compiler3/CFrontendIR.cpp"
 )
 
 nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

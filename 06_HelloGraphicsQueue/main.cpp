@@ -81,7 +81,7 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 				// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
 				reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-				outputBufferAllocation = m_device->allocate(reqs, outputImageBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
+				outputBufferAllocation = m_device->allocate(reqs, { outputImageBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE });
 				if (!outputBufferAllocation.isValid())
 					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			}
@@ -379,7 +379,7 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 			auto img = m_device->createImage(std::move(imgParams));
 
 			// Dedicated allocation for an image, no need to bind memory later.
-			auto allocation = m_device->allocate(img->getMemoryReqs(), img.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+			auto allocation = m_device->allocate(img->getMemoryReqs(), { img.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
 			IDeviceMemoryAllocator::SAllocateInfo;
 			if (!allocation.isValid())
 			{

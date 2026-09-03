@@ -227,6 +227,13 @@ public:
 	FFTBloomApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	virtual SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getPreferredDeviceFeatures();
+		retval.pipelineExecutableInfo = true;
+		return retval;
+	}
+
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// Remember to call the base class initialization!
@@ -551,7 +558,7 @@ public:
 
 			auto memReqs = outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuMem = m_device->allocate(memReqs, outImg.get());
+			auto gpuMem = m_device->allocate(memReqs, { outImg.get() });
 
 			dstImgViewInfo.image = outImg;
 			dstImgViewInfo.subUsages = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
@@ -609,8 +616,8 @@ public:
 				auto colMemReqs = m_colMajorBuffer[i]->getMemoryReqs();
 				rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-				auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto gpuRowMem = m_device->allocate(rowMemReqs, { m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT });
+				auto gpuColMem = m_device->allocate(colMemReqs, { m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT });
 
 				m_rowMajorBufferAddress[i] = m_rowMajorBuffer[i].get()->getDeviceAddress();
 				m_colMajorBufferAddress[i] = m_colMajorBuffer[i].get()->getDeviceAddress();
@@ -679,7 +686,7 @@ public:
 
 					auto memReqs = kernelImg->getMemoryReqs();
 					memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					auto gpuMem = m_device->allocate(memReqs, kernelImg.get());
+					auto gpuMem = m_device->allocate(memReqs, { kernelImg.get() });
 
 					video::IGPUImageView::SCreationParams viewParams;
 					viewParams.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(0u);
@@ -730,11 +737,26 @@ public:
 				// Normalization doesn't require full subgroups
 				params[i].cached.requireFullSubgroups = bool(2-i);
 				params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+				if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+				{
+					params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+					params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+				}
 			}
-			
+
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
 			if(!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 				return logFail("Failed to create Compute Pipelines!\n");
+
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				const char* kernelNames[] = {"Kernel First Axis FFT", "Kernel Second Axis FFT", "Kernel Spectrum Normalize"};
+				for (auto i = 0u; i < 3; i++)
+				{
+					auto report = system::to_string(pipelines[i]->getExecutableInfo());
+					m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, kernelNames[i], report.c_str());
+				}
+			}
 
 			// Push Constants - only need to specify BDAs here
 			PushConstantData pushConstants;
@@ -933,11 +955,26 @@ public:
 			params[i].shader.entryPoint = "main";
 			params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			params[i].cached.requireFullSubgroups = true;
+			if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+			{
+				params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_STATISTICS;
+				params[i].flags |= IGPUComputePipeline::SCreationParams::FLAGS::CAPTURE_INTERNAL_REPRESENTATIONS;
+			}
 		}
 
 		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
 		if (!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 			return logFail("Failed to create Compute Pipelines!\n");
+
+		if (m_device->getEnabledFeatures().pipelineExecutableInfo)
+		{
+			const char* imageNames[] = {"Image First Axis FFT", "FFT Convolve IFFT", "Image First Axis IFFT"};
+			for (auto i = 0u; i < 3; i++)
+			{
+				auto report = system::to_string(pipelines[i]->getExecutableInfo());
+				m_logger->log("%s Pipeline Executable Report:\n%s", ILogger::ELL_PERFORMANCE, imageNames[i], report.c_str());
+			}
+		}
 
 		m_firstAxisFFTPipeline = pipelines[0];
 		m_lastAxisFFT_convolution_lastAxisIFFTPipeline = pipelines[1];

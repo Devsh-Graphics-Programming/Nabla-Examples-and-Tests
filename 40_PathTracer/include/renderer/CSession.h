@@ -15,7 +15,7 @@ namespace nbl::this_example
 {
 class CScene;
 
-class CSession final : public core::IReferenceCounted, public core::InterfaceUnmovable
+class CSession final : public core::IReferenceCounted
 {
 	public:
 		using sensor_t = CSceneLoader::SLoadResult::SSensor;
@@ -39,7 +39,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		};
 
 		//
-		bool init(video::IGPUCommandBuffer* cb);
+		bool init(video::SIntendedSubmitInfo& info);
 
 		//
 		inline bool isInitialized() const {return bool(m_active.immutables);}
@@ -87,7 +87,7 @@ class CSession final : public core::IReferenceCounted, public core::InterfaceUnm
 		inline const SActiveResources& getActiveResources() const {return m_active;}
 
 		//
-		bool reset(const SSensorDynamics& newVal, video::IGPUCommandBuffer* cb);
+		bool reset(const SSensorDynamics& newVal, video::SIntendedSubmitInfo& info);
 
 		//
 		bool update(const SSensorDynamics& newVal);
