@@ -242,7 +242,8 @@ void raygen()
     SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 0u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
 
-    uint32_t sampleIndex = 0u;
+    const uint32_t sampleIndex = 0u;
+    const uint16_t sequenceProtoDim = PrimaryRayRandTripletsUsed;
     float32_t3 cameraPos;
 
     using namespace nbl::hlsl::bxdf;
@@ -258,7 +259,7 @@ void raygen()
     spirv::HitObjectEXT hitObject;
     {
         // fetch random variable from memory
-        const float32_t3 randVec = randgen(0u, sampleIndex++);
+        const float32_t3 randVec = randgen(0u, sampleIndex);
         // TODO: motion blur and lens DOF triplet
 
         // get our NDC coordinates and ray
@@ -301,7 +302,7 @@ void raygen()
         isPreviousValid &= hlsl::length(temporalReservoir.vPosition - rcData.preRcHitPosition) < 0.1f && hlsl::dot(temporalReservoir.vNormal, rcData.preRcNormal) > 0.8f;
         float32_t viewDepth = hlsl::length(rcData.preRcHitPosition - cameraPos);
         float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - cameraPrePos);
-        const float32_t3 randVec = randgen(0u, sampleIndex++);
+        const float32_t3 randVec = randgen(sequenceProtoDim, sampleIndex);
         if (viewDepth / prevViewDepth < 0.98f && randVec.z < 0.15f)
             isPreviousValid = false;
     }
@@ -315,7 +316,7 @@ void raygen()
     float32_t wSum = temporalReservoir.M * hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * max(0.f, temporalReservoir.weightF);  // evalTargetPdf
     float32_t throughputCurr = hlsl::dot(initialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);  // evalTargetPdf
     {
-        const float32_t3 randVec = randgen(0u, sampleIndex++);
+        const float32_t3 randVec = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
         temporalReservoir.merge(initialReservoir, randVec.z, throughputCurr, wSum);
     }
     
@@ -334,7 +335,7 @@ void raygen()
     spatialReservoir.vNormal = rcData.preRcNormal;
 
     float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
-    float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(0u, sampleIndex++) * 2.0f - 1.0f) * 0.1f * cellSize;
+    float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(sequenceProtoDim + uint16_t(2), sampleIndex) * 2.0f - 1.0f) * 0.1f * cellSize;
 
     int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
     if (cellIdx == -1)
@@ -363,7 +364,7 @@ void raygen()
     uint32_t maxSpatialIteration = 3u;  // spatialReservoir.M > 10 ? 3u : 10u;
 
     uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
-    uint32_t offset = hlsl::round(randgen(0u, sampleIndex++).x * (increment - 1));
+    uint32_t offset = hlsl::round(randgen(sequenceProtoDim + uint16_t(3), sampleIndex).x * (increment - 1));
 
     float32_t3 positionList[10];
     float32_t3 normalList[10];
@@ -423,7 +424,7 @@ void raygen()
         const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
         const float32_t3 visRayDir = hlsl::normalize(neighborReservoir.sPosition - visRayOrigin);
 
-        const float32_t3 randVis = randgen(0u, sampleIndex++); // need this? maybe any hit can be reduced
+        const float32_t3 randVis = randgen(sequenceProtoDim + uint16_t(4), sampleIndex); // need this? maybe any hit can be reduced
 
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
         visibilityPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
@@ -464,7 +465,7 @@ void raygen()
             const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
             const float32_t3 newRayDir = hlsl::normalize(spatialReservoir.sPosition - newRayOrigin);
 
-            const float32_t3 randVis = randgen(0u, sampleIndex++);
+            const float32_t3 randVis = randgen(sequenceProtoDim + uint16_t(5), sampleIndex);
 
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
             newPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
