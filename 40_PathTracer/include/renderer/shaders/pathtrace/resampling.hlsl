@@ -73,6 +73,8 @@ struct SPathState
 
         retval.prefixThroughput = hlsl::promote<hlsl::float32_t3>(1.f);
         retval.throughput = hlsl::promote<hlsl::float32_t3>(1.f);
+        retval.prefixPathRadiance = hlsl::promote<hlsl::float32_t3>(0.f);
+        retval.rcVertexRadiance = hlsl::promote<hlsl::float32_t3>(0.f);
         retval.flags = PathFlags::Active;
 
         // TODO: get seed from scramblebuf based on pixel

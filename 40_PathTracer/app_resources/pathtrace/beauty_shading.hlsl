@@ -286,7 +286,7 @@ void raygen()
     // get previous sample
     const float32_t4 previousClip = hlsl::math::linalg::promoted_mul(pc.sensorDynamics.prevViewProj, closestInfo.hitPos);
     const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
-    const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + 0.5f;
+    const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + hlsl::promote<float32_t2>(0.5f);
     const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
     const uint32_t previousIdx = previousID.y * uint32_t(gSensor.renderSize.x) + previousID.x;
 
@@ -411,7 +411,7 @@ void raygen()
             continue;
         if (cosA <= 0.f || cosPhiA <= 0.f || RA2 <= 0.f || RB2 <= 0.f)
             targetPdf = 0.f;
-        float32_t jacobi = hlsl::mix(clamp(RB2 * cosPhiA / (RA2 * cosPhiB), 0.f, 10.f), 0.f, RA2 * cosPhiB <= 0.f);
+        float32_t jacobi = hlsl::mix(hlsl::clamp(RB2 * cosPhiA / (RA2 * cosPhiB), 0.f, 10.f), 0.f, RA2 * cosPhiB <= 0.f);
 
         targetPdf *= jacobi;
 
@@ -511,7 +511,6 @@ void raygen()
     }
 
     spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
-    // spectral_t color = finalLi;
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
 

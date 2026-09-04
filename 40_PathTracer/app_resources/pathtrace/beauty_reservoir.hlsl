@@ -346,9 +346,9 @@ void raygen()
                     spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, thp_curr);
                     color += emission;
                     
-                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength /*&& pathState.currentVertexIndex > 1*/)   // TODO restir: why only not primary hit? result looks wrong
                         pathState.prefixPathRadiance += emission;
-                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                    else// if (pathState.currentVertexIndex > pathState.rcVertexLength)
                         pathState.rcVertexRadiance += emission;
                 }
 
@@ -438,7 +438,7 @@ void raygen()
                         {
                             const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
                             const spectral_t shadowedEmission = nee.contribution * albedo;
-                            color += shadowedEmission;
+                            color += shadowedEmission * thp_curr;
 
                             if (pathState.currentVertexIndex < pathState.rcVertexLength)
                                 pathState.prefixPathRadiance += shadowedEmission * thp_curr;
@@ -515,7 +515,7 @@ void raygen()
                         {
                             const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
                             const SEnvSample _sample = neeEstimator.shadeEnvmap(bounceRayDir, otherTechniqueHeuristic);
-                            color += float16_t3(_sample.color * throughput);
+                            color += float16_t3(_sample.color * thp_curr);
                             aovs = aovs + _sample.aov * aovThroughput;
                             transparency += aovThroughput.transparency;
 

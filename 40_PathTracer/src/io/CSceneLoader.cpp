@@ -279,6 +279,12 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				// raygen
 				auto& ndc = mutableDefaults.raygen.encoded;
 				auto& viewProj = mutableDefaults.viewProjection;
+				float32_t4x4 invViewMat;
+				invViewMat[0] = mutableDefaults.absoluteTransform[0];
+				invViewMat[1] = mutableDefaults.absoluteTransform[1];
+				invViewMat[2] = mutableDefaults.absoluteTransform[2];
+				invViewMat[3] = float32_t4(0, 0, 0, 1);
+				const auto viewMat = hlsl::inverse(invViewMat);
 				switch (_sensor.type)
 				{
 					case mts_sensor_t::Type::THINLENS:
@@ -340,10 +346,9 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							// column gets negated because in Vulkan NDC.y runs downwards
 							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
 
-							const auto viewMat = math::linalg::pseudoInverse3x4(mutableDefaults.absoluteTransform);
 							const auto projMat = buildProjectionMatrixPerspectiveFovRH(fovRad, aspectRatio, persp.nearClip, persp.farClip);
 							// TODO: account for shiftX and shiftY?
-							viewProj = math::linalg::promoted_mul(projMat, viewMat);
+							viewProj = hlsl::mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::TELECENTRIC:
@@ -356,9 +361,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							ndc[0] = float32_t3(1.f/scaleRcp.x,0.f,0.f);
 							ndc[1] = float32_t3(0.f,1.f/scaleRcp.y*float(constants.height)/float(constants.width),0.f);
 
-							const auto viewMat = math::linalg::pseudoInverse3x4(mutableDefaults.absoluteTransform);
 							const auto projMat = buildProjectionMatrixOrthoRH(float(constants.width), float(constants.height), ortho.nearClip, ortho.farClip);
-							viewProj = math::linalg::promoted_mul(projMat, viewMat);
+							viewProj = hlsl::mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::SPHERICAL:
