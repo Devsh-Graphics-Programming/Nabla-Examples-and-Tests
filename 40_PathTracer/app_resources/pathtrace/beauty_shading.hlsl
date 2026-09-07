@@ -298,10 +298,9 @@ void raygen()
     SReservoir temporalReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0);
     if (isPreviousValid)
     {
-        float32_t3 cameraPrePos = cameraPos; // TODO!!!!!!!!!!!!!!!! REALLY BIG TODO: we're not moving the camera yet, but need to address this at some point
         isPreviousValid &= hlsl::length(temporalReservoir.vPosition - rcData.preRcHitPosition) < 0.1f && hlsl::dot(temporalReservoir.vNormal, rcData.preRcNormal) > 0.8f;
         float32_t viewDepth = hlsl::length(rcData.preRcHitPosition - cameraPos);
-        float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - cameraPrePos);
+        float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - pc.sensorDynamics.prevCameraPos);
         const float32_t3 randVec = randgen(sequenceProtoDim++, sampleIndex);
         if (viewDepth / prevViewDepth < 0.98f && randVec.z < 0.15f)
             isPreviousValid = false;

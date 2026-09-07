@@ -61,6 +61,7 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 		.invView = mutDefaults.absoluteTransform,
 		.ndcToRay = float32_t2x3(mutDefaults.raygen),
 		.prevViewProj = mutDefaults.viewProjection,
+		.prevCameraPos = hlsl::transpose(mutDefaults.absoluteTransform)[3],	// TODO: handle for ortho cam too
 		.nearClip = mutDefaults.nearClip,
 		.tMax = mutDefaults.farClip,
 		.minSPP = core::min(dynDefaults.samplesNeeded,16), // for later enhancement

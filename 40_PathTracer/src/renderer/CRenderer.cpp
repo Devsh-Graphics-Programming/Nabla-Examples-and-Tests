@@ -1251,6 +1251,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
       // independent of how much sample accumulation the session built up.
       SSensorDynamics dynForRender = sessionResources.currentSensorState;
       dynForRender.prevViewProj = sessionResources.prevSensorState.prevViewProj;
+      dynForRender.prevCameraPos = sessionResources.prevSensorState.prevCameraPos;
       if (timing.forceFreshFrame)
          dynForRender.keepAccumulating = 0;
       else if (timing.forceAccumulate)

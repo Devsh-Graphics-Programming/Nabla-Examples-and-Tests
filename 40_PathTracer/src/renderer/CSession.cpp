@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "renderer/CRenderer.h"
 
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "renderer/shaders/pathtrace/resampling.hlsl"
 
 namespace nbl::this_example
@@ -463,6 +464,24 @@ bool CSession::update(const SSensorDynamics& newVal)
 	// because identical frames produce identical matrices.
 	const auto& prev = m_active.prevSensorState.invView;
 	const auto& cur = m_active.currentSensorState.invView;
+
+	// TODO: should these be updated here?
+	// TODO: also the naming is weird, because it only becomes previous when updating push constants in CRenderer::render; right now it's "current"
+	// but we're using the same push contant struct in both contexts, hence the weird naming
+	{
+		// TODO: handle for ortho cam too
+		float32_t4x4 invViewMat;
+		invViewMat[0] = cur[0];
+		invViewMat[1] = cur[1];
+		invViewMat[2] = cur[2];
+		invViewMat[3] = float32_t4(0, 0, 0, 1);
+		const auto viewMat = hlsl::inverse(invViewMat);
+		// TODO: this is a terrible way to get the projection matrix; what would be a better way to get projection?
+		const auto projMat = hlsl::math::linalg::promoted_mul(m_active.prevSensorState.prevViewProj, prev);
+		m_active.currentSensorState.prevViewProj = hlsl::mul(projMat, viewMat);
+		m_active.currentSensorState.prevCameraPos = hlsl::transpose(cur)[3];
+	}
+
 	bool restart = false;
 	for (int r = 0; r < 3 && !restart; ++r)
 		for (int c = 0; c < 4 && !restart; ++c)
