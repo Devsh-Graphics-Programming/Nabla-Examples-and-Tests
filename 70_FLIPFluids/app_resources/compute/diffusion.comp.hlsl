@@ -148,9 +148,9 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
         // TODO: THOU SHALT NOT USE INTEGER DIVISION AND MODULO IN SHADERS! STOP USING `flatIdxToLocalGridID`
         int3 lid = flatIdxToLocalGridID(virtualIdx, 14);
         
-        int3 cellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
-        sAxisCellMat[lid.x][lid.y][lid.z] = uint16_t3(axisCellMaterialIn[cellIdx].xyz);
-        sDiffusion[lid.x][lid.y][lid.z] = float16_t3(gridDiffusion[cellIdx].xyz);
+        int3 sharedCellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
+        sAxisCellMat[lid.x][lid.y][lid.z] = uint16_t3(axisCellMaterialIn[sharedCellIdx].xyz);
+        sDiffusion[lid.x][lid.y][lid.z] = float16_t3(gridDiffusion[sharedCellIdx].xyz);
     }
     GroupMemoryBarrierWithGroupSync();
 

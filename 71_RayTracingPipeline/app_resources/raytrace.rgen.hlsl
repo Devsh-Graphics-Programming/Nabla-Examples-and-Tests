@@ -96,11 +96,11 @@ void main()
 
         if (dot(worldNormal, cLight.outLightDir) > 0)
         {
-            RayDesc rayDesc;
-            rayDesc.Origin = worldPosition;
-            rayDesc.Direction = cLight.outLightDir;
-            rayDesc.TMin = 0.01;
-            rayDesc.TMax = cLight.outLightDistance;
+            RayDesc shadowRayDesc;
+            shadowRayDesc.Origin = worldPosition;
+            shadowRayDesc.Direction = cLight.outLightDir;
+            shadowRayDesc.TMin = 0.01;
+            shadowRayDesc.TMax = cLight.outLightDistance;
 
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
             OcclusionPayload occlusionPayload;
@@ -108,7 +108,7 @@ void main()
             occlusionPayload.attenuation = -1.f;
             // abuse of miss shader to mean "not hit shader" solves us having to call closest hit shaders
             uint32_t shadowRayFlags = spv::RayFlagsTerminateOnFirstHitKHRMask | spv::RayFlagsSkipClosestHitShaderKHRMask;
-            spirv::traceRayKHR(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, occlusionPayload);
+            spirv::traceRayKHR(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, shadowRayDesc.Origin, shadowRayDesc.TMin, shadowRayDesc.Direction, shadowRayDesc.TMax, occlusionPayload);
 
             // uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
             // TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);

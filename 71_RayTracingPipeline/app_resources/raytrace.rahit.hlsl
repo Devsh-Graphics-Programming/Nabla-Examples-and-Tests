@@ -9,7 +9,7 @@ using namespace nbl::hlsl;
 [shader("anyhit")]
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int instID = spirv::InstanceCustomIndexKHR;
+    const uint32_t instID = spirv::InstanceCustomIndexKHR;
     const static uint64_t STriangleGeomInfoAlignment = nbl::hlsl::alignment_of_v<STriangleGeomInfo>;
     const STriangleGeomInfo geom = vk::BufferPointer<STriangleGeomInfo, STriangleGeomInfoAlignment>(pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo)).Get();
 

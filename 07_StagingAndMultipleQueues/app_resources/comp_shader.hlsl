@@ -1,7 +1,8 @@
 #pragma wave shader_stage(compute)
 
 #include "../app_resources/common.hlsl"
-
+#include "nbl/builtin/hlsl/type_traits.hlsl"
+using namespace nbl::hlsl;
 [[vk::binding(0,0)]] Texture2D texture;
 [[vk::binding(1,0)]] RWStructuredBuffer<uint32_t> histogram;
 
@@ -19,9 +20,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     const float32_t4 texel = texture.Load(int32_t3(ID.xy,/*miplevel*/0));
 
-    const uint32_t redVal = uint32_t(texel.r * 255.f + 0.5f);
-    const uint32_t greenVal = uint32_t(texel.g * 255.f + 0.5f);
-    const uint32_t blueVal = uint32_t(texel.b * 255.f + 0.5f);
+    const uint32_t redVal = _static_cast<uint32_t>(texel.r * 255.f + 0.5f);
+    const uint32_t greenVal = _static_cast<uint32_t>(texel.g * 255.f + 0.5f);
+    const uint32_t blueVal = _static_cast<uint32_t>(texel.b * 255.f + 0.5f);
 
     InterlockedAdd(histogram[constants.histogramBufferOffset + RED_OFFSET + redVal], 1);
     InterlockedAdd(histogram[constants.histogramBufferOffset + GREEN_OFFSET + greenVal], 1);
