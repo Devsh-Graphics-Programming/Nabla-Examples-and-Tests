@@ -243,7 +243,7 @@ void raygen()
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
 
     const uint32_t sampleIndex = 0u;
-    const uint16_t sequenceProtoDim = PrimaryRayRandTripletsUsed;
+    uint16_t sequenceProtoDim = PrimaryRayRandTripletsUsed;
     float32_t3 cameraPos;
 
     using namespace nbl::hlsl::bxdf;
@@ -294,7 +294,7 @@ void raygen()
     bool isPreviousValid = gSampleCount[launchID] > 0 && hlsl::all(previousUV > hlsl::promote<float32_t2>(0.0)) && hlsl::all(previousUV < hlsl::promote<float32_t2>(1.0));
     LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
 
-    // TODO ReSTIR: TEMPORAL REUSE HERE
+    // temporal reuse
     SReservoir temporalReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0);
     if (isPreviousValid)
     {
@@ -302,27 +302,27 @@ void raygen()
         isPreviousValid &= hlsl::length(temporalReservoir.vPosition - rcData.preRcHitPosition) < 0.1f && hlsl::dot(temporalReservoir.vNormal, rcData.preRcNormal) > 0.8f;
         float32_t viewDepth = hlsl::length(rcData.preRcHitPosition - cameraPos);
         float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - cameraPrePos);
-        const float32_t3 randVec = randgen(sequenceProtoDim, sampleIndex);
+        const float32_t3 randVec = randgen(sequenceProtoDim++, sampleIndex);
         if (viewDepth / prevViewDepth < 0.98f && randVec.z < 0.15f)
             isPreviousValid = false;
     }
 
-    temporalReservoir.M = hlsl::clamp(temporalReservoir.M, uint16_t(0u), uint16_t(30u));
+    temporalReservoir.M = hlsl::min(temporalReservoir.M, uint16_t(30u));
     if (!isPreviousValid || temporalReservoir.age > uint16_t(100u))
     {
         temporalReservoir.M = 0;
     }
 
-    float32_t wSum = temporalReservoir.M * hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * max(0.f, temporalReservoir.weightF);  // evalTargetPdf
+    float32_t wSum = float32_t(temporalReservoir.M) * hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * hlsl::max(0.f, temporalReservoir.weightF);  // evalTargetPdf
     float32_t throughputCurr = hlsl::dot(initialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);  // evalTargetPdf
     {
-        const float32_t3 randVec = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
-        temporalReservoir.merge(initialReservoir, randVec.z, throughputCurr, wSum);
+        const float32_t3 randVec = randgen(sequenceProtoDim++, sampleIndex);
+        temporalReservoir.merge(initialReservoir, randVec.x, throughputCurr, wSum);
     }
     
     float32_t throughputNew = hlsl::dot(temporalReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
     temporalReservoir.updateFinalWeight(throughputNew, wSum);
-    temporalReservoir.M = hlsl::clamp(temporalReservoir.M, uint16_t(0u), uint16_t(30u));
+    temporalReservoir.M = hlsl::min(temporalReservoir.M, uint16_t(30u));
     temporalReservoir.age += uint16_t(1u);
 
     temporalReservoir.vPosition = initialReservoir.vPosition;
@@ -334,8 +334,8 @@ void raygen()
     spatialReservoir.vPosition = rcData.preRcHitPosition;
     spatialReservoir.vNormal = rcData.preRcNormal;
 
-    float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
-    float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(sequenceProtoDim + uint16_t(2), sampleIndex) * 2.0f - 1.0f) * 0.1f * cellSize;
+    const float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
+    const float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(sequenceProtoDim++, sampleIndex) * hlsl::promote<float32_t3>(2.0f) - hlsl::promote<float32_t3>(1.0f)) * hlsl::promote<float32_t3>(0.1f * cellSize);
 
     int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
     if (cellIdx == -1)
@@ -355,16 +355,16 @@ void raygen()
         cellCounterPtr.get(cellIdx, sampleCount);
     }
 
-    spatialReservoir.M = hlsl::clamp(spatialReservoir.M, uint16_t(0u), uint16_t(100u));
-    if (spatialReservoir.age > 100)
+    spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+    if (spatialReservoir.age > uint16_t(100u))
     {
-        spatialReservoir.M = 0;
+        spatialReservoir.M = uint16_t(0u);
     }
 
     uint32_t maxSpatialIteration = 3u;  // spatialReservoir.M > 10 ? 3u : 10u;
 
     uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
-    uint32_t offset = hlsl::round(randgen(sequenceProtoDim + uint16_t(3), sampleIndex).x * (increment - 1));
+    uint32_t offset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
 
     float32_t3 positionList[10];
     float32_t3 normalList[10];
@@ -375,7 +375,7 @@ void raygen()
     MList[nReuse] = spatialReservoir.M;
     nReuse++;
 
-    float32_t wSumS = spatialReservoir.M * hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * max(0.f, spatialReservoir.weightF);    // evalTargetPdf
+    float32_t wSumS = float32_t(spatialReservoir.M) * hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * hlsl::max(0.f, spatialReservoir.weightF);    // evalTargetPdf
     bda::__ptr<uint32_t> _csptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
     BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
 
@@ -424,7 +424,7 @@ void raygen()
         const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
         const float32_t3 visRayDir = hlsl::normalize(neighborReservoir.sPosition - visRayOrigin);
 
-        const float32_t3 randVis = randgen(sequenceProtoDim + uint16_t(4), sampleIndex); // need this? maybe any hit can be reduced
+        const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex); // need this? maybe any hit can be reduced
 
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
         visibilityPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
@@ -434,7 +434,7 @@ void raygen()
         bool visRayMissed = spirv::hitObjectIsMissEXT(visibilityHit);
         if (visRayMissed)
             targetPdf = 0.f;
-        bool updated = spatialReservoir.merge(neighborReservoir, randVis.y, targetPdf, wSumS);
+        bool updated = spatialReservoir.merge(neighborReservoir, randVis.x, targetPdf, wSumS);
         if (updated)
             reuseID = count;
 
@@ -465,7 +465,7 @@ void raygen()
             const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
             const float32_t3 newRayDir = hlsl::normalize(spatialReservoir.sPosition - newRayOrigin);
 
-            const float32_t3 randVis = randgen(sequenceProtoDim + uint16_t(5), sampleIndex);
+            const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex);
 
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
             newPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
@@ -482,8 +482,8 @@ void raygen()
     float32_t throughputNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
     float32_t weight = throughputNewS * z;
     float32_t avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
-    spatialReservoir.M = hlsl::clamp(spatialReservoir.M, uint16_t(0u), uint16_t(100u));
-    spatialReservoir.weightF = hlsl::clamp(avgWeight, 0.f, 10.f);
+    spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+    spatialReservoir.weightF = hlsl::min(avgWeight, 10.f);
     spatialReservoir.age += uint16_t(1u);
 
     setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
