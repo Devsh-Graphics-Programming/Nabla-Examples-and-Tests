@@ -243,8 +243,8 @@ void WhittedTask::__impl_call()
             if (isGlass)
             {
                 const float32_t F0 = 0.08f;
-                float32_t fresnel = nbl_glsl_fresnel_dielectric_common(orientedEta*orientedEta,abs(NdotV));
-                newThroughput *= float16_t(fresnel);
+                float32_t glassFresnel = nbl_glsl_fresnel_dielectric_common(orientedEta*orientedEta,abs(NdotV));
+                newThroughput *= _static_cast<float16_t>(glassFresnel);
             }
             // push reflection ray
             {
@@ -272,7 +272,7 @@ void WhittedTask::__impl_call()
             contribution += throughput*color;
     }
     else // miss
-        contribution += throughput*(rayDir.y<0.f ? float16_t3(0.1,0.7,0.03):float16_t3(0.05,0.25,1.0));
+        contribution += throughput*(rayDir.y<0.f ? float16_t3(_static_cast<float16_t>(0.1f),_static_cast<float16_t>(0.7f),_static_cast<float16_t>(0.03f)):float16_t3(_static_cast<float16_t>(0.05f),_static_cast<float16_t>(0.25f),_static_cast<float16_t>(1.0f)));
 
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;

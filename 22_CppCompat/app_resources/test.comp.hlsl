@@ -157,9 +157,9 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         static const uint16_t TEST_VALUE_0 = 5;
         static const uint32_t TEST_VALUE_1 = 0x80000000u;
-        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
+        static const uint64_t TEST_VALUE_2 = 0x8000000000000000ull;
         static const uint32_t TEST_VALUE_3 = 0x00000001u;
-        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u; // TODO: Przmek is this intended? it warns because its too big from uint32_t
+        static const uint64_t TEST_VALUE_4 = 0x0000000000000001ull;
         
 
         fill(invocationID, 5.01);
@@ -173,20 +173,22 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         fill(invocationID, float4(5.2, compileTimeCountLZero, runTimeCountLZero, 0));
         assert(compileTimeCountLZero == runTimeCountLZero);
 
-        compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_2>::value;
+        compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint64_t, TEST_VALUE_2>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_2);
         fill(invocationID, float4(5.3, compileTimeCountLZero, runTimeCountLZero, 0));
         assert(compileTimeCountLZero == runTimeCountLZero);
+        assert(runTimeCountLZero == 0);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_3>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_3);
         fill(invocationID, float4(5.4, compileTimeCountLZero, runTimeCountLZero, 0));
         assert(compileTimeCountLZero == runTimeCountLZero);
 
-        compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_4>::value;
+        compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint64_t, TEST_VALUE_4>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_4);
         fill(invocationID, float4(5.5, compileTimeCountLZero, runTimeCountLZero, 0));
         assert(compileTimeCountLZero == runTimeCountLZero);
+        assert(runTimeCountLZero == 63);
     }
 
     {

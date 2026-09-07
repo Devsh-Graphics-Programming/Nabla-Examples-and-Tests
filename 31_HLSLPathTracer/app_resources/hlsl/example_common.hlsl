@@ -218,15 +218,15 @@ struct Light
     static Light<spectral_type> create(uint32_t emissiveMatID, uint32_t objId, ProceduralShapeType shapeType)
     {
         Light<spectral_type> retval;
-        retval.emissiveMatID.id = uint16_t(emissiveMatID);
-        retval.objectID = ObjectID::create(uint16_t(objId), shapeType);
+        retval.emissiveMatID.id = _static_cast<uint16_t>(emissiveMatID);
+        retval.objectID = ObjectID::create(_static_cast<uint16_t>(objId), shapeType);
         return retval;
     }
 
     static Light<spectral_type> create(uint32_t emissiveMatID, NBL_CONST_REF_ARG(ObjectID) objectID)
     {
         Light<spectral_type> retval;
-        retval.emissiveMatID.id = uint16_t(emissiveMatID);
+        retval.emissiveMatID.id = _static_cast<uint16_t>(emissiveMatID);
         retval.objectID = objectID;
         return retval;
     }

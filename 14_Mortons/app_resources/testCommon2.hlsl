@@ -30,7 +30,7 @@ struct TestExecutor2
 		output.mortonSignedLess_emulated_3 = uint32_t3(morton_emulated_3_signed.lessThan<false>(Vec3BSignedFull));
 		output.mortonSignedLess_emulated_4 = uint32_t4(morton_emulated_4_signed.lessThan<false>(Vec4BSignedFull));
 
-		uint16_t castedShift = uint16_t(input.shift);
+		uint16_t castedShift = _static_cast<uint16_t>(input.shift);
 
 		arithmetic_right_shift_operator<morton::code<true, fullBits_2, 2, emulated_uint64_t> > rightShiftSignedEmulated2;
 		output.mortonSignedRightShift_emulated_2 = rightShiftSignedEmulated2(morton_emulated_2_signed, castedShift % fullBits_2);
