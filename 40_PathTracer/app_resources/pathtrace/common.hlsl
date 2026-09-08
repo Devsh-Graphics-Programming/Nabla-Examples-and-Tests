@@ -569,9 +569,9 @@ uint32_t binaryNorm(float32_t3 norm)
 // TODO: this probably needs adjusting for orthographic projections, esp. calculating cellSizeStep
 float32_t calculateCellSize(float32_t3 pos, float32_t3 cameraPos, uint16_t2 renderSize, NBL_CONST_REF_ARG(SReSTIRParams) params)
 {
-    float32_t cellSizeStep = hlsl::length(pos - cameraPos) * hlsl::tan(120.f * params.fov * hlsl::max(1.0 / renderSize.y, renderSize.y / float((renderSize.x * renderSize.x))));
+    float32_t cellSizeStep = hlsl::length(pos - cameraPos) * hlsl::tan(120.f * params.vfov * hlsl::max(1.0 / renderSize.y, renderSize.y / float((renderSize.x * renderSize.x))));
     float32_t logStep = hlsl::floor(hlsl::log2(cellSizeStep / params.minCellSize));
-   
+
     return params.minCellSize * hlsl::max(0.12f, hlsl::exp2(logStep));
 }
 
