@@ -575,13 +575,19 @@ float32_t calculateCellSize(float32_t3 pos, float32_t3 cameraPos, uint16_t2 rend
     return params.minCellSize * hlsl::max(0.12f, hlsl::exp2(logStep));
 }
 
+uint32_t calculateCheckSum(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, NBL_REF_ARG(uint32_t) cellIndex)
+{
+    const uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneMinPos) / hlsl::promote<float32_t3>(cellSize)));
+    const uint32_t normprint = binaryNorm(norm);
+
+    cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000u;
+    return hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize + jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
+}
+
 int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
 {
-    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneMinPos) / hlsl::promote<float32_t3>(cellSize)));
-    uint32_t normprint = binaryNorm(norm);
-
-    uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
-    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
+    uint32_t cellIndex;
+    const uint32_t checkSum = calculateCheckSum(pos, norm, cellSize, params, cellIndex);
 
     bda::__ptr<uint32_t> checkSumPtr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     NBL_UNROLL
@@ -599,11 +605,8 @@ int findOrInsertCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CO
 
 int findCell(float32_t3 pos, float32_t3 norm, float32_t cellSize, NBL_CONST_REF_ARG(SReSTIRParams) params, uint64_t pCheckSumBuf)
 {
-    uint32_t3 p = uint32_t3(hlsl::floor((pos - params.sceneMinPos) / hlsl::promote<float32_t3>(cellSize)));
-    uint32_t normprint = binaryNorm(norm);
-
-    uint32_t cellIndex = pcg32(normprint + pcg32(cellSize + pcg32(p.z + pcg32(p.y + pcg32(p.x))))) % 100000;
-    uint32_t checkSum = hlsl::max(jenkinsHash(normprint + jenkinsHash(cellSize+ jenkinsHash(p.z + jenkinsHash(p.y + jenkinsHash(p.x))))), 1u);
+    uint32_t cellIndex;
+    const uint32_t checkSum = calculateCheckSum(pos, norm, cellSize, params, cellIndex);
 
     bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(pCheckSumBuf);
     BdaAccessor<uint32_t> checksumPtr = BdaAccessor<uint32_t>::create(ptr);

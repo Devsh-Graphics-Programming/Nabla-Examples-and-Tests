@@ -342,17 +342,8 @@ void raygen()
         setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
         return;
     }
-    uint32_t cellBaseIdx, sampleCount;
-    {
-        bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf]);
-        BdaAccessor<uint32_t> indexPtr = BdaAccessor<uint32_t>::create(ptr);
-        indexPtr.get(cellIdx, cellBaseIdx);
-    }
-    {
-        bda::__ptr<uint32_t> ptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf]);
-        BdaAccessor<uint32_t> cellCounterPtr = BdaAccessor<uint32_t>::create(ptr);
-        cellCounterPtr.get(cellIdx, sampleCount);
-    }
+    uint32_t cellBaseIdx = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] + cellIdx * sizeof(uint32_t));
+    uint32_t sampleCount = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] + cellIdx * sizeof(uint32_t));
 
     spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
     if (spatialReservoir.age > uint16_t(100u))
@@ -416,19 +407,21 @@ void raygen()
         targetPdf *= jacobi;
 
         // TODO: start at 0 or numeric_limits::min?
-        const float32_t tMin = 0.f;
+        const float32_t tMin = 0.001f;
         const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
         // TODO: should probably also take `tMax` of found hit into account
         const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
         const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
-        const float32_t3 visRayDir = hlsl::normalize(neighborReservoir.sPosition - visRayOrigin);
+        const float32_t3 newDir = neighborReservoir.sPosition - visRayOrigin;
+        const float32_t3 visRayDir = hlsl::normalize(newDir);
+        const float32_t tMax = 0.999f * hlsl::length(newDir);
 
         const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex); // need this? maybe any hit can be reduced
 
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
-        visibilityPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
+        visibilityPayload.init(randVis.z, tMax);
         spirv::HitObjectEXT visibilityHit;
-        spirv::hitObjectTraceRayEXT(visibilityHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, visRayOrigin, tMin, visRayDir, hlsl::numeric_limits<float32_t>::max, visibilityPayload);
+        spirv::hitObjectTraceRayEXT(visibilityHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, visRayOrigin, tMin, visRayDir, tMax, visibilityPayload);
 
         bool visRayMissed = spirv::hitObjectIsMissEXT(visibilityHit);
         if (visRayMissed)
@@ -458,18 +451,20 @@ void raygen()
         }
         if (shouldTest)
         {
-            const float32_t tMin = 0.f;
+            const float32_t tMin = 0.001f;
             const float32_t3 originMagnitude = hlsl::abs(positionList[i]);
             const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
             const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
-            const float32_t3 newRayDir = hlsl::normalize(spatialReservoir.sPosition - newRayOrigin);
+            const float32_t3 newDir = spatialReservoir.sPosition - newRayOrigin;
+            const float32_t3 newRayDir = hlsl::normalize(newDir);
+            const float32_t tMax = 0.999f * hlsl::length(newDir);
 
             const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex);
 
             [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
-            newPayload.init(randVis.z, hlsl::numeric_limits<float32_t>::max);
+            newPayload.init(randVis.z, tMax);
             spirv::HitObjectEXT newHit;
-            spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, hlsl::numeric_limits<float32_t>::max, newPayload);
+            spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, tMax, newPayload);
             isVisible = !spirv::hitObjectIsMissEXT(newHit);
         }
         if (isVisible)

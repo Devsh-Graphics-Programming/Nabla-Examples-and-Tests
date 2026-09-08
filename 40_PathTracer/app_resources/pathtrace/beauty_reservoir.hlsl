@@ -199,7 +199,7 @@ void raygen()
     // TODO: establish min/max - adaptive sampling
     SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, unpacked16BitPC.maxSppPerDispatch, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
     // took max samples
-    const uint32_t endSample        = samplingInfo.newSampleCount;
+    const uint32_t endSample = samplingInfo.newSampleCount;
     const uint32_t samplesThisFrame = endSample - samplingInfo.firstSample;
     if (samplesThisFrame == 0)
         return;
@@ -218,13 +218,13 @@ void raygen()
     const float16_t newSamplesOverTotal = _static_cast<float16_t>(_static_cast<float32_t>(samplesThisFrame) * samplingInfo.rcpNewSampleCount);
     const float16_t rcpSamplesThisFrame = float16_t(1) / _static_cast<float16_t>(samplesThisFrame);
 
-    float16_t              transparency = 0.f;
+    float16_t transparency = 0.f;
     SArbitraryOutputValues aovs;
     aovs.clear();
 
     // some weird DXC and SPIR-V Tools Bug, lets try to move stuff out to temporaries and only use those
-    decltype(samplingInfo.randgen) randgen          = samplingInfo.randgen;
-    const bool                     keepAccumulating = samplingInfo.firstSample;
+    decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
+    const bool keepAccumulating = samplingInfo.firstSample;
     // Held live across the path-tracing loop; summed per sample, written to gBeauty as an fp32 mean
     // after the loop (alongside the per-sample RWMC cascade splat).
     float32_t3 referenceFrameSum = float32_t3(0, 0, 0);
@@ -272,8 +272,9 @@ void raygen()
         const bool primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
         const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
         const uint16_t lastPathDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastPathDepth);
+        const uint16_t lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
 
-        SPathState pathState = SPathState::create(launchID.xy, lastPathDepth);
+        SPathState pathState = SPathState::create(launchID.xy, lastNoRussianRouletteDepth);
 
         if (primaryMissed)
         {
@@ -291,7 +292,6 @@ void raygen()
         {
             //
             MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);
-            const uint16_t lastNoRussianRouletteDepth = _static_cast<uint16_t>(pc.sensorDynamics.lastNoRussianRouletteDepth);
             //
             color = spectral_t(0, 0, 0);
             spectral_t throughput = spectral_t(1, 1, 1);
@@ -335,7 +335,7 @@ void raygen()
                 // obtain full next
                 nextThroughput = aovThroughput * nextThroughput;
                 // already premultiplied by next throughput complement
-                aovs          = aovs + aovContrib * (aovThroughput - nextThroughput);
+                aovs = aovs + aovContrib * (aovThroughput - nextThroughput);
                 aovThroughput = nextThroughput;
 
                 // Emission shading: resolve the hit's emitter ID from the per-geometry aux map
@@ -616,7 +616,7 @@ void raygen()
     if (gSensor.hideEnvironment)
     {
         Accumulator<ImageAccessor_gMask> maskAcc;
-        vector<float16_t, 1>             opacity = float16_t(1) - transparency;
+        vector<float16_t, 1> opacity = float16_t(1) - transparency;
         maskAcc.accumulate(launchID.xy, launchID.z, opacity, newSamplesOverTotal, keepAccumulating);
     }
 }
