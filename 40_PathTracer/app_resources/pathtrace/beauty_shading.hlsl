@@ -337,148 +337,144 @@ void raygen()
     const float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(sequenceProtoDim++, sampleIndex) * hlsl::promote<float32_t3>(2.0f) - hlsl::promote<float32_t3>(1.0f)) * hlsl::promote<float32_t3>(0.1f * cellSize);
 
     int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
-    if (cellIdx == -1)
+    if (cellIdx > -1)
     {
-        setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
-        return;
-    }
-    uint32_t cellBaseIdx = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] + cellIdx * sizeof(uint32_t));
-    uint32_t sampleCount = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] + cellIdx * sizeof(uint32_t));
+        uint32_t cellBaseIdx = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] + cellIdx * sizeof(uint32_t));
+        uint32_t sampleCount = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] + cellIdx * sizeof(uint32_t));
 
-    spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
-    if (spatialReservoir.age > uint16_t(100u))
-    {
-        spatialReservoir.M = uint16_t(0u);
-    }
+        spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+        if (spatialReservoir.age > uint16_t(100u))
+            spatialReservoir.M = uint16_t(0u);
 
-    uint32_t maxSpatialIteration = 3u;  // spatialReservoir.M > 10 ? 3u : 10u;
+        uint32_t maxSpatialIteration = 3u;  // spatialReservoir.M > 10 ? 3u : 10u;
 
-    uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
-    uint32_t offset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
+        uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
+        uint32_t offset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
 
-    float32_t3 positionList[10];
-    float32_t3 normalList[10];
-    int MList[10];
-    uint32_t nReuse = 0;
-    positionList[nReuse] = rcData.preRcHitPosition;
-    normalList[nReuse] = rcData.preRcNormal;
-    MList[nReuse] = spatialReservoir.M;
-    nReuse++;
-
-    float32_t wSumS = float32_t(spatialReservoir.M) * hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * hlsl::max(0.f, spatialReservoir.weightF);    // evalTargetPdf
-    bda::__ptr<uint32_t> _csptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
-    BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
-
-    uint32_t reuseID = 0u;
-    uint32_t count = 0u;
-    for (uint32_t i = 0u; i < sampleCount; i += increment)
-    {
-        count++;
-
-        uint32_t neighborPixelIndex;
-        cellStoragePtr.get(cellBaseIdx + (offset + i) % sampleCount, neighborPixelIndex);
-        SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1u) % 2);
-
-        if (neighborReservoir.M <= uint16_t(0u) || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < NormalCompareThreshold)
-            continue;
-
-        float32_t targetPdf = hlsl::dot(neighborReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
-
-        float32_t3 offsetB = neighborReservoir.sPosition - neighborReservoir.vPosition;
-        float32_t3 offsetA = neighborReservoir.sPosition - spatialReservoir.vPosition;
-            // Discard back-face.
-        if (hlsl::dot(spatialReservoir.vNormal, offsetA) <= 0.f)
-            targetPdf = 0.f;
-
-        float32_t RB2 = hlsl::dot(offsetB, offsetB);
-        float32_t RA2 = hlsl::dot(offsetA, offsetA);
-        offsetB = hlsl::normalize(offsetB);
-        offsetA = hlsl::normalize(offsetA);
-        float32_t cosA = hlsl::dot(spatialReservoir.vNormal, offsetA);
-        float32_t cosB = hlsl::dot(neighborReservoir.vNormal, offsetB);
-        float32_t cosPhiA = -hlsl::dot(offsetA, neighborReservoir.sNormal);
-        float32_t cosPhiB = -hlsl::dot(offsetB, neighborReservoir.sNormal);
-        if (cosB <= 0.f || cosPhiB <= 0.f)
-            continue;
-        if (cosA <= 0.f || cosPhiA <= 0.f || RA2 <= 0.f || RB2 <= 0.f)
-            targetPdf = 0.f;
-        float32_t jacobi = hlsl::mix(hlsl::clamp(RB2 * cosPhiA / (RA2 * cosPhiB), 0.f, 10.f), 0.f, RA2 * cosPhiB <= 0.f);
-
-        targetPdf *= jacobi;
-
-        // TODO: start at 0 or numeric_limits::min?
-        const float32_t tMin = 0.001f;
-        const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
-        // TODO: should probably also take `tMax` of found hit into account
-        const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
-        const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
-        const float32_t3 newDir = neighborReservoir.sPosition - visRayOrigin;
-        const float32_t3 visRayDir = hlsl::normalize(newDir);
-        const float32_t tMax = 0.999f * hlsl::length(newDir);
-
-        const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex); // need this? maybe any hit can be reduced
-
-        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
-        visibilityPayload.init(randVis.z, tMax);
-        spirv::HitObjectEXT visibilityHit;
-        spirv::hitObjectTraceRayEXT(visibilityHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, visRayOrigin, tMin, visRayDir, tMax, visibilityPayload);
-
-        bool visRayMissed = spirv::hitObjectIsMissEXT(visibilityHit);
-        if (visRayMissed)
-            targetPdf = 0.f;
-        bool updated = spatialReservoir.merge(neighborReservoir, randVis.x, targetPdf, wSumS);
-        if (updated)
-            reuseID = count;
-
-        positionList[nReuse] = neighborReservoir.vPosition;
-        normalList[nReuse] = neighborReservoir.vNormal;
-        MList[nReuse] = neighborReservoir.M;
+        float32_t3 positionList[10];
+        float32_t3 normalList[10];
+        int MList[10];
+        uint32_t nReuse = 0;
+        positionList[nReuse] = rcData.preRcHitPosition;
+        normalList[nReuse] = rcData.preRcNormal;
+        MList[nReuse] = spatialReservoir.M;
         nReuse++;
-    }
 
-    float32_t z = 0.f;
-    float32_t chosenWeight = 0.f;
-    float32_t totalWeight = 0.f;
-    for (uint32_t i = 0; i < nReuse; i++)
-    {
-        bool shouldTest = true;
-        bool isVisible = true;
-        float32_t3 dir = spatialReservoir.sPosition - positionList[i];
-        if (hlsl::dot(dir, normalList[i]) < 0.f)
+        float32_t wSumS = float32_t(spatialReservoir.M) * hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs) * hlsl::max(0.f, spatialReservoir.weightF);    // evalTargetPdf
+        bda::__ptr<uint32_t> _csptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
+        BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
+
+        uint32_t reuseID = 0u;
+        uint32_t count = 0u;
+        for (uint32_t i = 0u; i < sampleCount; i += increment)
         {
-            shouldTest = false;
-            isVisible = false;
-        }
-        if (shouldTest)
-        {
+            count++;
+
+            uint32_t neighborPixelIndex;
+            cellStoragePtr.get(cellBaseIdx + (offset + i) % sampleCount, neighborPixelIndex);
+            SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1u) % 2);
+
+            if (neighborReservoir.M <= uint16_t(0u) || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < NormalCompareThreshold)
+                continue;
+
+            float32_t targetPdf = hlsl::dot(neighborReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
+
+            float32_t3 offsetB = neighborReservoir.sPosition - neighborReservoir.vPosition;
+            float32_t3 offsetA = neighborReservoir.sPosition - spatialReservoir.vPosition;
+                // Discard back-face.
+            if (hlsl::dot(spatialReservoir.vNormal, offsetA) <= 0.f)
+                targetPdf = 0.f;
+
+            float32_t RB2 = hlsl::dot(offsetB, offsetB);
+            float32_t RA2 = hlsl::dot(offsetA, offsetA);
+            offsetB = hlsl::normalize(offsetB);
+            offsetA = hlsl::normalize(offsetA);
+            float32_t cosA = hlsl::dot(spatialReservoir.vNormal, offsetA);
+            float32_t cosB = hlsl::dot(neighborReservoir.vNormal, offsetB);
+            float32_t cosPhiA = -hlsl::dot(offsetA, neighborReservoir.sNormal);
+            float32_t cosPhiB = -hlsl::dot(offsetB, neighborReservoir.sNormal);
+            if (cosB <= 0.f || cosPhiB <= 0.f)
+                continue;
+            if (cosA <= 0.f || cosPhiA <= 0.f || RA2 <= 0.f || RB2 <= 0.f)
+                targetPdf = 0.f;
+            float32_t jacobi = hlsl::mix(hlsl::clamp(RB2 * cosPhiA / (RA2 * cosPhiB), 0.f, 10.f), 0.f, RA2 * cosPhiB <= 0.f);
+
+            targetPdf *= jacobi;
+
+            // TODO: start at 0 or numeric_limits::min?
             const float32_t tMin = 0.001f;
-            const float32_t3 originMagnitude = hlsl::abs(positionList[i]);
+            const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+            // TODO: should probably also take `tMax` of found hit into account
             const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
-            const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
-            const float32_t3 newDir = spatialReservoir.sPosition - newRayOrigin;
-            const float32_t3 newRayDir = hlsl::normalize(newDir);
+            const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
+            const float32_t3 newDir = neighborReservoir.sPosition - visRayOrigin;
+            const float32_t3 visRayDir = hlsl::normalize(newDir);
             const float32_t tMax = 0.999f * hlsl::length(newDir);
 
-            const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex);
+            const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex); // need this? maybe any hit can be reduced
 
-            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
-            newPayload.init(randVis.z, tMax);
-            spirv::HitObjectEXT newHit;
-            spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, tMax, newPayload);
-            isVisible = !spirv::hitObjectIsMissEXT(newHit);
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
+            visibilityPayload.init(randVis.z, tMax);
+            spirv::HitObjectEXT visibilityHit;
+            spirv::hitObjectTraceRayEXT(visibilityHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, visRayOrigin, tMin, visRayDir, tMax, visibilityPayload);
+
+            bool visRayMissed = spirv::hitObjectIsMissEXT(visibilityHit);
+            if (visRayMissed)
+                targetPdf = 0.f;
+            bool updated = spatialReservoir.merge(neighborReservoir, randVis.x, targetPdf, wSumS);
+            if (updated)
+                reuseID = count;
+
+            positionList[nReuse] = neighborReservoir.vPosition;
+            normalList[nReuse] = neighborReservoir.vNormal;
+            MList[nReuse] = neighborReservoir.M;
+            nReuse++;
         }
-        if (isVisible)
-            z += float32_t(MList[i]);
-        else if (i == 0)
-            break;
-    }
 
-    float32_t throughputNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
-    float32_t weight = throughputNewS * z;
-    float32_t avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
-    spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
-    spatialReservoir.weightF = hlsl::min(avgWeight, 10.f);
-    spatialReservoir.age += uint16_t(1u);
+        float32_t z = 0.f;
+        float32_t chosenWeight = 0.f;
+        float32_t totalWeight = 0.f;
+        for (uint32_t i = 0; i < nReuse; i++)
+        {
+            bool shouldTest = true;
+            bool isVisible = true;
+            float32_t3 dir = spatialReservoir.sPosition - positionList[i];
+            if (hlsl::dot(dir, normalList[i]) < 0.f)
+            {
+                shouldTest = false;
+                isVisible = false;
+            }
+            if (shouldTest)
+            {
+                const float32_t tMin = 0.001f;
+                const float32_t3 originMagnitude = hlsl::abs(positionList[i]);
+                const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+                const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
+                const float32_t3 newDir = spatialReservoir.sPosition - newRayOrigin;
+                const float32_t3 newRayDir = hlsl::normalize(newDir);
+                const float32_t tMax = 0.999f * hlsl::length(newDir);
+
+                const float32_t3 randVis = randgen(sequenceProtoDim++, sampleIndex);
+
+                [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
+                newPayload.init(randVis.z, tMax);
+                spirv::HitObjectEXT newHit;
+                spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, tMax, newPayload);
+                isVisible = !spirv::hitObjectIsMissEXT(newHit);
+            }
+            if (isVisible)
+                z += float32_t(MList[i]);
+            else if (i == 0)
+                break;
+        }
+
+        float32_t throughputNewS = hlsl::dot(spatialReservoir.radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs); // evalTargetPdf
+        float32_t weight = throughputNewS * z;
+        float32_t avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
+        spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+        spatialReservoir.weightF = hlsl::min(avgWeight, 10.f);
+        spatialReservoir.age += uint16_t(1u);
+    }
 
     setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
 
@@ -507,7 +503,7 @@ void raygen()
 
     spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
-    colorAcc.addSample(_static_cast<uint16_t>(0u), accum_t(color));
+    colorAcc.addSample(uint16_t(1u), accum_t(color));
 
     gBeauty[launchID] = float32_t4(color, 1.0);
 }

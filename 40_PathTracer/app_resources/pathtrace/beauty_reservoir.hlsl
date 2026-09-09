@@ -197,7 +197,7 @@ void raygen()
 
     // Take n samples per frame
     // TODO: establish min/max - adaptive sampling
-    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, unpacked16BitPC.maxSppPerDispatch, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 1u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
     // took max samples
     const uint32_t endSample = samplingInfo.newSampleCount;
     const uint32_t samplesThisFrame = endSample - samplingInfo.firstSample;
@@ -453,6 +453,7 @@ void raygen()
                     pathState.preRcHitPosition = closestInfo.hitPos;
                     pathState.preRcVertexBarycentrics = closestInfo.barycentrics;
                     pathState.preRcVertexInstancedGeometryID = closestInfo.instancedGeometryID;
+                    pathState.preRcVertexPrimitiveID = closestInfo.primitiveID;
                     pathState.preRcNormal = closestInfo.geometricNormal;
                     pathState.preRcVertexL = pathState.direction;
                 }
