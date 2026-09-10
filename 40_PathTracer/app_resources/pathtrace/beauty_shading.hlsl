@@ -287,7 +287,7 @@ void raygen()
     // get previous sample
     const float32_t4 previousClip = hlsl::math::linalg::promoted_mul(pc.sensorDynamics.prevViewProj, closestInfo.hitPos);
     const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
-    const float32_t2 previousUV = previousScreen.xy * float32_t2(0.5f, -0.5f) + hlsl::promote<float32_t2>(0.5f);
+    const float32_t2 previousUV = previousScreen.xy * hlsl::promote<float32_t2>(0.5f) + hlsl::promote<float32_t2>(0.5f);
     const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
     const uint32_t previousIdx = previousID.y * uint32_t(gSensor.renderSize.x) + previousID.x;
 
