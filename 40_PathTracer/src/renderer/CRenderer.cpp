@@ -1342,7 +1342,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
         {
             success = success && cb->fillBuffer({ .offset = 0,.size = resources.workgroupReductions->getSize(),.buffer = resources.workgroupReductions }, 0);
             success = success && cb->fillBuffer({ .offset = 0,.size = resources.workgroupCounter->getSize(),.buffer = resources.workgroupCounter }, 0);
-            buffer_barrier_t bufBarrier[2];
+            buffer_barrier_t bufBarrier[3];
             bufBarrier[0] = {
                 .barrier = {
                     .dep = {
@@ -1364,6 +1364,17 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                     } // no ownership transfers, etc.
                 },
                 .range = {.offset = 0,.size = resources.workgroupCounter->getSize(),.buffer = resources.workgroupCounter}
+            };
+            bufBarrier[2] = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+                        .srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.cellCounter[pingpongIx]->getSize(),.buffer = resources.cellCounter[pingpongIx]}
             };
     
             success = cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {
@@ -1493,7 +1504,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                 enqueueBarrier(sessionImmutables.motion);
                 enqueueBarrier(sessionImmutables.mask);
             }
-            buffer_barrier_t bufBarrier[4];
+            buffer_barrier_t bufBarrier[6];
             bufBarrier[0] = {
                 .barrier = {
                     .dep = {
@@ -1537,6 +1548,28 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                     } // no ownership transfers, etc.
                 },
                 .range = {.offset = 0,.size = resources.resamplingReservoirs[(m_frameIx + 1u) % 2u]->getSize(),.buffer = resources.resamplingReservoirs[(m_frameIx + 1u) % 2u]}
+            };
+            bufBarrier[4] = {
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
+                        .srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.checkSum[pingpongIx]->getSize(),.buffer = resources.checkSum[pingpongIx]}
+            };
+            bufBarrier[5] = {   // TODO: might not need this one?
+                .barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
+                        .srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS
+                    } // no ownership transfers, etc.
+                },
+                .range = {.offset = 0,.size = resources.reconnectionData->getSize(),.buffer = resources.reconnectionData}
             };
             success = cb->pipelineBarrier(asset::EDF_NONE, { .bufBarriers = bufBarrier, .imgBarriers = barr });
             
