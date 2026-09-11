@@ -519,9 +519,9 @@ void raygen()
         final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
     }
 
-    color += (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
+    color += (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * final_quo.weight() * finalLi);
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
-    colorAcc.addSample(uint16_t(1u), accum_t(color));
+    colorAcc.addSample(rcData.firstSample, accum_t(color));
 
     gBeauty[launchID] = float32_t4(color, 1.0);
 }

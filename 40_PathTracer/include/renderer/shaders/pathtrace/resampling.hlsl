@@ -100,6 +100,10 @@ struct SReconnectionData
     hlsl::float32_t3 pathPreRcRadiance;
     hlsl::float32_t3 preRcVertexL;
     uint32_t pathLength;
+
+    // sampling info
+    hlsl::float32_t rcpNewSampleCount;
+    uint32_t firstSample;
 };
 
 struct SHashAppendData

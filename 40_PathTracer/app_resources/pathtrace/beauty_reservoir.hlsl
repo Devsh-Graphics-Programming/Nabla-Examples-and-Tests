@@ -228,7 +228,7 @@ void raygen()
     // Held live across the path-tracing loop; summed per sample, written to gBeauty as an fp32 mean
     // after the loop (alongside the per-sample RWMC cascade splat).
     float32_t3 referenceFrameSum = float32_t3(0, 0, 0);
-    uint32_t sampleIndex = 0u;
+    uint32_t sampleIndex = samplingInfo.firstSample;
     // NBL_HLSL_LOOP
     // for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
     {
@@ -585,6 +585,9 @@ void raygen()
             rcData.pathPreRcRadiance = pathState.prefixPathRadiance;
             rcData.preRcVertexL = pathState.preRcVertexL;
             rcData.pathLength = pathState.rcVertexLength - 1;
+
+            rcData.rcpNewSampleCount = samplingInfo.rcpNewSampleCount;
+            rcData.firstSample = samplingInfo.firstSample;
 
             vk::RawBufferStore<SReconnectionData>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf] + linearIdx * sizeof(SReconnectionData), rcData);
         }
