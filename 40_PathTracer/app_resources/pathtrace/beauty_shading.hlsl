@@ -150,6 +150,13 @@ enum E_SBT_OFFSETS : uint16_t
     ESBTO_NEE
 };
 
+uint32_t resolveEmitterID(const uint32_t instanceCustomIndex, const uint32_t geometryIndex)
+{
+    if (gScene.init.pInstancedGeometryToEmitter == 0)
+        return nbl::this_example::NonEmitterCustomIndex;
+    return vk::RawBufferLoad<uint32_t>(gScene.init.pInstancedGeometryToEmitter + uint64_t(instanceCustomIndex + geometryIndex) * 4ull);
+}
+
 SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint32_t baseIndex, uint32_t sampleIndex)
 {
     const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
@@ -481,6 +488,17 @@ void raygen()
     float32_t3 finalDir = hlsl::normalize(spatialReservoir.sPosition - spatialReservoir.vPosition);
     spectral_t finalLi = spatialReservoir.radiance * hlsl::promote<spectral_t>(spatialReservoir.weightF);
 
+    spectral_t color = spectral_t(0, 0, 0);
+    {
+        spectral_t throughput = spectral_t(1, 1, 1);
+        float32_t otherTechniqueHeuristic = 0.f;
+        nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
+
+        const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
+        spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
+        color += emission;
+    }
+
     // TODO ReSTIR: check material roughness
     quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);
     {
@@ -501,7 +519,7 @@ void raygen()
         final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
     }
 
-    spectral_t color = (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
+    color += (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * finalLi);
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
     colorAcc.addSample(uint16_t(1u), accum_t(color));
 

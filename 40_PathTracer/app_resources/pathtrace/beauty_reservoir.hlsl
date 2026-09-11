@@ -346,9 +346,9 @@ void raygen()
                     spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, thp_curr);
                     color += emission;
                     
-                    if (pathState.currentVertexIndex <= pathState.rcVertexLength /*&& pathState.currentVertexIndex > 1*/)   // TODO restir: why only not primary hit? result looks wrong
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
                         pathState.prefixPathRadiance += emission;
-                    else// if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
                         pathState.rcVertexRadiance += emission;
                 }
 
