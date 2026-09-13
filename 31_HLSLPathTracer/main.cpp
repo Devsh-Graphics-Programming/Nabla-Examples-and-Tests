@@ -1397,8 +1397,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			asset::SViewport viewport;
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
 				viewport.width = WindowDimensions.x;

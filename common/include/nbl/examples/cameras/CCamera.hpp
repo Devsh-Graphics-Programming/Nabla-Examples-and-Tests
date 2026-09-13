@@ -74,7 +74,11 @@ public:
 	inline void setProjectionMatrix(const nbl::hlsl::float32_t4x4& projection)
 	{
 		projMatrix = projection;
-		leftHanded = nbl::hlsl::determinant(projMatrix) < 0.f;
+		const float wz = projMatrix[3][2];
+		if (wz != 0.f)
+			leftHanded = wz > 0.f;
+		else
+			leftHanded = nbl::hlsl::determinant(projMatrix) < 0.f;
 		concatMatrix = nbl::hlsl::math::linalg::promoted_mul(projMatrix, viewMatrix);
 	}
 	

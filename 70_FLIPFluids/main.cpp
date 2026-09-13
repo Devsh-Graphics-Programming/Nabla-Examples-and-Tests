@@ -240,7 +240,7 @@ public:
             float zNear = 0.1f, zFar = 10000.f;
             core::vectorSIMDf cameraPosition(14, 8, 12);
             core::vectorSIMDf cameraTarget(0, 0, 0);
-            hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+            hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zFar, zNear);
             camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 
             m_pRenderParams.zNear = zNear;
@@ -1043,8 +1043,6 @@ public:
 
         asset::SViewport viewport;
         {
-            viewport.minDepth = 1.f;
-            viewport.maxDepth = 0.f;
             viewport.x = 0u;
             viewport.y = 0u;
             viewport.width = m_window->getWidth();
@@ -1645,6 +1643,7 @@ private:
             SRasterizationParams rasterizationParams{};
             rasterizationParams.faceCullingMode = EFCM_NONE;
             rasterizationParams.depthWriteEnable = true;
+            rasterizationParams.depthCompareOp = ECO_GREATER;
 
             IGPUGraphicsPipeline::SCreationParams params[1] = {};
             params[0].layout = pipelineLayout.get();

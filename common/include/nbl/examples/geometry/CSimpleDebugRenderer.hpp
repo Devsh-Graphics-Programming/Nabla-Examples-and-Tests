@@ -195,6 +195,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					primitiveAssembly.primitiveRestartEnable = false;
 					primitiveAssembly.tessPatchVertCount = 3;
 					rasterization.faceCullingMode = EFCM_NONE;
+					rasterization.depthCompareOp = ECO_GREATER;
 					params[i].cached.subpassIx = subpassIX;
 					params[i].renderpass = renderpass;
 				}
