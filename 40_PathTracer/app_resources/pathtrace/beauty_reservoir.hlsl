@@ -408,7 +408,7 @@ void raygen()
                     cd.hitPos                  = closestInfo.hitPos;
                     cd.shadingNormal           = shadingNormal;
                     cd.V                       = V.getDirection();
-                    cd.throughput              = hlsl::promote<spectral_t>(1.f);    // mult throughput manually because this doesn't like conditionals for some reaosn
+                    cd.throughput              = hlsl::promote<spectral_t>(1.f);    // mult throughput manually because this doesn't like conditionals for some reason
                     cd.randNEE                 = randNEE;
                     cd.randNEE2                = randNEE2;
                     cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;

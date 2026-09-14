@@ -249,7 +249,7 @@ void raygen()
     SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 0u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
 
-    const uint32_t sampleIndex = 0u;
+    const uint32_t sampleIndex = rcData.firstSample;
     uint16_t sequenceProtoDim = PrimaryRayRandTripletsUsed;
     float32_t3 cameraPos;
 
@@ -489,38 +489,92 @@ void raygen()
     spectral_t finalLi = spatialReservoir.radiance * hlsl::promote<spectral_t>(spatialReservoir.weightF);
 
     spectral_t color = spectral_t(0, 0, 0);
+    nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
+    spectral_t throughput = spectral_t(1, 1, 1);
+
+    // TODO set up material properly
+    using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+    brdf_t::SCreationParams cParams;
+    cParams.A = 0.f;
+    const brdf_t diffuse = brdf_t::create(cParams);
+    const float32_t3 albedo = float32_t3(0.8, 0.7, 0.5);
     {
-        spectral_t throughput = spectral_t(1, 1, 1);
         float32_t otherTechniqueHeuristic = 0.f;
-        nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
 
         const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject));
         spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
         color += emission;
     }
+    // perform NEE
+    if (gScene.init.pLightTreeLeaves != 0 && gScene.init.pEmitters != 0)
+    {
+        const float32_t3 randNEE  = randgen(sequenceProtoDim++, sampleIndex);
+        const float32_t3 randNEE2 = randgen(sequenceProtoDim++, sampleIndex);
+
+        float32_t3 shadingNormal = closestInfo.geometricNormal;
+        ray_dir_info_t V;
+        // minus because of transmission
+        V.setDirection(-spirv::hitObjectGetWorldRayDirectionEXT(hitObject));
+        isotropic_interaction_t interaction = isotropic_interaction_t::create(V, shadingNormal, throughput);
+
+        const float32_t tMin = 0.f;
+        const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+        const float offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+        const float32_t3 newRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
+
+#if NBL_NEE_CALLABLE
+        // Route forwardNEE through the callable shader stage so its heavy register/i-cache
+        // footprint stays out of raygen. The payload spills to the RT stack across the call.
+        [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]] nbl::this_example::SNeeCallableData cd;
+        cd.hitPos                  = closestInfo.hitPos;
+        cd.shadingNormal           = shadingNormal;
+        cd.V                       = V.getDirection();
+        cd.throughput              = throughput
+        cd.randNEE                 = randNEE;
+        cd.randNEE2                = randNEE2;
+        cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;
+        cd.prevDescentNeePdf       = neeEstimator.prevDescentNeePdf;
+        spirv::executeCallable(0u, cd);
+        // Carry the estimator's same-emitter MIS cache back for the next bounce's shadeEmission.
+        neeEstimator.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
+        neeEstimator.prevDescentNeePdf       = cd.prevDescentNeePdf;
+        nbl::this_example::NextEventEstimator::SForwardSample nee;
+        nee.pickedDir       = cd.pickedDir;
+        nee.pickedEmitterID = cd.pickedEmitterID;
+        nee.contribution    = cd.contribution;
+        nee.valid           = cd.valid != 0u;
+#else
+        const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, hlsl::promote<spectral_t>(1.f), randNEE, randNEE2);
+#endif
+        if (nee.valid)
+        {
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval shadowPayload;
+            shadowPayload.init(randNEE.z, hlsl::numeric_limits<float32_t>::max);
+            spirv::HitObjectEXT shadowHit;
+            spirv::hitObjectTraceRayEXT(shadowHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, nee.pickedDir, hlsl::numeric_limits<float32_t>::max, shadowPayload);
+            const bool shadowHitsEmitter = !spirv::hitObjectIsMissEXT(shadowHit) && resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(shadowHit), spirv::hitObjectGetGeometryIndexEXT(shadowHit)) == nee.pickedEmitterID;
+
+            if (shadowHitsEmitter)
+                color += nee.contribution * albedo;
+        }
+    }
 
     // TODO ReSTIR: check material roughness
-    quotient_weight_type final_quo = quotient_weight_type::create(0.f, 0.f);
     {
         typename light_sample_t::ray_dir_info_type V;
-        V.direction = finalDir;
+        V.setDirection(finalDir);
         isotropic_interaction_t interaction = isotropic_interaction_t::create(V, rcData.preRcNormal, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
         typename light_sample_t::ray_dir_info_type L;
         L.direction = -rcData.preRcVertexL;
         light_sample_t _sample = light_sample_t::create(L, rcData.preRcNormal);
 
-        // TODO set up material properly
-        using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
-        brdf_t::SCreationParams cParams;
-        cParams.A = 0.f;
-        const brdf_t diffuse = brdf_t::create(cParams);
         typename brdf_t::isocache_type cache;
-        // TODO: cache
-        final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
+        quotient_weight_type final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
+        color += rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * final_quo.weight() * finalLi;
     }
 
-    color += (rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * final_quo.weight() * finalLi);
-    rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, true);
+    const bool doClear = rcData.firstSample == 0;
+    rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
     colorAcc.addSample(rcData.firstSample, accum_t(color));
 
     gBeauty[launchID] = float32_t4(color, 1.0);
