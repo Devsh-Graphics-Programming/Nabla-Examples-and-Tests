@@ -65,7 +65,7 @@ struct SceneTriangleLight : SceneBase
 
         vector3_type N = objectID.shapeType == PST_SPHERE ? getSphere(objectID.id).getNormal(intersection.position) : getTriangle(objectID.id).getNormalTimesArea();
         N = hlsl::normalize(N);
-        intersection.geometricNormal = N;
+        intersection.geometricNormal = ieee754::flipSignIfRHSNegative<vector3_type>(N, hlsl::promote<vector3_type>(-hlsl::dot(N, rayIntersected.direction)));
         ray_dir_info_t V;
         V.setDirection(-rayIntersected.direction);
         interaction_type interaction = interaction_type::create(V, N);

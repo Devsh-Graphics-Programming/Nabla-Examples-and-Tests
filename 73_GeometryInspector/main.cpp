@@ -69,6 +69,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
 				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+				params.depthCompareOp = asset::ECO_GREATER;
 				params.utilities = m_utils;
 				m_bbRenderer = ext::debug_draw::DrawAABB::create(std::move(params));
 			}
@@ -132,8 +133,8 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 					core::radians(m_cameraSetting.fov),
 					io.DisplaySize.x / io.DisplaySize.y,
-					m_cameraSetting.zNear,
-					m_cameraSetting.zFar);
+					m_cameraSetting.zFar,
+					m_cameraSetting.zNear);
 
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::BeginFrame();
@@ -661,7 +662,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				{
 					const auto measure = hlsl::length(diagonal);
 					const auto aspectRatio = float(m_window->getWidth())/float(m_window->getHeight());
-					m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(1.2f,aspectRatio,distance*measure*0.1f,measure*4.0f);
+					m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(1.2f,aspectRatio,measure*4.0f,distance*measure*0.1f);
 					m_cameraSetting.moveSpeed = measure*0.04f;
 				}
 				const auto pos = bound.maxVx+diagonal*distance;

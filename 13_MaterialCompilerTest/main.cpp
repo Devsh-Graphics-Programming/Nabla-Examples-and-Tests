@@ -6,7 +6,6 @@
 #include "nbl/examples/examples.hpp"
 
 
-
 using namespace nbl;
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -43,6 +42,16 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			auto logger = m_logger.get();
 
+			core::vector<CFrontendIR::typed_pointer_type<const CFrontendIR::CLayer>> astRoots;
+			auto checkValidAndRecord = [&](const CFrontendIR::typed_pointer_type<const CFrontendIR::CLayer> rootH)->bool
+			{
+				if (forest->valid(rootH,logger))
+				{
+					astRoots.push_back(rootH);
+					return true;
+				}
+				return false;
+			};
 			{
 				// dummy image views
 				smart_refctd_ptr<ICPUImageView> monochromeImageView, rgbImageView;
@@ -79,7 +88,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 		m_logger->log("Disregard the error above, its expected.",system::ILogger::ELL_INFO)
 
 
-				using spectral_var_t = CFrontendIR::CSpectralVariable;
+				using spectral_semantics_e = CTrueIR::ISpectralVariable::ESemantics;
+				using spectral_var_t = CFrontendIR::CSpectralVariableExpr;
+
 				// simple white furnace testing materials
 				{
 					// transmission
@@ -88,20 +99,15 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* layer = forestPool.deref(layerH);
 						layer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("MyWeirdInvisibleMaterial");
 						layer->btdf = forestPool.emplace<CFrontendIR::CDeltaTransmission>();
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// creating a node and changing our mind
 					{
+						const auto handle = forestPool.emplace<spectral_var_t>(1);
 
-						spectral_var_t::SCreationParams<1> params = {};
-						params.knots.params[0].scale = 4.5f;
-						params.knots.params[0].view = monochromeImageView;
-
-						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"initial reference count");
-
-						const auto handle = forestPool.emplace<spectral_var_t>(std::move(params));
-						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"transferred reference count");
+						forestPool.deref(handle)->setParameter(0,{.scale=4.5f,.view=monochromeImageView});
+						ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"increased reference count");
 
 						// cleaning it up right away should run the destructor immediately and drop the image view refcount
 						forestPool._delete(handle);
@@ -127,10 +133,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 						// test layer cycle detection
 						layer->coated = layerH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Layer Cycle Detection");
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Layer Cycle Detection");
 						layer->coated = {};
 
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// two-sided diffuse
@@ -144,7 +150,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						// TODO: add a derivative map for testing the printing and compilation
 						layer->brdfTop = orenNayarH;
 						layer->brdfBottom = orenNayarH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 
 					// diffuse isotropic rough transmissive
@@ -164,14 +170,14 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* mul = forestPool.deref(mulH);
 						// regular BRDF will normalize to 100% over a hemisphere, if we allow a BTDF term we must split it half/half
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 0.5f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=0.5f});
+							mul->rhs = varH;
 						}
 
 						// test expression cycle detection
 						mul->lhs = mulH;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Expression Cycle Detection");
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Expression Cycle Detection");
 
 						// create the BxDF as we'd do for a single BRDF or BTDF
 						{
@@ -183,7 +189,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							mul->lhs = orenNayarH;
 						}
 						// TODO: add a derivative map for testing the printing and compilation
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+						ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 					}
 				}
 
@@ -202,17 +208,20 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							params.knots.params[0].scale = 3.f;
-							params.knots.params[1].scale = 7.f;
-							params.knots.params[2].scale = 15.f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=3.f});
+								var->setParameter(1,{.scale=7.f});
+								var->setParameter(2,{.scale=15.f});
+							}
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 						layer->brdfBottom = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// emitter with IES profile
@@ -231,25 +240,28 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.scale = 0.01f;
 							emitter->profile.viewChannel = 0;
 							emitter->profile.view = monochromeImageView;
-							// these are defaults but going to set them
-							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
-							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
-							// TODO: set transform after merging the OBB PR
-							//emitter->profileTransform = ;
+							// we don't handle symmetries yet, so the octahedral mapping is always corner sampled
+							emitter->profile.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profileTransform = hlsl::_static_cast<hlsl::float32_t3x3>(hlsl::math::quaternion<float32_t>::create(hlsl::normalize(hlsl::float32_t3(1.f,1.f,1.f)), 3.14159f*0.25f, 1.f));
 							mul->lhs = emitterH;
 						}
 						// we multiply the unit emitter by the emission color value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							params.knots.params[0].scale = 60.f;
-							params.knots.params[1].scale = 90.f;
-							params.knots.params[2].scale = 45.f;
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=60.f});
+								var->setParameter(1,{.scale=90.f});
+								var->setParameter(2,{.scale=45.f});
+							}
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// onesided emitter with spatially varying emission from the backside
@@ -267,22 +279,28 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							for (auto c=0; c<3; c++)
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
 							{
-								params.knots.params[c].scale = 4.9f;
-								params.knots.params[c].viewChannel = c;
-								params.knots.params[c].view = rgbImageView;
-								params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								for (uint8_t c=0; c<3; c++)
+								{
+									CTrueIR::SParameter param = {
+										.scale = 4.9f,
+										.viewChannel = c,
+										.view = rgbImageView
+									};
+									param.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
+									var->setParameter(c,std::move(param));
+								}
 							}
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							mul->rhs = varH;
 						}
 						layer->brdfBottom = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
 
 				// spatially varying emission but with a profile (think classroom projector)
@@ -300,31 +318,38 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.viewChannel = 0;
 							emitter->profile.view = monochromeImageView;
 							// lets try some other samplers
-							emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+							emitter->profile.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
 							// try with default transform
 							mul->lhs = emitterH;
 						}
 						// we multiply the unit emitter by the value we actually want
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							for (auto c=0; c<3; c++)
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
 							{
-								params.knots.params[c].scale = 900.f; // super bright cause its probably small
-								params.knots.params[c].viewChannel = c;
-								params.knots.params[c].view = rgbImageView;
-								params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-								params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								for (uint8_t c=0; c<3; c++)
+								{
+									CTrueIR::SParameter param = {
+										.scale = 900.f, // super bright cause its probably small
+										.viewChannel = c,
+										.view = rgbImageView
+									};
+									param.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+									param.borderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+									var->setParameter(c,std::move(param));
+								}
 							}
-							mul->rhs = forestPool.emplace<spectral_var_t>(std::move(params));
+							mul->rhs = varH;
 						}
 						layer->brdfTop = mulH;
 					}
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Valid Material");
 				}
-			
+
 				// anisotropic cook torrance GGX with Conductor Fresnel
 				{
 					const auto layerH = forestPool.emplace<CFrontendIR::CLayer>();
@@ -348,11 +373,11 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 					// test that our bad subtree checks by swapping lhs with rhs
 					std::swap(mul->lhs,mul->rhs);
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Contributor not in left subtree check failed");
+					ASSERT_VALUE(checkValidAndRecord(layerH),false,"Contributor not in left subtree check failed");
 
 					// should work now
 					std::swap(mul->lhs,mul->rhs);
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Contributor in left subtree check failed");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Contributor in left subtree check failed");
 				}
 
 				// dielectric
@@ -384,7 +409,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					layer->btdf = dielectricH;
 					layer->brdfBottom = dielectricH;
 
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"Dielectric");
 				}
 
 				// correlated thindielectric (exit through a microfacet with identical normal on the other side - no refraction possible) 
@@ -393,43 +418,53 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					auto* layer = forestPool.deref(layerH);
 					layer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Correlated Single Pane");
 					
-					// do fresnel first for all to have the same one
+					// do fresnel first for all to have the same spectral nodes
 					const auto fresnelH = forest->createNamedFresnel("ThF4");
-					const auto* fresnel = forestPool.deref(fresnelH);
-
-					const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
+					const auto* const fresnel = forestPool.deref(fresnelH);
+					// Top BRDF is the Air->Th4 interface
 					{
+						const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
 						auto* ct = forestPool.deref(ctH);
 						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
-						// ignored for BRDFs, needed for BTDFs
-						ct->orientedRealEta = fresnel->orientedRealEta;
 						layer->brdfTop = forest->createMul(ctH,fresnelH);
 					}
-					// the BTDF
+					// Bottom BRDF is the Th4->Air interface so its using the reciprocal of the fresnel
+					const auto rcpFresnelH = forest->reciprocate(fresnelH)._const_cast();
+					{
+						const auto ctH = forestPool.emplace<CFrontendIR::CCookTorrance>();
+						auto* ct = forestPool.deref(ctH);
+						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
+						layer->brdfBottom = forest->createMul(ctH,rcpFresnelH);
+					}
+					// The BTDF is a bit complex and only possible because top and bottom reflectance can be different
+					// otherwise we'd need to use two separate coating layers and actually model the thindielectric semi-properly as:
+					// Fresnel RoughDiel | (1-Fresnel) DeltaTrans | Smooth Diel Fresnel | Smooth Diel RcpFresnel | (1-RcpFresnel) DeltaTrans | RcpFresnel RoughDiel
+					// And then count on the IR rewriting pass to recover the thindielectric scatter from th BTDF part containing
+					// (1-Fresnel) DeltaTrans | Smooth Diel Fresnel | Smooth Diel RcpFresnel | (1-RcpFresnel) DeltaTrans
+					// Now doing two different fresnels with V and L isn't too bad, but them being attached to a Delta Trans contributor should be exploited by the backend
 					{
 						const auto thinInfiniteScatterH = forestPool.emplace<CFrontendIR::CThinInfiniteScatterCorrection>();
 						{
 							auto* thinInfiniteScatter = forestPool.deref(thinInfiniteScatterH);
 							thinInfiniteScatter->reflectanceTop = fresnelH;
-							thinInfiniteScatter->reflectanceBottom = fresnelH;
+							thinInfiniteScatter->reflectanceBottom = rcpFresnelH;
 							// without extinction
 						}
 						layer->btdf = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),thinInfiniteScatterH);
 					}
-					// the interface on top as Air->ThF4, we need interface on bottom to be ThF4->Air so reciprocate te Eta
-					layer->brdfBottom = forest->createMul(forest->reciprocate(ctH)._const_cast(),fresnelH);
 				
+					// test that Imaginary fresnel can't be used for a dielectric
 					{
 						auto* imagEta = forestPool.deref(fresnel->orientedImagEta);
-						imagEta->getParam(0)->scale = std::numeric_limits<float>::min();
-						imagEta->getParam(1)->scale = -std::numeric_limits<float>::max();
-						imagEta->getParam(2)->scale = 0.5f;
-						ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Imaginary Fresnel disallowed");
+						imagEta->setParameter(0,{.scale=std::numeric_limits<float>::min()});
+						imagEta->setParameter(1,{.scale=-std::numeric_limits<float>::max()});
+						imagEta->setParameter(2,{.scale=0.5f});
+						ASSERT_VALUE(checkValidAndRecord(layerH),false,"Imaginary Fresnel disallowed");
 						for (uint8_t i=0; i<3; i++)
-							imagEta->getParam(i)->scale = 0.f;
+							imagEta->setParameter(i,{.scale=0.f});
 					}
 
-					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"ThinDielectric");
+					ASSERT_VALUE(checkValidAndRecord(layerH),true,"ThinDielectric");
 				}
 
 				// complex materials with coatings with IOR 1.5
@@ -445,48 +480,50 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							mul->lhs = orenNayarH;
 						}
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							params.knots.params[0].scale = 0.9f;
-							params.knots.params[1].scale = 0.6f;
-							params.knots.params[2].scale = 0.01f;
-							const auto albedoH = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
-							forestPool.deref(albedoH)->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Albedo");
+							const auto albedoH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(albedoH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=0.9f});
+								var->setParameter(1,{.scale=0.6f});
+								var->setParameter(2,{.scale=0.01f});
+								var->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Albedo");
+							}
 							mul->rhs = albedoH;
 						}
 					}
 					const auto fresnelH = forestPool.emplace<CFrontendIR::CFresnel>();
 					{
 						auto* fresnel = forestPool.deref(fresnelH);
-						spectral_var_t::SCreationParams<1> params = {};
-						params.knots.params[0].scale = 1.5f;
-						fresnel->orientedRealEta = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
+						const auto varH = forestPool.emplace<spectral_var_t>(1);
+						forestPool.deref(varH)->setParameter(0,{.scale=1.5f});
+						fresnel->orientedRealEta = varH;
 					}
 					// the delta layering should optimize out nicely due to the sampling property
 					const auto transH = forest->createMul(forestPool.emplace<CFrontendIR::CDeltaTransmission>(),fresnelH);
-					// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
-					const auto bottomH = forestPool.emplace<CFrontendIR::CLayer>();
+
+					// don't add debug data or coated yet!
+					const auto protoTopH = forestPool.emplace<CFrontendIR::CLayer>();
 					{
-						auto* bottomLayer = forestPool.deref(bottomH);
-						bottomLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Rough Coating Copy");
+						auto* topLayer = forestPool.deref(protoTopH);
+						topLayer->brdfTop = dielectricH;
+						topLayer->btdf = transH;
 						// no brdf on the top of last layer, kill multiscattering
-						bottomLayer->btdf = transH;
-						// need the interface to be Air on the bottom, not Glass
-						bottomLayer->brdfBottom = forest->reciprocate(dielectricH)._const_cast();
+						// TODO: test with smooth bottom BRDF using same Mul factor (want the infinite scatter compensation)
 					}
+
+					// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to flipped onto the other side
+					const auto bottomH = forest->reverse(protoTopH);
 
 					// twosided rough plastic
 					{
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
-						auto* topLayer = forestPool.deref(rootH);
-						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Twosided Rough Plastic");
-
-						topLayer->brdfTop = dielectricH;
-						topLayer->btdf = transH;
-						// no brdf on the bottom of first layer, kill multiscattering
+						auto* root = forestPool.deref(rootH);
+						*root = *forestPool.deref(protoTopH);
+						root->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Twosided Rough Plastic");
 
 						const auto diffuseH = forestPool.emplace<CFrontendIR::CLayer>();
-						topLayer->coated = diffuseH;
+						root->coated = diffuseH;
 						{
 							auto* midLayer = forestPool.deref(diffuseH);
 							midLayer->brdfTop = roughDiffuseH;
@@ -495,7 +532,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							midLayer->coated = bottomH;
 						}
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Twosided Rough Plastic");
 					}
 
 					// Diffuse transmitter normalized to whole sphere
@@ -505,21 +542,18 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						auto* mul = forestPool.deref(roughDiffTransH);
 						mul->lhs = roughDiffuseH;
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 0.5f;
-							mul->rhs = forestPool.emplace<CFrontendIR::CSpectralVariable>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=0.5f});
+							mul->rhs = varH;
 						}
 					}
 
-					// coated diffuse transmitter
+					// coated diffuse transmitter (thankfully Mitsuba can't produce this)
 					{
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
-						auto* topLayer = forestPool.deref(rootH);
-						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Transmitter");
-
-						topLayer->brdfTop = dielectricH;
-						topLayer->btdf = transH;
-						// no brdf on the bottom of first layer, kill multiscattering
+						auto* root = forestPool.deref(rootH);
+						*root = *forestPool.deref(protoTopH);
+						root->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Transmitter");
 
 						const auto midH = forestPool.emplace<CFrontendIR::CLayer>();
 						auto* midLayer = forestPool.deref(midH);
@@ -531,9 +565,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							// we could even have a BSDF with a different Roughness on the bottom layer!
 							midLayer->coated = bottomH;
 						}
-						topLayer->coated = midH;
+						root->coated = midH;
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Transmitter");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Transmitter");
 					}
 
 					// same thing but with subsurface beer absorption
@@ -541,7 +575,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto rootH = forestPool.emplace<CFrontendIR::CLayer>();
 						auto* topLayer = forestPool.deref(rootH);
 						topLayer->debugInfo = forestPool.emplace<CNodePool::CDebugInfo>("Coated Diffuse Extinction Transmitter");
-// TODO: triple check this example Material
+
 						// we have a choice of where to stick the Beer Absorption:
 						// - on the BTDF of the outside layer, means that it will be applied to the transmission so twice according to VdotN and LdotN
 						// (but delta transmission makes special weight nodes behave in a special and only once because `L=-V` is forced in a single scattering)
@@ -550,17 +584,20 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto beerH = forestPool.emplace<CFrontendIR::CBeer>();
 						auto* beer = forestPool.deref(beerH);
 						{
-							spectral_var_t::SCreationParams<3> params = {};
-							params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-							params.knots.params[0].scale = 0.3f;
-							params.knots.params[1].scale = 0.9f;
-							params.knots.params[2].scale = 0.7f;
-							beer->perpTransmittance = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(3);
+							{
+								auto* const var = forestPool.deref(varH);
+								var->setSemantics(spectral_semantics_e::Fixed3_SRGB);
+								var->setParameter(0,{.scale=0.3f});
+								var->setParameter(1,{.scale=0.9f});
+								var->setParameter(2,{.scale=0.7f});
+							}
+							beer->perpTransmittance = varH;
 						}
 						{
-							spectral_var_t::SCreationParams<1> params = {};
-							params.knots.params[0].scale = 1.f;
-							beer->thickness = forestPool.emplace<spectral_var_t>(std::move(params));
+							const auto varH = forestPool.emplace<spectral_var_t>(1);
+							forestPool.deref(varH)->setParameter(0,{.scale=1.f});
+							beer->thickness = varH;
 						}
 
 						topLayer->brdfTop = dielectricH;
@@ -590,10 +627,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						}
 						topLayer->coated = midH;
 					
-						ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Extinction Transmitter");
+						ASSERT_VALUE(checkValidAndRecord(rootH),true,"Coated Diffuse Extinction Transmitter");
 					}
 				}
-
 				smart_refctd_ptr<IFile> file;
 				{
 					m_system->deleteFile(localOutputCWD/"frontend.dot");
@@ -605,7 +641,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				}
 				if (file)
 				{
-					CFrontendIR::SDotPrinter printer = {forest.get(),forest->getMaterials()};
+					CFrontendIR::SDotPrinter printer = {forest.get(),astRoots};
 					auto visualization = printer();
 					// file write does not take an internal copy of pointer given, need to keep source alive till end
 					IFile::success_t succ;
@@ -616,6 +652,15 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			// Frontend AST -> IR compilation
 			{
+				auto ir = CTrueIR::create({.composed={.blockSizeKBLog2=4}});
+				auto& irPool = forest->getObjectPool();
+
+				core::vector<CTrueIR::SMaterialHandle> result(astRoots.size());
+				forest->addMaterials({.rootNodes=astRoots,.ir=ir.get(),.result=result.data(),.logger=logger});
+				for (const auto& materialHandle : result)
+				{
+					ASSERT_VALUE(bool(materialHandle),true,"Material Not added successfully");
+				}
 			}
 
 			// Reference Backend Codegen

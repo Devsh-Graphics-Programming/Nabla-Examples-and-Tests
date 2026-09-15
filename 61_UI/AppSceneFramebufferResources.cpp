@@ -23,7 +23,7 @@ smart_refctd_ptr<IGPUImageView> createSceneAttachmentView(ILogicalDevice* device
 		return nullptr;
 
 	image->setObjectDebugName(debugName);
-	if (!device->allocate(image->getMemoryReqs(), image.get()).isValid())
+	if (!device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 		return nullptr;
 
 	IGPUImageView::SCreationParams params = {

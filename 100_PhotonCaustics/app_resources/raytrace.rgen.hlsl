@@ -1,0 +1,294 @@
+// Copyright (C) 2018-2026 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+//--------------------------------------------------------------------------
+#include "app_resources/common.hlsl"
+#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+
+#include "nbl/builtin/hlsl/random/pcg.hlsl" // for random seed
+#include "nbl/builtin/hlsl/math/functions.hlsl" // why not some math
+#include "nbl/builtin/hlsl/sampling/cos_weighted_spheres.hlsl" // diffuse ray random direction thingy
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+//--------------------------------------------------------------------------
+// Lets get some naming straight for debug views etc.
+// L = light
+// E = eye
+// D = diffuse bounce
+// S = specular bounce (metal or glass)
+//--------------------------------------------------------------------------
+// Resources
+using namespace nbl::hlsl;
+
+[[vk::binding(0, 0)]] RaytracingAccelerationStructure sceneTLAS;
+[[vk::binding(1, 0)]] RWTexture2D<float32_t4> hdrImage;
+[[vk::binding(2, 0)]] RWTexture2D<float32_t4> accumulationImage;
+
+[[vk::push_constant]] SPushConstants pc;
+//--------------------------------------------------------------------------
+// https://www.shadertoy.com/view/WlfXRN
+float32_t3 viridis(float32_t t)
+{
+    t = saturate(t);
+
+    const float32_t3 c0 = float32_t3(0.277727f, 0.005407f, 0.334099f);
+    const float32_t3 c1 = float32_t3(0.105093f, 1.404613f, 1.384590f);
+    const float32_t3 c2 = float32_t3(-0.330861f, 0.214847f, 0. - 1.197111f);
+    const float32_t3 c3 = float32_t3(-4.634230f, -5.799100f, 3.471838f);
+    const float32_t3 c4 = float32_t3(6.228269f, 14.179933f, -13.745145f);
+    const float32_t3 c5 = float32_t3(4.776384f, -13.745145f, 13.514902f);
+
+    return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))));
+}
+    
+    
+float32_t3 plasma(float t) 
+{
+    const float32_t3 c0 = float32_t3(0.05873234392399702, 0.02333670892565664, 0.5433401826748754);
+    const float32_t3 c1 = float32_t3(2.176514634195958, 0.2383834171260182, 0.7539604599784036);
+    const float32_t3 c2 = float32_t3(-2.689460476458034, -7.455851135738909, 3.110799939717086);
+    const float32_t3 c3 = float32_t3(6.130348345893603, 42.3461881477227, -28.51885465332158);
+    const float32_t3 c4 = float32_t3(-11.10743619062271, -82.66631109428045, 60.13984767418263);
+    const float32_t3 c5 = float32_t3(10.02306557647065, 71.41361770095349, -54.07218655560067);
+    const float32_t3 c6 = float32_t3(-3.658713842777788, -22.93153465461149, 18.19190778539828);
+
+    return c0+t*(c1+t*(c2+t*(c3+t*(c4+t*(c5+t*c6)))));
+}
+    
+float32_t3 gatherPhotons(float32_t3 x, float32_t3 n, float32_t3 albedo)
+{
+    if (pc.photonCount == 0)
+        return (float32_t3)0.0f;
+
+    const float32_t r2 = pc.gatherRadius * pc.gatherRadius;
+    float32_t3 flux = (float32_t3)0.0f;
+    uint32_t   found = 0;
+
+    const static uint64_t PhotonAlign = nbl::hlsl::alignment_of_v<SPhoton>;
+    const static uint64_t HeaderAlign = nbl::hlsl::alignment_of_v<SPhotonMapHeader>;
+
+    // how many actually landed, not the buffer capacity
+    const SPhotonMapHeader header = vk::BufferPointer<SPhotonMapHeader, HeaderAlign>(pc.photonBuffer).Get();
+    const uint32_t storedPhotons = min(header.photonCounter, pc.photonCount);
+    if (storedPhotons == 0)
+        return (float32_t3)0.0f;
+
+    BdaAccessor<uint32_t> cellCounts  = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellCountsAddr));
+    BdaAccessor<uint32_t> cellPhotons = BdaAccessor<uint32_t>::create(bda::__ptr<uint32_t>::create(header.cellPhotonsAddr));
+
+    // every cell the gather sphere overlaps, a photon lives in exactly one cell
+    // so visiting distinct cells cannot double count
+    const int32_t3 lo = photonGridCoord(x - pc.gatherRadius, header.gridMin, header.gridInvCellSize);
+    const int32_t3 hi = photonGridCoord(x + pc.gatherRadius, header.gridMin, header.gridInvCellSize);
+
+    for (int32_t cz = lo.z; cz <= hi.z; ++cz)
+    for (int32_t cy = lo.y; cy <= hi.y; ++cy)
+    for (int32_t cx = lo.x; cx <= hi.x; ++cx)
+    {
+        const uint32_t cell = photonGridFlatten(int32_t3(cx, cy, cz));
+        const uint32_t inCell = min(cellCounts.get(uint64_t(cell)), pc.photonCount);
+        const uint64_t cellBase = uint64_t(cell) * uint64_t(pc.photonCount);
+
+        for (uint32_t j = 0; j < inCell; ++j)
+        {
+            const uint32_t i = cellPhotons.get(cellBase + uint64_t(j));
+
+            const SPhoton ph = vk::BufferPointer<SPhoton, PhotonAlign>(
+                pc.photonBuffer + PHOTON_ARRAY_OFFSET + i * sizeof(SPhoton)).Get();
+
+            const float32_t3 d = ph.position - x;
+            if (dot(d, d) > r2)
+                continue;
+
+            if (dot(ph.direction, n) <= 0.0f)
+                continue;
+
+            flux += ph.power;
+            found++;
+        }
+    }
+
+    // heatmap: https://www.shadertoy.com/view/WlfXRN
+    if (pc.debugFlags & DEBUG_PHOTONS_BIT)
+    {
+        const float32_t photonLog = log2(1.0f + float32_t(found));
+        const float32_t t = saturate(photonLog / log2(1.0f + 64.0f));
+
+        return plasma(t);
+    }
+
+    // albedo/pi is the Lambertian BRDF, 1/(pi r^2) is the disk area.
+    return albedo * flux / (numbers::pi<float32_t> * numbers::pi<float32_t> * r2);
+}
+    
+#define ELPE_NONE       0
+#define ELPE_LIGHT      (1u << 0) // L: started from a light
+#define ELPE_DIFFUSE    (1u << 1) // D: hit diffuse
+#define ELPE_SPECULAR   (1u << 2) // S: hit specular
+#define ELPE_TRANSMIT   (1u << 3) // T: transmitted/refracted
+#define ELPE_EYE        (1u << 4) // E: reached the camera/eye
+#define ELPE_CAUSTIC    (1u << 5) // C: hit specular and then diffuse hence its a caustic
+    
+[shader("raygeneration")]
+void main()
+{
+    const uint32_t3 launchID   = spirv::LaunchIdKHR;
+    const uint32_t3 launchSize = spirv::LaunchSizeKHR;
+    const int32_t2  pixel      = int32_t2(launchID.xy);
+
+    // Seed varies per pixel AND per frame
+    const uint32_t pixelIndex = uint32_t(pixel.x) + uint32_t(pixel.y) * launchSize.x;
+    const uint32_t frameHash  = random::PCG32::construct(pc.accumulatedFrames)();
+    random::PCG32  rng        = random::PCG32::construct(pixelIndex + frameHash);
+
+    // Multiple spp radiance accumulator
+    float32_t3 pixelRadiance = (float32_t3)0.0f;
+
+    for (uint32_t sampleIndex = 0; sampleIndex < NUM_SAMPLES_PER_PIXEL; ++sampleIndex)
+    {
+        // Jitter inside the pixel for each sample ==> FREE AA!
+        const float32_t2 jitter = float32_t2(rnd(rng), rnd(rng)); // see already in [0...1] uniform range
+        const float32_t2 uv     = (float32_t2(pixel) + jitter) / float32_t2(launchSize.xy);
+        const float32_t2 ndc    = uv * 2.0f - 1.0f;
+
+        // get the camera ray target in World space
+        const float32_t4 tmp    = mul(pc.invMVP, float32_t4(ndc.x, ndc.y, 1.0f, 1.0f));
+        const float32_t3 target = tmp.xyz / tmp.w;
+
+        float32_t3 origin    = pc.camPos;
+        float32_t3 direction = normalize(target - pc.camPos);
+
+        // radiance   = light gathered back to the eye along this path
+        // throughput = surviving fraction of it, attenuated at every bounce
+        float32_t3 radiance   = (float32_t3)0.0f;
+        float32_t3 throughput = (float32_t3)1.0f;
+            
+        const bool debugPhotons = (pc.debugFlags & DEBUG_PHOTONS_BIT) != 0u;
+        bool caustGathered = false; // don't want to keep gathering at same point again and again
+            
+        uint32_t lightPath = 0;
+            
+        for (uint32_t bounce = 0; bounce < NUM_MAX_BOUNCES; ++bounce)
+        {
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
+            RayPayload payload;
+            payload.missed = false;
+
+            spirv::traceRayKHR(sceneTLAS,
+                                spv::RayFlagsOpaqueKHRMask,
+                                0xFF, 0, 0, 0,
+                                origin, RAY_TMIN, direction, RAY_TMAX, payload);
+                
+            if (debugPhotons)
+            {
+                if (payload.missed)
+                    break;
+                if (payload.metallic <= 0.5f && payload.transmission <= 0.5f)
+                {
+                    if (pc.photonCount > 0)
+                        radiance = gatherPhotons(payload.position, payload.normal, payload.albedo);
+                    break;
+                }
+            }
+                
+            const bool isMetalHit = payload.metallic > 0.5f;
+            const bool isGlassHit = payload.transmission > 0.5f;
+                
+            // Light is found by walking into it, even miss shader can contribute light which is why we test for misses after adding radiance
+            // path is owned by the caustics map
+            bool ownedByphotonMap = ((lightPath & ELPE_CAUSTIC) == ELPE_CAUSTIC);
+            if (!ownedByphotonMap)
+                radiance += throughput * payload.emission;
+                            
+            //radiance += throughput * gatherPhotons(payload.position, payload.normal, payload.albedo);;
+
+            if (payload.missed)
+                break;
+                
+            if (!debugPhotons && !isMetalHit && !isGlassHit && !caustGathered && pc.photonCount > 0)
+            {
+                radiance += throughput * gatherPhotons(payload.position, payload.normal, payload.albedo);
+                caustGathered = true;
+            }
+                
+            // The whole Lambertian BRDF, after the pi and cosine cancel
+            throughput *= payload.albedo; // whats left after absorption of light
+
+            // A fully absorbed path can never contribute again, so kill it
+            if (max(throughput.r, max(throughput.g, throughput.b)) <= 0.0f)
+                break;
+
+            // add offset to adjust going in and out of surfaces, get new origin
+            origin = payload.position + payload.normal * RAY_ORIGIN_OFFSET;
+                
+            if (payload.metallic > 0.5f)
+            {
+                const float32_t3 reflected = reflect(direction, payload.normal);
+                // if it goes inside, ignore it
+                if (dot(reflected, payload.normal) <= 0.0f)
+                    break;
+                direction = reflected;
+                
+                lightPath |= ELPE_SPECULAR;
+                if(lightPath & ELPE_DIFFUSE)
+                    lightPath |= ELPE_CAUSTIC;
+            }
+            else if (payload.transmission > 0.5f)
+            {
+                // Determine the IOR on each side of the surface.
+                const float32_t etaIncident    = payload.frontFace ? 1.0f : payload.ior;
+                const float32_t etaTransmitted = payload.frontFace ? payload.ior : 1.0f;
+
+                const float32_t etaRatio = etaIncident / etaTransmitted;
+
+                // Cosine of the angle between the incident ray and the surface normal.
+                const float32_t cosTheta = min(dot(-direction, payload.normal), 1.0f);
+
+                const float32_t3 refracted = refract(direction, payload.normal, etaRatio);
+
+                // total internal reflection, damn snell
+                const bool tir = dot(refracted, refracted) == 0.0f;
+
+                // prob of being reflected, if hits our seeded run, we reflect or we refract
+                const float32_t reflectProb = tir ? 1.0f : fresnelDielectric(cosTheta, etaIncident, etaTransmitted);
+
+                if (rnd(rng) < reflectProb)
+                {
+                    direction = reflect(direction, payload.normal);
+                    origin    = payload.position + payload.normal * RAY_ORIGIN_OFFSET;
+                }
+                else
+                {
+
+                    // The refracted ray crosses to the opposite side of the surface,
+                    // so offset the origin in the opposite direction.
+                    direction = refracted;
+                    origin    = payload.position - payload.normal * RAY_ORIGIN_OFFSET;
+                }
+                    
+                lightPath |= ELPE_SPECULAR;
+                if(lightPath & ELPE_DIFFUSE)
+                    lightPath |= ELPE_CAUSTIC;
+            }
+            else
+            {
+                // diffuse ==> so randomly walk somewhere
+                direction = cosineSampleHemisphere(payload.normal, rng);
+                lightPath |= ELPE_DIFFUSE;
+                lightPath &= ~ELPE_CAUSTIC; // resets the caustics path since we hit diffuse
+            }
+        }
+        pixelRadiance += radiance;
+    }
+
+    pixelRadiance /= float32_t(NUM_SAMPLES_PER_PIXEL);
+
+    float32_t3 accumulated = pixelRadiance;
+    if (pc.accumulatedFrames > 0)
+        accumulated += accumulationImage[pixel].rgb;
+    accumulationImage[pixel] = float32_t4(accumulated, 1.0f);
+
+    const float32_t3 averagedAccumulation = accumulated / float32_t(pc.accumulatedFrames + 1);
+    hdrImage[pixel] = float32_t4(averagedAccumulation, 1.0f);
+}

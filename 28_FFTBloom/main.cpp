@@ -558,7 +558,7 @@ public:
 
 			auto memReqs = outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuMem = m_device->allocate(memReqs, outImg.get());
+			auto gpuMem = m_device->allocate(memReqs, { outImg.get() });
 
 			dstImgViewInfo.image = outImg;
 			dstImgViewInfo.subUsages = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
@@ -616,8 +616,8 @@ public:
 				auto colMemReqs = m_colMajorBuffer[i]->getMemoryReqs();
 				rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-				auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto gpuRowMem = m_device->allocate(rowMemReqs, { m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT });
+				auto gpuColMem = m_device->allocate(colMemReqs, { m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT });
 
 				m_rowMajorBufferAddress[i] = m_rowMajorBuffer[i].get()->getDeviceAddress();
 				m_colMajorBufferAddress[i] = m_colMajorBuffer[i].get()->getDeviceAddress();
@@ -686,7 +686,7 @@ public:
 
 					auto memReqs = kernelImg->getMemoryReqs();
 					memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					auto gpuMem = m_device->allocate(memReqs, kernelImg.get());
+					auto gpuMem = m_device->allocate(memReqs, { kernelImg.get() });
 
 					video::IGPUImageView::SCreationParams viewParams;
 					viewParams.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(0u);

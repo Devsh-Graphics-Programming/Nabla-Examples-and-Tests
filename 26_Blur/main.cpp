@@ -207,7 +207,7 @@ class BlurApp final : public SimpleWindowedApplication, public BuiltinResourcesA
 			// make sure we're always allocating from VRAM
 			auto reqs = m_horzImg->getMemoryReqs();
 			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			if (!m_horzImg || !m_device->allocate(reqs, m_horzImg.get()).isValid())
+			if (!m_horzImg || !m_device->allocate(reqs, { m_horzImg.get() }).isValid())
 				return logFail("Could not create HDR Image");
 
 			m_vertImg = m_device->createImage({
@@ -223,7 +223,7 @@ class BlurApp final : public SimpleWindowedApplication, public BuiltinResourcesA
 				});
 			reqs = m_horzImg->getMemoryReqs();
 			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			if (!m_vertImg || !m_device->allocate(reqs, m_vertImg.get()).isValid())
+			if (!m_vertImg || !m_device->allocate(reqs, { m_vertImg.get() }).isValid())
 				return logFail("Could not create HDR Image");
 
 			smart_refctd_ptr<IShader> shader;

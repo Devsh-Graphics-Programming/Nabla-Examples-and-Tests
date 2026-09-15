@@ -1,4 +1,4 @@
-﻿// TODO: Copyright notice
+// TODO: Copyright notice
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_10;
 
 class Camera2D
 {
@@ -587,7 +587,7 @@ public:
 
 			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = m_globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
+			auto globalsBufferMem = m_device->allocate(memReq, { m_globalsBuffer.get() });
 		}
 		
 		// pseudoStencil
@@ -611,7 +611,7 @@ public:
 				auto image = m_device->createImage(std::move(imgInfo));
 				auto imageMemReqs = image->getMemoryReqs();
 				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				m_device->allocate(imageMemReqs, image.get());
+				m_device->allocate(imageMemReqs, { image.get() });
 
 				image->setObjectDebugName("pseudoStencil Image");
 
@@ -651,7 +651,7 @@ public:
 				auto image = m_device->createImage(std::move(imgInfo));
 				auto imageMemReqs = image->getMemoryReqs();
 				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				m_device->allocate(imageMemReqs, image.get());
+				m_device->allocate(imageMemReqs, { image.get() });
 
 				image->setObjectDebugName("colorStorage Image");
 
@@ -749,9 +749,8 @@ public:
 
 				tmpCmdBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeClearImageBarrier });
 
-				uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
 				IGPUCommandBuffer::SClearColorValue clear = {};
-				clear.uint32[0] = pseudoStencilInvalidValue;
+				clear.uint32[0] = InvalidPseudoStencilValue;
 
 				asset::IImage::SSubresourceRange subresourceRange = {};
 				subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -1463,6 +1462,70 @@ public:
 		
 		m_timeElapsed = 0.0;
 		
+		return runUnitTests();
+	}
+	
+	bool runUnitTests() {
+		auto bezier1 = Hatch::QuadraticBezier(float32_t2(86.82566833496094, 52.9466552734375), float32_t2(81.68321990966797, 64.34321594238281), float32_t2(76.54077911376953, 75.73978424072266));
+		auto bezier2 = Hatch::QuadraticBezier(float32_t2(66.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 66.82942199707031), float32_t2(116.20906829833984, 116.82942199707031));
+
+		Hatch::Segment segment1;
+		segment1.originalBezier = &bezier1;
+		segment1.t_start = 0.60907690910425261;
+		segment1.t_end = 1.0;
+		Hatch::Segment segment2;
+		segment2.originalBezier = &bezier2;
+		segment2.t_start = 0.0;
+		segment2.t_end = 1.0;
+
+		{
+			const auto intersections = segment1.intersect(segment2);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+		{
+			auto bezier1Clone = bezier1;
+			bezier1Clone.splitFromMinToMax(0.60907690910425261, 1.0);
+
+			Hatch::Segment segment1;
+			segment1.originalBezier = &bezier1Clone;
+			segment1.t_start = 0.0;
+			segment1.t_end = 1.0;
+
+			const auto intersections = segment2.intersect(segment1);
+			std::vector<double> workingIntersections;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
+			{
+				auto t = intersections[i];
+				if (core::isnan(t))
+					continue;
+				workingIntersections.push_back(t);
+			}
+			assert(workingIntersections.size() > 0);
+		}
+
 		return true;
 	}
 
@@ -1472,7 +1535,9 @@ public:
 		auto now = std::chrono::high_resolution_clock::now();
 		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
-		m_timeElapsed += dt;
+		if (!m_paused)
+			m_timeElapsed += dt;
+
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
 			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
@@ -1495,6 +1560,10 @@ public:
 				{
 					auto ev = *eventIt;
 
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_SPACE)
+					{
+						m_paused = !m_paused;
+					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
 					{
 						m_hatchDebugStep++;
@@ -2034,6 +2103,8 @@ protected:
 					}
 				}
 			}
+
+
 			if (true)
 			{
 #include "bike_hatch.h"
@@ -3218,10 +3289,9 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_6)
 		{
-			float64_t3x3 customProjection = float64_t3x3{
+			float64_t2x3 customProjection = float64_t2x3{
 				1.0, 0.0, cos(m_timeElapsed * 0.0005) * 100.0,
-				0.0, 1.0, 0.0,
-				0.0, 0.0, 1.0
+				0.0, 1.0, 0.0
 			};
 
 			/// [NOTE]: We set minClip and maxClip (in default worldspace) in such a way that minClip.y > maxClip.y so that minClipNDC.y < maxClipNDC.y
@@ -3680,7 +3750,7 @@ protected:
 			
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+			style.color = float32_t4(0.2f, 0.2f, 0.2f, 0.5f);
 
 			for (uint32_t i = 0; i < 128u; ++i)
 			{
@@ -3737,7 +3807,7 @@ protected:
 					0.0, 0.0, 1.0
 				};
 
-				float64_t2 scale = float64_t2{ 100.0, 100.0 };
+				float64_t2 scale = float64_t2{ 10.0, 10.0 };
 				float64_t3x3 scaleMat =
 				{
 					scale.x, 0.0, 0.0,
@@ -3749,8 +3819,34 @@ protected:
 				polyline.addLinePoints(line0);
 				polyline.addLinePoints(line1);
 				polyline.preprocessPolylineWithStyle(style);
-				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
-				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				//drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
+				//drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+
+				constexpr int MarkerCount = 1000000;
+				for (int i = 0; i < MarkerCount; ++i)
+				{
+					translateMat =
+					{
+						1.0, 0.0, static_cast<float64_t>(i) / static_cast<float64_t>(MarkerCount*0.2),
+						0.0, 1.0, 0.0,
+						0.0, 0.0, 1.0
+					};
+
+					const float64_t rotationAngle = (core::radians(360.0) / static_cast<float64_t>(MarkerCount)) * static_cast<float64_t>(i) * 10.0;
+					dir = float64_t2{ std::cos(rotationAngle), std::sin(rotationAngle) };
+					rotateMat =
+					{
+						dir.x, -dir.y, 0.0,
+						dir.y, dir.x,  0.0,
+						0.0, 0.0, 1.0
+					};
+
+					transformation = nbl::hlsl::mul(rotateMat, translateMat);
+					
+					transformation = nbl::hlsl::mul(rotateMat, nbl::hlsl::mul(translateMat, scaleMat));
+
+					drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, float64_t2x3(transformation[0], transformation[1]), TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				}
 			}
 		}
 		else if (mode == ExampleMode::CASE_11)
@@ -3960,7 +4056,8 @@ protected:
 	clock_t::time_point start;
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 
-	double m_timeElapsed = 0.0;
+	bool m_paused = true;
+	double m_timeElapsed = 1170236713;
 	std::chrono::steady_clock::time_point lastTime;
 
 	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
@@ -4035,7 +4132,7 @@ protected:
 	#endif
 	
 	// Example Specific Settings:
-	uint32_t m_hatchDebugStep = 0u; // setting for CASE_2
+	uint32_t m_hatchDebugStep = 0;// 401; // setting for CASE_2
 	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS; // setting for CASE_11 & CASE_9
 };
 

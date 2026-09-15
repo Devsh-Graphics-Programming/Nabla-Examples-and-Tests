@@ -10,6 +10,9 @@ struct TestNDF : TestBxDF<BxDF>
     using this_t = TestNDF<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
+    using aniso_cache = BxDF::anisocache_type;
+    using iso_cache = BxDF::isocache_type;
+
     TestResult compute()
     {
         aniso_cache dummy;
@@ -188,15 +191,16 @@ struct TestCTGenerateH : TestBxDF<BxDF>
         counter.reset();
 
         sample_t s;
-        iso_cache isocache;
-        aniso_cache cache;
+        typename BxDF::isocache_type isocache;
+        typename BxDF::anisocache_type cache;
         for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(base_t::rc.rng_vec<3>());
 
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+                typename BxDF::anisocache_type _cache;
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, _cache);
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
             {
@@ -207,7 +211,8 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, u);
+                typename BxDF::anisocache_type _cache;
+                s = base_t::bxdf.generate(base_t::anisointer, u, _cache);
             }
             NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
             {

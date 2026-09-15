@@ -263,8 +263,7 @@ bool CWindowPresenter::beginRenderpass_impl()
 	const SViewport viewport[] = {{
 		.x = 0u, .y = 0u,
 		.width = static_cast<float>(resolution.x),
-		.height = static_cast<float>(resolution.y),
-		.minDepth = 1.f, .maxDepth = 0.f
+		.height = static_cast<float>(resolution.y)
 	}};
 	success = success && cb->setViewport(viewport,0);
 	{

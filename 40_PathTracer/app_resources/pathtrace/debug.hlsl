@@ -30,10 +30,10 @@ void raygen()
     // take just one sample per dispatch
     {        
         const float16_t2 randVec = float16_t2(samplingInfo.randgen(0u,samplingInfo.firstSample).xy);
-        const SRay ray = SRay::create(pc.sensorDynamics,pixelSizeNDC,NDC,randVec);
+        const SPrimaryRay primary = genPrimaryRay(pc.sensorDynamics,pixelSizeNDC,NDC,randVec);
 
         payload.aov.clear();
-        spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, ray.origin, ray.tMin, ray.direction, ray.tMax, payload);
+        spirv::traceRayKHR(gTLASes[0], spv::RayFlagsMaskNone, 0xff, 0u, 0u, 0u, primary.ray.origin, primary.tMin, primary.ray.direction.getDirection(), pc.sensorDynamics.tMax, payload);
     }
 
     // simple overwrite without accumulation

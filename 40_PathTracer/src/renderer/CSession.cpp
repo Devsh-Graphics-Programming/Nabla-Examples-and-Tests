@@ -52,7 +52,7 @@ bool CSession::init(SIntendedSubmitInfo& info)
 			if (memBacked->getObjectType()==IDeviceMemoryBacked::E_OBJECT_TYPE::EOT_BUFFER &&
 				static_cast<IGPUBuffer*>(memBacked)->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT))
 				flags |= flags_e::EMAF_DEVICE_ADDRESS_BIT;
-			if (!device->allocate(mreqs,memBacked,flags).isValid())
+			if (!device->allocate(mreqs,{memBacked,flags}).isValid())
 			{
 				logger.log("Could not allocate memory for Sensor \"%s\"'s \"%s\" in CSession::init()",ILogger::ELL_ERROR,m_params.name.c_str(),debugName.data());
 				return false;

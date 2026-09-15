@@ -83,14 +83,19 @@ template<>
 float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
     float32_t4 color;
-    uint32_t styleIdx = loadMainObject(currentMainObjectIdx).styleIdx;
-    if (!colorFromTexture)
+    MainObject mainObject = loadMainObject(currentMainObjectIdx);
+
+    // `colorFromTexture` is required when drawing DTMs
+    if (!mainObject.colorFromLineStyle() || colorFromTexture)
     {
+        color = float4(localTextureColor, localAlpha);
+    }
+    else
+    {
+        uint32_t styleIdx = mainObject.getLineStyleIndex();
         color = loadLineStyle(styleIdx).color;
         color.w *= localAlpha;
     }
-    else
-        color = float4(localTextureColor, localAlpha);
         
     color.rgb *= color.a;
     return color;
@@ -101,30 +106,34 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     float32_t4 color;
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
-    const uint32_t packedData = pseudoStencil[fragCoord];
+    PseudoStencil ps = loadPseudoStencilData(fragCoord);
 
     const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
-    const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
-    const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
+    const uint32_t storedQuantizedAlpha = ps.getAlpha();
+    const uint32_t storedMainObjectIdx = ps.getMainObjectIdx();
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const bool differentMainObject = currentMainObjectIdx != storedMainObjectIdx; // meaning current pixel's main object is different than what is already stored
     const bool resolve = differentMainObject && storedMainObjectIdx != InvalidMainObjectIdx;
-    uint32_t toResolveStyleIdx = InvalidStyleIdx;
-    
+    uint32_t toResolveStyleIdx = InvalidLineStyleIndex;
+
     // load from colorStorage only if we want to resolve color from texture instead of style
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
     if (resolve)
     {
-        toResolveStyleIdx = loadMainObject(storedMainObjectIdx).styleIdx;
-        if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
+        MainObject mainObject = loadMainObject(storedMainObjectIdx);
+        if(mainObject.colorFromLineStyle())
+            toResolveStyleIdx = mainObject.getLineStyleIndex();
+        else
             color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+        
     }
     
     // If current localAlpha is higher than what is already stored in pseudoStencil we will update the value in pseudoStencil or the color in colorStorage, this is equivalent to programmable blending MAX operation.
     // OR If previous pixel has a different ID than current's  (i.e. previous either empty/invalid or a differnet mainObject), we should update our alpha and color storages.
     if (differentMainObject || localQuantizedAlpha > storedQuantizedAlpha)
     {
-        pseudoStencil[fragCoord] = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+        setPseudoStencilData(fragCoord, localQuantizedAlpha, currentMainObjectIdx);
+
         if (colorFromTexture) // writing color from texture
             colorStorage[fragCoord] = packR11G11B10_UNORM(localTextureColor);
     }
@@ -136,7 +145,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
-    if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    if (toResolveStyleIdx != InvalidLineStyleIndex) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
     {
         color = loadLineStyle(toResolveStyleIdx).color;
         gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction
@@ -170,7 +179,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     
     if (pc.isDTMRendering)
     {
-        DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
+        DTMSettings dtmSettings = loadDTMSettings(mainObj.getDtmSettingsIndex());
 
         float3 triangleVertices[3];
         triangleVertices[0] = input.getScreenSpaceVertexAttribs(0);
@@ -221,7 +230,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             {
                 const float2 start = input.getLineStart();
                 const float2 end = input.getLineEnd();
-                const uint32_t styleIdx = mainObj.styleIdx;
+                const uint32_t styleIdx = mainObj.getLineStyleIndex();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -245,7 +254,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
                 nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
 
-                const uint32_t styleIdx = mainObj.styleIdx;
+                const uint32_t styleIdx = mainObj.getLineStyleIndex();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
 
@@ -387,7 +396,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
             }
 
-            LineStyle style = loadLineStyle(mainObj.styleIdx);
+            LineStyle style = loadLineStyle(mainObj.getLineStyleIndex());
             uint32_t textureId = asuint(style.screenSpaceLineWidth);
             if (textureId != InvalidTextureIndex)
             {
@@ -423,7 +432,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 */
                 msdf *= exp2(max(mipLevel,0.0));
             
-                LineStyle style = loadLineStyle(mainObj.styleIdx);
+                LineStyle style = loadLineStyle(mainObj.getLineStyleIndex());
                 const float screenPxRange = input.getFontGlyphPxRange() / MSDFPixelRangeHalf;
                 const float bolden = style.worldSpaceLineWidth * screenPxRange; // worldSpaceLineWidth is actually boldenInPixels, aliased TextStyle with LineStyle
                 localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor / 2.0f + bolden, globals.antiAliasingFactor / 2.0f + bolden, msdf);
@@ -443,7 +452,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         else if (objType == ObjectType::GRID_DTM)
         {
-            DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
+            DTMSettings dtmSettings = loadDTMSettings(mainObj.getDtmSettingsIndex());
 
             if (!dtmSettings.drawContourEnabled() && !dtmSettings.drawOutlineEnabled() && !dtmSettings.drawHeightShadingEnabled())
                 discard;

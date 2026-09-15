@@ -1,0 +1,28 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "scriptPath": "",
+  "cmake": {
+    "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
+    "buildModes": [],
+    "requiredOptions": []
+  }, 
+  "profiles": [
+    {
+      "backend": "vulkan", // should be none
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Release", // we also need to run in Debug nad RWDI because foundational example
+      "gpuArchitectures": []
+    }
+  ],
+  "dependencies": [],
+  "data": [
+    {
+      "dependencies": [],
+      "command": [""],
+      "outputs": []
+    }
+  ]
+}

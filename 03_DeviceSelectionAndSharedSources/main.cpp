@@ -120,7 +120,7 @@ public:
 				// same as last time we make the buffers mappable for easy access
 				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
 				// and we make the allocation dedicated
-				auto allocation = m_device->allocate(reqs, buff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+				auto allocation = m_device->allocate(reqs, { buff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
 
 				return std::make_pair(buff, allocation);
 			};

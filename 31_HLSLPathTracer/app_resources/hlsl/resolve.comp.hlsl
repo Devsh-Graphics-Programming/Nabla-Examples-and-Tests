@@ -39,19 +39,19 @@ struct SCascadeAccessor
     int16_t2 cascadeImageDimension;
 };
 
-int32_t2 getImageExtents()
+uint32_t2 getImageExtents()
 {
     uint32_t width, height, imageArraySize;
     outImage.GetDimensions(width, height, imageArraySize);
-    return int32_t2(width, height);
+    return uint32_t2(width, height);
 }
 
 [numthreads(ResolveWorkgroupSizeX, ResolveWorkgroupSizeY, 1)]
 [shader("compute")]
 void resolve(uint32_t3 threadID : SV_DispatchThreadID)
 {
-    const int32_t2 coords = int32_t2(threadID.x, threadID.y);
-    const int32_t2 imageExtents = getImageExtents();
+    const uint32_t2 coords = uint32_t2(threadID.x, threadID.y);
+    const uint32_t2 imageExtents = getImageExtents();
     if (coords.x >= imageExtents.x || coords.y >= imageExtents.y)
         return;
 
@@ -60,7 +60,7 @@ void resolve(uint32_t3 threadID : SV_DispatchThreadID)
     SResolveAccessorAdaptorType accessor = { SCascadeAccessor::create() };
     SResolverType resolve = SResolverType::create(pc.resolveParameters);
 
-    float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
+    float32_t3 color = resolve(accessor, uint16_t2(coords.x, coords.y));
 
     outImage[uint3(coords.x, coords.y, 0)] = float32_t4(color, 1.0f);
 }

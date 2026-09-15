@@ -102,7 +102,7 @@ protected:
             .depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
         } });
 
-        device->allocate(image->getMemoryReqs(), image.get());
+        device->allocate(image->getMemoryReqs(), { image.get() });
 
         m_depthBuffer = device->createImageView({
             .flags = IGPUImageView::ECF_NONE,
@@ -244,7 +244,7 @@ public:
             float zNear = 0.1f, zFar = 10000.f;
             core::vectorSIMDf cameraPosition(14, 8, 12);
             core::vectorSIMDf cameraTarget(0, 0, 0);
-            cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+            cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zFar, zNear);
             camera = CCameraSimpleFPSUtilities::createFromLookAt(
                 hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
                 hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
@@ -1065,8 +1065,6 @@ public:
 
         asset::SViewport viewport;
         {
-            viewport.minDepth = 1.f;
-            viewport.maxDepth = 0.f;
             viewport.x = 0u;
             viewport.y = 0u;
             viewport.width = m_window->getWidth();
@@ -1491,7 +1489,7 @@ private:
         video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
         reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 
-        auto bufMem = m_device->allocate(reqs, buffer.get(), allocFlags);
+        auto bufMem = m_device->allocate(reqs, { buffer.get(), allocFlags });
         if (!bufMem.isValid())
             return logFail("Failed to allocate device memory compatible with gpu buffer!\n");
 
@@ -1516,7 +1514,7 @@ private:
         auto image = m_device->createImage(std::move(imgInfo));
         auto imageMemReqs = image->getMemoryReqs();
         imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-        m_device->allocate(imageMemReqs, image.get());
+        m_device->allocate(imageMemReqs, { image.get() });
 
         if (!debugName.empty())
             image->setObjectDebugName(debugName.c_str());
@@ -1667,6 +1665,7 @@ private:
             SRasterizationParams rasterizationParams{};
             rasterizationParams.faceCullingMode = EFCM_NONE;
             rasterizationParams.depthWriteEnable = true;
+            rasterizationParams.depthCompareOp = ECO_GREATER;
 
             IGPUGraphicsPipeline::SCreationParams params[1] = {};
             params[0].layout = pipelineLayout.get();

@@ -1,11 +1,13 @@
-#ifndef __NBL_THIS_EXAMPLE_RENDER_VARIANT_STRINGS_HPP_INCLUDED__
-#define __NBL_THIS_EXAMPLE_RENDER_VARIANT_STRINGS_HPP_INCLUDED__
+#ifndef _NBL_THIS_EXAMPLE_RENDER_VARIANT_STRINGS_HPP_INCLUDED_
+#define _NBL_THIS_EXAMPLE_RENDER_VARIANT_STRINGS_HPP_INCLUDED_
+
 
 #include <array>
 #include <string>
 
 #include "nbl/system/to_string.h"
 #include "nbl/this_example/render_variant_enums.hlsl"
+
 
 namespace nbl::system::impl
 {

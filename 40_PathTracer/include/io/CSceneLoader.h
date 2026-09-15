@@ -187,7 +187,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 					//
 					uint16_t hideEnvironment : 1 = false;
 					uint16_t russianRouletteDepth : 15 = 0x7fffu;
-					uint16_t maxPathDepth = 0;
+					uint16_t maxPathDepth = 1;
 				} mutableDefaults = {};
 				// these can change without having to reset accumulations, etc.
 				struct SDynamic

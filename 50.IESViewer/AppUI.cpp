@@ -94,7 +94,7 @@ void IESViewer::uiListener()
         if (m_plot3DWidth == 0u || m_plot3DHeight == 0u)
             return;
         const float aspect = float(m_plot3DWidth) / float(m_plot3DHeight);
-        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
+        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
         cameraProjection = projectionMatrix;
     };
 

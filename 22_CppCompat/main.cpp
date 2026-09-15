@@ -162,7 +162,7 @@ public:
 
             auto reqs = m_images[i]->getMemoryReqs();
             reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-            m_device->allocate(reqs, m_images[i].get());
+            m_device->allocate(reqs, { m_images[i].get() });
 
             m_imageViews[i] = m_device->createImageView(IGPUImageView::SCreationParams {
                 .image = m_images[i],
@@ -180,7 +180,7 @@ public:
 
             reqs = m_buffers[i]->getMemoryReqs();
             reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-            m_device->allocate(reqs, m_buffers[i].get());
+            m_device->allocate(reqs, { m_buffers[i].get() });
 
             m_readbackBuffers[i] = m_device->createBuffer(IGPUBuffer::SCreationParams {
                 {.size = reqs.size, .usage = IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT }
@@ -188,7 +188,7 @@ public:
 
             reqs = m_readbackBuffers[i]->getMemoryReqs();
             reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-            m_device->allocate(reqs, m_readbackBuffers[i].get());
+            m_device->allocate(reqs, { m_readbackBuffers[i].get() });
         }
 
         smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;

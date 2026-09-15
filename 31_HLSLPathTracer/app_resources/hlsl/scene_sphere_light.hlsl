@@ -68,7 +68,7 @@ struct SceneSphereLight : SceneBase
 
         vector3_type N = getSphere(objectID.id).getNormal(intersection.position);
         N = hlsl::normalize(N);
-        intersection.geometricNormal = N;
+        intersection.geometricNormal = ieee754::flipSignIfRHSNegative<vector3_type>(N, hlsl::promote<vector3_type>(-hlsl::dot(N, rayIntersected.direction)));
         ray_dir_info_t V;
         V.setDirection(-rayIntersected.direction);
         interaction_type interaction = interaction_type::create(V, N);

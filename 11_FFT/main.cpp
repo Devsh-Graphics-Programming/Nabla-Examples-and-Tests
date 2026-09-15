@@ -106,7 +106,7 @@ public:
 			m_deviceLocalBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
 			auto mreqs = m_deviceLocalBuffer->getMemoryReqs();
 			mreqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpubufMem = m_device->allocate(mreqs, m_deviceLocalBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+			auto gpubufMem = m_device->allocate(mreqs, { m_deviceLocalBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT });
 
 			m_deviceLocalBufferAddress = m_deviceLocalBuffer.get()->getDeviceAddress();
 		}

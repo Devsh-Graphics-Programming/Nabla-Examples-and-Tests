@@ -262,4 +262,25 @@ struct PSInput
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(1, 1)]] globallycoherent RWTexture2D<uint> colorStorage : register(u1);
 
+PseudoStencil loadPseudoStencilData(uint32_t2 fragCoord)
+{
+    PseudoStencil ps;
+    ps.packedData = pseudoStencil[fragCoord];
+    return ps;
+}
+
+void setPseudoStencilData(uint32_t2 fragCoord, uint32_t alpha, uint32_t mainObjIdx)
+{
+    PseudoStencil ps;
+    ps.setAlpha(alpha);
+    ps.setMainObjectIdx(mainObjIdx);
+
+    pseudoStencil[fragCoord] = ps.packedData;
+}
+
+void invalidatePseudoStencilData(uint32_t2 fragCoord)
+{
+    pseudoStencil[fragCoord] = InvalidPseudoStencilValue;
+}
+
 #endif

@@ -76,7 +76,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		};
 
 		auto intersectionCurveT = intersectOrtho(rotatedCurve, 0, (int)MajorAxis::MAJOR_Y /* Always in rotation to align with X Axis */);
-		auto intersectionMajor = other.originalBezier->evaluate(intersectionCurveT)[major];
+		auto intersectionMajor = curve.evaluate(intersectionCurveT)[major];
 		auto intersectionLineT = intersectOrtho(line, intersectionMajor, major);
 
 		auto thisT = selfLinear ? intersectionLineT : intersectionCurveT;

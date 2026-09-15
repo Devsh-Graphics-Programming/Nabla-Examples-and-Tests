@@ -271,7 +271,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 						return logFail("Failed to Create Triple Buffer Image!");
 
 					// use dedicated allocations, we have plenty of allocations left, even on Win32
-					if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
+					if (!m_device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 						return logFail("Failed to allocate Device Memory for Image %d",i);
 				}
 				image->setObjectDebugName(("Triple Buffer Image "+std::to_string(i)).c_str());

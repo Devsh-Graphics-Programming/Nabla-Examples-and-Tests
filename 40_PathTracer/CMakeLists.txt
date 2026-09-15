@@ -24,7 +24,7 @@ nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
-set(SM 6_8)
+set(SM 6_9)
 set(JSON [=[
 [
     {

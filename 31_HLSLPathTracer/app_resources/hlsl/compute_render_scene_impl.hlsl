@@ -53,14 +53,13 @@ RenderPushConstants getRenderPushConstants()
 }
 
 template<NEEPolygonMethod PPM>
-void tracePixel(int32_t2 coords)
+void tracePixel(NBL_REF_ARG(typename SVariantTypes<PPM>::pathtracer_type) pathtracer, uint32_t2 coords)
 {
 	const RenderPushConstants renderPushConstants = getRenderPushConstants();
-	using variant_types = SVariantTypes<PPM>;
 
 	uint32_t width, height, imageArraySize;
 	::outImage.GetDimensions(width, height, imageArraySize);
-	if (any(coords < int32_t2(0, 0)) || any(coords >= int32_t2(width, height)))
+	if (any(coords >= uint32_t2(width, height)))
 		return;
 
 	float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
@@ -71,8 +70,6 @@ void tracePixel(int32_t2 coords)
 		::outImage[uint3(coords.x, coords.y, 0)] = float32_t4(1.0, 0.0, 0.0, 1.0);
 		return;
 	}
-
-	typename variant_types::pathtracer_type pathtracer;
 
 	uint2 scrambleDim;
 	::scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
@@ -86,24 +83,15 @@ void tracePixel(int32_t2 coords)
 		NDC.z = 1.0;
 	}
 
-	scene_type scene;
-	scene.updateLight(renderPushConstants.getLightMatrix());
-
+	using variant_types = SVariantTypes<PPM>;
 	typename variant_types::raygen_type rayGen;
 	rayGen.pixOffsetParam = pixOffsetParam;
 	rayGen.camPos = camPos;
 	rayGen.NDC = NDC;
 	rayGen.invMVP = renderPushConstants.invMVP;
 
-	pathtracer.scene = scene;
-	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
+	const uint32_t2 scrambleCoord = uint32_t2(coords.x & 511, coords.y & 511);
 	pathtracer.randGen.rng = Xoroshiro64Star::construct(scramblebuf[coords].rg);
-	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
-	pathtracer.nee.lights = lights;
-	pathtracer.materialSystem.bxdfs = bxdfs;
-	pathtracer.bxdfPdfThreshold = 0.0001;
-	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
-	pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
 
 #if PATH_TRACER_USE_RWMC
 	accumulator_type accumulator = accumulator_type::create(::pc.splattingParameters);
@@ -127,17 +115,6 @@ void tracePixel(int32_t2 coords)
 #endif
 }
 
-#if PATH_TRACER_ENABLE_LINEAR
-template<NEEPolygonMethod PPM>
-void runLinear(uint32_t3 threadID)
-{
-	uint32_t width, height, imageArraySize;
-	::outImage.GetDimensions(width, height, imageArraySize);
-	tracePixel<PPM>(int32_t2(threadID.x % width, threadID.x / width));
-}
-#endif
-
-#if PATH_TRACER_ENABLE_PERSISTENT
 template<NEEPolygonMethod PPM>
 void runPersistent()
 {
@@ -146,15 +123,29 @@ void runPersistent()
 	const uint32_t numWorkgroupsX = width / RenderWorkgroupSizeSqrt;
 	const uint32_t numWorkgroupsY = height / RenderWorkgroupSizeSqrt;
 
+	const RenderPushConstants renderPushConstants = getRenderPushConstants();
+	scene_type scene;
+	scene.updateLight(renderPushConstants.getLightMatrix());
+
+	using variant_types = SVariantTypes<PPM>;
+	typename variant_types::pathtracer_type pathtracer;
+	pathtracer.scene = scene;
+	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
+	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
+	pathtracer.nee.lights = lights;
+	pathtracer.materialSystem.bxdfs = bxdfs;
+	pathtracer.bxdfWeightThreshold = 0.0001;
+	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
+	pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
+
 	[loop]
 	for (uint32_t wgBase = glsl::gl_WorkGroupID().x; wgBase < numWorkgroupsX * numWorkgroupsY; wgBase += glsl::gl_NumWorkGroups().x)
 	{
-		const int32_t2 wgCoords = int32_t2(wgBase % numWorkgroupsX, wgBase / numWorkgroupsX);
+		const uint32_t2 wgCoords = uint32_t2(wgBase % numWorkgroupsX, wgBase / numWorkgroupsX);
 		morton::code<true, 32, 2> mc;
 		mc.value = glsl::gl_LocalInvocationIndex().x;
 		const int32_t2 localCoords = _static_cast<int32_t2>(mc);
-		tracePixel<PPM>(wgCoords * int32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
+		tracePixel<PPM>(pathtracer, wgCoords * uint32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
 	}
 }
-#endif
 }

@@ -62,7 +62,7 @@ bool App::initializeSpaceEnvironmentResources()
 		m_spaceEnvironment.image->setObjectDebugName("61_UI Space Environment");
 		auto memReqs = m_spaceEnvironment.image->getMemoryReqs();
 		memReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-		return m_device->allocate(memReqs, m_spaceEnvironment.image.get()).isValid();
+		return m_device->allocate(memReqs, { m_spaceEnvironment.image.get() }).isValid();
 	};
 
 	const auto uploadSpaceEnvironmentImage = [&]() -> bool

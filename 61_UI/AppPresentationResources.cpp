@@ -130,7 +130,7 @@ bool App::initializePresentationResources()
 			if (!image)
 				return logFail("Failed to Create Triple Buffer Image!");
 
-			if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
+			if (!m_device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 				return logFail("Failed to allocate Device Memory for Image %d", i);
 		}
 		image->setObjectDebugName(("Triple Buffer Image " + std::to_string(i)).c_str());
