@@ -81,7 +81,7 @@ bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
     }
 
     const float aspect = float(width) / float(height);
-    const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
+    const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
     camera.setProjectionMatrix(projectionMatrix);
 
     return true;
@@ -281,8 +281,6 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
         asset::SViewport viewport;
         {
-            viewport.minDepth = 1.f;
-            viewport.maxDepth = 0.f;
             viewport.x = 0u;
             viewport.y = 0u;
             viewport.width = extent.width;

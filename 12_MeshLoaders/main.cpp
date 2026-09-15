@@ -108,6 +108,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
 				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+				params.depthCompareOp = asset::ECO_GREATER;
 				params.utilities = m_utils;
 				m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
 			}
@@ -524,7 +525,7 @@ private:
 			{
 				const auto measure = hlsl::length(diagonal);
 				const auto aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
-				camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, distance * measure * 0.1, measure * 4.0));
+				camera.setProjectionMatrix(hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, measure * 4.0, distance * measure * 0.1));
 				camera.setMoveSpeed(measure * 0.04);
 			}
 			const auto pos = bound.maxVx + diagonal * distance;
