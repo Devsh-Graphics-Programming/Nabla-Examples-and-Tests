@@ -3,6 +3,7 @@
 
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
 
 using namespace nbl;
 using namespace core;

@@ -3,7 +3,11 @@
 
 #include <nabla.h>
 
-#include "nbl/examples/cameras/CCamera.hpp"
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/common/CEventCallback.hpp"
 #include "nbl/examples/examples.hpp"

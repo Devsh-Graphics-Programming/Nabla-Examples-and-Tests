@@ -1,22 +1,224 @@
 #ifndef _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 #define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
+#include <bitset>
 
 #include "nbl/examples/examples.hpp"
 
-// extensions
-#include "nbl/ext/Frustum/CDrawFrustum.h"
+// common api
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CFreeLockCamera.hpp"
+#include "nbl/ext/Cameras/CSphericalTargetCamera.hpp"
+#include "nbl/ext/Cameras/COrbitCamera.hpp"
+#include "nbl/ext/Cameras/CArcballCamera.hpp"
+#include "nbl/ext/Cameras/CTurntableCamera.hpp"
+#include "nbl/ext/Cameras/CTopDownCamera.hpp"
+#include "nbl/ext/Cameras/CIsometricCamera.hpp"
+#include "nbl/ext/Cameras/CChaseCamera.hpp"
+#include "nbl/ext/Cameras/CDollyCamera.hpp"
+#include "nbl/ext/Cameras/CDollyZoomCamera.hpp"
+#include "nbl/ext/Cameras/CPathCamera.hpp"
+#include "nbl/ext/Cameras/CCameraPreset.hpp"
+#include "nbl/ext/Cameras/CCameraPresetFlow.hpp"
+#include "nbl/ext/Cameras/CCameraKeyframeTrack.hpp"
+#include "nbl/ext/Cameras/CCameraPlaybackTimeline.hpp"
+#include "nbl/ext/Cameras/CCameraSequenceScript.hpp"
+#include "nbl/ext/Cameras/CCameraScriptedRuntime.hpp"
+#include "nbl/ext/Cameras/CCameraScriptedUiInputUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraScriptedCheckRunner.hpp"
+#include "nbl/ext/Cameras/CCameraGoalAnalysis.hpp"
+#include "nbl/ext/Cameras/CCameraGoalSolver.hpp"
+#include "nbl/ext/Cameras/CCameraManipulationUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraPresentationUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraProjectionUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraKindUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFollowUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
+#include "camera/CCameraConstraintUtilities.hpp"
+#include "camera/CCameraScriptedActionUtilities.hpp"
+#include "camera/CCameraScriptedRuntimePersistence.hpp"
+#include "camera/CCameraSequenceScriptedBuilder.hpp"
+#include "camera/CCameraControlPanelUiUtilities.hpp"
+#include "camera/CCameraScriptVisualDebugOverlayUtilities.hpp"
+#include "camera/CCameraViewportOverlayUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraTextUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 
+#include "nbl/ext/Cameras/CCubeProjection.hpp"
+#include "nbl/ext/Cameras/CLinearProjection.hpp"
+#include "nbl/ext/Cameras/CPlanarProjection.hpp"
 // the example's headers
-#include "transform.hpp"
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
+#include "imguizmo/ImGuizmo.h"
 
-using namespace nbl;
-using namespace nbl::core;
-using namespace nbl::hlsl;
-using namespace nbl::system;
-using namespace nbl::asset;
-using namespace nbl::ui;
-using namespace nbl::video;
-using namespace nbl::examples;
+namespace nbl::this_example
+{
+
+template<typename Tout, typename Tin, uint32_t N, uint32_t M>
+inline hlsl::matrix<Tout, N, M> getCastedMatrix(const hlsl::matrix<Tin, N, M>& input)
+{
+	hlsl::matrix<Tout, N, M> output;
+	for (uint32_t i = 0u; i < N; ++i)
+		output[i] = hlsl::CCameraMathUtilities::castVector<Tout>(input[i]);
+	return output;
+}
+
+}
+
+namespace core = nbl::core;
+namespace asset = nbl::asset;
+namespace ext = nbl::ext;
+namespace ui = nbl::ui;
+namespace video = nbl::video;
+namespace examples = nbl::examples;
+namespace hlsl = nbl::hlsl;
+using nbl::core::bitflag;
+using nbl::core::make_smart_refctd_ptr;
+using nbl::core::smart_refctd_ptr;
+using nbl::core::smart_refctd_ptr_static_cast;
+using nbl::core::vector;
+using nbl::system::path;
+using nbl::system::ILogger;
+using nbl::system::ISystem;
+using nbl::system::IApplicationFramework;
+using nbl::system::logger_opt_smart_ptr;
+using nbl::asset::E_FORMAT;
+using nbl::asset::EF_D32_SFLOAT;
+using nbl::asset::EF_R16G16B16A16_SFLOAT;
+using nbl::asset::EF_R8G8B8A8_SRGB;
+using nbl::asset::EPBP_GRAPHICS;
+using nbl::asset::ACCESS_FLAGS;
+using nbl::asset::IAsset;
+using nbl::asset::IAssetManager;
+using nbl::asset::IAssetLoader;
+using nbl::asset::IDescriptor;
+using nbl::asset::IImage;
+using nbl::asset::ISampler;
+using nbl::asset::IShader;
+using nbl::asset::PIPELINE_STAGE_FLAGS;
+using nbl::asset::SBufferRange;
+using nbl::asset::isDepthOrStencilFormat;
+using nbl::ui::ICursorControl;
+using nbl::ui::IKeyboardEventChannel;
+using nbl::ui::IMouseEventChannel;
+using nbl::ui::EKC_NONE;
+using nbl::ui::EMC_NONE;
+using nbl::ui::SKeyboardEvent;
+using nbl::ui::SMouseEvent;
+using nbl::ui::IWindow;
+using nbl::ui::IWindowWin32;
+using nbl::ui::stringToKeyCode;
+using nbl::ui::stringToMouseCode;
+using nbl::video::CSurfaceVulkanWin32;
+using nbl::video::CSmoothResizeSurface;
+using nbl::video::IDescriptorPool;
+using nbl::video::IDeviceMemoryAllocation;
+using nbl::video::ILogicalDevice;
+using nbl::video::IQueue;
+using nbl::video::ISemaphore;
+using nbl::video::ISwapchain;
+using nbl::video::ISmoothResizeSurface;
+using nbl::video::IGPUBuffer;
+using nbl::video::IGPUCommandBuffer;
+using nbl::video::IGPUCommandPool;
+using nbl::video::IGPUDescriptorSet;
+using nbl::video::IGPUDescriptorSetLayout;
+using nbl::video::IGPUFramebuffer;
+using nbl::video::IGPUGraphicsPipeline;
+using nbl::video::IGPUImage;
+using nbl::video::IGPUImageView;
+using nbl::video::IGPUPipelineBase;
+using nbl::video::IGPURenderpass;
+using nbl::video::IGPUSampler;
+using nbl::video::SIntendedSubmitInfo;
+using nbl::examples::CGeometryCreatorScene;
+using nbl::examples::InputSystem;
+using nbl::examples::CSimpleDebugRenderer;
+using nbl::core::ICamera;
+using nbl::core::CFPSCamera;
+using nbl::core::CFreeCamera;
+using nbl::core::CSphericalTargetCamera;
+using nbl::core::COrbitCamera;
+using nbl::core::CArcballCamera;
+using nbl::core::CTurntableCamera;
+using nbl::core::CTopDownCamera;
+using nbl::core::CIsometricCamera;
+using nbl::core::CChaseCamera;
+using nbl::core::CDollyCamera;
+using nbl::core::CDollyZoomCamera;
+using nbl::core::CPathCamera;
+using nbl::core::CCameraGoal;
+using nbl::core::CTrackedTarget;
+using nbl::core::CCameraPreset;
+using nbl::core::CCameraKeyframe;
+using nbl::core::CCameraKeyframeTrack;
+using nbl::core::CCameraPlaybackCursor;
+using nbl::core::CCameraSequenceScript;
+using nbl::core::CCameraSequenceSegment;
+using nbl::core::CCameraSequenceKeyframe;
+using nbl::core::CCameraSequenceTrackedTargetPose;
+using nbl::core::CCameraSequenceTrackedTargetTrack;
+using nbl::core::CCameraSequencePresentation;
+using nbl::core::CCameraSequenceContinuitySettings;
+using nbl::system::CCameraScriptedInputEvent;
+using nbl::system::CCameraScriptedInputCheck;
+using nbl::system::CCameraScriptedFrameEvents;
+using nbl::system::CCameraScriptedTimeline;
+using nbl::system::CCameraScriptedCheckContext;
+using nbl::system::CCameraScriptedCheckFrameResult;
+using nbl::system::CCameraScriptedCheckLogEntry;
+using nbl::system::CCameraScriptedCheckRuntimeState;
+using nbl::core::SCameraPlaybackAdvanceResult;
+using nbl::core::SCameraPresetApplySummary;
+using nbl::core::SCameraGoalApplyAnalysis;
+using nbl::core::SCameraCaptureAnalysis;
+using nbl::core::SCameraFollowConfig;
+using nbl::system::SCameraFollowVisualMetrics;
+using nbl::ui::SCameraGoalApplyPresentation;
+using nbl::ui::SCameraGoalApplyPresentationBadges;
+using nbl::ui::SCameraCapturePresentation;
+using nbl::this_example::ECameraScriptedActionCode;
+using nbl::this_example::CCameraConstraintUtilities;
+using nbl::this_example::CCameraScriptedActionUtilities;
+using nbl::this_example::CCameraScriptedActionEvent;
+using nbl::this_example::CCameraScriptedInputParseResult;
+using nbl::this_example::CCameraScriptedRuntimePersistenceUtilities;
+using nbl::this_example::CCameraSequenceScriptedSegmentBuildInfo;
+using nbl::this_example::CCameraSequenceScriptedBuilderUtilities;
+using nbl::this_example::SCameraConstraintSettings;
+using nbl::core::CCameraGoalSolver;
+using nbl::core::ECameraFollowMode;
+using nbl::ui::EPresetApplyPresentationFilter;
+using nbl::core::IPlanarProjection;
+using nbl::core::CPlanarProjection;
+using nbl::core::CVirtualGimbalEvent;
+using nbl::ui::CGimbalInputBinder;
+using nbl::ui::IGimbalBindingLayout;
+using nbl::hlsl::float32_t;
+using nbl::hlsl::float32_t2;
+using nbl::hlsl::float32_t3;
+using nbl::hlsl::float32_t4;
+using nbl::hlsl::float32_t3x3;
+using nbl::hlsl::float32_t3x4;
+using nbl::hlsl::float32_t4x4;
+using nbl::hlsl::float64_t;
+using nbl::hlsl::float64_t3;
+using nbl::hlsl::float64_t4;
+using nbl::hlsl::float64_t4x4;
+using nbl::hlsl::uint16_t2;
+using nbl::hlsl::CCameraMathUtilities;
+using nbl::ui::CCameraInputBindingUtilities;
+using nbl::ui::CCameraControlPanelUiUtilities;
+using nbl::ui::CCameraScriptVisualDebugOverlayUtilities;
+using nbl::ui::CCameraTextUtilities;
+using nbl::ui::CCameraViewportOverlayUtilities;
+using nbl::this_example::getCastedMatrix;
+using nbl::hlsl::mul;
+using nbl::hlsl::camera_quaternion_t;
+using nbl::core::CCameraFollowUtilities;
+using nbl::core::CCameraProjectionUtilities;
 
 #endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_

@@ -2,6 +2,11 @@
 #define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
