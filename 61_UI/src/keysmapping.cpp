@@ -14,7 +14,7 @@ inline ImVec4 getBindingActiveStatusColor(const bool active)
     return active ? SCameraAppBindingEditorUiDefaults::ActiveStatusColor : SCameraAppBindingEditorUiDefaults::InactiveStatusColor;
 }
 
-bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ext::cameras::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     bool anyMapUpdated = false;
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
@@ -59,13 +59,13 @@ bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbal
     }
     else
     {
-        if (ImGui::BeginCombo("##selectMouseKey", ui::mouseCodeToString(newMouseCode).data()))
+        if (ImGui::BeginCombo("##selectMouseKey", ext::cameras::mouseCodeToString(newMouseCode).data()))
         {
-            for (int i = ui::EMC_LEFT_BUTTON; i < ui::EMC_COUNT; ++i)
+            for (int i = ext::cameras::EMC_LEFT_BUTTON; i < ext::cameras::EMC_COUNT; ++i)
             {
-                bool isSelected = (newMouseCode == static_cast<ui::E_MOUSE_CODE>(i));
-                if (ImGui::Selectable(ui::mouseCodeToString(static_cast<ui::E_MOUSE_CODE>(i)).data(), isSelected))
-                    newMouseCode = static_cast<ui::E_MOUSE_CODE>(i);
+                bool isSelected = (newMouseCode == static_cast<ext::cameras::E_MOUSE_CODE>(i));
+                if (ImGui::Selectable(ext::cameras::mouseCodeToString(static_cast<ext::cameras::E_MOUSE_CODE>(i)).data(), isSelected))
+                    newMouseCode = static_cast<ext::cameras::E_MOUSE_CODE>(i);
                 if (isSelected)
                     ImGui::SetItemDefaultFocus();
             }
@@ -100,7 +100,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
         bool addMode = false;
         CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
         ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
-        ui::E_MOUSE_CODE newMouseCode = ui::EMC_LEFT_BUTTON;
+        ext::cameras::E_MOUSE_CODE newMouseCode = ext::cameras::EMC_LEFT_BUTTON;
         IGimbalBindingLayout::BindingDomain activeBindingDomain = IGimbalBindingLayout::Keyboard;
     };
 
@@ -203,7 +203,7 @@ bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool
                 ImGui::TextWrapped("%s", eventName);
 
                 ImGui::TableSetColumnIndex(1);
-                const char* mouseButtonName = ui::mouseCodeToString(mouseCode).data();
+                const char* mouseButtonName = ext::cameras::mouseCodeToString(mouseCode).data();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextWrapped("%s", mouseButtonName);
 

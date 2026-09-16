@@ -38,7 +38,7 @@ struct CCameraSimpleFPSUtilities final
 	/// ownership of binding setup and rebinding policy.
 	struct SBasicInputRuntime final
 	{
-		ui::CGimbalInputBinder* binder = nullptr;
+		ext::cameras::CGimbalInputBinder* binder = nullptr;
 		bool lookActive = false;
 	};
 
@@ -65,18 +65,18 @@ struct CCameraSimpleFPSUtilities final
 	///
 	/// Returns `nullptr` when the look-at orientation cannot be resolved from the
 	/// provided position, target, and preferred up-vector.
-	static inline core::smart_refctd_ptr<core::CFPSCamera> createFromLookAt(
+	static inline core::smart_refctd_ptr<ext::cameras::CFPSCamera> createFromLookAt(
 		const hlsl::float64_t3& position,
 		const hlsl::float64_t3& target,
 		const double moveSpeedScale,
 		const double rotationSpeedScale,
 		const hlsl::float64_t3& preferredUp = hlsl::float64_t3(0.0, 1.0, 0.0))
 	{
-		hlsl::camera_quaternion_t<double> orientation;
+		hlsl::math::quaternion<double> orientation;
 		if (!hlsl::CCameraMathUtilities::tryBuildLookAtOrientation(position, target, preferredUp, orientation))
 			return nullptr;
 
-		auto camera = core::make_smart_refctd_ptr<core::CFPSCamera>(position, orientation);
+		auto camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(position, orientation);
 		if (!camera)
 			return nullptr;
 		camera->setMoveSpeedScale(moveSpeedScale);
@@ -86,7 +86,7 @@ struct CCameraSimpleFPSUtilities final
 
 	/// @brief Apply example-facing speed settings using the exact old wrapper mapping.
 	static inline void applySpeedSettings(
-		core::CFPSCamera& camera,
+		ext::cameras::CFPSCamera& camera,
 		const SSpeedSettings& speedSettings)
 	{
 		camera.setMoveSpeedScale(toMoveSpeedScale(speedSettings.moveSpeed));
@@ -94,7 +94,7 @@ struct CCameraSimpleFPSUtilities final
 	}
 
 	/// @brief Create a normal `CFPSCamera` from a look-at pair using the same speed values as the old wrapper.
-	static inline core::smart_refctd_ptr<core::CFPSCamera> createFromLookAt(
+	static inline core::smart_refctd_ptr<ext::cameras::CFPSCamera> createFromLookAt(
 		const hlsl::float64_t3& position,
 		const hlsl::float64_t3& target,
 		const SSpeedSettings& speedSettings,
@@ -114,7 +114,7 @@ struct CCameraSimpleFPSUtilities final
 	/// setup used by simple examples.
 	/// The caller keeps ownership of channel consumption and may reuse the same
 	/// raw event spans for other example-local logic before or after this helper.
-	static inline std::vector<core::CVirtualGimbalEvent> collectBasicVirtualEvents(
+	static inline std::vector<ext::cameras::CVirtualGimbalEvent> collectBasicVirtualEvents(
 		const std::span<const ui::SMouseEvent> mouseEvents,
 		const std::span<const ui::SKeyboardEvent> keyboardEvents,
 		const std::chrono::microseconds nextPresentationTimestamp,

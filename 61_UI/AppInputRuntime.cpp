@@ -81,7 +81,7 @@ inline void scaleCollectedVirtualEvents(
 	for (uint32_t i = 0u; i < virtualEvents.keyboardVirtualEventCount; ++i)
 		virtualEvents.events[i].magnitude *= cameraControls.keyboardScale;
 
-	nbl::core::CCameraManipulationUtilities::scaleVirtualEvents(
+	nbl::ext::cameras::CCameraManipulationUtilities::scaleVirtualEvents(
 		virtualEvents.events,
 		virtualEvents.totalCount(),
 		cameraControls.translationScale,
@@ -134,7 +134,7 @@ inline void applyCollectedVirtualEventsToCamera(
 	const uint32_t planarIx,
 	const SCollectedCameraVirtualEvents& collectedVirtualEvents,
 	const bool worldTranslate,
-	const nbl::core::CCameraGoalSolver& goalSolver,
+	const nbl::ext::cameras::CCameraGoalSolver& goalSolver,
 	const SCameraConstraintSettings& cameraConstraints,
 	const bool scriptedInputEnabled,
 	RefreshFollowOffsets&& refreshFollowOffsets,
@@ -147,7 +147,7 @@ inline void applyCollectedVirtualEventsToCamera(
 	{
 		std::vector<CVirtualGimbalEvent> perCameraEvents = collectedVirtualEvents.events;
 		uint32_t perCount = collectedVirtualEvents.totalCount();
-		nbl::core::CCameraManipulationUtilities::remapTranslationEventsFromWorldToCameraLocal(target, perCameraEvents, perCount);
+		nbl::ext::cameras::CCameraManipulationUtilities::remapTranslationEventsFromWorldToCameraLocal(target, perCameraEvents, perCount);
 		if (perCount)
 			target->manipulate({ perCameraEvents.data(), perCount });
 	}

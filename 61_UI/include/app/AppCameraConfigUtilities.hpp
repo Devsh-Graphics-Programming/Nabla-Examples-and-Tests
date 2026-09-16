@@ -14,8 +14,8 @@ namespace nbl::system
 
 struct SCameraInputBindingCollections final
 {
-    std::vector<ui::IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
-    std::vector<ui::IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
+    std::vector<ext::cameras::IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
+    std::vector<ext::cameras::IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
 };
 
 struct SCameraViewportBindingSelection final
@@ -50,8 +50,8 @@ struct SCameraPlanarConfigCollections final
 struct SCameraConfigCollections final
 {
     std::string embeddedScriptedInputText = {};
-    std::vector<core::smart_refctd_ptr<core::ICamera>> cameras = {};
-    std::vector<core::IPlanarProjection::CProjection> projections = {};
+    std::vector<core::smart_refctd_ptr<ext::cameras::ICamera>> cameras = {};
+    std::vector<ext::cameras::IPlanarProjection::CProjection> projections = {};
     SCameraInputBindingCollections bindings = {};
     SCameraPlanarConfigCollections planarConfig = {};
 
@@ -96,9 +96,9 @@ bool tryGetEmbeddedCameraScriptedInputText(
     std::string& outText);
 
 bool tryCaptureInitialPlanarPresets(
-    const core::CCameraGoalSolver& goalSolver,
+    const ext::cameras::CCameraGoalSolver& goalSolver,
     std::span<const core::smart_refctd_ptr<planar_projection_t>> planars,
-    std::vector<core::CCameraPreset>& outPresets,
+    std::vector<ext::cameras::CCameraPreset>& outPresets,
     std::string& outError);
 
 } // namespace nbl::system

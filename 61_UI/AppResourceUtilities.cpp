@@ -5,7 +5,7 @@
 #include <limits>
 
 #include "app/AppResourcePathUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
+#include "nbl/ext/Cameras/CFileUtilities.hpp"
 
 inline bool parseSpaceEnvBlobBytes(
     std::span<const uint8_t> blobBytes,
@@ -44,9 +44,11 @@ inline bool loadSpaceEnvBlob(
     nbl::system::SSpaceEnvBlobHeader& outHeader,
     std::vector<uint8_t>& outPayload)
 {
-    std::vector<uint8_t> blobBytes;
-    if (!nbl::system::CCameraFileUtilities::readBinaryFile(system, blobPath, blobBytes))
+    const auto blobBuffer = nbl::ext::cameras::CFileUtilities::readBinaryFile(system, blobPath);
+    if (!blobBuffer)
         return false;
+    const auto* blobBegin = reinterpret_cast<const uint8_t*>(blobBuffer->getPointer());
+    const std::vector<uint8_t> blobBytes(blobBegin, blobBegin + blobBuffer->getSize());
     return parseSpaceEnvBlobBytes(blobBytes, outHeader, outPayload);
 }
 

@@ -22,22 +22,22 @@ struct CCameraSequenceScriptedSegmentBuildInfo
 struct CCameraSequenceScriptedBuilderUtilities final
 {
     static inline bool appendCompiledSequenceSegmentToScriptedTimeline(
-        nbl::system::CCameraScriptedTimeline& timeline,
+        nbl::ext::cameras::CCameraScriptedTimeline& timeline,
         std::vector<CCameraScriptedActionEvent>& actionEvents,
         const uint64_t baseFrame,
-        const nbl::core::CCameraSequenceCompiledSegment& compiledSegment,
+        const nbl::ext::cameras::CCameraSequenceCompiledSegment& compiledSegment,
         const CCameraSequenceScriptedSegmentBuildInfo& buildInfo,
         std::string* error = nullptr)
     {
-        std::vector<nbl::core::CCameraSequenceCompiledFramePolicy> framePolicies;
-        if (!nbl::core::CCameraSequenceScriptUtilities::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, buildInfo.includeFollowTargetLock))
+        std::vector<nbl::ext::cameras::CCameraSequenceCompiledFramePolicy> framePolicies;
+        if (!nbl::ext::cameras::CCameraSequenceScriptUtilities::buildCompiledSegmentFramePolicies(compiledSegment, framePolicies, buildInfo.includeFollowTargetLock))
         {
             if (error)
                 *error = "Failed to build compiled frame policies.";
             return false;
         }
 
-        nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedSegmentLabelEvent(timeline, baseFrame, compiledSegment.name);
+        nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedSegmentLabelEvent(timeline, baseFrame, compiledSegment.name);
         CCameraScriptedActionUtilities::appendActionEvent(actionEvents, baseFrame, ECameraScriptedActionCode::SetActiveRenderWindow, 0);
         CCameraScriptedActionUtilities::appendActionEvent(actionEvents, baseFrame, ECameraScriptedActionCode::SetActivePlanar, static_cast<int32_t>(buildInfo.planarIx));
         if (!compiledSegment.presentations.empty())
@@ -62,37 +62,37 @@ struct CCameraSequenceScriptedBuilderUtilities final
 
         for (const auto& policy : framePolicies)
         {
-            nbl::core::CCameraPreset preset;
-            if (!nbl::core::CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
+            nbl::ext::cameras::CCameraPreset preset;
+            if (!nbl::ext::cameras::CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(compiledSegment.track, policy.sampleTime, preset))
             {
                 if (error)
                     *error = "Failed to sample compiled segment track.";
                 return false;
             }
-            nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedGoalEvent(
+            nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedGoalEvent(
                 timeline,
                 baseFrame + policy.frameOffset,
-                nbl::core::CCameraPresetUtilities::makeGoalFromPreset(preset));
+                nbl::ext::cameras::CCameraPresetUtilities::makeGoalFromPreset(preset));
 
             if (compiledSegment.usesTrackedTargetTrack())
             {
-                nbl::core::CCameraSequenceTrackedTargetPose trackedTargetPose;
-                if (!nbl::core::CCameraSequenceScriptUtilities::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
+                nbl::ext::cameras::CCameraSequenceTrackedTargetPose trackedTargetPose;
+                if (!nbl::ext::cameras::CCameraSequenceScriptUtilities::tryBuildSequenceTrackedTargetPoseAtTime(compiledSegment.trackedTargetTrack, policy.sampleTime, trackedTargetPose))
                 {
                     if (error)
                         *error = "Failed to sample compiled tracked-target track.";
                     return false;
                 }
 
-                nbl::core::ICamera::CGimbal gimbal({ .position = trackedTargetPose.position, .orientation = trackedTargetPose.orientation });
-                nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(timeline, baseFrame + policy.frameOffset, gimbal.operator()<nbl::hlsl::float64_t4x4>());
+                nbl::ext::cameras::ICamera::CGimbal gimbal({ .position = trackedTargetPose.position, .orientation = trackedTargetPose.orientation });
+                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(timeline, baseFrame + policy.frameOffset, gimbal.operator()<nbl::hlsl::float64_t4x4>());
             }
 
             if (policy.baseline)
-                nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedBaselineCheck(timeline, baseFrame + policy.frameOffset);
+                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedBaselineCheck(timeline, baseFrame + policy.frameOffset);
             if (policy.continuityStep)
             {
-                nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedGimbalStepCheck(
+                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedGimbalStepCheck(
                     timeline,
                     baseFrame + policy.frameOffset,
                     compiledSegment.continuity.hasPosDeltaConstraint,
@@ -103,7 +103,7 @@ struct CCameraSequenceScriptedBuilderUtilities final
                     compiledSegment.continuity.minEulerDeltaDeg);
             }
             if (policy.followTargetLock)
-                nbl::system::CCameraScriptedRuntimeUtilities::appendScriptedFollowTargetLockCheck(timeline, baseFrame + policy.frameOffset);
+                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedFollowTargetLockCheck(timeline, baseFrame + policy.frameOffset);
             if (policy.capture)
                 timeline.captureFrames.emplace_back(baseFrame + policy.frameOffset);
         }

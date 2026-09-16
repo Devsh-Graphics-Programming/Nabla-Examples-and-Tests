@@ -92,7 +92,7 @@ bool App::initializePlanarRuntimeState(
 
 SCameraFollowConfig App::makeExampleDefaultFollowConfig(const ICamera* const camera) const
 {
-	auto config = nbl::core::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
+	auto config = nbl::ext::cameras::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
 	if (!camera)
 		return config;
 

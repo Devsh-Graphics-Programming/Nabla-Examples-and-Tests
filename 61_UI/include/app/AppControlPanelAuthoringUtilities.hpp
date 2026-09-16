@@ -76,7 +76,7 @@ inline void drawGoalApplyPresentationSummary(const SCameraGoalApplyPresentation&
     drawGoalApplyPresentationBadges(presentation, panelStyle);
 }
 
-inline std::string buildKeyframeLabel(const size_t keyframeIx, const core::CCameraKeyframe& keyframe)
+inline std::string buildKeyframeLabel(const size_t keyframeIx, const ext::cameras::CCameraKeyframe& keyframe)
 {
     return "[" + std::to_string(keyframeIx) + "] t=" + std::to_string(keyframe.time) + "  " + keyframe.preset.name;
 }

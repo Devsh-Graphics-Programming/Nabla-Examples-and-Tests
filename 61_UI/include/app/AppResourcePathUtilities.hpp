@@ -6,7 +6,7 @@
 
 #include "app/AppResourceUtilities.hpp"
 #include "nbl/system/ModuleLookupUtils.h"
-#include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
+#include "nbl/ext/Cameras/CFileUtilities.hpp"
 
 namespace nbl::system
 {
@@ -145,7 +145,7 @@ inline bool loadTextResource(
             candidates.asSpan(),
             [&](const path& candidate) -> bool
             {
-                return CCameraFileUtilities::readTextFile(system, candidate, outText);
+                return CFileUtilities::readTextFile(system, candidate, outText);
             },
             outLoadedPath))
     {

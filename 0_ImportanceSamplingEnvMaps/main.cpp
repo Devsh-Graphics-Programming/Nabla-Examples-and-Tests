@@ -125,8 +125,8 @@ public:
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-	core::smart_refctd_ptr<core::CFPSCamera> camera;
-	ui::CGimbalInputBinder cameraInputBinder;
+	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+	ext::cameras::CGimbalInputBinder cameraInputBinder;
 	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
 	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
 	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
@@ -310,7 +310,7 @@ public:
 		camera = nbl::examples::CCameraSimpleFPSUtilities::createFromLookAt(cameraPosition, cameraTarget, {10.0, 1.0});
 		if (!camera)
 			return logFail("Could not initialize camera orientation!");
-		ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+		ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
 		cameraInputRuntime.binder = &cameraInputBinder;
 
 		descriptorPool = createDescriptorPool(1u);
@@ -825,7 +825,7 @@ public:
 			}, logger.get());
 			const auto virtualEvents = nbl::examples::CCameraSimpleFPSUtilities::collectBasicVirtualEvents(mouseEvents, keyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
 			if (!virtualEvents.empty())
-				camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+				camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 		}
 
 		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());

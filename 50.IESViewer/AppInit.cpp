@@ -476,7 +476,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             {1.069, 0.4});
         if (!camera)
             return logFail("Could not initialize camera orientation!");
-        ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+        ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
         cameraInputRuntime.binder = &cameraInputBinder;
         uiState.cameraMoveSpeed = 1.069f;
         uiState.cameraRotateSpeed = 0.4f;

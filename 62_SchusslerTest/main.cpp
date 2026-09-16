@@ -82,7 +82,7 @@ public:
 
   CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
   CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
-  core::smart_refctd_ptr<core::CFPSCamera> camera;
+  core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
   hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
   int resourceIx;

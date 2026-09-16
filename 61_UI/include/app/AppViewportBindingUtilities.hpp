@@ -175,7 +175,7 @@ inline bool tryBuildWindowBindingMatrices(
         return false;
 
     auto& projection = projections[projectionIx];
-    nbl::core::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
+    nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
     projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
     outState.camera = camera;
@@ -193,7 +193,7 @@ inline bool tryBuildWindowBindingMatrices(
 
 inline void buildProjectionContextFromViewportState(
     const SBoundViewportCameraState& viewportState,
-    nbl::system::SCameraProjectionContext& outProjectionContext)
+    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
 {
     outProjectionContext.viewMatrix = viewportState.viewMatrix;
     outProjectionContext.projectionMatrix = viewportState.projectionMatrix;
@@ -229,7 +229,7 @@ inline bool tryBuildActiveViewportRuntimeState(
 inline bool tryBuildBindingProjectionContext(
     std::span<const nbl::core::smart_refctd_ptr<planar_projection_t>> planarProjections,
     SWindowControlBinding& binding,
-    nbl::system::SCameraProjectionContext& outProjectionContext)
+    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
 {
     SBoundViewportCameraState viewportState = {};
     if (!tryBuildWindowBindingMatrices(planarProjections, binding, viewportState))
@@ -264,7 +264,7 @@ inline bool tryBuildViewportBoundCameraState(
 inline bool tryBuildCameraProjectionContext(
     std::span<const nbl::core::smart_refctd_ptr<planar_projection_t>> planarProjections,
     ICamera* camera,
-    nbl::system::SCameraProjectionContext& outProjectionContext)
+    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
 {
     SWindowControlBinding binding = {};
     if (!tryBuildCameraQueryBinding(planarProjections, camera, binding))

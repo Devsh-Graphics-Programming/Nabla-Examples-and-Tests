@@ -118,7 +118,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (!reloadModel())
 				return false;
 
-		ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+		ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
 		cameraInputRuntime.binder = &cameraInputBinder;
 
 		onAppInitializedFinish();
@@ -194,7 +194,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					);
 					const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
 					if (!virtualEvents.empty())
-						camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+						camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 					if (reload)
 						reloadModel();
 				}
@@ -572,8 +572,8 @@ private:
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	//
-	core::smart_refctd_ptr<core::CFPSCamera> camera;
-	ui::CGimbalInputBinder cameraInputBinder;
+	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+	ext::cameras::CGimbalInputBinder cameraInputBinder;
 	CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
 	CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
 	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);

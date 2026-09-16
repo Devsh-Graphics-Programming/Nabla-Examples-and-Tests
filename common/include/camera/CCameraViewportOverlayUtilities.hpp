@@ -41,7 +41,7 @@ struct SViewportOverlayRect final
 /// @brief Shared style bundle for the follow-target viewport overlay.
 struct SCameraFollowTargetViewportOverlayStyle final
 {
-    static constexpr float CenteredNdcRadius = system::SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
+    static constexpr float CenteredNdcRadius = ext::cameras::SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
     static constexpr float CenterRadius = 16.0f;
     static constexpr float CenterCrossHalfExtent = 22.0f;
     static constexpr float CenterLineThickness = 2.0f;
@@ -259,16 +259,16 @@ struct CCameraViewportOverlayUtilities final
 
     static inline void drawFollowTargetViewportOverlay(
         ImDrawList& drawList,
-        const system::SCameraProjectionContext& projectionContext,
-        const core::CTrackedTarget& trackedTarget,
+        const ext::cameras::SCameraProjectionContext& projectionContext,
+        const ext::cameras::CTrackedTarget& trackedTarget,
         const SViewportOverlayRect& viewportRect,
         const SCameraFollowTargetViewportOverlayStyle& style = {})
     {
         if (!viewportRect.valid())
             return;
 
-        system::SCameraProjectedTargetMetrics projectedTarget = {};
-        if (!system::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
+        ext::cameras::SCameraProjectedTargetMetrics projectedTarget = {};
+        if (!ext::cameras::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
             return;
 
         const bool centered = projectedTarget.radius <= style.centeredNdcRadius;

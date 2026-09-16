@@ -17,8 +17,8 @@ struct SCameraConstraintDefaults final
     static constexpr float YawMaxDeg = 180.0f;
     static constexpr float RollMinDeg = -180.0f;
     static constexpr float RollMaxDeg = 180.0f;
-    static constexpr float MinDistance = nbl::core::SCameraTargetRelativeTraits::MinDistance;
-    static constexpr float MaxDistance = nbl::core::SCameraTargetRelativeTraits::DefaultMaxDistance;
+    static constexpr float MinDistance = nbl::ext::cameras::ICamera::DefaultMinTargetDistance;
+    static constexpr float MaxDistance = nbl::ext::cameras::ICamera::DefaultMaxTargetDistance;
 };
 
 struct SCameraConstraintSettings
@@ -41,19 +41,19 @@ struct SCameraConstraintSettings
 struct CCameraConstraintUtilities final
 {
     static inline bool applyCameraConstraints(
-        const nbl::core::CCameraGoalSolver& solver,
-        nbl::core::ICamera* camera,
+        const nbl::ext::cameras::CCameraGoalSolver& solver,
+        nbl::ext::cameras::ICamera* camera,
         const SCameraConstraintSettings& constraints)
     {
         if (!constraints.enabled || !camera)
             return false;
 
-        if (camera->hasCapability(nbl::core::ICamera::SphericalTarget))
+        if (camera->hasCapability(nbl::ext::cameras::ICamera::SphericalTarget))
         {
             if (!constraints.clampDistance)
                 return false;
 
-            nbl::core::ICamera::SphericalTargetState sphericalState;
+            nbl::ext::cameras::ICamera::SphericalTargetState sphericalState;
             if (!camera->tryGetSphericalTargetState(sphericalState))
                 return false;
 
@@ -82,10 +82,10 @@ struct CCameraConstraintUtilities final
         if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
             return false;
 
-        nbl::core::CCameraPreset preset;
+        nbl::ext::cameras::CCameraPreset preset;
         preset.goal.position = pos;
         preset.goal.orientation = nbl::hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(clamped);
-        return nbl::core::CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
+        return nbl::ext::cameras::CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
     }
 };
 

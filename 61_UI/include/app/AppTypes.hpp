@@ -15,7 +15,7 @@
 #include "common.hpp"
 
 using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
-using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
+using planar_projection_t = CPlanarProjection;
 
 struct ImGuizmoPlanarM16InOut
 {
@@ -85,7 +85,7 @@ struct SCameraAppSceneDefaults final
 	static inline constexpr float FollowTargetMarkerScale = 0.28f;
 	static inline constexpr float FollowTargetMarkerScaleVisualDebug = 0.6f;
     static inline const float64_t3 DefaultFollowTargetPosition = float64_t3(6.0, -4.5, 2.25);
-    static inline const camera_quaternion_t<float64_t> DefaultFollowTargetOrientation = CCameraMathUtilities::makeIdentityQuaternion<float64_t>();
+    static inline const quaternion<float64_t> DefaultFollowTargetOrientation = CCameraMathUtilities::makeIdentityQuaternion<float64_t>();
 };
 
 inline float32_t3x4 buildFollowTargetMarkerWorldTransform(
@@ -418,10 +418,10 @@ struct SCameraAppEventLogState final
 
 struct SCameraAppPresetAuthoringState final
 {
-	std::vector<nbl::core::CCameraPreset> presets = {};
-	std::vector<nbl::core::CCameraPreset> initialPlanarPresets = {};
+	std::vector<nbl::ext::cameras::CCameraPreset> presets = {};
+	std::vector<nbl::ext::cameras::CCameraPreset> initialPlanarPresets = {};
 	ApplyStatusBanner applyBanner = {};
-	nbl::ui::EPresetApplyPresentationFilter filterMode = nbl::ui::EPresetApplyPresentationFilter::All;
+	nbl::ext::cameras::EPresetApplyPresentationFilter filterMode = nbl::ext::cameras::EPresetApplyPresentationFilter::All;
 	int selectedPresetIx = -1;
 	std::string presetName = std::string(SCameraAppAuthoringDefaults::DefaultPresetName);
 	std::string presetPath = std::string(SCameraAppAuthoringDefaults::DefaultPresetPath);
@@ -429,7 +429,7 @@ struct SCameraAppPresetAuthoringState final
 
 struct SCameraAppPlaybackAuthoringState final
 {
-	nbl::core::CCameraKeyframeTrack keyframeTrack = {};
+	nbl::ext::cameras::CCameraKeyframeTrack keyframeTrack = {};
 	CameraPlaybackState playback = {};
 	ApplyStatusBanner applyBanner = {};
 	bool affectsAll = false;
@@ -668,7 +668,7 @@ struct SActiveScriptedCameraContext final
 {
 	SActiveViewportRuntimeState viewport = {};
 	SCameraFollowConfig* followConfig = nullptr;
-	nbl::system::SCameraProjectionContext projectionContext = {};
+	nbl::ext::cameras::SCameraProjectionContext projectionContext = {};
 	bool hasProjectionContext = false;
 
 	inline bool valid() const
@@ -691,7 +691,7 @@ struct SActiveScriptedCameraContext final
 		return viewport.requireCamera();
 	}
 
-	inline const nbl::system::SCameraProjectionContext* getProjectionContext() const
+	inline const nbl::ext::cameras::SCameraProjectionContext* getProjectionContext() const
 	{
 		return hasProjectionContext ? &projectionContext : nullptr;
 	}

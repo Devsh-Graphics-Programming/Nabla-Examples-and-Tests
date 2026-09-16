@@ -42,9 +42,9 @@ struct CCameraScriptedInputParseResult
     bool exclusive = false;
     std::string capturePrefix = "script";
     CCameraScriptedControlOverrides cameraControls = {};
-    nbl::system::CCameraScriptedTimeline timeline = {};
+    nbl::ext::cameras::CCameraScriptedTimeline timeline = {};
     std::vector<CCameraScriptedActionEvent> actionEvents = {};
-    std::optional<nbl::core::CCameraSequenceScript> sequence;
+    std::optional<nbl::ext::cameras::CCameraSequenceScript> sequence;
     std::vector<std::string> warnings;
 };
 

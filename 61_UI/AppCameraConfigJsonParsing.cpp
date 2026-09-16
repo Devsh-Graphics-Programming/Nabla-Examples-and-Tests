@@ -12,7 +12,7 @@
 #include "nbl/ext/Cameras/CDollyCamera.hpp"
 #include "nbl/ext/Cameras/CDollyZoomCamera.hpp"
 #include "nbl/ext/Cameras/CFPSCamera.hpp"
-#include "nbl/ext/Cameras/CFreeLockCamera.hpp"
+#include "nbl/ext/Cameras/CFreeCamera.hpp"
 #include "nbl/ext/Cameras/CIsometricCamera.hpp"
 #include "nbl/ext/Cameras/COrbitCamera.hpp"
 #include "nbl/ext/Cameras/CPathCamera.hpp"
@@ -72,7 +72,7 @@ bool tryCreateOrientationCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera);
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
 
 template<typename Camera>
 bool tryCreateTargetCameraFromSpec(
@@ -81,7 +81,7 @@ bool tryCreateTargetCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera);
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
 
 bool tryCreateDollyZoomCameraFromSpec(
     const camera_json_t& jCamera,
@@ -89,7 +89,7 @@ bool tryCreateDollyZoomCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera);
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
 
 struct SCameraConfigCameraFactorySpec final
 {
@@ -99,7 +99,7 @@ struct SCameraConfigCameraFactorySpec final
         double,
         std::string_view,
         std::string&,
-        core::smart_refctd_ptr<core::ICamera>&);
+        core::smart_refctd_ptr<ext::cameras::ICamera>&);
 
     std::string_view typeName = {};
     create_t create = nullptr;
@@ -108,16 +108,16 @@ struct SCameraConfigCameraFactorySpec final
 };
 
 inline constexpr std::array<SCameraConfigCameraFactorySpec, 11u> CameraFactorySpecs = {{
-    { SCameraConfigTypeNames::Fps, &tryCreateOrientationCameraFromSpec<core::CFPSCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Free, &tryCreateOrientationCameraFromSpec<core::CFreeCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Orbit, &tryCreateTargetCameraFromSpec<core::COrbitCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Arcball, &tryCreateTargetCameraFromSpec<core::CArcballCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Turntable, &tryCreateTargetCameraFromSpec<core::CTurntableCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::TopDown, &tryCreateTargetCameraFromSpec<core::CTopDownCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Isometric, &tryCreateTargetCameraFromSpec<core::CIsometricCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Chase, &tryCreateTargetCameraFromSpec<core::CChaseCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Dolly, &tryCreateTargetCameraFromSpec<core::CDollyCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::PathRig, &tryCreateTargetCameraFromSpec<core::CPathCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Fps, &tryCreateOrientationCameraFromSpec<ext::cameras::CFPSCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Free, &tryCreateOrientationCameraFromSpec<ext::cameras::CFreeCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Orbit, &tryCreateTargetCameraFromSpec<ext::cameras::COrbitCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Arcball, &tryCreateTargetCameraFromSpec<ext::cameras::CArcballCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Turntable, &tryCreateTargetCameraFromSpec<ext::cameras::CTurntableCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::TopDown, &tryCreateTargetCameraFromSpec<ext::cameras::CTopDownCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Isometric, &tryCreateTargetCameraFromSpec<ext::cameras::CIsometricCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Chase, &tryCreateTargetCameraFromSpec<ext::cameras::CChaseCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::Dolly, &tryCreateTargetCameraFromSpec<ext::cameras::CDollyCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
+    { SCameraConfigTypeNames::PathRig, &tryCreateTargetCameraFromSpec<ext::cameras::CPathCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
     { SCameraConfigTypeNames::DollyZoom, &tryCreateDollyZoomCameraFromSpec, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale }
 }};
 
@@ -143,14 +143,14 @@ inline hlsl::float64_t3 readJsonFloat64Vec3(const camera_json_t& json, const std
     return hlsl::float64_t3(value[0], value[1], value[2]);
 }
 
-inline hlsl::camera_quaternion_t<hlsl::float64_t> readJsonQuaternion(const camera_json_t& json, const std::string_view key)
+inline hlsl::math::quaternion<hlsl::float64_t> readJsonQuaternion(const camera_json_t& json, const std::string_view key)
 {
     const auto value = readJsonArray<float, 4u>(json, key);
     return hlsl::CCameraMathUtilities::makeQuaternionFromComponents<hlsl::float64_t>(value[0], value[1], value[2], value[3]);
 }
 
 template<typename Camera, typename... Args>
-inline core::smart_refctd_ptr<core::ICamera> makeCameraAsBase(Args&&... args)
+inline core::smart_refctd_ptr<ext::cameras::ICamera> makeCameraAsBase(Args&&... args)
 {
     return core::make_smart_refctd_ptr<Camera>(std::forward<Args>(args)...);
 }
@@ -181,13 +181,13 @@ bool tryLoadBindingMapFromJson(
             return false;
         }
 
-        outBinding[nativeCode] = core::CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+        outBinding[nativeCode] = ext::cameras::CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
     }
 
     return true;
 }
 
-inline void initializeCameraMotionConfig(core::ICamera& camera, const double moveScale, const double rotationScale)
+inline void initializeCameraMotionConfig(ext::cameras::ICamera& camera, const double moveScale, const double rotationScale)
 {
     camera.setMotionScales(moveScale, rotationScale);
 }
@@ -199,7 +199,7 @@ inline bool tryCreateOrientationCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera)
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
 {
     if (!jsonContainsAll(jCamera, { SCameraConfigJsonKeys::Position, SCameraConfigJsonKeys::Orientation }))
     {
@@ -222,7 +222,7 @@ inline bool tryCreateTargetCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera)
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
 {
     if (!jsonContainsAll(jCamera, { SCameraConfigJsonKeys::Position, SCameraConfigJsonKeys::Target }))
     {
@@ -244,7 +244,7 @@ inline bool tryCreateDollyZoomCameraFromSpec(
     const double rotationScale,
     std::string_view typeName,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera)
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
 {
     if (!jsonContainsAll(jCamera, { SCameraConfigJsonKeys::Position, SCameraConfigJsonKeys::Target }))
     {
@@ -254,11 +254,11 @@ inline bool tryCreateDollyZoomCameraFromSpec(
 
     auto camera =
         jCamera.contains(SCameraConfigJsonKeys::BaseFov) ?
-        makeCameraAsBase<core::CDollyZoomCamera>(
+        makeCameraAsBase<ext::cameras::CDollyZoomCamera>(
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Position),
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Target),
             jCamera[SCameraConfigJsonKeys::BaseFov].get<float>()) :
-        makeCameraAsBase<core::CDollyZoomCamera>(
+        makeCameraAsBase<ext::cameras::CDollyZoomCamera>(
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Position),
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Target));
 
@@ -402,7 +402,7 @@ bool tryLoadBindingCollectionFromJson(
 
 inline bool tryAppendProjectionFromJson(
     const camera_json_t& jProjection,
-    std::vector<core::IPlanarProjection::CProjection>& outProjections,
+    std::vector<ext::cameras::IPlanarProjection::CProjection>& outProjections,
     std::string& error)
 {
     if (!jsonContainsAll(jProjection, {
@@ -427,7 +427,7 @@ inline bool tryAppendProjectionFromJson(
         }
 
         outProjections.emplace_back(
-            core::IPlanarProjection::CProjection::create<core::IPlanarProjection::CProjection::Perspective>(
+            ext::cameras::IPlanarProjection::CProjection::create<ext::cameras::IPlanarProjection::CProjection::Perspective>(
                 zNear,
                 zFar,
                 jProjection[SCameraConfigJsonKeys::Fov].get<float>()));
@@ -443,7 +443,7 @@ inline bool tryAppendProjectionFromJson(
         }
 
         outProjections.emplace_back(
-            core::IPlanarProjection::CProjection::create<core::IPlanarProjection::CProjection::Orthographic>(
+            ext::cameras::IPlanarProjection::CProjection::create<ext::cameras::IPlanarProjection::CProjection::Orthographic>(
                 zNear,
                 zFar,
                 jProjection[SCameraConfigJsonKeys::OrthoWidth].get<float>()));
@@ -457,7 +457,7 @@ inline bool tryAppendProjectionFromJson(
 inline bool tryCreateCameraFromJson(
     const camera_json_t& jCamera,
     std::string& error,
-    core::smart_refctd_ptr<core::ICamera>& outCamera)
+    core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
 {
     if (!jCamera.contains(SCameraConfigJsonKeys::Type))
     {
@@ -509,7 +509,7 @@ inline bool tryParseCameraConfigJsonText(
 bool tryLoadCameraCollectionFromJson(
     const camera_json_t& json,
     std::string& error,
-    std::vector<core::smart_refctd_ptr<core::ICamera>>& outCameras)
+    std::vector<core::smart_refctd_ptr<ext::cameras::ICamera>>& outCameras)
 {
     outCameras.clear();
     if (!json.contains(SCameraConfigJsonKeys::Cameras) || !json[SCameraConfigJsonKeys::Cameras].is_array())
@@ -521,7 +521,7 @@ bool tryLoadCameraCollectionFromJson(
     outCameras.reserve(json[SCameraConfigJsonKeys::Cameras].size());
     for (const auto& jCamera : json[SCameraConfigJsonKeys::Cameras])
     {
-        core::smart_refctd_ptr<core::ICamera> camera;
+        core::smart_refctd_ptr<ext::cameras::ICamera> camera;
         if (!tryCreateCameraFromJson(jCamera, error, camera))
             return false;
         outCameras.emplace_back(std::move(camera));
@@ -539,7 +539,7 @@ bool tryLoadCameraCollectionFromJson(
 bool tryLoadProjectionCollectionFromJson(
     const camera_json_t& json,
     std::string& error,
-    std::vector<core::IPlanarProjection::CProjection>& outProjections)
+    std::vector<ext::cameras::IPlanarProjection::CProjection>& outProjections)
 {
     outProjections.clear();
     if (!json.contains(SCameraConfigJsonKeys::Projections) || !json[SCameraConfigJsonKeys::Projections].is_array())

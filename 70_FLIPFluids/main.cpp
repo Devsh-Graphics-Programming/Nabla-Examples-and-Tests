@@ -251,7 +251,7 @@ public:
                 {1.069, 0.4});
             if (!camera)
                 return logFail("Could not initialize camera orientation!");
-            ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
+            ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
             cameraInputRuntime.binder = &cameraInputBinder;
 
             m_pRenderParams.zNear = zNear;
@@ -932,7 +932,7 @@ public:
                 }, m_logger.get());
             const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
             if (!virtualEvents.empty())
-                camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+                camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
         }
 
         // TODO: also need to protect from previous frame still reading while we overwrite UBO
@@ -1848,8 +1848,8 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-    core::smart_refctd_ptr<core::CFPSCamera> camera;
-    ui::CGimbalInputBinder cameraInputBinder;
+    core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+    ext::cameras::CGimbalInputBinder cameraInputBinder;
     CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
     CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
     hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);

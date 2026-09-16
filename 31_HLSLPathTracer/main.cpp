@@ -1118,7 +1118,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					{guiControlled.moveSpeed, guiControlled.rotateSpeed});
 				if (!m_camera)
 					return logFail("Could not initialize camera orientation!");
-				ui::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
+				ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
 				m_cameraInputRuntime.binder = &m_cameraInputBinder;
 			}
 			m_showUI = true;
@@ -1623,7 +1623,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				m_cameraInputRuntime,
 				m_cameraInputConfig);
 			if (!virtualEvents.empty())
-				m_camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+				m_camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 
 			const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -2900,8 +2900,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 		} m_ui;
 
-		core::smart_refctd_ptr<core::CFPSCamera> m_camera;
-		ui::CGimbalInputBinder m_cameraInputBinder;
+		core::smart_refctd_ptr<ext::cameras::CFPSCamera> m_camera;
+		ext::cameras::CGimbalInputBinder m_cameraInputBinder;
 		CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
 		CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
 		hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);

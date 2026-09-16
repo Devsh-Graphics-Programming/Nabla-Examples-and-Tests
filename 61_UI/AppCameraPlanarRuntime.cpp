@@ -27,9 +27,9 @@ namespace nbl::system
 {
 
 bool tryCaptureInitialPlanarPresets(
-    const core::CCameraGoalSolver& goalSolver,
+    const ext::cameras::CCameraGoalSolver& goalSolver,
     std::span<const core::smart_refctd_ptr<planar_projection_t>> planars,
-    std::vector<core::CCameraPreset>& outPresets,
+    std::vector<ext::cameras::CCameraPreset>& outPresets,
     std::string& outError)
 {
     outPresets.clear();
@@ -38,10 +38,10 @@ bool tryCaptureInitialPlanarPresets(
     {
         auto* camera = planars[planarIx] ? planars[planarIx]->getCamera() : nullptr;
         const std::string presetName = "Planar " + std::to_string(planarIx);
-        const auto captureAnalysis = core::CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
+        const auto captureAnalysis = ext::cameras::CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
         if (!captureAnalysis.canCapture)
         {
-            const auto kindLabel = camera ? std::string(core::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown");
+            const auto kindLabel = camera ? std::string(ext::cameras::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown");
             const auto reason =
                 !captureAnalysis.hasCamera ? "missing camera" :
                 (!captureAnalysis.capturedGoal ? "capture failed" :
@@ -66,12 +66,12 @@ bool tryCaptureInitialPlanarPresets(
             return false;
         }
 
-        core::CCameraPreset preset = {};
-        if (!core::CCameraPresetFlowUtilities::tryCapturePreset(captureAnalysis, camera, presetName, preset))
+        ext::cameras::CCameraPreset preset = {};
+        if (!ext::cameras::CCameraPresetFlowUtilities::tryCapturePreset(captureAnalysis, camera, presetName, preset))
         {
             outError =
                 "Failed to build initial planar preset " + std::to_string(planarIx) +
-                " for camera kind \"" + (camera ? std::string(core::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown")) + "\".";
+                " for camera kind \"" + (camera ? std::string(ext::cameras::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown")) + "\".";
             return false;
         }
 
@@ -83,8 +83,8 @@ bool tryCaptureInitialPlanarPresets(
 
 bool tryBuildPlanarProjectionCollectionFromConfig(
     const SCameraPlanarConfigCollections& planarConfig,
-    const std::span<const core::smart_refctd_ptr<core::ICamera>> cameras,
-    const std::span<const core::IPlanarProjection::CProjection> projections,
+    const std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>> cameras,
+    const std::span<const ext::cameras::IPlanarProjection::CProjection> projections,
     const SCameraInputBindingCollections& bindings,
     std::vector<core::smart_refctd_ptr<planar_projection_t>>& outPlanars,
     std::string& error)
@@ -163,8 +163,8 @@ bool tryBuildCameraPlanarRuntime(
 
     return tryBuildPlanarProjectionCollectionFromConfig(
         collections.planarConfig,
-        std::span<const core::smart_refctd_ptr<core::ICamera>>(collections.cameras.data(), collections.cameras.size()),
-        std::span<const core::IPlanarProjection::CProjection>(collections.projections.data(), collections.projections.size()),
+        std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>>(collections.cameras.data(), collections.cameras.size()),
+        std::span<const ext::cameras::IPlanarProjection::CProjection>(collections.projections.data(), collections.projections.size()),
         collections.bindings,
         outPlanars,
         error);

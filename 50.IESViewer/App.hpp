@@ -255,8 +255,8 @@ private:
 
     smart_refctd_ptr<CGeometryCreatorScene> m_scene;
     smart_refctd_ptr<CSimpleIESRenderer> m_renderer;
-    core::smart_refctd_ptr<core::CFPSCamera> camera;
-    ui::CGimbalInputBinder cameraInputBinder;
+    core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+    ext::cameras::CGimbalInputBinder cameraInputBinder;
     CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
     CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
     hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);

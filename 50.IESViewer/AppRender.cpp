@@ -170,7 +170,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             cameraInputRuntime,
             cameraInputConfig);
         if (!virtualEvents.empty())
-            camera->manipulate(std::span<const core::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+            camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 
         {
             const float maxRadius = m_plotRadius * 0.98f;

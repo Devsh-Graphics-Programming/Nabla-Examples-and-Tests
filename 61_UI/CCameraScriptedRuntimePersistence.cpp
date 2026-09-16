@@ -5,7 +5,8 @@
 #include <optional>
 #include <string_view>
 
-#include "nbl/ext/Cameras/CCameraFileUtilities.hpp"
+#include "nbl/ext/Cameras/CFileUtilities.hpp"
+#include "nbl/ext/Cameras/CInputCodeNames.hpp"
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraVirtualEventUtilities.hpp"
 #include "nlohmann/json.hpp"
@@ -48,27 +49,27 @@ nbl::hlsl::float32_t4x4 makeScriptedMatrixFromArray(const std::array<float, 16>&
     return out;
 }
 
-std::optional<nbl::system::CCameraScriptedInputEvent::KeyboardData::Action> parseScriptedKeyboardAction(std::string_view action)
+std::optional<nbl::ext::cameras::CCameraScriptedInputEvent::KeyboardData::Action> parseScriptedKeyboardAction(std::string_view action)
 {
     if (action == "pressed" || action == "press")
-        return nbl::system::CCameraScriptedInputEvent::KeyboardData::Action::Pressed;
+        return nbl::ext::cameras::CCameraScriptedInputEvent::KeyboardData::Action::Pressed;
     if (action == "released" || action == "release")
-        return nbl::system::CCameraScriptedInputEvent::KeyboardData::Action::Released;
+        return nbl::ext::cameras::CCameraScriptedInputEvent::KeyboardData::Action::Released;
     return std::nullopt;
 }
 
 nbl::ui::E_KEY_CODE parseScriptedKeyCode(std::string_view key)
 {
-    auto parsed = nbl::ui::stringToKeyCode(key);
+    auto parsed = nbl::ext::cameras::stringToKeyCode(key);
     if (parsed != nbl::ui::EKC_NONE)
         return parsed;
 
     constexpr std::string_view KeyPrefix = "KEY_";
     constexpr std::string_view EkcPrefix = "EKC_";
     if (key.starts_with(KeyPrefix))
-        parsed = nbl::ui::stringToKeyCode(key.substr(KeyPrefix.size()));
+        parsed = nbl::ext::cameras::stringToKeyCode(key.substr(KeyPrefix.size()));
     if (parsed == nbl::ui::EKC_NONE && key.starts_with(EkcPrefix))
-        parsed = nbl::ui::stringToKeyCode(key.substr(EkcPrefix.size()));
+        parsed = nbl::ext::cameras::stringToKeyCode(key.substr(EkcPrefix.size()));
     return parsed;
 }
 
@@ -76,13 +77,13 @@ std::optional<nbl::ui::E_MOUSE_BUTTON> parseScriptedMouseButton(std::string_view
 {
     auto tryParseCode = [](std::string_view code) -> std::optional<nbl::ui::E_MOUSE_BUTTON>
     {
-        switch (nbl::ui::stringToMouseCode(code))
+        switch (nbl::ext::cameras::stringToMouseCode(code))
         {
-            case nbl::ui::EMC_LEFT_BUTTON:
+            case nbl::ext::cameras::EMC_LEFT_BUTTON:
                 return nbl::ui::EMB_LEFT_BUTTON;
-            case nbl::ui::EMC_RIGHT_BUTTON:
+            case nbl::ext::cameras::EMC_RIGHT_BUTTON:
                 return nbl::ui::EMB_RIGHT_BUTTON;
-            case nbl::ui::EMC_MIDDLE_BUTTON:
+            case nbl::ext::cameras::EMC_MIDDLE_BUTTON:
                 return nbl::ui::EMB_MIDDLE_BUTTON;
             default:
                 return std::nullopt;
@@ -103,12 +104,12 @@ std::optional<nbl::ui::E_MOUSE_BUTTON> parseScriptedMouseButton(std::string_view
     return parsed;
 }
 
-std::optional<nbl::system::CCameraScriptedInputEvent::MouseData::ClickAction> parseScriptedMouseClickAction(std::string_view action)
+std::optional<nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::ClickAction> parseScriptedMouseClickAction(std::string_view action)
 {
     if (action == "pressed" || action == "press")
-        return nbl::system::CCameraScriptedInputEvent::MouseData::ClickAction::Pressed;
+        return nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::ClickAction::Pressed;
     if (action == "released" || action == "release")
-        return nbl::system::CCameraScriptedInputEvent::MouseData::ClickAction::Released;
+        return nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::ClickAction::Released;
     return std::nullopt;
 }
 
@@ -167,10 +168,10 @@ void parseScriptedControlOverridesJson(const json_t& controls, nbl::this_example
 
 bool parseScriptedSequenceIfPresentJson(const json_t& script, nbl::this_example::CCameraScriptedInputParseResult& out, std::string* error)
 {
-    nbl::core::CCameraSequenceScript sequence;
+    nbl::ext::cameras::CCameraSequenceScript sequence;
     if (script.contains("segments"))
     {
-        if (!nbl::system::CCameraSequenceScriptPersistenceUtilities::deserializeCameraSequenceScript(script.dump(), sequence, error))
+        if (!nbl::ext::cameras::CCameraSequenceScriptPersistenceUtilities::deserializeCameraSequenceScript(script.dump(), sequence, error))
             return false;
         out.sequence = std::move(sequence);
         return true;
@@ -178,7 +179,7 @@ bool parseScriptedSequenceIfPresentJson(const json_t& script, nbl::this_example:
 
     if (script.contains("sequence"))
     {
-        if (!nbl::system::CCameraSequenceScriptPersistenceUtilities::deserializeCameraSequenceScript(script["sequence"].dump(), sequence, error))
+        if (!nbl::ext::cameras::CCameraSequenceScriptPersistenceUtilities::deserializeCameraSequenceScript(script["sequence"].dump(), sequence, error))
             return false;
         out.sequence = std::move(sequence);
     }
@@ -210,9 +211,9 @@ void parseScriptedKeyboardEventJson(const json_t& event, const uint64_t frame, c
         return;
     }
 
-    nbl::system::CCameraScriptedInputEvent entry;
+    nbl::ext::cameras::CCameraScriptedInputEvent entry;
     entry.frame = frame;
-    entry.type = nbl::system::CCameraScriptedInputEvent::Type::Keyboard;
+    entry.type = nbl::ext::cameras::CCameraScriptedInputEvent::Type::Keyboard;
     entry.keyboard.key = key;
     entry.keyboard.action = action.value();
     out.timeline.events.emplace_back(std::move(entry));
@@ -228,18 +229,18 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
     }
 
     const auto kind = event["kind"].get<std::string>();
-    nbl::system::CCameraScriptedInputEvent entry;
+    nbl::ext::cameras::CCameraScriptedInputEvent entry;
     entry.frame = frame;
-    entry.type = nbl::system::CCameraScriptedInputEvent::Type::Mouse;
+    entry.type = nbl::ext::cameras::CCameraScriptedInputEvent::Type::Mouse;
 
     if (kind == "move")
     {
-        entry.mouse.type = nbl::system::CCameraScriptedInputEvent::MouseData::Type::Movement;
+        entry.mouse.type = nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::Type::Movement;
         entry.mouse.delta = nbl::hlsl::int16_t2(event.value("dx", 0), event.value("dy", 0));
     }
     else if (kind == "scroll")
     {
-        entry.mouse.type = nbl::system::CCameraScriptedInputEvent::MouseData::Type::Scroll;
+        entry.mouse.type = nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::Type::Scroll;
         entry.mouse.scroll = nbl::hlsl::int16_t2(event.value("v", 0), event.value("h", 0));
     }
     else if (kind == "click")
@@ -266,7 +267,7 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
             return;
         }
 
-        entry.mouse.type = nbl::system::CCameraScriptedInputEvent::MouseData::Type::Click;
+        entry.mouse.type = nbl::ext::cameras::CCameraScriptedInputEvent::MouseData::Type::Click;
         entry.mouse.button = button.value();
         entry.mouse.action = action.value();
         entry.mouse.position = nbl::hlsl::int16_t2(event.value("x", 0), event.value("y", 0));
@@ -283,9 +284,9 @@ void parseScriptedMouseEventJson(const json_t& event, const uint64_t frame, cons
 
 void parseScriptedImguizmoEventJson(const json_t& event, const uint64_t frame, const bool captureFrame, nbl::this_example::CCameraScriptedInputParseResult& out)
 {
-    nbl::system::CCameraScriptedInputEvent entry;
+    nbl::ext::cameras::CCameraScriptedInputEvent entry;
     entry.frame = frame;
-    entry.type = nbl::system::CCameraScriptedInputEvent::Type::Imguizmo;
+    entry.type = nbl::ext::cameras::CCameraScriptedInputEvent::Type::Imguizmo;
 
     if (event.contains("delta_trs"))
     {
@@ -319,9 +320,9 @@ bool parseScriptedProjectionActionValue(const json_t& event, nbl::this_example::
     {
         const auto valueText = event["value"].get<std::string>();
         if (valueText == "perspective")
-            action.value = static_cast<int32_t>(nbl::core::IPlanarProjection::CProjection::Perspective);
+            action.value = static_cast<int32_t>(nbl::ext::cameras::IPlanarProjection::CProjection::Perspective);
         else if (valueText == "orthographic")
-            action.value = static_cast<int32_t>(nbl::core::IPlanarProjection::CProjection::Orthographic);
+            action.value = static_cast<int32_t>(nbl::ext::cameras::IPlanarProjection::CProjection::Orthographic);
         else
         {
             nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted action projection type has invalid value \"" + valueText + "\".");
@@ -428,9 +429,9 @@ void parseScriptedInputEventsJson(const json_t& script, nbl::this_example::CCame
         parseScriptedInputEventJson(event, out);
 }
 
-bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::system::CCameraScriptedInputCheck& outCheck, nbl::this_example::CCameraScriptedInputParseResult& out)
+bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::ext::cameras::CCameraScriptedInputCheck& outCheck, nbl::this_example::CCameraScriptedInputParseResult& out)
 {
-    outCheck.kind = nbl::system::CCameraScriptedInputCheck::Kind::ImguizmoVirtual;
+    outCheck.kind = nbl::ext::cameras::CCameraScriptedInputCheck::Kind::ImguizmoVirtual;
     outCheck.tolerance = check.value("tolerance", outCheck.tolerance);
 
     if (!check.contains("events"))
@@ -448,14 +449,14 @@ bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, nbl::system::CCa
         }
 
         const auto typeText = expectedEvent["type"].get<std::string>();
-        const auto type = nbl::core::CVirtualGimbalEvent::stringToVirtualEvent(typeText);
-        if (type == nbl::core::CVirtualGimbalEvent::None)
+        const auto type = nbl::ext::cameras::CVirtualGimbalEvent::stringToVirtualEvent(typeText);
+        if (type == nbl::ext::cameras::CVirtualGimbalEvent::None)
         {
             nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event has invalid type \"" + typeText + "\".");
             continue;
         }
 
-        nbl::system::CCameraScriptedInputCheck::ExpectedVirtualEvent expected;
+        nbl::ext::cameras::CCameraScriptedInputCheck::ExpectedVirtualEvent expected;
         expected.type = type;
         expected.magnitude = expectedEvent["magnitude"].get<double>();
         outCheck.expectedVirtualEvents.emplace_back(expected);
@@ -475,12 +476,12 @@ bool parseScriptedCheckJson(const json_t& check, nbl::this_example::CCameraScrip
     const auto frame = check["frame"].get<uint64_t>();
     const auto kind = check["kind"].get<std::string>();
 
-    nbl::system::CCameraScriptedInputCheck entry;
+    nbl::ext::cameras::CCameraScriptedInputCheck entry;
     entry.frame = frame;
 
     if (kind == "baseline")
     {
-        entry.kind = nbl::system::CCameraScriptedInputCheck::Kind::Baseline;
+        entry.kind = nbl::ext::cameras::CCameraScriptedInputCheck::Kind::Baseline;
     }
     else if (kind == "imguizmo_virtual")
     {
@@ -489,7 +490,7 @@ bool parseScriptedCheckJson(const json_t& check, nbl::this_example::CCameraScrip
     }
     else if (kind == "gimbal_near")
     {
-        entry.kind = nbl::system::CCameraScriptedInputCheck::Kind::GimbalNear;
+        entry.kind = nbl::ext::cameras::CCameraScriptedInputCheck::Kind::GimbalNear;
         entry.posTolerance = check.value("pos_tolerance", entry.posTolerance);
         entry.eulerToleranceDeg = check.value("euler_tolerance_deg", entry.eulerToleranceDeg);
 
@@ -506,13 +507,13 @@ bool parseScriptedCheckJson(const json_t& check, nbl::this_example::CCameraScrip
     }
     else if (kind == "gimbal_delta")
     {
-        entry.kind = nbl::system::CCameraScriptedInputCheck::Kind::GimbalDelta;
+        entry.kind = nbl::ext::cameras::CCameraScriptedInputCheck::Kind::GimbalDelta;
         entry.posTolerance = check.value("pos_tolerance", entry.posTolerance);
         entry.eulerToleranceDeg = check.value("euler_tolerance_deg", entry.eulerToleranceDeg);
     }
     else if (kind == "gimbal_step")
     {
-        entry.kind = nbl::system::CCameraScriptedInputCheck::Kind::GimbalStep;
+        entry.kind = nbl::ext::cameras::CCameraScriptedInputCheck::Kind::GimbalStep;
 
         if (check.contains("min_pos_delta"))
         {
@@ -629,7 +630,7 @@ bool CCameraScriptedRuntimePersistenceUtilities::readCameraScriptedInput(std::st
     impl::parseScriptedInputEventsJson(script, out);
     impl::parseScriptedChecksJson(script, out);
 
-    nbl::system::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(out.timeline);
+    nbl::ext::cameras::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(out.timeline);
     nbl::this_example::CCameraScriptedActionUtilities::finalizeActionEvents(out.actionEvents);
     return true;
 }
@@ -637,7 +638,7 @@ bool CCameraScriptedRuntimePersistenceUtilities::readCameraScriptedInput(std::st
 bool CCameraScriptedRuntimePersistenceUtilities::loadCameraScriptedInputFromFile(nbl::system::ISystem& system, const nbl::system::path& filePath, CCameraScriptedInputParseResult& out, std::string* error)
 {
     std::string text;
-    if (!nbl::system::CCameraFileUtilities::readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
+    if (!nbl::ext::cameras::CFileUtilities::readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
         return false;
 
     return readCameraScriptedInput(text, out, error);

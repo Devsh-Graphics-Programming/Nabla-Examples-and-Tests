@@ -42,13 +42,13 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
     ImGui::SameLine();
     if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Stop", "Stop playback and reset time"))
     {
-        nbl::core::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
+        nbl::ext::cameras::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
         applyPlaybackAtTime(playbackAuthoring.playback.time);
     }
 
     if (!playbackAuthoring.keyframeTrack.keyframes.empty())
     {
-        const float duration = nbl::core::CCameraPlaybackTimelineUtilities::getPlaybackTrackDuration(playbackAuthoring.keyframeTrack);
+        const float duration = nbl::ext::cameras::CCameraPlaybackTimelineUtilities::getPlaybackTrackDuration(playbackAuthoring.keyframeTrack);
         if (ImGui::SliderFloat("Time", &playbackAuthoring.playback.time, 0.f, duration, "%.3f"))
             applyPlaybackAtTime(playbackAuthoring.playback.time);
     }
@@ -86,7 +86,7 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
         const float authoredTime = std::max(0.f, playbackAuthoring.newKeyframeTime);
         keyframe.time = authoredTime;
         playbackAuthoring.newKeyframeTime = authoredTime;
-        if (nbl::core::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
+        if (nbl::ext::cameras::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, activeCamera, "Keyframe", keyframe.preset))
         {
             playbackAuthoring.keyframeTrack.keyframes.emplace_back(std::move(keyframe));
             sortKeyframesByTime();
@@ -104,7 +104,7 @@ void App::drawControlPanelPlaybackTab(const nbl::ui::SCameraControlPanelStyle& p
     if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Clear keyframes", "Remove all keyframes"))
     {
         playbackAuthoring.keyframeTrack = {};
-        nbl::core::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
+        nbl::ext::cameras::CCameraPlaybackTimelineUtilities::resetPlaybackCursor(playbackAuthoring.playback);
         clearApplyStatusBanner(playbackAuthoring.applyBanner);
     }
 
