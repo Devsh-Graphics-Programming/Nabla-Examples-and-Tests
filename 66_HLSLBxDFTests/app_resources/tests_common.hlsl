@@ -14,7 +14,7 @@
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
+#include "nbl/builtin/hlsl/approx/abs_rel.hlsl"
 
 using namespace nbl;
 using namespace hlsl;

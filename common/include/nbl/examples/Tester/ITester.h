@@ -4,9 +4,9 @@
 #include <nabla.h>
 #include <nbl/system/to_string.h>
 #include <ranges>
-#include <nbl/builtin/hlsl/testing/relative_approx_compare.hlsl>
-#include <nbl/builtin/hlsl/testing/approx_compare.hlsl>
-#include <nbl/builtin/hlsl/testing/max_error.hlsl>
+#include <nbl/builtin/hlsl/approx/abs_rel.hlsl>
+#include <nbl/builtin/hlsl/approx/max_error.hlsl>
+#include <nbl/builtin/hlsl/utils/elementwise.hlsl>
 
 using namespace nbl;
 
@@ -313,7 +313,7 @@ class ITester
 
       printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType, maxRelativeDifference, maxAbsoluteDifference);
       if constexpr (concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename hlsl::matrix_traits<T>::scalar_type>))
-         hlsl::testing::updateMaxError(m_maxErrors[memberName], expectedVal, testVal);
+         hlsl::approx::updateMaxError(m_maxErrors[memberName], expectedVal, testVal);
       return false;
    }
 
@@ -424,11 +424,36 @@ class ITester
       return lhs == rhs;
    }
 
+   // `approx::absRelEqual` follows IEEE and never matches NaN, but the expected and tested values producing NaN for the same input is a match
+   template<typename FloatingPoint>
+   struct SBothNaNOrAbsRelEqualPred
+   {
+      using this_t = SBothNaNOrAbsRelEqualPred<FloatingPoint>;
+
+      static this_t create(const FloatingPoint maxAbsoluteDifference, const FloatingPoint maxRelativeDifference)
+      {
+         this_t retval;
+         retval.absRelEqual = hlsl::approx::AbsRelEqualPred<FloatingPoint>::create(maxAbsoluteDifference, maxRelativeDifference);
+         return retval;
+      }
+
+      bool operator()(const FloatingPoint lhs, const FloatingPoint rhs) const
+      {
+         if (hlsl::isnan<FloatingPoint>(lhs) && hlsl::isnan<FloatingPoint>(rhs))
+            return true;
+         return absRelEqual(lhs, rhs);
+      }
+
+      hlsl::approx::AbsRelEqualPred<FloatingPoint> absRelEqual;
+   };
+
    template<typename T>
-      requires concepts::FloatingPointLikeScalar<T> || concepts::FloatingPointLikeVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointLikeScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
+      requires concepts::FloatingPointScalar<T> || concepts::FloatingPointVectorial<T> || (concepts::Matricial<T> && concepts::FloatingPointScalar<typename nbl::hlsl::matrix_traits<T>::scalar_type>)
    bool compareTestValues(const T& lhs, const T& rhs, const float64_t maxRelativeDifference, const float64_t maxAbsoluteDifference)
    {
-      return nbl::hlsl::testing::approxCompare(lhs, rhs, maxAbsoluteDifference, maxRelativeDifference);
+      using scalar_t = hlsl::scalar_type_t<T>;
+      using pred_t = SBothNaNOrAbsRelEqualPred<scalar_t>;
+      return hlsl::utils::elementwiseAll<T, pred_t>(lhs, rhs, pred_t::create(scalar_t(maxAbsoluteDifference), scalar_t(maxRelativeDifference)));
    }
 
    const size_t m_WorkgroupSize;
@@ -438,7 +463,7 @@ class ITester
    std::mt19937 m_mersenneTwister;
    uint32_t m_seed;
    std::ofstream m_logFile;
-   core::unordered_map<std::string, hlsl::testing::SMaxError> m_maxErrors;
+   core::unordered_map<std::string, hlsl::approx::SMaxError> m_maxErrors;
 };
 
 #endif
