@@ -181,17 +181,18 @@
 	}
 
 	inline bool tryBuildReferenceFrameFromTargetRelativeState(
-		const nbl::ext::cameras::SCameraTargetRelativeState& desiredState,
+		const nbl::ext::cameras::STargetOrbit& desiredState,
 		hlsl::float64_t4x4& outReferenceFrame,
 		nbl::ext::cameras::CCameraGoal& outExpectedGoal)
 	{
 		outExpectedGoal = {};
 		nbl::ext::cameras::SCameraTargetRelativePose pose = {};
-		if (!nbl::ext::cameras::CCameraTargetRelativeUtilities::tryBuildTargetRelativePoseFromState(
+		if (!nbl::ext::cameras::CCameraMathUtilities::tryBuildPoseFromOrbit(
 				desiredState,
 				nbl::ext::cameras::ICamera::DefaultMinTargetDistance,
 				nbl::ext::cameras::ICamera::DefaultMaxTargetDistance,
-				pose) ||
+				pose,
+				&pose.appliedDistance) ||
 			!nbl::ext::cameras::CCameraGoalUtilities::applyCanonicalTargetRelativeGoal(outExpectedGoal, desiredState))
 		{
 			return false;
@@ -204,7 +205,7 @@
 	inline bool verifyReferenceFrameGoalApply(
 		const SCameraSmokeResolvedState& state,
 		ICamera* const camera,
-		const nbl::ext::cameras::SCameraTargetRelativeState& desiredState,
+		const nbl::ext::cameras::STargetOrbit& desiredState,
 		std::string_view label,
 		std::string& outError)
 	{
@@ -215,9 +216,9 @@
 			return false;
 		}
 
-		const nbl::ext::cameras::SCameraTargetRelativeState baselineTargetRelativeState = {
+		const nbl::ext::cameras::STargetOrbit baselineTargetRelativeState = {
 			.target = baselineState.target,
-			.orbitUv = baselineState.orbitUv,
+			.angles = baselineState.orbitUv,
 			.distance = baselineState.distance
 		};
 
@@ -232,9 +233,9 @@
 			return false;
 		}
 
-		if (!camera->manipulate({}, &referenceFrame))
+		if (!camera->setPose(referenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to apply the reference pose through manipulate({}, &referenceFrame).";
+			outError = std::string(label) + " reference-frame smoke failed to apply the reference pose through setPose(referenceFrame).";
 			return false;
 		}
 
@@ -244,9 +245,9 @@
 				actualState.target,
 				desiredState.target,
 				nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictScalarTolerance) ||
-			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.x, desiredState.orbitUv.x) >
+			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.x, desiredState.angles.x) >
 				hlsl::radians(nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
-			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.y, desiredState.orbitUv.y) >
+			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.y, desiredState.angles.y) >
 				hlsl::radians(nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
 			hlsl::abs(static_cast<double>(actualState.distance - desiredState.distance)) >
 				nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictScalarTolerance)
@@ -257,7 +258,7 @@
 				<< " actual_target=(" << actualState.target.x << "," << actualState.target.y << "," << actualState.target.z << ")"
 				<< " expected_target=(" << desiredState.target.x << "," << desiredState.target.y << "," << desiredState.target.z << ")"
 				<< " actual_orbit=(" << actualState.orbitUv.x << "," << actualState.orbitUv.y << ")"
-				<< " expected_orbit=(" << desiredState.orbitUv.x << "," << desiredState.orbitUv.y << ")"
+				<< " expected_orbit=(" << desiredState.angles.x << "," << desiredState.angles.y << ")"
 				<< " actual_distance=" << actualState.distance
 				<< " expected_distance=" << desiredState.distance;
 			outError = oss.str();
@@ -282,9 +283,9 @@
 			return false;
 		}
 
-		if (!camera->manipulate({}, &baselineReferenceFrame))
+		if (!camera->setPose(baselineReferenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to restore the baseline reference pose through manipulate({}, &referenceFrame).";
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline reference pose through setPose(referenceFrame).";
 			return false;
 		}
 
@@ -316,9 +317,9 @@
 		const auto referenceFrame = CCameraMathUtilities::composeTransformMatrix(
 			desiredPosition,
 			expectedGoal.orientation);
-		if (!camera->manipulate({}, &referenceFrame))
+		if (!camera->setPose(referenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to apply the rigid reference pose through manipulate({}, &referenceFrame).";
+			outError = std::string(label) + " reference-frame smoke failed to apply the rigid reference pose through setPose(referenceFrame).";
 			return false;
 		}
 
@@ -336,9 +337,9 @@
 			return false;
 		}
 
-		if (!camera->manipulate({}, &baselineReferenceFrame))
+		if (!camera->setPose(baselineReferenceFrame))
 		{
-			outError = std::string(label) + " reference-frame smoke failed to restore the baseline rigid pose through manipulate({}, &referenceFrame).";
+			outError = std::string(label) + " reference-frame smoke failed to restore the baseline rigid pose through setPose(referenceFrame).";
 			return false;
 		}
 
@@ -389,28 +390,28 @@
 				return false;
 			}
 
-			nbl::ext::cameras::SCameraTargetRelativeState desiredState = {
+			nbl::ext::cameras::STargetOrbit desiredState = {
 				.target = baselineState.target,
-				.orbitUv = baselineState.orbitUv,
+				.angles = baselineState.orbitUv,
 				.distance = chooseShiftedReferenceDistance(baselineState)
 			};
 			mutateDesiredState(desiredState);
 			return verifyReferenceFrameGoalApply(state, camera, desiredState, label, outError);
 		};
 
-		if (!verifySphericalReference(state.orbitCamera, "Orbit", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.orbitCamera, "Orbit", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(0.45, -0.25);
+				desiredState.angles += hlsl::float64_t2(0.45, -0.25);
 			}))
 		{
 			return false;
 		}
 
-		if (!verifySphericalReference(state.arcballCamera, "Arcball", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.arcballCamera, "Arcball", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(0.35, 0.2);
-				desiredState.orbitUv.y = std::clamp(
-					desiredState.orbitUv.y,
+				desiredState.angles += hlsl::float64_t2(0.35, 0.2);
+				desiredState.angles.y = std::clamp(
+					desiredState.angles.y,
 					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad),
 					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad));
 			}))
@@ -418,11 +419,11 @@
 			return false;
 		}
 
-		if (!verifySphericalReference(state.turntableCamera, "Turntable", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.turntableCamera, "Turntable", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(-0.4, 0.18);
-				desiredState.orbitUv.y = std::clamp(
-					desiredState.orbitUv.y,
+				desiredState.angles += hlsl::float64_t2(-0.4, 0.18);
+				desiredState.angles.y = std::clamp(
+					desiredState.angles.y,
 					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad),
 					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad));
 			}))
@@ -430,19 +431,19 @@
 			return false;
 		}
 
-		if (!verifySphericalReference(state.topDownCamera, "TopDown", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.topDownCamera, "TopDown", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv = hlsl::float64_t2(
-					desiredState.orbitUv.x + 0.6,
+				desiredState.angles = hlsl::float64_t2(
+					desiredState.angles.x + 0.6,
 					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TopDownPitchRad);
 			}))
 		{
 			return false;
 		}
 
-		if (!verifySphericalReference(state.isometricCamera, "Isometric", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.isometricCamera, "Isometric", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv = hlsl::float64_t2(
+				desiredState.angles = hlsl::float64_t2(
 					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::IsometricYawRad,
 					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::IsometricPitchRad);
 			}))
@@ -450,11 +451,11 @@
 			return false;
 		}
 
-		if (!verifySphericalReference(state.chaseCamera, "Chase", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.chaseCamera, "Chase", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(0.3, 0.15);
-				desiredState.orbitUv.y = std::clamp(
-					desiredState.orbitUv.y,
+				desiredState.angles += hlsl::float64_t2(0.3, 0.15);
+				desiredState.angles.y = std::clamp(
+					desiredState.angles.y,
 					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ChaseMinPitchRad),
 					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ChaseMaxPitchRad));
 			}))
@@ -462,11 +463,11 @@
 			return false;
 		}
 
-		if (!verifySphericalReference(state.dollyCamera, "Dolly", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.dollyCamera, "Dolly", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(-0.3, -0.22);
-				desiredState.orbitUv.y = std::clamp(
-					desiredState.orbitUv.y,
+				desiredState.angles += hlsl::float64_t2(-0.3, -0.22);
+				desiredState.angles.y = std::clamp(
+					desiredState.angles.y,
 					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad),
 					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad));
 			}))
@@ -474,9 +475,9 @@
 			return false;
 		}
 
-		if (!verifySphericalReference(state.dollyZoomCamera, "DollyZoom", [&](nbl::ext::cameras::SCameraTargetRelativeState& desiredState)
+		if (!verifySphericalReference(state.dollyZoomCamera, "DollyZoom", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
-				desiredState.orbitUv += hlsl::float64_t2(0.28, -0.14);
+				desiredState.angles += hlsl::float64_t2(0.28, -0.14);
 			}))
 		{
 			return false;
@@ -545,9 +546,9 @@
 			const auto referenceFrame = CCameraMathUtilities::composeTransformMatrix(
 				canonicalPathState.pose.position,
 				canonicalPathState.pose.orientation);
-			if (!state.pathCamera->manipulate({}, &referenceFrame))
+			if (!state.pathCamera->setPose(referenceFrame))
 			{
-				outError = "Path reference-frame smoke failed to apply the projected path pose through manipulate({}, &referenceFrame).";
+				outError = "Path reference-frame smoke failed to apply the projected path pose through setPose(referenceFrame).";
 				return false;
 			}
 
@@ -565,9 +566,9 @@
 				return false;
 			}
 
-			if (!state.pathCamera->manipulate({}, &baselineReferenceFrame))
+			if (!state.pathCamera->setPose(baselineReferenceFrame))
 			{
-				outError = "Path reference-frame smoke failed to restore the baseline reference pose through manipulate({}, &referenceFrame).";
+				outError = "Path reference-frame smoke failed to restore the baseline reference pose through setPose(referenceFrame).";
 				return false;
 			}
 		}
