@@ -130,7 +130,7 @@ void runPersistent()
 	using variant_types = SVariantTypes<PPM>;
 	typename variant_types::pathtracer_type pathtracer;
 	pathtracer.scene = scene;
-	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
+	pathtracer.randGen.sequenceSamplesLog2 = _static_cast<uint16_t>(renderPushConstants.sequenceSampleCountLog2);
 	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
 	pathtracer.nee.lights = lights;
 	pathtracer.materialSystem.bxdfs = bxdfs;
