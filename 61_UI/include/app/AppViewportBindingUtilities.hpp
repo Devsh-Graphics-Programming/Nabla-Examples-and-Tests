@@ -180,12 +180,12 @@ inline bool tryBuildWindowBindingMatrices(
 
     outState.camera = camera;
     outState.projection = &projection;
-    outState.viewMatrix = getCastedMatrix<float32_t>(hlsl::math::linalg::promote_affine<4,4,3,4>(camera->getGimbal().getViewMatrix()));
+    outState.viewMatrix = getCastedMatrix<float32_t>(hlsl::math::linalg::promote_affine<4,4,3,4>(camera->getGimbal().getViewMatrixLH()));
     outState.projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
     outState.viewProjMatrix = mul(outState.projectionMatrix, outState.viewMatrix);
 
     binding.isOrthographicProjection = projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic;
-    binding.viewMatrix = getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrix());
+    binding.viewMatrix = getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrixLH());
     binding.projectionMatrix = outState.projectionMatrix;
     binding.viewProjMatrix = outState.viewProjMatrix;
     return true;

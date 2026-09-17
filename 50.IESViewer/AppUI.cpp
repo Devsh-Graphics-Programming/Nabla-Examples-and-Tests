@@ -533,7 +533,7 @@ void IESViewer::uiListener()
             const float ndcX = u * 2.0f - 1.0f;
             const float ndcY = v * 2.0f - 1.0f;
 
-            float32_t4x4 viewProj = hlsl::math::linalg::promoted_mul(cameraProjection, hlsl::float32_t3x4(camera->getGimbal().getViewMatrix()));
+            float32_t4x4 viewProj = hlsl::math::linalg::promoted_mul(cameraProjection, hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH()));
             const auto invViewProj = inverse(viewProj);
 
             const float32_t4 nearPoint(ndcX, ndcY, 0.0f, 1.0f);

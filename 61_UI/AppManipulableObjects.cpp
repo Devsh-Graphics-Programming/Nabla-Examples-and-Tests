@@ -12,7 +12,7 @@ inline float32_t3 extractWorldPosition(const float32_t4x4& transform)
 
 inline float32_t4x4 buildCameraManipulationTransform(ICamera& camera)
 {
-	return getCastedMatrix<float32_t>(camera.getGimbal().template operator()<float64_t4x4>());
+	return getCastedMatrix<float32_t>(hlsl::math::linalg::promote_affine<4,4,3,4>(camera.getGimbal().getWorldMatrix()));
 }
 
 inline float32_t3 buildCameraWorldPosition(ICamera& camera)
@@ -22,7 +22,7 @@ inline float32_t3 buildCameraWorldPosition(ICamera& camera)
 
 inline float32_t4x4 buildFollowTargetTransform(const CTrackedTarget& trackedTarget)
 {
-	return getCastedMatrix<float32_t>(trackedTarget.getGimbal().template operator()<float64_t4x4>());
+	return getCastedMatrix<float32_t>(hlsl::math::linalg::promote_affine<4,4,3,4>(trackedTarget.getGimbal().getWorldMatrix()));
 }
 
 inline float32_t3 buildFollowTargetWorldPosition(const CTrackedTarget& trackedTarget)

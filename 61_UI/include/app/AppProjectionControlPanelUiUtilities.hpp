@@ -324,7 +324,7 @@ inline void drawBoundCameraSection(
         auto& gimbal = camera.getGimbal();
         const auto position = hlsl::_static_cast<hlsl::float32_t3>(gimbal.getPosition());
         const auto orientation = hlsl::_static_cast<hlsl::float32_t4>(gimbal.getOrientation().data);
-        const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
+        const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrixLH());
 
         addMatrixTableFn("Position", ("PositionTable_" + runtime.activePlanarIxString).c_str(), 1, 3, &position[0], false);
         addMatrixTableFn("Orientation (Quaternion)", ("OrientationTable_" + runtime.activePlanarIxString).c_str(), 1, 4, &orientation[0], false);

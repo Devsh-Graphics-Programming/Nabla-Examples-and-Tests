@@ -184,7 +184,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 			nbl::ext::cameras::CCameraSequenceScriptUtilities::sequenceSegmentUsesTrackedTargetTrack(segment) &&
 			planarIx.value() < m_sceneInteraction.planarFollowConfigs.size() &&
 			m_sceneInteraction.planarFollowConfigs[planarIx.value()].enabled &&
-			m_sceneInteraction.planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Disabled;
+			m_sceneInteraction.planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Unknown;
 
 		nbl::ext::cameras::CCameraSequenceCompiledSegment compiledSegment;
 		std::string trackError;

@@ -1416,7 +1416,7 @@
 			}
 
 			const auto baselinePosition = state.fpsCamera->getGimbal().getPosition();
-			const auto baselineForward = state.fpsCamera->getGimbal().getZAxis();
+			const auto baselineForward = state.fpsCamera->getGimbal().getForward();
 			const auto expectedPositionDelta =
 				baselineForward * state.fpsCamera->scaleVirtualTranslation(static_cast<double>(keyboardMagnitude->magnitude));
 			if (!state.fpsCamera->manipulate({ keyboardEvents.data(), keyboardEvents.size() }))
@@ -1447,7 +1447,7 @@
 					{ CVirtualGimbalEvent::MoveForward, 2.0 }
 				}};
 				const auto baselinePosition = state.freeCamera->getGimbal().getPosition();
-				const auto baselineForward = state.freeCamera->getGimbal().getZAxis();
+				const auto baselineForward = state.freeCamera->getGimbal().getForward();
 				const auto expectedPositionDelta =
 					baselineForward * state.freeCamera->scaleVirtualTranslation(translationEvents[0].magnitude);
 				if (!state.freeCamera->manipulate({ translationEvents.data(), translationEvents.size() }))
@@ -1471,8 +1471,8 @@
 				std::array<CVirtualGimbalEvent, 1u> rotationEvents = {{
 					{ CVirtualGimbalEvent::PanRight, 2.0 }
 				}};
-				const auto baselineForward = state.freeCamera->getGimbal().getZAxis();
-				const auto baselineUp = state.freeCamera->getGimbal().getYAxis();
+				const auto baselineForward = state.freeCamera->getGimbal().getForward();
+				const auto baselineUp = state.freeCamera->getGimbal().getUp();
 				const auto expectedForward = hlsl::normalize(
 					hlsl::math::quaternion<hlsl::float64_t>::createFromAxisAngle(hlsl::normalize(baselineUp), state.freeCamera->scaleVirtualRotation(rotationEvents[0].magnitude))
 				).transformVector(baselineForward, true);
@@ -1482,7 +1482,7 @@
 					return false;
 				}
 
-				const auto actualForward = state.freeCamera->getGimbal().getZAxis();
+				const auto actualForward = state.freeCamera->getGimbal().getForward();
 				if (!CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Free motion-scale smoke ignored camera-local rotation scaling.";
@@ -1724,7 +1724,7 @@
 				return false;
 
 			followConfig.mode = ECameraFollowMode::KeepWorldOffset;
-			followConfig.worldOffset = SCameraSmokeFollowScenario::OrbitWorldOffset;
+			followConfig.offset = SCameraSmokeFollowScenario::OrbitWorldOffset;
 			trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
 			if (!validateFollowScenario(state.goalSolver, planarSpan, state.orbitCamera, trackedTarget, followConfig, "orbit keep-world-offset follow", outError))
@@ -1740,7 +1740,7 @@
 				continue;
 
 			auto followConfig = makeDefaultFollowConfig(defaultFollowCamera);
-			if (!followConfig.enabled || followConfig.mode == ECameraFollowMode::Disabled)
+			if (!followConfig.enabled || followConfig.mode == ECameraFollowMode::Unknown)
 				continue;
 
 			const auto label = std::string(defaultFollowCamera->getIdentifier()) + " default follow";
@@ -1749,7 +1749,7 @@
 			trackedTarget.setPose(
 				SCameraSmokeFollowScenario::InitialTargetPosition,
 				SCameraSmokeFollowScenario::InitialTargetOrientation);
-			if ((nbl::ext::cameras::CCameraFollowUtilities::cameraFollowModeUsesLocalOffset(followConfig.mode) || nbl::ext::cameras::CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode)) &&
+			if (nbl::ext::cameras::CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(followConfig.mode) &&
 				!nbl::ext::cameras::CCameraFollowUtilities::captureFollowOffsetsFromCamera(state.goalSolver, defaultFollowCamera, trackedTarget, followConfig))
 			{
 				outError = "Default follow smoke failed to capture offsets for camera \"" + std::string(defaultFollowCamera->getIdentifier()) + "\".";
@@ -1790,7 +1790,7 @@
 				return false;
 
 			followConfig.mode = ECameraFollowMode::KeepWorldOffset;
-			followConfig.worldOffset = SCameraSmokeFollowScenario::FreeWorldOffset;
+			followConfig.offset = SCameraSmokeFollowScenario::FreeWorldOffset;
 			trackedTarget.setPose(movedTrackedTargetPosition, movedTrackedTargetOrientation);
 
 			if (!validateFollowScenario(state.goalSolver, planarSpan, state.freeCamera, trackedTarget, followConfig, "free keep-world-offset follow", outError))

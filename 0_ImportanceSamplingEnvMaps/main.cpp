@@ -787,7 +787,7 @@ public:
 	void onAppTerminated_impl() override
 	{
 		const auto& lastCamPos = camera->getGimbal().getPosition();
-		const auto lastCamTarget = camera->getGimbal().getWorldTarget();
+		const auto lastCamTarget = camera->getGimbal().getPosition() + camera->getGimbal().getForward();
 		std::cout << "Last camera position: (" << lastCamPos.x << ", " << lastCamPos.y << ", " << lastCamPos.z << ")" << std::endl;
 		std::cout << "Last camera target: (" << lastCamTarget.x << ", " << lastCamTarget.y << ", " << lastCamTarget.z << ")" << std::endl;
 	}
@@ -828,7 +828,7 @@ public:
 				camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
 		}
 
-		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
 		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 
 		asset::SViewport viewport;

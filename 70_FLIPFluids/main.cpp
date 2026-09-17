@@ -940,7 +940,7 @@ public:
         SMVPParams camData;
         SBufferRange<IGPUBuffer> camDataRange;
         {
-            const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+            const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
             const auto projectionMatrix = cameraProjection;
             const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 

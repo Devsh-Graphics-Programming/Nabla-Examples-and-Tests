@@ -100,7 +100,7 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Enable follow", .value = &followConfig.enabled, .hint = "Apply tracked-target follow to the active planar camera" });
 
 		const char* followModeLabels[] = {
-            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::Disabled),
+            CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::Unknown),
             CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::OrbitTarget),
             CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::LookAtTarget),
             CCameraTextUtilities::getCameraFollowModeLabel(ECameraFollowMode::KeepWorldOffset),
@@ -134,17 +134,12 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 
-		if (CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode))
+		if (CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(followConfig.mode))
 		{
-			auto worldOffset = hlsl::_static_cast<hlsl::float32_t3>(followConfig.worldOffset);
-			if (ImGui::InputFloat3("World offset", &worldOffset[0]))
-				followConfig.worldOffset = hlsl::_static_cast<hlsl::float64_t3>(worldOffset);
-		}
-		if (CCameraFollowUtilities::cameraFollowModeUsesLocalOffset(followConfig.mode))
-		{
-			auto localOffset = hlsl::_static_cast<hlsl::float32_t3>(followConfig.localOffset);
-			if (ImGui::InputFloat3("Local offset", &localOffset[0]))
-				followConfig.localOffset = hlsl::_static_cast<hlsl::float64_t3>(localOffset);
+			const bool localFrame = followConfig.mode == ECameraFollowMode::KeepLocalOffset;
+			auto offset = hlsl::_static_cast<hlsl::float32_t3>(followConfig.offset);
+			if (ImGui::InputFloat3(localFrame ? "Local offset" : "World offset", &offset[0]))
+				followConfig.offset = hlsl::_static_cast<hlsl::float64_t3>(offset);
 		}
 	}
 	else

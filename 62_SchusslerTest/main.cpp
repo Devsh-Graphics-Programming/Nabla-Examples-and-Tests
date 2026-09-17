@@ -421,7 +421,7 @@ public:
     SPushConsts pc;
     pc.vertStage.VP = hlsl::math::linalg::promoted_mul(
         cameraProjection,
-        hlsl::float32_t3x4(camera->getGimbal().getViewMatrix()));
+        hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH()));
     pc.fragStage.campos = hlsl::float32_t4(hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition()), 1.0f);
     pc.fragStage.testNum = currentTestNum;
     commandBuffer->pushConstants(

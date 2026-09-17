@@ -46,8 +46,8 @@ inline nbl::ui::SCameraScriptVisualDebugStatus buildScriptVisualDebugStatus(
 	status.followActive = scriptedInput.visualFollow.active;
     status.followModeDescription = nbl::ext::cameras::CCameraTextUtilities::getCameraFollowModeDescription(scriptedInput.visualFollow.mode);
 	status.followLockValid = scriptedInput.visualFollow.lockValid;
-	status.followLockAngleDeg = scriptedInput.visualFollow.lockAngleDeg;
-	status.followTargetDistance = scriptedInput.visualFollow.targetDistance;
+	status.followLockAngleDeg = static_cast<float>(scriptedInput.visualFollow.lockAngleDeg);
+	status.followTargetDistance = static_cast<float>(scriptedInput.visualFollow.targetDistance);
 	status.followTargetCenterNdcRadius = scriptedInput.visualFollow.projectedTarget.radius;
 
 	float dynamicFov = 0.0f;
@@ -169,7 +169,7 @@ void App::applyFollowToConfiguredCameras(const bool allowDuringScriptedInput)
 			continue;
 
 		const auto& config = m_sceneInteraction.planarFollowConfigs[planarIx];
-		if (!config.enabled || config.mode == ECameraFollowMode::Disabled)
+		if (!config.enabled || config.mode == ECameraFollowMode::Unknown)
 			continue;
 
 		const auto result = nbl::ext::cameras::CCameraFollowUtilities::applyFollowToCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);

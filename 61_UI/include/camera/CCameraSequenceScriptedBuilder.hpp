@@ -84,8 +84,10 @@ struct CCameraSequenceScriptedBuilderUtilities final
                     return false;
                 }
 
-                nbl::ext::cameras::ICamera::CGimbal gimbal({ .position = trackedTargetPose.position, .orientation = trackedTargetPose.orientation });
-                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(timeline, baseFrame + policy.frameOffset, gimbal.operator()<nbl::hlsl::float64_t4x4>());
+                nbl::ext::cameras::CCameraScriptedRuntimeUtilities::appendScriptedTrackedTargetTransformEvent(
+                    timeline,
+                    baseFrame + policy.frameOffset,
+                    nbl::ext::cameras::CCameraMathUtilities::composeTransformMatrix(trackedTargetPose.position, trackedTargetPose.orientation));
             }
 
             if (policy.baseline)
