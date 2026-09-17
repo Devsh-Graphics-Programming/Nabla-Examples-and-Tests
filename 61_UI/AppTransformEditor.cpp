@@ -85,7 +85,7 @@ void App::TransformEditorContents()
 
 	auto transformState = nbl::ui::extractRigidTransformComponentsOrDefault(imguizmoModel.outTRS);
 
-	float32_t3 matrixRotation = hlsl::CCameraMathUtilities::getQuaternionEulerDegrees(transformState.orientation);
+	float32_t3 matrixRotation = CCameraMathUtilities::getQuaternionEulerDegrees(transformState.orientation);
 	ImGui::InputFloat3("Tr", &transformState.translation[0], "%.3f");
 	ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f");
 	ImGui::InputFloat3("Sc", &transformState.scale[0], "%.3f");
@@ -120,5 +120,5 @@ void App::TransformEditorContents()
 			break;
 	}
 
-	applyManipulableObjectTransform(objectContext, getCastedMatrix<float64_t>(imguizmoModel.outTRS));
+	applyManipulableObjectTransform(objectContext, nbl::ui::imguizmoTransformToEngine(imguizmoModel.outTRS));
 }

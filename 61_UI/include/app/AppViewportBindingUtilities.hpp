@@ -180,7 +180,7 @@ inline bool tryBuildWindowBindingMatrices(
 
     outState.camera = camera;
     outState.projection = &projection;
-    outState.viewMatrix = getCastedMatrix<float32_t>(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(camera->getGimbal().getViewMatrix()));
+    outState.viewMatrix = getCastedMatrix<float32_t>(hlsl::math::linalg::promote_affine<4,4,3,4>(camera->getGimbal().getViewMatrix()));
     outState.projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
     outState.viewProjMatrix = mul(outState.projectionMatrix, outState.viewMatrix);
 

@@ -7,6 +7,14 @@
 namespace nbl::ui
 {
 
+// ImGuizmo reads and writes its matrices as column major floats, through `&m[0][0]`. Reinterpreted as
+// `hlsl::matrix` rows that is the transpose of the engine layout (basis in the columns, translation in the last
+// column), so every matrix crossing that boundary is transposed here and nowhere else.
+inline float64_t4x4 imguizmoTransformToEngine(const float32_t4x4& imguizmoTRS)
+{
+    return hlsl::transpose(getCastedMatrix<float64_t>(imguizmoTRS));
+}
+
 inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& transform)
 {
     return {
@@ -16,14 +24,15 @@ inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& transform)
     };
 }
 
-inline hlsl::SRigidTransformComponents<hlsl::float32_t> extractRigidTransformComponentsOrDefault(const float32_t4x4& transform)
+inline SRigidTransformComponents<hlsl::float32_t> extractRigidTransformComponentsOrDefault(const float32_t4x4& transform)
 {
-    hlsl::SRigidTransformComponents<hlsl::float32_t> components = {};
-    if (hlsl::CCameraMathUtilities::tryExtractRigidTransformComponents(transform, components))
+    SRigidTransformComponents<hlsl::float32_t> components = {};
+    // `transform` comes straight out of ImGuizmo, see `imguizmoTransformToEngine`
+    if (CCameraMathUtilities::tryExtractRigidTransformComponents(hlsl::transpose(transform), components))
         return components;
 
     components.translation = float32_t3(transform[3].x, transform[3].y, transform[3].z);
-    components.orientation = hlsl::CCameraMathUtilities::makeIdentityQuaternion<hlsl::float32_t>();
+    components.orientation = hlsl::math::quaternion<hlsl::float32_t>::identity();
     components.scale = SCameraAppTransformEditorUiDefaults::IdentityScale;
     return components;
 }
@@ -33,10 +42,11 @@ inline float32_t4x4 composeRigidTransform(
     const hlsl::float32_t3& eulerDegrees,
     const hlsl::float32_t3& scale)
 {
-    return hlsl::CCameraMathUtilities::composeTransformMatrix(
+    // the result is handed back to ImGuizmo, so it goes back into its layout
+    return hlsl::transpose(CCameraMathUtilities::composeTransformMatrix(
         translation,
-        hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegrees(eulerDegrees),
-        scale);
+        hlsl::math::quaternion<hlsl::float32_t>::createFromEulerAnglesXYZ(hlsl::radians(eulerDegrees.x), hlsl::radians(eulerDegrees.y), hlsl::radians(eulerDegrees.z)),
+        scale));
 }
 
 inline float computeViewportGizmoClipSize(

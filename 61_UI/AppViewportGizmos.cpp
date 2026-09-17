@@ -46,7 +46,7 @@ void App::drawViewportManipulationGizmos(
 		if (success)
 		{
 			bindManipulableObject(objectContext);
-			applyManipulableObjectTransform(objectContext, getCastedMatrix<float64_t>(imguizmoModel.outTRS));
+			applyManipulableObjectTransform(objectContext, nbl::ui::imguizmoTransformToEngine(imguizmoModel.outTRS));
 		}
 
 		if (ImGuizmo::IsOver() && !ImGuizmo::IsUsingAny() && !m_viewports.enableActiveCameraMovement)

@@ -88,7 +88,7 @@ struct SBxDFTestResources
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 
         const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
-        math::quaternion<float> rot = math::quaternion<float>::create(retval.N, angle);
+        math::quaternion<float> rot = math::quaternion<float>::createFromAxisAngle(retval.N, angle);
         retval.T = rot.transformVector(tangent);
         retval.B = rot.transformVector(bitangent);
 

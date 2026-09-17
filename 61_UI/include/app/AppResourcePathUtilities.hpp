@@ -145,7 +145,7 @@ inline bool loadTextResource(
             candidates.asSpan(),
             [&](const path& candidate) -> bool
             {
-                return CFileUtilities::readTextFile(system, candidate, outText);
+                return nbl::ext::cameras::CFileUtilities::readTextFile(system, candidate, outText);
             },
             outLoadedPath))
     {

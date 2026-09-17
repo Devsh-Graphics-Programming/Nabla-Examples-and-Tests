@@ -73,7 +73,7 @@ struct CCameraSimpleFPSUtilities final
 		const hlsl::float64_t3& preferredUp = hlsl::float64_t3(0.0, 1.0, 0.0))
 	{
 		hlsl::math::quaternion<double> orientation;
-		if (!hlsl::CCameraMathUtilities::tryBuildLookAtOrientation(position, target, preferredUp, orientation))
+		if (!nbl::ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(position, target, preferredUp, orientation))
 			return nullptr;
 
 		auto camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(position, orientation);

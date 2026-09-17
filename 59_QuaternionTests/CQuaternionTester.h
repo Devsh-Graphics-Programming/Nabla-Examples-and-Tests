@@ -34,9 +34,9 @@ private:
         QuaternionInputTestValues testInput;
         testInput.axis = hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
         testInput.angle = realDistributionRad(getRandomEngine());
-        testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat0 = math::quaternion<float>::createFromAxisAngle(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat0 = hlsl::normalize(testInput.quat0);
-        testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat1 = math::quaternion<float>::createFromAxisAngle(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat1 = hlsl::normalize(testInput.quat1);
         testInput.quat2 = testInput.quat0 * realDistribution(getRandomEngine()) * 1000.f;
         testInput.quat3 = testInput.quat1 * realDistribution(getRandomEngine()) * 1000.f;

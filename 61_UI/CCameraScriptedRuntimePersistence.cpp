@@ -32,19 +32,21 @@ nbl::hlsl::float32_t4x4 composeScriptedImguizmoTransform(
     const std::array<float, 3>& rotationDeg,
     const std::array<float, 3>& scale)
 {
-    return nbl::hlsl::CCameraMathUtilities::composeTransformMatrix(
+    return nbl::ext::cameras::CCameraMathUtilities::composeTransformMatrix(
         nbl::hlsl::float32_t3(translation[0], translation[1], translation[2]),
-        nbl::hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegrees(nbl::hlsl::float32_t3(rotationDeg[0], rotationDeg[1], rotationDeg[2])),
+        hlsl::math::quaternion<hlsl::float32_t>::createFromEulerAnglesXYZ(hlsl::radians(rotationDeg[0]), hlsl::radians(rotationDeg[1]), hlsl::radians(rotationDeg[2])),
         nbl::hlsl::float32_t3(scale[0], scale[1], scale[2]));
 }
 
 nbl::hlsl::float32_t4x4 makeScriptedMatrixFromArray(const std::array<float, 16>& values)
 {
+    // `delta_trs` is recorded from ImGuizmo's column major storage, so element (column, row) sits at
+    // `column * 4 + row`; writing it to `out[row][column]` lands it in the engine layout
     nbl::hlsl::float32_t4x4 out(1.f);
     for (uint32_t column = 0u; column < 4u; ++column)
     {
         for (uint32_t row = 0u; row < 4u; ++row)
-            out[column][row] = values[column * 4u + row];
+            out[row][column] = values[column * 4u + row];
     }
     return out;
 }

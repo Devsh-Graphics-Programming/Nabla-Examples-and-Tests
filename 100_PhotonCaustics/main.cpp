@@ -763,7 +763,7 @@ private:
 				hlsl::float32_t3x4 transform;
 				if (degrees != 0.f)
 				{
-					const auto rotation = hlsl::math::quaternion<hlsl::float32_t>::create(axis, core::radians(degrees));
+					const auto rotation = hlsl::math::quaternion<hlsl::float32_t>::createFromAxisAngle(axis, core::radians(degrees));
 					transform = hlsl::math::linalg::promote_affine<3, 4, 3, 3>(hlsl::_static_cast<hlsl::float32_t3x3>(rotation));
 				}
 				else

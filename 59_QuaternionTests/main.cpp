@@ -60,12 +60,23 @@ bool runtimeTraitsTests(system::ILogger* logger)
         auto testRotation = [&](const quat_t q, const char* what)
         {
             const mat_t basis = hlsl::_static_cast<mat_t>(q);
+            // the cast has to produce the matrix you can `mul` with, i.e. the basis vectors sit in the columns:
+            // `mul(basis, v) == q.transformVector(v)`. Everything that stores an orientation as a matrix depends on it,
+            // and without this check a transposed cast still passes every orthonormality and round-trip test below.
+            {
+                for (uint32_t i = 0; i < 3; ++i)
+                {
+                    vec3_t axis = hlsl::promote<vec3_t>(F(0));
+                    axis[i] = F(1);
+                    check(hlsl::approx::absRelEqual<vec3_t>(hlsl::mul(basis, axis), q.transformVector(axis, true), F(1e-5), F(1e-5)), type, what);
+                }
+            }
             {
                 const traits_t rt = traits_t::create(basis);
                 check(rt.invertible, type, what);
                 check(rt.orthogonal, type, what);
                 check(rt.orthonormal, type, what);
-                const quat_t recovered = quat_t::create(basis, true);
+                const quat_t recovered = quat_t::createFromRotationMatrix(basis, true);
                 check(isFinite(recovered), type, what);
                 check(hlsl::approx::orientationEqual(q.data, recovered.data, F(1e-5)), type, what);
             }
@@ -77,16 +88,16 @@ bool runtimeTraitsTests(system::ILogger* logger)
                 check(rt.orthogonal, type, what);
                 check(!rt.orthonormal, type, what);
                 check(hlsl::approx::absRelEqual(rt.uniformColumnSqNorm, F(1e4), F(0), F(1e-5)), type, what);
-                const quat_t recovered = quat_t::create(scaled, true);
+                const quat_t recovered = quat_t::createFromRotationMatrix(scaled, true);
                 check(isFinite(recovered), type, what);
                 check(hlsl::approx::orientationEqual(q.data, recovered.data, F(1e-5)), type, what);
             }
         };
 
         // axis aligned, basis dot products come out as exact zeros
-        testRotation(quat_t::create(vec3_t(F(0), F(0), F(1)), hlsl::numbers::pi<F> * F(0.5)), "90deg about Z");
+        testRotation(quat_t::createFromAxisAngle(vec3_t(F(0), F(0), F(1)), hlsl::numbers::pi<F> * F(0.5)), "90deg about Z");
         // generic, basis dot products are only approximately zero
-        testRotation(quat_t::create(hlsl::normalize(vec3_t(F(1), F(2), F(3))), hlsl::numbers::pi<F> * F(37.0 / 180.0)), "37deg about normalize(1,2,3)");
+        testRotation(quat_t::createFromAxisAngle(hlsl::normalize(vec3_t(F(1), F(2), F(3))), hlsl::numbers::pi<F> * F(37.0 / 180.0)), "37deg about normalize(1,2,3)");
     };
     testType.template operator()<float32_t>("float32_t");
     testType.template operator()<float64_t>("float64_t");

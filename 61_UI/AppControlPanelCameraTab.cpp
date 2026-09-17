@@ -73,13 +73,13 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 	const bool hasOrbitTarget = activeCamera && activeCamera->tryGetSphericalTargetState(orbitState);
 	if (hasOrbitTarget)
 	{
-		auto target = hlsl::CCameraMathUtilities::castVector<float32_t>(orbitState.target);
+		auto target = hlsl::_static_cast<hlsl::float32_t3>(orbitState.target);
 		if (ImGui::InputFloat3("Target", &target[0]))
-			activeCamera->trySetSphericalTarget(hlsl::CCameraMathUtilities::castVector<float64_t>(target));
+			activeCamera->trySetSphericalTarget(hlsl::_static_cast<hlsl::float64_t3>(target));
 
 		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Target model", "Set orbit target to the model position"))
 		{
-			const auto targetPos = hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(m_sceneInteraction.model))[3];
+			const auto targetPos = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(m_sceneInteraction.model))[3];
 			activeCamera->trySetSphericalTarget(float64_t3(targetPos.x, targetPos.y, targetPos.z));
 		}
 		ImGui::SameLine();
@@ -116,9 +116,9 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 		if (followStateChanged && followConfig.enabled)
 			applyFollowToConfiguredCameras();
 
-		auto trackedTarget = hlsl::CCameraMathUtilities::castVector<float32_t>(m_sceneInteraction.followTarget.getGimbal().getPosition());
+		auto trackedTarget = hlsl::_static_cast<hlsl::float32_t3>(m_sceneInteraction.followTarget.getGimbal().getPosition());
 		if (ImGui::InputFloat3("Tracked target", &trackedTarget[0]))
-			m_sceneInteraction.followTarget.setPosition(hlsl::CCameraMathUtilities::castVector<float64_t>(trackedTarget));
+			m_sceneInteraction.followTarget.setPosition(hlsl::_static_cast<hlsl::float64_t3>(trackedTarget));
 
 		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint({ .label = "Show target marker", .value = &m_sceneInteraction.followTargetVisible, .hint = "Render the tracked target marker in the scene" });
 
@@ -129,22 +129,22 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 			snapFollowTargetToModel();
 		ImGui::SameLine();
 		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Target origin", "Reset tracked target to identity at world origin"))
-			m_sceneInteraction.followTarget.setPose(float64_t3(0.0), CCameraMathUtilities::makeIdentityQuaternion<float64_t>());
+			m_sceneInteraction.followTarget.setPose(float64_t3(0.0), hlsl::math::quaternion<float64_t>::identity());
 		ImGui::SameLine();
 		if (nbl::ui::CCameraControlPanelUiUtilities::drawActionButtonWithHint("Capture current offset", "Store current camera-to-target relation into the active follow config"))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 
 		if (CCameraFollowUtilities::cameraFollowModeUsesWorldOffset(followConfig.mode))
 		{
-			auto worldOffset = hlsl::CCameraMathUtilities::castVector<float32_t>(followConfig.worldOffset);
+			auto worldOffset = hlsl::_static_cast<hlsl::float32_t3>(followConfig.worldOffset);
 			if (ImGui::InputFloat3("World offset", &worldOffset[0]))
-				followConfig.worldOffset = hlsl::CCameraMathUtilities::castVector<float64_t>(worldOffset);
+				followConfig.worldOffset = hlsl::_static_cast<hlsl::float64_t3>(worldOffset);
 		}
 		if (CCameraFollowUtilities::cameraFollowModeUsesLocalOffset(followConfig.mode))
 		{
-			auto localOffset = hlsl::CCameraMathUtilities::castVector<float32_t>(followConfig.localOffset);
+			auto localOffset = hlsl::_static_cast<hlsl::float32_t3>(followConfig.localOffset);
 			if (ImGui::InputFloat3("Local offset", &localOffset[0]))
-				followConfig.localOffset = hlsl::CCameraMathUtilities::castVector<float64_t>(localOffset);
+				followConfig.localOffset = hlsl::_static_cast<hlsl::float64_t3>(localOffset);
 		}
 	}
 	else

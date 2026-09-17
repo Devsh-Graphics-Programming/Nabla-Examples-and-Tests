@@ -175,11 +175,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         {
             const float maxRadius = m_plotRadius * 0.98f;
             const float clampRadius = maxRadius * 0.999f;
-            auto pos = hlsl::CCameraMathUtilities::castVector<float>(camera->getGimbal().getPosition());
+            auto pos = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition());
             const float dist = length(pos);
             if (dist > maxRadius)
             {
-                const auto target = hlsl::CCameraMathUtilities::castVector<float>(camera->getGimbal().getWorldTarget());
+                const auto target = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getWorldTarget());
                 const auto forward = target - pos;
                 pos = normalize(pos) * clampRadius;
                 auto clampedCamera = CCameraSimpleFPSUtilities::createFromLookAt(

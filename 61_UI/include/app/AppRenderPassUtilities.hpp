@@ -26,7 +26,7 @@ inline VkRect2D makeRenderArea(const uint32_t width, const uint32_t height)
 
 inline float32_t4x4 buildInverseViewRotation(const float32_t3x4& viewMatrix)
 {
-	auto inverseViewRotation = hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(viewMatrix));
+	auto inverseViewRotation = hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(viewMatrix));
 	const auto xyzMask = SCameraAppFrameRuntimeDefaults::InverseViewRotationXyzMask;
 	inverseViewRotation[0] *= xyzMask;
 	inverseViewRotation[1] *= xyzMask;

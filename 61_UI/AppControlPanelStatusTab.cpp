@@ -36,7 +36,7 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 	{
 		const auto& gimbal = activeCamera->getGimbal();
 		const auto pos = gimbal.getPosition();
-		const auto euler = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+		const auto euler = CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 
 		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("CameraCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(5, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 		{

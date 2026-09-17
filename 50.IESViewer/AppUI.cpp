@@ -543,7 +543,7 @@ void IESViewer::uiListener()
             nearWorld /= nearWorld.w;
             farWorld /= farWorld.w;
 
-            const float32_t3 origin = hlsl::CCameraMathUtilities::castVector<float>(camera->getGimbal().getPosition());
+            const float32_t3 origin = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition());
             const float32_t3 farPos = float32_t3(farWorld);
             float32_t3 direction = normalize(farPos - origin);
 

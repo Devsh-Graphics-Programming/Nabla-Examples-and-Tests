@@ -197,7 +197,7 @@
 			return false;
 		}
 
-		outReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(pose.position, pose.orientation);
+		outReferenceFrame = CCameraMathUtilities::composeTransformMatrix(pose.position, pose.orientation);
 		return true;
 	}
 
@@ -240,13 +240,13 @@
 
 		ICamera::SphericalTargetState actualState = {};
 			if (!camera->tryGetSphericalTargetState(actualState) ||
-			!hlsl::CCameraMathUtilities::nearlyEqualVec3(
+			!CCameraMathUtilities::nearlyEqualVec3(
 				actualState.target,
 				desiredState.target,
 				nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictScalarTolerance) ||
-			hlsl::CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.x, desiredState.orbitUv.x) >
+			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.x, desiredState.orbitUv.x) >
 				hlsl::radians(nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
-			hlsl::CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.y, desiredState.orbitUv.y) >
+			CCameraMathUtilities::getWrappedAngleDistanceRadians(actualState.orbitUv.y, desiredState.orbitUv.y) >
 				hlsl::radians(nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg) ||
 			hlsl::abs(static_cast<double>(actualState.distance - desiredState.distance)) >
 				nbl::ext::cameras::SCameraSmokeComparisonThresholds::StrictScalarTolerance)
@@ -308,12 +308,12 @@
 
 		nbl::ext::cameras::CCameraGoal expectedGoal = {};
 		expectedGoal.position = desiredPosition;
-		expectedGoal.orientation = hlsl::CCameraMathUtilities::normalizeQuaternion(desiredOrientation);
+		expectedGoal.orientation = hlsl::normalize(desiredOrientation);
 
-		const auto baselineReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+		const auto baselineReferenceFrame = CCameraMathUtilities::composeTransformMatrix(
 			baselineCapture.goal.position,
 			baselineCapture.goal.orientation);
-		const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+		const auto referenceFrame = CCameraMathUtilities::composeTransformMatrix(
 			desiredPosition,
 			expectedGoal.orientation);
 		if (!camera->manipulate({}, &referenceFrame))
@@ -355,7 +355,7 @@
 					state,
 					state.fpsCamera,
 					hlsl::float64_t3(2.5, -0.75, 4.0),
-					hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(-20.0, 35.0, 0.0)),
+					CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(-20.0, 35.0, 0.0)),
 					"FPS",
 					outError))
 			{
@@ -369,7 +369,7 @@
 					state,
 					state.freeCamera,
 					hlsl::float64_t3(-1.25, 0.5, 3.5),
-					hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(15.0, 45.0, 20.0)),
+					CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(15.0, 45.0, 20.0)),
 					"Free",
 					outError))
 			{
@@ -539,10 +539,10 @@
 				return false;
 			}
 
-			const auto baselineReferenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+			const auto baselineReferenceFrame = CCameraMathUtilities::composeTransformMatrix(
 				baselineCanonicalPathState.pose.position,
 				baselineCanonicalPathState.pose.orientation);
-			const auto referenceFrame = hlsl::CCameraMathUtilities::composeTransformMatrix(
+			const auto referenceFrame = CCameraMathUtilities::composeTransformMatrix(
 				canonicalPathState.pose.position,
 				canonicalPathState.pose.orientation);
 			if (!state.pathCamera->manipulate({}, &referenceFrame))
@@ -1200,7 +1200,7 @@
 				return false;
 			}
 
-			const double customBaselineDistance = hlsl::CCameraMathUtilities::getPathDistance(customBaselinePathState.u, customBaselinePathState.v);
+			const double customBaselineDistance = CCameraMathUtilities::getPathDistance(customBaselinePathState.u, customBaselinePathState.v);
 			if (customBaselineDistance + CameraTinyScalarEpsilon < resolvedPathLimits.minDistance ||
 				customBaselineDistance - CameraTinyScalarEpsilon > resolvedPathLimits.maxDistance)
 			{
@@ -1425,7 +1425,7 @@
 			}
 
 			const auto actualPositionDelta = state.fpsCamera->getGimbal().getPosition() - baselinePosition;
-			if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+			if (!CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 			{
 				outError = "FPS motion-scale smoke ignored camera-local translation scaling.";
 				return false;
@@ -1456,7 +1456,7 @@
 				}
 
 				const auto actualPositionDelta = state.freeCamera->getGimbal().getPosition() - baselinePosition;
-				if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+				if (!CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Free motion-scale smoke ignored camera-local translation scaling.";
 					return false;
@@ -1472,11 +1472,9 @@
 				}};
 				const auto baselineForward = state.freeCamera->getGimbal().getZAxis();
 				const auto baselineUp = state.freeCamera->getGimbal().getYAxis();
-				const auto expectedForward = hlsl::CCameraMathUtilities::rotateVectorByQuaternion(
-					hlsl::CCameraMathUtilities::makeQuaternionFromAxisAngle(
-						hlsl::normalize(baselineUp),
-						state.freeCamera->scaleVirtualRotation(rotationEvents[0].magnitude)),
-					baselineForward);
+				const auto expectedForward = hlsl::normalize(
+					hlsl::math::quaternion<hlsl::float64_t>::createFromAxisAngle(hlsl::normalize(baselineUp), state.freeCamera->scaleVirtualRotation(rotationEvents[0].magnitude))
+				).transformVector(baselineForward, true);
 				if (!state.freeCamera->manipulate({ rotationEvents.data(), rotationEvents.size() }))
 				{
 					outError = "Free motion-scale smoke failed to apply rotation event.";
@@ -1484,7 +1482,7 @@
 				}
 
 				const auto actualForward = state.freeCamera->getGimbal().getZAxis();
-				if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
+				if (!CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Free motion-scale smoke ignored camera-local rotation scaling.";
 					return false;
@@ -1495,7 +1493,7 @@
 			}
 
 			CameraPreset orientedPreset = state.initialPresets.free.value();
-			orientedPreset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
+			orientedPreset.goal.orientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
 			const auto orientResult = nbl::ext::cameras::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
 			if (!orientResult.succeeded() || !nbl::ext::cameras::CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
 			{
@@ -1526,14 +1524,14 @@
 
 			const auto remappedPosition = state.freeCamera->getGimbal().getPosition();
 			const auto positionDelta = remappedPosition - orientedPreset.goal.position;
-			if (!hlsl::CCameraMathUtilities::nearlyEqualVec3(positionDelta, SCameraSmokeManipulationDefaults::WorldTranslationDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
+			if (!CCameraMathUtilities::nearlyEqualVec3(positionDelta, SCameraSmokeManipulationDefaults::WorldTranslationDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 			{
 				outError = "Camera manipulation utilities smoke changed world-space translation semantics.";
 				return false;
 			}
 
 			CameraPreset pitchPreset = state.initialPresets.free.value();
-			pitchPreset.goal.orientation = hlsl::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
+			pitchPreset.goal.orientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
 			const auto pitchResult = nbl::ext::cameras::CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, pitchPreset);
 			if (!pitchResult.succeeded())
 			{
@@ -1553,7 +1551,7 @@
 				return false;
 			}
 
-			const auto freeEulerDeg = hlsl::CCameraMathUtilities::getCameraOrientationEulerDegrees(state.freeCamera->getGimbal().getOrientation());
+			const auto freeEulerDeg = CCameraMathUtilities::getCameraOrientationEulerDegrees(state.freeCamera->getGimbal().getOrientation());
 			if (hlsl::abs(static_cast<double>(freeEulerDeg.x - SCameraSmokeManipulationDefaults::PitchMaxDeg)) > SCameraSmokeManipulationDefaults::PitchAppliedToleranceDeg)
 			{
 				outError = "Camera manipulation utilities smoke produced wrong clamped Free camera pitch.";

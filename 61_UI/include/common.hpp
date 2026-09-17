@@ -58,10 +58,7 @@ namespace nbl::this_example
 template<typename Tout, typename Tin, uint32_t N, uint32_t M>
 inline hlsl::matrix<Tout, N, M> getCastedMatrix(const hlsl::matrix<Tin, N, M>& input)
 {
-	hlsl::matrix<Tout, N, M> output;
-	for (uint32_t i = 0u; i < N; ++i)
-		output[i] = hlsl::CCameraMathUtilities::castVector<Tout>(input[i]);
-	return output;
+	return hlsl::_static_cast<hlsl::matrix<Tout, N, M> >(input);
 }
 
 }
@@ -135,6 +132,12 @@ using nbl::video::SIntendedSubmitInfo;
 using nbl::examples::CGeometryCreatorScene;
 using nbl::examples::InputSystem;
 using nbl::examples::CSimpleDebugRenderer;
+using nbl::ext::cameras::CCameraMathUtilities;
+using nbl::ext::cameras::SCameraBasis;
+using nbl::ext::cameras::SCameraPoseDelta;
+using nbl::ext::cameras::SCameraRigidMathDefaults;
+using nbl::ext::cameras::SCameraViewRigDefaults;
+using nbl::ext::cameras::SRigidTransformComponents;
 using nbl::ext::cameras::ICamera;
 using nbl::ext::cameras::CFPSCamera;
 using nbl::ext::cameras::CFreeCamera;
@@ -207,7 +210,7 @@ using nbl::hlsl::float64_t3;
 using nbl::hlsl::float64_t4;
 using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
-using nbl::hlsl::CCameraMathUtilities;
+using nbl::ext::cameras::CCameraMathUtilities;
 using nbl::ext::cameras::CCameraInputBindingUtilities;
 using nbl::ui::CCameraControlPanelUiUtilities;
 using nbl::ui::CCameraScriptVisualDebugOverlayUtilities;

@@ -2,7 +2,7 @@
 
 inline float32_t4x4 buildModelManipulationTransform(const float32_t3x4& model)
 {
-	return hlsl::transpose(hlsl::CCameraMathUtilities::promoteAffine3x4To4x4(model));
+	return hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(model));
 }
 
 inline float32_t3 extractWorldPosition(const float32_t4x4& transform)
@@ -17,7 +17,7 @@ inline float32_t4x4 buildCameraManipulationTransform(ICamera& camera)
 
 inline float32_t3 buildCameraWorldPosition(ICamera& camera)
 {
-	return hlsl::CCameraMathUtilities::castVector<float32_t>(camera.getGimbal().getPosition());
+	return hlsl::_static_cast<hlsl::float32_t3>(camera.getGimbal().getPosition());
 }
 
 inline float32_t4x4 buildFollowTargetTransform(const CTrackedTarget& trackedTarget)
@@ -27,7 +27,7 @@ inline float32_t4x4 buildFollowTargetTransform(const CTrackedTarget& trackedTarg
 
 inline float32_t3 buildFollowTargetWorldPosition(const CTrackedTarget& trackedTarget)
 {
-	return hlsl::CCameraMathUtilities::castVector<float32_t>(trackedTarget.getGimbal().getPosition());
+	return hlsl::_static_cast<hlsl::float32_t3>(trackedTarget.getGimbal().getPosition());
 }
 
 uint32_t App::getManipulableObjectCount() const
@@ -219,7 +219,7 @@ void App::applyManipulableObjectTransform(const SManipulableObjectContext& conte
 			applyFollowToConfiguredCameras();
 			break;
 		case SceneManipulatedObjectKind::Model:
-			m_sceneInteraction.model = float32_t3x4(hlsl::transpose(getCastedMatrix<float32_t>(transform)));
+			m_sceneInteraction.model = float32_t3x4(getCastedMatrix<float32_t>(transform));
 			break;
 	}
 }
