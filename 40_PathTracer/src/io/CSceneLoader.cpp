@@ -325,7 +325,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 								break;
 							}
 							// elongating camera along Z will shrink the effective FOV
-							ndc[0] = float32_t3(scaleRcp.z/scaleRcp.x,0.f,hlsl::sign(scaleRcp.x)*persp.shiftX);
+							// abs() so a flipped scaleRcp.x (det<0 stripped above) doesn't re-mirror NDC.
+							ndc[0] = float32_t3(scaleRcp.z/hlsl::abs(scaleRcp.x),0.f,persp.shiftX)*halfWidth;
 							// column gets negated because in Vulkan NDC.y runs downwards
 							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
 						}
