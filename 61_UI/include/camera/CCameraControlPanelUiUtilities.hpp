@@ -2,6 +2,10 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// TODO: moved out of nbl::ext::Cameras into this example pending a rework of the camera tooling layer
+// (goal / preset / keyframe / playback / persistence / follow / scripted runtime). It sits at global scope
+// like the example's other headers. See README.md in this folder.
+
 #ifndef _C_CAMERA_CONTROL_PANEL_UI_UTILITIES_HPP_
 #define _C_CAMERA_CONTROL_PANEL_UI_UTILITIES_HPP_
 

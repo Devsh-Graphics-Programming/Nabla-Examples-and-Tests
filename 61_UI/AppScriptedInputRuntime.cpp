@@ -26,7 +26,7 @@ void App::dequeueScriptedFrameInput(SScriptedFrameInputState& outFrame)
 
 	if (m_scriptedInput.enabled && m_scriptedInput.nextEventIndex < m_scriptedInput.timeline.events.size())
 	{
-		nbl::ext::cameras::CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(
+		CCameraScriptedFrameEventUtilities::dequeueScriptedFrameEvents(
 			m_scriptedInput.timeline.events,
 			m_scriptedInput.nextEventIndex,
 			m_realFrameIx,
@@ -41,7 +41,7 @@ void App::dequeueScriptedFrameInput(SScriptedFrameInputState& outFrame)
 			outFrame.actions);
 	}
 
-	nbl::ext::cameras::CCameraScriptedUiInputUtilities::appendScriptedUiInputEvents(
+	CCameraScriptedUiInputUtilities::appendScriptedUiInputEvents(
 		m_nextPresentationTimestamp,
 		m_window.get(),
 		outFrame.frameEvents.keyboard,
@@ -146,7 +146,7 @@ void App::applyScriptedFrameActions(std::span<const nbl::this_example::CCameraSc
 				}
 
 				auto* camera = m_planarProjections[binding.activePlanarIx]->getCamera();
-				if (!nbl::ext::cameras::CCameraPresetFlowUtilities::applyPreset(m_cameraGoalSolver, camera, m_presetAuthoring.initialPlanarPresets[binding.activePlanarIx]))
+				if (!CCameraPresetFlowUtilities::applyPreset(m_cameraGoalSolver, camera, m_presetAuthoring.initialPlanarPresets[binding.activePlanarIx]))
 					m_logger->log("[script][warn] action reset_active_camera failed for planar: %u", ILogger::ELL_WARNING, binding.activePlanarIx);
 			} break;
 		}

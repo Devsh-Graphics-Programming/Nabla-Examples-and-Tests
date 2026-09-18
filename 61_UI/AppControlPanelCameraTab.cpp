@@ -111,7 +111,7 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 			followConfig.mode = static_cast<ECameraFollowMode>(followModeIx);
 
 		const bool followStateChanged = followConfig.enabled != prevFollowEnabled || followConfig.mode != prevFollowMode;
-		if (followStateChanged && followConfig.enabled && nbl::ext::cameras::CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(followConfig.mode))
+		if (followStateChanged && followConfig.enabled && CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(followConfig.mode))
 			captureFollowOffsetsForPlanar(getActivePlanarIx());
 		if (followStateChanged && followConfig.enabled)
 			applyFollowToConfiguredCameras();

@@ -8,7 +8,7 @@
 #include "app/AppCameraConfigUtilities.hpp"
 #include "app/AppResourceUtilities.hpp"
 #include "app/AppViewportBindingUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraPersistence.hpp"
+#include "camera/CCameraPersistence.hpp"
 
 bool App::initializeCameraConfiguration(const argparse::ArgumentParser& program)
 {
@@ -92,7 +92,7 @@ bool App::initializePlanarRuntimeState(
 
 SCameraFollowConfig App::makeExampleDefaultFollowConfig(const ICamera* const camera) const
 {
-	auto config = nbl::ext::cameras::CCameraFollowUtilities::makeDefaultFollowConfig(camera);
+	auto config = CCameraFollowUtilities::makeDefaultFollowConfig(camera);
 	if (!camera)
 		return config;
 

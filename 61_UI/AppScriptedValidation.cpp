@@ -9,7 +9,7 @@ void App::updateScriptedFollowVisualState(const CCameraScriptedFrameEvents& scri
 		SActiveScriptedCameraContext runtimeContext = {};
 		if (tryBuildActiveScriptedCameraContext(runtimeContext) && runtimeContext.followConfig)
 		{
-            followMetrics = nbl::ext::cameras::CCameraFollowRegressionUtilities::buildFollowVisualMetrics(
+            followMetrics = CCameraFollowRegressionUtilities::buildFollowVisualMetrics(
                 runtimeContext.viewport.camera,
                 m_sceneInteraction.followTarget,
                 runtimeContext.followConfig,
@@ -44,7 +44,7 @@ void App::runActiveFrameScriptedChecks(const SScriptedFrameInputState& scriptedF
 	SActiveScriptedCameraContext runtimeContext = {};
 	const bool hasRuntimeContext = tryBuildActiveScriptedCameraContext(runtimeContext);
 
-	const auto checkResult = nbl::ext::cameras::CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
+	const auto checkResult = CCameraScriptedCheckRunnerUtilities::evaluateScriptedChecksForFrame(
 		m_scriptedInput.timeline.checks,
 		m_scriptedInput.checkRuntime,
 		{

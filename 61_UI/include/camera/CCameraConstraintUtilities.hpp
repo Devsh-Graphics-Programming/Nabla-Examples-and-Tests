@@ -3,8 +3,8 @@
 
 #include <algorithm>
 
-#include "nbl/ext/Cameras/CCameraGoalSolver.hpp"
-#include "nbl/ext/Cameras/CCameraPresetFlow.hpp"
+#include "CCameraGoalSolver.hpp"
+#include "CCameraPresetFlow.hpp"
 
 namespace nbl::this_example
 {
@@ -41,7 +41,7 @@ struct SCameraConstraintSettings
 struct CCameraConstraintUtilities final
 {
     static inline bool applyCameraConstraints(
-        const nbl::ext::cameras::CCameraGoalSolver& solver,
+        const CCameraGoalSolver& solver,
         nbl::ext::cameras::ICamera* camera,
         const SCameraConstraintSettings& constraints)
     {
@@ -82,10 +82,10 @@ struct CCameraConstraintUtilities final
         if (clamped.x == eulerDeg.x && clamped.y == eulerDeg.y && clamped.z == eulerDeg.z)
             return false;
 
-        nbl::ext::cameras::CCameraPreset preset;
+        CCameraPreset preset;
         preset.goal.position = pos;
         preset.goal.orientation = nbl::ext::cameras::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(clamped);
-        return nbl::ext::cameras::CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
+        return CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
     }
 };
 

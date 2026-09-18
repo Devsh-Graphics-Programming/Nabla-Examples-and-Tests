@@ -60,7 +60,7 @@ inline void updateViewportWindowMoveFlag(ImGuiWindow* const window, const SViewp
 inline void drawFollowTargetOverlayIfActive(
 	ImDrawList* const drawList,
 	const SBoundViewportCameraState& viewportState,
-	const nbl::ext::cameras::CTrackedTarget& followTarget,
+	const CTrackedTarget& followTarget,
 	const SViewportOverlayRect& viewportRect,
 	const SScriptedInputRuntimeState& scriptedInput)
 {
@@ -83,7 +83,7 @@ template<typename OverlayDrawFn>
 inline void drawViewportTextureAndOverlay(
 	SImResourceInfo& info,
 	const SViewportWindowRuntime& viewportRuntime,
-	const nbl::ext::cameras::CTrackedTarget& followTarget,
+	const CTrackedTarget& followTarget,
 	const SScriptedInputRuntimeState& scriptedInput,
 	OverlayDrawFn&& drawOverlay)
 {

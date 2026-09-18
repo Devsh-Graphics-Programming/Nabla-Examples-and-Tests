@@ -11,17 +11,17 @@ bool App::tryCaptureGoal(ICamera* camera, CCameraGoal& out) const
 
 App::PresetUiAnalysis App::analyzePresetForUi(ICamera* camera, const CameraPreset& preset) const
 {
-	return nbl::ext::cameras::CCameraPresentationUtilities::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
+	return CCameraPresentationUtilities::analyzePresetPresentation(m_cameraGoalSolver, camera, preset);
 }
 
 App::CaptureUiAnalysis App::analyzeCameraCaptureForUi(ICamera* camera) const
 {
-	return nbl::ext::cameras::CCameraPresentationUtilities::analyzeCapturePresentation(m_cameraGoalSolver, camera);
+	return CCameraPresentationUtilities::analyzeCapturePresentation(m_cameraGoalSolver, camera);
 }
 
 CCameraGoalSolver::SCompatibilityResult App::analyzePresetCompatibility(ICamera* camera, const CameraPreset& preset) const
 {
-    return nbl::ext::cameras::CCameraGoalAnalysisUtilities::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
+    return CCameraGoalAnalysisUtilities::analyzePresetApply(m_cameraGoalSolver, camera, preset).compatibility;
 }
 
 bool App::presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
@@ -31,7 +31,7 @@ bool App::presetMatchesFilter(ICamera* camera, const CameraPreset& preset) const
 
 CCameraGoalSolver::SApplyResult App::applyPresetFromUi(ICamera* camera, const CameraPreset& preset)
 {
-	const auto result = nbl::ext::cameras::CCameraPresetFlowUtilities::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
+	const auto result = CCameraPresetFlowUtilities::applyPresetDetailed(m_cameraGoalSolver, camera, preset);
 	if (result.succeeded())
 		refreshFollowOffsetConfigsForCamera(camera);
 
@@ -63,7 +63,7 @@ void App::storePlaybackApplySummary(const SCameraPresetApplySummary& summary)
 	const auto& playbackAuthoring = m_playbackAuthoring;
 	storeApplyStatusBanner(
 		m_playbackAuthoring.applyBanner,
-        nbl::ext::cameras::CCameraTextUtilities::describePresetApplySummary(
+        CCameraTextUtilities::describePresetApplySummary(
 			summary,
 			playbackAuthoring.affectsAll ? "Playback apply | no cameras available" : "Playback apply | no active camera"),
 		summary.succeeded(),
@@ -118,7 +118,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 	if (!playbackAuthoring.affectsAll)
 	{
 		ICamera* activeCamera = getActiveCamera();
-		summary = nbl::ext::cameras::CCameraPresetFlowUtilities::applyPresetToCameraRange(
+		summary = CCameraPresetFlowUtilities::applyPresetToCameraRange(
 			m_cameraGoalSolver,
 			std::span<ICamera* const>(&activeCamera, activeCamera ? 1u : 0u),
 			preset);
@@ -144,7 +144,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 			cameras.push_back(camera);
 	}
 
-	summary = nbl::ext::cameras::CCameraPresetFlowUtilities::applyPresetToCameraRange(
+	summary = CCameraPresetFlowUtilities::applyPresetToCameraRange(
 		m_cameraGoalSolver,
 		std::span<ICamera* const>(cameras.data(), cameras.size()),
 		preset);
@@ -155,7 +155,7 @@ SCameraPresetApplySummary App::applyPresetToTargets(const CameraPreset& preset)
 
 bool App::tryBuildPlaybackPresetAtTime(const float time, CameraPreset& preset)
 {
-	return nbl::ext::cameras::CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(m_playbackAuthoring.keyframeTrack, time, preset);
+	return CCameraKeyframeTrackUtilities::tryBuildKeyframeTrackPresetAtTime(m_playbackAuthoring.keyframeTrack, time, preset);
 }
 
 bool App::applyPlaybackAtTime(const float time)
@@ -173,32 +173,32 @@ bool App::applyPlaybackAtTime(const float time)
 
 void App::sortKeyframesByTime()
 {
-	nbl::ext::cameras::CCameraKeyframeTrackUtilities::sortKeyframeTrackByTime(m_playbackAuthoring.keyframeTrack);
+	CCameraKeyframeTrackUtilities::sortKeyframeTrackByTime(m_playbackAuthoring.keyframeTrack);
 }
 
 void App::clampPlaybackTimeToKeyframes()
 {
-	nbl::ext::cameras::CCameraPlaybackTimelineUtilities::clampPlaybackCursorToTrack(m_playbackAuthoring.keyframeTrack, m_playbackAuthoring.playback);
+	CCameraPlaybackTimelineUtilities::clampPlaybackCursorToTrack(m_playbackAuthoring.keyframeTrack, m_playbackAuthoring.playback);
 }
 
 int App::selectKeyframeNearestTime(const float time)
 {
-	return nbl::ext::cameras::CCameraKeyframeTrackUtilities::selectKeyframeTrackNearestTime(m_playbackAuthoring.keyframeTrack, time);
+	return CCameraKeyframeTrackUtilities::selectKeyframeTrackNearestTime(m_playbackAuthoring.keyframeTrack, time);
 }
 
 void App::normalizeSelectedKeyframe()
 {
-	nbl::ext::cameras::CCameraKeyframeTrackUtilities::normalizeSelectedKeyframeTrack(m_playbackAuthoring.keyframeTrack);
+	CCameraKeyframeTrackUtilities::normalizeSelectedKeyframeTrack(m_playbackAuthoring.keyframeTrack);
 }
 
 App::CameraKeyframe* App::getSelectedKeyframe()
 {
-	return nbl::ext::cameras::CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
+	return CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
 }
 
 const App::CameraKeyframe* App::getSelectedKeyframe() const
 {
-	return nbl::ext::cameras::CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
+	return CCameraKeyframeTrackUtilities::getSelectedKeyframe(m_playbackAuthoring.keyframeTrack);
 }
 
 bool App::replaceSelectedKeyframeFromCamera(ICamera* camera)
@@ -209,15 +209,15 @@ bool App::replaceSelectedKeyframeFromCamera(ICamera* camera)
 
 	CameraPreset updatedPreset;
 	const auto keyframeName = selected->preset.name.empty() ? std::string("Keyframe") : selected->preset.name;
-	if (!nbl::ext::cameras::CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
+	if (!CCameraPresetFlowUtilities::tryCapturePreset(m_cameraGoalSolver, camera, keyframeName, updatedPreset))
 		return false;
 
-	return nbl::ext::cameras::CCameraKeyframeTrackUtilities::replaceSelectedKeyframePreset(m_playbackAuthoring.keyframeTrack, std::move(updatedPreset));
+	return CCameraKeyframeTrackUtilities::replaceSelectedKeyframePreset(m_playbackAuthoring.keyframeTrack, std::move(updatedPreset));
 }
 
 void App::updatePlayback(const double dtSec)
 {
-	const auto advance = nbl::ext::cameras::CCameraPlaybackTimelineUtilities::advancePlaybackCursor(m_playbackAuthoring.playback, m_playbackAuthoring.keyframeTrack, dtSec);
+	const auto advance = CCameraPlaybackTimelineUtilities::advancePlaybackCursor(m_playbackAuthoring.playback, m_playbackAuthoring.keyframeTrack, dtSec);
 	if (!advance.hasTrack || !advance.changedTime)
 		return;
 

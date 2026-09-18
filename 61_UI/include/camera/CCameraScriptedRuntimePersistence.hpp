@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "camera/CCameraScriptedActionUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraScriptedRuntime.hpp"
-#include "nbl/ext/Cameras/CCameraSequenceScriptPersistence.hpp"
+#include "CCameraScriptedRuntime.hpp"
+#include "CCameraSequenceScriptPersistence.hpp"
 #include "nbl/system/path.h"
 
 namespace nbl::this_example
@@ -42,9 +42,9 @@ struct CCameraScriptedInputParseResult
     bool exclusive = false;
     std::string capturePrefix = "script";
     CCameraScriptedControlOverrides cameraControls = {};
-    nbl::ext::cameras::CCameraScriptedTimeline timeline = {};
+    CCameraScriptedTimeline timeline = {};
     std::vector<CCameraScriptedActionEvent> actionEvents = {};
-    std::optional<nbl::ext::cameras::CCameraSequenceScript> sequence;
+    std::optional<CCameraSequenceScript> sequence;
     std::vector<std::string> warnings;
 };
 

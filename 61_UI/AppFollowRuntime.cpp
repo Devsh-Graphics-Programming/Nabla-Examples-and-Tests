@@ -44,7 +44,7 @@ inline nbl::ui::SCameraScriptVisualDebugStatus buildScriptVisualDebugStatus(
 	status.absoluteFrame = absoluteFrame;
 	status.segmentLabel = scriptedInput.visualPlanar.segmentLabel;
 	status.followActive = scriptedInput.visualFollow.active;
-    status.followModeDescription = nbl::ext::cameras::CCameraTextUtilities::getCameraFollowModeDescription(scriptedInput.visualFollow.mode);
+    status.followModeDescription = CCameraTextUtilities::getCameraFollowModeDescription(scriptedInput.visualFollow.mode);
 	status.followLockValid = scriptedInput.visualFollow.lockValid;
 	status.followLockAngleDeg = static_cast<float>(scriptedInput.visualFollow.lockAngleDeg);
 	status.followTargetDistance = static_cast<float>(scriptedInput.visualFollow.targetDistance);
@@ -85,7 +85,7 @@ bool App::captureFollowOffsetsForPlanar(const uint32_t planarIx)
 		return false;
 
 	auto* camera = m_planarProjections[planarIx] ? m_planarProjections[planarIx]->getCamera() : nullptr;
-	return nbl::ext::cameras::CCameraFollowUtilities::captureFollowOffsetsFromCamera(
+	return CCameraFollowUtilities::captureFollowOffsetsFromCamera(
 		m_cameraGoalSolver,
 		camera,
 		m_sceneInteraction.followTarget,
@@ -94,7 +94,7 @@ bool App::captureFollowOffsetsForPlanar(const uint32_t planarIx)
 
 bool App::followConfigUsesCapturedOffset(const SCameraFollowConfig& config) const
 {
-	return config.enabled && nbl::ext::cameras::CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(config.mode);
+	return config.enabled && CCameraFollowUtilities::cameraFollowModeUsesCapturedOffset(config.mode);
 }
 
 void App::refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
@@ -110,7 +110,7 @@ void App::refreshFollowOffsetConfigForPlanar(const uint32_t planarIx)
 	if (!camera)
 		return;
 
-	nbl::ext::cameras::CCameraFollowUtilities::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
+	CCameraFollowUtilities::captureFollowOffsetsFromCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
 }
 
 void App::refreshFollowOffsetConfigsForCamera(ICamera* camera)
@@ -172,7 +172,7 @@ void App::applyFollowToConfiguredCameras(const bool allowDuringScriptedInput)
 		if (!config.enabled || config.mode == ECameraFollowMode::Unknown)
 			continue;
 
-		const auto result = nbl::ext::cameras::CCameraFollowUtilities::applyFollowToCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
+		const auto result = CCameraFollowUtilities::applyFollowToCamera(m_cameraGoalSolver, camera, m_sceneInteraction.followTarget, config);
 		if (!result.succeeded())
 			continue;
 

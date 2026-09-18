@@ -15,7 +15,7 @@ void App::resetScriptedInputRuntimeState()
 
 void App::finalizeScriptedInputRuntimeState()
 {
-	nbl::ext::cameras::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(m_scriptedInput.timeline, m_cliRuntime.disableScreenshotsCli);
+	CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(m_scriptedInput.timeline, m_cliRuntime.disableScreenshotsCli);
 }
 
 void App::applyParsedScriptedInput(
@@ -155,7 +155,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 	std::vector<nbl::this_example::CCameraScriptedActionEvent> actionEvents;
 	resetScriptedInputRuntimeState();
 
-	const bool useWindowMode = nbl::ext::cameras::CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence);
+	const bool useWindowMode = CCameraSequenceScriptUtilities::sequenceScriptUsesMultiplePresentations(sequence);
 	nbl::this_example::CCameraScriptedActionUtilities::appendActionEvent(
 		actionEvents,
 		0u,
@@ -181,14 +181,14 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		}
 
 		const bool useTrackedTargetFollow =
-			nbl::ext::cameras::CCameraSequenceScriptUtilities::sequenceSegmentUsesTrackedTargetTrack(segment) &&
+			CCameraSequenceScriptUtilities::sequenceSegmentUsesTrackedTargetTrack(segment) &&
 			planarIx.value() < m_sceneInteraction.planarFollowConfigs.size() &&
 			m_sceneInteraction.planarFollowConfigs[planarIx.value()].enabled &&
 			m_sceneInteraction.planarFollowConfigs[planarIx.value()].mode != ECameraFollowMode::Unknown;
 
-		nbl::ext::cameras::CCameraSequenceCompiledSegment compiledSegment;
+		CCameraSequenceCompiledSegment compiledSegment;
 		std::string trackError;
-		if (!nbl::ext::cameras::CCameraSequenceScriptUtilities::compileSequenceSegmentFromReference(
+		if (!CCameraSequenceScriptUtilities::compileSequenceSegmentFromReference(
 				sequence,
 				segment,
 				m_presetAuthoring.initialPlanarPresets[planarIx.value()],
@@ -210,7 +210,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		}
 
 		std::string buildError;
-		if (!nbl::this_example::CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
+		if (!CCameraSequenceScriptedBuilderUtilities::appendCompiledSequenceSegmentToScriptedTimeline(
 				timeline,
 				actionEvents,
 				frameCursor,
@@ -232,7 +232,7 @@ bool App::expandPendingScriptedSequence(const CCameraSequenceScript& sequence)
 		frameCursor += compiledSegment.durationFrames;
 	}
 
-	nbl::ext::cameras::CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline, m_cliRuntime.disableScreenshotsCli);
+	CCameraScriptedRuntimeUtilities::finalizeScriptedTimeline(timeline, m_cliRuntime.disableScreenshotsCli);
 	nbl::this_example::CCameraScriptedActionUtilities::finalizeActionEvents(actionEvents);
 	m_scriptedInput.timeline = std::move(timeline);
 	m_scriptedInput.actionEvents = std::move(actionEvents);

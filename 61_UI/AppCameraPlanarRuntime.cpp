@@ -27,9 +27,9 @@ namespace nbl::system
 {
 
 bool tryCaptureInitialPlanarPresets(
-    const ext::cameras::CCameraGoalSolver& goalSolver,
+    const CCameraGoalSolver& goalSolver,
     std::span<const core::smart_refctd_ptr<planar_projection_t>> planars,
-    std::vector<ext::cameras::CCameraPreset>& outPresets,
+    std::vector<CCameraPreset>& outPresets,
     std::string& outError)
 {
     outPresets.clear();
@@ -38,7 +38,7 @@ bool tryCaptureInitialPlanarPresets(
     {
         auto* camera = planars[planarIx] ? planars[planarIx]->getCamera() : nullptr;
         const std::string presetName = "Planar " + std::to_string(planarIx);
-        const auto captureAnalysis = ext::cameras::CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
+        const auto captureAnalysis = CCameraGoalAnalysisUtilities::analyzeCameraCapture(goalSolver, camera);
         if (!captureAnalysis.canCapture)
         {
             const auto kindLabel = camera ? std::string(ext::cameras::CCameraKindUtilities::getCameraKindLabel(camera->getKind())) : std::string("Unknown");
@@ -66,8 +66,8 @@ bool tryCaptureInitialPlanarPresets(
             return false;
         }
 
-        ext::cameras::CCameraPreset preset = {};
-        if (!ext::cameras::CCameraPresetFlowUtilities::tryCapturePreset(captureAnalysis, camera, presetName, preset))
+        CCameraPreset preset = {};
+        if (!CCameraPresetFlowUtilities::tryCapturePreset(captureAnalysis, camera, presetName, preset))
         {
             outError =
                 "Failed to build initial planar preset " + std::to_string(planarIx) +

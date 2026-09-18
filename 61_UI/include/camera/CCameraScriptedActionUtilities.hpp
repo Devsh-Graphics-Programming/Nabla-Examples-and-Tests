@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "nbl/ext/Cameras/CCameraScriptedRuntime.hpp"
+#include "CCameraScriptedRuntime.hpp"
 
 namespace nbl::this_example
 {

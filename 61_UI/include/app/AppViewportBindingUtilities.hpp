@@ -5,7 +5,7 @@
 #include <span>
 
 #include "app/AppTypes.hpp"
-#include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
+#include "camera/CCameraFollowRegressionUtilities.hpp"
 
 namespace nbl::ui
 {
@@ -193,7 +193,7 @@ inline bool tryBuildWindowBindingMatrices(
 
 inline void buildProjectionContextFromViewportState(
     const SBoundViewportCameraState& viewportState,
-    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
+    SCameraProjectionContext& outProjectionContext)
 {
     outProjectionContext.viewMatrix = viewportState.viewMatrix;
     outProjectionContext.projectionMatrix = viewportState.projectionMatrix;
@@ -229,7 +229,7 @@ inline bool tryBuildActiveViewportRuntimeState(
 inline bool tryBuildBindingProjectionContext(
     std::span<const nbl::core::smart_refctd_ptr<planar_projection_t>> planarProjections,
     SWindowControlBinding& binding,
-    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
+    SCameraProjectionContext& outProjectionContext)
 {
     SBoundViewportCameraState viewportState = {};
     if (!tryBuildWindowBindingMatrices(planarProjections, binding, viewportState))
@@ -264,7 +264,7 @@ inline bool tryBuildViewportBoundCameraState(
 inline bool tryBuildCameraProjectionContext(
     std::span<const nbl::core::smart_refctd_ptr<planar_projection_t>> planarProjections,
     ICamera* camera,
-    nbl::ext::cameras::SCameraProjectionContext& outProjectionContext)
+    SCameraProjectionContext& outProjectionContext)
 {
     SWindowControlBinding binding = {};
     if (!tryBuildCameraQueryBinding(planarProjections, camera, binding))

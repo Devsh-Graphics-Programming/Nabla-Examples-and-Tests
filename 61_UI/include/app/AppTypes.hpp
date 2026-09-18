@@ -418,10 +418,10 @@ struct SCameraAppEventLogState final
 
 struct SCameraAppPresetAuthoringState final
 {
-	std::vector<nbl::ext::cameras::CCameraPreset> presets = {};
-	std::vector<nbl::ext::cameras::CCameraPreset> initialPlanarPresets = {};
+	std::vector<CCameraPreset> presets = {};
+	std::vector<CCameraPreset> initialPlanarPresets = {};
 	ApplyStatusBanner applyBanner = {};
-	nbl::ext::cameras::EPresetApplyPresentationFilter filterMode = nbl::ext::cameras::EPresetApplyPresentationFilter::All;
+	EPresetApplyPresentationFilter filterMode = EPresetApplyPresentationFilter::All;
 	int selectedPresetIx = -1;
 	std::string presetName = std::string(SCameraAppAuthoringDefaults::DefaultPresetName);
 	std::string presetPath = std::string(SCameraAppAuthoringDefaults::DefaultPresetPath);
@@ -429,7 +429,7 @@ struct SCameraAppPresetAuthoringState final
 
 struct SCameraAppPlaybackAuthoringState final
 {
-	nbl::ext::cameras::CCameraKeyframeTrack keyframeTrack = {};
+	CCameraKeyframeTrack keyframeTrack = {};
 	CameraPlaybackState playback = {};
 	ApplyStatusBanner applyBanner = {};
 	bool affectsAll = false;
@@ -668,7 +668,7 @@ struct SActiveScriptedCameraContext final
 {
 	SActiveViewportRuntimeState viewport = {};
 	SCameraFollowConfig* followConfig = nullptr;
-	nbl::ext::cameras::SCameraProjectionContext projectionContext = {};
+	SCameraProjectionContext projectionContext = {};
 	bool hasProjectionContext = false;
 
 	inline bool valid() const
@@ -691,7 +691,7 @@ struct SActiveScriptedCameraContext final
 		return viewport.requireCamera();
 	}
 
-	inline const nbl::ext::cameras::SCameraProjectionContext* getProjectionContext() const
+	inline const SCameraProjectionContext* getProjectionContext() const
 	{
 		return hasProjectionContext ? &projectionContext : nullptr;
 	}

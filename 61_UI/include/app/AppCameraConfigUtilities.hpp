@@ -96,9 +96,9 @@ bool tryGetEmbeddedCameraScriptedInputText(
     std::string& outText);
 
 bool tryCaptureInitialPlanarPresets(
-    const ext::cameras::CCameraGoalSolver& goalSolver,
+    const CCameraGoalSolver& goalSolver,
     std::span<const core::smart_refctd_ptr<planar_projection_t>> planars,
-    std::vector<ext::cameras::CCameraPreset>& outPresets,
+    std::vector<CCameraPreset>& outPresets,
     std::string& outError);
 
 } // namespace nbl::system

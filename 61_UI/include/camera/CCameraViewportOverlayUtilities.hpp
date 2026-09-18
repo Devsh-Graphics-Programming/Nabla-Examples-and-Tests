@@ -2,13 +2,17 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// TODO: moved out of nbl::ext::Cameras into this example pending a rework of the camera tooling layer
+// (goal / preset / keyframe / playback / persistence / follow / scripted runtime). It sits at global scope
+// like the example's other headers. See README.md in this folder.
+
 #ifndef _C_CAMERA_VIEWPORT_OVERLAY_UTILITIES_HPP_
 #define _C_CAMERA_VIEWPORT_OVERLAY_UTILITIES_HPP_
 
 #include <algorithm>
 #include <string>
 
-#include "nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp"
+#include "CCameraFollowRegressionUtilities.hpp"
 #include "imgui/imgui.h"
 
 namespace nbl::ui
@@ -41,7 +45,7 @@ struct SViewportOverlayRect final
 /// @brief Shared style bundle for the follow-target viewport overlay.
 struct SCameraFollowTargetViewportOverlayStyle final
 {
-    static constexpr float CenteredNdcRadius = ext::cameras::SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
+    static constexpr float CenteredNdcRadius = SCameraFollowRegressionThresholds::DefaultProjectedNdcTolerance;
     static constexpr float CenterRadius = 16.0f;
     static constexpr float CenterCrossHalfExtent = 22.0f;
     static constexpr float CenterLineThickness = 2.0f;
@@ -259,16 +263,16 @@ struct CCameraViewportOverlayUtilities final
 
     static inline void drawFollowTargetViewportOverlay(
         ImDrawList& drawList,
-        const ext::cameras::SCameraProjectionContext& projectionContext,
-        const ext::cameras::CTrackedTarget& trackedTarget,
+        const SCameraProjectionContext& projectionContext,
+        const CTrackedTarget& trackedTarget,
         const SViewportOverlayRect& viewportRect,
         const SCameraFollowTargetViewportOverlayStyle& style = {})
     {
         if (!viewportRect.valid())
             return;
 
-        ext::cameras::SCameraProjectedTargetMetrics projectedTarget = {};
-        if (!ext::cameras::CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
+        SCameraProjectedTargetMetrics projectedTarget = {};
+        if (!CCameraFollowRegressionUtilities::tryComputeProjectedFollowTargetMetrics(projectionContext, trackedTarget, projectedTarget))
             return;
 
         const bool centered = projectedTarget.radius <= style.centeredNdcRadius;

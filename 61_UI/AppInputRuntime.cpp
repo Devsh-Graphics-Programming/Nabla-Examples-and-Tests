@@ -134,7 +134,7 @@ inline void applyCollectedVirtualEventsToCamera(
 	const uint32_t planarIx,
 	const SCollectedCameraVirtualEvents& collectedVirtualEvents,
 	const bool worldTranslate,
-	const nbl::ext::cameras::CCameraGoalSolver& goalSolver,
+	const CCameraGoalSolver& goalSolver,
 	const SCameraConstraintSettings& cameraConstraints,
 	const bool scriptedInputEnabled,
 	RefreshFollowOffsets&& refreshFollowOffsets,
