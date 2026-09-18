@@ -76,11 +76,20 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				const auto cameraTarget = hlsl::float64_t3(-0.349590302, -0.213266611, 0.317821503);
 				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 10000.0f, 0.1f);
 
-				camera = CCameraSimpleFPSUtilities::createFromLookAt(cameraPosition, cameraTarget, {1.069, 0.4});
-				if (!camera)
+				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 					return logFail("Could not initialize camera orientation!");
-				ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-				cameraInputRuntime.binder = &cameraInputBinder;
+				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
+
+				// WASD moves, the mouse looks while the left button is held
+				{
+					using namespace ext::cameras;
+					auto& binding = cameraController.binding;
+					binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+					binding.scaleSensitivity(ECameraControlAxis::Translate, 1.069);
+					binding.scaleSensitivity(ECameraControlAxis::Rotate, 0.4);
+					binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+				}
 			}
 
 			onAppInitializedFinish();
@@ -107,10 +116,8 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 				mouseProcess({ mouseEvents.data(), mouseEvents.size() });
 
-				const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(mouseEvents, keyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
-
-				if (!virtualEvents.empty())
-					camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+				const auto controls = cameraController.collect(nextPresentationTimestamp, keyboardEvents, mouseEvents);
+				camera->manipulate(controls);
 			}
 
 
@@ -259,9 +266,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 		//
 		core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
-		ext::cameras::CGimbalInputBinder cameraInputBinder;
-		CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
-		CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+		ext::cameras::CCameraMouseKeyboardController cameraController;
 		hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
 		uint16_t gcIndex = {};
