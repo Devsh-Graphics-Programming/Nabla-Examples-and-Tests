@@ -8,7 +8,7 @@
 #include <nabla.h>
 
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
-#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "nbl/ext/Cameras/CFPSCamera.hpp"
 #include "../common/CommonAPI.h"
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
@@ -327,12 +327,12 @@ public:
 
     cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(
         core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
-    camera = nbl::examples::CCameraSimpleFPSUtilities::createFromLookAt(
-        hlsl::float64_t3(6.75, 2.0, 6.0),
-        hlsl::float64_t3(6.75, 0.0, -1.0),
-        {10.0, 1.0});
-    if (!camera)
+    const auto cameraEye = hlsl::float64_t3(6.75, 2.0, 6.0);
+    hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+    if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+            cameraEye, hlsl::float64_t3(6.75, 0.0, -1.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
       return logFail("Could not initialize camera orientation!");
+    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
   }
 
   void workLoopBody() override {

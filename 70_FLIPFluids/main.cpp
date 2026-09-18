@@ -4,13 +4,13 @@
 
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
-#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 #include "nbl/examples/examples.hpp"
 // TODO: why is it not in nabla.h ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
-#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
 #include "nbl/ext/Cameras/CFPSCamera.hpp"
-#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 #include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
 
 using namespace nbl;
@@ -245,14 +245,27 @@ public:
             core::vectorSIMDf cameraPosition(14, 8, 12);
             core::vectorSIMDf cameraTarget(0, 0, 0);
             cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zFar, zNear);
-            camera = CCameraSimpleFPSUtilities::createFromLookAt(
-                hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
-                hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
-                {1.069, 0.4});
-            if (!camera)
+            const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+            hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+            if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+                    cameraEye,
+                    hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+                    hlsl::float64_t3(0.0, 1.0, 0.0),
+                    cameraOrientation))
+            {
                 return logFail("Could not initialize camera orientation!");
-            ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-            cameraInputRuntime.binder = &cameraInputBinder;
+            }
+            camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+
+            // WASD moves, the mouse looks while the left button is held
+            {
+                using namespace ext::cameras;
+                auto& binding = cameraController.binding;
+                binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+                binding.scaleSensitivity(ECameraControlAxis::Translate, 1.069);
+                binding.scaleSensitivity(ECameraControlAxis::Rotate, 0.4);
+                binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+            }
 
             m_pRenderParams.zNear = zNear;
             m_pRenderParams.zFar = zFar;
@@ -930,9 +943,8 @@ public:
                 {
                     cameraKeyboardEvents.insert(cameraKeyboardEvents.end(), events.begin(), events.end());
                 }, m_logger.get());
-            const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
-            if (!virtualEvents.empty())
-                camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+            const auto controls = cameraController.collect(nextPresentationTimestamp, cameraKeyboardEvents, cameraMouseEvents);
+            camera->manipulate(controls);
         }
 
         // TODO: also need to protect from previous frame still reading while we overwrite UBO
@@ -1849,9 +1861,7 @@ private:
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
     core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
-    ext::cameras::CGimbalInputBinder cameraInputBinder;
-    CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
-    CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+    ext::cameras::CCameraMouseKeyboardController cameraController;
     hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
     video::CDumbPresentationOracle oracle;
 

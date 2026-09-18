@@ -4,12 +4,12 @@
 
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
-#include "nbl/examples/cameras/CCameraSimpleFPSUtilities.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 #include "nbl/ext/Cameras/CFPSCamera.hpp"
-#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -126,9 +126,7 @@ public:
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
-	ext::cameras::CGimbalInputBinder cameraInputBinder;
-	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
-	nbl::examples::CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+	ext::cameras::CCameraMouseKeyboardController cameraController;
 	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
 	core::smart_refctd_ptr<IGPUGraphicsPipeline> gpuEnvmapPipeline;
@@ -307,11 +305,19 @@ public:
 		const auto cameraPosition = hlsl::float64_t3(-0.0889001, 0.678913, -4.01774);
 		const auto cameraTarget = hlsl::float64_t3(1.80119, 0.515374, -0.410544);
 		cameraProjection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.03125f, 200.0f);
-		camera = nbl::examples::CCameraSimpleFPSUtilities::createFromLookAt(cameraPosition, cameraTarget, {10.0, 1.0});
-		if (!camera)
+		hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+		if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 			return logFail("Could not initialize camera orientation!");
-		ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-		cameraInputRuntime.binder = &cameraInputBinder;
+		camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
+
+		// WASD moves, the mouse looks while the left button is held
+		{
+			using namespace ext::cameras;
+			auto& binding = cameraController.binding;
+			binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+			binding.scaleSensitivity(ECameraControlAxis::Translate, 10.0);
+			binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+		}
 
 		descriptorPool = createDescriptorPool(1u);
 
@@ -823,9 +829,8 @@ public:
 			{
 				keyboardEvents.insert(keyboardEvents.end(), events.begin(), events.end());
 			}, logger.get());
-			const auto virtualEvents = nbl::examples::CCameraSimpleFPSUtilities::collectBasicVirtualEvents(mouseEvents, keyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
-			if (!virtualEvents.empty())
-				camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+			const auto controls = cameraController.collect(nextPresentationTimestamp, keyboardEvents, mouseEvents);
+			camera->manipulate(controls);
 		}
 
 		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());

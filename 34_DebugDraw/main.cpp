@@ -58,14 +58,27 @@ public:
 	        core::vectorSIMDf cameraPosition(14, 8, 12);
 		    core::vectorSIMDf cameraTarget(0, 0, 0);
 		    cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
-		    camera = CCameraSimpleFPSUtilities::createFromLookAt(
-				hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
-				hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
-				{moveSpeed, rotateSpeed});
-			if (!camera)
+			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+			if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+					cameraEye,
+					hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+					hlsl::float64_t3(0.0, 1.0, 0.0),
+					cameraOrientation))
+			{
 				return logFail("Could not initialize camera orientation!");
-			ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-			cameraInputRuntime.binder = &cameraInputBinder;
+			}
+			camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+
+			// WASD moves, the mouse looks while the left button is held
+			{
+				using namespace ext::cameras;
+				auto& binding = cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 	    }
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -207,9 +220,8 @@ public:
 				{
 					cameraKeyboardEvents.insert(cameraKeyboardEvents.end(), events.begin(), events.end());
 				}, m_logger.get());
-			const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
-			if (!virtualEvents.empty())
-				camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+			const auto controls = cameraController.collect(nextPresentationTimestamp, cameraKeyboardEvents, cameraMouseEvents);
+			camera->manipulate(controls);
 		}
 
 		auto* queue = getGraphicsQueue();
@@ -372,9 +384,7 @@ private:
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
-	ext::cameras::CGimbalInputBinder cameraInputBinder;
-	CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
-	CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+	ext::cameras::CCameraMouseKeyboardController cameraController;
 	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 	video::CDumbPresentationOracle oracle;
 

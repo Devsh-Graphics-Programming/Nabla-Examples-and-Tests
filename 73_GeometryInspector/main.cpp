@@ -234,7 +234,15 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
     inline void update(const std::chrono::microseconds nextPresentationTimestamp)
     {
-      CCameraSimpleFPSUtilities::applySpeedSettings(*m_camera, {m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
+      // the UI owns the speeds, so the binding is rebuilt from the default and scaled every frame
+      {
+        using namespace ext::cameras;
+        auto& binding = m_cameraController.binding;
+        binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+        binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+        binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+        binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+      }
 
       static std::chrono::microseconds previousEventTimestamp{};
 
@@ -284,14 +292,11 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				if (reload) reloadModel();
 
       }
-      const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(
-        capturedEvents.cameraMouse,
-        capturedEvents.cameraKeyboard,
+      const auto controls = m_cameraController.collect(
         nextPresentationTimestamp,
-        m_cameraInputRuntime,
-        m_cameraInputConfig);
-      if (!virtualEvents.empty())
-        m_camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+        capturedEvents.cameraKeyboard,
+        capturedEvents.cameraMouse);
+      m_camera->manipulate(controls);
 
       const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
       const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -667,14 +672,26 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				}
 				const auto pos = bound.maxVx+diagonal*distance;
 				const auto center = (bound.minVx+bound.maxVx)*0.5f;
-				m_camera = CCameraSimpleFPSUtilities::createFromLookAt(
-					hlsl::float64_t3(pos.x, pos.y, pos.z),
-					hlsl::float64_t3(center.x, center.y, center.z),
-					{m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
-				if (!m_camera)
+				const auto cameraEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
+				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+						cameraEye,
+						hlsl::float64_t3(center.x, center.y, center.z),
+						hlsl::float64_t3(0.0, 1.0, 0.0),
+						cameraOrientation))
+				{
 					return false;
-				ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
-				m_cameraInputRuntime.binder = &m_cameraInputBinder;
+				}
+				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+				// WASD moves, the mouse looks while the left button is held
+				{
+					using namespace ext::cameras;
+					auto& binding = m_cameraController.binding;
+					binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+					binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+					binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+					binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+				}
 			}
 
 			// TODO: write out the geometry
@@ -717,9 +734,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
     } m_cameraSetting;
 		core::smart_refctd_ptr<ext::cameras::CFPSCamera> m_camera;
-		ext::cameras::CGimbalInputBinder m_cameraInputBinder;
-		CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
-		CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
+		ext::cameras::CCameraMouseKeyboardController m_cameraController;
 		hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 		// mutables
 		std::string m_modelPath;

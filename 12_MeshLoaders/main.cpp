@@ -118,9 +118,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (!reloadModel())
 				return false;
 
-		ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-		cameraInputRuntime.binder = &cameraInputBinder;
-
 		onAppInitializedFinish();
 		return true;
 	}
@@ -192,9 +189,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						},
 						m_logger.get()
 					);
-					const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(cameraMouseEvents, cameraKeyboardEvents, nextPresentationTimestamp, cameraInputRuntime, cameraInputConfig);
-					if (!virtualEvents.empty())
-						camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+					const auto controls = cameraController.collect(nextPresentationTimestamp, cameraKeyboardEvents, cameraMouseEvents);
+					camera->manipulate(controls);
 					if (reload)
 						reloadModel();
 				}
@@ -535,13 +531,26 @@ private:
 				const auto measure = hlsl::length(diagonal);
 				const auto aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
 				cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, measure * 4.0, distance * measure * 0.1);
-				camera = CCameraSimpleFPSUtilities::createFromLookAt(
-					hlsl::float64_t3(pos.x, pos.y, pos.z),
-					hlsl::float64_t3(center.x, center.y, center.z),
-					{measure * 0.04, cameraRotateSpeed});
-				if (!camera)
+				const auto cameraEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
+				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+						cameraEye,
+						hlsl::float64_t3(center.x, center.y, center.z),
+						hlsl::float64_t3(0.0, 1.0, 0.0),
+						cameraOrientation))
+				{
 					return logFail("Could not initialize camera orientation!");
-				cameraInputRuntime.binder = &cameraInputBinder;
+				}
+				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+				// the move rate follows the model's size, so a big model is not crossed one step at a time
+				{
+					using namespace ext::cameras;
+					auto& binding = cameraController.binding;
+					binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+					binding.scaleSensitivity(ECameraControlAxis::Translate, measure * 0.04);
+					binding.scaleSensitivity(ECameraControlAxis::Rotate, cameraRotateSpeed);
+					binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+				}
 			}
 		}
 
@@ -573,9 +582,7 @@ private:
 	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	//
 	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
-	ext::cameras::CGimbalInputBinder cameraInputBinder;
-	CCameraSimpleFPSUtilities::SBasicInputRuntime cameraInputRuntime = {};
-	CCameraSimpleFPSUtilities::SBasicInputConfig cameraInputConfig = {};
+	ext::cameras::CCameraMouseKeyboardController cameraController;
 	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 	float cameraRotateSpeed = 1.0f;
 	// mutables

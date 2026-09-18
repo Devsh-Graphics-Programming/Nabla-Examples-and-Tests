@@ -549,14 +549,21 @@ public:
 				500.0f
 			);
 			m_cameraProjection = proj;
-			m_camera = CCameraSimpleFPSUtilities::createFromLookAt(
-				hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
-				hlsl::float64_t3(0.0, 0.0, 0.0),
-				{m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
-			if (!m_camera)
+			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+			if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+					cameraEye, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 				return logFail("Could not initialize camera orientation!");
-			ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(m_cameraInputBinder, *m_camera);
-			m_cameraInputRuntime.binder = &m_cameraInputBinder;
+			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+			// WASD moves, the mouse looks while the left button is held
+			{
+				using namespace ext::cameras;
+				auto& binding = m_cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 		}
 
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
@@ -804,7 +811,15 @@ public:
 
 	inline void update()
 	{
-			CCameraSimpleFPSUtilities::applySpeedSettings(*m_camera, {m_cameraSetting.moveSpeed, m_cameraSetting.rotateSpeed});
+			// the UI owns the speeds, so the binding is rebuilt from the default and scaled every frame
+			{
+				using namespace ext::cameras;
+				auto& binding = m_cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 
 		static std::chrono::microseconds previousEventTimestamp{};
 
@@ -863,9 +878,8 @@ public:
 				}, m_logger.get());
 
 		}
-			const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(capturedEvents.cameraMouse, capturedEvents.cameraKeyboard, nextPresentationTimestamp, m_cameraInputRuntime, m_cameraInputConfig);
-			if (!virtualEvents.empty())
-				m_camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+			const auto controls = m_cameraController.collect(nextPresentationTimestamp, capturedEvents.cameraKeyboard, capturedEvents.cameraMouse);
+			m_camera->manipulate(controls);
 
 		const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 		const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -1461,9 +1475,7 @@ private:
 
 	} m_cameraSetting;
 	core::smart_refctd_ptr<ext::cameras::CFPSCamera> m_camera;
-	ext::cameras::CGimbalInputBinder m_cameraInputBinder;
-	CCameraSimpleFPSUtilities::SBasicInputRuntime m_cameraInputRuntime = {};
-	CCameraSimpleFPSUtilities::SBasicInputConfig m_cameraInputConfig = {};
+	ext::cameras::CCameraMouseKeyboardController m_cameraController;
 	hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 
 	Light m_light = {

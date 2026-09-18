@@ -470,14 +470,26 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         const float aspect = float(params.width) / float(params.height);
         const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
         cameraProjection = projectionMatrix;
-        camera = CCameraSimpleFPSUtilities::createFromLookAt(
-            hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z),
-            hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
-            {1.069, 0.4});
-        if (!camera)
+        const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+        hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+        if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+                cameraEye,
+                hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+                hlsl::float64_t3(0.0, 1.0, 0.0),
+                cameraOrientation))
+        {
             return logFail("Could not initialize camera orientation!");
-        ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(cameraInputBinder, *camera);
-        cameraInputRuntime.binder = &cameraInputBinder;
+        }
+        camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+        // WASD moves, the mouse looks while the left button is held
+        {
+            using namespace ext::cameras;
+            auto& binding = cameraController.binding;
+            binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+            binding.scaleSensitivity(ECameraControlAxis::Translate, 1.069);
+            binding.scaleSensitivity(ECameraControlAxis::Rotate, 0.4);
+            binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+        }
         uiState.cameraMoveSpeed = 1.069f;
         uiState.cameraRotateSpeed = 0.4f;
         uiState.cameraControlApplied = !uiState.cameraControlEnabled;

@@ -119,7 +119,15 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         uiState.cameraControlApplied = wantCameraControl;
         const float moveSpeed = wantCameraControl ? uiState.cameraMoveSpeed : 0.0f;
         const float rotateSpeed = wantCameraControl ? uiState.cameraRotateSpeed : 0.0f;
-        CCameraSimpleFPSUtilities::applySpeedSettings(*camera, {moveSpeed, rotateSpeed});
+        // zero speeds leave the camera still, which is how the viewer hands control back to the plot
+        {
+            using namespace ext::cameras;
+            auto& binding = cameraController.binding;
+            binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+            binding.scaleSensitivity(ECameraControlAxis::Translate, moveSpeed);
+            binding.scaleSensitivity(ECameraControlAxis::Rotate, rotateSpeed);
+            binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+        }
     }
 
 
@@ -163,14 +171,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             mouse.consumeEvents([&](const IMouseEventChannel::range_t&) -> void {}, m_logger.get());
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t&) -> void {}, m_logger.get());
         }
-        const auto virtualEvents = CCameraSimpleFPSUtilities::collectBasicVirtualEvents(
-            captured.mouse,
-            captured.keyboard,
+        const auto controls = cameraController.collect(
             nextPresentationTimestamp,
-            cameraInputRuntime,
-            cameraInputConfig);
-        if (!virtualEvents.empty())
-            camera->manipulate(std::span<const ext::cameras::CVirtualGimbalEvent>(virtualEvents.data(), virtualEvents.size()));
+            captured.keyboard,
+            captured.mouse);
+        camera->manipulate(controls);
 
         {
             const float maxRadius = m_plotRadius * 0.98f;
@@ -182,14 +187,16 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
                 const auto target = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition() + camera->getGimbal().getForward());
                 const auto forward = target - pos;
                 pos = normalize(pos) * clampRadius;
-                auto clampedCamera = CCameraSimpleFPSUtilities::createFromLookAt(
-                    hlsl::float64_t3(pos.x, pos.y, pos.z),
-                    hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z),
-                    {
-                        uiState.cameraControlApplied ? uiState.cameraMoveSpeed : 0.0f,
-                        uiState.cameraControlApplied ? uiState.cameraRotateSpeed : 0.0f});
-                if (clampedCamera)
-                    camera = std::move(clampedCamera);
+                const auto clampedEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
+                hlsl::math::quaternion<hlsl::float64_t> clampedOrientation;
+                if (ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+                        clampedEye,
+                        hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z),
+                        hlsl::float64_t3(0.0, 1.0, 0.0),
+                        clampedOrientation))
+                {
+                    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(clampedEye, clampedOrientation);
+                }
             }
         }
 

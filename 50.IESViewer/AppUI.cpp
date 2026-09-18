@@ -196,7 +196,12 @@ void IESViewer::uiListener()
 
         if (speedChanged && uiState.cameraControlEnabled)
         {
-            CCameraSimpleFPSUtilities::applySpeedSettings(*camera, {uiState.cameraMoveSpeed, uiState.cameraRotateSpeed});
+            using namespace ext::cameras;
+            auto& binding = cameraController.binding;
+            binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+            binding.scaleSensitivity(ECameraControlAxis::Translate, uiState.cameraMoveSpeed);
+            binding.scaleSensitivity(ECameraControlAxis::Rotate, uiState.cameraRotateSpeed);
+            binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
         }
 
         if (fovChanged)
