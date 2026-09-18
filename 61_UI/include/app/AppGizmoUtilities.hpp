@@ -9,17 +9,19 @@ namespace nbl::ui
 
 // ImGuizmo reads and writes its matrices as column major floats, through `&m[0][0]`. Reinterpreted as
 // `hlsl::matrix` rows that is the transpose of the engine layout (basis in the columns, translation in the last
-// column), so every matrix crossing that boundary is transposed here and nowhere else.
+// column), so every matrix crossing that boundary is transposed: model matrices by the two helpers below, view
+// and projection by `tryBuildViewportBoundCameraState`.
 inline float64_t4x4 imguizmoTransformToEngine(const float32_t4x4& imguizmoTRS)
 {
     return hlsl::transpose(getCastedMatrix<float64_t>(imguizmoTRS));
 }
 
-inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& transform)
+inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& engineTransform)
 {
+    const auto imguizmoTRS = hlsl::transpose(engineTransform);
     return {
-        .inTRS = transform,
-        .outTRS = transform,
+        .inTRS = imguizmoTRS,
+        .outTRS = imguizmoTRS,
         .outDeltaTRS = SCameraAppTransformEditorUiDefaults::IdentityTransform
     };
 }

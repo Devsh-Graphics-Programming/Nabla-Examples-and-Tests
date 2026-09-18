@@ -2,12 +2,12 @@
 
 inline float32_t4x4 buildModelManipulationTransform(const float32_t3x4& model)
 {
-	return hlsl::transpose(hlsl::math::linalg::promote_affine<4,4,3,4>(model));
+	return hlsl::math::linalg::promote_affine<4,4,3,4>(model);
 }
 
 inline float32_t3 extractWorldPosition(const float32_t4x4& transform)
 {
-	return float32_t3(transform[3].x, transform[3].y, transform[3].z);
+	return float32_t3(transform[0].w, transform[1].w, transform[2].w);
 }
 
 inline float32_t4x4 buildCameraManipulationTransform(ICamera& camera)
